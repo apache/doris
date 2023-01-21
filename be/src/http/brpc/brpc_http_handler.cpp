@@ -20,11 +20,16 @@
 #include <exception>
 
 namespace doris {
+BaseHttpHandler::BaseHttpHandler(bool is_async, ExecEnv* exec_env)
+        : handler_name("correspond with endpoint"), _is_async(is_async), _exec_env(exec_env) {}
+
+BaseHttpHandler::BaseHttpHandler(bool is_async) : _is_async(is_async), _exec_env(nullptr) {}
+
 BaseHttpHandler::BaseHttpHandler(const std::string& name, bool is_async, ExecEnv* exec_env)
-        : _name(name), _is_async(is_async), _exec_env(exec_env) {}
+        : handler_name(name), _is_async(is_async), _exec_env(exec_env) {}
 
 const std::string& BaseHttpHandler::get_name() const {
-    return _name;
+    return handler_name;
 }
 
 bool BaseHttpHandler::is_async() const {
@@ -33,6 +38,10 @@ bool BaseHttpHandler::is_async() const {
 
 ExecEnv* BaseHttpHandler::get_exec_env() {
     return _exec_env;
+}
+
+void BaseHttpHandler::set_exec_env(ExecEnv* env) {
+    _exec_env = env;
 }
 
 void BaseHttpHandler::handle(RpcController* controller, Closure* done) {
@@ -45,6 +54,10 @@ void BaseHttpHandler::handle(RpcController* controller, Closure* done) {
         handle_sync(cntl);
     }
 }
+
+void BaseHttpHandler::handle_sync(brpc::Controller* cntl) {}
+
+void BaseHttpHandler::handle_async(brpc::Controller* cntl, Closure* done) {}
 
 const std::string* BaseHttpHandler::get_param(brpc::Controller* cntl,
                                               const std::string& key) const {

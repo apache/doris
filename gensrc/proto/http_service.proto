@@ -20,34 +20,34 @@ package doris;
 
 option cc_generic_services = true;
 
-message HttpRequest {};
-message HttpResponse {};
+message PHttpRequest {};
+message PHttpResponse {};
 
 service PHttpService {
-    rpc check_rpc_channel(HttpRequest) returns (HttpResponse);
-    rpc reset_rpc_channel(HttpRequest) returns (HttpResponse);
+    rpc check_rpc_channel(PHttpRequest) returns (PHttpResponse);
+    rpc reset_rpc_channel(PHttpRequest) returns (PHttpResponse);
 
-    rpc config(HttpRequest) returns (HttpResponse);
-    rpc health(HttpRequest) returns (HttpResponse);
-    rpc jeprofile(HttpRequest) returns (HttpResponse);
-    rpc meta(HttpRequest) returns (HttpResponse);
-    rpc metrics(HttpRequest) returns (HttpResponse);
-    rpc monitor(HttpRequest) returns (HttpResponse);
-    rpc pad_rowset(HttpRequest) returns (HttpResponse);
-    rpc pprof(HttpRequest) returns (HttpResponse);
-    rpc snapshot(HttpRequest) returns (HttpResponse);
-    rpc version(HttpRequest) returns (HttpResponse);
+    rpc config(PHttpRequest) returns (PHttpResponse);
+    rpc health(PHttpRequest) returns (PHttpResponse);
+    rpc jeprofile(PHttpRequest) returns (PHttpResponse);
+    rpc meta(PHttpRequest) returns (PHttpResponse);
+    rpc metrics(PHttpRequest) returns (PHttpResponse);
+    rpc monitor(PHttpRequest) returns (PHttpResponse);
+    rpc pad_rowset(PHttpRequest) returns (PHttpResponse);
+    rpc pprof(PHttpRequest) returns (PHttpResponse);
+    rpc snapshot(PHttpRequest) returns (PHttpResponse);
+    rpc version(PHttpRequest) returns (PHttpResponse);
 
-    rpc check_tablet_segement(HttpRequest) returns (HttpResponse);
-    rpc check_sum(HttpRequest) returns (HttpResponse);
-    rpc compaction(HttpRequest) returns (HttpResponse);
-    rpc reload_tablet(HttpRequest) returns (HttpResponse);
-    rpc restore_tablet(HttpRequest) returns (HttpResponse);
-    rpc tablet_migration(HttpRequest) returns (HttpResponse);
-    rpc distribution(HttpRequest) returns (HttpResponse);
-    rpc tablet_info(HttpRequest) returns (HttpResponse);
+    rpc check_tablet_segement(PHttpRequest) returns (PHttpResponse);
+    rpc check_sum(PHttpRequest) returns (PHttpResponse);
+    rpc compaction(PHttpRequest) returns (PHttpResponse);
+    rpc reload_tablet(PHttpRequest) returns (PHttpResponse);
+    rpc restore_tablet(PHttpRequest) returns (PHttpResponse);
+    rpc tablet_migration(PHttpRequest) returns (PHttpResponse);
+    rpc distribution(PHttpRequest) returns (PHttpResponse);
+    rpc tablet_info(PHttpRequest) returns (PHttpResponse);
 
-    rpc download(HttpRequest) returns (HttpResponse);
-    rpc stream_load(HttpRequest) returns (HttpResponse);
-    rpc stream_load_2pc(HttpRequest) returns (HttpResponse);
+    rpc download(PHttpRequest) returns (PHttpResponse);
+    rpc stream_load(PHttpRequest) returns (PHttpResponse);
+    rpc stream_load_2pc(PHttpRequest) returns (PHttpResponse);
 };

@@ -17,93 +17,92 @@
 
 #pragma once
 
-#include <brpc/http_status_code.h>
-#include <brpc/restful.h>
-#include <brpc/server.h>
-
 #include <string>
 
 #include "gen_cpp/http_service.pb.h"
 #include "http/brpc/handler_dispatcher.h"
-#include "runtime/exec_env.h"
-#include "util/easy_json.h"
-
-namespace brpc {
-class Controller;
-}
 
 namespace doris {
-class BrpcHttpService : public PHttpService {
-    BrpcHttpService(ExecEnv* exec_env);
 
+class ExecEnv;
+
+class BrpcHttpService : public PHttpService {
+public:
+    BrpcHttpService(ExecEnv* exec_env);
+    ~BrpcHttpService() override = default;
     void check_rpc_channel(::google::protobuf::RpcController* controller,
-                           const ::doris::HttpRequest* request, ::doris::HttpResponse* response,
+                           const ::doris::PHttpRequest* request, ::doris::PHttpResponse* response,
                            ::google::protobuf::Closure* done) override;
     void reset_rpc_channel(::google::protobuf::RpcController* controller,
-                           const ::doris::HttpRequest* request, ::doris::HttpResponse* response,
+                           const ::doris::PHttpRequest* request, ::doris::PHttpResponse* response,
                            ::google::protobuf::Closure* done) override;
 
-    void config(::google::protobuf::RpcController* controller, const ::doris::HttpRequest* request,
-                ::doris::HttpResponse* response, ::google::protobuf::Closure* done) override;
-    void health(::google::protobuf::RpcController* controller, const ::doris::HttpRequest* request,
-                ::doris::HttpResponse* response, ::google::protobuf::Closure* done) override;
+    void config(::google::protobuf::RpcController* controller, const ::doris::PHttpRequest* request,
+                ::doris::PHttpResponse* response, ::google::protobuf::Closure* done) override;
+    void health(::google::protobuf::RpcController* controller, const ::doris::PHttpRequest* request,
+                ::doris::PHttpResponse* response, ::google::protobuf::Closure* done) override;
     void jeprofile(::google::protobuf::RpcController* controller,
-                   const ::doris::HttpRequest* request, ::doris::HttpResponse* response,
+                   const ::doris::PHttpRequest* request, ::doris::PHttpResponse* response,
                    ::google::protobuf::Closure* done) override;
-    void meta(::google::protobuf::RpcController* controller, const ::doris::HttpRequest* request,
-              ::doris::HttpResponse* response, ::google::protobuf::Closure* done) override;
-    void metrics(::google::protobuf::RpcController* controller, const ::doris::HttpRequest* request,
-                 ::doris::HttpResponse* response, ::google::protobuf::Closure* done) override;
-    void monitor(::google::protobuf::RpcController* controller, const ::doris::HttpRequest* request,
-                 ::doris::HttpResponse* response, ::google::protobuf::Closure* done) override;
+    void meta(::google::protobuf::RpcController* controller, const ::doris::PHttpRequest* request,
+              ::doris::PHttpResponse* response, ::google::protobuf::Closure* done) override;
+    void metrics(::google::protobuf::RpcController* controller,
+                 const ::doris::PHttpRequest* request, ::doris::PHttpResponse* response,
+                 ::google::protobuf::Closure* done) override;
+    void monitor(::google::protobuf::RpcController* controller,
+                 const ::doris::PHttpRequest* request, ::doris::PHttpResponse* response,
+                 ::google::protobuf::Closure* done) override;
     void pad_rowset(::google::protobuf::RpcController* controller,
-                    const ::doris::HttpRequest* request, ::doris::HttpResponse* response,
+                    const ::doris::PHttpRequest* request, ::doris::PHttpResponse* response,
                     ::google::protobuf::Closure* done) override;
-    void pprof(::google::protobuf::RpcController* controller, const ::doris::HttpRequest* request,
-               ::doris::HttpResponse* response, ::google::protobuf::Closure* done) override;
+    void pprof(::google::protobuf::RpcController* controller, const ::doris::PHttpRequest* request,
+               ::doris::PHttpResponse* response, ::google::protobuf::Closure* done) override;
     void snapshot(::google::protobuf::RpcController* controller,
-                  const ::doris::HttpRequest* request, ::doris::HttpResponse* response,
+                  const ::doris::PHttpRequest* request, ::doris::PHttpResponse* response,
                   ::google::protobuf::Closure* done) override;
-    void version(::google::protobuf::RpcController* controller, const ::doris::HttpRequest* request,
-                 ::doris::HttpResponse* response, ::google::protobuf::Closure* done) override;
+    void version(::google::protobuf::RpcController* controller,
+                 const ::doris::PHttpRequest* request, ::doris::PHttpResponse* response,
+                 ::google::protobuf::Closure* done) override;
 
     void check_tablet_segement(::google::protobuf::RpcController* controller,
-                               const ::doris::HttpRequest* request, ::doris::HttpResponse* response,
+                               const ::doris::PHttpRequest* request,
+                               ::doris::PHttpResponse* response,
                                ::google::protobuf::Closure* done) override;
     void check_sum(::google::protobuf::RpcController* controller,
-                   const ::doris::HttpRequest* request, ::doris::HttpResponse* response,
+                   const ::doris::PHttpRequest* request, ::doris::PHttpResponse* response,
                    ::google::protobuf::Closure* done) override;
     void compaction(::google::protobuf::RpcController* controller,
-                    const ::doris::HttpRequest* request, ::doris::HttpResponse* response,
+                    const ::doris::PHttpRequest* request, ::doris::PHttpResponse* response,
                     ::google::protobuf::Closure* done) override;
     void reload_tablet(::google::protobuf::RpcController* controller,
-                       const ::doris::HttpRequest* request, ::doris::HttpResponse* response,
+                       const ::doris::PHttpRequest* request, ::doris::PHttpResponse* response,
                        ::google::protobuf::Closure* done) override;
     void restore_tablet(::google::protobuf::RpcController* controller,
-                        const ::doris::HttpRequest* request, ::doris::HttpResponse* response,
+                        const ::doris::PHttpRequest* request, ::doris::PHttpResponse* response,
                         ::google::protobuf::Closure* done) override;
     void tablet_migration(::google::protobuf::RpcController* controller,
-                          const ::doris::HttpRequest* request, ::doris::HttpResponse* response,
+                          const ::doris::PHttpRequest* request, ::doris::PHttpResponse* response,
                           ::google::protobuf::Closure* done) override;
     void distribution(::google::protobuf::RpcController* controller,
-                      const ::doris::HttpRequest* request, ::doris::HttpResponse* response,
+                      const ::doris::PHttpRequest* request, ::doris::PHttpResponse* response,
                       ::google::protobuf::Closure* done) override;
     void tablet_info(::google::protobuf::RpcController* controller,
-                     const ::doris::HttpRequest* request, ::doris::HttpResponse* response,
+                     const ::doris::PHttpRequest* request, ::doris::PHttpResponse* response,
                      ::google::protobuf::Closure* done) override;
 
     void download(::google::protobuf::RpcController* controller,
-                  const ::doris::HttpRequest* request, ::doris::HttpResponse* response,
+                  const ::doris::PHttpRequest* request, ::doris::PHttpResponse* response,
                   ::google::protobuf::Closure* done) override;
     void stream_load(::google::protobuf::RpcController* controller,
-                     const ::doris::HttpRequest* request, ::doris::HttpResponse* response,
+                     const ::doris::PHttpRequest* request, ::doris::PHttpResponse* response,
                      ::google::protobuf::Closure* done) override;
     void stream_load_2pc(::google::protobuf::RpcController* controller,
-                         const ::doris::HttpRequest* request, ::doris::HttpResponse* response,
+                         const ::doris::PHttpRequest* request, ::doris::PHttpResponse* response,
                          ::google::protobuf::Closure* done) override;
 
 private:
-    ExecEnv* _exec_env;
     std::unique_ptr<HandlerDispatcher> _dispatcher;
 };
+
+void AddBrpcHttpService(brpc::Server* server, ExecEnv* env);
 } // namespace doris

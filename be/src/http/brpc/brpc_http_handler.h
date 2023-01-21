@@ -33,22 +33,30 @@ class BaseHttpHandler {
 
 public:
     BaseHttpHandler() = default;
-    explicit BaseHttpHandler(const std::string& name, bool is_async, ExecEnv* exec_env);
+    BaseHttpHandler(bool is_async);
+    BaseHttpHandler(bool is_async, ExecEnv* exec_env);
+    BaseHttpHandler(const std::string& name, bool is_async, ExecEnv* exec_env);
 
-    const std::string& get_name() const;
+    virtual ~BaseHttpHandler() = default;
 
-    bool is_async() const;
+    virtual const std::string& get_name() const;
+
+    virtual bool is_async() const;
 
     ExecEnv* get_exec_env();
+
+    void set_exec_env(ExecEnv* env);
 
     void handle(RpcController* controller, Closure* done);
 
 protected:
+    const std::string handler_name;
+
     virtual void handle_sync(brpc::Controller* cntl);
 
     virtual void handle_async(brpc::Controller* cntl, Closure* done);
 
-    const std::string* get_param(brpc::Controller* cntl, const std::string& key) const;
+    virtual const std::string* get_param(brpc::Controller* cntl, const std::string& key) const;
 
     virtual void on_succ(brpc::Controller* cntl, const std::string& msg);
 
@@ -57,7 +65,6 @@ protected:
     virtual void on_error(brpc::Controller* cntl, const std::string& err_msg);
 
 private:
-    std::string _name;
     bool _is_async;
     ExecEnv* _exec_env;
 };

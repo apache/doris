@@ -17,28 +17,16 @@
 
 #include "brpc_http_service.h"
 
-#include <brpc/closure_guard.h>
-#include <brpc/http_header.h>
-#include <brpc/http_status_code.h>
-#include <gen_cpp/internal_service.pb.h>
-
 #include <string>
 
-#include "olap/storage_engine.h"
-#include "runtime/exec_env.h"
-#include "util/brpc_client_cache.h"
-#include "util/easy_json.h"
-#include "util/md5.h"
 namespace doris {
-#define DEFINE_ENDPOINT(__SIGNATURE__)                                                          \
-    void BrpcHttpService::__SIGNATURE__(                                                        \
-            ::google::protobuf::RpcController* controller, const ::doris::HttpRequest* request, \
-            ::doris::HttpResponse* response, ::google::protobuf::Closure* done) {               \
-        _dispatcher->dispatch(#__SIGNATURE__, controller, done);                                \
-    }
 
-BrpcHttpService::BrpcHttpService(ExecEnv* exec_env)
-        : _exec_env(exec_env), _dispatcher(new HandlerDispatcher()) {}
+#define DEFINE_ENDPOINT(__SIGNATURE__)                                                           \
+    void BrpcHttpService::__SIGNATURE__(                                                         \
+            ::google::protobuf::RpcController* controller, const ::doris::PHttpRequest* request, \
+            ::doris::PHttpResponse* response, ::google::protobuf::Closure* done) {               \
+        _dispatcher->dispatch(#__SIGNATURE__, controller, done);                                 \
+    }
 
 DEFINE_ENDPOINT(check_rpc_channel)
 DEFINE_ENDPOINT(reset_rpc_channel)
@@ -65,4 +53,15 @@ DEFINE_ENDPOINT(stream_load)
 DEFINE_ENDPOINT(stream_load_2pc)
 
 #undef DEFINE_ENDPOINT
+
+BrpcHttpService::BrpcHttpService(ExecEnv* exec_env) : _dispatcher(new HandlerDispatcher()) {
+    _dispatcher->register_handlers(exec_env);
+}
+
+void AddBrpcHttpService(brpc::Server* server, ExecEnv* env) {
+    const int stat = server->AddService(new BrpcHttpService(env), brpc::SERVER_OWNS_SERVICE);
+    if (stat != 0) {
+        LOG(WARNING) << "fail to add brpc http service";
+    }
+}
 } // namespace doris
