@@ -1704,13 +1704,9 @@ public abstract class Type {
         }
     }
 
-    public int getStorageLayoutBytes() {
-        return 0;
-    }
-
     public int getIndexSize() {
         if (this.getPrimitiveType() == PrimitiveType.CHAR) {
-            return ((ScalarType) this).getLength();
+            return this.getLength();
         } else {
             return this.getPrimitiveType().getOlapColumnIndexSize();
         }
