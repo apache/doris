@@ -385,8 +385,12 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
     DCHECK(_current_group_reader != nullptr);
     {
         SCOPED_RAW_TIMER(&_statistics.column_read_time);
-        RETURN_IF_ERROR(
-                _current_group_reader->next_batch(block, _batch_size, read_rows, &_row_group_eof));
+        Status batch_st =
+                _current_group_reader->next_batch(block, _batch_size, read_rows, &_row_group_eof);
+        if (!batch_st.ok()) {
+            return Status::InternalError("Read parquet file {} failed, reason = {}",
+                                         _scan_range.path, batch_st.to_string());
+        }
     }
     if (_row_group_eof) {
         auto column_st = _current_group_reader->statistics();
