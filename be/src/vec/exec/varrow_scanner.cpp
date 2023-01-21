@@ -15,6 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/exec/varrow_scanner.h"
+
 #include "exec/arrow/parquet_reader.h"
 #include "exprs/expr.h"
 #include "io/file_factory.h"
