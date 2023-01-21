@@ -110,6 +110,7 @@ set(VEC_FILES
   exec/vtable_function_node.cpp
   exec/vbroker_scanner.cpp
   exec/vjdbc_connector.cpp
+  exec/vparquet_scanner.cpp
   exec/join/vhash_join_node.cpp
   exec/join/vjoin_node_base.cpp
   exec/join/vnested_loop_join_node.cpp
