@@ -306,6 +306,6 @@ public class EsTable extends Table {
     }
 
     public List<Column> genColumnsFromEs() {
-        return EsUtil.genColumnsFromEs(client, indexName, mappingType);
+        return EsUtil.genColumnsFromEs(client, indexName, mappingType, false);
     }
 }
