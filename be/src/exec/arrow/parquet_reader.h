@@ -41,7 +41,6 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "exec/arrow/arrow_reader.h"
-#include "exec/arrow/parquet_row_group_reader.h"
 #include "gen_cpp/PaloBrokerService_types.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
@@ -70,9 +69,7 @@ public:
     // Read
     Status read(Tuple* tuple, MemPool* mem_pool, bool* eof) override;
     Status size(int64_t* size) override;
-    Status init_reader(const TupleDescriptor* tuple_desc,
-                       const std::vector<ExprContext*>& conjunct_ctxs,
-                       const std::string& timezone) override;
+    Status init_reader(const TupleDescriptor* tuple_desc, const std::string& timezone) override;
     Status init_parquet_type();
 
 private:
@@ -99,12 +96,6 @@ private:
     int _current_line_of_group;
     int _current_line_of_batch;
     std::string _timezone;
-    int64_t _range_start_offset;
-    int64_t _range_size;
-    bool _need_filter_row_group = false;
-
-private:
-    std::unique_ptr<doris::RowGroupReader> _row_group_reader;
 };
 
 } // namespace doris

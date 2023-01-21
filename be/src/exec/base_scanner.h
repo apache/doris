@@ -61,10 +61,6 @@ public:
         vectorized::VExpr::close(_dest_vexpr_ctx, _state);
     }
 
-    // Register conjuncts for push down
-    virtual void reg_conjunct_ctxs(const TupleId& tupleId,
-                                   const std::vector<ExprContext*>& conjunct_ctxs);
-
     virtual Status init_expr_ctxes();
     // Open this scanner, will initialize information need to
     virtual Status open();
@@ -154,7 +150,6 @@ protected:
 
     // slot_ids for parquet predicate push down are in tuple desc
     TupleId _tupleId = -1;
-    std::vector<ExprContext*> _conjunct_ctxs;
 
 private:
     Status _filter_src_block();

@@ -108,10 +108,6 @@ public:
 
     VExprContext** vconjunct_ctx_ptr() { return &_vconjunct_ctx; }
 
-    void reg_conjunct_ctxs(const std::vector<ExprContext*>& conjunct_ctxs) {
-        _conjunct_ctxs = conjunct_ctxs;
-    }
-
     // return false if _is_counted_down is already true,
     // otherwise, set _is_counted_down to true and return true.
     bool set_counted_down() {
@@ -182,9 +178,6 @@ protected:
     ThreadCpuStopWatch _cpu_watch;
     int64_t _scanner_wait_worker_timer = 0;
     int64_t _scan_cpu_timer = 0;
-
-    // File formats based push down predicate
-    std::vector<ExprContext*> _conjunct_ctxs;
 
     bool _is_load = false;
     // set to true after decrease the "_num_unfinished_scanners" in scanner context

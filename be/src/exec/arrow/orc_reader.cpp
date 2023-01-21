@@ -42,9 +42,7 @@ ORCReaderWrap::ORCReaderWrap(RuntimeState* state,
     _cur_file_eof = false;
 }
 
-Status ORCReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
-                                  const std::vector<ExprContext*>& conjunct_ctxs,
-                                  const std::string& timezone) {
+Status ORCReaderWrap::init_reader(const TupleDescriptor* tuple_desc, const std::string& timezone) {
     // Open ORC file reader
     auto maybe_reader =
             arrow::adapters::orc::ORCFileReader::Open(_arrow_file, arrow::default_memory_pool());
