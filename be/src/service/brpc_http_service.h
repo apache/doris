@@ -83,12 +83,13 @@ public:
     void tablet_migration(::google::protobuf::RpcController* controller,
                           const ::doris::PHttpRequest* request, ::doris::PHttpResponse* response,
                           ::google::protobuf::Closure* done) override;
-    void distribution(::google::protobuf::RpcController* controller,
+    void tablets_distribution(::google::protobuf::RpcController* controller,
+                              const ::doris::PHttpRequest* request,
+                              ::doris::PHttpResponse* response,
+                              ::google::protobuf::Closure* done) override;
+    void tablets_info(::google::protobuf::RpcController* controller,
                       const ::doris::PHttpRequest* request, ::doris::PHttpResponse* response,
                       ::google::protobuf::Closure* done) override;
-    void tablet_info(::google::protobuf::RpcController* controller,
-                     const ::doris::PHttpRequest* request, ::doris::PHttpResponse* response,
-                     ::google::protobuf::Closure* done) override;
 
     void download(::google::protobuf::RpcController* controller,
                   const ::doris::PHttpRequest* request, ::doris::PHttpResponse* response,
@@ -104,5 +105,5 @@ private:
     std::unique_ptr<HandlerDispatcher> _dispatcher;
 };
 
-void AddBrpcHttpService(brpc::Server* server, ExecEnv* env);
+void add_brpc_http_service(brpc::Server* server, ExecEnv* env);
 } // namespace doris

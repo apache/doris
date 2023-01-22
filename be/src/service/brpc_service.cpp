@@ -47,7 +47,7 @@ Status BRpcService::start(int port, int num_threads) {
     if (_server->AddService(new PInternalServiceImpl(_exec_env), brpc::SERVER_OWNS_SERVICE) != 0) {
         LOG(WARNING) << "fail to add internal service";
     }
-    AddBrpcHttpService(_server.get(), _exec_env);
+    add_brpc_http_service(_server.get(), _exec_env);
     // start service
     brpc::ServerOptions options;
     if (num_threads != -1) {

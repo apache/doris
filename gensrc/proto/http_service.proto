@@ -44,8 +44,8 @@ service PHttpService {
     rpc reload_tablet(PHttpRequest) returns (PHttpResponse);
     rpc restore_tablet(PHttpRequest) returns (PHttpResponse);
     rpc tablet_migration(PHttpRequest) returns (PHttpResponse);
-    rpc distribution(PHttpRequest) returns (PHttpResponse);
-    rpc tablet_info(PHttpRequest) returns (PHttpResponse);
+    rpc tablets_distribution(PHttpRequest) returns (PHttpResponse);
+    rpc tablets_info(PHttpRequest) returns (PHttpResponse);
 
     rpc download(PHttpRequest) returns (PHttpResponse);
     rpc stream_load(PHttpRequest) returns (PHttpResponse);

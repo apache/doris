@@ -17,6 +17,7 @@
 
 #include <brpc/restful.h>
 #include <brpc/server.h>
+#include <brpc/uri.h>
 
 #include <string>
 
@@ -33,9 +34,6 @@ class BaseHttpHandler {
 
 public:
     BaseHttpHandler() = default;
-    BaseHttpHandler(bool is_async);
-    BaseHttpHandler(bool is_async, ExecEnv* exec_env);
-    BaseHttpHandler(const std::string& name, bool is_async, ExecEnv* exec_env);
 
     virtual ~BaseHttpHandler() = default;
 
@@ -52,17 +50,41 @@ public:
 protected:
     const std::string handler_name;
 
+    BaseHttpHandler(const std::string& name);
+    BaseHttpHandler(const std::string& name, ExecEnv* exec_env);
+    BaseHttpHandler(const std::string& name, bool is_async, ExecEnv* exec_env);
+
     virtual void handle_sync(brpc::Controller* cntl);
 
     virtual void handle_async(brpc::Controller* cntl, Closure* done);
 
-    virtual const std::string* get_param(brpc::Controller* cntl, const std::string& key) const;
+    void on_succ(brpc::Controller* cntl, const std::string& msg);
 
-    virtual void on_succ(brpc::Controller* cntl, const std::string& msg);
+    void on_succ_json(brpc::Controller* cntl, const std::string& json_text);
 
-    virtual void on_succ_json(brpc::Controller* cntl, const std::string& json_text);
+    void on_error(brpc::Controller* cntl, const std::string& err_msg);
 
-    virtual void on_error(brpc::Controller* cntl, const std::string& err_msg);
+    void on_error_json(brpc::Controller* cntl, const std::string& json_text);
+
+    void on_error(brpc::Controller* cntl, const std::string& err_msg, int status);
+
+    void on_error_json(brpc::Controller* cntl, const std::string& json_text, int status);
+
+    void on_bad_req(brpc::Controller* cntl, const std::string& err_msg);
+
+    void on_fobidden(brpc::Controller* cntl, const std::string& err_msg);
+
+    void on_not_found(brpc::Controller* cntl, const std::string& err_msg);
+
+    const std::string* get_param(brpc::Controller* cntl, const std::string& key) const;
+
+    const std::string* get_header(brpc::Controller* cntl, const std::string& key) const;
+
+    brpc::URI get_uri(brpc::Controller* cntl) const;
+
+    butil::EndPointStr get_localhost(brpc::Controller* cntl);
+
+    butil::EndPointStr get_remote_host(brpc::Controller* cntl);
 
 private:
     bool _is_async;

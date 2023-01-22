@@ -46,8 +46,8 @@ DEFINE_ENDPOINT(compaction)
 DEFINE_ENDPOINT(reload_tablet)
 DEFINE_ENDPOINT(restore_tablet)
 DEFINE_ENDPOINT(tablet_migration)
-DEFINE_ENDPOINT(distribution)
-DEFINE_ENDPOINT(tablet_info)
+DEFINE_ENDPOINT(tablets_distribution)
+DEFINE_ENDPOINT(tablets_info)
 DEFINE_ENDPOINT(download)
 DEFINE_ENDPOINT(stream_load)
 DEFINE_ENDPOINT(stream_load_2pc)
@@ -58,7 +58,7 @@ BrpcHttpService::BrpcHttpService(ExecEnv* exec_env) : _dispatcher(new HandlerDis
     _dispatcher->register_handlers(exec_env);
 }
 
-void AddBrpcHttpService(brpc::Server* server, ExecEnv* env) {
+void add_brpc_http_service(brpc::Server* server, ExecEnv* env) {
     const int stat = server->AddService(new BrpcHttpService(env), brpc::SERVER_OWNS_SERVICE);
     if (stat != 0) {
         LOG(WARNING) << "fail to add brpc http service";
