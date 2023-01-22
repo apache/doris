@@ -126,7 +126,7 @@ public:
         add_hash(code);
     }
 
-    bool test_bytes(char* buf, uint32_t size) const {
+    bool test_bytes(const char* buf, uint32_t size) const {
         if (buf == nullptr) {
             return *_has_null;
         }

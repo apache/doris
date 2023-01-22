@@ -208,7 +208,7 @@ StringVal SlotRef::get_string_val(ExprContext* context, TupleRow* row) {
         return StringVal::null();
     }
     StringVal result;
-    StringValue* sv = reinterpret_cast<StringValue*>(t->get_slot(_slot_offset));
+    StringRef* sv = reinterpret_cast<StringRef*>(t->get_slot(_slot_offset));
     sv->to_string_val(&result);
     return result;
 }

@@ -24,10 +24,10 @@
 
 #include "common/consts.h"
 #include "common/logging.h"
-#include "runtime/string_value.h"
 #include "runtime/types.h"
 #include "util/hash_util.hpp"
 #include "util/types.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
@@ -123,8 +123,8 @@ public:
 };
 
 inline bool RawValue::lt(const void* v1, const void* v2, const TypeDescriptor& type) {
-    const StringValue* string_value1;
-    const StringValue* string_value2;
+    const StringRef* string_value1;
+    const StringRef* string_value2;
 
     switch (type.type) {
     case TYPE_BOOLEAN:
@@ -152,8 +152,8 @@ inline bool RawValue::lt(const void* v1, const void* v2, const TypeDescriptor& t
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_STRING:
-        string_value1 = reinterpret_cast<const StringValue*>(v1);
-        string_value2 = reinterpret_cast<const StringValue*>(v2);
+        string_value1 = reinterpret_cast<const StringRef*>(v1);
+        string_value2 = reinterpret_cast<const StringRef*>(v2);
         return string_value1->lt(*string_value2);
 
     case TYPE_DATE:
@@ -195,8 +195,8 @@ inline bool RawValue::lt(const void* v1, const void* v2, const TypeDescriptor& t
     };
 }
 inline bool RawValue::eq(const void* v1, const void* v2, const TypeDescriptor& type) {
-    const StringValue* string_value1;
-    const StringValue* string_value2;
+    const StringRef* string_value1;
+    const StringRef* string_value2;
 
     switch (type.type) {
     case TYPE_BOOLEAN:
@@ -224,8 +224,8 @@ inline bool RawValue::eq(const void* v1, const void* v2, const TypeDescriptor& t
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_STRING:
-        string_value1 = reinterpret_cast<const StringValue*>(v1);
-        string_value2 = reinterpret_cast<const StringValue*>(v2);
+        string_value1 = reinterpret_cast<const StringRef*>(v1);
+        string_value2 = reinterpret_cast<const StringRef*>(v2);
         return string_value1->eq(*string_value2);
 
     case TYPE_DATE:
@@ -284,8 +284,8 @@ inline uint32_t RawValue::get_hash_value(const void* v, const PrimitiveType& typ
     case TYPE_CHAR:
     case TYPE_HLL:
     case TYPE_STRING: {
-        const StringValue* string_value = reinterpret_cast<const StringValue*>(v);
-        return HashUtil::hash(string_value->ptr, string_value->len, seed);
+        const StringRef* string_value = reinterpret_cast<const StringRef*>(v);
+        return HashUtil::hash(string_value->data, string_value->size, seed);
     }
 
     case TYPE_BOOLEAN: {
@@ -353,8 +353,8 @@ inline uint32_t RawValue::get_hash_value_fvn(const void* v, const PrimitiveType&
     case TYPE_HLL:
     case TYPE_OBJECT:
     case TYPE_STRING: {
-        const StringValue* string_value = reinterpret_cast<const StringValue*>(v);
-        return HashUtil::fnv_hash(string_value->ptr, string_value->len, seed);
+        const StringRef* string_value = reinterpret_cast<const StringRef*>(v);
+        return HashUtil::fnv_hash(string_value->data, string_value->size, seed);
     }
 
     case TYPE_BOOLEAN: {
@@ -421,20 +421,20 @@ inline uint32_t RawValue::zlib_crc32(const void* v, const TypeDescriptor& type, 
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_STRING: {
-        const StringValue* string_value = reinterpret_cast<const StringValue*>(v);
-        return HashUtil::zlib_crc_hash(string_value->ptr, string_value->len, seed);
+        const StringRef* string_value = reinterpret_cast<const StringRef*>(v);
+        return HashUtil::zlib_crc_hash(string_value->data, string_value->size, seed);
     }
     case TYPE_CHAR: {
         // TODO(zc): ugly, use actual value to compute hash value
-        const StringValue* string_value = reinterpret_cast<const StringValue*>(v);
+        const StringRef* string_value = reinterpret_cast<const StringRef*>(v);
         int len = 0;
-        while (len < string_value->len) {
-            if (string_value->ptr[len] == '\0') {
+        while (len < string_value->size) {
+            if (string_value->data[len] == '\0') {
                 break;
             }
             len++;
         }
-        return HashUtil::zlib_crc_hash(string_value->ptr, len, seed);
+        return HashUtil::zlib_crc_hash(string_value->data, len, seed);
     }
     case TYPE_BOOLEAN:
     case TYPE_TINYINT:

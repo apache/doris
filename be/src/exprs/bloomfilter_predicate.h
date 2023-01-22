@@ -294,17 +294,17 @@ struct StringFindOp {
     }
 
     void insert(BloomFilterAdaptor& bloom_filter, const void* data) const {
-        const auto* value = reinterpret_cast<const StringValue*>(data);
+        const auto* value = reinterpret_cast<const StringRef*>(data);
         if (value) {
-            bloom_filter.add_bytes(value->ptr, value->len);
+            bloom_filter.add_bytes(value->data, value->size);
         }
     }
     bool find(const BloomFilterAdaptor& bloom_filter, const void* data) const {
-        const auto* value = reinterpret_cast<const StringValue*>(data);
+        const auto* value = reinterpret_cast<const StringRef*>(data);
         if (value == nullptr) {
             return false;
         }
-        return bloom_filter.test(Slice(value->ptr, value->len));
+        return bloom_filter.test(Slice(value->data, value->size));
     }
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         return StringFindOp::find(bloom_filter, data);
@@ -318,13 +318,13 @@ struct StringFindOp {
 // when filer used by the storage engine
 struct FixedStringFindOp : public StringFindOp {
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* input_data) const {
-        const auto* value = reinterpret_cast<const StringValue*>(input_data);
-        int64_t size = value->len;
-        char* data = value->ptr;
+        const auto* value = reinterpret_cast<const StringRef*>(input_data);
+        int64_t size = value->size;
+        const char* data = value->data;
         while (size > 0 && data[size - 1] == '\0') {
             size--;
         }
-        return bloom_filter.test(Slice(value->ptr, size));
+        return bloom_filter.test(Slice(value->data, size));
     }
 };
 

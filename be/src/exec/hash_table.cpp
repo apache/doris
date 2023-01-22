@@ -132,11 +132,11 @@ uint32_t HashTable::hash_variable_len_row() {
 
             if (_expr_value_null_bits[i]) {
                 // Hash the null random seed values at 'loc'
-                hash = HashUtil::hash(loc, sizeof(StringValue), hash);
+                hash = HashUtil::hash(loc, sizeof(StringRef), hash);
             } else {
                 // Hash the string
-                StringValue* str = reinterpret_cast<StringValue*>(loc);
-                hash = HashUtil::hash(str->ptr, str->len, hash);
+                StringRef* str = reinterpret_cast<StringRef*>(loc);
+                hash = HashUtil::hash(str->data, str->size, hash);
             }
         }
     }

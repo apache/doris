@@ -19,24 +19,24 @@
 
 #include "exec/schema_scanner/schema_helper.h"
 #include "runtime/primitive_type.h"
-#include "runtime/string_value.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
 SchemaScanner::ColumnDesc SchemaSchemataScanner::_s_columns[] = {
         //   name,       type,          size
-        {"CATALOG_NAME", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"SCHEMA_NAME", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"DEFAULT_CHARACTER_SET_NAME", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"DEFAULT_COLLATION_NAME", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"SQL_PATH", TYPE_VARCHAR, sizeof(StringValue), true},
+        {"CATALOG_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"SCHEMA_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"DEFAULT_CHARACTER_SET_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"DEFAULT_COLLATION_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"SQL_PATH", TYPE_VARCHAR, sizeof(StringRef), true},
 };
 
 SchemaSchemataScanner::SchemaSchemataScanner()
         : SchemaScanner(_s_columns, sizeof(_s_columns) / sizeof(SchemaScanner::ColumnDesc)),
           _db_index(0) {}
 
-SchemaSchemataScanner::~SchemaSchemataScanner() {}
+SchemaSchemataScanner::~SchemaSchemataScanner() = default;
 
 Status SchemaSchemataScanner::start(RuntimeState* state) {
     if (!_is_init) {
@@ -80,43 +80,43 @@ Status SchemaSchemataScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
             tuple->set_null(_tuple_desc->slots()[0]->null_indicator_offset());
         } else {
             void* slot = tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset());
-            StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+            StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
             std::string catalog_name = _db_result.catalogs[_db_index];
-            str_slot->ptr = (char*)pool->allocate(catalog_name.size());
-            str_slot->len = catalog_name.size();
-            memcpy(str_slot->ptr, catalog_name.c_str(), str_slot->len);
+            str_slot->data = (char*)pool->allocate(catalog_name.size());
+            str_slot->size = catalog_name.size();
+            memcpy(const_cast<char*>(str_slot->data), catalog_name.c_str(), str_slot->size);
         }
     }
     // schema
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
         std::string db_name = SchemaHelper::extract_db_name(_db_result.dbs[_db_index]);
-        str_slot->ptr = (char*)pool->allocate(db_name.size());
-        str_slot->len = db_name.size();
-        memcpy(str_slot->ptr, db_name.c_str(), str_slot->len);
+        str_slot->data = (char*)pool->allocate(db_name.size());
+        str_slot->size = db_name.size();
+        memcpy(const_cast<char*>(str_slot->data), db_name.c_str(), str_slot->size);
     }
     // DEFAULT_CHARACTER_SET_NAME
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[2]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        str_slot->len = strlen("utf8") + 1;
-        str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (nullptr == str_slot->ptr) {
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
+        str_slot->size = strlen("utf8") + 1;
+        str_slot->data = (char*)pool->allocate(str_slot->size);
+        if (nullptr == str_slot->data) {
             return Status::InternalError("Allocate memory failed.");
         }
-        memcpy(str_slot->ptr, "utf8", str_slot->len);
+        memcpy(const_cast<char*>(str_slot->data), "utf8", str_slot->size);
     }
     // DEFAULT_COLLATION_NAME
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[3]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        str_slot->len = strlen("utf8_general_ci") + 1;
-        str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (nullptr == str_slot->ptr) {
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
+        str_slot->size = strlen("utf8_general_ci") + 1;
+        str_slot->data = (char*)pool->allocate(str_slot->size);
+        if (nullptr == str_slot->data) {
             return Status::InternalError("Allocate memory failed.");
         }
-        memcpy(str_slot->ptr, "utf8_general_ci", str_slot->len);
+        memcpy(const_cast<char*>(str_slot->data), "utf8_general_ci", str_slot->size);
     }
     // SQL_PATH
     { tuple->set_null(_tuple_desc->slots()[4]->null_indicator_offset()); }

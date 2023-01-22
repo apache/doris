@@ -28,11 +28,11 @@ RowSource::RowSource(uint16_t source_num, bool agg_flag) {
     _data = agg_flag ? (_data | AGG_FLAG) : (_data & SOURCE_FLAG);
 }
 
-uint16_t RowSource::get_source_num() {
+uint16_t RowSource::get_source_num() const {
     return _data & SOURCE_FLAG;
 }
 
-bool RowSource::agg_flag() {
+bool RowSource::agg_flag() const {
     return (_data & AGG_FLAG) != 0;
 }
 
@@ -605,8 +605,7 @@ std::shared_ptr<RowwiseIterator> new_vertical_heap_merge_iterator(
 std::shared_ptr<RowwiseIterator> new_vertical_mask_merge_iterator(
         const std::vector<RowwiseIterator*>& inputs, size_t ori_return_cols,
         RowSourcesBuffer* row_sources) {
-    return std::make_shared<VerticalMaskMergeIterator>(std::move(inputs), ori_return_cols,
-                                                       row_sources);
+    return std::make_shared<VerticalMaskMergeIterator>(inputs, ori_return_cols, row_sources);
 }
 
 } // namespace vectorized

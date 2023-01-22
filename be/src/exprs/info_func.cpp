@@ -25,11 +25,7 @@ InfoFunc::InfoFunc(const TExprNode& node)
         : Expr(node), _int_value(node.info_func.int_value), _str_value(node.info_func.str_value) {}
 
 StringVal InfoFunc::get_string_val(ExprContext* context, TupleRow*) {
-    StringVal val;
-    StringValue value(_str_value);
-    value.to_string_val(&val);
-
-    return val;
+    return {_str_value.c_str(), static_cast<int64_t>(_str_value.size())};
 }
 
 BigIntVal InfoFunc::get_big_int_val(ExprContext* context, TupleRow*) {

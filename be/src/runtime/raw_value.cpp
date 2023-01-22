@@ -40,7 +40,7 @@ void RawValue::print_value_as_bytes(const void* value, const TypeDescriptor& typ
     }
 
     const char* chars = reinterpret_cast<const char*>(value);
-    const StringValue* string_val = nullptr;
+    const StringRef* string_val = nullptr;
 
     switch (type.type) {
     case TYPE_NULL:
@@ -77,8 +77,8 @@ void RawValue::print_value_as_bytes(const void* value, const TypeDescriptor& typ
     case TYPE_HLL:
     case TYPE_CHAR:
     case TYPE_STRING:
-        string_val = reinterpret_cast<const StringValue*>(value);
-        stream->write(static_cast<char*>(string_val->ptr), string_val->len);
+        string_val = reinterpret_cast<const StringRef*>(value);
+        stream->write(const_cast<char*>(string_val->data), string_val->size);
         return;
 
     case TYPE_DATE:
@@ -140,7 +140,7 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
     }
 
     std::string tmp;
-    const StringValue* string_val = nullptr;
+    const StringRef* string_val = nullptr;
 
     switch (type.type) {
     case TYPE_BOOLEAN: {
@@ -177,8 +177,8 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING:
-        string_val = reinterpret_cast<const StringValue*>(value);
-        tmp.assign(static_cast<char*>(string_val->ptr), string_val->len);
+        string_val = reinterpret_cast<const StringRef*>(value);
+        tmp.assign(const_cast<char*>(string_val->data), string_val->size);
         *stream << tmp;
         return;
 
@@ -288,7 +288,7 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
 
     std::stringstream out;
     out.precision(ASCII_PRECISION);
-    const StringValue* string_val = nullptr;
+    const StringRef* string_val = nullptr;
     std::string tmp;
     bool val = false;
 
@@ -305,12 +305,12 @@ void RawValue::print_value(const void* value, const TypeDescriptor& type, int sc
     case TYPE_HLL:
     case TYPE_QUANTILE_STATE:
     case TYPE_STRING: {
-        string_val = reinterpret_cast<const StringValue*>(value);
+        string_val = reinterpret_cast<const StringRef*>(value);
         std::stringstream ss;
-        ss << "ptr:" << (void*)string_val->ptr << " len:" << string_val->len;
+        ss << "ptr:" << (void*)string_val->data << " len:" << string_val->size;
         tmp = ss.str();
-        if (string_val->len <= 1000) {
-            tmp.assign(static_cast<char*>(string_val->ptr), string_val->len);
+        if (string_val->size <= 1000) {
+            tmp.assign(const_cast<char*>(string_val->data), string_val->size);
         }
         str->swap(tmp);
         return;
@@ -416,15 +416,15 @@ void RawValue::write(const void* value, void* dst, const TypeDescriptor& type, M
     case TYPE_VARCHAR:
     case TYPE_CHAR:
     case TYPE_STRING: {
-        const StringValue* src = reinterpret_cast<const StringValue*>(value);
-        StringValue* dest = reinterpret_cast<StringValue*>(dst);
-        dest->len = src->len;
+        const StringRef* src = reinterpret_cast<const StringRef*>(value);
+        StringRef* dest = reinterpret_cast<StringRef*>(dst);
+        dest->size = src->size;
 
         if (pool != nullptr) {
-            dest->ptr = reinterpret_cast<char*>(pool->allocate(dest->len));
-            memcpy(dest->ptr, src->ptr, dest->len);
+            dest->data = reinterpret_cast<char*>(pool->allocate(dest->size));
+            memcpy(const_cast<char*>(dest->data), src->data, dest->size);
         } else {
-            dest->ptr = src->ptr;
+            dest->data = src->data;
         }
 
         break;
@@ -508,12 +508,12 @@ void RawValue::write(const void* value, const TypeDescriptor& type, void* dst, u
     case TYPE_CHAR:
     case TYPE_STRING: {
         DCHECK(buf != nullptr);
-        const StringValue* src = reinterpret_cast<const StringValue*>(value);
-        StringValue* dest = reinterpret_cast<StringValue*>(dst);
-        dest->len = src->len;
-        dest->ptr = reinterpret_cast<char*>(*buf);
-        memcpy(dest->ptr, src->ptr, dest->len);
-        *buf += dest->len;
+        const StringRef* src = reinterpret_cast<const StringRef*>(value);
+        StringRef* dest = reinterpret_cast<StringRef*>(dst);
+        dest->size = src->size;
+        dest->data = reinterpret_cast<char*>(*buf);
+        memcpy(const_cast<char*>(dest->data), src->data, dest->size);
+        *buf += dest->size;
         break;
     }
 
@@ -550,8 +550,8 @@ void RawValue::write(const void* value, Tuple* tuple, const SlotDescriptor* slot
 }
 
 int RawValue::compare(const void* v1, const void* v2, const TypeDescriptor& type) {
-    const StringValue* string_value1;
-    const StringValue* string_value2;
+    const StringRef* string_value1;
+    const StringRef* string_value2;
     const DateTimeValue* ts_value1;
     const DateTimeValue* ts_value2;
     float f1 = 0;
@@ -610,8 +610,8 @@ int RawValue::compare(const void* v1, const void* v2, const TypeDescriptor& type
     case TYPE_VARCHAR:
     case TYPE_HLL:
     case TYPE_STRING:
-        string_value1 = reinterpret_cast<const StringValue*>(v1);
-        string_value2 = reinterpret_cast<const StringValue*>(v2);
+        string_value1 = reinterpret_cast<const StringRef*>(v1);
+        string_value2 = reinterpret_cast<const StringRef*>(v2);
         return string_value1->compare(*string_value2);
 
     case TYPE_DATE:

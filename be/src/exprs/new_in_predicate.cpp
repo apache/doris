@@ -33,9 +33,9 @@ SetType get_val(const FunctionContext::TypeDesc* type, const T& x) {
 }
 
 template <>
-StringValue get_val(const FunctionContext::TypeDesc* type, const StringVal& x) {
+StringRef get_val(const FunctionContext::TypeDesc* type, const StringVal& x) {
     DCHECK(!x.is_null);
-    return StringValue::from_string_val(x);
+    return StringRef(x);
 }
 
 template <>
@@ -173,7 +173,7 @@ IN_FUNCTIONS(IntVal, int32_t, int_val)
 IN_FUNCTIONS(BigIntVal, int64_t, big_int_val)
 IN_FUNCTIONS(FloatVal, float, float_val)
 IN_FUNCTIONS(DoubleVal, double, double_val)
-IN_FUNCTIONS(StringVal, StringValue, string_val)
+IN_FUNCTIONS(StringVal, StringRef, string_val)
 IN_FUNCTIONS(DateTimeVal, DateTimeValue, datetime_val)
 IN_FUNCTIONS(DecimalV2Val, DecimalV2Value, decimalv2_val)
 IN_FUNCTIONS(LargeIntVal, __int128, large_int_val)

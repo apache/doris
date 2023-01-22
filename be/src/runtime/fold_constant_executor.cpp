@@ -234,7 +234,7 @@ string FoldConstantExecutor::_get_result(void* src, size_t size, PrimitiveType s
         if constexpr (is_vec) {
             return std::string((char*)src, size);
         }
-        return (reinterpret_cast<StringValue*>(src))->to_string();
+        return (reinterpret_cast<StringRef*>(src))->to_string();
     }
     case TYPE_DATE:
     case TYPE_DATETIME: {

@@ -29,8 +29,8 @@
 #include "rapidjson/writer.h"
 #include "runtime/mem_pool.h"
 #include "runtime/memory/mem_tracker.h"
-#include "runtime/string_value.h"
 #include "util/string_parser.hpp"
+#include "vec/common/string_ref.h"
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
@@ -256,9 +256,9 @@ static Status insert_int_value(const rapidjson::Value& col, PrimitiveType type,
     return Status::OK();
 }
 
-ScrollParser::ScrollParser(bool doc_value_mode) : _scroll_id(""), _size(0), _line_index(0) {}
+ScrollParser::ScrollParser(bool doc_value_mode) : _size(0), _line_index(0) {}
 
-ScrollParser::~ScrollParser() {}
+ScrollParser::~ScrollParser() = default;
 
 Status ScrollParser::parse(const std::string& scroll_result, bool exactly_once) {
     // rely on `_size !=0 ` to determine whether scroll ends
@@ -294,7 +294,7 @@ Status ScrollParser::parse(const std::string& scroll_result, bool exactly_once) 
     return Status::OK();
 }
 
-int ScrollParser::get_size() {
+int ScrollParser::get_size() const {
     return _size;
 }
 
@@ -325,7 +325,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
         if (!slot_desc->is_materialized()) {
             continue;
         }
-        // _id field must exists in every document, this is guaranteed by ES
+        // _id field must exist in every document, this is guaranteed by ES
         // if _id was found in tuple, we would get `_id` value from inner-hit node
         // json-format response would like below:
         //    "hits": {
@@ -355,8 +355,8 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
                 RETURN_LIMIT_EXCEEDED(nullptr, details, len);
             }
             memcpy(buffer, _id.data(), len);
-            reinterpret_cast<StringValue*>(slot)->ptr = buffer;
-            reinterpret_cast<StringValue*>(slot)->len = len;
+            reinterpret_cast<StringRef*>(slot)->data = buffer;
+            reinterpret_cast<StringRef*>(slot)->size = len;
             continue;
         }
 
@@ -389,7 +389,7 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
         case TYPE_STRING: {
             // sometimes elasticsearch user post some not-string value to Elasticsearch Index.
             // because of reading value from _source, we can not process all json type and then just transfer the value to original string representation
-            // this may be a tricky, but we can workaround this issue
+            // this may be a tricky, but we can work around this issue
             std::string val;
             if (pure_doc_value) {
                 if (!col[0].IsString()) {
@@ -413,8 +413,8 @@ Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
                 RETURN_LIMIT_EXCEEDED(nullptr, details, val_size);
             }
             memcpy(buffer, val.data(), val_size);
-            reinterpret_cast<StringValue*>(slot)->ptr = buffer;
-            reinterpret_cast<StringValue*>(slot)->len = val_size;
+            reinterpret_cast<StringRef*>(slot)->data = buffer;
+            reinterpret_cast<StringRef*>(slot)->size = val_size;
             break;
         }
 
@@ -638,7 +638,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
         case TYPE_STRING: {
             // sometimes elasticsearch user post some not-string value to Elasticsearch Index.
             // because of reading value from _source, we can not process all json type and then just transfer the value to original string representation
-            // this may be a tricky, but we can workaround this issue
+            // this may be a tricky, but we can work around this issue
             std::string val;
             if (pure_doc_value) {
                 if (!col[0].IsString()) {

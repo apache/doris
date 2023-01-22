@@ -1456,14 +1456,18 @@ std::string VJsonReader::_print_json_value(const rapidjson::Value& value) {
     return std::string(buffer.GetString());
 }
 
+// TODO: NEED TO REWRITE COMPLETELY. the way writing now is WRONG.
+// StringRef shouldn't managing exclusive memory cause it will break RAII.
+// besides, accessing object which is essentially const by non-const object
+// is UB!
 void VJsonReader::_fill_slot(doris::Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool,
                              const uint8_t* value, int32_t len) {
     tuple->set_not_null(slot_desc->null_indicator_offset());
     void* slot = tuple->get_slot(slot_desc->tuple_offset());
-    StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-    str_slot->ptr = reinterpret_cast<char*>(mem_pool->allocate(len));
-    memcpy(str_slot->ptr, value, len);
-    str_slot->len = len;
+    StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
+    str_slot->data = reinterpret_cast<char*>(mem_pool->allocate(len));
+    memcpy(const_cast<char*>(str_slot->data), value, len);
+    str_slot->size = len;
 }
 
 Status VJsonReader::_write_data_to_tuple(rapidjson::Value::ConstValueIterator value,

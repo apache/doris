@@ -21,10 +21,10 @@
 #include "exec/text_converter.hpp"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_state.h"
-#include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
 #include "util/types.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 namespace doris::vectorized {
 
@@ -348,9 +348,9 @@ Status VSchemaScanNode::write_slot_to_vectorized_column(void* slot, SlotDescript
     case TYPE_VARCHAR:
     case TYPE_CHAR:
     case TYPE_STRING: {
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(str_slot->ptr,
-                                                                          str_slot->len);
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
+        reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(str_slot->data,
+                                                                          str_slot->size);
         break;
     }
 

@@ -302,7 +302,7 @@ Status IcebergTableReader::_position_delete(
         parquet_reader->set_delete_rows(&_delete_rows);
         COUNTER_UPDATE(_iceberg_profile.num_delete_rows, num_delete_rows);
     }
-    // the delete rows are copy out, we can erase them.
+    // the deleted rows are copy out, we can erase them.
     for (auto& erase_item : erase_data) {
         erase_item->erase(data_file_path);
     }

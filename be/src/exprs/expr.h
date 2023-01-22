@@ -29,12 +29,11 @@
 #include "gen_cpp/Opcodes_types.h"
 #include "runtime/descriptors.h"
 #include "runtime/large_int_value.h"
-#include "runtime/string_value.h"
-#include "runtime/string_value.hpp"
 #include "runtime/tuple.h"
 #include "runtime/tuple_row.h"
 #include "udf/udf.h"
 #include "util/string_parser.hpp"
+#include "vec/common/string_ref.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/io/io_helper.h"
 
@@ -585,7 +584,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_float_literal(float_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DOUBLE));
     } else if constexpr ((T == TYPE_STRING) || (T == TYPE_CHAR) || (T == TYPE_VARCHAR)) {
-        auto origin_value = reinterpret_cast<const StringValue*>(data);
+        auto origin_value = reinterpret_cast<const StringRef*>(data);
         (*node).__set_node_type(TExprNodeType::STRING_LITERAL);
         TStringLiteral string_literal;
         string_literal.__set_value(origin_value->to_string());

@@ -27,8 +27,8 @@
 #include <sse2neon.h>
 #endif
 
-#include "runtime/string_value.hpp"
 #include "util/simd/lower_upper_impl.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
