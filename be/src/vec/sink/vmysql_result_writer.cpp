@@ -247,21 +247,20 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
             }
             if constexpr (type == TYPE_DATETIME) {
                 auto time_num = data[i];
-                VecDateTimeValue time_val;
-                memcpy(static_cast<void*>(&time_val), &time_num, sizeof(Int64));
+                VecDateTimeValue time_val = binary_cast<Int64, VecDateTimeValue>(time_num);
                 buf_ret = rows_buffer[i].push_vec_datetime(time_val);
             }
             if constexpr (type == TYPE_DATEV2) {
                 auto time_num = data[i];
-                doris::vectorized::DateV2Value<DateV2ValueType> date_val;
-                memcpy(static_cast<void*>(&date_val), &time_num, sizeof(UInt32));
+                DateV2Value<DateV2ValueType> date_val = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(time_num);
                 buf_ret = rows_buffer[i].push_vec_datetime(date_val);
             }
             if constexpr (type == TYPE_DATETIMEV2) {
                 auto time_num = data[i];
-                doris::vectorized::DateV2Value<DateTimeV2ValueType> date_val;
-                memcpy(static_cast<void*>(&date_val), &time_num, sizeof(UInt64));
-                buf_ret = rows_buffer[i].push_vec_datetime(date_val);
+                char buf[64];
+                DateV2Value<DateTimeV2ValueType> date_val = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(time_num);
+                char* pos = date_val.to_string(buf,scale);
+                buf_ret = rows_buffer[i].push_string(buf,pos - buf -1);
             }
             if constexpr (type == TYPE_DECIMALV2) {
                 DecimalV2Value decimal_val(data[i]);
