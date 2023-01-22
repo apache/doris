@@ -20,6 +20,8 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CleanLabelStmt;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
+import org.apache.doris.analysis.DataDescription;
+import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
@@ -30,10 +32,13 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.io.ByteBufferNetworkInputStream;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
@@ -41,24 +46,46 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.Load;
+import org.apache.doris.load.LoadJobRowResult;
+import org.apache.doris.load.loadv2.LoadTask.MergeType;
 import org.apache.doris.persist.CleanLabelOperationLog;
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.system.Backend;
+import org.apache.doris.system.BeSelectionPolicy;
+import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.DatabaseTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
 
+import com.alibaba.fastjson2.JSON;
+import com.alibaba.fastjson2.JSONObject;
 import com.google.common.annotations.VisibleForTesting;
+import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.lang.StringUtils;
+import org.apache.http.client.methods.CloseableHttpResponse;
+import org.apache.http.client.methods.HttpPut;
+import org.apache.http.entity.ContentType;
+import org.apache.http.entity.InputStreamEntity;
+import org.apache.http.impl.client.CloseableHttpClient;
+import org.apache.http.impl.client.HttpClients;
+import org.apache.http.util.EntityUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.io.InputStream;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.Collection;
 import java.util.EnumSet;
 import java.util.Iterator;
@@ -68,6 +95,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
@@ -84,11 +112,13 @@ public class LoadManager implements Writable {
     private Map<Long, LoadJob> idToLoadJob = Maps.newConcurrentMap();
     private Map<Long, Map<String, List<LoadJob>>> dbIdToLabelToLoadJobs = Maps.newConcurrentMap();
     private LoadJobScheduler loadJobScheduler;
+    private ThreadPoolExecutor mysqlLoadPool;
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     public LoadManager(LoadJobScheduler loadJobScheduler) {
         this.loadJobScheduler = loadJobScheduler;
+        this.mysqlLoadPool = ThreadPoolManager.newDaemonCacheThreadPool(4, "Mysql Load", true);
     }
 
     /**
@@ -149,6 +179,183 @@ public class LoadManager implements Writable {
         } finally {
             writeUnlock();
         }
+    }
+
+    public LoadJobRowResult executeMySqlLoadJobFromStmt(ConnectContext context, LoadStmt stmt)
+            throws IOException, LoadException {
+        LoadJobRowResult loadResult = new LoadJobRowResult();
+        // Mysql data load only have one data desc
+        DataDescription dataDesc = stmt.getDataDescriptions().get(0);
+        String database = dataDesc.getDbName();
+        String table = dataDesc.getTableName();
+        List<String> filePaths = dataDesc.getFilePaths();
+        try (final CloseableHttpClient httpclient = HttpClients.createDefault()) {
+            for (String file : filePaths) {
+                InputStreamEntity entity = getInputStreamEntity(context, dataDesc.isClientLocal(), file);
+                HttpPut request = generateRequestForMySqlLoad(entity, dataDesc, database, table);
+                try (final CloseableHttpResponse response = httpclient.execute(request)) {
+                    JSONObject result = JSON.parseObject(EntityUtils.toString(response.getEntity()));
+                    if (!result.getString("Status").equalsIgnoreCase("Success")) {
+                        LOG.warn("Execute stream load for mysql data load failed with message: " + request);
+                        throw new LoadException(result.getString("Message"));
+                    }
+                    loadResult.incRecords(result.getLong("NumberLoadedRows"));
+                    loadResult.incSkipped(result.getIntValue("NumberFilteredRows"));
+                }
+            }
+        }
+        return loadResult;
+    }
+
+    private InputStreamEntity getInputStreamEntity(ConnectContext context, boolean isClintLocal, String file)
+            throws IOException {
+        InputStream inputStream;
+        if (isClintLocal) {
+            // mysql client will check the file exist.
+            replyClientForReadFile(context, file);
+            inputStream = new ByteBufferNetworkInputStream();
+            fillByteBufferAsync(context, (ByteBufferNetworkInputStream) inputStream);
+        } else {
+            // server side file had already check after analyze.
+            inputStream = Files.newInputStream(Paths.get(file));
+        }
+        return new InputStreamEntity(inputStream, -1, ContentType.TEXT_PLAIN);
+    }
+
+    private void replyClientForReadFile(ConnectContext context, String path) throws IOException {
+        context.getSerializer().reset();
+        context.getSerializer().writeByte((byte) 0xfb);
+        context.getSerializer().writeEofString(path);
+        context.getMysqlChannel().sendAndFlush(context.getSerializer().toByteBuffer());
+    }
+
+    private void fillByteBufferAsync(ConnectContext context, ByteBufferNetworkInputStream inputStream) {
+        mysqlLoadPool.submit(() -> {
+            ByteBuffer buffer = null;
+            try {
+                buffer = context.getMysqlChannel().fetchOnePacket();
+                // MySql client will send an empty packet when eof
+                while (buffer != null && buffer.limit() != 0) {
+                    inputStream.fillByteBuffer(buffer);
+                    buffer = context.getMysqlChannel().fetchOnePacket();
+                }
+            } catch (IOException | InterruptedException e) {
+                throw new RuntimeException(e);
+            } finally {
+                inputStream.markFinished();
+            }
+        });
+    }
+
+    // public only for test
+    public HttpPut generateRequestForMySqlLoad(
+            InputStreamEntity entity,
+            DataDescription desc,
+            String database,
+            String table) throws LoadException {
+        final HttpPut httpPut = new HttpPut(selectBackendForMySqlLoad(database, table));
+
+        httpPut.addHeader("Expect", "100-continue");
+        httpPut.addHeader("Content-Type", "text/plain");
+
+        Map<String, String> props = desc.getProperties();
+        if (props != null) {
+            // auth
+            if (!props.containsKey("auth")) {
+                throw new LoadException("Must have auth(user:password) in properties.");
+            }
+            // TODO: use token to send request to avoid double auth.
+            String auth = props.get("auth");
+            String base64Auth = Base64.getEncoder().encodeToString(auth.getBytes(StandardCharsets.UTF_8));
+            httpPut.addHeader("Authorization", "Basic " + base64Auth);
+
+            // max_filter_ratio
+            if (props.containsKey(LoadStmt.KEY_IN_PARAM_MAX_FILTER_RATIO)) {
+                String maxFilterRatio = props.get(LoadStmt.KEY_IN_PARAM_MAX_FILTER_RATIO);
+                httpPut.addHeader(LoadStmt.KEY_IN_PARAM_MAX_FILTER_RATIO, maxFilterRatio);
+            }
+
+            // exec_mem_limit
+            if (props.containsKey(LoadStmt.EXEC_MEM_LIMIT)) {
+                String memory = props.get(LoadStmt.EXEC_MEM_LIMIT);
+                httpPut.addHeader(LoadStmt.EXEC_MEM_LIMIT, memory);
+            }
+
+            // strict_mode
+            if (props.containsKey(LoadStmt.STRICT_MODE)) {
+                String strictMode = props.get(LoadStmt.STRICT_MODE);
+                httpPut.addHeader(LoadStmt.STRICT_MODE, strictMode);
+            }
+        }
+
+        // column_separator
+        if (desc.getColumnSeparator() != null) {
+            httpPut.addHeader(LoadStmt.KEY_IN_PARAM_COLUMN_SEPARATOR, desc.getColumnSeparator());
+        }
+
+        // line_delimiter
+        if (desc.getLineDelimiter() != null) {
+            httpPut.addHeader(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER, desc.getLineDelimiter());
+        }
+
+        // merge_type
+        if (!desc.getMergeType().equals(MergeType.APPEND)) {
+            httpPut.addHeader(LoadStmt.KEY_IN_PARAM_MERGE_TYPE, desc.getMergeType().name());
+        }
+
+        // columns
+        if (desc.getFileFieldNames() != null) {
+            List<String> fields = desc.getFileFieldNames();
+            StringBuilder fieldString = new StringBuilder();
+            fieldString.append(Joiner.on(",").join(fields));
+
+            if (desc.getColumnMappingList() != null) {
+                fieldString.append(",");
+                List<String> mappings = new ArrayList<>();
+                for (Expr expr : desc.getColumnMappingList()) {
+                    mappings.add(expr.toSql().replaceAll("`", ""));
+                }
+                fieldString.append(Joiner.on(",").join(mappings));
+            }
+            httpPut.addHeader(LoadStmt.KEY_IN_PARAM_COLUMNS, fieldString.toString());
+        }
+
+        // partitions
+        if (desc.getPartitionNames() != null && !desc.getPartitionNames().getPartitionNames().isEmpty()) {
+            List<String> ps = desc.getPartitionNames().getPartitionNames();
+            String pNames = Joiner.on(",").join(ps);
+            if (desc.getPartitionNames().isTemp()) {
+                httpPut.addHeader(LoadStmt.KEY_IN_PARAM_TEMP_PARTITIONS, pNames);
+            } else {
+                httpPut.addHeader(LoadStmt.KEY_IN_PARAM_PARTITIONS, pNames);
+            }
+        }
+        httpPut.setEntity(entity);
+        return httpPut;
+    }
+
+    private String selectBackendForMySqlLoad(String database, String table) throws LoadException {
+        BeSelectionPolicy policy = new BeSelectionPolicy.Builder().needLoadAvailable().build();
+        List<Long> backendIds = Env.getCurrentSystemInfo().selectBackendIdsByPolicy(policy, 1);
+        if (backendIds.isEmpty()) {
+            throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
+        }
+
+        Backend backend = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
+        if (backend == null) {
+            throw new LoadException(SystemInfoService.NO_BACKEND_LOAD_AVAILABLE_MSG + ", policy: " + policy);
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("http://");
+        sb.append(backend.getHost());
+        sb.append(":");
+        sb.append(backend.getHttpPort());
+        sb.append("/api/");
+        sb.append(database);
+        sb.append("/");
+        sb.append(table);
+        sb.append("/_stream_load");
+        return  sb.toString();
     }
 
     public void replayCreateLoadJob(LoadJob loadJob) {

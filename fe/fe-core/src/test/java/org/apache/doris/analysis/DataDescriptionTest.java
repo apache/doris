@@ -372,4 +372,45 @@ public class DataDescriptionTest {
         };
         desc.analyze("testDb");
     }
+
+    @Test
+    public void testMysqlLoadData() throws AnalysisException {
+        TableName tbl = new TableName(null, "testDb", "testTable");
+        List<Expr> params = Lists.newArrayList();
+        params.add(new StringLiteral("day"));
+        params.add(new SlotRef(null, "k2"));
+        BinaryPredicate predicate =
+                new BinaryPredicate(Operator.EQ, new SlotRef(null, "k1"), new FunctionCallExpr("bitmap_dict", params));
+        Map<String, String> properties = Maps.newHashMap();
+        properties.put("line_delimiter", "abc");
+        DataDescription desc =
+                new DataDescription(tbl, new PartitionNames(false, Lists.newArrayList("p1", "p2")), "abc.txt", true,
+                        Lists.newArrayList("k1", "k2", "v1"), new Separator("010203"), new Separator("040506"),
+                        Lists.newArrayList(predicate), properties);
+        String db = desc.analyzeFullDbName(null, analyzer);
+        Assert.assertEquals("default_cluster:testDb", db);
+        Assert.assertEquals("testDb", desc.getDbName());
+        db = desc.analyzeFullDbName("testCluster:testDb1", analyzer);
+        Assert.assertEquals("testCluster:testDb1", db);
+        Assert.assertEquals("testDb1", desc.getDbName());
+
+        desc.analyze("testDb1");
+        Assert.assertEquals(1, desc.getFilePaths().size());
+        Assert.assertEquals("abc.txt", desc.getFilePaths().get(0));
+
+        Assert.assertEquals(2, desc.getPartitionNames().getPartitionNames().size());
+        Assert.assertEquals("p1", desc.getPartitionNames().getPartitionNames().get(0));
+        Assert.assertEquals("p2", desc.getPartitionNames().getPartitionNames().get(1));
+
+        Assert.assertEquals("040506", desc.getLineDelimiter());
+        Assert.assertEquals("010203", desc.getColumnSeparator());
+        String sql = "DATA LOCAL INFILE 'abc.txt' "
+                + "INTO TABLE testDb1.testTable "
+                + "PARTITIONS (p1, p2) "
+                + "COLUMNS TERMINATED BY '010203' "
+                + "LINES TERMINATED BY '040506' "
+                + "(k1, k2, v1) "
+                + "SET (`k1` = bitmap_dict('day', `k2`))";
+        Assert.assertEquals(sql, desc.toSql());
+    }
 }

@@ -322,6 +322,20 @@ class Suite implements GroovyInterceptable {
         return remotePath;
     }
 
+    String getLoalFilePath(String fileName) {
+        if (!new File(fileName).isAbsolute()) {
+            fileName = new File(context.dataPath, fileName).getAbsolutePath()
+        }
+        def file = new File(fileName)
+        if (!file.exists()) {
+            log.warn("Stream load input file not exists: ${file}".toString())
+            throw new IllegalStateException("Stream load input file not exists: ${file}");
+        }
+        def localFile = file.canonicalPath
+        log.info("Set stream load input: ${file.canonicalPath}".toString())
+        return localFile;
+    }
+
     boolean enableBrokerLoad() {
         String enableBrokerLoad = context.config.otherConfigs.get("enableBrokerLoad");
         return (enableBrokerLoad != null && enableBrokerLoad.equals("true"));
