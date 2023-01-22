@@ -162,7 +162,7 @@ Decimal32Val Literal::get_decimal32_val(ExprContext* context, TupleRow* row) {
     DCHECK(_type.type == TYPE_DECIMAL32) << _type;
     StringParser::ParseResult result;
     auto decimal32_value = StringParser::string_to_decimal<int32_t>(
-            _value.string_val.ptr, _value.string_val.len, _type.precision, _type.scale, &result);
+            _value.string_val.data, _value.string_val.size, _type.precision, _type.scale, &result);
     if (result == StringParser::ParseResult::PARSE_SUCCESS) {
         return Decimal32Val(decimal32_value);
     } else {
@@ -174,7 +174,7 @@ Decimal64Val Literal::get_decimal64_val(ExprContext* context, TupleRow* row) {
     DCHECK(_type.type == TYPE_DECIMAL64) << _type;
     StringParser::ParseResult result;
     auto decimal_value = StringParser::string_to_decimal<int64_t>(
-            _value.string_val.ptr, _value.string_val.len, _type.precision, _type.scale, &result);
+            _value.string_val.data, _value.string_val.size, _type.precision, _type.scale, &result);
     if (result == StringParser::ParseResult::PARSE_SUCCESS) {
         return Decimal64Val(decimal_value);
     } else {
@@ -186,7 +186,7 @@ Decimal128Val Literal::get_decimal128_val(ExprContext* context, TupleRow* row) {
     DCHECK(_type.type == TYPE_DECIMAL128I) << _type;
     StringParser::ParseResult result;
     auto decimal_value = StringParser::string_to_decimal<int128_t>(
-            _value.string_val.ptr, _value.string_val.len, _type.precision, _type.scale, &result);
+            _value.string_val.data, _value.string_val.size, _type.precision, _type.scale, &result);
     if (result == StringParser::ParseResult::PARSE_SUCCESS) {
         return Decimal128Val(decimal_value);
     } else {

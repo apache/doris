@@ -23,7 +23,7 @@ namespace doris {
 class MemPool;
 class SlotDescriptor;
 class Status;
-struct StringValue;
+struct StringRef;
 class Tuple;
 class TupleDescriptor;
 
@@ -68,7 +68,7 @@ public:
     void unescape_string_on_spot(const char* src, size_t* len);
     // Removes escape characters from 'str', allocating a new string from pool.
     // 'str' is updated with the new ptr and length.
-    void unescape_string(StringValue* str, MemPool* pool);
+    void unescape_string(StringRef* str, MemPool* pool);
 
 private:
     char _escape_char;

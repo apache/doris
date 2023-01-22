@@ -202,11 +202,11 @@ public:
     template <typename Val>
     static Val max_val(FunctionContext* ctx) {
         if constexpr (std::is_same_v<Val, StringVal>) {
-            StringValue sv = type_limit<StringValue>::max();
+            StringRef sv = type_limit<StringRef>::max();
             StringVal max_val;
-            max_val.ptr = ctx->allocate(sv.len);
-            memcpy(max_val.ptr, sv.ptr, sv.len);
-            max_val.len = sv.len;
+            max_val.ptr = ctx->allocate(sv.size);
+            memcpy(max_val.ptr, sv.data, sv.size);
+            max_val.len = sv.size;
 
             return max_val;
         } else if constexpr (std::is_same_v<Val, DateTimeVal>) {
@@ -416,8 +416,8 @@ public:
         case TYPE_OBJECT:
         case TYPE_QUANTILE_STATE:
         case TYPE_STRING:
-            reinterpret_cast<const StringValue*>(slot)->to_string_val(
-                    reinterpret_cast<doris_udf::StringVal*>(dst));
+            reinterpret_cast<const StringRef*>(slot)->to_string_val(
+                    reinterpret_cast<StringVal*>(dst));
             return;
         case TYPE_DECIMALV2:
             reinterpret_cast<doris_udf::DecimalV2Val*>(dst)->val =
@@ -502,8 +502,8 @@ template <>
 inline bool AnyValUtil::equals_internal(const StringVal& x, const StringVal& y) {
     DCHECK(!x.is_null);
     DCHECK(!y.is_null);
-    StringValue x_sv = StringValue::from_string_val(x);
-    StringValue y_sv = StringValue::from_string_val(y);
+    StringRef x_sv = StringRef(x);
+    StringRef y_sv = StringRef(y);
     return x_sv == y_sv;
 }
 

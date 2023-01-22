@@ -309,8 +309,7 @@ inline void AggFnEvaluator::set_any_val(const void* slot, const TypeDescriptor& 
     case TYPE_OBJECT:
     case TYPE_STRING:
     case TYPE_QUANTILE_STATE:
-        reinterpret_cast<const StringValue*>(slot)->to_string_val(
-                reinterpret_cast<StringVal*>(dst));
+        reinterpret_cast<const StringRef*>(slot)->to_string_val(reinterpret_cast<StringVal*>(dst));
         return;
 
     case TYPE_DATE:
@@ -381,8 +380,7 @@ inline void AggFnEvaluator::set_output_slot(const AnyVal* src, const SlotDescrip
     case TYPE_OBJECT:
     case TYPE_QUANTILE_STATE:
     case TYPE_STRING:
-        *reinterpret_cast<StringValue*>(slot) =
-                StringValue::from_string_val(*reinterpret_cast<const StringVal*>(src));
+        *reinterpret_cast<StringRef*>(slot) = StringRef(*reinterpret_cast<const StringVal*>(src));
         return;
 
     case TYPE_DATE:
@@ -484,11 +482,11 @@ bool AggFnEvaluator::count_distinct_data_filter(TupleRow* row, Tuple* dst) {
         _string_buffer.reset(new char[_string_buffer_len]);
     }
 
-    StringValue string_val(_string_buffer.get(), total_len);
+    StringRef string_ref(_string_buffer.get(), total_len);
     // the content of StringVal:
     //    header: the STRING_VALUE's len
     //    body:   all input parameters' content
-    char* begin = string_val.ptr;
+    char* begin = const_cast<char*>(string_ref.data);
 
     for (int i = 0; i < vec_size; i++) {
         memcpy(begin, &vec_string_len[0], int_size);
@@ -584,11 +582,11 @@ bool AggFnEvaluator::count_distinct_data_filter(TupleRow* row, Tuple* dst) {
         }
     }
 
-    DCHECK(begin == string_val.ptr + string_val.len)
+    DCHECK(begin == string_ref.data + string_ref.size)
             << "COUNT_DISTINCT: StringVal's len doesn't match";
     bool is_add_buckets = false;
-    bool is_filter = is_in_hybridmap(&string_val, dst, &is_add_buckets);
-    update_mem_trackers(is_filter, is_add_buckets, string_val.len);
+    bool is_filter = is_in_hybridmap(&string_ref, dst, &is_add_buckets);
+    update_mem_trackers(is_filter, is_add_buckets, string_ref.size);
     return is_filter;
 }
 

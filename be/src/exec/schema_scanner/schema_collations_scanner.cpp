@@ -18,17 +18,17 @@
 #include "exec/schema_scanner/schema_collations_scanner.h"
 
 #include "runtime/primitive_type.h"
-#include "runtime/string_value.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
 SchemaScanner::ColumnDesc SchemaCollationsScanner::_s_cols_columns[] = {
         //   name,       type,          size
-        {"COLLATION_NAME", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"CHARACTER_SET_NAME", TYPE_VARCHAR, sizeof(StringValue), false},
+        {"COLLATION_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"CHARACTER_SET_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
         {"ID", TYPE_BIGINT, sizeof(int64_t), false},
-        {"IS_DEFAULT", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"IS_COMPILED", TYPE_VARCHAR, sizeof(StringValue), false},
+        {"IS_DEFAULT", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"IS_COMPILED", TYPE_VARCHAR, sizeof(StringRef), false},
         {"SORTLEN", TYPE_BIGINT, sizeof(int64_t), false},
 };
 
@@ -48,26 +48,26 @@ Status SchemaCollationsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     // COLLATION_NAME
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
         int len = strlen(_s_collations[_index].name);
-        str_slot->ptr = (char*)pool->allocate(len + 1);
-        if (nullptr == str_slot->ptr) {
+        str_slot->data = (char*)pool->allocate(len + 1);
+        if (nullptr == str_slot->data) {
             return Status::InternalError("No Memory.");
         }
-        memcpy(str_slot->ptr, _s_collations[_index].name, len + 1);
-        str_slot->len = len;
+        memcpy(const_cast<char*>(str_slot->data), _s_collations[_index].name, len + 1);
+        str_slot->size = len;
     }
     // charset
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
         int len = strlen(_s_collations[_index].charset);
-        str_slot->ptr = (char*)pool->allocate(len + 1);
-        if (nullptr == str_slot->ptr) {
+        str_slot->data = (char*)pool->allocate(len + 1);
+        if (nullptr == str_slot->data) {
             return Status::InternalError("No Memory.");
         }
-        memcpy(str_slot->ptr, _s_collations[_index].charset, len + 1);
-        str_slot->len = len;
+        memcpy(const_cast<char*>(str_slot->data), _s_collations[_index].charset, len + 1);
+        str_slot->size = len;
     }
     // id
     {
@@ -77,26 +77,26 @@ Status SchemaCollationsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     // is_default
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[3]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
         int len = strlen(_s_collations[_index].is_default);
-        str_slot->ptr = (char*)pool->allocate(len + 1);
-        if (nullptr == str_slot->ptr) {
+        str_slot->data = (char*)pool->allocate(len + 1);
+        if (nullptr == str_slot->data) {
             return Status::InternalError("No Memory.");
         }
-        memcpy(str_slot->ptr, _s_collations[_index].is_default, len + 1);
-        str_slot->len = len;
+        memcpy(const_cast<char*>(str_slot->data), _s_collations[_index].is_default, len + 1);
+        str_slot->size = len;
     }
     // IS_COMPILED
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[4]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
         int len = strlen(_s_collations[_index].is_compile);
-        str_slot->ptr = (char*)pool->allocate(len + 1);
-        if (nullptr == str_slot->ptr) {
+        str_slot->data = (char*)pool->allocate(len + 1);
+        if (nullptr == str_slot->data) {
             return Status::InternalError("No Memory.");
         }
-        memcpy(str_slot->ptr, _s_collations[_index].is_compile, len + 1);
-        str_slot->len = len;
+        memcpy(const_cast<char*>(str_slot->data), _s_collations[_index].is_compile, len + 1);
+        str_slot->size = len;
     }
     // sortlen
     {

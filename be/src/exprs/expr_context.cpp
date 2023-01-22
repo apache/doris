@@ -242,8 +242,8 @@ void* ExprContext::get_value(Expr* e, TupleRow* row, int precision, int scale) {
         if (v.is_null) {
             return nullptr;
         }
-        _result.string_val.ptr = reinterpret_cast<char*>(v.ptr);
-        _result.string_val.len = v.len;
+        _result.string_val.data = reinterpret_cast<char*>(v.ptr);
+        _result.string_val.size = v.len;
         return &_result.string_val;
     }
     case TYPE_DATE:

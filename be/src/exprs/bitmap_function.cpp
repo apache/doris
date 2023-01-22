@@ -260,7 +260,7 @@ StringVal BitmapFunctions::bitmap_serialize(FunctionContext* ctx, const StringVa
     return result;
 }
 
-// This is a init function for intersect_count not for bitmap_intersect, not for _orthogonal_bitmap_intersect(bitmap,t,t)
+// This is an init function for intersect_count not for bitmap_intersect, not for _orthogonal_bitmap_intersect(bitmap,t,t)
 template <typename T, typename ValType>
 void BitmapFunctions::bitmap_intersect_init(FunctionContext* ctx, StringVal* dst) {
     dst->is_null = false;
@@ -277,7 +277,7 @@ void BitmapFunctions::bitmap_intersect_init(FunctionContext* ctx, StringVal* dst
     dst->ptr = (uint8_t*)intersect;
 }
 
-// This is a update function for intersect_count/ORTHOGONAL_BITMAP_INTERSECT_COUNT/ORTHOGONAL_BITMAP_INTERSECT(bitmap,t,t)
+// This is an update function for intersect_count/ORTHOGONAL_BITMAP_INTERSECT_COUNT/ORTHOGONAL_BITMAP_INTERSECT(bitmap,t,t)
 // not for bitmap_intersect(Bitmap)
 template <typename T, typename ValType>
 void BitmapFunctions::bitmap_intersect_update(FunctionContext* ctx, const StringVal& src,
@@ -956,8 +956,8 @@ template void BitmapFunctions::bitmap_intersect_init<DateTimeValue, DateTimeVal>
         FunctionContext* ctx, StringVal* dst);
 template void BitmapFunctions::bitmap_intersect_init<DecimalV2Value, DecimalV2Val>(
         FunctionContext* ctx, StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_init<StringValue, StringVal>(FunctionContext* ctx,
-                                                                             StringVal* dst);
+template void BitmapFunctions::bitmap_intersect_init<StringRef, StringVal>(FunctionContext* ctx,
+                                                                           StringVal* dst);
 
 template void BitmapFunctions::bitmap_intersect_update<int8_t, TinyIntVal>(
         FunctionContext* ctx, const StringVal& src, const TinyIntVal& key, int num_key,
@@ -986,7 +986,7 @@ template void BitmapFunctions::bitmap_intersect_update<DateTimeValue, DateTimeVa
 template void BitmapFunctions::bitmap_intersect_update<DecimalV2Value, DecimalV2Val>(
         FunctionContext* ctx, const StringVal& src, const DecimalV2Val& key, int num_key,
         const DecimalV2Val* keys, const StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_update<StringValue, StringVal>(
+template void BitmapFunctions::bitmap_intersect_update<StringRef, StringVal>(
         FunctionContext* ctx, const StringVal& src, const StringVal& key, int num_key,
         const StringVal* keys, const StringVal* dst);
 
@@ -1017,9 +1017,9 @@ template void BitmapFunctions::bitmap_intersect_merge<DateTimeValue>(FunctionCon
 template void BitmapFunctions::bitmap_intersect_merge<DecimalV2Value>(FunctionContext* ctx,
                                                                       const StringVal& src,
                                                                       const StringVal* dst);
-template void BitmapFunctions::bitmap_intersect_merge<StringValue>(FunctionContext* ctx,
-                                                                   const StringVal& src,
-                                                                   const StringVal* dst);
+template void BitmapFunctions::bitmap_intersect_merge<StringRef>(FunctionContext* ctx,
+                                                                 const StringVal& src,
+                                                                 const StringVal* dst);
 
 template StringVal BitmapFunctions::bitmap_intersect_serialize<int8_t>(FunctionContext* ctx,
                                                                        const StringVal& src);
@@ -1039,8 +1039,8 @@ template StringVal BitmapFunctions::bitmap_intersect_serialize<DateTimeValue>(Fu
                                                                               const StringVal& src);
 template StringVal BitmapFunctions::bitmap_intersect_serialize<DecimalV2Value>(
         FunctionContext* ctx, const StringVal& src);
-template StringVal BitmapFunctions::bitmap_intersect_serialize<StringValue>(FunctionContext* ctx,
-                                                                            const StringVal& src);
+template StringVal BitmapFunctions::bitmap_intersect_serialize<StringRef>(FunctionContext* ctx,
+                                                                          const StringVal& src);
 
 template BigIntVal BitmapFunctions::bitmap_intersect_finalize<int8_t>(FunctionContext* ctx,
                                                                       const StringVal& src);
@@ -1060,8 +1060,8 @@ template BigIntVal BitmapFunctions::bitmap_intersect_finalize<DateTimeValue>(Fun
                                                                              const StringVal& src);
 template BigIntVal BitmapFunctions::bitmap_intersect_finalize<DecimalV2Value>(FunctionContext* ctx,
                                                                               const StringVal& src);
-template BigIntVal BitmapFunctions::bitmap_intersect_finalize<StringValue>(FunctionContext* ctx,
-                                                                           const StringVal& src);
+template BigIntVal BitmapFunctions::bitmap_intersect_finalize<StringRef>(FunctionContext* ctx,
+                                                                         const StringVal& src);
 
 template void BitmapFunctions::orthogonal_bitmap_intersect_count_init<int8_t, TinyIntVal>(
         FunctionContext* ctx, StringVal* dst);
@@ -1075,7 +1075,7 @@ template void BitmapFunctions::orthogonal_bitmap_intersect_count_init<float, Flo
         FunctionContext* ctx, StringVal* dst);
 template void BitmapFunctions::orthogonal_bitmap_intersect_count_init<double, DoubleVal>(
         FunctionContext* ctx, StringVal* dst);
-template void BitmapFunctions::orthogonal_bitmap_intersect_count_init<StringValue, StringVal>(
+template void BitmapFunctions::orthogonal_bitmap_intersect_count_init<StringRef, StringVal>(
         FunctionContext* ctx, StringVal* dst);
 
 template void BitmapFunctions::orthogonal_bitmap_intersect_init<int8_t, TinyIntVal>(
@@ -1090,7 +1090,7 @@ template void BitmapFunctions::orthogonal_bitmap_intersect_init<float, FloatVal>
         FunctionContext* ctx, StringVal* dst);
 template void BitmapFunctions::orthogonal_bitmap_intersect_init<double, DoubleVal>(
         FunctionContext* ctx, StringVal* dst);
-template void BitmapFunctions::orthogonal_bitmap_intersect_init<StringValue, StringVal>(
+template void BitmapFunctions::orthogonal_bitmap_intersect_init<StringRef, StringVal>(
         FunctionContext* ctx, StringVal* dst);
 
 template StringVal BitmapFunctions::orthogonal_bitmap_intersect_serialize<int8_t>(
@@ -1105,7 +1105,7 @@ template StringVal BitmapFunctions::orthogonal_bitmap_intersect_serialize<float>
         FunctionContext* ctx, const StringVal& src);
 template StringVal BitmapFunctions::orthogonal_bitmap_intersect_serialize<double>(
         FunctionContext* ctx, const StringVal& src);
-template StringVal BitmapFunctions::orthogonal_bitmap_intersect_serialize<StringValue>(
+template StringVal BitmapFunctions::orthogonal_bitmap_intersect_serialize<StringRef>(
         FunctionContext* ctx, const StringVal& src);
 
 template BigIntVal BitmapFunctions::orthogonal_bitmap_intersect_finalize<int8_t>(
@@ -1120,7 +1120,7 @@ template BigIntVal BitmapFunctions::orthogonal_bitmap_intersect_finalize<float>(
         FunctionContext* ctx, const StringVal& src);
 template BigIntVal BitmapFunctions::orthogonal_bitmap_intersect_finalize<double>(
         FunctionContext* ctx, const StringVal& src);
-template BigIntVal BitmapFunctions::orthogonal_bitmap_intersect_finalize<StringValue>(
+template BigIntVal BitmapFunctions::orthogonal_bitmap_intersect_finalize<StringRef>(
         FunctionContext* ctx, const StringVal& src);
 
 template StringVal BitmapFunctions::orthogonal_bitmap_intersect_count_serialize<int8_t>(
@@ -1135,6 +1135,6 @@ template StringVal BitmapFunctions::orthogonal_bitmap_intersect_count_serialize<
         FunctionContext* ctx, const StringVal& src);
 template StringVal BitmapFunctions::orthogonal_bitmap_intersect_count_serialize<double>(
         FunctionContext* ctx, const StringVal& src);
-template StringVal BitmapFunctions::orthogonal_bitmap_intersect_count_serialize<StringValue>(
+template StringVal BitmapFunctions::orthogonal_bitmap_intersect_count_serialize<StringRef>(
         FunctionContext* ctx, const StringVal& src);
 } // namespace doris

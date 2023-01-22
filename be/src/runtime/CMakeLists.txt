@@ -41,7 +41,6 @@ set(RUNTIME_FILES
     runtime_state.cpp
     runtime_filter_mgr.cpp
     runtime_predicate.cpp
-    string_value.cpp
     jsonb_value.cpp
     thread_context.cpp
     thread_resource_mgr.cpp

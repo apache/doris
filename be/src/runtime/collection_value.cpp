@@ -23,9 +23,9 @@
 #include "common/utils.h"
 #include "runtime/mem_pool.h"
 #include "runtime/raw_value.h"
-#include "runtime/string_value.h"
 #include "runtime/types.h"
 #include "util/mem_util.hpp"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
@@ -87,19 +87,19 @@ struct CollectionValueSubTypeTrait<TYPE_DOUBLE> {
 
 template <>
 struct CollectionValueSubTypeTrait<TYPE_CHAR> {
-    using CppType = StringValue;
+    using CppType = StringRef;
     using AnyValType = StringVal;
 };
 
 template <>
 struct CollectionValueSubTypeTrait<TYPE_VARCHAR> {
-    using CppType = StringValue;
+    using CppType = StringRef;
     using AnyValType = StringVal;
 };
 
 template <>
 struct CollectionValueSubTypeTrait<TYPE_STRING> {
-    using CppType = StringValue;
+    using CppType = StringRef;
     using AnyValType = StringVal;
 };
 
@@ -186,43 +186,43 @@ struct ArrayIteratorFunctions : public GenericArrayIteratorFunctions<type> {};
 
 template <PrimitiveType type>
 struct ArrayIteratorFunctionsForString : public GenericArrayIteratorFunctions<type> {
-    using CppType = StringValue;
+    using CppType = StringRef;
     using AnyValType = StringVal;
 
     static void shallow_set(void* item, const AnyVal* value) {
         const auto* src = static_cast<const AnyValType*>(value);
         auto* dst = static_cast<CppType*>(item);
-        dst->ptr = convert_to<char*>(src->ptr);
-        dst->len = src->len;
+        dst->data = convert_to<char*>(src->ptr);
+        dst->size = src->len;
     }
     static void shallow_get(AnyVal* value, const void* item) {
         const auto* src = static_cast<const CppType*>(item);
         auto* dst = static_cast<AnyValType*>(value);
-        dst->ptr = convert_to<uint8_t*>(src->ptr);
-        dst->len = src->len;
+        dst->ptr = convert_to<uint8_t*>(src->data);
+        dst->len = src->size;
     }
     static void self_deep_copy(void* item, const TypeDescriptor&,
                                const GenMemFootprintFunc& gen_mem_footprint, bool convert_ptrs) {
         auto* string = static_cast<CppType*>(item);
-        if (!string->len) {
+        if (!string->size) {
             return;
         }
-        MemFootprint footprint = gen_mem_footprint(string->len);
+        MemFootprint footprint = gen_mem_footprint(string->size);
         int64_t offset = footprint.first;
         auto* copied_string = reinterpret_cast<char*>(footprint.second);
-        memory_copy(copied_string, string->ptr, string->len);
-        string->ptr = (convert_ptrs ? convert_to<char*>(offset) : copied_string);
+        memory_copy(copied_string, string->data, string->size);
+        string->data = (convert_ptrs ? convert_to<char*>(offset) : copied_string);
     }
     static void deserialize(void* item, const char* tuple_data, const TypeDescriptor& type_desc) {
         DCHECK((item != nullptr) && (tuple_data != nullptr)) << "item or tuple_data is nullptr";
         auto* string_value = static_cast<CppType*>(item);
-        if (string_value->len) {
-            int64_t offset = convert_to<int64_t>(string_value->ptr);
-            string_value->ptr = convert_to<char*>(tuple_data + offset);
+        if (string_value->size) {
+            int64_t offset = convert_to<int64_t>(string_value->data);
+            string_value->data = convert_to<char*>(tuple_data + offset);
         }
     }
     static size_t get_byte_size(const void* item, const TypeDescriptor&) {
-        return static_cast<const CppType*>(item)->len;
+        return static_cast<const CppType*>(item)->size;
     }
 };
 

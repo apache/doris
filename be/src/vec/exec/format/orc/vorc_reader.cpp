@@ -308,8 +308,8 @@ static std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* ty
         case orc::TypeKind::BINARY:
         case orc::TypeKind::CHAR:
         case orc::TypeKind::VARCHAR: {
-            StringValue* string_value = (StringValue*)value;
-            return std::make_tuple(true, orc::Literal(string_value->ptr, string_value->len));
+            StringRef* string_value = (StringRef*)value;
+            return std::make_tuple(true, orc::Literal(string_value->data, string_value->size));
         }
         case orc::TypeKind::DECIMAL: {
             int128_t decimal_value;

@@ -37,8 +37,8 @@ public:
     RowSource(uint16_t data) : _data(data) {}
     RowSource(uint16_t source_num, bool agg_flag);
 
-    uint16_t get_source_num();
-    bool agg_flag();
+    uint16_t get_source_num() const;
+    bool agg_flag() const;
     void set_agg_flag(bool agg_flag);
     uint16_t data() const;
 

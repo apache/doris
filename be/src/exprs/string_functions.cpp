@@ -421,8 +421,8 @@ IntVal StringFunctions::instr(FunctionContext* context, const StringVal& str,
     if (substr.len == 0) {
         return IntVal(1);
     }
-    StringValue str_sv = StringValue::from_string_val(str);
-    StringValue substr_sv = StringValue::from_string_val(substr);
+    StringRef str_sv = StringRef(str);
+    StringRef substr_sv = StringRef(substr);
     StringSearch search(&substr_sv);
     // Hive returns positions starting from 1.
     int loc = search.search(&str_sv);
@@ -467,17 +467,17 @@ IntVal StringFunctions::locate_pos(FunctionContext* context, const StringVal& su
     if (start_pos.val <= 0 || start_pos.val > str.len || start_pos.val > char_len) {
         return IntVal(0);
     }
-    StringValue substr_sv = StringValue::from_string_val(substr);
+    StringRef substr_sv = StringRef(substr);
     StringSearch search(&substr_sv);
     // Input start_pos.val starts from 1.
-    StringValue adjusted_str(reinterpret_cast<char*>(str.ptr) + index[start_pos.val - 1],
-                             str.len - index[start_pos.val - 1]);
+    StringRef adjusted_str(reinterpret_cast<char*>(str.ptr) + index[start_pos.val - 1],
+                           str.len - index[start_pos.val - 1]);
     int32_t match_pos = search.search(&adjusted_str);
     if (match_pos >= 0) {
         // Hive returns the position in the original string starting from 1.
         size_t char_len = 0;
         for (size_t i = 0, char_size = 0; i < match_pos; i += char_size) {
-            char_size = UTF8_BYTE_LENGTH[(unsigned char)(adjusted_str.ptr)[i]];
+            char_size = UTF8_BYTE_LENGTH[(unsigned char)(adjusted_str.data)[i]];
             ++char_len;
         }
         match_pos = char_len;
@@ -735,14 +735,14 @@ IntVal StringFunctions::find_in_set(FunctionContext* context, const StringVal& s
     int32_t token_index = 1;
     int32_t start = 0;
     int32_t end;
-    StringValue str_sv = StringValue::from_string_val(str);
+    StringRef str_sv = StringRef(str);
     do {
         end = start;
         // Position end.
         while (end < str_set.len && str_set.ptr[end] != ',') {
             ++end;
         }
-        StringValue token(reinterpret_cast<char*>(str_set.ptr) + start, end - start);
+        StringRef token(reinterpret_cast<char*>(str_set.ptr) + start, end - start);
         if (str_sv.eq(token)) {
             return IntVal(token_index);
         }
@@ -767,7 +767,7 @@ void StringFunctions::parse_url_prepare(FunctionContext* ctx,
         return;
     }
     UrlParser::UrlPart* url_part = new UrlParser::UrlPart;
-    *url_part = UrlParser::get_url_part(StringValue::from_string_val(*part));
+    *url_part = UrlParser::get_url_part(StringRef(*part));
     if (*url_part == UrlParser::INVALID) {
         std::stringstream ss;
         ss << "Invalid URL part: " << AnyValUtil::to_string(*part) << std::endl
@@ -793,11 +793,11 @@ StringVal StringFunctions::parse_url(FunctionContext* ctx, const StringVal& url,
         url_part = *reinterpret_cast<UrlParser::UrlPart*>(state);
     } else {
         DCHECK(!ctx->is_arg_constant(1));
-        url_part = UrlParser::get_url_part(StringValue::from_string_val(newPart));
+        url_part = UrlParser::get_url_part(StringRef(newPart));
     }
 
-    StringValue result;
-    if (!UrlParser::parse_url(StringValue::from_string_val(url), url_part, &result)) {
+    StringRef result;
+    if (!UrlParser::parse_url(StringRef(url), url_part, &result)) {
         // url is malformed, or url_part is invalid.
         if (url_part == UrlParser::INVALID) {
             std::stringstream ss;
@@ -836,12 +836,11 @@ StringVal StringFunctions::parse_url_key(FunctionContext* ctx, const StringVal& 
         url_part = *reinterpret_cast<UrlParser::UrlPart*>(state);
     } else {
         DCHECK(!ctx->is_arg_constant(1));
-        url_part = UrlParser::get_url_part(StringValue::from_string_val(part));
+        url_part = UrlParser::get_url_part(StringRef(part));
     }
 
-    StringValue result;
-    if (!UrlParser::parse_url_key(StringValue::from_string_val(url), url_part,
-                                  StringValue::from_string_val(key), &result)) {
+    StringRef result;
+    if (!UrlParser::parse_url_key(StringRef(url), url_part, StringRef(key), &result)) {
         // url is malformed, or url_part is invalid.
         if (url_part == UrlParser::INVALID) {
             std::stringstream ss;

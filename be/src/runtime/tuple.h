@@ -28,7 +28,7 @@
 
 namespace doris {
 
-struct StringValue;
+struct StringRef;
 class CollectionValue;
 class TupleDescriptor;
 class DateTimeValue;
@@ -115,7 +115,7 @@ public:
     template <bool collect_string_vals>
     void materialize_exprs(TupleRow* row, const TupleDescriptor& desc,
                            const std::vector<ExprContext*>& materialize_expr_ctxs, MemPool* pool,
-                           std::vector<StringValue*>* non_null_var_len_values, int* total_var_len);
+                           std::vector<StringRef*>* non_null_var_len_values, int* total_var_len);
 
     // Turn null indicator bit on.
     // Turn null indicator bit on. For non-nullable slots, the mask will be 0 and
@@ -147,14 +147,14 @@ public:
         return &_data[offset];
     }
 
-    StringValue* get_string_slot(int offset) {
+    StringRef* get_string_slot(int offset) {
         DCHECK(offset != -1); // -1 offset indicates non-materialized slot
-        return reinterpret_cast<StringValue*>(&_data[offset]);
+        return reinterpret_cast<StringRef*>(&_data[offset]);
     }
 
-    const StringValue* get_string_slot(int offset) const {
+    const StringRef* get_string_slot(int offset) const {
         DCHECK(offset != -1); // -1 offset indicates non-materialized slot
-        return reinterpret_cast<const StringValue*>(&_data[offset]);
+        return reinterpret_cast<const StringRef*>(&_data[offset]);
     }
 
     CollectionValue* get_collection_slot(int offset) {

@@ -29,12 +29,12 @@
 #include "olap/tablet.h"
 #include "runtime/descriptors.h"
 #include "runtime/primitive_type.h"
-#include "runtime/string_value.h"
+#include "vec/common/string_ref.h"
 namespace doris {
 SchemaScanner::ColumnDesc SchemaRowsetsScanner::_s_tbls_columns[] = {
         //   name,       type,          size,     is_null
         {"BACKEND_ID", TYPE_BIGINT, sizeof(int64_t), true},
-        {"ROWSET_ID", TYPE_VARCHAR, sizeof(StringValue), true},
+        {"ROWSET_ID", TYPE_VARCHAR, sizeof(StringRef), true},
         {"TABLET_ID", TYPE_BIGINT, sizeof(int64_t), true},
         {"ROWSET_NUM_ROWS", TYPE_BIGINT, sizeof(int64_t), true},
         {"TXN_ID", TYPE_BIGINT, sizeof(int64_t), true},
@@ -109,11 +109,11 @@ Status SchemaRowsetsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     // ROWSET_ID
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
         std::string rowset_id = rowset->rowset_id().to_string();
-        str_slot->ptr = (char*)pool->allocate(rowset_id.size());
-        str_slot->len = rowset_id.size();
-        memcpy(str_slot->ptr, rowset_id.c_str(), str_slot->len);
+        str_slot->data = (char*)pool->allocate(rowset_id.size());
+        str_slot->size = rowset_id.size();
+        memcpy(const_cast<char*>(str_slot->data), rowset_id.c_str(), str_slot->size);
     }
     // TABLET_ID
     {

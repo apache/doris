@@ -28,7 +28,7 @@
 #include <string_view>
 
 #include "gutil/strings/numbers.h"
-#include "runtime/string_value.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 

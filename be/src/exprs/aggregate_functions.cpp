@@ -32,10 +32,10 @@
 #include "olap/hll.h"
 #include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
-#include "runtime/string_value.h"
 #include "udf/udf_internal.h"
 #include "util/counts.h"
 #include "util/tdigest.h"
+#include "vec/common/string_ref.h"
 
 // TODO: this file should be cross compiled and then all of the builtin
 // aggregate functions will have a codegen enabled path. Then we can remove
@@ -703,7 +703,7 @@ void AggregateFunctions::min(FunctionContext* ctx, const StringVal& src, StringV
         return;
     }
 
-    if (dst->is_null || StringValue::from_string_val(src) < StringValue::from_string_val(*dst)) {
+    if (dst->is_null || StringRef(src) < StringRef(*dst)) {
         if (!dst->is_null) {
             ctx->free(dst->ptr);
         }
@@ -719,7 +719,7 @@ void AggregateFunctions::max(FunctionContext* ctx, const StringVal& src, StringV
         return;
     }
 
-    if (dst->is_null || StringValue::from_string_val(src) > StringValue::from_string_val(*dst)) {
+    if (dst->is_null || StringRef(src) > StringRef(*dst)) {
         if (!dst->is_null) {
             ctx->free(dst->ptr);
         }
@@ -1369,15 +1369,15 @@ public:
 
     static void destroy(const StringVal& dst) { delete (MultiDistinctStringCountState*)dst.ptr; }
 
-    void update(StringValue* sv) { _set.insert(sv); }
+    void update(StringRef* sv) { _set.insert(sv); }
 
     StringVal serialize(FunctionContext* ctx) {
         // calculate total serialize buffer length
         int total_serialized_set_length = 1;
         HybridSetBase::IteratorBase* iterator = _set.begin();
         while (iterator->has_next()) {
-            const StringValue* value = reinterpret_cast<const StringValue*>(iterator->get_value());
-            total_serialized_set_length += STRING_LENGTH_RECORD_LENGTH + value->len;
+            const StringRef* value = reinterpret_cast<const StringRef*>(iterator->get_value());
+            total_serialized_set_length += STRING_LENGTH_RECORD_LENGTH + value->size;
             iterator->next();
         }
         StringVal result(ctx, total_serialized_set_length);
@@ -1387,14 +1387,14 @@ public:
         writer++;
         iterator = _set.begin();
         while (iterator->has_next()) {
-            const StringValue* value = reinterpret_cast<const StringValue*>(iterator->get_value());
+            const StringRef* value = reinterpret_cast<const StringRef*>(iterator->get_value());
             // length, it is unnecessary to consider little or big endian for
             // all running in little-endian.
-            *(int*)writer = value->len;
+            *(int*)writer = value->size;
             writer += STRING_LENGTH_RECORD_LENGTH;
             // value
-            memcpy(writer, value->ptr, value->len);
-            writer += value->len;
+            memcpy(writer, value->data, value->size);
+            writer += value->size;
             iterator->next();
         }
         return result;
@@ -1410,7 +1410,7 @@ public:
         while (reader < end) {
             const int length = *(int*)reader;
             reader += STRING_LENGTH_RECORD_LENGTH;
-            StringValue value((char*)reader, length);
+            StringRef value((char*)reader, length);
             _set.insert(&value);
             reader += length;
         }
@@ -1626,7 +1626,7 @@ void AggregateFunctions::count_distinct_string_update(FunctionContext* ctx, Stri
     if (src.is_null) return;
     MultiDistinctStringCountState* state =
             reinterpret_cast<MultiDistinctStringCountState*>(dst->ptr);
-    StringValue sv = StringValue::from_string_val(src);
+    StringRef sv = StringRef(src);
     state->update(&sv);
 }
 

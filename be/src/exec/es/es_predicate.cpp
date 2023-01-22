@@ -31,8 +31,8 @@
 #include "exprs/in_predicate.h"
 #include "runtime/datetime_value.h"
 #include "runtime/large_int_value.h"
-#include "runtime/string_value.h"
 #include "runtime/tuple_row.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
@@ -124,7 +124,7 @@ double ExtLiteral::get_double() {
 
 std::string ExtLiteral::get_string() {
     DCHECK(_type == TYPE_VARCHAR || _type == TYPE_CHAR || _type == TYPE_STRING);
-    return (reinterpret_cast<StringValue*>(_value))->to_string();
+    return (reinterpret_cast<StringRef*>(_value))->to_string();
 }
 
 std::string ExtLiteral::get_date_string() {

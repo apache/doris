@@ -19,19 +19,19 @@
 
 #include "exec/schema_scanner/schema_helper.h"
 #include "runtime/primitive_type.h"
-#include "runtime/string_value.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
 SchemaScanner::ColumnDesc SchemaTablesScanner::_s_tbls_columns[] = {
         //   name,       type,          size,     is_null
-        {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"TABLE_SCHEMA", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"TABLE_NAME", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"TABLE_TYPE", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"ENGINE", TYPE_VARCHAR, sizeof(StringValue), true},
+        {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"TABLE_SCHEMA", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"TABLE_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"TABLE_TYPE", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"ENGINE", TYPE_VARCHAR, sizeof(StringRef), true},
         {"VERSION", TYPE_BIGINT, sizeof(int64_t), true},
-        {"ROW_FORMAT", TYPE_VARCHAR, sizeof(StringValue), true},
+        {"ROW_FORMAT", TYPE_VARCHAR, sizeof(StringRef), true},
         {"TABLE_ROWS", TYPE_BIGINT, sizeof(int64_t), true},
         {"AVG_ROW_LENGTH", TYPE_BIGINT, sizeof(int64_t), true},
         {"DATA_LENGTH", TYPE_BIGINT, sizeof(int64_t), true},
@@ -42,10 +42,10 @@ SchemaScanner::ColumnDesc SchemaTablesScanner::_s_tbls_columns[] = {
         {"CREATE_TIME", TYPE_DATETIME, sizeof(DateTimeValue), true},
         {"UPDATE_TIME", TYPE_DATETIME, sizeof(DateTimeValue), true},
         {"CHECK_TIME", TYPE_DATETIME, sizeof(DateTimeValue), true},
-        {"TABLE_COLLATION", TYPE_VARCHAR, sizeof(StringValue), true},
+        {"TABLE_COLLATION", TYPE_VARCHAR, sizeof(StringRef), true},
         {"CHECKSUM", TYPE_BIGINT, sizeof(int64_t), true},
-        {"CREATE_OPTIONS", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"TABLE_COMMENT", TYPE_VARCHAR, sizeof(StringValue), false},
+        {"CREATE_OPTIONS", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"TABLE_COMMENT", TYPE_VARCHAR, sizeof(StringRef), false},
 };
 
 SchemaTablesScanner::SchemaTablesScanner()
@@ -97,57 +97,57 @@ Status SchemaTablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
             tuple->set_null(_tuple_desc->slots()[0]->null_indicator_offset());
         } else {
             void* slot = tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset());
-            StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+            StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
             std::string catalog_name = _db_result.catalogs[_db_index - 1];
-            str_slot->ptr = (char*)pool->allocate(catalog_name.size());
-            str_slot->len = catalog_name.size();
-            memcpy(str_slot->ptr, catalog_name.c_str(), str_slot->len);
+            str_slot->data = (char*)pool->allocate(catalog_name.size());
+            str_slot->size = catalog_name.size();
+            memcpy(const_cast<char*>(str_slot->data), catalog_name.c_str(), str_slot->size);
         }
     }
     // schema
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
         std::string db_name = SchemaHelper::extract_db_name(_db_result.dbs[_db_index - 1]);
-        str_slot->ptr = (char*)pool->allocate(db_name.size());
-        str_slot->len = db_name.size();
-        memcpy(str_slot->ptr, db_name.c_str(), str_slot->len);
+        str_slot->data = (char*)pool->allocate(db_name.size());
+        str_slot->size = db_name.size();
+        memcpy(const_cast<char*>(str_slot->data), db_name.c_str(), str_slot->size);
     }
     // name
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[2]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
         const std::string* src = &tbl_status.name;
-        str_slot->len = src->length();
-        str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (nullptr == str_slot->ptr) {
-            return Status::InternalError("Allocate memcpy failed.");
+        str_slot->size = src->length();
+        str_slot->data = (char*)pool->allocate(str_slot->size);
+        if (nullptr == str_slot->data) {
+            return Status::InternalError("Allocate memory failed.");
         }
-        memcpy(str_slot->ptr, src->c_str(), str_slot->len);
+        memcpy(const_cast<char*>(str_slot->data), src->c_str(), str_slot->size);
     }
     // type
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[3]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
         const std::string* src = &tbl_status.type;
-        str_slot->len = src->length();
-        str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (nullptr == str_slot->ptr) {
-            return Status::InternalError("Allocate memcpy failed.");
+        str_slot->size = src->length();
+        str_slot->data = (char*)pool->allocate(str_slot->size);
+        if (nullptr == str_slot->data) {
+            return Status::InternalError("Allocate memory failed.");
         }
-        memcpy(str_slot->ptr, src->c_str(), str_slot->len);
+        memcpy(const_cast<char*>(str_slot->data), src->c_str(), str_slot->size);
     }
     // engine
     if (tbl_status.__isset.engine) {
         void* slot = tuple->get_slot(_tuple_desc->slots()[4]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
         const std::string* src = &tbl_status.engine;
-        str_slot->len = src->length();
-        str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (nullptr == str_slot->ptr) {
-            return Status::InternalError("Allocate memcpy failed.");
+        str_slot->size = src->length();
+        str_slot->data = (char*)pool->allocate(str_slot->size);
+        if (nullptr == str_slot->data) {
+            return Status::InternalError("Allocate memory failed.");
         }
-        memcpy(str_slot->ptr, src->c_str(), str_slot->len);
+        memcpy(const_cast<char*>(str_slot->data), src->c_str(), str_slot->size);
     } else {
         tuple->set_null(_tuple_desc->slots()[4]->null_indicator_offset());
     }
@@ -222,14 +222,14 @@ Status SchemaTablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     // collation
     if (tbl_status.__isset.collation) {
         void* slot = tuple->get_slot(_tuple_desc->slots()[17]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
         const std::string* src = &tbl_status.collation;
-        str_slot->len = src->length();
-        str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        if (nullptr == str_slot->ptr) {
-            return Status::InternalError("Allocate memcpy failed.");
+        str_slot->size = src->length();
+        str_slot->data = (char*)pool->allocate(str_slot->size);
+        if (nullptr == str_slot->data) {
+            return Status::InternalError("Allocate memory failed.");
         }
-        memcpy(str_slot->ptr, src->c_str(), str_slot->len);
+        memcpy(const_cast<char*>(str_slot->data), src->c_str(), str_slot->size);
     } else {
         tuple->set_null(_tuple_desc->slots()[17]->null_indicator_offset());
     }
@@ -240,17 +240,17 @@ Status SchemaTablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     // create_comment
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[20]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
         const std::string* src = &tbl_status.comment;
-        str_slot->len = src->length();
-        if (str_slot->len == 0) {
-            str_slot->ptr = nullptr;
+        str_slot->size = src->length();
+        if (str_slot->size == 0) {
+            str_slot->data = nullptr;
         } else {
-            str_slot->ptr = (char*)pool->allocate(str_slot->len);
-            if (nullptr == str_slot->ptr) {
-                return Status::InternalError("Allocate memcpy failed.");
+            str_slot->data = (char*)pool->allocate(str_slot->size);
+            if (nullptr == str_slot->data) {
+                return Status::InternalError("Allocate memory failed.");
             }
-            memcpy(str_slot->ptr, src->c_str(), str_slot->len);
+            memcpy(const_cast<char*>(str_slot->data), src->c_str(), str_slot->size);
         }
     }
     _table_index++;

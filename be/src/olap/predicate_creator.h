@@ -116,8 +116,8 @@ public:
     }
 
 private:
-    static StringValue convert(const TabletColumn& column, const std::string& condition,
-                               MemPool* pool) {
+    static StringRef convert(const TabletColumn& column, const std::string& condition,
+                             MemPool* pool) {
         size_t length = condition.length();
         if constexpr (Type == TYPE_CHAR) {
             length = std::max(static_cast<size_t>(column.length()), length);
@@ -127,7 +127,7 @@ private:
         memset(buffer, 0, length);
         memory_copy(buffer, condition.data(), condition.length());
 
-        return StringValue(buffer, length);
+        return {buffer, length};
     }
 };
 

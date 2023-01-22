@@ -63,8 +63,8 @@ void LikePredicate::like_prepare(FunctionContext* context,
         if (pattern_val.is_null) {
             return;
         }
-        StringValue pattern = StringValue::from_string_val(pattern_val);
-        std::string pattern_str(pattern.ptr, pattern.len);
+        StringRef pattern = StringRef(pattern_val);
+        std::string pattern_str(pattern.data, pattern.size);
         std::string search_string;
         if (RE2::FullMatch(pattern_str, LIKE_ENDS_WITH_RE, &search_string)) {
             remove_escape_character(&search_string);
@@ -268,10 +268,10 @@ BooleanVal LikePredicate::constant_substring_fn(FunctionContext* context, const 
     }
     LikePredicateState* state = reinterpret_cast<LikePredicateState*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
-    if (state->search_string_sv.len == 0) {
+    if (state->search_string_sv.size == 0) {
         return BooleanVal(true);
     }
-    StringValue pattern_value = StringValue::from_string_val(val);
+    StringRef pattern_value = StringRef(val);
     return BooleanVal(state->substring_pattern.search(&pattern_value) != -1);
 }
 
@@ -282,10 +282,10 @@ BooleanVal LikePredicate::constant_starts_with_fn(FunctionContext* context, cons
     }
     LikePredicateState* state = reinterpret_cast<LikePredicateState*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
-    if (val.len < state->search_string_sv.len) {
+    if (val.len < state->search_string_sv.size) {
         return BooleanVal(false);
     } else {
-        StringValue v = StringValue(reinterpret_cast<char*>(val.ptr), state->search_string_sv.len);
+        StringRef v = StringRef(reinterpret_cast<char*>(val.ptr), state->search_string_sv.size);
         return BooleanVal(state->search_string_sv.eq((v)));
     }
 }
@@ -297,12 +297,12 @@ BooleanVal LikePredicate::constant_ends_with_fn(FunctionContext* context, const 
     }
     LikePredicateState* state = reinterpret_cast<LikePredicateState*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
-    if (val.len < state->search_string_sv.len) {
+    if (val.len < state->search_string_sv.size) {
         return BooleanVal(false);
     } else {
-        char* ptr = reinterpret_cast<char*>(val.ptr) + val.len - state->search_string_sv.len;
-        int len = state->search_string_sv.len;
-        StringValue v = StringValue(ptr, len);
+        char* ptr = reinterpret_cast<char*>(val.ptr) + val.len - state->search_string_sv.size;
+        int len = state->search_string_sv.size;
+        StringRef v = StringRef(ptr, len);
         return BooleanVal(state->search_string_sv.eq(v));
     }
 }
@@ -314,7 +314,7 @@ BooleanVal LikePredicate::constant_equals_fn(FunctionContext* context, const Str
     }
     LikePredicateState* state = reinterpret_cast<LikePredicateState*>(
             context->get_function_state(FunctionContext::THREAD_LOCAL));
-    return BooleanVal(state->search_string_sv.eq(StringValue::from_string_val(val)));
+    return BooleanVal(state->search_string_sv.eq(StringRef(val)));
 }
 
 BooleanVal LikePredicate::constant_regex_fn_partial(FunctionContext* context, const StringVal& val,

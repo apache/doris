@@ -22,8 +22,8 @@
 
 #include "olap/tablet_schema.h"
 #include "olap/types.h"
-#include "runtime/string_value.h"
 #include "testutil/array_utils.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
@@ -81,7 +81,7 @@ TEST(ArrayParserTest, TestParseVarcharArray) {
 
     char data[] = {'a', 'b', 'c'};
     int num_items = sizeof(data) / sizeof(data[0]);
-    StringValue string_values[] = {
+    StringRef string_values[] = {
             {&data[0], 1},
             {&data[1], 1},
             {&data[2], 1},

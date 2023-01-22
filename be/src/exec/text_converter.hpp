@@ -25,7 +25,6 @@
 #include "runtime/decimalv2_value.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
-#include "runtime/string_value.h"
 #include "runtime/tuple.h"
 #include "text_converter.h"
 #include "util/binary_cast.hpp"
@@ -43,7 +42,7 @@ inline bool TextConverter::write_slot(const SlotDescriptor* slot_desc, Tuple* tu
                                       const char* data, int len, bool copy_string, bool need_escape,
                                       MemPool* pool) {
     //Small batch import only \N is considered to be NULL, there is no replace_value function for batch import
-    if (true == slot_desc->is_nullable()) {
+    if (slot_desc->is_nullable()) {
         if (len == 2 && data[0] == '\\' && data[1] == 'N') {
             tuple->set_null(slot_desc->null_indicator_offset());
             return true;
@@ -61,20 +60,20 @@ inline bool TextConverter::write_slot(const SlotDescriptor* slot_desc, Tuple* tu
     case TYPE_VARCHAR:
     case TYPE_CHAR:
     case TYPE_STRING: {
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        str_slot->ptr = const_cast<char*>(data);
-        str_slot->len = len;
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
+        str_slot->data = const_cast<char*>(data);
+        str_slot->size = len;
         if (len != 0 && (copy_string || need_escape)) {
-            DCHECK(pool != NULL);
+            DCHECK(pool != nullptr);
             char* slot_data = reinterpret_cast<char*>(pool->allocate(len));
 
             if (need_escape) {
-                unescape_string(data, slot_data, &str_slot->len);
+                unescape_string(data, slot_data, &str_slot->size);
             } else {
-                memcpy(slot_data, data, str_slot->len);
+                memcpy(slot_data, data, str_slot->size);
             }
 
-            str_slot->ptr = slot_data;
+            str_slot->data = slot_data;
         }
 
         break;
