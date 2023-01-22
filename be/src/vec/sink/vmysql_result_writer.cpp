@@ -252,15 +252,17 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
             }
             if constexpr (type == TYPE_DATEV2) {
                 auto time_num = data[i];
-                DateV2Value<DateV2ValueType> date_val = binary_cast<UInt32, DateV2Value<DateV2ValueType>>(time_num);
+                DateV2Value<DateV2ValueType> date_val =
+                        binary_cast<UInt32, DateV2Value<DateV2ValueType>>(time_num);
                 buf_ret = rows_buffer[i].push_vec_datetime(date_val);
             }
             if constexpr (type == TYPE_DATETIMEV2) {
                 auto time_num = data[i];
                 char buf[64];
-                DateV2Value<DateTimeV2ValueType> date_val = binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(time_num);
-                char* pos = date_val.to_string(buf,scale);
-                buf_ret = rows_buffer[i].push_string(buf,pos - buf -1);
+                DateV2Value<DateTimeV2ValueType> date_val =
+                        binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(time_num);
+                char* pos = date_val.to_string(buf, scale);
+                buf_ret = rows_buffer[i].push_string(buf, pos - buf - 1);
             }
             if constexpr (type == TYPE_DECIMALV2) {
                 DecimalV2Value decimal_val(data[i]);
