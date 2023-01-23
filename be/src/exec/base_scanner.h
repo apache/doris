@@ -73,9 +73,6 @@ public:
     // Close this scanner
     virtual void close() = 0;
 
-    void fill_slots_of_columns_from_path(int start,
-                                         const std::vector<std::string>& columns_from_path);
-
 protected:
     Status _fill_dest_block(vectorized::Block* dest_block, bool* eof);
     virtual Status _init_src_block();
@@ -98,11 +95,6 @@ protected:
     // slots for value read from broker file
     std::vector<SlotDescriptor*> _src_slot_descs;
     std::unique_ptr<RowDescriptor> _row_desc;
-    Tuple* _src_tuple;
-    TupleRow* _src_tuple_row;
-
-    // Mem pool used to allocate _src_tuple and _src_tuple_row
-    std::unique_ptr<MemPool> _mem_pool;
 
     // Dest tuple descriptor and dest expr context
     const TupleDescriptor* _dest_tuple_desc;

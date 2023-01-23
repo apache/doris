@@ -40,9 +40,6 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
           _broker_addresses(broker_addresses),
           _next_range(0),
           _counter(counter),
-          _src_tuple(nullptr),
-          _src_tuple_row(nullptr),
-          _mem_pool(std::make_unique<MemPool>()),
           _dest_tuple_desc(nullptr),
           _pre_filter_texprs(pre_filter_texprs),
           _strict_mode(false),
@@ -107,10 +104,6 @@ Status BaseScanner::init_expr_ctxes() {
         }
         _src_slot_descs.emplace_back(it->second);
     }
-    // Construct source tuple and tuple row
-    _src_tuple = (Tuple*)_mem_pool->allocate(src_tuple_desc->byte_size());
-    _src_tuple_row = (TupleRow*)_mem_pool->allocate(sizeof(Tuple*));
-    _src_tuple_row->set_tuple(0, _src_tuple);
     _row_desc.reset(new RowDescriptor(_state->desc_tbl(),
                                       std::vector<TupleId>({_params.src_tuple_id}),
                                       std::vector<bool>({false})));
@@ -305,20 +298,6 @@ Status BaseScanner::_fill_dest_block(vectorized::Block* dest_block, bool* eof) {
     }
 
     return Status::OK();
-}
-
-void BaseScanner::fill_slots_of_columns_from_path(
-        int start, const std::vector<std::string>& columns_from_path) {
-    // values of columns from path can not be null
-    for (int i = 0; i < columns_from_path.size(); ++i) {
-        auto slot_desc = _src_slot_descs.at(i + start);
-        _src_tuple->set_not_null(slot_desc->null_indicator_offset());
-        void* slot = _src_tuple->get_slot(slot_desc->tuple_offset());
-        auto* str_slot = reinterpret_cast<StringRef*>(slot);
-        const std::string& column_from_path = columns_from_path[i];
-        str_slot->data = column_from_path.c_str();
-        str_slot->size = column_from_path.size();
-    }
 }
 
 void BaseScanner::close() {
