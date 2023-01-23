@@ -22,7 +22,6 @@
 #include "exec/exec_node.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_state.h"
-#include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
 #include "vec/common/string_ref.h"
 

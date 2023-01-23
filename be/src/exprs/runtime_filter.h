@@ -31,7 +31,6 @@ namespace doris {
 class ObjectPool;
 class RuntimePredicateWrapper;
 class MemTracker;
-class TupleRow;
 class PPublishFilterRequest;
 class PMergeFilterRequest;
 class TRuntimeFilterDesc;

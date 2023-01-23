@@ -35,7 +35,6 @@ enum JsonFunctionType {
 };
 
 class OpcodeRegistry;
-class TupleRow;
 
 struct JsonPath {
     std::string key; // key of a json object

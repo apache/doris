@@ -26,7 +26,6 @@
 #include "agent/be_exec_version_manager.h"
 #include "exec/schema_scanner.h"
 #include "gen_cpp/data.pb.h"
-#include "runtime/tuple_row.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_decimal.h"
 #include "vec/columns/column_nullable.h"

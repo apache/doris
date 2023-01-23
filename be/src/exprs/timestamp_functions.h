@@ -27,7 +27,6 @@
 namespace doris {
 
 class OpcodeRegistry;
-class TupleRow;
 
 // The context used for timestamp function prepare phase,
 // to save the converted date formatter, so that it doesn't

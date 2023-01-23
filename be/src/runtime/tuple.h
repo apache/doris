@@ -32,7 +32,6 @@ struct StringRef;
 class CollectionValue;
 class TupleDescriptor;
 class DateTimeValue;
-class TupleRow;
 
 // A tuple is stored as a contiguous sequence of bytes containing a fixed number
 // of fixed-size slots. The slots are arranged in order of increasing byte length;

@@ -28,7 +28,6 @@
 #include "runtime/dpp_sink_internal.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
-#include "runtime/tuple_row.h"
 #include "util/file_utils.h"
 
 namespace doris {

@@ -29,7 +29,6 @@
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
 #include "runtime/raw_value.h"
-#include "runtime/tuple_row.h"
 #include "util/mem_util.hpp"
 #include "vec/common/string_ref.h"
 

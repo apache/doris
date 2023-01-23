@@ -39,7 +39,6 @@ class ObjectPool;
 class Counters;
 class RuntimeState;
 class TPlan;
-class TupleRow;
 class MemTracker;
 
 namespace vectorized {

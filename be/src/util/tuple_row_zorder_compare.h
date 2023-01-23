@@ -22,7 +22,6 @@
 #include "runtime/descriptors.h"
 #include "runtime/raw_value.h"
 #include "runtime/tuple.h"
-#include "runtime/tuple_row.h"
 
 namespace doris {
 class RowComparator {

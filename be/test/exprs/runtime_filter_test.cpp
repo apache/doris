@@ -116,17 +116,4 @@ IRuntimeFilter* create_runtime_filter(TRuntimeFilterType::type type, TQueryOptio
     return status.ok() ? runtime_filter : nullptr;
 }
 
-std::vector<TupleRow>* create_rows(ObjectPool* _obj_pool, int from, int to) {
-    auto& rows = *(_obj_pool->add(new std::vector<TupleRow>(to - from + 1)));
-    int i = 0;
-    while (from + i <= to) {
-        std::array<int, 2>* data = _obj_pool->add(new std::array<int, 2>());
-        data->at(0) = data->at(1) = from + i;
-        TupleRow row;
-        row._tuples[0] = (Tuple*)data->data();
-        rows[i++] = row;
-    }
-    return &rows;
-}
-
 } // namespace doris
