@@ -45,7 +45,6 @@ USING_DORIS_UDF;
 namespace doris {
 
 class Expr;
-class ExprContext;
 class ObjectPool;
 class RowDescriptor;
 class RuntimeState;
@@ -245,7 +244,6 @@ protected:
     friend class SetVar;
     friend class NativeUdfExpr;
     friend class JsonFunctions;
-    friend class ExprContext;
     friend class HllHashFunction;
 
     int fn_ctx_idx() const { return _fn_ctx_idx; }
