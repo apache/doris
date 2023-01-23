@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "runtime/large_int_value.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "util/time.h"
@@ -362,6 +363,7 @@ private:
     WrapperPtr _wrapper;
 };
 
+// copied from expr.h since it is only used in runtime filter
 template <PrimitiveType T>
 Status create_texpr_literal_node(const void* data, TExprNode* node, int precision = 0,
                                  int scale = 0) {
