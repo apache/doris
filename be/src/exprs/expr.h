@@ -52,7 +52,6 @@ class RuntimeState;
 class TColumnValue;
 class TExpr;
 class TExprNode;
-class Literal;
 class MemTracker;
 struct UserFunctionCacheEntry;
 
@@ -239,7 +238,6 @@ protected:
     friend class TimestampFunctions;
     friend class ConditionalFunctions;
     friend class UtilityFunctions;
-    friend class InPredicate;
     friend class InfoFunc;
     friend class FunctionCall;
     friend class HashJoinNode;
@@ -247,7 +245,6 @@ protected:
     friend class SetVar;
     friend class NativeUdfExpr;
     friend class JsonFunctions;
-    friend class Literal;
     friend class ExprContext;
     friend class HllHashFunction;
 

@@ -29,11 +29,8 @@ add_library(Exprs
   decimalv2_operators.cpp
   time_operators.cpp
   hash_functions.cpp
-  literal.cpp
   expr.cpp
   expr_context.cpp
-  in_predicate.cpp
-  new_in_predicate.cpp
   block_bloom_filter_avx_impl.cc
   block_bloom_filter_impl.cc
   runtime_filter.cpp
@@ -42,9 +39,7 @@ add_library(Exprs
   like_predicate.cpp
   match_predicate.cpp
   math_functions.cpp
-  null_literal.cpp
   rpc_fn_comm.cpp
-  slot_ref.cpp
   string_functions.cpp
   timestamp_functions.cpp
   tuple_is_null_predicate.cpp

@@ -152,7 +152,6 @@ public:
 
 private:
     friend class Expr;
-    friend class InPredicate;
     friend class RuntimePredicateWrapper;
     friend class RowGroupReader;
 

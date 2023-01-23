@@ -26,7 +26,6 @@
 
 #include "exprs/anyval_util.h"
 #include "exprs/expr.h"
-#include "exprs/slot_ref.h"
 #include "runtime/mem_pool.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
