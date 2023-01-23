@@ -120,7 +120,7 @@ struct AggregateFunctionGroupUniqArrayData<StringRef> {
     }
 
     void read(BufferReadable& buf) {
-        size_t size;
+        UInt64 size;
         read_var_uint(size, buf);
         StringRef ref;
         for (size_t i = 0; i < size; ++i) {
