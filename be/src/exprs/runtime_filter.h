@@ -364,6 +364,7 @@ private:
 };
 
 // copied from expr.h since it is only used in runtime filter
+
 template <PrimitiveType T>
 Status create_texpr_literal_node(const void* data, TExprNode* node, int precision = 0,
                                  int scale = 0) {
@@ -494,7 +495,7 @@ Status create_texpr_literal_node(const void* data, TExprNode* node, int precisio
         (*node).__set_float_literal(float_literal);
         (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DOUBLE));
     } else if constexpr ((T == TYPE_STRING) || (T == TYPE_CHAR) || (T == TYPE_VARCHAR)) {
-        auto origin_value = reinterpret_cast<const StringValue*>(data);
+        auto origin_value = reinterpret_cast<const StringRef*>(data);
         (*node).__set_node_type(TExprNodeType::STRING_LITERAL);
         TStringLiteral string_literal;
         string_literal.__set_value(origin_value->to_string());
