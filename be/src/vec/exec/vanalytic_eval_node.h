@@ -20,6 +20,7 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include <atomic>
+#include <string>
 
 #include "exec/exec_node.h"
 #include "vec/common/arena.h"
@@ -33,6 +34,15 @@ struct BlockRowPos {
     int64_t block_num; //the pos at which block
     int64_t row_num;   //the pos at which row
     int64_t pos;       //pos = all blocks size + row_num
+    std::string debug_string() {
+        std::string res = "\t block_num: ";
+        res += std::to_string(block_num);
+        res += "\t row_num: ";
+        res += std::to_string(row_num);
+        res += "\t pos: ";
+        res += std::to_string(pos);
+        return res;
+    }
 };
 
 class AggFnEvaluator;
@@ -77,7 +87,8 @@ private:
     void _insert_result_info(int64_t current_block_rows);
     Status _output_current_block(Block* block);
     BlockRowPos _get_partition_by_end();
-    BlockRowPos _compare_row_to_find_end(int idx, BlockRowPos start, BlockRowPos end);
+    BlockRowPos _compare_row_to_find_end(int idx, BlockRowPos start, BlockRowPos end,
+                                         bool need_check_first = false);
 
     Status _fetch_next_block_data(RuntimeState* state);
     Status _consumed_block_and_init_partition(RuntimeState* state, bool* next_partition, bool* eos);
