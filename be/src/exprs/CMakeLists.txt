@@ -41,7 +41,6 @@ add_library(Exprs
   udf_builtins.cpp
   utility_functions.cpp
   json_functions.cpp
-  operators.cpp
   bitmap_function.cpp
   quantile_function.cpp
   topn_function.cpp

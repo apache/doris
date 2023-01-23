@@ -31,7 +31,6 @@
 #include "exprs/like_predicate.h"
 #include "exprs/match_predicate.h"
 #include "exprs/math_functions.h"
-#include "exprs/operators.h"
 #include "exprs/quantile_function.h"
 #include "exprs/string_functions.h"
 #include "exprs/time_operators.h"
@@ -365,7 +364,6 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     DiskInfo::init();
     MemInfo::init();
     UserFunctionCache::instance()->init(config::user_function_dir);
-    Operators::init();
     LikePredicate::init();
     StringFunctions::init();
     CastFunctions::init();
