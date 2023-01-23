@@ -31,7 +31,7 @@
 
 namespace doris {
 // this class used in cross join node
-template <typename ExprCtxType = VExprContext>
+template <typename ExprCtxType = vectorized::VExprContext>
 class RuntimeFilterSlotsCross {
 public:
     RuntimeFilterSlotsCross(const std::vector<TRuntimeFilterDesc>& runtime_filter_descs,
