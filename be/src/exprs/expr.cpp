@@ -29,7 +29,6 @@
 #include "common/status.h"
 #include "exprs/aggregate_functions.h"
 #include "exprs/anyval_util.h"
-#include "exprs/expr_context.h"
 #include "exprs/match_predicate.h"
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/primitive_type.h"

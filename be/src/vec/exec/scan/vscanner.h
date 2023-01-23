@@ -18,7 +18,6 @@
 #pragma once
 
 #include "common/status.h"
-#include "exprs/expr_context.h"
 #include "olap/tablet.h"
 #include "runtime/runtime_state.h"
 #include "vec/exprs/vexpr_context.h"

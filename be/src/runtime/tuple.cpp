@@ -25,7 +25,6 @@
 #include <vector>
 
 #include "common/utils.h"
-#include "exprs/expr_context.h"
 #include "runtime/collection_value.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"

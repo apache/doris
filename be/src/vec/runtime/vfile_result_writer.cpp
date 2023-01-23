@@ -19,7 +19,6 @@
 
 #include "common/consts.h"
 #include "common/status.h"
-#include "exprs/expr_context.h"
 #include "gutil/strings/numbers.h"
 #include "gutil/strings/substitute.h"
 #include "io/file_factory.h"

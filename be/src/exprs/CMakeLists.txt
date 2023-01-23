@@ -30,7 +30,6 @@ add_library(Exprs
   time_operators.cpp
   hash_functions.cpp
   expr.cpp
-  expr_context.cpp
   block_bloom_filter_avx_impl.cc
   block_bloom_filter_impl.cc
   runtime_filter.cpp

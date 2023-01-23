@@ -35,7 +35,6 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {
-class ExprContext;
 class ObjectPool;
 class Counters;
 class RuntimeState;
@@ -245,7 +244,6 @@ protected:
     int _id; // unique w/in single plan tree
     TPlanNodeType::type _type;
     ObjectPool* _pool;
-    std::vector<ExprContext*> _conjunct_ctxs;
     std::vector<TupleId> _tuple_ids;
 
     std::unique_ptr<doris::vectorized::VExprContext*> _vconjunct_ctx_ptr;
