@@ -29,6 +29,7 @@
 #include "util/simd/bits.h"
 #include "vec/columns/column_const.h"
 #include "vec/common/typeid_cast.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/utils/template_helpers.hpp"
 #include "vec/utils/util.hpp"
 
