@@ -435,4 +435,5 @@ public:
 private:
     typename BloomFilterTypeTraits<type>::FindOp dummy;
 };
-}
+
+} // namespace doris
