@@ -46,7 +46,6 @@
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vanalytic_eval_node.h"
 #include "vec/exec/vassert_num_rows_node.h"
-#include "vec/exec/vbroker_scan_node.h"
 #include "vec/exec/vdata_gen_scan_node.h"
 #include "vec/exec/vempty_set_node.h"
 #include "vec/exec/vexchange_node.h"
@@ -340,7 +339,6 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
     case TPlanNodeType::SELECT_NODE:
     case TPlanNodeType::REPEAT_NODE:
     case TPlanNodeType::TABLE_FUNCTION_NODE:
-    case TPlanNodeType::BROKER_SCAN_NODE:
     case TPlanNodeType::DATA_GEN_SCAN_NODE:
     case TPlanNodeType::FILE_SCAN_NODE:
     case TPlanNodeType::JDBC_SCAN_NODE:
@@ -445,10 +443,6 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         *node = pool->add(new vectorized::VExceptNode(pool, tnode, descs));
         return Status::OK();
 
-    case TPlanNodeType::BROKER_SCAN_NODE:
-        *node = pool->add(new vectorized::VBrokerScanNode(pool, tnode, descs));
-        return Status::OK();
-
     case TPlanNodeType::FILE_SCAN_NODE:
         *node = pool->add(new vectorized::NewFileScanNode(pool, tnode, descs));
         return Status::OK();
@@ -529,7 +523,6 @@ void ExecNode::collect_nodes(TPlanNodeType::type node_type, std::vector<ExecNode
 
 void ExecNode::collect_scan_nodes(vector<ExecNode*>* nodes) {
     collect_nodes(TPlanNodeType::OLAP_SCAN_NODE, nodes);
-    collect_nodes(TPlanNodeType::BROKER_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::ES_HTTP_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::DATA_GEN_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::FILE_SCAN_NODE, nodes);
