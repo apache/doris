@@ -108,12 +108,8 @@ set(VEC_FILES
   exec/vassert_num_rows_node.cpp
   exec/vrepeat_node.cpp
   exec/vtable_function_node.cpp
-  exec/vbroker_scan_node.cpp
-  exec/vbroker_scanner.cpp
-  exec/vjson_scanner.cpp
   exec/vjdbc_connector.cpp
   exec/vparquet_scanner.cpp
-  exec/vorc_scanner.cpp
   exec/join/vhash_join_node.cpp
   exec/join/vjoin_node_base.cpp
   exec/join/vnested_loop_join_node.cpp
