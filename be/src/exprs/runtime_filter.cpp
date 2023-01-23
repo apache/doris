@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "exprs/bitmapfilter_predicate.h"
 #include "exprs/create_predicate_function.h"
+#include "exprs/expr.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/minmax_predicate.h"
 #include "gen_cpp/internal_service.pb.h"

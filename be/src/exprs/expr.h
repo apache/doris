@@ -293,11 +293,6 @@ protected:
     /// Releases cache entries to LibCache in all nodes of the Expr tree.
     virtual void close();
 
-    /// Helper function that calls ctx->Register(), sets fn_context_index_, and returns the
-    /// registered FunctionContext.
-    FunctionContext* register_function_context(ExprContext* ctx, RuntimeState* state,
-                                               int varargs_buffer_size);
-
     /// Cache entry for the library implementing this function.
     UserFunctionCacheEntry* _cache_entry = nullptr;
 

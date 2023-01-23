@@ -54,17 +54,6 @@ void init_builtins_dummy() {
     AggregateFunctions::init_null(nullptr, nullptr);
 }
 
-FunctionContext* Expr::register_function_context(ExprContext* ctx, RuntimeState* state,
-                                                 int varargs_buffer_size) {
-    FunctionContext::TypeDesc return_type = AnyValUtil::column_type_to_type_desc(_type);
-    std::vector<FunctionContext::TypeDesc> arg_types;
-    for (int i = 0; i < _children.size(); ++i) {
-        arg_types.push_back(AnyValUtil::column_type_to_type_desc(_children[i]->_type));
-    }
-    _fn_context_index = ctx->register_func(state, return_type, arg_types, varargs_buffer_size);
-    return ctx->fn_context(_fn_context_index);
-}
-
 // No children here
 Expr::Expr(const Expr& expr)
         : _cache_entry(expr._cache_entry),
