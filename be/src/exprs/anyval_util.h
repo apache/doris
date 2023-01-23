@@ -24,6 +24,7 @@
 #include "runtime/collection_value.h"
 #include "runtime/primitive_type.h"
 #include "runtime/type_limit.h"
+#include "runtime/types.h"
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
 #include "util/types.h"
