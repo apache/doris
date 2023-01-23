@@ -395,8 +395,8 @@ BlockRowPos VAnalyticEvalNode::_get_partition_by_end() {
 }
 
 //_partition_by_columns,_order_by_columns save in blocks, so if need to calculate the boundary, may find in which blocks firstly
-BlockRowPos VAnalyticEvalNode::_compare_row_to_find_end(int idx, BlockRowPos start,
-                                                        BlockRowPos end) {
+BlockRowPos VAnalyticEvalNode::_compare_row_to_find_end(int idx, BlockRowPos start, BlockRowPos end,
+                                                        bool need_check_first) {
     int64_t start_init_row_num = start.row_num;
     ColumnPtr start_column = _input_blocks[start.block_num].get_by_position(idx).column;
     ColumnPtr start_next_block_column = start_column;
@@ -406,10 +406,20 @@ BlockRowPos VAnalyticEvalNode::_compare_row_to_find_end(int idx, BlockRowPos sta
     int64_t start_block_num = start.block_num;
     int64_t end_block_num = end.block_num;
     int64_t mid_blcok_num = end.block_num;
+    // To fix this problem: https://github.com/apache/doris/issues/15951
+    // in this case, the partition by column is last row of block, so it's pointed to a new block at row = 0, range is: [left, right)
+    // From the perspective of order by column, the two values are exactly equal.
+    // so the range will be get wrong because it's compare_at == 0 with next block at row = 0
+    if (need_check_first && end.block_num > 0 && end.row_num == 0) {
+        end.block_num--;
+        end_block_num--;
+        end.row_num = _input_blocks[end_block_num].rows();
+    }
     //binary search find in which block
     while (start_block_num < end_block_num) {
         mid_blcok_num = (start_block_num + end_block_num + 1) >> 1;
         start_next_block_column = _input_blocks[mid_blcok_num].get_by_position(idx).column;
+        //Compares (*this)[n] and rhs[m], this: start[init_row]  rhs: mid[0]
         if (start_column->compare_at(start_init_row_num, 0, *start_next_block_column, 1) == 0) {
             start_block_num = mid_blcok_num;
         } else {
@@ -417,6 +427,8 @@ BlockRowPos VAnalyticEvalNode::_compare_row_to_find_end(int idx, BlockRowPos sta
         }
     }
 
+    // have check the start.block_num:  start_column[start_init_row_num] with mid_blcok_num start_next_block_column[0]
+    // now next block must not be result, so need check with end_block_num: start_next_block_column[last_row]
     if (end_block_num == mid_blcok_num - 1) {
         start_next_block_column = _input_blocks[end_block_num].get_by_position(idx).column;
         int64_t block_size = _input_blocks[end_block_num].rows();
@@ -429,6 +441,7 @@ BlockRowPos VAnalyticEvalNode::_compare_row_to_find_end(int idx, BlockRowPos sta
     }
 
     //check whether need get column again, maybe same as first init
+    // if the start_block_num have move to forword, so need update start block num and compare it from row_num=0
     if (start_column.get() != start_next_block_column.get()) {
         start_init_row_num = 0;
         start.block_num = start_block_num;
@@ -437,15 +450,18 @@ BlockRowPos VAnalyticEvalNode::_compare_row_to_find_end(int idx, BlockRowPos sta
     //binary search, set start and end pos
     int64_t start_pos = start_init_row_num;
     int64_t end_pos = _input_blocks[start.block_num].rows() - 1;
+    //if end_block_num haven't moved, only start_block_num go to the end block
+    //so could used the end.row_num for binary search
     if (start.block_num == end.block_num) {
         end_pos = end.row_num;
     }
     while (start_pos < end_pos) {
         int64_t mid_pos = (start_pos + end_pos) >> 1;
-        if (start_column->compare_at(start_init_row_num, mid_pos, *start_column, 1))
+        if (start_column->compare_at(start_init_row_num, mid_pos, *start_column, 1)) {
             end_pos = mid_pos;
-        else
+        } else {
             start_pos = mid_pos + 1;
+        }
     }
     start.row_num = start_pos; //upadte row num, return the find end
     return start;
@@ -615,8 +631,8 @@ void VAnalyticEvalNode::_update_order_by_range() {
     _order_by_start = _order_by_end;
     _order_by_end = _partition_by_end;
     for (size_t i = 0; i < _order_by_eq_expr_ctxs.size(); ++i) {
-        _order_by_end =
-                _compare_row_to_find_end(_ordey_by_column_idxs[i], _order_by_start, _order_by_end);
+        _order_by_end = _compare_row_to_find_end(_ordey_by_column_idxs[i], _order_by_start,
+                                                 _order_by_end, true);
     }
     _order_by_start.pos =
             input_block_first_row_positions[_order_by_start.block_num] + _order_by_start.row_num;
