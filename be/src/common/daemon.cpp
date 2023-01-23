@@ -25,10 +25,8 @@
 #include "common/logging.h"
 #include "exprs/bitmap_function.h"
 #include "exprs/cast_functions.h"
-#include "exprs/decimalv2_operators.h"
 #include "exprs/encryption_functions.h"
 #include "exprs/hash_functions.h"
-#include "exprs/is_null_predicate.h"
 #include "exprs/json_functions.h"
 #include "exprs/like_predicate.h"
 #include "exprs/match_predicate.h"
@@ -368,14 +366,12 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     MemInfo::init();
     UserFunctionCache::instance()->init(config::user_function_dir);
     Operators::init();
-    IsNullPredicate::init();
     LikePredicate::init();
     StringFunctions::init();
     CastFunctions::init();
     MathFunctions::init();
     EncryptionFunctions::init();
     TimestampFunctions::init();
-    DecimalV2Operators::init();
     TimeOperators::init();
     UtilityFunctions::init();
     JsonFunctions::init();

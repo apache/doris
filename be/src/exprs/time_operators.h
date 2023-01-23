@@ -22,7 +22,6 @@
 #include "udf/udf.h"
 
 namespace doris {
-class Expr;
 struct ExprValue;
 class TupleRow;
 

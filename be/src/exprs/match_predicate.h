@@ -21,7 +21,6 @@
 #include <memory>
 #include <string>
 
-#include "exprs/predicate.h"
 #include "gen_cpp/Exprs_types.h"
 #include "olap/column_predicate.h"
 #include "runtime/string_search.hpp"
@@ -29,25 +28,6 @@
 namespace doris {
 
 enum class MatchType;
-
-class MatchPredicateExpr : public Predicate {
-public:
-    MatchPredicateExpr(const TExprNode& node) : Predicate(node) {}
-    virtual ~MatchPredicateExpr() {}
-    Expr* clone(ObjectPool* pool) const override {
-        return pool->add(new MatchPredicateExpr(*this));
-    }
-
-    static bool is_valid(std::string fn_name) {
-        return fn_name == "match_any" || fn_name == "match_all" || fn_name == "match_phrase" ||
-               fn_name == "match_element_eq" || fn_name == "match_element_lt" ||
-               fn_name == "match_element_gt" || fn_name == "match_element_le" ||
-               fn_name == "match_element_ge";
-    }
-
-protected:
-    friend class Expr;
-};
 
 class MatchPredicate : public ColumnPredicate {
 public:

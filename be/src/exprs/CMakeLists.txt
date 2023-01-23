@@ -26,7 +26,6 @@ add_library(Exprs
   aggregate_functions.cpp
   anyval_util.cpp
   cast_functions.cpp
-  decimalv2_operators.cpp
   time_operators.cpp
   hash_functions.cpp
   expr.cpp
@@ -34,7 +33,6 @@ add_library(Exprs
   block_bloom_filter_impl.cc
   runtime_filter.cpp
   runtime_filter_rpc.cpp
-  is_null_predicate.cpp
   like_predicate.cpp
   match_predicate.cpp
   math_functions.cpp
