@@ -21,7 +21,9 @@
 #include "common/status.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/exec_env.h"
+#include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
