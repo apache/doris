@@ -41,7 +41,6 @@ add_library(Exprs
   rpc_fn_comm.cpp
   string_functions.cpp
   timestamp_functions.cpp
-  tuple_is_null_predicate.cpp
   udf_builtins.cpp
   utility_functions.cpp
   json_functions.cpp
