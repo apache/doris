@@ -23,7 +23,6 @@
 #include <unordered_map>
 
 #include "exec/tablet_info.h"
-#include "exprs/expr.h"
 #include "olap/hll.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"

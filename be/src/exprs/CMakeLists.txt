@@ -28,7 +28,6 @@ add_library(Exprs
   cast_functions.cpp
   time_operators.cpp
   hash_functions.cpp
-  expr.cpp
   block_bloom_filter_avx_impl.cc
   block_bloom_filter_impl.cc
   runtime_filter.cpp

@@ -18,7 +18,6 @@
 #pragma once
 
 #include "common/status.h"
-#include "exprs/expr.h"
 #include "runtime/tuple.h"
 #include "util/runtime_profile.h"
 #include "vec/exprs/vexpr.h"
@@ -31,7 +30,6 @@ class TupleDescriptor;
 class TupleRow;
 class RowDescriptor;
 class RuntimeState;
-class ExprContext;
 
 namespace vectorized {
 class VExprContext;

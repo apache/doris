@@ -21,7 +21,6 @@
 #pragma once
 
 #include "common/status.h"
-#include "exprs/expr.h"
 #include "runtime/collection_value.h"
 #include "runtime/primitive_type.h"
 #include "runtime/type_limit.h"

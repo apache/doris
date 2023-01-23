@@ -22,7 +22,6 @@
 #include <sstream>
 
 #include "common/status.h"
-#include "exprs/expr.h"
 #include "exprs/runtime_filter_slots_cross.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_state.h"

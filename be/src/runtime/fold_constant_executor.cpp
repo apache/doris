@@ -21,7 +21,6 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "exprs/expr.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/exec_env.h"
