@@ -23,6 +23,7 @@
 #include "common/object_pool.h"
 #include "runtime/mem_pool.h"
 #include "runtime/memory/mem_tracker.h"
+#include "runtime/types.h"
 
 namespace doris {
 using doris_udf::BooleanVal;
