@@ -55,7 +55,6 @@ set(EXPRS_TEST_FILES
     exprs/string_functions_test.cpp
     exprs/math_functions_test.cpp
     exprs/bloom_filter_predicate_test.cpp
-    exprs/hash_function_test.cpp
 )
 set(GEO_TEST_FILES
     geo/wkt_parse_test.cpp
