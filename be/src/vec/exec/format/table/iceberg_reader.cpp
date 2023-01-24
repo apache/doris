@@ -182,6 +182,10 @@ Status IcebergTableReader::_position_delete(
                 delete_reader.get_parsed_schema(&delete_file_col_names, &delete_file_col_types);
                 init_schema = true;
             }
+            create_status = delete_reader.open();
+            if (!create_status.ok()) {
+                return nullptr;
+            }
             create_status = delete_reader.init_reader(delete_file_col_names, _not_in_file_col_names,
                                                       nullptr, nullptr, false);
             if (!create_status.ok()) {
