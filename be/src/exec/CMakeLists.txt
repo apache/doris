@@ -23,7 +23,6 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/exec")
 
 set(EXEC_FILES
     arrow/arrow_reader.cpp
-    arrow/orc_reader.cpp
     arrow/parquet_reader.cpp
     base_scanner.cpp
     data_sink.cpp

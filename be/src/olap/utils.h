@@ -35,9 +35,6 @@
 #include <vector>
 
 #include "common/logging.h"
-#if defined(__i386) || defined(__x86_64__)
-#include "olap/bhp_lib.h"
-#endif
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 
@@ -126,25 +123,8 @@ Status olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, size
 #define ADLER32_INIT adler32(0L, Z_NULL, 0)
 uint32_t olap_adler32(uint32_t adler, const char* buf, size_t len);
 
-// CRC32仅仅用在RowBlock的校验，性能优异
-#define CRC32_INIT 0xFFFFFFFF
-uint32_t olap_crc32(uint32_t crc32, const char* buf, size_t len);
-
 // 获取系统当前时间，并将时间转换为字符串
 Status gen_timestamp_string(std::string* out_string);
-
-enum ComparatorEnum {
-    COMPARATOR_LESS = 0,
-    COMPARATOR_LARGER = 1,
-};
-
-// 处理comparator functor处理过程中出现的错误
-class ComparatorException : public std::exception {
-public:
-    virtual const char* what() const throw() {
-        return "exception happens when doing binary search.";
-    }
-};
 
 // iterator offset，用于二分查找
 using iterator_offset_t = size_t;
