@@ -35,6 +35,5 @@ add_library(Exprs
   rpc_fn_comm.cpp
   string_functions.cpp
   timestamp_functions.cpp
-  udf_builtins.cpp
   json_functions.cpp
 )
