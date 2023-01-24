@@ -33,7 +33,6 @@
 #include "exprs/math_functions.h"
 #include "exprs/quantile_function.h"
 #include "exprs/string_functions.h"
-#include "exprs/time_operators.h"
 #include "exprs/timestamp_functions.h"
 #include "exprs/topn_function.h"
 #include "exprs/utility_functions.h"
@@ -370,7 +369,6 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     MathFunctions::init();
     EncryptionFunctions::init();
     TimestampFunctions::init();
-    TimeOperators::init();
     UtilityFunctions::init();
     JsonFunctions::init();
     GeoFunctions::init();

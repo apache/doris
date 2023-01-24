@@ -110,7 +110,7 @@ void _destruct_object(const void* obj, void*) {
 
 template <typename T>
 void _destruct_array(const void* array, void*) {
-    delete[] ((const T*)array);
+    delete[]((const T*)array);
 }
 
 // 根据压缩类型的不同，执行压缩。dest_buf_len是dest_buf的最大长度，
@@ -132,19 +132,6 @@ uint32_t olap_crc32(uint32_t crc32, const char* buf, size_t len);
 
 // 获取系统当前时间，并将时间转换为字符串
 Status gen_timestamp_string(std::string* out_string);
-
-enum ComparatorEnum {
-    COMPARATOR_LESS = 0,
-    COMPARATOR_LARGER = 1,
-};
-
-// 处理comparator functor处理过程中出现的错误
-class ComparatorException : public std::exception {
-public:
-    virtual const char* what() const throw() {
-        return "exception happens when doing binary search.";
-    }
-};
 
 // iterator offset，用于二分查找
 using iterator_offset_t = size_t;

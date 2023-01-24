@@ -17,7 +17,6 @@
 
 #include <gtest/gtest.h>
 
-#include "exprs/aggregate_functions.h"
 #include "testutil/function_utils.h"
 
 namespace doris {

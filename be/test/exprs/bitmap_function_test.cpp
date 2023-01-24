@@ -24,7 +24,6 @@
 #include <string>
 #include <vector>
 
-#include "exprs/aggregate_functions.h"
 #include "exprs/anyval_util.h"
 #include "testutil/function_utils.h"
 #include "util/bitmap_intersect.h"
