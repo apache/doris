@@ -91,7 +91,6 @@ set(OLAP_TEST_FILES
     olap/tablet_schema_helper.cpp
     olap/delta_writer_test.cpp
     olap/delete_handler_test.cpp
-    olap/byte_buffer_test.cpp
     olap/lru_cache_test.cpp
     olap/bloom_filter_test.cpp
     olap/itoken_extractor_test.cpp
