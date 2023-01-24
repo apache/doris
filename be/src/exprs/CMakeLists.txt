@@ -23,10 +23,8 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/exprs")
 
 add_library(Exprs
   encryption_functions.cpp
-  aggregate_functions.cpp
   anyval_util.cpp
   cast_functions.cpp
-  time_operators.cpp
   hash_functions.cpp
   block_bloom_filter_avx_impl.cc
   block_bloom_filter_impl.cc

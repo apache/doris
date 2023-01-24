@@ -54,15 +54,12 @@ set(EXPRS_TEST_FILES
     exprs/json_function_test.cpp
     exprs/string_functions_test.cpp
     exprs/timestamp_functions_test.cpp
-    exprs/percentile_approx_test.cpp
-    exprs/percentile_test.cpp
     exprs/bitmap_function_test.cpp
     exprs/encryption_functions_test.cpp
     exprs/math_functions_test.cpp
     exprs/topn_function_test.cpp
     exprs/bloom_filter_predicate_test.cpp
     exprs/quantile_function_test.cpp
-    exprs/window_funnel_test.cpp
     exprs/hash_function_test.cpp
 )
 set(GEO_TEST_FILES
@@ -91,7 +88,6 @@ set(OLAP_TEST_FILES
     olap/tablet_schema_helper.cpp
     olap/delta_writer_test.cpp
     olap/delete_handler_test.cpp
-    olap/byte_buffer_test.cpp
     olap/lru_cache_test.cpp
     olap/bloom_filter_test.cpp
     olap/itoken_extractor_test.cpp

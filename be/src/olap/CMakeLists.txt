@@ -29,10 +29,8 @@ add_library(Olap STATIC
     base_tablet.cpp
     bloom_filter.hpp
     block_column_predicate.cpp
-    byte_buffer.cpp
     compaction.cpp
-    compaction_permit_limiter.cpp
-    compress.cpp
+    compaction_permit_limiter.cpp   
     cumulative_compaction.cpp
     cumulative_compaction_policy.cpp
     delete_handler.cpp
