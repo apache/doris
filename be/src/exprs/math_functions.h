@@ -26,10 +26,6 @@
 
 namespace doris {
 
-class Expr;
-struct ExprValue;
-class TupleRow;
-
 class MathFunctions {
 public:
     static void init();

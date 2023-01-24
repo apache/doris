@@ -21,7 +21,6 @@
 #include <type_traits>
 
 #include "exec/olap_utils.h"
-#include "exprs/bloomfilter_predicate.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/match_predicate.h"

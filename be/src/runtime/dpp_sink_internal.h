@@ -28,7 +28,6 @@
 
 namespace doris {
 
-class ExprContext;
 class ObjectPool;
 class RuntimeState;
 class RowDescriptor;
@@ -182,38 +181,6 @@ private:
     bool _include_end_key;
 
     static PartRange _s_all_range;
-};
-
-class PartitionInfo {
-public:
-    PartitionInfo() : _id(-1), _distributed_bucket(0) {}
-
-    static Status from_thrift(ObjectPool* pool, const TRangePartition& t_partition,
-                              PartitionInfo* partition);
-
-    Status prepare(RuntimeState* state, const RowDescriptor& row_desc);
-
-    Status open(RuntimeState* state);
-
-    void close(RuntimeState* state);
-
-    int64_t id() const { return _id; }
-
-    const std::vector<ExprContext*>& distributed_expr_ctxs() const {
-        return _distributed_expr_ctxs;
-    }
-
-    int distributed_bucket() const { return _distributed_bucket; }
-
-    const PartRange& range() const { return _range; }
-
-private:
-    int64_t _id;
-    PartRange _range;
-    // Information used to distribute data
-    // distribute exprs
-    std::vector<ExprContext*> _distributed_expr_ctxs;
-    int32_t _distributed_bucket;
 };
 
 } // namespace doris

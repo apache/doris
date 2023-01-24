@@ -22,9 +22,6 @@
 #include "udf/udf.h"
 
 namespace doris {
-class Expr;
-struct ExprValue;
-class TupleRow;
 
 /// Implementation of the time operators. These include the cast,
 /// arithmetic and binary operators.

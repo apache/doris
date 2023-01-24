@@ -24,9 +24,7 @@
 
 namespace doris {
 
-class Expr;
 class OpcodeRegistry;
-class TupleRow;
 
 class UtilityFunctions {
 public:

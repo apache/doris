@@ -18,7 +18,6 @@
 #include "vec/exec/varrow_scanner.h"
 
 #include "exec/arrow/parquet_reader.h"
-#include "exprs/expr.h"
 #include "io/file_factory.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"

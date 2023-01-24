@@ -26,7 +26,6 @@
 #include <vector>
 
 #include "common/status.h"
-#include "exprs/expr_context.h"
 #include "runtime/descriptors.h"
 #include "vec/exprs/vexpr_context.h"
 

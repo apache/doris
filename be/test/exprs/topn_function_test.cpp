@@ -22,7 +22,6 @@
 #include <unordered_map>
 
 #include "exprs/anyval_util.h"
-#include "exprs/expr_context.h"
 #include "testutil/function_utils.h"
 #include "testutil/test_util.h"
 #include "util/topn_counter.h"

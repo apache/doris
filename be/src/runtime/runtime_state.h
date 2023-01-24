@@ -38,7 +38,6 @@ class DescriptorTbl;
 class ObjectPool;
 class Status;
 class ExecEnv;
-class Expr;
 class DateTimeValue;
 class MemTracker;
 class DataStreamRecvr;
