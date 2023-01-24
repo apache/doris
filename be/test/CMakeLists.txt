@@ -54,7 +54,6 @@ set(EXPRS_TEST_FILES
     exprs/json_function_test.cpp
     exprs/string_functions_test.cpp
     exprs/timestamp_functions_test.cpp
-    exprs/bitmap_function_test.cpp
     exprs/encryption_functions_test.cpp
     exprs/math_functions_test.cpp
     exprs/bloom_filter_predicate_test.cpp

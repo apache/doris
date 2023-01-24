@@ -23,7 +23,6 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "exprs/bitmap_function.h"
 #include "exprs/encryption_functions.h"
 #include "exprs/hash_functions.h"
 #include "exprs/json_functions.h"
@@ -366,7 +365,6 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     TimestampFunctions::init();
     JsonFunctions::init();
     GeoFunctions::init();
-    BitmapFunctions::init();
     HashFunctions::init();
     MatchPredicate::init();
 

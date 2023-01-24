@@ -37,5 +37,4 @@ add_library(Exprs
   timestamp_functions.cpp
   udf_builtins.cpp
   json_functions.cpp
-  bitmap_function.cpp
 )
