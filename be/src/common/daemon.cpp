@@ -23,14 +23,11 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "exprs/encryption_functions.h"
-#include "exprs/hash_functions.h"
 #include "exprs/json_functions.h"
 #include "exprs/like_predicate.h"
 #include "exprs/match_predicate.h"
 #include "exprs/math_functions.h"
 #include "exprs/string_functions.h"
-#include "exprs/timestamp_functions.h"
 #include "geo/geo_functions.h"
 #include "olap/options.h"
 #include "runtime/block_spill_manager.h"
@@ -361,11 +358,8 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     LikePredicate::init();
     StringFunctions::init();
     MathFunctions::init();
-    EncryptionFunctions::init();
-    TimestampFunctions::init();
     JsonFunctions::init();
     GeoFunctions::init();
-    HashFunctions::init();
     MatchPredicate::init();
 
     LOG(INFO) << CpuInfo::debug_string();
