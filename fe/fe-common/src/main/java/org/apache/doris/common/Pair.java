@@ -22,7 +22,6 @@ package org.apache.doris.common;
 
 import com.google.gson.annotations.SerializedName;
 
-import java.util.Comparator;
 import java.util.Objects;
 
 /**
@@ -31,8 +30,6 @@ import java.util.Objects;
  * Notice: When using Pair for persistence, users need to guarantee that F and S can be serialized through Gson
  */
 public class Pair<F, S> {
-    public static PairComparator<Pair<?, Comparable>> PAIR_VALUE_COMPARATOR = new PairComparator<>();
-
     @SerializedName(value = "first")
     public F first;
     @SerializedName(value = "second")
@@ -55,17 +52,16 @@ public class Pair<F, S> {
         return second;
     }
 
-    /**
-     * A pair is equal if both parts are equal().
-     */
     @Override
     public boolean equals(Object o) {
-        if (o instanceof Pair) {
-            Pair<F, S> other = (Pair<F, S>) o;
-            return first.equals(other.first)
-                    && second.equals(other.second);
+        if (this == o) {
+            return true;
         }
-        return false;
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        Pair<?, ?> pair = (Pair<?, ?>) o;
+        return Objects.equals(first, pair.first) && Objects.equals(second, pair.second);
     }
 
     @Override
@@ -76,12 +72,5 @@ public class Pair<F, S> {
     @Override
     public String toString() {
         return first.toString() + ":" + second.toString();
-    }
-
-    public static class PairComparator<T extends Pair<?, Comparable>> implements Comparator<T> {
-        @Override
-        public int compare(T o1, T o2) {
-            return o1.second.compareTo(o2.second);
-        }
     }
 }

@@ -37,7 +37,7 @@ public class TabletSchedulerStat {
 
     @Target({ ElementType.FIELD })
     @Retention(RetentionPolicy.RUNTIME)
-    public static @interface StatField {
+    public @interface StatField {
         String value() default "";
 
         // add this prefix for analyzing log more easily.

@@ -355,11 +355,11 @@ public class PaloFe {
                 try {
                     MetaReader.read(imageFile, Env.getCurrentEnv());
                     System.out.println("Load image success. Image file " + cmdLineOpts.getImagePath() + " is valid");
+                    System.exit(0);
                 } catch (Exception e) {
                     System.out.println("Load image failed. Image file " + cmdLineOpts.getImagePath() + " is invalid");
                     LOG.warn("", e);
-                } finally {
-                    System.exit(0);
+                    System.exit(-1);
                 }
             }
         }
