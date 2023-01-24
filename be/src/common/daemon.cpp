@@ -24,18 +24,14 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "exprs/bitmap_function.h"
-#include "exprs/cast_functions.h"
 #include "exprs/encryption_functions.h"
 #include "exprs/hash_functions.h"
 #include "exprs/json_functions.h"
 #include "exprs/like_predicate.h"
 #include "exprs/match_predicate.h"
 #include "exprs/math_functions.h"
-#include "exprs/quantile_function.h"
 #include "exprs/string_functions.h"
 #include "exprs/timestamp_functions.h"
-#include "exprs/topn_function.h"
-#include "exprs/utility_functions.h"
 #include "geo/geo_functions.h"
 #include "olap/options.h"
 #include "runtime/block_spill_manager.h"
@@ -365,17 +361,13 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     UserFunctionCache::instance()->init(config::user_function_dir);
     LikePredicate::init();
     StringFunctions::init();
-    CastFunctions::init();
     MathFunctions::init();
     EncryptionFunctions::init();
     TimestampFunctions::init();
-    UtilityFunctions::init();
     JsonFunctions::init();
     GeoFunctions::init();
     BitmapFunctions::init();
-    QuantileStateFunctions::init();
     HashFunctions::init();
-    TopNFunctions::init();
     MatchPredicate::init();
 
     LOG(INFO) << CpuInfo::debug_string();

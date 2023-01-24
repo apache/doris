@@ -20,7 +20,6 @@
 #include <sstream>
 #include <string>
 
-#include "olap/aggregate_func.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -48,14 +47,7 @@ public:
               _name(column.name()),
               _index_size(column.index_length()),
               _is_nullable(column.is_nullable()),
-              _unique_id(column.unique_id()) {
-        if (column.type() == OLAP_FIELD_TYPE_ARRAY) {
-            _agg_info = get_aggregate_info(column.aggregation(), column.type(),
-                                           column.get_sub_column(0).type());
-        } else {
-            _agg_info = get_aggregate_info(column.aggregation(), column.type());
-        }
-    }
+              _unique_id(column.unique_id()) {}
 
     virtual ~Field() = default;
 
@@ -202,7 +194,6 @@ public:
     }
 
     FieldType type() const { return _type_info->type(); }
-    FieldAggregationMethod aggregation() const { return _agg_info->agg_method(); }
     const TypeInfo* type_info() const { return _type_info.get(); }
     bool is_nullable() const { return _is_nullable; }
 
@@ -233,7 +224,6 @@ public:
 
 protected:
     TypeInfoPtr _type_info;
-    const AggregateInfo* _agg_info;
     // unit : byte
     // except for strings, other types have fixed lengths
     uint32_t _length;

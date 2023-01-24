@@ -57,9 +57,7 @@ set(EXPRS_TEST_FILES
     exprs/bitmap_function_test.cpp
     exprs/encryption_functions_test.cpp
     exprs/math_functions_test.cpp
-    exprs/topn_function_test.cpp
     exprs/bloom_filter_predicate_test.cpp
-    exprs/quantile_function_test.cpp
     exprs/hash_function_test.cpp
 )
 set(GEO_TEST_FILES
@@ -99,7 +97,6 @@ set(OLAP_TEST_FILES
     olap/olap_meta_test.cpp
     olap/decimal12_test.cpp
     olap/storage_types_test.cpp
-    olap/aggregate_func_test.cpp
     #olap/rowset/segment_v2/bitshuffle_page_test.cpp
     #olap/rowset/segment_v2/plain_page_test.cpp
     olap/rowset/segment_v2/bitmap_index_test.cpp
@@ -219,7 +216,6 @@ set(UTIL_TEST_FILES
     util/frame_of_reference_coding_test.cpp
     util/bit_stream_utils_test.cpp
     util/radix_sort_test.cpp
-    util/zip_util_test.cpp
     util/utf8_check_test.cpp
     util/cgroup_util_test.cpp
     util/path_util_test.cpp
