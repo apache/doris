@@ -21,15 +21,31 @@
 #pragma once
 
 #include "common/status.h"
-#include "exprs/expr.h"
 #include "runtime/collection_value.h"
 #include "runtime/primitive_type.h"
 #include "runtime/type_limit.h"
+#include "runtime/types.h"
 #include "udf/udf.h"
 #include "util/hash_util.hpp"
 #include "util/types.h"
 
 namespace doris {
+
+using doris_udf::FunctionContext;
+using doris_udf::BooleanVal;
+using doris_udf::TinyIntVal;
+using doris_udf::SmallIntVal;
+using doris_udf::IntVal;
+using doris_udf::BigIntVal;
+using doris_udf::LargeIntVal;
+using doris_udf::FloatVal;
+using doris_udf::DoubleVal;
+using doris_udf::DecimalV2Val;
+using doris_udf::DateTimeVal;
+using doris_udf::DateTimeV2Val;
+using doris_udf::DateV2Val;
+using doris_udf::StringVal;
+using doris_udf::AnyVal;
 
 class MemPool;
 

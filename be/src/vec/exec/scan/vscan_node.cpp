@@ -19,6 +19,7 @@
 
 #include "common/consts.h"
 #include "common/status.h"
+#include "exprs/bloom_filter_func.h"
 #include "exprs/hybrid_set.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "util/defer_op.h"
@@ -560,7 +561,7 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
                                           (*_vconjunct_ctx_ptr)->get_function_state_scope());
             }
 
-            // here do not close Expr* now
+            // here do not close VExpr* now
             *output_expr = left_child != nullptr ? left_child : right_child;
             return Status::OK();
         }
@@ -675,7 +676,7 @@ Status VScanNode::_eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, Pu
             //  But now we still don't cover all predicates for const expression.
             //  For example, for query `SELECT col FROM tbl WHERE 'PROMOTION' LIKE 'AAA%'`,
             //  predicate `like` will return a ColumnVector<UInt8> which contains a single value.
-            LOG(WARNING) << "Expr[" << vexpr->debug_string()
+            LOG(WARNING) << "VExpr[" << vexpr->debug_string()
                          << "] should return a const column but actually is "
                          << const_col_wrapper->column_ptr->get_name();
             DCHECK_EQ(bool_column->size(), 1);
@@ -691,7 +692,7 @@ Status VScanNode::_eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, Pu
                              << bool_column->size();
             }
         } else {
-            LOG(WARNING) << "Expr[" << vexpr->debug_string()
+            LOG(WARNING) << "VExpr[" << vexpr->debug_string()
                          << "] should return a const column but actually is "
                          << const_col_wrapper->column_ptr->get_name();
         }

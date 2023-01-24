@@ -32,9 +32,7 @@
 
 namespace doris {
 
-class Expr;
 class OpcodeRegistry;
-class TupleRow;
 
 class StringFunctions {
 public:

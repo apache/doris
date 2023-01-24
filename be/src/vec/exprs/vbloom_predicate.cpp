@@ -18,6 +18,7 @@
 #include "vec/exprs/vbloom_predicate.h"
 
 #include "common/status.h"
+#include "exprs/bloom_filter_func.h"
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {

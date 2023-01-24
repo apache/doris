@@ -25,9 +25,6 @@
 
 namespace doris {
 
-class Expr;
-struct ExprValue;
-class TupleRow;
 inline StringCaseUnorderedMap<EncryptionMode> aes_mode_map {
         {"AES_128_ECB", EncryptionMode::AES_128_ECB},
         {"AES_192_ECB", EncryptionMode::AES_192_ECB},

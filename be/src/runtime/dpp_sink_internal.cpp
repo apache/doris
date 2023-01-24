@@ -21,7 +21,6 @@
 
 #include "common/object_pool.h"
 #include "exec/text_converter.hpp"
-#include "exprs/expr.h"
 #include "gen_cpp/DataSinks_types.h"
 #include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
@@ -133,41 +132,6 @@ Status PartRange::from_thrift(ObjectPool* pool, const TPartitionRange& t_part_ra
     range->_include_end_key = t_part_range.include_end_key;
     VLOG_ROW << "after construct: " << range->debug_string();
     return Status::OK();
-}
-
-Status PartitionInfo::from_thrift(ObjectPool* pool, const TRangePartition& t_partition,
-                                  PartitionInfo* partition) {
-    partition->_id = t_partition.partition_id;
-    RETURN_IF_ERROR(PartRange::from_thrift(pool, t_partition.range, &partition->_range));
-    if (t_partition.__isset.distributed_exprs) {
-        partition->_distributed_bucket = t_partition.distribute_bucket;
-        if (partition->_distributed_bucket == 0) {
-            return Status::InternalError("Distributed bucket is 0.");
-        }
-        RETURN_IF_ERROR(Expr::create_expr_trees(pool, t_partition.distributed_exprs,
-                                                &partition->_distributed_expr_ctxs));
-    }
-    return Status::OK();
-}
-
-Status PartitionInfo::prepare(RuntimeState* state, const RowDescriptor& row_desc) {
-    if (_distributed_expr_ctxs.size() > 0) {
-        RETURN_IF_ERROR(Expr::prepare(_distributed_expr_ctxs, state, row_desc));
-    }
-    return Status::OK();
-}
-
-Status PartitionInfo::open(RuntimeState* state) {
-    if (_distributed_expr_ctxs.size() > 0) {
-        return Expr::open(_distributed_expr_ctxs, state);
-    }
-    return Status::OK();
-}
-
-void PartitionInfo::close(RuntimeState* state) {
-    if (_distributed_expr_ctxs.size() > 0) {
-        Expr::close(_distributed_expr_ctxs, state);
-    }
 }
 
 } // namespace doris

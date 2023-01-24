@@ -19,7 +19,6 @@
 
 #include <sstream>
 
-#include "exec/es/es_query_builder.h"
 #include "exec/es/es_scan_reader.h"
 #include "rapidjson/document.h"
 #include "rapidjson/stringbuffer.h"

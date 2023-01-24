@@ -35,7 +35,6 @@
 #include <ctime>
 #include <memory>
 
-#include "exprs/slot_ref.h"
 #include "gutil/strings/substitute.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"

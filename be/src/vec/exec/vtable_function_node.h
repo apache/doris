@@ -39,7 +39,6 @@ public:
     bool need_more_input_data() const { return !_child_block.rows() && !_child_eos; }
 
     void release_resource(doris::RuntimeState* state) override {
-        Expr::close(_fn_ctxs, state);
         vectorized::VExpr::close(_vfn_ctxs, state);
 
         if (_num_rows_filtered_counter != nullptr) {
@@ -110,7 +109,6 @@ private:
     std::vector<SlotDescriptor*> _output_slots;
     int64_t _cur_child_offset = 0;
 
-    std::vector<ExprContext*> _fn_ctxs;
     std::vector<vectorized::VExprContext*> _vfn_ctxs;
 
     std::vector<TableFunction*> _fns;

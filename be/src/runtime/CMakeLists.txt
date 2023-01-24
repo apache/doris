@@ -49,7 +49,6 @@ set(RUNTIME_FILES
     large_int_value.cpp
     collection_value.cpp
     tuple.cpp
-    tuple_row.cpp
     fragment_mgr.cpp
     dpp_sink_internal.cpp
     load_path_mgr.cpp

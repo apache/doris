@@ -38,7 +38,6 @@ class ObjectPool;
 class RuntimeState;
 class RuntimeProfile;
 class BufferControlBlock;
-class ExprContext;
 class MemTracker;
 class PartRangeKey;
 
@@ -218,11 +217,6 @@ public:
     // Initialize channel.
     // Returns OK if successful, error indication otherwise.
     Status init(RuntimeState* state);
-
-    // Copies a single row into this channel's output buffer and flushes buffer
-    // if it reaches capacity.
-    // Returns error status if any of the preceding rpcs failed, OK otherwise.
-    //Status add_row(TupleRow* row);
 
     // Asynchronously sends a row batch.
     // Returns the status of the most recently finished transmit_data

@@ -27,7 +27,6 @@
 #include "common/status.h"
 #include "runtime/descriptors.h"
 #include "runtime/tuple.h"
-#include "runtime/tuple_row.h"
 #include "udf/udf.h"
 #include "util/block_compression.h"
 #include "util/exception.h"
