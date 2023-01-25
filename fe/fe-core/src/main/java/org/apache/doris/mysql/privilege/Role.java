@@ -26,6 +26,8 @@ import org.apache.doris.mysql.privilege.Auth.PrivLevel;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -33,6 +35,8 @@ import java.io.IOException;
 import java.util.Map;
 
 public class Role implements Writable {
+    private static final Logger LOG = LogManager.getLogger(Role.class);
+
     // operator is responsible for operating cluster, such as add/drop node
     public static String OPERATOR_ROLE = "operator";
     // admin is like DBA, who has all privileges except for NODE privilege held by operator
@@ -164,30 +168,151 @@ public class Role implements Writable {
     }
 
     public boolean checkGlobalPriv(PrivPredicate wanted) {
-        return true;
+        PrivBitSet savedPrivs = PrivBitSet.of();
+        return checkGlobalInternal(wanted, savedPrivs);
     }
 
     public boolean checkCtlPriv(String ctl, PrivPredicate wanted) {
-        return true;
+        PrivBitSet savedPrivs = PrivBitSet.of();
+        if (checkGlobalInternal(wanted, savedPrivs)
+                || checkCatalogInternal(ctl, wanted, savedPrivs)) {
+            return true;
+        }
+        // if user has any privs of databases or tables in this catalog, and the wanted priv is SHOW, return true
+        if (ctl != null && wanted == PrivPredicate.SHOW && checkAnyPrivWithinCatalog(ctl)) {
+            return true;
+        }
+        LOG.debug("failed to get wanted privs: {}, granted: {}", wanted, savedPrivs);
+        return false;
+    }
+
+    private boolean checkGlobalInternal(PrivPredicate wanted, PrivBitSet savedPrivs) {
+        globalPrivTable.getPrivs(savedPrivs);
+        if (Privilege.satisfy(savedPrivs, wanted)) {
+            return true;
+        }
+        return false;
+    }
+
+    /*
+     * User may not have privs on a catalog, but have privs of databases or tables in this catalog.
+     * So we have to check if user has any privs of databases or tables in this catalog.
+     * if so, the catalog should be visible to this user.
+     */
+    private boolean checkAnyPrivWithinCatalog(String ctl) {
+        return dbPrivTable.hasPrivsOfCatalog(ctl)
+                || tablePrivTable.hasPrivsOfCatalog(ctl);
+
+    }
+
+    private boolean checkCatalogInternal(String ctl, PrivPredicate wanted, PrivBitSet savedPrivs) {
+        catalogPrivTable.getPrivs(ctl, savedPrivs);
+        if (Privilege.satisfy(savedPrivs, wanted)) {
+            return true;
+        }
+
+        return false;
     }
 
     public boolean checkDbPriv(String ctl, String db, PrivPredicate wanted) {
-        return true;
+        PrivBitSet savedPrivs = PrivBitSet.of();
+        if (checkGlobalInternal(wanted, savedPrivs)
+                || checkCatalogInternal(ctl, wanted, savedPrivs)
+                || checkDbInternal(ctl, db, wanted, savedPrivs)) {
+            return true;
+        }
+
+        // if user has any privs of table in this db, and the wanted priv is SHOW, return true
+        if (ctl != null && db != null && wanted == PrivPredicate.SHOW && checkAnyPrivWithinDb(ctl, db)) {
+            return true;
+        }
+
+        LOG.debug("failed to get wanted privs: {}, granted: {}", wanted, savedPrivs);
+        return false;
+    }
+
+    /*
+     * User may not have privs on a database, but have privs of tables in this database.
+     * So we have to check if user has any privs of tables in this database.
+     * if so, the database should be visible to this user.
+     */
+    private boolean checkAnyPrivWithinDb(String ctl, String db) {
+        return tablePrivTable.hasPrivsOfDb(ctl, db);
+
+    }
+
+    private boolean checkDbInternal(String ctl, String db, PrivPredicate wanted,
+            PrivBitSet savedPrivs) {
+        dbPrivTable.getPrivs(ctl, db, savedPrivs);
+        if (Privilege.satisfy(savedPrivs, wanted)) {
+            return true;
+        }
+        return false;
     }
 
     public boolean checkTblPriv(String ctl, String db, String tbl, PrivPredicate wanted) {
-        return true;
+        PrivBitSet savedPrivs = PrivBitSet.of();
+        if (checkGlobalInternal(wanted, savedPrivs)
+                || checkCatalogInternal(ctl, wanted, savedPrivs)
+                || checkDbInternal(ctl, db, wanted, savedPrivs)
+                || checkTblInternal(ctl, db, tbl, wanted, savedPrivs)) {
+            return true;
+        }
+        LOG.debug("failed to get wanted privs: {}, granted: {}", wanted, savedPrivs);
+        return false;
+    }
+
+    private boolean checkTblInternal(String ctl, String db, String tbl, PrivPredicate wanted, PrivBitSet savedPrivs) {
+        tablePrivTable.getPrivs(ctl, db, tbl, savedPrivs);
+        return Privilege.satisfy(savedPrivs, wanted);
     }
 
     public boolean checkResourcePriv(String resourceName, PrivPredicate wanted) {
-        return true;
+        PrivBitSet savedPrivs = PrivBitSet.of();
+        if (checkGlobalInternal(wanted, savedPrivs)
+                || checkResourceInternal(resourceName, wanted, savedPrivs)) {
+            return true;
+        }
+
+        LOG.debug("failed to get wanted privs: {}, granted: {}", wanted, savedPrivs);
+        return false;
+    }
+
+    private boolean checkResourceInternal(String resourceName, PrivPredicate wanted, PrivBitSet savedPrivs) {
+        resourcePrivTable.getPrivs(resourceName, savedPrivs);
+        return Privilege.satisfy(savedPrivs, wanted);
     }
 
     public boolean checkPrivByAuthInfo(AuthorizationInfo authInfo, PrivPredicate wanted) {
         return true;
     }
 
-    public boolean checkHasPrivInternal(PrivPredicate priv, PrivLevel[] levels) {
-        return true;
+    public boolean checkHasPriv(PrivPredicate priv, PrivLevel[] levels) {
+        for (PrivLevel privLevel : levels) {
+            switch (privLevel) {
+                case GLOBAL:
+                    if (globalPrivTable.hasPriv(priv)) {
+                        return true;
+                    }
+                    break;
+                case DATABASE:
+                    if (dbPrivTable.hasPriv(priv)) {
+                        return true;
+                    }
+                    break;
+                case TABLE:
+                    if (tablePrivTable.hasPriv(priv)) {
+                        return true;
+                    }
+                    break;
+                default:
+                    break;
+            }
+        }
+        return false;
+    }
+
+    public void grant(TablePattern tblPattern, PrivBitSet of) {
+
     }
 }

@@ -23,7 +23,7 @@ import org.junit.Test;
 public class PrivEntryTest {
     @Test
     public void testNameWithUnderscores() throws Exception {
-        // TODO: 2023/1/20 zdtodo 
+        // TODO: 2023/1/20 zdtodo
 //        TablePrivEntry tablePrivEntry = TablePrivEntry.create("user1", "127.%", InternalCatalog.INTERNAL_CATALOG_NAME,
 //                "db_db1", "tbl_tbl1", false, PrivBitSet.of(Privilege.SELECT_PRIV, Privilege.DROP_PRIV));
 //        // pattern match

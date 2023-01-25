@@ -1,24 +1,49 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.AuthenticationException;
+import org.apache.doris.common.CaseSensibility;
+import org.apache.doris.common.ErrorCode;
+import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.mysql.MysqlPassword;
 
+import com.google.common.base.Preconditions;
+import com.google.common.collect.Lists;
+import org.apache.commons.collections.CollectionUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
+import java.util.Collections;
 import java.util.HashMap;
-import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 public class UserManager {
-    Set<User> users = new HashSet<>();
+    public static final String ANY_HOST = "%";
+    private static final Logger LOG = LogManager.getLogger(UserManager.class);
+    //    Set<User> users = new HashSet<>();
+    //One name may have multiple User,because host can be different
     Map<String, List<User>> nameToUsers = new HashMap<>();
 
-    public boolean userIdentityExist(User user) {
-        return users.contains(user);
+    public boolean userIdentityExist(UserIdentity userIdentity) {
+        List<User> users = nameToUsers.get(userIdentity.getQualifiedUser());
+        if (CollectionUtils.isEmpty(users)) {
+            return false;
+        }
+        for (User user : users) {
+            if (user.getUserIdentity().getHost().equalsIgnoreCase(userIdentity.getHost())) {
+                return true;
+            }
+        }
+        return false;
     }
 
-    public Set<User> getUsers() {
-        return users;
-    }
+    //    public Set<User> getUsers() {
+    //        return users;
+    //    }
 
     public void addUserIdentity(UserIdentity userIdentity) {
 
@@ -29,17 +54,155 @@ public class UserManager {
     }
 
     public void checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
-            List<UserIdentity> currentUser) {
-        List<User> userIdentities = nameToUsers.get(remoteUser);
-        //return match best UserIdentity
+            List<UserIdentity> currentUser) throws AuthenticationException {
+        LOG.debug("check password for user: {} from {}, password: {}, random string: {}",
+                remoteUser, remoteHost, remotePasswd, randomString);
+
+        PasswordPolicyManager passwdPolicyMgr = Env.getCurrentEnv().getAuth().getPasswdPolicyManager();
+        List<User> users = nameToUsers.get(remoteUser);
+        if (CollectionUtils.isEmpty(users)) {
+            return;
+        }
+
+        for (User user : users) {
+            if (user.getUserIdentity().isDomain()) {
+                continue;
+            }
+            // check host
+            if (!user.isAnyHost() && !user.getHostPattern().match(remoteHost)) {
+                continue;
+            }
+            UserIdentity curUser = user.getDomainUserIdentity();
+            // check password
+            byte[] saltPassword = MysqlPassword.getSaltFromPassword(user.getPassword().getPassword());
+            // when the length of password is zero, the user has no password
+            if ((remotePasswd.length == saltPassword.length)
+                    && (remotePasswd.length == 0
+                    || MysqlPassword.checkScramble(remotePasswd, randomString, saltPassword))) {
+                passwdPolicyMgr.checkAccountLockedAndPasswordExpiration(curUser);
+                // found the matched entry
+                if (currentUser != null) {
+                    currentUser.add(curUser);
+                }
+                return;
+            } else {
+                // case A. this means we already matched a entry by user@host, but password is incorrect.
+                // return false, NOT continue matching other entries.
+                // For example, there are 2 entries in order:
+                // 1. cmy@"192.168.%" identified by '123';
+                // 2. cmy@"%" identified by 'abc';
+                // if user cmy@'192.168.1.1' try to login with password 'abc', it will be denied.
+                passwdPolicyMgr.onFailedLogin(curUser);
+                throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
+                        remotePasswd.length == 0 ? "NO" : "YES");
+            }
+        }
+
     }
 
     public void checkPlainPassword(String remoteUser, String remoteHost, String remotePasswd,
-            List<UserIdentity> currentUser) {
-        //return match best UserIdentity
+            List<UserIdentity> currentUser) throws AuthenticationException {
+        PasswordPolicyManager passwdPolicyMgr = Env.getCurrentEnv().getAuth().getPasswdPolicyManager();
+        List<User> users = nameToUsers.get(remoteUser);
+        if (CollectionUtils.isEmpty(users)) {
+            return;
+        }
+        for (User user : users) {
+            if (user.getUserIdentity().isDomain()) {
+                continue;
+            }
+            // check host
+            if (!user.isAnyHost() && !user.getHostPattern().match(remoteHost)) {
+                continue;
+            }
+            UserIdentity curUser = user.getDomainUserIdentity();
+            if (MysqlPassword.checkPlainPass(user.getPassword().getPassword(), remotePasswd)) {
+                passwdPolicyMgr.checkAccountLockedAndPasswordExpiration(curUser);
+                if (currentUser != null) {
+                    currentUser.add(curUser);
+                }
+                return;
+            } else {
+                // set case A. in checkPassword()
+                passwdPolicyMgr.onFailedLogin(curUser);
+                throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
+                        "YES");
+            }
+        }
+        throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
+                "YES");
     }
 
     public void clearEntriesSetByResolver() {
         // delete user which isSetByDomainResolver is true
+    }
+
+    // TODO: 2023/1/25 err on exist 
+    public User createUser(UserIdentity userIdent, byte[] pwd, UserIdentity domainUserIdent, boolean setByResolver)
+            throws AnalysisException {
+        if (userIdentityExist(userIdent)) {
+            User userByUserIdentity = getUserByUserIdentity(userIdent);
+            userByUserIdentity.getPassword().setPassword(pwd);
+            return userByUserIdentity;
+        }
+
+        PatternMatcher hostPattern = PatternMatcher
+                .createMysqlPattern(userIdent.getHost(), CaseSensibility.HOST.getCaseSensibility());
+        //        PatternMatcher userPattern = PatternMatcher
+        //                .createFlatPattern(userIdent.getQualifiedUser(), CaseSensibility.USER.getCaseSensibility());
+        User user = new User();
+        user.setAnyHost(userIdent.getHost().equals(ANY_HOST));
+        user.setUserIdentity(userIdent);
+        Password password = new Password();
+        password.setPassword(pwd);
+        user.setPassword(password);
+        user.setHostPattern(hostPattern);
+        if (setByResolver) {
+            Preconditions.checkNotNull(domainUserIdent);
+            user.setDomainUserIdentity(domainUserIdent);
+        }
+        //        users.add(user);
+        List<User> nameToLists = nameToUsers.get(userIdent.getQualifiedUser());
+        if (CollectionUtils.isEmpty(nameToLists)) {
+            nameToLists = Lists.newArrayList(user);
+            nameToUsers.put(userIdent.getQualifiedUser(), nameToLists);
+        } else {
+            Collections.sort(nameToLists);
+        }
+        return user;
+    }
+
+    public User getUserByUserIdentity(UserIdentity userIdent) {
+        List<User> nameToLists = nameToUsers.get(userIdent.getQualifiedUser());
+        if (CollectionUtils.isEmpty(nameToLists)) {
+            return null;
+        }
+        Iterator<User> iter = nameToLists.iterator();
+        while (iter.hasNext()) {
+            User user = iter.next();
+            if (user.getUserIdentity().equals(userIdent)) {
+                return user;
+            }
+        }
+        return null;
+    }
+
+    public void removeUser(UserIdentity userIdent) {
+        List<User> nameToLists = nameToUsers.get(userIdent.getQualifiedUser());
+        if (CollectionUtils.isEmpty(nameToLists)) {
+            return;
+        }
+        Iterator<User> iter = nameToLists.iterator();
+        while (iter.hasNext()) {
+            User user = iter.next();
+            if (user.getUserIdentity().equals(userIdent)) {
+                iter.remove();
+            }
+        }
+        if (CollectionUtils.isEmpty(nameToLists)) {
+            nameToUsers.remove(userIdent.getQualifiedUser());
+        } else {
+            Collections.sort(nameToLists);
+        }
     }
 }

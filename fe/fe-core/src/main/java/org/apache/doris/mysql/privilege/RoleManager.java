@@ -20,6 +20,9 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.InfoSchemaDb;
+import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Writable;
@@ -28,6 +31,8 @@ import org.apache.doris.mysql.privilege.Auth.PrivLevel;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
@@ -39,7 +44,9 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 public class RoleManager implements Writable {
-    public static String DEFAULT_ROLE_PREFIX = "default_role_";
+    private static final Logger LOG = LogManager.getLogger(RoleManager.class);
+    //prefix of each user default role
+    public static String DEFAULT_ROLE_PREFIX = "default_role_rbac_";
 
     private Map<String, Role> roles = Maps.newHashMap();
 
@@ -50,8 +57,8 @@ public class RoleManager implements Writable {
                 Role.ADMIN.getRoleName(), Role.ADMIN);
     }
 
-    public Role getRole(String role) {
-        return roles.get(role);
+    public Role getRole(String name) {
+        return roles.get(name);
     }
 
     public Role addRole(Role newRole, boolean errOnExist) throws DdlException {
@@ -81,12 +88,12 @@ public class RoleManager implements Writable {
         roles.remove(qualifiedRole);
     }
 
-    public Role revokePrivs(String role, TablePattern tblPattern, PrivBitSet privs, boolean errOnNonExist)
+    public Role revokePrivs(String name, TablePattern tblPattern, PrivBitSet privs, boolean errOnNonExist)
             throws DdlException {
-        Role existingRole = roles.get(role);
+        Role existingRole = roles.get(name);
         if (existingRole == null) {
             if (errOnNonExist) {
-                throw new DdlException("Role " + role + " does not exist");
+                throw new DdlException("Role " + name + " does not exist");
             }
             return null;
         }
@@ -95,7 +102,7 @@ public class RoleManager implements Writable {
         PrivBitSet existingPriv = map.get(tblPattern);
         if (existingPriv == null) {
             if (errOnNonExist) {
-                throw new DdlException(tblPattern + " does not exist in role " + role);
+                throw new DdlException(tblPattern + " does not exist in role " + name);
             }
             return null;
         }
@@ -200,17 +207,24 @@ public class RoleManager implements Writable {
     }
 
     public Role createDefaultRole(UserIdentity userIdent) {
-        Role role = new Role(DEFAULT_ROLE_PREFIX + userIdent.toString());
-        //todo 授默认权限
-        //todo log
+        // grant read privs to database information_schema
+        TablePattern tblPattern = new TablePattern(Auth.DEFAULT_CATALOG, InfoSchemaDb.DATABASE_NAME, "*");
+        try {
+            tblPattern.analyze(ClusterNamespace.getClusterNameFromFullName(userIdent.getQualifiedUser()));
+        } catch (AnalysisException e) {
+            LOG.warn("should not happen", e);
+        }
+        Role role = new Role(getUserDefaultRoleName(userIdent), tblPattern,
+                PrivBitSet.of(Privilege.SELECT_PRIV));
         roles.put(role.getRoleName(), role);
         return role;
     }
 
     public Role removeDefaultRole(UserIdentity userIdent) {
-        //todo 授默认权限
-        //todo log
-        Role role = roles.remove(DEFAULT_ROLE_PREFIX + userIdent.toString());
-        return role;
+        return roles.remove(getUserDefaultRoleName(userIdent));
+    }
+
+    public String getUserDefaultRoleName(UserIdentity userIdentity) {
+        return DEFAULT_ROLE_PREFIX + userIdentity.toString();
     }
 }
