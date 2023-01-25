@@ -20,8 +20,6 @@
 #include <vector>
 
 #include "runtime/descriptors.h"
-#include "runtime/row_batch.h"
-#include "runtime/sorter.h"
 #include "util/debug_util.h"
 #include "util/defer_op.h"
 #include "util/runtime_profile.h"
@@ -40,13 +38,33 @@ VSortedRunMerger::VSortedRunMerger(const std::vector<VExprContext*>& ordering_ex
           _batch_size(batch_size),
           _limit(limit),
           _offset(offset) {
+    init_timers(profile);
+}
+
+VSortedRunMerger::VSortedRunMerger(const SortDescription& desc, const size_t batch_size,
+                                   int64_t limit, size_t offset, RuntimeProfile* profile)
+        : _desc(desc),
+          _batch_size(batch_size),
+          _use_sort_desc(true),
+          _limit(limit),
+          _offset(offset),
+          _get_next_timer(nullptr),
+          _get_next_block_timer(nullptr) {
+    init_timers(profile);
+}
+
+void VSortedRunMerger::init_timers(RuntimeProfile* profile) {
     _get_next_timer = ADD_TIMER(profile, "MergeGetNext");
     _get_next_block_timer = ADD_TIMER(profile, "MergeGetNextBlock");
 }
 
-Status VSortedRunMerger::prepare(const vector<BlockSupplier>& input_runs, bool parallel) {
+Status VSortedRunMerger::prepare(const vector<BlockSupplier>& input_runs) {
     for (const auto& supplier : input_runs) {
-        _cursors.emplace_back(supplier, _ordering_expr, _is_asc_order, _nulls_first);
+        if (_use_sort_desc) {
+            _cursors.emplace_back(supplier, _desc);
+        } else {
+            _cursors.emplace_back(supplier, _ordering_expr, _is_asc_order, _nulls_first);
+        }
     }
 
     for (auto& _cursor : _cursors) {

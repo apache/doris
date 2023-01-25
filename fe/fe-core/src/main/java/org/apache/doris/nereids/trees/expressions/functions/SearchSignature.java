@@ -64,10 +64,20 @@ public class SearchSignature {
     public Optional<FunctionSignature> result() {
         // search every round
         for (BiFunction<AbstractDataType, AbstractDataType, Boolean> typePredicate : typePredicatePerRound) {
+            int candidateNonStrictMatched = Integer.MAX_VALUE;
+            FunctionSignature candidate = null;
             for (FunctionSignature signature : signatures) {
                 if (doMatchArity(signature, arguments) && doMatchTypes(signature, arguments, typePredicate)) {
-                    return Optional.of(signature);
+                    // has most identical matched signature has the highest priority
+                    int currentNonStrictMatched = nonStrictMatchedCount(signature, arguments);
+                    if (currentNonStrictMatched < candidateNonStrictMatched) {
+                        candidateNonStrictMatched = currentNonStrictMatched;
+                        candidate = signature;
+                    }
                 }
+            }
+            if (candidate != null) {
+                return Optional.of(candidate);
             }
         }
         return Optional.empty();
@@ -94,6 +104,19 @@ public class SearchSignature {
             return false;
         }
         return true;
+    }
+
+    private int nonStrictMatchedCount(FunctionSignature sig, List<Expression> arguments) {
+        int nonStrictMatched = 0;
+        int arity = arguments.size();
+        for (int i = 0; i < arity; i++) {
+            AbstractDataType sigArgType = sig.getArgType(i);
+            AbstractDataType realType = arguments.get(i).getDataType();
+            if (!IdenticalSignature.isIdentical(sigArgType, realType)) {
+                nonStrictMatched++;
+            }
+        }
+        return nonStrictMatched;
     }
 
     private boolean doMatchTypes(FunctionSignature sig, List<Expression> arguments,

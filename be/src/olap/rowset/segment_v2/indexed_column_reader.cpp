@@ -124,7 +124,7 @@ Status IndexedColumnIterator::_read_data_page(const PagePointer& pp) {
 }
 
 Status IndexedColumnIterator::seek_to_ordinal(ordinal_t idx) {
-    DCHECK(idx >= 0 && idx <= _reader->num_values());
+    DCHECK(idx <= _reader->num_values());
 
     if (!_reader->support_ordinal_seek()) {
         return Status::NotSupported("no ordinal index");
@@ -222,7 +222,7 @@ Status IndexedColumnIterator::seek_at_or_after(const void* key, bool* exact_matc
     return Status::OK();
 }
 
-Status IndexedColumnIterator::next_batch(size_t* n, ColumnBlockView* column_view) {
+Status IndexedColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
     DCHECK(_seeked);
     if (_current_ordinal == _reader->num_values()) {
         *n = 0;
@@ -245,12 +245,11 @@ Status IndexedColumnIterator::next_batch(size_t* n, ColumnBlockView* column_view
 
         size_t rows_to_read = std::min(_data_page.remaining(), remaining);
         size_t rows_read = rows_to_read;
-        RETURN_IF_ERROR(_data_page.data_decoder->next_batch(&rows_read, column_view));
+        RETURN_IF_ERROR(_data_page.data_decoder->next_batch(&rows_read, dst));
         DCHECK(rows_to_read == rows_read);
 
         _data_page.offset_in_page += rows_read;
         _current_ordinal += rows_read;
-        column_view->advance(rows_read);
         remaining -= rows_read;
     }
     *n -= remaining;

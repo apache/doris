@@ -142,7 +142,7 @@ public:
     explicit OperatorBase(OperatorBuilderBase* operator_builder);
     virtual ~OperatorBase() = default;
 
-    virtual std::string get_name() const = 0;
+    virtual std::string get_name() const { return _operator_builder->get_name(); };
 
     bool is_sink() const;
 
@@ -168,7 +168,7 @@ public:
     /**
      * Release all resources once this operator done its work.
      */
-    virtual Status close(RuntimeState* state) = 0;
+    virtual Status close(RuntimeState* state);
 
     Status set_child(OperatorPtr child) {
         if (is_source()) {
@@ -216,6 +216,8 @@ public:
      */
     virtual bool is_pending_finish() const { return false; }
 
+    virtual Status try_close() { return Status::OK(); }
+
     bool is_closed() const { return _is_closed; }
 
     MemTracker* mem_tracker() const { return _mem_tracker.get(); }
@@ -225,7 +227,7 @@ public:
     const RowDescriptor& row_desc();
 
     RuntimeProfile* runtime_profile() { return _runtime_profile.get(); }
-    std::string debug_string() const;
+    virtual std::string debug_string() const;
     int32_t id() const { return _operator_builder->id(); }
 
 protected:
@@ -257,15 +259,14 @@ public:
 
     ~DataSinkOperator() override = default;
 
-    std::string get_name() const override { return "DataSinkOperator"; }
-
     Status prepare(RuntimeState* state) override {
         RETURN_IF_ERROR(_sink->prepare(state));
         _runtime_profile.reset(new RuntimeProfile(
                 fmt::format("{} (id={})", _operator_builder->get_name(), _operator_builder->id())));
         _sink->profile()->insert_child_head(_runtime_profile.get(), true);
-        _mem_tracker = std::make_unique<MemTracker>("DataSinkOperator:" + _runtime_profile->name(),
-                                                    _runtime_profile.get());
+        _mem_tracker =
+                std::make_unique<MemTracker>("DataSinkOperator:" + _runtime_profile->name(),
+                                             _runtime_profile.get(), nullptr, "PeakMemoryUsage");
         return Status::OK();
     }
 
@@ -276,7 +277,6 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override {
-        SCOPED_TIMER(_runtime_profile->total_time_counter());
         if (in_block->rows() > 0) {
             return _sink->send(state, in_block, source_state == SourceState::FINISHED);
         }
@@ -318,14 +318,13 @@ public:
 
     ~StreamingOperator() override = default;
 
-    std::string get_name() const override { return "StreamingOperator"; }
-
     Status prepare(RuntimeState* state) override {
         _runtime_profile.reset(new RuntimeProfile(
                 fmt::format("{} (id={})", _operator_builder->get_name(), _operator_builder->id())));
         _node->runtime_profile()->insert_child_head(_runtime_profile.get(), true);
-        _mem_tracker = std::make_unique<MemTracker>(get_name() + ": " + _runtime_profile->name(),
-                                                    _runtime_profile.get());
+        _mem_tracker =
+                std::make_unique<MemTracker>(get_name() + ": " + _runtime_profile->name(),
+                                             _runtime_profile.get(), nullptr, "PeakMemoryUsage");
         _node->increase_ref();
         return Status::OK();
     }
@@ -360,7 +359,10 @@ public:
         DCHECK(_child);
         RETURN_IF_ERROR(_child->get_block(state, block, source_state));
         bool eos = false;
-        RETURN_IF_ERROR(_node->pull(state, block, &eos));
+        RETURN_IF_ERROR(_node->get_next_after_projects(
+                state, block, &eos,
+                std::bind(&ExecNode::pull, _node, std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
         return Status::OK();
     }
 
@@ -388,10 +390,9 @@ public:
 
     ~SourceOperator() override = default;
 
-    std::string get_name() const override { return "SourceOperator"; }
-
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override {
+        SCOPED_TIMER(this->_runtime_profile->total_time_counter());
         auto& node = StreamingOperator<OperatorBuilderType>::_node;
         bool eos = false;
         RETURN_IF_ERROR(node->get_next_after_projects(
@@ -424,10 +425,9 @@ public:
 
     virtual ~StatefulOperator() = default;
 
-    std::string get_name() const override { return "DataStateOperator"; }
-
     Status get_block(RuntimeState* state, vectorized::Block* block,
                      SourceState& source_state) override {
+        SCOPED_TIMER(this->_runtime_profile->total_time_counter());
         auto& node = StreamingOperator<OperatorBuilderType>::_node;
         auto& child = StreamingOperator<OperatorBuilderType>::_child;
 
@@ -444,11 +444,16 @@ public:
 
         if (!node->need_more_input_data()) {
             bool eos = false;
-            RETURN_IF_ERROR(node->pull(state, block, &eos));
+            RETURN_IF_ERROR(node->get_next_after_projects(
+                    state, block, &eos,
+                    std::bind(&ExecNode::pull, node, std::placeholders::_1, std::placeholders::_2,
+                              std::placeholders::_3)));
             if (eos) {
                 source_state = SourceState::FINISHED;
             } else if (!node->need_more_input_data()) {
                 source_state = SourceState::MORE_DATA;
+            } else if (source_state == SourceState::MORE_DATA) {
+                source_state = _child_source_state;
             }
         }
         return Status::OK();

@@ -29,6 +29,7 @@ import lombok.NoArgsConstructor;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.List;
 
 @NoArgsConstructor
 @Getter
@@ -40,11 +41,20 @@ public class ExternalObjectLog implements Writable {
     @SerializedName(value = "dbId")
     private long dbId;
 
+    @SerializedName(value = "dbName")
+    private String dbName;
+
     @SerializedName(value = "tableId")
     private long tableId;
 
+    @SerializedName(value = "tableName")
+    private String tableName;
+
     @SerializedName(value = "invalidCache")
     private boolean invalidCache;
+
+    @SerializedName(value = "partitionNames")
+    private List<String> partitionNames;
 
     @Override
     public void write(DataOutput out) throws IOException {

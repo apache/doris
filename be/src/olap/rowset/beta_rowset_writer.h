@@ -18,6 +18,7 @@
 #pragma once
 
 #include "olap/rowset/rowset_writer.h"
+#include "segment_v2/segment.h"
 #include "vec/olap/vgeneric_iterators.h"
 
 namespace doris {
@@ -41,8 +42,6 @@ public:
     Status init(const RowsetWriterContext& rowset_writer_context) override;
 
     Status add_row(const RowCursor& row) override { return _add_row(row); }
-    // For Memtable::flush()
-    Status add_row(const ContiguousRow& row) override { return _add_row(row); }
 
     Status add_block(const vectorized::Block* block) override;
 
@@ -55,8 +54,7 @@ public:
 
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
-    Status flush_single_memtable(MemTable* memtable, int64_t* flush_size) override;
-    Status flush_single_memtable(const vectorized::Block* block) override;
+    Status flush_single_memtable(const vectorized::Block* block, int64_t* flush_size) override;
 
     RowsetSharedPtr build() override;
 
@@ -130,6 +128,7 @@ private:
     bool _is_segment_overlapping(const std::vector<KeyBoundsPB>& segments_encoded_key_bounds);
 
 protected:
+    Status _append_row_column(vectorized::Block* block, vectorized::Block* dst_block);
     RowsetWriterContext _context;
     std::shared_ptr<RowsetMeta> _rowset_meta;
 

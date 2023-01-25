@@ -190,10 +190,6 @@ public:
     // 3 will be saved in "version", and 7 will be saved in "max_version", if max_version != nullptr
     void max_continuous_version_from_beginning(Version* version, Version* max_version = nullptr);
 
-    // operation for query
-    Status split_range(const OlapTuple& start_key_strings, const OlapTuple& end_key_strings,
-                       uint64_t request_block_row_count, std::vector<OlapTuple>* ranges);
-
     void set_bad(bool is_bad) { _is_bad = is_bad; }
 
     int64_t last_cumu_compaction_failure_time() { return _last_cumu_compaction_failure_millis; }
@@ -225,12 +221,8 @@ public:
 
     TabletInfo get_tablet_info() const;
 
-    void pick_candidate_rowsets_to_cumulative_compaction(
-            std::vector<RowsetSharedPtr>* candidate_rowsets,
-            std::shared_lock<std::shared_mutex>& /* meta lock*/);
-    void pick_candidate_rowsets_to_base_compaction(
-            std::vector<RowsetSharedPtr>* candidate_rowsets,
-            std::shared_lock<std::shared_mutex>& /* meta lock*/);
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_cumulative_compaction();
+    std::vector<RowsetSharedPtr> pick_candidate_rowsets_to_base_compaction();
 
     void calculate_cumulative_point();
     // TODO(ygl):
@@ -291,27 +283,10 @@ public:
         return _tablet_meta->tablet_schema(version);
     }
 
-    Status create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
-                                const SegmentsOverlapPB& overlap, TabletSchemaSPtr tablet_schema,
-                                int64_t oldest_write_timestamp, int64_t newest_write_timestamp,
+    Status create_rowset_writer(RowsetWriterContext& context,
                                 std::unique_ptr<RowsetWriter>* rowset_writer);
 
-    Status create_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
-                                const SegmentsOverlapPB& overlap, TabletSchemaSPtr tablet_schema,
-                                int64_t oldest_write_timestamp, int64_t newest_write_timestamp,
-                                io::FileSystemSPtr fs,
-                                std::unique_ptr<RowsetWriter>* rowset_writer);
-
-    Status create_rowset_writer(const int64_t& txn_id, const PUniqueId& load_id,
-                                const RowsetStatePB& rowset_state, const SegmentsOverlapPB& overlap,
-                                TabletSchemaSPtr tablet_schema,
-                                std::unique_ptr<RowsetWriter>* rowset_writer);
-
-    Status create_vertical_rowset_writer(const Version& version, const RowsetStatePB& rowset_state,
-                                         const SegmentsOverlapPB& overlap,
-                                         TabletSchemaSPtr tablet_schema,
-                                         int64_t oldest_write_timestamp,
-                                         int64_t newest_write_timestamp,
+    Status create_vertical_rowset_writer(RowsetWriterContext& context,
                                          std::unique_ptr<RowsetWriter>* rowset_writer);
 
     Status create_rowset(RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset);
@@ -329,6 +304,10 @@ public:
     //       not supported error in other data model.
     Status lookup_row_key(const Slice& encoded_key, const RowsetIdUnorderedSet* rowset_ids,
                           RowLocation* row_location, uint32_t version);
+
+    // Lookup a row with TupleDescriptor and fill Block
+    Status lookup_row_data(const RowLocation& row_location, const TupleDescriptor* desc,
+                           vectorized::Block* block);
 
     // calc delete bitmap when flush memtable, use a fake version to calc
     // For example, cur max version is 5, and we use version 6 to calc but
@@ -365,6 +344,8 @@ public:
                              int64_t start = -1);
     bool should_skip_compaction(CompactionType compaction_type, int64_t now);
 
+    RowsetSharedPtr get_rowset(const RowsetId& rowset_id);
+
 private:
     Status _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
@@ -400,6 +381,10 @@ private:
                                 RowsetIdUnorderedSet* to_add, RowsetIdUnorderedSet* to_del);
     Status _load_rowset_segments(const RowsetSharedPtr& rowset,
                                  std::vector<segment_v2::SegmentSharedPtr>* segments);
+    Status _cooldown_data();
+    Status _follow_cooldowned_data();
+    Status _read_remote_tablet_meta(io::FileSystemSPtr fs, TabletMetaPB* tablet_meta_pb);
+    Status _write_remote_tablet_meta(io::FileSystemSPtr fs, const TabletMetaPB& tablet_meta_pb);
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;

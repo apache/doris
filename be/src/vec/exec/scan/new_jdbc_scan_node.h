@@ -37,6 +37,7 @@ private:
     std::string _table_name;
     TupleId _tuple_id;
     std::string _query_string;
+    TOdbcTableType::type _table_type;
 };
 } // namespace vectorized
 } // namespace doris

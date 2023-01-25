@@ -27,7 +27,7 @@ namespace segment_v2 {
 class BloomFilter;
 }
 
-// Block Column Predicate support do column predicate in RowBlockV2 and support OR and AND predicate
+// Block Column Predicate support do column predicate and support OR and AND predicate
 // Block Column Predicate will replace column predicate as a unified external vectorized interface
 // in the future
 // TODO: support do predicate on Bitmap and ZoneMap, So we can use index of column to do predicate on
@@ -36,14 +36,6 @@ class BlockColumnPredicate {
 public:
     BlockColumnPredicate() = default;
     virtual ~BlockColumnPredicate() = default;
-
-    // evaluate all predicate on Block
-    virtual void evaluate(RowBlockV2* block, uint16_t* selected_size) const = 0;
-    // evaluate and semantics in all child block column predicate, flags as temporary variable identification
-    // to mark whether select vector is selected in evaluate the column predicate
-    virtual void evaluate_and(RowBlockV2* block, uint16_t selected_size, bool* flags) const = 0;
-    // evaluate or semantics in all child block column predicate
-    virtual void evaluate_or(RowBlockV2* block, uint16_t selected_size, bool* flags) const = 0;
 
     virtual void get_all_column_ids(std::set<ColumnId>& column_id_set) const = 0;
 
@@ -77,10 +69,6 @@ public:
 class SingleColumnBlockPredicate : public BlockColumnPredicate {
 public:
     explicit SingleColumnBlockPredicate(const ColumnPredicate* pre) : _predicate(pre) {};
-
-    void evaluate(RowBlockV2* block, uint16_t* selected_size) const override;
-    void evaluate_and(RowBlockV2* block, uint16_t selected_size, bool* flags) const override;
-    void evaluate_or(RowBlockV2* block, uint16_t selected_size, bool* flags) const override;
 
     void get_all_column_ids(std::set<ColumnId>& column_id_set) const override {
         column_id_set.insert(_predicate->column_id());
@@ -141,14 +129,6 @@ protected:
 
 class OrBlockColumnPredicate : public MutilColumnBlockPredicate {
 public:
-    void evaluate(RowBlockV2* block, uint16_t* selected_size) const override;
-
-    // It's kind of confusing here, when OrBlockColumnPredicate as a child of AndBlockColumnPredicate:
-    // 1.OrBlockColumnPredicate need evaluate all child BlockColumnPredicate OR SEMANTICS inside first
-    // 2.Do AND SEMANTICS in flags use 1 result to get proper select flags
-    void evaluate_and(RowBlockV2* block, uint16_t selected_size, bool* flags) const override;
-    void evaluate_or(RowBlockV2* block, uint16_t selected_size, bool* flags) const override;
-
     uint16_t evaluate(vectorized::MutableColumns& block, uint16_t* sel,
                       uint16_t selected_size) const override;
     void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,
@@ -161,14 +141,6 @@ public:
 
 class AndBlockColumnPredicate : public MutilColumnBlockPredicate {
 public:
-    void evaluate(RowBlockV2* block, uint16_t* selected_size) const override;
-    void evaluate_and(RowBlockV2* block, uint16_t selected_size, bool* flags) const override;
-
-    // It's kind of confusing here, when AndBlockColumnPredicate as a child of OrBlockColumnPredicate:
-    // 1.AndBlockColumnPredicate need evaluate all child BlockColumnPredicate AND SEMANTICS inside first
-    // 2.Evaluate OR SEMANTICS in flags use 1 result to get proper select flags
-    void evaluate_or(RowBlockV2* block, uint16_t selected_size, bool* flags) const override;
-
     uint16_t evaluate(vectorized::MutableColumns& block, uint16_t* sel,
                       uint16_t selected_size) const override;
     void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel, uint16_t selected_size,

@@ -37,10 +37,14 @@ public class TabletMeta {
 
     private TStorageMedium storageMedium;
 
+    private long cooldownReplicaId;
+
+    private long cooldownTerm;
+
     private ReentrantReadWriteLock lock;
 
     public TabletMeta(long dbId, long tableId, long partitionId, long indexId, int schemaHash,
-            TStorageMedium storageMedium) {
+            TStorageMedium storageMedium, long cooldownReplicaId, long cooldownTerm) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;
@@ -50,6 +54,8 @@ public class TabletMeta {
         this.newSchemaHash = -1;
 
         this.storageMedium = storageMedium;
+        this.cooldownReplicaId = cooldownReplicaId;
+        this.cooldownTerm = cooldownTerm;
 
         lock = new ReentrantReadWriteLock();
     }
@@ -76,6 +82,22 @@ public class TabletMeta {
 
     public void setStorageMedium(TStorageMedium storageMedium) {
         this.storageMedium = storageMedium;
+    }
+
+    public long getCooldownReplicaId() {
+        return cooldownReplicaId;
+    }
+
+    public void setCooldownReplicaId(long cooldownReplicaId) {
+        this.cooldownReplicaId = cooldownReplicaId;
+    }
+
+    public long getCooldownTerm() {
+        return cooldownTerm;
+    }
+
+    public void setCooldownTerm(long cooldownTerm) {
+        this.cooldownTerm = cooldownTerm;
     }
 
     public int getOldSchemaHash() {

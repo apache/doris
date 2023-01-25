@@ -32,7 +32,6 @@
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/thread_resource_mgr.h"
-#include "runtime/tuple_row.h"
 #include "runtime/types.h"
 #include "service/brpc.h"
 #include "util/brpc_client_cache.h"
@@ -287,31 +286,6 @@ public:
         brpc::ClosureGuard done_guard(done);
         Status status;
         status.to_protobuf(response->mutable_status());
-    }
-
-    void tablet_writer_add_batch(google::protobuf::RpcController* controller,
-                                 const PTabletWriterAddBatchRequest* request,
-                                 PTabletWriterAddBatchResult* response,
-                                 google::protobuf::Closure* done) override {
-        brpc::ClosureGuard done_guard(done);
-        {
-            std::lock_guard<std::mutex> l(_lock);
-            _row_counters += request->tablet_ids_size();
-            if (request->eos()) {
-                _eof_counters++;
-            }
-            k_add_batch_status.to_protobuf(response->mutable_status());
-
-            if (request->has_row_batch() && _row_desc != nullptr) {
-                brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
-                attachment_transfer_request_row_batch<PTabletWriterAddBatchRequest>(request, cntl);
-                RowBatch batch(*_row_desc, request->row_batch());
-                for (int i = 0; i < batch.num_rows(); ++i) {
-                    LOG(INFO) << batch.get_row(i)->to_string(*_row_desc);
-                    _output_set->emplace(batch.get_row(i)->to_string(*_row_desc));
-                }
-            }
-        }
     }
 
     void tablet_writer_add_block(google::protobuf::RpcController* controller,

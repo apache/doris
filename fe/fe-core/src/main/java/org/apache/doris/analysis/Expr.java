@@ -20,6 +20,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
@@ -31,6 +32,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.VectorizedUtil;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.statistics.ExprStats;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
@@ -195,6 +197,14 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                     }
                     Expr child = children.get(0);
                     return child instanceof SlotRef && child.getType().isVarchar();
+                }
+            };
+
+    public static final com.google.common.base.Predicate<Expr> IS_PLACRHOLDER =
+            new com.google.common.base.Predicate<Expr>() {
+                @Override
+                public boolean apply(Expr arg) {
+                    return arg instanceof PlaceHolderExpr;
                 }
             };
 
@@ -697,6 +707,9 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public Expr trySubstitute(ExprSubstitutionMap smap, ExprSubstitutionMap disjunctsMap, Analyzer analyzer,
             boolean preserveRootType) throws AnalysisException {
         Expr result = clone();
+        if (result instanceof PlaceHolderExpr) {
+            return result;
+        }
         // Return clone to avoid removing casts.
         if (smap == null) {
             return result;
@@ -1225,6 +1238,12 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return this;
     }
 
+    public Map<Long, Set<String>> getTableIdToColumnNames() {
+        Map<Long, Set<String>> tableIdToColumnNames = new HashMap<Long, Set<String>>();
+        getTableIdToColumnNames(tableIdToColumnNames);
+        return tableIdToColumnNames;
+    }
+
     public void getTableIdToColumnNames(Map<Long, Set<String>> tableIdToColumnNames) {
         Preconditions.checkState(tableIdToColumnNames != null);
         for (Expr child : children) {
@@ -1379,6 +1398,9 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
      *                           failure to convert a string literal to a date literal
      */
     public final Expr castTo(Type targetType) throws AnalysisException {
+        if (this instanceof PlaceHolderExpr && this.type.isInvalid()) {
+            return this;
+        }
         // If the targetType is NULL_TYPE then ignore the cast because NULL_TYPE
         // is compatible with all types and no cast is necessary.
         if (targetType.isNull()) {
@@ -1440,8 +1462,11 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     public void uncheckedCastChild(Type targetType, int childIndex)
             throws AnalysisException {
         Expr child = getChild(childIndex);
-        Expr newChild = child.uncheckedCastTo(targetType);
-        setChild(childIndex, newChild);
+        //avoid to generate Expr like cast (cast(... as date) as date)
+        if (!child.getType().equals(targetType)) {
+            Expr newChild = child.uncheckedCastTo(targetType);
+            setChild(childIndex, newChild);
+        }
     }
 
     /**
@@ -2036,6 +2061,25 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         if (fn.functionName().equalsIgnoreCase("concat_ws")) {
             return children.get(0).isNullable();
         }
+        if (fn.functionName().equalsIgnoreCase(Operator.MULTIPLY.getName())
+                && fn.getReturnType().isDecimalV3()) {
+            if (ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable().checkOverflowForDecimal()) {
+                return true;
+            } else {
+                return hasNullableChild();
+            }
+        }
+        if ((fn.functionName().equalsIgnoreCase(Operator.ADD.getName())
+                || fn.functionName().equalsIgnoreCase(Operator.SUBTRACT.getName()))
+                && fn.getReturnType().isDecimalV3()) {
+            if (ConnectContext.get() != null
+                    && ConnectContext.get().getSessionVariable().checkOverflowForDecimal()) {
+                return true;
+            } else {
+                return hasNullableChild();
+            }
+        }
         return true;
     }
 
@@ -2076,6 +2120,28 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         } else {
             return this instanceof LiteralExpr;
         }
+    }
+
+    public boolean matchExprs(List<Expr> exprs) {
+        for (Expr expr : exprs) {
+            if (expr == null) {
+                continue;
+            }
+            if (expr.toSql().equals(toSql())) {
+                return true;
+            }
+        }
+
+        if (getChildren().isEmpty()) {
+            return false;
+        }
+
+        for (Expr expr : getChildren()) {
+            if (!expr.matchExprs(exprs)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     protected Type[] getActualArgTypes(Type[] originType) {

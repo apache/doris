@@ -24,17 +24,32 @@
 #include "olap/column_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/tablet_schema.h"
+#include "runtime/runtime_state.h"
 #include "vec/core/block.h"
+#include "vec/exprs/vexpr.h"
 
 namespace doris {
 
 class RowCursor;
-class RowBlockV2;
 class Schema;
 class ColumnPredicate;
 
 struct IOContext {
+    IOContext() = default;
+
+    IOContext(const TUniqueId* query_id_, FileCacheStatistics* stats_, bool is_presistent_,
+              bool use_disposable_cache_, bool read_segment_index_)
+            : query_id(query_id_),
+              is_persistent(is_presistent_),
+              use_disposable_cache(use_disposable_cache_),
+              read_segment_index(read_segment_index_),
+              file_cache_stats(stats_) {}
     ReaderType reader_type;
+    const TUniqueId* query_id = nullptr;
+    bool is_persistent = false;
+    bool use_disposable_cache = false;
+    bool read_segment_index = false;
+    FileCacheStatistics* file_cache_stats = nullptr;
 };
 namespace vectorized {
 struct IteratorRowRef;
@@ -82,6 +97,7 @@ public:
     // reader's column predicate, nullptr if not existed
     // used to fiter rows in row block
     std::vector<ColumnPredicate*> column_predicates;
+    std::vector<ColumnPredicate*> column_predicates_except_leafnode_of_andnode;
     std::unordered_map<int32_t, std::shared_ptr<AndBlockColumnPredicate>> col_id_to_predicates;
     std::unordered_map<int32_t, std::vector<const ColumnPredicate*>> col_id_to_del_predicates;
     TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
@@ -93,15 +109,20 @@ public:
 
     TabletSchemaSPtr tablet_schema = nullptr;
     bool record_rowids = false;
+    // flag for enable topn opt
+    bool use_topn_opt = false;
     // used for special optimization for query : ORDER BY key DESC LIMIT n
     bool read_orderby_key_reverse = false;
     // columns for orderby keys
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
-
     IOContext io_ctx;
+    vectorized::VExpr* remaining_vconjunct_root = nullptr;
+    // runtime state
+    RuntimeState* runtime_state = nullptr;
+    RowsetId rowset_id;
+    int32_t tablet_id = 0;
 };
 
-// Used to read data in RowBlockV2 one by one
 class RowwiseIterator {
 public:
     RowwiseIterator() = default;
@@ -118,10 +139,6 @@ public:
     // into input batch with Status::OK() returned
     // If there is no data to read, will return Status::EndOfFile.
     // If other error happens, other error code will be returned.
-    virtual Status next_batch(RowBlockV2* block) {
-        return Status::NotSupported("to be implemented");
-    }
-
     virtual Status next_batch(vectorized::Block* block) {
         return Status::NotSupported("to be implemented");
     }

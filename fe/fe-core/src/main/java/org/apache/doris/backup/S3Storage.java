@@ -34,6 +34,7 @@ import org.apache.http.client.utils.URIBuilder;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
+import software.amazon.awssdk.auth.credentials.AwsSessionCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.auth.signer.AwsS3V4Signer;
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
@@ -148,10 +149,19 @@ public class S3Storage extends BlobStorage {
         if (client == null) {
             checkS3(caseInsensitiveProperties);
             URI tmpEndpoint = URI.create(caseInsensitiveProperties.get(S3Resource.S3_ENDPOINT));
-            AwsBasicCredentials awsBasic = AwsBasicCredentials.create(
-                    caseInsensitiveProperties.get(S3Resource.S3_ACCESS_KEY),
-                    caseInsensitiveProperties.get(S3Resource.S3_SECRET_KEY));
-            StaticCredentialsProvider scp = StaticCredentialsProvider.create(awsBasic);
+            StaticCredentialsProvider scp;
+            if (!caseInsensitiveProperties.containsKey(S3Resource.S3_TOKEN)) {
+                AwsBasicCredentials awsBasic = AwsBasicCredentials.create(
+                        caseInsensitiveProperties.get(S3Resource.S3_ACCESS_KEY),
+                        caseInsensitiveProperties.get(S3Resource.S3_SECRET_KEY));
+                scp = StaticCredentialsProvider.create(awsBasic);
+            } else {
+                AwsSessionCredentials awsSession = AwsSessionCredentials.create(
+                        caseInsensitiveProperties.get(S3Resource.S3_ACCESS_KEY),
+                        caseInsensitiveProperties.get(S3Resource.S3_SECRET_KEY),
+                        caseInsensitiveProperties.get(S3Resource.S3_TOKEN));
+                scp = StaticCredentialsProvider.create(awsSession);
+            }
             EqualJitterBackoffStrategy backoffStrategy = EqualJitterBackoffStrategy
                     .builder()
                     .baseDelay(Duration.ofSeconds(1))
@@ -243,11 +253,14 @@ public class S3Storage extends BlobStorage {
             LOG.info("upload content success: " + response.eTag());
             return Status.OK;
         } catch (S3Exception e) {
-            LOG.error("write content failed:", e);
+            LOG.warn("write content failed:", e);
             return new Status(Status.ErrCode.COMMON_ERROR, "write content failed: " + e.getMessage());
         } catch (UserException ue) {
-            LOG.error("connect to s3 failed: ", ue);
+            LOG.warn("connect to s3 failed: ", ue);
             return new Status(Status.ErrCode.COMMON_ERROR, "connect to s3 failed: " + ue.getMessage());
+        } catch (Exception e) {
+            LOG.warn("connect to s3 failed: ", e);
+            return new Status(Status.ErrCode.COMMON_ERROR, "connect to s3 failed: " + e.getMessage());
         }
     }
 
@@ -313,13 +326,13 @@ public class S3Storage extends BlobStorage {
             LOG.info("delete file " + remotePath + " success: " + response.toString());
             return Status.OK;
         } catch (S3Exception e) {
-            LOG.error("delete file failed: ", e);
+            LOG.warn("delete file failed: ", e);
             if (e.statusCode() == HttpStatus.SC_NOT_FOUND) {
                 return Status.OK;
             }
             return new Status(Status.ErrCode.COMMON_ERROR, "delete file failed: " + e.getMessage());
         } catch (UserException ue) {
-            LOG.error("connect to s3 failed: ", ue);
+            LOG.warn("connect to s3 failed: ", ue);
             return new Status(Status.ErrCode.COMMON_ERROR, "connect to s3 failed: " + ue.getMessage());
         }
     }

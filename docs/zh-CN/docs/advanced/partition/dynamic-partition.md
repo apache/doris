@@ -131,6 +131,8 @@ under the License.
 - `dynamic_partition.hot_partition_num`
 
   指定最新的多少个分区为热分区。对于热分区，系统会自动设置其 `storage_medium` 参数为SSD，并且设置 `storage_cooldown_time`。
+  
+  **注意：若存储路径下没有 SSD 磁盘路径，配置该参数会导致动态分区创建失败。**
 
   `hot_partition_num` 是往前 n 天和未来所有分区
 
@@ -481,7 +483,7 @@ mysql> SHOW DYNAMIC PARTITION TABLES;
 
     我们将前两个参数成为表的默认参数，而后两个参数成为动态分区专用参数。
 
-    当系统自动创爱分区时，会使用分桶数 32 和 副本数 1 这两个配置（即动态分区专用参数）。而不是分桶数 3 和 副本数 3 这两个配置。
+    当系统自动创建分区时，会使用分桶数 32 和 副本数 1 这两个配置（即动态分区专用参数）。而不是分桶数 3 和 副本数 3 这两个配置。
 
     当用户通过 `ALTER TABLE tbl1 ADD PARTITION` 语句手动添加分区时，则会使用分桶数 3 和 副本数 3 这两个配置（即表的默认参数）。
 

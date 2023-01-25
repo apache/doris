@@ -37,11 +37,10 @@ set(RUNTIME_FILES
     primitive_type.cpp
     raw_value.cpp
     result_buffer_mgr.cpp
-    result_writer.cpp
-    row_batch.cpp
+    result_writer.cpp    
     runtime_state.cpp
     runtime_filter_mgr.cpp
-    string_value.cpp
+    runtime_predicate.cpp
     jsonb_value.cpp
     thread_context.cpp
     thread_resource_mgr.cpp
@@ -50,26 +49,14 @@ set(RUNTIME_FILES
     large_int_value.cpp
     collection_value.cpp
     tuple.cpp
-    tuple_row.cpp
     fragment_mgr.cpp
     dpp_sink_internal.cpp
     load_path_mgr.cpp
     types.cpp
     tmp_file_mgr.cc
-    disk_io_mgr.cc
-    disk_io_mgr_reader_context.cc
-    disk_io_mgr_scan_range.cc 
-    buffered_block_mgr2.cc
-    buffered_tuple_stream2.cc
-    buffered_tuple_stream3.cc
-    export_sink.cpp
     load_channel_mgr.cpp
     load_channel.cpp
     tablets_channel.cpp
-    bufferpool/buffer_allocator.cc
-    bufferpool/buffer_pool.cc
-    bufferpool/suballocator.cc
-    bufferpool/system_allocator.cc
     snapshot_loader.cpp
     query_statistics.cpp 
     message_body_sink.cpp
@@ -85,9 +72,7 @@ set(RUNTIME_FILES
     small_file_mgr.cpp
     record_batch_queue.cpp
     result_queue_mgr.cpp
-    memory_scratch_sink.cpp
     external_scan_context_mgr.cpp
-    mysql_result_writer.cpp
     memory/system_allocator.cpp
     memory/chunk_allocator.cpp
     memory/mem_tracker_limiter.cpp
@@ -96,15 +81,8 @@ set(RUNTIME_FILES
     fold_constant_executor.cpp
     cache/result_node.cpp
     cache/result_cache.cpp
-    odbc_table_sink.cpp	
+    block_spill_manager.cpp
 )
-
-if (WITH_MYSQL)
-    set(RUNTIME_FILES ${RUNTIME_FILES}
-        mysql_table_writer.cpp
-        mysql_table_sink.cpp
-        )
-endif()
 
 if (USE_JEMALLOC AND USE_MEM_TRACKER)
     set(RUNTIME_FILES ${RUNTIME_FILES}

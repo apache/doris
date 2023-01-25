@@ -17,6 +17,7 @@
 
 #include "vec/exec/join/vhash_join_node.h"
 
+#include "exprs/bloom_filter_func.h"
 #include "exprs/runtime_filter_slots.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gutil/strings/substitute.h"
@@ -356,7 +357,6 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status HashJoinNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(VJoinNodeBase::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     auto* memory_usage = runtime_profile()->create_child("MemoryUsage", true, true);
     runtime_profile()->add_child(memory_usage, false, nullptr);
@@ -448,11 +448,7 @@ Status HashJoinNode::close(RuntimeState* state) {
     return VJoinNodeBase::close(state);
 }
 
-Status HashJoinNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    return Status::NotSupported("Not Implemented HashJoin Node::get_next scalar");
-}
-
-bool HashJoinNode::need_more_input_data() {
+bool HashJoinNode::need_more_input_data() const {
     return (_probe_block.rows() == 0 || _probe_index == _probe_block.rows()) && !_probe_eos &&
            !_short_circuit_for_null_in_probe_side;
 }
@@ -464,6 +460,7 @@ void HashJoinNode::prepare_for_next() {
 
 Status HashJoinNode::pull(doris::RuntimeState* /*state*/, vectorized::Block* output_block,
                           bool* eos) {
+    SCOPED_TIMER(_probe_timer);
     if (_short_circuit_for_null_in_probe_side) {
         // If we use a short-circuit strategy for null value in build side (e.g. if join operator is
         // NULL_AWARE_LEFT_ANTI_JOIN), we should return empty block directly.
@@ -494,14 +491,15 @@ Status HashJoinNode::pull(doris::RuntimeState* /*state*/, vectorized::Block* out
                                                              ? &_null_map_column->get_data()
                                                              : nullptr,
                                                      mutable_join_block, &temp_block,
-                                                     _probe_block.rows());
+                                                     _probe_block.rows(), _is_mark_join);
                             } else {
                                 st = process_hashtable_ctx.template do_process<
                                         need_null_map_for_probe, ignore_null>(
                                         arg,
                                         need_null_map_for_probe ? &_null_map_column->get_data()
                                                                 : nullptr,
-                                        mutable_join_block, &temp_block, _probe_block.rows());
+                                        mutable_join_block, &temp_block, _probe_block.rows(),
+                                        _is_mark_join);
                             }
                         } else {
                             LOG(FATAL) << "FATAL: uninited hash table";
@@ -554,7 +552,7 @@ Status HashJoinNode::pull(doris::RuntimeState* /*state*/, vectorized::Block* out
 Status HashJoinNode::push(RuntimeState* /*state*/, vectorized::Block* input_block, bool eos) {
     _probe_eos = eos;
     if (input_block->rows() > 0) {
-        COUNTER_UPDATE(_probe_rows_counter, _probe_block.rows());
+        COUNTER_UPDATE(_probe_rows_counter, input_block->rows());
         int probe_expr_ctxs_sz = _probe_expr_ctxs.size();
         _probe_columns.resize(probe_expr_ctxs_sz);
 
@@ -589,7 +587,6 @@ Status HashJoinNode::push(RuntimeState* /*state*/, vectorized::Block* input_bloc
 Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "HashJoinNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_TIMER(_probe_timer);
 
     if (_short_circuit_for_null_in_probe_side) {
         // If we use a short-circuit strategy for null value in build side (e.g. if join operator is
@@ -663,8 +660,8 @@ void HashJoinNode::_prepare_probe_block() {
 
 Status HashJoinNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::open");
+    SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(VJoinNodeBase::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_CANCELLED(state);
     return Status::OK();
 }
@@ -699,9 +696,9 @@ void HashJoinNode::release_resource(RuntimeState* state) {
 
 Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
     RETURN_IF_ERROR(child(1)->open(state));
-    bool eos = false;
 
     if (_should_build_hash_table) {
+        bool eos = false;
         Block block;
         // If eos or have already met a null value using short-circuit strategy, we do not need to pull
         // data from data.
@@ -721,8 +718,10 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
 
             RETURN_IF_ERROR(sink(state, &block, eos));
         }
+        RETURN_IF_ERROR(child(1)->close(state));
     } else {
-        RETURN_IF_ERROR(sink(state, nullptr, eos));
+        RETURN_IF_ERROR(child(1)->close(state));
+        RETURN_IF_ERROR(sink(state, nullptr, true));
     }
     return Status::OK();
 }
@@ -771,9 +770,6 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
 
     if (_should_build_hash_table && eos) {
         // For pipeline engine, children should be closed once this pipeline task is finished.
-        if (!state->enable_pipeline_exec()) {
-            child(1)->close(state);
-        }
         if (!_build_side_mutable_block.empty()) {
             if (_build_blocks->size() == _MAX_BUILD_BLOCK_COUNT) {
                 return Status::NotSupported(
@@ -816,10 +812,8 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
             }
             _shared_hashtable_controller->signal(id());
         }
-    } else if (!_should_build_hash_table) {
-        if (!state->enable_pipeline_exec()) {
-            child(1)->close(state);
-        }
+    } else if (!_should_build_hash_table &&
+               ((state->enable_pipeline_exec() && eos) || !state->enable_pipeline_exec())) {
         DCHECK(_shared_hashtable_controller != nullptr);
         DCHECK(_shared_hash_table_context != nullptr);
         auto wait_timer = ADD_TIMER(_build_phase_profile, "WaitForSharedHashTableTime");
@@ -862,10 +856,27 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
         }
     }
 
-    if (eos || !_should_build_hash_table) {
+    if (eos || (!_should_build_hash_table && !state->enable_pipeline_exec())) {
         _process_hashtable_ctx_variants_init(state);
     }
+
+    // Since the comparison of null values is meaningless, null aware left anti join should not output null
+    // when the build side is not empty.
+    if (eos && !_build_blocks->empty() && _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+        _probe_ignore_null = true;
+    }
     return Status::OK();
+}
+
+void HashJoinNode::debug_string(int indentation_level, std::stringstream* out) const {
+    *out << string(indentation_level * 2, ' ');
+    *out << "HashJoin(need_more_input_data=" << (need_more_input_data() ? "true" : "false")
+         << " _probe_block.rows()=" << _probe_block.rows() << " _probe_index=" << _probe_index
+         << " _probe_eos=" << _probe_eos
+         << " _short_circuit_for_null_in_probe_side=" << _short_circuit_for_null_in_probe_side;
+    *out << ")\n children=(";
+    ExecNode::debug_string(indentation_level, out);
+    *out << ")";
 }
 
 template <bool BuildSide>

@@ -21,11 +21,9 @@
 
 namespace doris {
 class ObjectPool;
-class RowBatch;
 class RuntimeState;
 class RuntimeProfile;
 class BufferControlBlock;
-class ExprContext;
 class ResultWriter;
 class MemTracker;
 struct ResultFileOptions;
@@ -115,8 +113,6 @@ public:
     virtual Status prepare(RuntimeState* state) override;
     virtual Status open(RuntimeState* state) override;
 
-    // not implement
-    virtual Status send(RuntimeState* state, RowBatch* batch) override;
     virtual Status send(RuntimeState* state, Block* block, bool eos = false) override;
     // Flush all buffered data and close all existing channels to destination
     // hosts. Further send() calls are illegal after calling close().

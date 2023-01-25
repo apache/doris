@@ -136,6 +136,25 @@ PROPERTIES
     "use_path_style" = "true"
 );
 ```
+<version since="1.2">
+
+7. 使用临时秘钥创建名为 minio_repo 的仓库
+
+```
+CREATE REPOSITORY `minio_repo`
+WITH S3
+ON LOCATION "s3://minio_repo"
+PROPERTIES
+(
+    "AWS_ENDPOINT" = "AWS_ENDPOINT",
+    "AWS_ACCESS_KEY" = "AWS_TEMP_ACCESS_KEY",
+    "AWS_SECRET_KEY" = "AWS_TEMP_SECRET_KEY",
+    "AWS_TOKEN" = "AWS_TEMP_TOKEN",
+    "AWS_REGION" = "AWS_REGION"
+)
+```
+
+</version>
 
 ### Keywords
 

@@ -43,7 +43,7 @@ public:
     VcompoundPred(const TExprNode& node) : VectorizedFnCall(node) {
         _op = node.opcode;
         _fn.name.function_name = compound_operator_to_string(_op);
-        _expr_name = "CompoundPredicate (" + _fn.name.function_name + ")";
+        _expr_name = "VCompoundPredicate (" + _fn.name.function_name + ")";
     }
 
     VExpr* clone(ObjectPool* pool) const override { return pool->add(new VcompoundPred(*this)); }

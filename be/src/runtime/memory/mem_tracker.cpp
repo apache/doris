@@ -40,8 +40,8 @@ struct TrackerGroup {
 static std::vector<TrackerGroup> mem_tracker_pool(1000);
 
 MemTracker::MemTracker(const std::string& label, RuntimeProfile* profile, MemTrackerLimiter* parent,
-                       const std::string& profile_counter_name, bool only_track_alloc)
-        : _label(label), _only_track_alloc(only_track_alloc) {
+                       const std::string& profile_counter_name)
+        : _label(label) {
     if (profile == nullptr) {
         _consumption = std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES);
     } else {
@@ -56,7 +56,15 @@ MemTracker::MemTracker(const std::string& label, RuntimeProfile* profile, MemTra
         // release().
         _consumption = profile->AddSharedHighWaterMarkCounter(profile_counter_name, TUnit::BYTES);
     }
+    bind_parent(parent);
+}
 
+MemTracker::MemTracker(const std::string& label, MemTrackerLimiter* parent) : _label(label) {
+    _consumption = std::make_shared<RuntimeProfile::HighWaterMarkCounter>(TUnit::BYTES);
+    bind_parent(parent);
+}
+
+void MemTracker::bind_parent(MemTrackerLimiter* parent) {
     if (parent) {
         _parent_label = parent->label();
         _parent_group_num = parent->group_num();
@@ -95,7 +103,7 @@ void MemTracker::make_group_snapshot(std::vector<MemTracker::Snapshot>* snapshot
                                      int64_t group_num, std::string parent_label) {
     std::lock_guard<std::mutex> l(mem_tracker_pool[group_num].group_lock);
     for (auto tracker : mem_tracker_pool[group_num].trackers) {
-        if (tracker->parent_label() == parent_label) {
+        if (tracker->parent_label() == parent_label && tracker->consumption() != 0) {
             snapshots->push_back(tracker->make_snapshot());
         }
     }

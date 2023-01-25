@@ -34,9 +34,12 @@ void StoragePolicyMgr::update(const std::string& name, const StoragePolicyPtr& p
             it->second = policy;
             s3_fs = std::dynamic_pointer_cast<io::S3FileSystem>(
                     io::FileSystemMap::instance()->get(name));
-            DCHECK(s3_fs);
-            s3_fs->set_ak(policy->s3_ak);
-            s3_fs->set_sk(policy->s3_sk);
+            if (s3_fs) {
+                s3_fs->set_ak(policy->s3_ak);
+                s3_fs->set_sk(policy->s3_sk);
+            } else {
+                DCHECK(false) << "s3_fs is null";
+            }
         }
     }
     if (s3_fs) {
@@ -64,7 +67,7 @@ void StoragePolicyMgr::periodic_put(const std::string& name, const StoragePolicy
             s3_conf.connect_timeout_ms = policy->s3_conn_timeout_ms;
             s3_conf.bucket = policy->bucket;
             s3_conf.prefix = policy->root_path;
-            s3_fs = std::make_shared<io::S3FileSystem>(std::move(s3_conf), name);
+            s3_fs = io::S3FileSystem::create(std::move(s3_conf), name);
             io::FileSystemMap::instance()->insert(name, s3_fs);
             _policy_map.emplace(name, policy);
         } else if (it->second->md5_sum != policy->md5_sum) {

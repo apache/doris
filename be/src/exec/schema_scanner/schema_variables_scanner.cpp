@@ -20,14 +20,14 @@
 #include "exec/schema_scanner/schema_helper.h"
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
-#include "runtime/string_value.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
 SchemaScanner::ColumnDesc SchemaVariablesScanner::_s_vars_columns[] = {
         //   name,       type,          size
-        {"VARIABLE_NAME", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"VARIABLE_VALUE", TYPE_VARCHAR, sizeof(StringValue), false},
+        {"VARIABLE_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"VARIABLE_VALUE", TYPE_VARCHAR, sizeof(StringRef), false},
 };
 
 SchemaVariablesScanner::SchemaVariablesScanner(TVarType::type type)
@@ -65,26 +65,26 @@ Status SchemaVariablesScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     // variables names
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
         int len = strlen(_begin->first.c_str());
-        str_slot->ptr = (char*)pool->allocate(len + 1);
-        if (nullptr == str_slot->ptr) {
+        str_slot->data = (char*)pool->allocate(len + 1);
+        if (nullptr == str_slot->data) {
             return Status::InternalError("No Memory.");
         }
-        memcpy(str_slot->ptr, _begin->first.c_str(), len + 1);
-        str_slot->len = len;
+        memcpy(const_cast<char*>(str_slot->data), _begin->first.c_str(), len + 1);
+        str_slot->size = len;
     }
     // value
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
         int len = strlen(_begin->second.c_str());
-        str_slot->ptr = (char*)pool->allocate(len + 1);
-        if (nullptr == str_slot->ptr) {
+        str_slot->data = (char*)pool->allocate(len + 1);
+        if (nullptr == str_slot->data) {
             return Status::InternalError("No Memory.");
         }
-        memcpy(str_slot->ptr, _begin->second.c_str(), len + 1);
-        str_slot->len = len;
+        memcpy(const_cast<char*>(str_slot->data), _begin->second.c_str(), len + 1);
+        str_slot->size = len;
     }
     ++_begin;
     return Status::OK();

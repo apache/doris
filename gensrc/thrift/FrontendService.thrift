@@ -546,6 +546,7 @@ struct TStreamLoadPutRequest {
     39: optional string hidden_columns
     40: optional PlanNodes.TFileCompressType compress_type
     41: optional i64 file_size // only for stream load with parquet or orc
+    42: optional bool trim_double_quotes // trim double quotes for csv
 }
 
 struct TStreamLoadPutResult {
@@ -693,11 +694,20 @@ struct TInitExternalCtlMetaResult {
 
 enum TSchemaTableName{
   BACKENDS = 0,
+  ICEBERG_TABLE_META = 1,
+}
+
+struct TMetadataTableRequestParams {
+  1: optional PlanNodes.TIcebergMetadataParams iceberg_metadata_params
+  2: optional string catalog
+  3: optional string database
+  4: optional string table
 }
 
 struct TFetchSchemaTableDataRequest {
   1: optional string cluster_name
   2: optional TSchemaTableName schema_table_name
+  3: optional TMetadataTableRequestParams metada_table_params
 }
 
 struct TFetchSchemaTableDataResult {

@@ -57,13 +57,13 @@ There are two ways to configure BE configuration items:
    After BE starts, the configuration items can be dynamically set with the following commands.
 
     ```
-    curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}'
+    curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}
     ```
 
    In version 0.13 and before, the configuration items modified in this way will become invalid after the BE process restarts. In 0.14 and later versions, the modified configuration can be persisted through the following command. The modified configuration items are stored in the `be_custom.conf` file.
 
     ```
-    curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}&persis=true
+    curl -X POST http://{be_ip}:{be_http_port}/api/update_config?{key}={value}\&persist=true
     ```
 
 ## Examples
@@ -250,7 +250,7 @@ There are two ways to configure BE configuration items:
 
 * Description: This configuration is mainly used to modify the number of bthreads for brpc. The default value is set to -1, which means the number of bthreads is #cpu-cores.
   - User can set this configuration to a larger value to get better QPS performance. For more information, please refer to `https://github.com/apache/incubator-brpc/blob/master/docs/cn/benchmark.md`
-* Default value: 1
+* Default value: -1
 
 #### `thrift_rpc_timeout_ms`
 
@@ -334,8 +334,8 @@ There are two ways to configure BE configuration items:
 
 #### `fragment_pool_thread_num_max`
 
-* Description: Follow up query requests create threads dynamically, with a maximum of 256 threads created.
-* Default value: 256
+* Description: Follow up query requests create threads dynamically, with a maximum of 512 threads created.
+* Default value: 512
 
 #### `doris_max_pushdown_conjuncts_return_rate`
 
@@ -346,7 +346,7 @@ There are two ways to configure BE configuration items:
 #### `doris_max_scan_key_num`
 
 * Type: int
-* Description: Used to limit the maximum number of scan keys that a scan node can split in a query request. When a conditional query request reaches the scan node, the scan node will try to split the conditions related to the key column in the query condition into multiple scan key ranges. After that, these scan key ranges will be assigned to multiple scanner threads for data scanning. A larger value usually means that more scanner threads can be used to increase the parallelism of the scanning operation. However, in high concurrency scenarios, too many threads may bring greater scheduling overhead and system load, and will slow down the query response speed. An empirical value is 50. This configuration can be configured separately at the session level. For details, please refer to the description of `max_scan_key_num` in [Variables](../../../advanced/variables).
+* Description: Used to limit the maximum number of scan keys that a scan node can split in a query request. When a conditional query request reaches the scan node, the scan node will try to split the conditions related to the key column in the query condition into multiple scan key ranges. After that, these scan key ranges will be assigned to multiple scanner threads for data scanning. A larger value usually means that more scanner threads can be used to increase the parallelism of the scanning operation. However, in high concurrency scenarios, too many threads may bring greater scheduling overhead and system load, and will slow down the query response speed. An empirical value is 50. This configuration can be configured separately at the session level. For details, please refer to the description of `max_scan_key_num` in [Variables](../../advanced/variables).
   - When the concurrency cannot be improved in high concurrency scenarios, try to reduce this value and observe the impact.
 * Default value: 48
 
@@ -406,7 +406,7 @@ There are two ways to configure BE configuration items:
 #### `max_pushdown_conditions_per_column`
 
 * Type: int
-* Description: Used to limit the maximum number of conditions that can be pushed down to the storage engine for a single column in a query request. During the execution of the query plan, the filter conditions on some columns can be pushed down to the storage engine, so that the index information in the storage engine can be used for data filtering, reducing the amount of data that needs to be scanned by the query. Such as equivalent conditions, conditions in IN predicates, etc. In most cases, this parameter only affects queries containing IN predicates. Such as `WHERE colA IN (1,2,3,4, ...)`. A larger number means that more conditions in the IN predicate can be pushed to the storage engine, but too many conditions may cause an increase in random reads, and in some cases may reduce query efficiency. This configuration can be individually configured for session level. For details, please refer to the description of `max_pushdown_conditions_per_column` in [Variables](../../advanced/variables.md).
+* Description: Used to limit the maximum number of conditions that can be pushed down to the storage engine for a single column in a query request. During the execution of the query plan, the filter conditions on some columns can be pushed down to the storage engine, so that the index information in the storage engine can be used for data filtering, reducing the amount of data that needs to be scanned by the query. Such as equivalent conditions, conditions in IN predicates, etc. In most cases, this parameter only affects queries containing IN predicates. Such as `WHERE colA IN (1,2,3,4, ...)`. A larger number means that more conditions in the IN predicate can be pushed to the storage engine, but too many conditions may cause an increase in random reads, and in some cases may reduce query efficiency. This configuration can be individually configured for session level. For details, please refer to the description of `max_pushdown_conditions_per_column` in [Variables](../../advanced/variables).
 * Default value: 1024
 
 * Example
@@ -445,6 +445,42 @@ There are two ways to configure BE configuration items:
 * Description: Whether to enable vectorized compaction
 * Default value: true
 
+#### `enable_vertical_compaction`
+
+* Type: bool
+* Description: Whether to enable vertical compaction
+* Default value: true
+
+#### `vertical_compaction_num_columns_per_group`
+
+* Type: bool
+* Description: In vertical compaction, column number for every group
+* Default value: true
+
+#### `vertical_compaction_max_row_source_memory_mb`
+
+* Type: bool
+* Description: In vertical compaction, max memory usage for row_source_buffer
+* Default value: true
+
+#### `vertical_compaction_max_segment_size`
+
+* Type: bool
+* Description: In vertical compaction, max dest segment file size
+* Default value: true
+
+#### `enable_ordered_data_compaction`
+
+* Type: bool
+* Description: Whether to enable ordered data compaction
+* Default value: true
+
+#### `ordered_data_compaction_min_segment_size`
+
+* Type: bool
+* Description: In ordered data compaction, min segment size for input rowset
+* Default value: true
+
 #### `max_base_compaction_threads`
 
 * Type: int32
@@ -472,12 +508,6 @@ There are two ways to configure BE configuration items:
 * Description: The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
 * Default value: 10000
 * Dynamically modifiable: Yes
-
-#### `compaction_tablet_compaction_score_factor`
-
-* Type: int32
-* Description: Coefficient for compaction score when calculating tablet score to find a tablet for compaction.
-* Default value: 1
 
 #### `compaction_promotion_size_mbytes`
 
@@ -959,14 +989,20 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `file_cache_type`
 
 * Type: string
-* Description: Type of cache file. whole_ file_ Cache: download the entire segment file, sub_ file_ Cache: the segment file is divided into multiple files by size.
-* Default value: null
+* Description: Type of cache file.`whole_file_cache`: download the entire segment file, `sub_file_cache`: the segment file is divided into multiple files by size. if set "", no cache, please set this parameter when caching is required.
+* Default value: ""
 
 #### `file_cache_alive_time_sec`
 
 * Type: int64
 * Description: Save time of cache file
 * Default value: 604800 (1 week)
+
+#### `file_cache_max_size_per_disk`
+
+* Type: int64
+* Description: The cache occupies the disk size. Once this setting is exceeded, the cache that has not been accessed for the longest time will be deleted. If it is 0, the size is not limited. unit is bytes.
+* Default value: 0
 
 #### `max_sub_cache_file_size`
 
@@ -1243,6 +1279,16 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 * Description: enable to use Snappy compression algorithm for data compression when serializing RowBatch
 * Default value: true
 
+<version since="1.2">
+
+#### `jvm_max_heap_size`
+
+* Type: string
+* Description: The maximum size of JVM heap memory used by BE, which is the `-Xmx` parameter of JVM
+* Default value: 1024M
+
+</version>
+
 ### Log
 
 #### `sys_log_dir`
@@ -1363,3 +1409,11 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 * Description: the increased frequency of priority for remaining tasks in BlockingPriorityQueue
 * Default value: 512
 
+<version since="1.2">
+
+#### `jdbc_drivers_dir`
+
+* Description: Default dirs to put jdbc drivers.
+* Default value: `${DORIS_HOME}/jdbc_drivers`
+
+</version>

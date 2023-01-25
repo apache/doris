@@ -44,8 +44,8 @@ docs/.temp
 # output, thirdparty, extension
 output/
 rpc_data/
-thirdparty/src
-thirdparty/installed
+thirdparty/src*
+thirdparty/installed*
 
 fe_plugins/output
 fe_plugins/**/.factorypath

@@ -222,6 +222,26 @@ BigIntVal MathFunctions::round(FunctionContext* ctx, const DoubleVal& v) {
     return BigIntVal(static_cast<int64_t>(v.val + ((v.val < 0) ? -0.5 : 0.5)));
 }
 
+BigIntVal MathFunctions::round_bankers(FunctionContext* ctx, const DoubleVal& v) {
+    return BigIntVal(static_cast<int64_t>(round_bankers(ctx, v, IntVal(0)).val));
+}
+
+DoubleVal MathFunctions::round_bankers(doris_udf::FunctionContext* ctx, const DoubleVal& v,
+                                       const IntVal& d) {
+    const double TOLERANCE = 1e-10;
+    double shift = std::pow(10, d.val);
+    double t = v.val * shift;
+    double rounded = std::round(t);
+    if (int64_t(rounded) % 2 == 1) {
+        if (::abs(rounded - t) - 0.5 < TOLERANCE) {
+            rounded -= 1;
+        } else {
+            rounded += 1;
+        }
+    }
+    return DoubleVal(rounded / shift);
+}
+
 DoubleVal MathFunctions::round_up_to(FunctionContext* ctx, const DoubleVal& v,
                                      const IntVal& scale) {
     if (v.is_null || scale.is_null) {
@@ -660,7 +680,7 @@ LEAST_FNS();
     }
 
 #define LEAST_NONNUMERIC_FNS()                                     \
-    LEAST_NONNUMERIC_FN(string_val, StringVal, StringValue);       \
+    LEAST_NONNUMERIC_FN(string_val, StringVal, StringRef);         \
     LEAST_NONNUMERIC_FN(datetime_val, DateTimeVal, DateTimeValue); \
     LEAST_NONNUMERIC_FN(decimal_val, DecimalV2Val, DecimalV2Value);
 
@@ -703,7 +723,7 @@ GREATEST_FNS();
     }
 
 #define GREATEST_NONNUMERIC_FNS()                                     \
-    GREATEST_NONNUMERIC_FN(string_val, StringVal, StringValue);       \
+    GREATEST_NONNUMERIC_FN(string_val, StringVal, StringRef);         \
     GREATEST_NONNUMERIC_FN(datetime_val, DateTimeVal, DateTimeValue); \
     GREATEST_NONNUMERIC_FN(decimal_val, DecimalV2Val, DecimalV2Value);
 

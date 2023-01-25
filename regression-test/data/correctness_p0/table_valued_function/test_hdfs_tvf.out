@@ -287,3 +287,12 @@
 4	shenzhen	2345674
 5	guangzhou	2345675
 
+-- !desc --
+s_suppkey	INT	Yes	false	\N	NONE
+s_name	TEXT	Yes	false	\N	NONE
+s_address	TEXT	Yes	false	\N	NONE
+s_nationkey	INT	Yes	false	\N	NONE
+s_phone	TEXT	Yes	false	\N	NONE
+s_acctbal	DECIMAL(9,0)	Yes	false	\N	NONE
+s_comment	TEXT	Yes	false	\N	NONE
+

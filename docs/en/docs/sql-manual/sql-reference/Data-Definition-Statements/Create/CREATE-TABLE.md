@@ -352,6 +352,8 @@ distribution_desc
         If set to true, the addition and deletion of value columns can be done more quickly and synchronously.
     
         `"light_schema_change"="true"`
+
+        This feature is enabled by default after v1.2.1.
     
     * `disable_auto_compaction`
 

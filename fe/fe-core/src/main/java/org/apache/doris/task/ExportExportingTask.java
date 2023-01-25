@@ -161,18 +161,17 @@ public class ExportExportingTask extends MasterTask {
             }
         }
 
-        // release snapshot
-        Status releaseSnapshotStatus = job.releaseSnapshotPaths();
-        if (!releaseSnapshotStatus.ok()) {
-            // even if release snapshot failed, do nothing cancel this job.
-            // snapshot will be removed by GC thread on BE, finally.
-            LOG.warn("failed to release snapshot for export job: {}. err: {}", job.getId(),
-                    releaseSnapshotStatus.getErrorMsg());
-        }
-
         if (job.updateState(ExportJob.JobState.FINISHED)) {
             LOG.warn("export job success. job: {}", job);
             registerProfile();
+            // release snapshot
+            Status releaseSnapshotStatus = job.releaseSnapshotPaths();
+            if (!releaseSnapshotStatus.ok()) {
+                // even if release snapshot failed, do not cancel this job.
+                // snapshot will be removed by GC thread on BE, finally.
+                LOG.warn("failed to release snapshot for export job: {}. err: {}", job.getId(),
+                        releaseSnapshotStatus.getErrorMsg());
+            }
         }
 
         synchronized (this) {
@@ -253,7 +252,8 @@ public class ExportExportingTask extends MasterTask {
     private void initProfile() {
         profile = new RuntimeProfile("ExportJob");
         RuntimeProfile summaryProfile = new RuntimeProfile("Summary");
-        summaryProfile.addInfoString(ProfileManager.QUERY_ID, String.valueOf(job.getId()));
+        summaryProfile.addInfoString(ProfileManager.JOB_ID, String.valueOf(job.getId()));
+        summaryProfile.addInfoString(ProfileManager.QUERY_ID, job.getQueryId());
         summaryProfile.addInfoString(ProfileManager.START_TIME, TimeUtils.longToTimeString(job.getStartTimeMs()));
 
         long currentTimestamp = System.currentTimeMillis();
@@ -271,6 +271,9 @@ public class ExportExportingTask extends MasterTask {
     }
 
     private void registerProfile() {
+        if (!job.getEnableProfile()) {
+            return;
+        }
         initProfile();
         for (RuntimeProfile p : fragmentProfiles) {
             profile.addChild(p);
@@ -336,12 +339,9 @@ public class ExportExportingTask extends MasterTask {
             }
         }
 
-        if (!failed) {
-            exportedFiles.clear();
-            job.addExportedFiles(newFiles);
-            ClientPool.brokerPool.returnObject(address, client);
-        }
-
+        exportedFiles.clear();
+        job.addExportedFiles(newFiles);
+        ClientPool.brokerPool.returnObject(address, client);
         return Status.OK;
     }
 }

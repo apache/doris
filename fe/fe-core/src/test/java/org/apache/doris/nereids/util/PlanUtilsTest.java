@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -25,6 +24,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -49,12 +49,10 @@ class PlanUtilsTest {
     @Test
     void filterOrSelf() {
         LogicalOlapScan scan = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
-        Plan filterOrSelf = PlanUtils.filterOrSelf(Lists.newArrayList(), scan);
+        Plan filterOrSelf = PlanUtils.filterOrSelf(ImmutableSet.of(), scan);
         Assertions.assertSame(scan, filterOrSelf);
 
-        List<Expression> predicate = Lists.newArrayList();
-        predicate.add(BooleanLiteral.TRUE);
-        Plan filter = PlanUtils.filterOrSelf(predicate, scan);
+        Plan filter = PlanUtils.filterOrSelf(ImmutableSet.of(BooleanLiteral.TRUE), scan);
         Assertions.assertTrue(filter instanceof LogicalFilter);
     }
 }

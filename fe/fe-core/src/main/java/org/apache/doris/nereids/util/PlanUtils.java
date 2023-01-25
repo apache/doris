@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Util for plan
@@ -42,12 +43,11 @@ public class PlanUtils {
         return project(projectExprs, plan).map(Plan.class::cast).orElse(plan);
     }
 
-    public static Optional<LogicalFilter<? extends Plan>> filter(List<Expression> predicates, Plan plan) {
-        return ExpressionUtils.optionalAnd(predicates)
-                .map(predicate -> new LogicalFilter<>(predicate, plan));
+    public static Optional<LogicalFilter<? extends Plan>> filter(Set<Expression> predicates, Plan plan) {
+        return ExpressionUtils.optionalAnd(predicates).map(opt -> new LogicalFilter<>(predicates, plan));
     }
 
-    public static Plan filterOrSelf(List<Expression> predicates, Plan plan) {
+    public static Plan filterOrSelf(Set<Expression> predicates, Plan plan) {
         return filter(predicates, plan).map(Plan.class::cast).orElse(plan);
     }
 }

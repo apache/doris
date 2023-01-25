@@ -35,11 +35,6 @@ public:
     // Initialize BlockReader with tablet, data version and fetch range.
     Status init(const ReaderParams& read_params) override;
 
-    Status next_row_with_aggregation(RowCursor* row_cursor, MemPool* mem_pool, ObjectPool* agg_pool,
-                                     bool* eof) override {
-        return Status::Error<ErrorCode::READER_INITIALIZE_ERROR>();
-    }
-
     Status next_block_with_aggregation(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
                                        bool* eof) override {
         return (this->*_next_block_func)(block, mem_pool, agg_pool, eof);
@@ -84,6 +79,10 @@ private:
 
     void _update_agg_value(MutableColumns& columns, int begin, int end, bool is_close = true);
 
+    bool _get_next_row_same();
+
+    bool _rowsets_overlapping(const std::vector<RowsetReaderSharedPtr>& rs_readers);
+
     VCollectIterator _vcollect_iter;
     IteratorRowRef _next_row {{}, -1, false};
 
@@ -113,6 +112,8 @@ private:
     std::vector<RowLocation> _block_row_locations;
 
     ColumnPtr _delete_filter_column;
+
+    bool _is_rowsets_overlapping = true;
 };
 
 } // namespace vectorized

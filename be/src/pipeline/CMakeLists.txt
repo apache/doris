@@ -37,6 +37,7 @@ set(PIPELINE_FILES
         exec/exchange_sink_operator.cpp
         exec/exchange_sink_buffer.cpp
         exec/result_sink_operator.cpp
+        exec/result_file_sink_operator.cpp
         exec/aggregation_sink_operator.cpp
         exec/aggregation_source_operator.cpp
         exec/hashjoin_build_sink.cpp
@@ -57,7 +58,8 @@ set(PIPELINE_FILES
         exec/union_sink_operator.cpp
         exec/union_source_operator.cpp
         exec/data_queue.cpp
-        exec/select_operator.cpp)
+        exec/select_operator.cpp
+        exec/empty_source_operator.cpp)
 
 add_library(Pipeline STATIC
         ${PIPELINE_FILES}

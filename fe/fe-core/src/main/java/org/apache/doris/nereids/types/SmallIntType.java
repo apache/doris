@@ -19,12 +19,13 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.Int16OrLessType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 
 /**
  * SmallInt type in Nereids.
  */
-public class SmallIntType extends IntegralType {
+public class SmallIntType extends IntegralType implements Int16OrLessType {
     public static final SmallIntType INSTANCE = new SmallIntType();
 
     private static final int WIDTH = 2;

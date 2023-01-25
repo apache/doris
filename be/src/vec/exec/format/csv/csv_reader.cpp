@@ -23,14 +23,17 @@
 #include "common/consts.h"
 #include "common/status.h"
 #include "exec/decompressor.h"
-#include "exec/plain_binary_line_reader.h"
-#include "exec/plain_text_line_reader.h"
 #include "exec/text_converter.h"
 #include "exec/text_converter.hpp"
+#include "io/file_factory.h"
+#include "olap/iterators.h"
+#include "olap/olap_common.h"
 #include "util/string_util.h"
 #include "util/utf8_check.h"
 #include "vec/core/block.h"
-#include "vec/exec/scan/vfile_scanner.h"
+#include "vec/exec/format/file_reader/new_plain_binary_line_reader.h"
+#include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
+#include "vec/exec/scan/vscanner.h"
 
 namespace doris::vectorized {
 
@@ -38,18 +41,21 @@ const static Slice _s_null_slice = Slice("\\N");
 
 CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounter* counter,
                      const TFileScanRangeParams& params, const TFileRangeDesc& range,
-                     const std::vector<SlotDescriptor*>& file_slot_descs)
+                     const std::vector<SlotDescriptor*>& file_slot_descs, IOContext* io_ctx)
         : _state(state),
           _profile(profile),
           _counter(counter),
           _params(params),
           _range(range),
           _file_slot_descs(file_slot_descs),
+          _file_system(nullptr),
+          _file_reader(nullptr),
           _line_reader(nullptr),
           _line_reader_eof(false),
           _text_converter(nullptr),
           _decompressor(nullptr),
-          _skip_lines(0) {
+          _skip_lines(0),
+          _io_ctx(io_ctx) {
     _file_format_type = _params.format_type;
     _is_proto_format = _file_format_type == TFileFormatType::FORMAT_PROTO;
     _file_compress_type = _params.compress_type;
@@ -61,7 +67,7 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
 
 CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
                      const TFileRangeDesc& range,
-                     const std::vector<SlotDescriptor*>& file_slot_descs)
+                     const std::vector<SlotDescriptor*>& file_slot_descs, IOContext* io_ctx)
         : _state(nullptr),
           _profile(profile),
           _params(params),
@@ -70,13 +76,14 @@ CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params
           _line_reader(nullptr),
           _line_reader_eof(false),
           _text_converter(nullptr),
-          _decompressor(nullptr) {
+          _decompressor(nullptr),
+          _io_ctx(io_ctx) {
     _file_format_type = _params.format_type;
     _file_compress_type = _params.compress_type;
     _size = _range.size;
 }
 
-CsvReader::~CsvReader() {}
+CsvReader::~CsvReader() = default;
 
 Status CsvReader::init_reader(bool is_load) {
     // set the skip lines and start offset
@@ -102,18 +109,28 @@ Status CsvReader::init_reader(bool is_load) {
         _skip_lines = 1;
     }
 
-    // create and open file reader
-    FileReader* real_reader = nullptr;
-    if (_params.file_type == TFileType::FILE_STREAM) {
-        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, _file_reader_s));
-        real_reader = _file_reader_s.get();
-    } else {
-        RETURN_IF_ERROR(FileFactory::create_file_reader(
-                _profile, _params, _range.path, start_offset, _range.file_size, 0, _file_reader));
-        real_reader = _file_reader.get();
+    FileSystemProperties system_properties;
+    system_properties.system_type = _params.file_type;
+    system_properties.properties = _params.properties;
+    system_properties.hdfs_params = _params.hdfs_params;
+    if (_params.__isset.broker_addresses) {
+        system_properties.broker_addresses.assign(_params.broker_addresses.begin(),
+                                                  _params.broker_addresses.end());
     }
-    RETURN_IF_ERROR(real_reader->open());
-    if (real_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
+
+    FileDescription file_description;
+    file_description.path = _range.path;
+    file_description.start_offset = start_offset;
+    file_description.file_size = _range.__isset.file_size ? _range.file_size : 0;
+
+    if (_params.file_type == TFileType::FILE_STREAM) {
+        RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader));
+    } else {
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, system_properties,
+                                                        file_description, &_file_system,
+                                                        &_file_reader, _io_ctx));
+    }
+    if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
         _params.file_type != TFileType::FILE_BROKER) {
         return Status::EndOfFile("Empty File");
     }
@@ -123,6 +140,10 @@ Status CsvReader::init_reader(bool is_load) {
     _value_separator_length = _value_separator.size();
     _line_delimiter = _params.file_attributes.text_params.line_delimiter;
     _line_delimiter_length = _line_delimiter.size();
+
+    if (_params.file_attributes.__isset.trim_double_quotes) {
+        _trim_double_quotes = _params.file_attributes.trim_double_quotes;
+    }
 
     // create decompressor.
     // _decompressor may be nullptr if this is not a compressed file
@@ -135,11 +156,13 @@ Status CsvReader::init_reader(bool is_load) {
     case TFileFormatType::FORMAT_CSV_LZ4FRAME:
     case TFileFormatType::FORMAT_CSV_LZOP:
     case TFileFormatType::FORMAT_CSV_DEFLATE:
-        _line_reader.reset(new PlainTextLineReader(_profile, real_reader, _decompressor.get(),
-                                                   _size, _line_delimiter, _line_delimiter_length));
+        _line_reader.reset(new NewPlainTextLineReader(_profile, _file_reader, _decompressor.get(),
+                                                      _size, _line_delimiter,
+                                                      _line_delimiter_length, start_offset));
+
         break;
     case TFileFormatType::FORMAT_PROTO:
-        _line_reader.reset(new PlainBinaryLineReader(real_reader));
+        _line_reader.reset(new NewPlainBinaryLineReader(_file_reader, _params.file_type));
         break;
     default:
         return Status::InternalError(
@@ -149,9 +172,23 @@ Status CsvReader::init_reader(bool is_load) {
 
     _is_load = is_load;
     if (!_is_load) {
-        // For query task, we need to save the mapping from table schema to file column
+        // For query task, there are 2 slot mapping.
+        // One is from file slot to values in line.
+        //      eg, the file_slot_descs is k1, k3, k5, and values in line are k1, k2, k3, k4, k5
+        //      the _col_idxs will save: 0, 2, 4
+        // The other is from file slot to columns in output block
+        //      eg, the file_slot_descs is k1, k3, k5, and columns in block are p1, k1, k3, k5
+        //      where "p1" is the partition col which does not exist in file
+        //      the _file_slot_idx_map will save: 1, 2, 3
         DCHECK(_params.__isset.column_idxs);
         _col_idxs = _params.column_idxs;
+        int idx = 0;
+        for (const auto& slot_info : _params.required_slots) {
+            if (slot_info.is_file_slot) {
+                _file_slot_idx_map.push_back(idx);
+            }
+            idx++;
+        }
     } else {
         // For load task, the column order is same as file column order
         int i = 0;
@@ -172,6 +209,7 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
 
     const int batch_size = _state->batch_size();
     size_t rows = 0;
+    auto columns = block->mutate_columns();
     while (rows < batch_size && !_line_reader_eof) {
         const uint8_t* ptr = nullptr;
         size_t size = 0;
@@ -185,7 +223,7 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             continue;
         }
 
-        RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), block, &rows));
+        RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), block, columns, &rows));
     }
 
     *eof = (rows == 0);
@@ -202,8 +240,8 @@ Status CsvReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* n
     return Status::OK();
 }
 
-Status CsvReader::get_parsered_schema(std::vector<std::string>* col_names,
-                                      std::vector<TypeDescriptor>* col_types) {
+Status CsvReader::get_parsed_schema(std::vector<std::string>* col_names,
+                                    std::vector<TypeDescriptor>* col_types) {
     size_t read_line = 0;
     bool is_parse_name = false;
     RETURN_IF_ERROR(_prepare_parse(&read_line, &is_parse_name));
@@ -285,7 +323,8 @@ Status CsvReader::_create_decompressor() {
     return Status::OK();
 }
 
-Status CsvReader::_fill_dest_columns(const Slice& line, Block* block, size_t* rows) {
+Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
+                                     std::vector<MutableColumnPtr>& columns, size_t* rows) {
     bool is_success = false;
 
     RETURN_IF_ERROR(_line_split_to_values(line, &is_success));
@@ -294,18 +333,32 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block, size_t* ro
         return Status::OK();
     }
 
-    // if _split_values.size > _file_slot_descs.size()
-    // we only take the first few columns
-    for (int i = 0; i < _file_slot_descs.size(); ++i) {
-        auto src_slot_desc = _file_slot_descs[i];
-        int col_idx = _col_idxs[i];
-        // col idx is out of range, fill with null.
-        const Slice& value =
-                col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
-        IColumn* col_ptr =
-                const_cast<IColumn*>(block->get_by_name(src_slot_desc->col_name()).column.get());
-        _text_converter->write_vec_column(src_slot_desc, col_ptr, value.data, value.size, true,
-                                          false);
+    if (_is_load) {
+        for (int i = 0; i < _file_slot_descs.size(); ++i) {
+            auto src_slot_desc = _file_slot_descs[i];
+            int col_idx = _col_idxs[i];
+            // col idx is out of range, fill with null.
+            const Slice& value =
+                    col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
+            // For load task, we always read "string" from file, so use "write_string_column"
+            _text_converter->write_string_column(src_slot_desc, &columns[i], value.data,
+                                                 value.size);
+        }
+    } else {
+        // if _split_values.size > _file_slot_descs.size()
+        // we only take the first few columns
+        for (int i = 0; i < _file_slot_descs.size(); ++i) {
+            auto src_slot_desc = _file_slot_descs[i];
+            int col_idx = _col_idxs[i];
+            // col idx is out of range, fill with null.
+            const Slice& value =
+                    col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
+            IColumn* col_ptr = const_cast<IColumn*>(
+                    block->get_by_position(_file_slot_idx_map[i]).column.get());
+            // For query task, we will convert values to final column type, so use "write_vec_column"
+            _text_converter->write_vec_column(src_slot_desc, col_ptr, value.data, value.size, true,
+                                              false);
+        }
     }
     ++(*rows);
 
@@ -412,6 +465,11 @@ void CsvReader::_split_line(const Slice& line) {
                             non_space--;
                         }
                     }
+                    if (_trim_double_quotes && (non_space - 1) > start &&
+                        *(value + start) == '\"' && *(value + non_space - 1) == '\"') {
+                        start++;
+                        non_space--;
+                    }
                     _split_values.emplace_back(value + start, non_space - start);
                     start = curpos + _value_separator_length;
                     curpos = start;
@@ -427,6 +485,11 @@ void CsvReader::_split_line(const Slice& line) {
             while (non_space > start && *(value + non_space - 1) == ' ') {
                 non_space--;
             }
+        }
+        if (_trim_double_quotes && (non_space - 1) > start && *(value + start) == '\"' &&
+            *(value + non_space - 1) == '\"') {
+            start++;
+            non_space--;
         }
         _split_values.emplace_back(value + start, non_space - start);
     }
@@ -495,11 +558,20 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
         }
     }
 
-    // create and open file reader
-    RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _params, _range.path, start_offset,
-                                                    _range.file_size, 0, _file_reader));
-    RETURN_IF_ERROR(_file_reader->open());
-    if (_file_reader->size() == 0) {
+    FileSystemProperties system_properties;
+    system_properties.system_type = _params.file_type;
+    system_properties.properties = _params.properties;
+    system_properties.hdfs_params = _params.hdfs_params;
+
+    FileDescription file_description;
+    file_description.path = _range.path;
+    file_description.start_offset = start_offset;
+    file_description.file_size = _range.__isset.file_size ? _range.file_size : 0;
+
+    RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, system_properties, file_description,
+                                                    &_file_system, &_file_reader, _io_ctx));
+    if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
+        _params.file_type != TFileType::FILE_BROKER) {
         return Status::EndOfFile("Empty File");
     }
 
@@ -513,8 +585,10 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     // _decompressor may be nullptr if this is not a compressed file
     RETURN_IF_ERROR(_create_decompressor());
 
-    _line_reader.reset(new PlainTextLineReader(_profile, _file_reader.get(), _decompressor.get(),
-                                               _size, _line_delimiter, _line_delimiter_length));
+    _line_reader.reset(new NewPlainTextLineReader(_profile, _file_reader, _decompressor.get(),
+                                                  _size, _line_delimiter, _line_delimiter_length,
+                                                  start_offset));
+
     return Status::OK();
 }
 

@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "exprs/hll_function.h"
 #include "olap/hll.h"
 #include "util/slice.h"
 #include "vec/aggregate_functions/aggregate_function.h"

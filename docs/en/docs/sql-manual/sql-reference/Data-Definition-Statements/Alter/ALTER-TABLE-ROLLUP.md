@@ -68,7 +68,7 @@ Notice:
 
 - If from_index_name is not specified, it will be created from base index by default
 - Columns in rollup table must be columns already in from_index
-- In properties, the storage format can be specified. For details, see [CREATE TABLE](../../Create/CREATE-TABLE)
+- In properties, the storage format can be specified. For details, see [CREATE TABLE](../Create/CREATE-TABLE)
 
 3. Delete rollup index
 

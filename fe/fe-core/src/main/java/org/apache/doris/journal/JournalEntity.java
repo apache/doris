@@ -36,6 +36,7 @@ import org.apache.doris.cluster.Cluster;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
+import org.apache.doris.cooldown.CooldownJob;
 import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -579,6 +580,11 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
+            case OperationType.OP_PUSH_COOLDOWN_CONF: {
+                data = CooldownJob.read(in);
+                isRead = true;
+                break;
+            }
             case OperationType.OP_BATCH_ADD_ROLLUP: {
                 data = BatchAlterJobPersistInfo.read(in);
                 isRead = true;
@@ -706,6 +712,13 @@ public class JournalEntity implements Writable {
                 break;
             }
             case OperationType.OP_REFRESH_EXTERNAL_DB:
+            case OperationType.OP_DROP_EXTERNAL_TABLE:
+            case OperationType.OP_CREATE_EXTERNAL_TABLE:
+            case OperationType.OP_DROP_EXTERNAL_DB:
+            case OperationType.OP_CREATE_EXTERNAL_DB:
+            case OperationType.OP_ADD_EXTERNAL_PARTITIONS:
+            case OperationType.OP_DROP_EXTERNAL_PARTITIONS:
+            case OperationType.OP_REFRESH_EXTERNAL_PARTITIONS:
             case OperationType.OP_REFRESH_EXTERNAL_TABLE: {
                 data = ExternalObjectLog.read(in);
                 isRead = true;

@@ -211,6 +211,8 @@ struct TBrokerScanRangeParams {
     12: optional i32 line_delimiter_length = 1;
     13: optional string column_separator_str;
     14: optional string line_delimiter_str;
+    // trim double quotes for csv
+    15: optional bool trim_double_quotes;
 
 }
 
@@ -255,6 +257,8 @@ struct TFileAttributes {
     8: optional bool read_by_column_def;
     // csv with header type
     9: optional string header_type;
+    // trim double quotes for csv
+    10: optional bool trim_double_quotes;
 }
 
 struct TIcebergDeleteFileDesc {
@@ -270,7 +274,9 @@ struct TIcebergFileDesc {
     2: optional i32 content;
     // When open a delete file, filter the data file path with the 'file_path' property
     3: optional list<TIcebergDeleteFileDesc> delete_files;
+    // Deprecated
     4: optional Types.TTupleId delete_table_tuple_id;
+    // Deprecated
     5: optional Exprs.TExpr file_select_conjunct;
 }
 
@@ -364,6 +370,18 @@ struct TDataGenScanRange {
   1: optional TTVFNumbersScanRange numbers_params
 }
 
+enum TIcebergMetadataType {
+  SNAPSHOTS = 0,
+}
+
+struct TIcebergMetadataParams {
+  1: optional TIcebergMetadataType metadata_type
+}
+
+struct TMetaScanRange {
+  1: optional TIcebergMetadataParams iceberg_params
+}
+
 // Specification of an individual data range which is held in its entirety
 // by a storage server
 struct TScanRange {
@@ -374,6 +392,7 @@ struct TScanRange {
   7: optional TEsScanRange es_scan_range
   8: optional TExternalScanRange ext_scan_range
   9: optional TDataGenScanRange data_gen_scan_range
+  10: optional TMetaScanRange meta_scan_range
 }
 
 struct TMySQLScanNode {
@@ -402,6 +421,7 @@ struct TJdbcScanNode {
   1: optional Types.TTupleId tuple_id
   2: optional string table_name
   3: optional string query_string
+  4: optional Types.TOdbcTableType table_type
 }
 
 
@@ -506,10 +526,9 @@ struct TSchemaScanNode {
 
 struct TMetaScanNode {
   1: required Types.TTupleId tuple_id
-  2: required string table_name
-  3: optional string db
+  2: optional string catalog
+  3: optional string database
   4: optional string table
-  5: optional string user
 }
 
 struct TSortInfo {
@@ -524,6 +543,8 @@ struct TSortInfo {
 
   // Indicates the nullable info of sort_tuple_slot_exprs is changed after substitute by child's smap
   5: optional list<bool> slot_exprs_nullability_changed_flags   
+  // Indicates whether topn query using two phase read
+  6: optional bool use_two_phase_read
 }
 
 enum TPushAggOp {
@@ -548,6 +569,7 @@ struct TOlapScanNode {
   10: optional i64 sort_limit
   11: optional bool enable_unique_key_merge_on_write
   12: optional TPushAggOp push_down_agg_type_opt
+  13: optional bool use_topn_opt
 }
 
 struct TEqJoinCondition {
@@ -607,7 +629,9 @@ struct THashJoinNode {
 
   9: optional list<Types.TTupleId> vintermediate_tuple_id_list
 
-  10: optional bool is_broadcast_join;
+  10: optional bool is_broadcast_join
+
+  11: optional bool is_mark
 }
 
 struct TNestedLoopJoinNode {
@@ -723,6 +747,7 @@ struct TSortNode {
 
   // Indicates whether the imposed limit comes DEFAULT_ORDER_BY_LIMIT.           
   6: optional bool is_default_limit                                              
+  7: optional bool use_topn_opt
 }
 
 enum TAnalyticWindowType {
@@ -868,6 +893,8 @@ struct TExchangeNode {
   2: optional TSortInfo sort_info
   // This is tHe number of rows to skip before returning results
   3: optional i64 offset
+  // Nodes in this cluster, used for second phase fetch
+  4: optional Descriptors.TPaloNodesInfo nodes_info
 }
 
 struct TOlapRewriteNode {

@@ -18,7 +18,6 @@
 #pragma once
 
 #include "common/status.h"
-#include "exprs/expr_context.h"
 #include "olap/tablet.h"
 #include "runtime/runtime_state.h"
 #include "vec/exprs/vexpr_context.h"
@@ -38,7 +37,7 @@ struct ScannerCounter {
 
 class VScanner {
 public:
-    VScanner(RuntimeState* state, VScanNode* parent, int64_t limit);
+    VScanner(RuntimeState* state, VScanNode* parent, int64_t limit, RuntimeProfile* profile);
 
     virtual ~VScanner() {}
 
@@ -63,6 +62,10 @@ protected:
 
 public:
     VScanNode* get_parent() { return _parent; }
+
+    int64_t get_time_cost_ns() const { return _per_scanner_timer; }
+
+    int64_t get_rows_read() const { return _num_rows_read; }
 
     Status try_append_late_arrival_runtime_filter();
 
@@ -89,7 +92,7 @@ public:
 
     int queue_id() { return _state->exec_env()->store_path_to_index("xxx"); }
 
-    doris::TabletStorageType get_storage_type() {
+    virtual doris::TabletStorageType get_storage_type() {
         return doris::TabletStorageType::STORAGE_TYPE_LOCAL;
     }
 
@@ -103,10 +106,6 @@ public:
     void set_status_on_failure(const Status& st) { _status = st; }
 
     VExprContext** vconjunct_ctx_ptr() { return &_vconjunct_ctx; }
-
-    void reg_conjunct_ctxs(const std::vector<ExprContext*>& conjunct_ctxs) {
-        _conjunct_ctxs = conjunct_ctxs;
-    }
 
     // return false if _is_counted_down is already true,
     // otherwise, set _is_counted_down to true and return true.
@@ -132,6 +131,8 @@ protected:
     VScanNode* _parent;
     // Set if scan node has sort limit info
     int64_t _limit = -1;
+
+    RuntimeProfile* _profile;
 
     const TupleDescriptor* _input_tuple_desc = nullptr;
     const TupleDescriptor* _output_tuple_desc = nullptr;
@@ -164,6 +165,9 @@ protected:
     // num of rows read from scanner
     int64_t _num_rows_read = 0;
 
+    // num of rows return from scanner, after filter block
+    int64_t _num_rows_return = 0;
+
     // Set true after counter is updated finally
     bool _has_updated_counter = false;
 
@@ -174,14 +178,12 @@ protected:
     int64_t _scanner_wait_worker_timer = 0;
     int64_t _scan_cpu_timer = 0;
 
-    // File formats based push down predicate
-    std::vector<ExprContext*> _conjunct_ctxs;
-
     bool _is_load = false;
     // set to true after decrease the "_num_unfinished_scanners" in scanner context
     bool _is_counted_down = false;
 
     ScannerCounter _counter;
+    int64_t _per_scanner_timer = 0;
 };
 
 } // namespace doris::vectorized

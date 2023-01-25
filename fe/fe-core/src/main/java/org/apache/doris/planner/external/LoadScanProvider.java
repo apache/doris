@@ -131,6 +131,7 @@ public class LoadScanProvider implements FileScanProviderIf {
         fileAttributes.setReadJsonByLine(fileGroup.isReadJsonByLine());
         fileAttributes.setReadByColumnDef(true);
         fileAttributes.setHeaderType(getHeaderType(fileGroup.getFileFormat()));
+        fileAttributes.setTrimDoubleQuotes(fileGroup.getTrimDoubleQuotes());
     }
 
     private String getHeaderType(String formatType) {

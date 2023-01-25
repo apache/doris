@@ -41,7 +41,7 @@ public:
                         bool* line_eof, const std::map<std::string, std::string>& docvalue_context);
 
     const std::string& get_scroll_id();
-    int get_size();
+    int get_size() const;
 
 private:
     // helper method for processing date/datetime cols with rapidjson::Value

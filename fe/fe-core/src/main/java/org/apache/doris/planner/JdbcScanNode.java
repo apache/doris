@@ -54,12 +54,6 @@ public class JdbcScanNode extends ScanNode {
     private String tableName;
     private TOdbcTableType jdbcType;
 
-    public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, JdbcTable tbl) {
-        super(id, desc, "SCAN JDBC", StatisticalType.JDBC_SCAN_NODE);
-        jdbcType = tbl.getJdbcTableType();
-        tableName = OdbcTable.databaseProperName(jdbcType, tbl.getJdbcTable());
-    }
-
     public JdbcScanNode(PlanNodeId id, TupleDescriptor desc, boolean isJdbcExternalTable) {
         super(id, desc, "JdbcScanNode", StatisticalType.JDBC_SCAN_NODE);
         JdbcTable tbl = null;
@@ -195,6 +189,7 @@ public class JdbcScanNode extends ScanNode {
         msg.jdbc_scan_node.setTupleId(desc.getId().asInt());
         msg.jdbc_scan_node.setTableName(tableName);
         msg.jdbc_scan_node.setQueryString(getJdbcQueryStr());
+        msg.jdbc_scan_node.setTableType(jdbcType);
     }
 
     @Override

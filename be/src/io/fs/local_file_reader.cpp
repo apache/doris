@@ -20,13 +20,13 @@
 #include <atomic>
 
 #include "util/doris_metrics.h"
-#include "util/errno.h"
 
 namespace doris {
 namespace io {
 
-LocalFileReader::LocalFileReader(Path path, size_t file_size, int fd)
-        : _fd(fd), _path(std::move(path)), _file_size(file_size) {
+LocalFileReader::LocalFileReader(Path path, size_t file_size, int fd,
+                                 std::shared_ptr<LocalFileSystem> fs)
+        : _fd(fd), _path(std::move(path)), _file_size(file_size), _fs(std::move(fs)) {
     DorisMetrics::instance()->local_file_open_reading->increment(1);
     DorisMetrics::instance()->local_file_reader_total->increment(1);
 }
@@ -48,7 +48,7 @@ Status LocalFileReader::close() {
     return Status::OK();
 }
 
-Status LocalFileReader::read_at(size_t offset, Slice result, const IOContext& io_ctx,
+Status LocalFileReader::read_at(size_t offset, Slice result, const IOContext& /*io_ctx*/,
                                 size_t* bytes_read) {
     DCHECK(!closed());
     if (offset > _file_size) {

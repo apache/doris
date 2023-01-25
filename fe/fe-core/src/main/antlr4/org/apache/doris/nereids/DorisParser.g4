@@ -22,16 +22,7 @@ parser grammar DorisParser;
 options { tokenVocab = DorisLexer; }
 
 @members {
-  /**
-   * When false, a literal with an exponent would be converted into
-   * double type rather than decimal type.
-   */
-  public boolean legacy_exponent_literal_as_decimal_enabled = false;
-
-  /**
-   * When true, the behavior of keywords follows ANSI SQL standard.
-   */
-  public boolean SQL_standard_keyword_behavior = true;
+    public boolean doris_legacy_SQL_syntax = true;
 }
 
 multiStatements
@@ -66,7 +57,8 @@ planType
 
 //  -----------------Query-----------------
 query
-    : cte? queryTerm queryOrganization
+    : {!doris_legacy_SQL_syntax}? cte? queryTerm queryOrganization
+    | {doris_legacy_SQL_syntax}? queryTerm
     ;
 
 queryTerm
@@ -87,11 +79,13 @@ queryPrimary
     ;
 
 querySpecification
-    : selectClause
+    : {doris_legacy_SQL_syntax}? cte?
+      selectClause
       fromClause?
       whereClause?
       aggClause?
-      havingClause?                                                         #regularQuerySpecification
+      havingClause?
+      {doris_legacy_SQL_syntax}? queryOrganization                                               #regularQuerySpecification
     ;
 
 cte
@@ -107,7 +101,7 @@ columnAliases
     ;
 
 selectClause
-    : SELECT selectHint? selectColumnClause
+    : SELECT selectHint? DISTINCT? selectColumnClause
     ;
 
 selectColumnClause
@@ -124,7 +118,7 @@ fromClause
     ;
 
 relation
-    : LATERAL? relationPrimary joinRelation*
+    : relationPrimary joinRelation*
     ;
 
 joinRelation
@@ -166,6 +160,10 @@ hintAssignment
     : key=identifier (EQ (constantValue=constant | identifierValue=identifier))?
     ;
 
+lateralView
+    : LATERAL VIEW functionName=identifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN
+      tableName=identifier AS columnName=identifier
+    ;
 queryOrganization
     : sortClause? limitClause?
     ;
@@ -175,7 +173,7 @@ sortClause
     ;
 
 sortItem
-    :  expression ordering = (ASC | DESC)?
+    :  expression ordering = (ASC | DESC)? (NULLS (FIRST | LAST))?
     ;
 
 limitClause
@@ -210,11 +208,11 @@ identifierSeq
     ;
 
 relationPrimary
-    : multipartIdentifier tableAlias                                            #tableName
-    | LEFT_PAREN query RIGHT_PAREN tableAlias                                   #aliasedQuery
-    | LEFT_PAREN relation RIGHT_PAREN tableAlias                                #aliasedRelation
+    : multipartIdentifier specifiedPartition? tableAlias lateralView*           #tableName
+    | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                      #aliasedQuery
     | tvfName=identifier LEFT_PAREN
-      (properties+=tvfProperty (COMMA properties+=tvfProperty)*)? RIGHT_PAREN tableAlias      #tableValuedFunction
+      (properties+=tvfProperty (COMMA properties+=tvfProperty)*)?
+      RIGHT_PAREN tableAlias                                                    #tableValuedFunction
     ;
 
 tvfProperty
@@ -234,7 +232,7 @@ multipartIdentifier
 
 // -----------------Expression-----------------
 namedExpression
-    : expression (AS? name=errorCapturingIdentifier)?
+    : expression (AS? (errorCapturingIdentifier | STRING))?
     ;
 
 namedExpressionSeq
@@ -246,18 +244,19 @@ expression
     ;
 
 booleanExpression
-    : NOT booleanExpression                                         #logicalNot
-    | EXISTS LEFT_PAREN query RIGHT_PAREN                           #exist
-    | (ISNULL | IS_NULL_PRED) LEFT_PAREN valueExpression RIGHT_PAREN        #isnull
-    | IS_NOT_NULL_PRED LEFT_PAREN valueExpression RIGHT_PAREN        #is_not_null_pred
-    | valueExpression predicate?                                    #predicated
-    | left=booleanExpression operator=AND right=booleanExpression   #logicalBinary
-    | left=booleanExpression operator=OR right=booleanExpression    #logicalBinary
+    : NOT booleanExpression                                                         #logicalNot
+    | EXISTS LEFT_PAREN query RIGHT_PAREN                                           #exist
+    | (ISNULL | IS_NULL_PRED) LEFT_PAREN valueExpression RIGHT_PAREN                #isnull
+    | IS_NOT_NULL_PRED LEFT_PAREN valueExpression RIGHT_PAREN                       #is_not_null_pred
+    | valueExpression predicate?                                                    #predicated
+    | left=booleanExpression operator=(AND | LOGICALAND) right=booleanExpression    #logicalBinary
+    | left=booleanExpression operator=OR right=booleanExpression                    #logicalBinary
+    | left=booleanExpression operator=DOUBLEPIPES right=booleanExpression           #doublePipes
     ;
 
 predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression
-    | NOT? kind=(LIKE | REGEXP) pattern=valueExpression
+    | NOT? kind=(LIKE | REGEXP | RLIKE) pattern=valueExpression
     | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
     | NOT? kind=IN LEFT_PAREN query RIGHT_PAREN
     | IS NOT? kind=NULL
@@ -270,6 +269,8 @@ valueExpression
     | left=valueExpression operator=(PLUS | MINUS | DIV | HAT | PIPE | AMPERSAND)
                            right=valueExpression                                             #arithmeticBinary
     | left=valueExpression comparisonOperator right=valueExpression                          #comparison
+    | operator=(BITAND | BITOR | BITXOR) LEFT_PAREN left = valueExpression
+                COMMA right = valueExpression RIGHT_PAREN                                    #bitOperation
     ;
 
 datetimeUnit
@@ -285,7 +286,13 @@ primaryExpression
                 startTimestamp=valueExpression COMMA
                 endTimestamp=valueExpression
             RIGHT_PAREN                                                                        #timestampdiff
-    | name=(TIMESTAMPADD | ADDDATE | DAYS_ADD | DATE_ADD)
+    | name=(TIMESTAMPADD | DATEADD)
+                  LEFT_PAREN
+                      unit=datetimeUnit COMMA
+                      startTimestamp=valueExpression COMMA
+                      endTimestamp=valueExpression
+                  RIGHT_PAREN                                                                  #timestampadd
+    | name =(ADDDATE | DAYS_ADD | DATE_ADD)
             LEFT_PAREN
                 timestamp=valueExpression COMMA
                 (INTERVAL unitsAmount=valueExpression unit=datetimeUnit
@@ -299,13 +306,15 @@ primaryExpression
             RIGHT_PAREN                                                                        #date_sub
     | CASE whenClause+ (ELSE elseExpression=expression)? END                                   #searchedCase
     | CASE value=expression whenClause+ (ELSE elseExpression=expression)? END                  #simpleCase
-    | name=CAST LEFT_PAREN expression AS identifier RIGHT_PAREN                                #cast
+    | name=CAST LEFT_PAREN expression AS dataType RIGHT_PAREN                                  #cast
     | constant                                                                                 #constantDefault
     | ASTERISK                                                                                 #star
     | qualifiedName DOT ASTERISK                                                               #star
-    | identifier LEFT_PAREN (DISTINCT? arguments+=expression
-      (COMMA arguments+=expression)*)? RIGHT_PAREN                                             #functionCall
+    | functionIdentifier LEFT_PAREN ((DISTINCT|ALL)? arguments+=expression
+      (COMMA arguments+=expression)* (ORDER BY sortItem (COMMA sortItem)*)?)? RIGHT_PAREN      #functionCall
     | LEFT_PAREN query RIGHT_PAREN                                                             #subqueryExpression
+    | ATSIGN identifier                                                                        #userVariable
+    | DOUBLEATSIGN (kind=(GLOBAL | SESSION) DOT)? identifier                                     #systemVariable
     | identifier                                                                               #columnReference
     | base=primaryExpression DOT fieldName=identifier                                          #dereference
     | LEFT_PAREN expression RIGHT_PAREN                                                        #parenthesizedExpression
@@ -313,17 +322,27 @@ primaryExpression
       source=valueExpression RIGHT_PAREN                                                       #extract
     ;
 
+functionIdentifier
+    : identifier
+    | LEFT | RIGHT
+    ;
+
 qualifiedName
     : identifier (DOT identifier)*
+    ;
+
+specifiedPartition
+    : TEMPORARY? PARTITION (identifier | identifierList)
+    | TEMPORARY? PARTITIONS identifierList
     ;
 
 constant
     : NULL                                                                                     #nullLiteral
     | interval                                                                                 #intervalLiteral
-    | identifier STRING                                                                        #typeConstructor
+    | type=(DATE | DATEV2 | TIMESTAMP) STRING                                                  #typeConstructor
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
-    | STRING+                                                                                  #stringLiteral
+    | STRING                                                                                   #stringLiteral
     ;
 
 comparisonOperator
@@ -346,6 +365,11 @@ unitIdentifier
     : YEAR | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND
     ;
 
+dataType
+    : identifier (LEFT_PAREN INTEGER_VALUE
+      (COMMA INTEGER_VALUE)* RIGHT_PAREN)?                      #primitiveDataType
+    ;
+
 // this rule is used for explicitly capturing wrong identifiers such as test-table, which should actually be `test-table`
 // replace identifier with errorCapturingIdentifier where the immediate follow symbol is not an expression, otherwise
 // valid expressions such as "a-b" can be recognized as an identifier
@@ -361,14 +385,12 @@ errorCapturingIdentifierExtra
 
 identifier
     : strictIdentifier
-    | {!SQL_standard_keyword_behavior}? strictNonReserved
     ;
 
 strictIdentifier
     : IDENTIFIER              #unquotedIdentifier
     | quotedIdentifier        #quotedIdentifierAlternative
-    | {SQL_standard_keyword_behavior}? ansiNonReserved #unquotedIdentifier
-    | {!SQL_standard_keyword_behavior}? nonReserved    #unquotedIdentifier
+    | nonReserved             #unquotedIdentifier
     ;
 
 quotedIdentifier
@@ -380,272 +402,11 @@ number
     | MINUS? (EXPONENT_VALUE | DECIMAL_VALUE) #decimalLiteral
     ;
 
-// When `SQL_standard_keyword_behavior=true`, there are 2 kinds of keywords in Spark SQL.
-// - Reserved keywords:
-//     Keywords that are reserved and can't be used as identifiers for table, view, column,
-//     function, alias, etc.
+// there are 1 kinds of keywords in Doris.
 // - Non-reserved keywords:
-//     Keywords that have a special meaning only in particular contexts and can be used as
-//     identifiers in other contexts. For example, `EXPLAIN SELECT ...` is a command, but EXPLAIN
-//     can be used as identifiers in other places.
-// You can find the full keywords list by searching "Start of the keywords list" in this file.
-// The non-reserved keywords are listed below. Keywords not in this list are reserved keywords.
-ansiNonReserved
-//--ANSI-NON-RESERVED-START
-    : ADD
-    | ADDDATE
-    | AFTER
-    | ALTER
-    | ANALYZE
-    | ANALYZED
-    | ANTI
-    | ARCHIVE
-    | ARRAY
-    | ASC
-    | AT
-    | AVG
-    | BETWEEN
-    | BUCKET
-    | BUCKETS
-    | BY
-    | CACHE
-    | CASCADE
-    | CATALOG
-    | CATALOGS
-    | CHANGE
-    | CLEAR
-    | CLUSTER
-    | CLUSTERED
-    | CODEGEN
-    | COLLECTION
-    | COLUMNS
-    | COMMENT
-    | COMMIT
-    | COMPACT
-    | COMPACTIONS
-    | COMPUTE
-    | CONCATENATE
-    | COST
-    | CUBE
-    | CURRENT
-    | DATA
-    | DATABASE
-    | DATABASES
-    | DATE
-    | DATE_ADD
-    | DATEDIFF
-    | DATE_DIFF
-    | DAY
-    | DAYS_ADD
-    | DAYS_SUB
-    | DATE_ADD
-    | DATE_SUB
-    | DBPROPERTIES
-    | DEFINED
-    | DELETE
-    | DELIMITED
-    | DESC
-    | DESCRIBE
-    | DFS
-    | DIRECTORIES
-    | DIRECTORY
-    | DISTRIBUTE
-    | DROP
-    | ESCAPED
-    | EXCHANGE
-    | EXISTS
-    | EXPLAIN
-    | EXPORT
-    | EXTENDED
-    | EXTERNAL
-    | EXTRACT
-    | FIELDS
-    | FILEFORMAT
-    | FIRST
-    | FOLLOWING
-    | FORMAT
-    | FORMATTED
-    | FUNCTION
-    | FUNCTIONS
-    | GLOBAL
-    | GROUPING
-    | GRAPH
-    | HOUR
-    | IF
-    | IGNORE
-    | IMPORT
-    | INDEX
-    | INDEXES
-    | INPATH
-    | INPUTFORMAT
-    | INSERT
-    | INTERVAL
-    | ISNULL
-    | ITEMS
-    | KEYS
-    | LAST
-    | LAZY
-    | LIKE
-    | ILIKE
-    | IS_NOT_NULL_PRED
-    | IS_NULL_PRED
-    | LIMIT
-    | OFFSET
-    | LINES
-    | LIST
-    | LOAD
-    | LOCAL
-    | LOCATION
-    | LOCK
-    | LOCKS
-    | LOGICAL
-    | MACRO
-    | MAP
-    | MATCHED
-    | MERGE
-    | MINUTE
-    | MONTH
-    | MSCK
-    | NAMESPACE
-    | NAMESPACES
-    | NO
-    | NULLS
-    | OF
-    | OPTIMIZED
-    | OPTION
-    | OPTIONS
-    | OUT
-    | OUTPUTFORMAT
-    | OVER
-    | OVERLAY
-    | OVERWRITE
-    | PARSED
-    | PARTITION
-    | PARTITIONED
-    | PARTITIONS
-    | PERCENTLIT
-    | PHYSICAL
-    | PIVOT
-    | PLACING
-    | PLAN
-    | POLICY
-    | POSITION
-    | PRECEDING
-    | PRINCIPALS
-    | PROPERTIES
-    | PURGE
-    | QUERY
-    | RANGE
-    | RECORDREADER
-    | RECORDWRITER
-    | RECOVER
-    | REDUCE
-    | REFRESH
-    | RENAME
-    | REPAIR
-    | REPEATABLE
-    | REPLACE
-    | RESET
-    | RESPECT
-    | RESTRICT
-    | REVOKE
-    | REWRITTEN
-    | RLIKE
-    | ROLE
-    | ROLES
-    | ROLLBACK
-    | ROLLUP
-    | ROW
-    | ROWS
-    | SCHEMA
-    | SCHEMAS
-    | SECOND
-    | SEMI
-    | SEPARATED
-    | SERDE
-    | SERDEPROPERTIES
-    | SET
-    | SETMINUS
-    | SETS
-    | SHOW
-    | SKEWED
-    | SORT
-    | SORTED
-    | START
-    | STATISTICS
-    | STORED
-    | STRATIFY
-    | STRUCT
-    | SUBDATE
-    | SUBSTR
-    | SUBSTRING
-    | SUM
-    | SYNC
-    | SYSTEM_TIME
-    | SYSTEM_VERSION
-    | TABLES
-    | TABLESAMPLE
-    | TBLPROPERTIES
-    | TEMPORARY
-    | TERMINATED
-    | TIMESTAMP
-    | TIMESTAMPADD
-    | TIMESTAMPDIFF
-    | TOUCH
-    | TRANSACTION
-    | TRANSACTIONS
-    | TRANSFORM
-    | TRIM
-    | TRUE
-    | TRUNCATE
-    | TRY_CAST
-    | TYPE
-    | UNARCHIVE
-    | UNBOUNDED
-    | UNCACHE
-    | UNLOCK
-    | UNSET
-    | UPDATE
-    | USE
-    | VALUES
-    | VERBOSE
-    | VERSION
-    | VIEW
-    | VIEWS
-    | WINDOW
-    | YEAR
-    | ZONE
-//--ANSI-NON-RESERVED-END
-    ;
-
-// When `SQL_standard_keyword_behavior=false`, there are 2 kinds of keywords in Spark SQL.
-// - Non-reserved keywords:
-//     Same definition as the one when `SQL_standard_keyword_behavior=true`.
-// - Strict-non-reserved keywords:
-//     A strict version of non-reserved keywords, which can not be used as table alias.
-// You can find the full keywords list by searching "Start of the keywords list" in this file.
-// The strict-non-reserved keywords are listed in `strictNonReserved`.
+//     normal version of non-reserved keywords.
 // The non-reserved keywords are listed in `nonReserved`.
-// These 2 together contain all the keywords.
-strictNonReserved
-    : ANTI
-    | CROSS
-    | EXCEPT
-    | FULL
-    | INNER
-    | INTERSECT
-    | JOIN
-    | LATERAL
-    | LEFT
-    | NATURAL
-    | ON
-    | RIGHT
-    | SEMI
-    | SETMINUS
-    | UNION
-    | USING
-    ;
-
+// TODO: need to stay consistent with the legacy
 nonReserved
 //--DEFAULT-NON-RESERVED-START
     : ADD
@@ -658,7 +419,6 @@ nonReserved
     | ANY
     | ARCHIVE
     | ARRAY
-    | AS
     | ASC
     | AT
     | AUTHORIZATION
@@ -703,6 +463,7 @@ nonReserved
     | DATABASE
     | DATABASES
     | DATE
+    | DATEV2
     | DATE_ADD
     | DATEDIFF
     | DATE_DIFF
@@ -868,9 +629,6 @@ nonReserved
     | STORED
     | STRATIFY
     | STRUCT
-    | SUBSTR
-    | SUBSTRING
-    | SUM
     | SYNC
     | SYSTEM_TIME
     | SYSTEM_VERSION
@@ -911,6 +669,7 @@ nonReserved
     | VERSION
     | VIEW
     | VIEWS
+    | WEEK
     | WHEN
     | WHERE
     | WINDOW

@@ -39,7 +39,8 @@ VCollectIterator::~VCollectIterator() {
     }
 }
 
-void VCollectIterator::init(TabletReader* reader, bool force_merge, bool is_reverse) {
+void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, bool force_merge,
+                            bool is_reverse) {
     _reader = reader;
     // when aggregate is enabled or key_type is DUP_KEYS, we don't merge
     // multiple data to aggregate for better performance
@@ -49,8 +50,10 @@ void VCollectIterator::init(TabletReader* reader, bool force_merge, bool is_reve
           _reader->_tablet->enable_unique_key_merge_on_write()))) {
         _merge = false;
     }
-
-    if (force_merge) {
+    // When data is none overlapping, no need to build heap to traverse data
+    if (!ori_data_overlapping) {
+        _merge = false;
+    } else if (force_merge) {
         _merge = true;
     }
     _is_reverse = is_reverse;
@@ -129,6 +132,22 @@ Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_reade
                     new Level1Iterator(_children, _reader, _merge, _is_reverse, _skip_same));
         }
     } else {
+        bool have_multiple_child = false;
+        bool is_first_child = true;
+        for (auto iter = _children.begin(); iter != _children.end();) {
+            auto s = (*iter)->init_for_union(is_first_child, have_multiple_child);
+            if (!s.ok()) {
+                delete (*iter);
+                iter = _children.erase(iter);
+                if (!s.is<END_OF_FILE>()) {
+                    return s;
+                }
+            } else {
+                have_multiple_child = true;
+                is_first_child = false;
+                ++iter;
+            }
+        }
         _inner_iter.reset(new Level1Iterator(_children, _reader, _merge, _is_reverse, _skip_same));
     }
     RETURN_IF_NOT_EOF_AND_OK(_inner_iter->init());
@@ -214,6 +233,36 @@ Status VCollectIterator::Level0Iterator::init(bool get_data_by_ref) {
     return st;
 }
 
+// if is_first_child = true, return first row in block。Unique keys and agg keys will
+// read a line first and then start loop :
+// while (!eof) {
+//     collect_iter->next(&_next_row);
+// }
+// so first child load first row and other child row_pos = -1
+Status VCollectIterator::Level0Iterator::init_for_union(bool is_first_child, bool get_data_by_ref) {
+    _get_data_by_ref = get_data_by_ref && _rs_reader->support_return_data_by_ref() &&
+                       config::enable_storage_vectorization;
+    if (!_get_data_by_ref) {
+        _block = std::make_shared<Block>(_schema.create_block(
+                _reader->_return_columns, _reader->_tablet_columns_convert_to_null_set));
+    }
+    auto st = _refresh_current_row();
+    if (_get_data_by_ref && _block_view.size()) {
+        if (is_first_child) {
+            _ref = _block_view[0];
+        } else {
+            _ref = _block_view[-1];
+        }
+    } else {
+        if (is_first_child) {
+            _ref = {_block, 0, false};
+        } else {
+            _ref = {_block, -1, false};
+        }
+    }
+    return st;
+}
+
 int64_t VCollectIterator::Level0Iterator::version() const {
     return _rs_reader->version().second;
 }
@@ -261,7 +310,7 @@ Status VCollectIterator::Level0Iterator::next(IteratorRowRef* ref) {
 
 Status VCollectIterator::Level0Iterator::next(Block* block) {
     CHECK(!_get_data_by_ref);
-    if (_ref.row_pos == 0 && _ref.block != nullptr && UNLIKELY(_ref.block->rows() > 0)) {
+    if (_ref.row_pos <= 0 && _ref.block != nullptr && UNLIKELY(_ref.block->rows() > 0)) {
         block->swap(*_ref.block);
         _ref.reset();
         return Status::OK();
@@ -308,6 +357,10 @@ VCollectIterator::Level1Iterator::Level1Iterator(
           _skip_same(skip_same) {
     _ref.reset();
     _batch_size = reader->_batch_size;
+    // !_merge means that data are in order, so we just reverse children to return data in reverse
+    if (!_merge && _is_reverse) {
+        _children.reverse();
+    }
 }
 
 VCollectIterator::Level1Iterator::~Level1Iterator() {
@@ -467,6 +520,11 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
     size_t column_count = block->columns();
     IteratorRowRef cur_row = _ref;
     IteratorRowRef pre_row_ref = _ref;
+
+    // append extra columns (eg. MATCH pred result column) from src_block to block
+    for (size_t i = block->columns(); i < cur_row.block->columns(); ++i) {
+        block->insert(cur_row.block->get_by_position(i).clone_empty());
+    }
 
     if (UNLIKELY(_reader->_reader_context.record_rowids)) {
         _block_row_locations.resize(_batch_size);

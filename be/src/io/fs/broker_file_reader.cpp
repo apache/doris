@@ -27,14 +27,19 @@ namespace doris {
 namespace io {
 
 BrokerFileReader::BrokerFileReader(const TNetworkAddress& broker_addr, const Path& path,
-                                   size_t file_size, TBrokerFD fd, BrokerFileSystem* fs)
-        : _path(path), _file_size(file_size), _broker_addr(broker_addr), _fd(fd), _fs(fs) {
+                                   size_t file_size, TBrokerFD fd,
+                                   std::shared_ptr<BrokerFileSystem> fs)
+        : _path(path),
+          _file_size(file_size),
+          _broker_addr(broker_addr),
+          _fd(fd),
+          _fs(std::move(fs)) {
     DorisMetrics::instance()->broker_file_open_reading->increment(1);
     DorisMetrics::instance()->broker_file_reader_total->increment(1);
 }
 
 BrokerFileReader::~BrokerFileReader() {
-    close();
+    BrokerFileReader::close();
 }
 
 Status BrokerFileReader::close() {

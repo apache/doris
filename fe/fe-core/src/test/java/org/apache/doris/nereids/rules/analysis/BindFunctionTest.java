@@ -51,7 +51,7 @@ public class BindFunctionTest extends TestWithFeService implements PatternMatchS
                 .rewrite()
                 .matches(
                         logicalFilter(logicalOlapScan())
-                                .when(f -> ((LessThan) f.getPredicates()).right() instanceof DateLiteral)
+                                .when(f -> ((LessThan) f.getPredicate()).right() instanceof DateLiteral)
                 );
     }
 
@@ -64,8 +64,8 @@ public class BindFunctionTest extends TestWithFeService implements PatternMatchS
                 .rewrite()
                 .matches(
                         leftOuterLogicalJoin(
-                                logicalFilter(),
-                                logicalOlapScan()
+                                logicalProject(logicalFilter()),
+                                logicalProject(logicalOlapScan())
                         ).when(join -> join.getHashJoinConjuncts().size() == 1)
                 );
     }

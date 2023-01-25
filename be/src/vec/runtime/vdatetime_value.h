@@ -1504,16 +1504,15 @@ struct DateTraits<uint64_t> {
 } // namespace vectorized
 } // namespace doris
 
-namespace std {
 template <>
-struct hash<doris::vectorized::VecDateTimeValue> {
+struct std::hash<doris::vectorized::VecDateTimeValue> {
     size_t operator()(const doris::vectorized::VecDateTimeValue& v) const {
         return doris::vectorized::hash_value(v);
     }
 };
 
 template <>
-struct hash<doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>> {
+struct std::hash<doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>> {
     size_t operator()(
             const doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>& v) const {
         return doris::vectorized::hash_value(v);
@@ -1521,10 +1520,9 @@ struct hash<doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>> 
 };
 
 template <>
-struct hash<doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>> {
+struct std::hash<doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>> {
     size_t operator()(
             const doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>& v) const {
         return doris::vectorized::hash_value(v);
     }
 };
-} // namespace std

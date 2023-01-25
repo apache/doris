@@ -17,8 +17,11 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.common.util.Util;
+
 public class HMSClientException extends RuntimeException {
     public HMSClientException(String format, Throwable cause, Object... msg) {
-        super(String.format(format, msg), cause);
+        super(String.format(format, msg) + (cause == null ? "" : ". reason: " + Util.getRootCauseMessage(cause)),
+                cause);
     }
 }

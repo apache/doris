@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -209,8 +210,8 @@ public class GroupExpressionMatchingTest {
     @Test
     public void testSubTreeMatch() {
         Plan root =
-                new LogicalFilter(new EqualTo(new UnboundSlot(Lists.newArrayList("a", "id")),
-                        new UnboundSlot(Lists.newArrayList("b", "id"))),
+                new LogicalFilter(ImmutableSet.of(new EqualTo(new UnboundSlot(Lists.newArrayList("a", "id")),
+                        new UnboundSlot(Lists.newArrayList("b", "id")))),
                         new LogicalJoin(JoinType.INNER_JOIN,
                                 new LogicalJoin(JoinType.LEFT_OUTER_JOIN,
                                         new UnboundRelation(RelationUtil.newRelationId(), ImmutableList.of("a")),

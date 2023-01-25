@@ -21,10 +21,7 @@
 
 #include "common/status.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
-#include "runtime/string_value.h"
-#include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
 #include "vec/exec/data_gen_functions/vnumbers_tvf.h"
 
@@ -83,11 +80,6 @@ Status VDataGenFunctionScanNode::open(RuntimeState* state) {
     RETURN_IF_CANCELLED(state);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
-    return Status::OK();
-}
-
-Status VDataGenFunctionScanNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
-    LOG(FATAL) << "VDataGenFunctionScanNode only support vectorized execution";
     return Status::OK();
 }
 

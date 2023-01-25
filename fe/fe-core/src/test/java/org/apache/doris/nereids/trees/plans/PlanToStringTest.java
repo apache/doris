@@ -34,6 +34,7 @@ import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.PlanConstructor;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import mockit.Mocked;
 import org.junit.jupiter.api.Assertions;
@@ -61,7 +62,7 @@ public class PlanToStringTest {
 
     @Test
     public void testLogicalFilter(@Mocked Plan child) {
-        LogicalFilter<Plan> plan = new LogicalFilter<>(new EqualTo(Literal.of(1), Literal.of(1)), child);
+        LogicalFilter<Plan> plan = new LogicalFilter<>(ImmutableSet.of(new EqualTo(Literal.of(1), Literal.of(1))), child);
 
         Assertions.assertEquals("LogicalFilter ( predicates=(1 = 1) )", plan.toString());
     }
@@ -100,6 +101,6 @@ public class PlanToStringTest {
                 new OrderKey(new SlotReference("col2", IntegerType.INSTANCE), true, true));
 
         LogicalSort<Plan> plan = new LogicalSort<>(orderKeyList, child);
-        Assertions.assertTrue(plan.toString().matches("LogicalSort \\( orderKeys=\\[col1#\\d+, col2#\\d+] \\)"));
+        Assertions.assertTrue(plan.toString().matches("LogicalSort \\( orderKeys=\\[col1#\\d+ asc null first, col2#\\d+ asc null first] \\)"));
     }
 }

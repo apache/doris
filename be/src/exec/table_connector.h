@@ -18,6 +18,7 @@
 #pragma once
 
 #include <fmt/format.h>
+#include <gen_cpp/Types_types.h>
 
 #include <boost/format.hpp>
 #include <cstdlib>
@@ -25,9 +26,7 @@
 #include <vector>
 
 #include "common/status.h"
-#include "exprs/expr_context.h"
 #include "runtime/descriptors.h"
-#include "runtime/row_batch.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {
@@ -49,20 +48,20 @@ public:
 
     virtual Status exec_write_sql(const std::u16string& insert_stmt,
                                   const fmt::memory_buffer& _insert_stmt_buffer) = 0;
-    //write data into table row batch
-    Status append(const std::string& table_name, RowBatch* batch,
-                  const std::vector<ExprContext*>& _output_expr_ctxs, uint32_t start_send_row,
-                  uint32_t* num_rows_sent);
 
     //write data into table vectorized
     Status append(const std::string& table_name, vectorized::Block* block,
                   const std::vector<vectorized::VExprContext*>& _output_vexpr_ctxs,
                   uint32_t start_send_row, uint32_t* num_rows_sent,
-                  bool need_extra_convert = false);
+                  TOdbcTableType::type table_type = TOdbcTableType::MYSQL);
 
     void init_profile(RuntimeProfile*);
 
     std::u16string utf8_to_u16string(const char* first, const char* last);
+
+    Status convert_column_data(const vectorized::ColumnPtr& column_ptr,
+                               const vectorized::DataTypePtr& type_ptr, const TypeDescriptor& type,
+                               int row, TOdbcTableType::type table_type);
 
     virtual Status close() { return Status::OK(); }
 
@@ -82,6 +81,15 @@ protected:
     RuntimeProfile::Counter* _result_send_timer = nullptr;
     // number of sent rows
     RuntimeProfile::Counter* _sent_rows_counter = nullptr;
+
+private:
+    // Because Oracle database do not support
+    // insert into tables values (...),(...);
+    // Here we do something special for Oracle.
+    Status oracle_type_append(const std::string& table_name, vectorized::Block* block,
+                              const std::vector<vectorized::VExprContext*>& output_vexpr_ctxs,
+                              uint32_t start_send_row, uint32_t* num_rows_sent,
+                              TOdbcTableType::type table_type);
 };
 
 } // namespace doris

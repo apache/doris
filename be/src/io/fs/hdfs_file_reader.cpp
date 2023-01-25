@@ -23,12 +23,12 @@
 namespace doris {
 namespace io {
 HdfsFileReader::HdfsFileReader(Path path, size_t file_size, const std::string& name_node,
-                               hdfsFile hdfs_file, HdfsFileSystem* fs)
+                               hdfsFile hdfs_file, std::shared_ptr<HdfsFileSystem> fs)
         : _path(std::move(path)),
           _file_size(file_size),
           _name_node(name_node),
           _hdfs_file(hdfs_file),
-          _fs(fs) {
+          _fs(std::move(fs)) {
     DorisMetrics::instance()->hdfs_file_open_reading->increment(1);
     DorisMetrics::instance()->hdfs_file_reader_total->increment(1);
 }
@@ -61,6 +61,14 @@ Status HdfsFileReader::read_at(size_t offset, Slice result, const IOContext& /*i
         return Status::IOError("offset exceeds file size(offset: {}, file size: {}, path: {})",
                                offset, _file_size, _path.native());
     }
+
+    auto handle = _fs->get_handle();
+    int res = hdfsSeek(handle->hdfs_fs, _hdfs_file, offset);
+    if (res != 0) {
+        return Status::InternalError("Seek to offset failed. (BE: {}) offset={}, err: {}",
+                                     BackendOptions::get_localhost(), offset, hdfsGetLastError());
+    }
+
     size_t bytes_req = result.size;
     char* to = result.data;
     bytes_req = std::min(bytes_req, _file_size - offset);
@@ -69,8 +77,7 @@ Status HdfsFileReader::read_at(size_t offset, Slice result, const IOContext& /*i
         return Status::OK();
     }
 
-    auto handle = _fs->get_handle();
-    int64_t has_read = 0;
+    size_t has_read = 0;
     while (has_read < bytes_req) {
         int64_t loop_read =
                 hdfsRead(handle->hdfs_fs, _hdfs_file, to + has_read, bytes_req - has_read);

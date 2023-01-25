@@ -82,6 +82,7 @@ public class StreamLoadTask implements LoadTaskInfo {
     private boolean loadToSingleTablet = false;
     private String headerType = "";
     private List<String> hiddenColumns;
+    private boolean trimDoubleQuotes = false;
 
     public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType,
             TFileCompressType compressType) {
@@ -251,6 +252,11 @@ public class StreamLoadTask implements LoadTaskInfo {
         return hiddenColumns;
     }
 
+    @Override
+    public boolean getTrimDoubleQuotes() {
+        return trimDoubleQuotes;
+    }
+
     public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request) throws UserException {
         StreamLoadTask streamLoadTask = new StreamLoadTask(request.getLoadId(), request.getTxnId(),
                 request.getFileType(), request.getFormatType(),
@@ -349,6 +355,9 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         if (request.isSetHiddenColumns()) {
             hiddenColumns = Arrays.asList(request.getHiddenColumns().replaceAll("\\s+", "").split(","));
+        }
+        if (request.isSetTrimDoubleQuotes()) {
+            trimDoubleQuotes = request.isTrimDoubleQuotes();
         }
     }
 

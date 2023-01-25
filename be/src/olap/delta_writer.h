@@ -27,12 +27,10 @@ namespace doris {
 class FlushToken;
 class MemTable;
 class MemTracker;
-class RowBatch;
 class Schema;
 class StorageEngine;
 class Tuple;
 class TupleDescriptor;
-class TupleRow;
 class SlotDescriptor;
 
 enum WriteType { LOAD = 1, LOAD_DELETE = 2, DELETE = 3 };
@@ -48,8 +46,8 @@ struct WriteRequest {
     // slots are in order of tablet's schema
     const std::vector<SlotDescriptor*>* slots;
     bool is_high_priority = false;
-    POlapTableSchemaParam ptable_schema_param;
-    int64_t index_id;
+    POlapTableSchemaParam ptable_schema_param = {};
+    int64_t index_id = 0;
 };
 
 // Writer for a particular (load, index, tablet).
@@ -57,14 +55,12 @@ struct WriteRequest {
 class DeltaWriter {
 public:
     static Status open(WriteRequest* req, DeltaWriter** writer,
-                       const UniqueId& load_id = TUniqueId(), bool is_vec = false);
+                       const UniqueId& load_id = TUniqueId());
 
     ~DeltaWriter();
 
     Status init();
 
-    Status write(Tuple* tuple);
-    Status write(const RowBatch* row_batch, const std::vector<int>& row_idxs);
     Status write(const vectorized::Block* block, const std::vector<int>& row_idxs);
 
     // flush the last memtable to flush queue, must call it before close_wait()
@@ -113,8 +109,7 @@ public:
     int64_t total_received_rows() const { return _total_received_rows; }
 
 private:
-    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, const UniqueId& load_id,
-                bool is_vec);
+    DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, const UniqueId& load_id);
 
     // push a full memtable to flush executor
     Status _flush_memtable_async();
@@ -154,9 +149,6 @@ private:
     std::atomic<uint32_t> _mem_table_num = 1;
 
     std::mutex _lock;
-
-    // use in vectorized load
-    bool _is_vec;
 
     // memory consumption snapshot for current delta_writer, only
     // used for std::sort

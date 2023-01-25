@@ -99,7 +99,6 @@ protected:
             const std::function<bool(int)>& checker); // remove pushed expr from conjunct tree
 
     RuntimeProfile::Counter* _bytes_read_counter; // # bytes read from the scanner
-    // # rows/tuples read from the scanner (including those discarded by eval_conjuncts())
     RuntimeProfile::Counter* _rows_read_counter;
     // Wall based aggregate read throughput [bytes/sec]
     RuntimeProfile::Counter* _total_throughput_counter;

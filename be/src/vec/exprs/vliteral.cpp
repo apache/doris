@@ -191,11 +191,8 @@ Status VLiteral::execute(VExprContext* context, vectorized::Block* block, int* r
     return Status::OK();
 }
 
-std::string VLiteral::debug_string() const {
+std::string VLiteral::value() const {
     std::stringstream out;
-    out << "VLiteral (name = " << _expr_name;
-    out << ", type = " << _data_type->get_name();
-    out << ", value = (";
     for (size_t i = 0; i < _column_ptr->size(); i++) {
         if (i != 0) {
             out << ", ";
@@ -283,8 +280,17 @@ std::string VLiteral::debug_string() const {
             }
         }
     }
+    return out.str();
+}
+
+std::string VLiteral::debug_string() const {
+    std::stringstream out;
+    out << "VLiteral (name = " << _expr_name;
+    out << ", type = " << _data_type->get_name();
+    out << ", value = (" << value();
     out << "))";
     return out.str();
 }
+
 } // namespace vectorized
 } // namespace doris

@@ -54,6 +54,7 @@ public:
     friend class VScanner;
     friend class NewOlapScanner;
     friend class VFileScanner;
+    friend class NewJdbcScanner;
     friend class ScannerContext;
     friend class doris::pipeline::ScanOperator;
 
@@ -64,10 +65,6 @@ public:
     Status open(RuntimeState* state) override;
 
     virtual void set_scan_ranges(const std::vector<TScanRangeParams>& scan_ranges) {}
-
-    Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) override {
-        return Status::NotSupported("Not implement");
-    }
 
     // Get next block.
     // If eos is true, no more data will be read and block should be empty.
@@ -94,6 +91,8 @@ public:
     Status alloc_resource(RuntimeState* state) override;
     void release_resource(RuntimeState* state) override;
     bool runtime_filters_are_ready_or_timeout();
+
+    Status try_close();
 
     enum class PushDownType {
         // The predicate can not be pushed down to data source
@@ -219,8 +218,21 @@ protected:
     phmap::flat_hash_map<int, std::pair<SlotDescriptor*, ColumnValueRangeType>>
             _slot_id_to_value_range;
     // column -> ColumnValueRange
+    // We use _colname_to_value_range to store a column and its conresponding value ranges.
     std::unordered_map<std::string, ColumnValueRangeType> _colname_to_value_range;
-    // We use _colname_to_value_range to store a column and its corresponding value ranges.
+    /**
+     * _colname_to_value_range only store the leaf of and in the conjunct expr tree,
+     * we use _compound_value_ranges to store conresponding value ranges 
+     * in the one compound relationship except the leaf of and node,
+     * such as `where a > 1 or b > 10 and c < 200`, the expr tree like: 
+     *     or
+     *   /   \ 
+     *  a     and
+     *       /   \
+     *      b     c
+     * the value ranges of column a,b,c will all store into _compound_value_ranges
+     */
+    std::vector<ColumnValueRangeType> _compound_value_ranges;
     // But if a col is with value range, eg: 1 < col < 10, which is "!is_fixed_range",
     // in this case we can not merge "1 < col < 10" with "col not in (2)".
     // So we have to save "col not in (2)" to another structure: "_not_in_value_ranges".
@@ -263,7 +275,6 @@ protected:
     RuntimeProfile::Counter* _scanner_ctx_sched_counter = nullptr;
     RuntimeProfile::Counter* _scanner_wait_batch_timer = nullptr;
     RuntimeProfile::Counter* _scanner_wait_worker_timer = nullptr;
-
     // Num of pre allocated free blocks
     RuntimeProfile::Counter* _pre_alloc_free_blocks_num = nullptr;
     // Num of newly created free blocks when running query
@@ -314,10 +325,32 @@ private:
                                              SlotDescriptor* slot, ColumnValueRange<T>& range,
                                              PushDownType* pdt);
 
+    Status _normalize_compound_predicate(
+            vectorized::VExpr* expr, VExprContext* expr_ctx, PushDownType* pdt,
+            const std::function<bool(const std::vector<VExpr*>&, const VSlotRef**, VExpr**)>&
+                    in_predicate_checker,
+            const std::function<bool(const std::vector<VExpr*>&, const VSlotRef**, VExpr**)>&
+                    eq_predicate_checker);
+
+    template <PrimitiveType T>
+    Status _normalize_binary_in_compound_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
+                                                   SlotDescriptor* slot, ColumnValueRange<T>& range,
+                                                   PushDownType* pdt);
+
+    template <PrimitiveType T>
+    Status _normalize_match_in_compound_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
+                                                  SlotDescriptor* slot, ColumnValueRange<T>& range,
+                                                  PushDownType* pdt);
+
     template <PrimitiveType T>
     Status _normalize_is_null_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
                                         SlotDescriptor* slot, ColumnValueRange<T>& range,
                                         PushDownType* pdt);
+
+    template <PrimitiveType T>
+    Status _normalize_match_predicate(vectorized::VExpr* expr, VExprContext* expr_ctx,
+                                      SlotDescriptor* slot, ColumnValueRange<T>& range,
+                                      PushDownType* pdt);
 
     template <bool IsFixed, PrimitiveType PrimitiveType, typename ChangeFixedValueRangeFunc>
     static Status _change_value_range(ColumnValueRange<PrimitiveType>& range, void* value,

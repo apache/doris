@@ -31,7 +31,7 @@ namespace pipeline {
 
 UnionSourceOperatorBuilder::UnionSourceOperatorBuilder(int32_t id, ExecNode* node,
                                                        std::shared_ptr<DataQueue> queue)
-        : OperatorBuilder(id, "UnionSourceOperatorBuilder", node), _data_queue(queue) {};
+        : OperatorBuilder(id, "UnionSourceOperator", node), _data_queue(queue) {};
 
 OperatorPtr UnionSourceOperatorBuilder::build_operator() {
     return std::make_shared<UnionSourceOperator>(this, _node, _data_queue);

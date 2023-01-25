@@ -680,25 +680,19 @@ The Apache Software License, Version 2.0
     * Apache Directory LDAP API Utilities:
         - org.apache.directory.api:api-util:1.0.0-M20 (http://directory.apache.org/api-parent/api-util/)
     * Apache Hadoop Amazon Web Services support:
-        - org.apache.hadoop:hadoop-aws:2.7.3 (no url defined)
-        - org.apache.hadoop:hadoop-aws:2.8.0 (no url defined)
+        - org.apache.hadoop:hadoop-aws:3.3.3 (no url defined)
     * Apache Hadoop Annotations:
-        - org.apache.hadoop:hadoop-annotations:2.6.5 (no url defined)
-        - org.apache.hadoop:hadoop-annotations:2.7.3 (no url defined)
-        - org.apache.hadoop:hadoop-annotations:2.8.0 (no url defined)
+        - org.apache.hadoop:hadoop-annotations:3.3.3 (no url defined)
     * Apache Hadoop Auth:
-        - org.apache.hadoop:hadoop-auth:2.7.3 (no url defined)
-        - org.apache.hadoop:hadoop-auth:2.8.0 (no url defined)
+        - org.apache.hadoop:hadoop-auth:3.3.3 (no url defined)
     * Apache Hadoop Client:
-        - org.apache.hadoop:hadoop-client:2.6.5 (no url defined)
+        - org.apache.hadoop:hadoop-client:3.3.3 (no url defined)
     * Apache Hadoop Common:
-        - org.apache.hadoop:hadoop-common:2.7.3 (no url defined)
-        - org.apache.hadoop:hadoop-common:2.8.0 (no url defined)
+        - org.apache.hadoop:hadoop-common:3.3.3 (no url defined)
     * Apache Hadoop HDFS:
-        - org.apache.hadoop:hadoop-hdfs:2.7.3 (no url defined)
-        - org.apache.hadoop:hadoop-hdfs:2.8.0 (no url defined)
+        - org.apache.hadoop:hadoop-hdfs:3.3.3 (no url defined)
     * Apache Hadoop HDFS Client:
-        - org.apache.hadoop:hadoop-hdfs-client:2.8.0 (no url defined)
+        - org.apache.hadoop:hadoop-hdfs-client:3.3.3 (no url defined)
     * Apache HttpClient:
         - org.apache.httpcomponents:httpclient:4.5.13 (http://hc.apache.org/httpcomponents-client)
     * Apache HttpCore:
@@ -886,33 +880,33 @@ The Apache Software License, Version 2.0
     * velocity:
         - org.apache.velocity:velocity-engine-core:2.3 (https://velocity.apache.org/engine/2.3/)        
     * Hive Common:
-        - org.apache.hive:hive-common:2.3.7 (https://hive.apache.org/hive-common)
+        - org.apache.hive:hive-common:3.1.3 (https://hive.apache.org/hive-common)
     * Hive Llap Client:
-        - org.apache.hive:hive-llap-client:2.3.7 (https://hive.apache.org/hive-llap-client)
+        - org.apache.hive:hive-llap-client:3.1.3 (https://hive.apache.org/hive-llap-client)
     * Hive Llap Common:
-        - org.apache.hive:hive-llap-common:2.3.7 (https://hive.apache.org/hive-llap-common)
+        - org.apache.hive:hive-llap-common:3.1.3 (https://hive.apache.org/hive-llap-common)
     * Hive Llap Tez:
-        - org.apache.hive:hive-llap-tez:2.3.7 (https://hive.apache.org/hive-llap-tez)
+        - org.apache.hive:hive-llap-tez:3.1.3 (https://hive.apache.org/hive-llap-tez)
     * Hive Metastore:
-        - org.apache.hive:hive-metastore:2.3.7 (https://hive.apache.org/hive-metastore)
+        - org.apache.hive:hive-metastore:3.1.3 (https://hive.apache.org/hive-metastore)
     * Hive Query Language:
-        - org.apache.hive:hive-exec:2.3.7 (https://hive.apache.org/hive-exec)
+        - org.apache.hive:hive-exec:3.1.3 (https://hive.apache.org/hive-exec)
     * Hive Serde:
-        - org.apache.hive:hive-serde:2.3.7 (https://hive.apache.org/hive-serde)
+        - org.apache.hive:hive-serde:3.1.3 (https://hive.apache.org/hive-serde)
     * Hive Service RPC:
-        - org.apache.hive:hive-service-rpc:2.3.7 (https://hive.apache.org/hive-service-rpc)
+        - org.apache.hive:hive-service-rpc:3.1.3 (https://hive.apache.org/hive-service-rpc)
     * Hive Shims:
-        - org.apache.hive:hive-shims:2.3.7 (https://hive.apache.org/hive-shims)
+        - org.apache.hive:hive-shims:3.1.3 (https://hive.apache.org/hive-shims)
     * Hive Shims 0.23:
-        - org.apache.hive.shims:hive-shims-0.23:2.3.7 (https://hive.apache.org/hive-shims-0.23)
+        - org.apache.hive.shims:hive-shims-0.23:3.1.3 (https://hive.apache.org/hive-shims-0.23)
     * Hive Shims Common:
-        - org.apache.hive.shims:hive-shims-common:2.3.7 (https://hive.apache.org/hive-shims-common)
+        - org.apache.hive.shims:hive-shims-common:3.1.3 (https://hive.apache.org/hive-shims-common)
     * Hive Shims Scheduler:
-        - org.apache.hive.shims:hive-shims-scheduler:2.3.7 (https://hive.apache.org/hive-shims-scheduler)
+        - org.apache.hive.shims:hive-shims-scheduler:3.1.3 (https://hive.apache.org/hive-shims-scheduler)
     * Hive Storage API:
         - org.apache.hive:hive-storage-api:2.4.0 (https://www.apache.org/hive-storage-api/)
     * Hive Vector-Code-Gen Utilities:
-        - org.apache.hive:hive-vector-code-gen:2.3.7 (https://hive.apache.org/hive-vector-code-gen)
+        - org.apache.hive:hive-vector-code-gen:3.1.3 (https://hive.apache.org/hive-vector-code-gen)
     * HttpClient:
         - commons-httpclient:commons-httpclient:3.0.1 (http://jakarta.apache.org/commons/httpclient/)
         - commons-httpclient:commons-httpclient:3.1 (http://jakarta.apache.org/httpcomponents/httpclient-3.x/)
@@ -952,15 +946,15 @@ The Apache Software License, Version 2.0
     * Jackson datatype: jdk8:
         - com.fasterxml.jackson.datatype:jackson-datatype-jdk8:2.13.1 (https://github.com/FasterXML/jackson-modules-java8/jackson-datatype-jdk8)
     * Jackson module: JAXB Annotations:
-        - com.fasterxml.jackson.module:jackson-module-jaxb-annotations:2.12.1 (https://github.com/FasterXML/jackson-modules-base)
+        - com.fasterxml.jackson.module:jackson-module-jaxb-annotations:2.12.3 (https://github.com/FasterXML/jackson-modules-base)
     * Jackson module: Paranamer:
         - com.fasterxml.jackson.module:jackson-module-paranamer:2.7.9 (https://github.com/FasterXML/jackson-modules-base)
     * Jackson-annotations:
-        - com.fasterxml.jackson.core:jackson-annotations:2.12.1 (http://github.com/FasterXML/jackson)
+        - com.fasterxml.jackson.core:jackson-annotations:2.12.3 (http://github.com/FasterXML/jackson)
     * Jackson-core:
-        - com.fasterxml.jackson.core:jackson-core:2.12.1 (https://github.com/FasterXML/jackson-core)
+        - com.fasterxml.jackson.core:jackson-core:2.12.3 (https://github.com/FasterXML/jackson-core)
     * Jackson-dataformat-YAML:
-        - com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.12.1 (https://github.com/FasterXML/jackson-dataformats-text)
+        - com.fasterxml.jackson.dataformat:jackson-dataformat-yaml:2.12.3 (https://github.com/FasterXML/jackson-dataformats-text)
     * Jackson-module-parameter-names:
         - com.fasterxml.jackson.module:jackson-module-parameter-names:2.13.1 (https://github.com/FasterXML/jackson-modules-java8/jackson-module-parameter-names)
     * Jakarta Bean Validation API:
@@ -985,6 +979,14 @@ The Apache Software License, Version 2.0
         - org.lz4:lz4-java:1.4.0 (https://github.com/lz4/lz4-java)
     * Metrics Core:
         - io.dropwizard.metrics:metrics-core:4.0.2 (http://metrics.dropwizard.io/metrics-core)
+    * avatica:
+        - org.apache.calcite.avatica:avatica:1.22.0 (https://calcite.apache.org/avatica/)        
+    * calcite-core:
+        - org.apache.calcite:calcite-core:1.32.0 (https://calcite.apache.org/avatica/)        
+    * calcite-core:
+        - org.apache.calcite:calcite-linq4j:1.32.0 (https://calcite.apache.org/avatica/)        
+    * calcite-core:
+        - org.apache.calcite.:calcite-druid:1.32.0 (https://calcite.apache.org/avatica/)        
     * Netty:
         - io.netty:netty:3.9.9.Final (http://netty.io/)
     * Netty Reactive Streams HTTP support:
@@ -992,8 +994,7 @@ The Apache Software License, Version 2.0
     * Netty Reactive Streams Implementation:
         - com.typesafe.netty:netty-reactive-streams:2.0.4 (https://github.com/playframework/netty-reactive-streams/netty-reactive-streams)
     * Netty/All-in-One:
-        - io.netty:netty-all:4.0.23.Final (http://netty.io/netty-all/)
-        - io.netty:netty-all:4.1.42.Final (https://netty.io/netty-all/)
+        - io.netty:netty-all:4.1.65.Final (https://netty.io/netty-all/)
     * Netty/Buffer:
         - io.netty:netty-buffer:4.1.72.Final (https://netty.io/netty-buffer/)
     * Netty/Codec:
@@ -1190,7 +1191,7 @@ The Apache Software License, Version 2.0
     * io.grpc:grpc-stub:
         - io.grpc:grpc-stub:1.30.0 (https://github.com/grpc/grpc-java)
     * jackson-databind:
-        - com.fasterxml.jackson.core:jackson-databind:2.12.1 (http://github.com/FasterXML/jackson)
+        - com.fasterxml.jackson.core:jackson-databind:2.14.1 (http://github.com/FasterXML/jackson)
     * jackson-module-scala:
         - com.fasterxml.jackson.module:jackson-module-scala_2.12:2.13.1 (http://wiki.fasterxml.com/JacksonModuleScala)
         - com.fasterxml.jackson.module:jackson-module-scala_2.12:2.6.7.1 (http://wiki.fasterxml.com/JacksonModuleScala)
@@ -1451,7 +1452,7 @@ The 3-Clause BSD License
     * MinLog -- licenses/LICENSE-minlog.txt
         - com.esotericsoftware:minlog:1.3.0 (https://github.com/EsotericSoftware/minlog)
     * Protocol Buffers [Core] -- licenses/LICENSE-protobuf.txt
-        - com.google.protobuf:protobuf-java:3.14.0 (https://developers.google.com/protocol-buffers/protobuf-java/)
+        - com.google.protobuf:protobuf-java:3.15.0 (https://developers.google.com/protocol-buffers/protobuf-java/)
     * Py4J -- licenses/LICENSE-py4j.txt
         - net.sf.py4j:py4j:0.10.7 (http://nexus.sonatype.org/oss-repository-hosting.html/py4j)
     * asm -- licenses/LICENSE-asm.txt
@@ -1528,11 +1529,11 @@ The Apache Software License, Version 2.0
     * cctz: 2.3
     * aws sdk: 1.9.211
     * benchmark: 1.5.6
-    * simdjson: 1.0.2
-    * libhdfs3: 2.3.0
-    * libhdfs3: commit 5fccd36
+    * simdjson: 3.0.1
+    * libhdfs3: 2.3.6
     * opentelemetry-proto: 0.18.0
     * opentelemetry-cpp: 1.4.0
+    * clucenc: 2.4.4
 
 The MIT License -- licenses/LICENSE-MIT.txt
     * datatables: 1.12.1
@@ -1547,7 +1548,7 @@ LGPL -- licenes/LICENSE-LGPL.txt
 
 Other dependencies:
     * libevent: 2.1.12 -- license/LICENSE-libevent.txt
-    * openssl: 1.1.1m -- license/LICENSE-openssl.txt
+    * openssl: 1.1.1s -- license/LICENSE-openssl.txt
     * gflag: 2.2.2 -- license/LICENSE-gflag.txt
     * glog: 0.4.0 -- license/LICENSE-glog.txt
     * gtest: 1.11.0 -- license/LICENSE-gtest.txt
@@ -1568,7 +1569,7 @@ Other dependencies:
     * librdkafka: 1.8.2 -- license/LICENSE-librdkafka.txt
     * zstd: 1.5.2 -- license/LICENSE-zstd.txt
     * brotli: 1.0.9 -- license/LICENSE-brotli.txt
-    * bitshuffle: 0.3.5 -- license/LICENSE-bigshuffle.txt
+    * bitshuffle: 0.5.1 -- license/LICENSE-bigshuffle.txt
     * fmt: 7.1.3 -- license/LICENSE-fmt.txt
     * jemalloc: 5.2.1 -- license/LICENSE-jemolloc.txt
     * lzma@master -- license/LICENSE-lzma.txt

@@ -247,6 +247,11 @@ E(SEGCOMPACTION_INIT_READER, -3117);
 E(SEGCOMPACTION_INIT_WRITER, -3118);
 E(SEGCOMPACTION_FAILED, -3119);
 E(PIP_WAIT_FOR_RF, -3120);
+E(INVERTED_INDEX_INVALID_PARAMETERS, -6000);
+E(INVERTED_INDEX_NOT_SUPPORTED, -6001);
+E(INVERTED_INDEX_CLUCENE_ERROR, -6002);
+E(INVERTED_INDEX_FILE_NOT_FOUND, -6003);
+E(INVERTED_INDEX_FILE_HIT_LIMIT, -6004);
 #undef E
 }; // namespace ErrorCode
 
@@ -268,7 +273,12 @@ static constexpr bool capture_stacktrace() {
         && code != ErrorCode::ROWSET_RENAME_FILE_FAILED
         && code != ErrorCode::SEGCOMPACTION_INIT_READER
         && code != ErrorCode::SEGCOMPACTION_INIT_WRITER
-        && code != ErrorCode::SEGCOMPACTION_FAILED;
+        && code != ErrorCode::SEGCOMPACTION_FAILED
+        && code != ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS
+        && code != ErrorCode::INVERTED_INDEX_NOT_SUPPORTED
+        && code != ErrorCode::INVERTED_INDEX_CLUCENE_ERROR
+        && code != ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND
+        && code != ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT;
 }
 // clang-format on
 
@@ -356,6 +366,7 @@ public:
     static Status name(std::string_view msg, Args&&... args) {                  \
         return Error<ErrorCode::code, false>(msg, std::forward<Args>(args)...); \
     }
+
     ERROR_CTOR(PublishTimeout, PUBLISH_TIMEOUT)
     ERROR_CTOR(MemoryAllocFailed, MEM_ALLOC_FAILED)
     ERROR_CTOR(BufferAllocFailed, BUFFER_ALLOCATION_FAILED)
@@ -395,6 +406,8 @@ public:
                ErrorCode::CHECKSUM_ERROR == _code || ErrorCode::FILE_DATA_ERROR == _code ||
                ErrorCode::TEST_FILE_ERROR == _code || ErrorCode::ROWBLOCK_READ_INFO_ERROR == _code;
     }
+
+    bool is_not_found() const { return _code == ErrorCode::NOT_FOUND; }
 
     // Convert into TStatus. Call this if 'status_container' contains an optional
     // TStatus field named 'status'. This also sets __isset.status.
@@ -487,6 +500,9 @@ inline std::string Status::to_string() const {
             return _status_;            \
         }                               \
     } while (false)
+
+#define RETURN_ERROR_IF_NON_VEC \
+    return Status::NotSupported("Non-vectorized engine is not supported since Doris 1.3+.");
 
 // End _get_next_span after last call to get_next method
 #define RETURN_IF_ERROR_AND_CHECK_SPAN(stmt, get_next_span, done) \

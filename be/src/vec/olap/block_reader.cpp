@@ -34,9 +34,33 @@ BlockReader::~BlockReader() {
     }
 }
 
+bool BlockReader::_rowsets_overlapping(const std::vector<RowsetReaderSharedPtr>& rs_readers) {
+    std::string cur_max_key;
+    for (const auto& rs_reader : rs_readers) {
+        // version 0-1 of every tablet is empty, just skip this rowset
+        if (rs_reader->rowset()->version().second == 1) {
+            continue;
+        }
+        if (rs_reader->rowset()->num_rows() == 0) {
+            continue;
+        }
+        if (rs_reader->rowset()->is_segments_overlapping()) {
+            return true;
+        }
+        std::string min_key;
+        bool has_min_key = rs_reader->rowset()->min_key(&min_key);
+        if (!has_min_key) {
+            return true;
+        }
+        if (min_key <= cur_max_key) {
+            return true;
+        }
+        CHECK(rs_reader->rowset()->max_key(&cur_max_key));
+    }
+    return false;
+}
 Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
                                        std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
-    _vcollect_iter.init(this, read_params.read_orderby_key, read_params.read_orderby_key_reverse);
     std::vector<RowsetReaderSharedPtr> rs_readers;
     auto res = _capture_rs_readers(read_params, &rs_readers);
     if (!res.ok()) {
@@ -47,6 +71,10 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
                      << ", version:" << read_params.version;
         return res;
     }
+    // check if rowsets are noneoverlapping
+    _is_rowsets_overlapping = _rowsets_overlapping(rs_readers);
+    _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
+                        read_params.read_orderby_key_reverse);
 
     _reader_context.batch_size = _batch_size;
     _reader_context.is_vec = true;
@@ -64,10 +92,8 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
     }
 
     RETURN_IF_ERROR(_vcollect_iter.build_heap(*valid_rs_readers));
-    if (_vcollect_iter.is_merge()) {
-        auto status = _vcollect_iter.current_row(&_next_row);
-        _eof = status.is<END_OF_FILE>();
-    }
+    auto status = _vcollect_iter.current_row(&_next_row);
+    _eof = status.is<END_OF_FILE>();
 
     return Status::OK();
 }
@@ -213,7 +239,7 @@ Status BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectP
             return res;
         }
 
-        if (!_next_row.is_same) {
+        if (!_get_next_row_same()) {
             if (target_block_row == _batch_size) {
                 break;
             }
@@ -410,6 +436,15 @@ void BlockReader::_update_agg_value(MutableColumns& columns, int begin, int end,
             function->destroy(place);
             function->create(place);
         }
+    }
+}
+
+bool BlockReader::_get_next_row_same() {
+    if (_next_row.is_same) {
+        return true;
+    } else {
+        auto block = _next_row.block.get();
+        return block->get_same_bit(_next_row.row_pos);
     }
 }
 

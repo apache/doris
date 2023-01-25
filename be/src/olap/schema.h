@@ -19,7 +19,7 @@
 
 #include <vector>
 
-#include "olap/aggregate_func.h"
+#include "common/consts.h"
 #include "olap/field.h"
 #include "olap/row_cursor_cell.h"
 #include "olap/tablet_schema.h"
@@ -39,6 +39,10 @@ class Schema {
 public:
     Schema(TabletSchemaSPtr tablet_schema) {
         size_t num_columns = tablet_schema->num_columns();
+        // ignore this column
+        if (tablet_schema->columns().back().name() == BeConsts::SOURCE_COL) {
+            --num_columns;
+        }
         std::vector<ColumnId> col_ids(num_columns);
         _unique_ids.resize(num_columns);
         std::vector<TabletColumn> columns;
@@ -51,6 +55,9 @@ public:
             _unique_ids[cid] = column.unique_id();
             if (column.is_key()) {
                 ++num_key_columns;
+            }
+            if (column.name() == BeConsts::ROWID_COL) {
+                _rowid_col_idx = cid;
             }
             columns.push_back(column);
         }
@@ -71,6 +78,9 @@ public:
             }
             if (columns[i].name() == DELETE_SIGN) {
                 _delete_sign_idx = i;
+            }
+            if (columns[i].name() == BeConsts::ROWID_COL) {
+                _rowid_col_idx = i;
             }
             _unique_ids[i] = columns[i].unique_id();
         }
@@ -110,9 +120,9 @@ public:
 
     static vectorized::DataTypePtr get_data_type_ptr(const Field& field);
 
-    static vectorized::IColumn::MutablePtr get_predicate_column_ptr(FieldType type);
+    static vectorized::IColumn::MutablePtr get_column_by_field(const Field& field);
 
-    static vectorized::IColumn::MutablePtr get_predicate_column_nullable_ptr(const Field& field);
+    static vectorized::IColumn::MutablePtr get_predicate_column_ptr(const Field& field);
 
     const std::vector<Field*>& columns() const { return _cols; }
 
@@ -125,10 +135,7 @@ public:
 
     size_t column_offset(ColumnId cid) const { return _col_offsets[cid]; }
 
-    // TODO(lingbin): What is the difference between column_size() and index_size()
     size_t column_size(ColumnId cid) const { return _cols[cid]->size(); }
-
-    size_t index_size(ColumnId cid) const { return _cols[cid]->index_size(); }
 
     bool is_null(const char* row, int index) const {
         return *reinterpret_cast<const bool*>(row + _col_offsets[index]);
@@ -145,6 +152,7 @@ public:
     int32_t unique_id(size_t index) const { return _unique_ids[index]; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
     bool has_sequence_col() const { return _has_sequence_col; }
+    int32_t rowid_col_idx() const { return _rowid_col_idx; };
 
 private:
     void _init(const std::vector<TabletColumn>& cols, const std::vector<ColumnId>& col_ids,
@@ -169,6 +177,7 @@ private:
     size_t _schema_size;
     int32_t _delete_sign_idx = -1;
     bool _has_sequence_col = false;
+    int32_t _rowid_col_idx = -1;
 };
 
 } // namespace doris

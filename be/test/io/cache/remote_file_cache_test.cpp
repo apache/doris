@@ -30,7 +30,6 @@
 #include "olap/comparison_predicate.h"
 #include "olap/data_dir.h"
 #include "olap/options.h"
-#include "olap/row_block.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/beta_rowset_reader.h"
 #include "olap/rowset/rowset_factory.h"
@@ -142,7 +141,9 @@ protected:
         EXPECT_NE("", writer.min_encoded_key().to_string());
         EXPECT_NE("", writer.max_encoded_key().to_string());
 
-        st = segment_v2::Segment::open(fs, path, "", 0, {}, query_schema, res);
+        io::FileReaderOptions reader_options(io::FileCachePolicy::NO_CACHE,
+                                             io::SegmentCachePathPolicy());
+        st = segment_v2::Segment::open(fs, path, 0, {}, query_schema, reader_options, res);
         EXPECT_TRUE(st.ok());
         EXPECT_EQ(nrows, (*res)->num_rows());
     }
@@ -164,7 +165,7 @@ protected:
         // just use to create s3 filesystem, otherwise won't use cache
         S3Conf s3_conf;
         std::shared_ptr<io::S3FileSystem> fs =
-                std::make_shared<io::S3FileSystem>(std::move(s3_conf), resource_id);
+                io::S3FileSystem::create(std::move(s3_conf), resource_id);
         rowset.rowset_meta()->set_resource_id(resource_id);
         rowset.rowset_meta()->set_num_segments(1);
         rowset.rowset_meta()->set_fs(fs);
@@ -173,7 +174,7 @@ protected:
 
         std::vector<segment_v2::SegmentSharedPtr> segments;
         Status st = rowset.load_segments(&segments);
-        ASSERT_TRUE(st.ok());
+        ASSERT_TRUE(st.ok()) << st;
     }
 };
 

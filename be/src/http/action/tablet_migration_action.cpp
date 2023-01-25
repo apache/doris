@@ -88,7 +88,7 @@ void TabletMigrationAction::handle(HttpRequest* req) {
                                 _migration_tasks.erase(it_task);
                             }
                             std::pair<MigrationTask, Status> finished_task =
-                                    make_pair(current_task, result_status);
+                                    std::make_pair(current_task, result_status);
                             if (_finished_migration_tasks.size() >=
                                 config::finished_migration_tasks_size) {
                                 _finished_migration_tasks.pop_front();

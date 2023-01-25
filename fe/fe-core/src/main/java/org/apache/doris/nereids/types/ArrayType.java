@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 import java.util.Objects;
 
@@ -29,7 +28,7 @@ public class ArrayType extends DataType {
 
     public static final ArrayType SYSTEM_DEFAULT = new ArrayType(NullType.INSTANCE, true);
 
-    public static final int WIDTH = 32;
+    public static final int WIDTH = 64;
 
     private final DataType itemType;
     private final boolean containsNull;
@@ -60,12 +59,7 @@ public class ArrayType extends DataType {
 
     @Override
     public Type toCatalogDataType() {
-        return Type.ARRAY;
-    }
-
-    @Override
-    public boolean acceptsType(AbstractDataType other) {
-        return other instanceof ArrayType;
+        return new org.apache.doris.catalog.ArrayType(itemType.toCatalogDataType(), containsNull);
     }
 
     @Override

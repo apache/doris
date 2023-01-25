@@ -24,6 +24,11 @@
 namespace doris {
 namespace io {
 
+std::shared_ptr<LocalFileSystem> LocalFileSystem::create(Path path, ResourceId resource_id) {
+    return std::shared_ptr<LocalFileSystem>(
+            new LocalFileSystem(std::move(path), std::move(resource_id)));
+}
+
 LocalFileSystem::LocalFileSystem(Path root_path, ResourceId resource_id)
         : FileSystem(std::move(root_path), std::move(resource_id), FileSystemType::LOCAL) {}
 
@@ -42,11 +47,12 @@ Status LocalFileSystem::create_file(const Path& path, FileWriterPtr* writer) {
     if (-1 == fd) {
         return Status::IOError("cannot open {}: {}", fs_path.native(), std::strerror(errno));
     }
-    *writer = std::make_unique<LocalFileWriter>(std::move(fs_path), fd);
+    *writer = std::make_unique<LocalFileWriter>(
+            std::move(fs_path), fd, std::static_pointer_cast<LocalFileSystem>(shared_from_this()));
     return Status::OK();
 }
 
-Status LocalFileSystem::open_file(const Path& path, FileReaderSPtr* reader) {
+Status LocalFileSystem::open_file(const Path& path, FileReaderSPtr* reader, IOContext* /*io_ctx*/) {
     auto fs_path = absolute_path(path);
     size_t fsize = 0;
     RETURN_IF_ERROR(file_size(fs_path, &fsize));
@@ -55,7 +61,9 @@ Status LocalFileSystem::open_file(const Path& path, FileReaderSPtr* reader) {
     if (fd < 0) {
         return Status::IOError("cannot open {}: {}", fs_path.native(), std::strerror(errno));
     }
-    *reader = std::make_shared<LocalFileReader>(std::move(fs_path), fsize, fd);
+    *reader = std::make_shared<LocalFileReader>(
+            std::move(fs_path), fsize, fd,
+            std::static_pointer_cast<LocalFileSystem>(shared_from_this()));
     return Status::OK();
 }
 
@@ -142,9 +150,9 @@ Status LocalFileSystem::list(const Path& path, std::vector<Path>* files) {
     return Status::OK();
 }
 
-static FileSystemSPtr local_fs = std::make_shared<io::LocalFileSystem>("");
+static FileSystemSPtr local_fs = io::LocalFileSystem::create("");
 
-FileSystemSPtr global_local_filesystem() {
+const FileSystemSPtr& global_local_filesystem() {
     return local_fs;
 }
 

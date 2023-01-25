@@ -23,6 +23,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.ParseException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -34,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.types.DecimalV2Type;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -232,7 +234,7 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
-    public void parseDecimal() {
+    public void testParseDecimal() {
         String f1 = "SELECT col1 * 0.267081789095306 FROM t";
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan logicalPlan = nereidsParser.parseSingle(f1);
@@ -298,5 +300,16 @@ public class NereidsParserTest extends ParserTestBase {
 
         parsePlan("select * from t1 join [shuffle,broadcast] t2 on t1.key=t2.key")
                 .assertThrowsExactly(ParseException.class);
+    }
+
+    @Test
+    public void testParseCast() {
+        String sql = "SELECT CAST(1 AS DECIMAL(20, 6)) FROM t";
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan = nereidsParser.parseSingle(sql);
+        Cast cast = (Cast) logicalPlan.getExpressions().get(0).child(0);
+        DecimalV2Type decimalV2Type = (DecimalV2Type) cast.getDataType();
+        Assertions.assertEquals(20, decimalV2Type.getPrecision());
+        Assertions.assertEquals(6, decimalV2Type.getScale());
     }
 }

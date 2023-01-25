@@ -19,7 +19,7 @@
 
 #include "runtime/datetime_value.h"
 #include "runtime/decimalv2_value.h"
-#include "runtime/string_value.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
@@ -30,9 +30,9 @@ struct type_limit {
 };
 
 template <>
-struct type_limit<StringValue> {
-    static StringValue min() { return StringValue::min_string_val(); }
-    static StringValue max() { return StringValue::max_string_val(); }
+struct type_limit<StringRef> {
+    static StringRef min() { return StringRef::min_string_val(); }
+    static StringRef max() { return StringRef::max_string_val(); }
 };
 
 template <>

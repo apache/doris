@@ -21,7 +21,6 @@
 #include "runtime/buffer_control_block.h"
 #include "runtime/exec_env.h"
 #include "runtime/result_buffer_mgr.h"
-#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "util/uid_util.h"
 #include "vec/exprs/vexpr.h"
@@ -135,10 +134,6 @@ Status VResultFileSink::prepare(RuntimeState* state) {
 Status VResultFileSink::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VResultFileSink::open");
     return VExpr::open(_output_vexpr_ctxs, state);
-}
-
-Status VResultFileSink::send(RuntimeState* state, RowBatch* batch) {
-    return Status::NotSupported("Not Implemented VResultFileSink Node::get_next scalar");
 }
 
 Status VResultFileSink::send(RuntimeState* state, Block* block, bool eos) {

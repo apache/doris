@@ -37,9 +37,6 @@ public:
     virtual ~VFileResultWriter() = default;
 
     Status append_block(Block& block) override;
-    Status append_row_batch(const RowBatch* batch) override {
-        return Status::NotSupported("append_row_batch is not supported in VFileResultWriter!");
-    };
 
     Status init(RuntimeState* state) override;
     Status close() override;

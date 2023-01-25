@@ -35,6 +35,7 @@
 #include "olap/olap_define.h"
 #include "olap/rowset/beta_rowset_writer.h"
 #include "olap/storage_engine.h"
+#include "service/point_query_executor.h"
 #include "util/file_utils.h"
 #include "util/time.h"
 
@@ -114,26 +115,25 @@ Status StorageEngine::start_bg_threads() {
             [this]() { this->_fd_cache_clean_callback(); }, &_fd_cache_clean_thread));
     LOG(INFO) << "fd cache clean thread started";
 
+    RETURN_IF_ERROR(Thread::create(
+            "StorageEngine", "clean_lookup_cache", [this]() { this->_start_clean_lookup_cache(); },
+            &_lookup_cache_clean_thread));
+    LOG(INFO) << "clean lookup cache thread started";
+
     // path scan and gc thread
     if (config::path_gc_check) {
         for (auto data_dir : get_stores()) {
             scoped_refptr<Thread> path_scan_thread;
             RETURN_IF_ERROR(Thread::create(
                     "StorageEngine", "path_scan_thread",
-                    [this, data_dir]() {
-                        SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
-                        this->_path_scan_thread_callback(data_dir);
-                    },
+                    [this, data_dir]() { this->_path_scan_thread_callback(data_dir); },
                     &path_scan_thread));
             _path_scan_threads.emplace_back(path_scan_thread);
 
             scoped_refptr<Thread> path_gc_thread;
             RETURN_IF_ERROR(Thread::create(
                     "StorageEngine", "path_gc_thread",
-                    [this, data_dir]() {
-                        SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
-                        this->_path_gc_thread_callback(data_dir);
-                    },
+                    [this, data_dir]() { this->_path_gc_thread_callback(data_dir); },
                     &path_gc_thread));
             _path_gc_threads.emplace_back(path_gc_thread);
         }
@@ -182,6 +182,13 @@ void StorageEngine::_fd_cache_clean_callback() {
         }
 
         _start_clean_cache();
+    }
+}
+
+void StorageEngine::_start_clean_lookup_cache() {
+    while (!_stop_background_threads_latch.wait_for(
+            std::chrono::seconds(config::tablet_lookup_cache_clean_interval))) {
+        LookupCache::instance().prune();
     }
 }
 

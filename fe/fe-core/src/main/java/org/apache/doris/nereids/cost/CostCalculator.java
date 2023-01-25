@@ -27,6 +27,8 @@ import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
@@ -34,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -61,7 +64,7 @@ public class CostCalculator {
      * AGG is time-consuming operator. From the perspective of rowCount, nereids may choose Plan1,
      * because `Agg1 join Agg2` generates few tuples. But in Plan1, Agg1 and Agg2 are done in serial, in Plan2, Agg1 and
      * Agg2 are done in parallel. And hence, Plan1 should be punished.
-     *
+     * <p>
      * An example is tpch q15.
      */
     static final double HEAVY_OPERATOR_PUNISH_FACTOR = 6.0;
@@ -99,6 +102,11 @@ public class CostCalculator {
             return CostEstimate.ofCpu(statistics.getRowCount());
         }
 
+        public CostEstimate visitPhysicalSchemaScan(PhysicalSchemaScan physicalSchemaScan, PlanContext context) {
+            StatsDeriveResult statistics = context.getStatisticsWithCheck();
+            return CostEstimate.ofCpu(statistics.getRowCount());
+        }
+
         @Override
         public CostEstimate visitPhysicalStorageLayerAggregate(
                 PhysicalStorageLayerAggregate storageLayerAggregate, PlanContext context) {
@@ -106,6 +114,12 @@ public class CostCalculator {
             // multiply a factor less than 1, so we can select PhysicalStorageLayerAggregate as far as possible
             return new CostEstimate(costEstimate.getCpuCost() * 0.7, costEstimate.getMemoryCost(),
                     costEstimate.getNetworkCost(), costEstimate.getPenalty());
+        }
+
+        @Override
+        public CostEstimate visitPhysicalFileScan(PhysicalFileScan physicalFileScan, PlanContext context) {
+            StatsDeriveResult statistics = context.getStatisticsWithCheck();
+            return CostEstimate.ofCpu(statistics.getRowCount());
         }
 
         @Override
@@ -271,6 +285,16 @@ public class CostCalculator {
             return CostEstimate.of(
                     assertNumRows.getAssertNumRowsElement().getDesiredNumOfRows(),
                     assertNumRows.getAssertNumRowsElement().getDesiredNumOfRows(),
+                    0
+            );
+        }
+
+        @Override
+        public CostEstimate visitPhysicalGenerate(PhysicalGenerate<? extends Plan> generate, PlanContext context) {
+            StatsDeriveResult statistics = context.getStatisticsWithCheck();
+            return CostEstimate.of(
+                    statistics.getRowCount(),
+                    statistics.getRowCount(),
                     0
             );
         }

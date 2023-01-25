@@ -29,12 +29,12 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.collect.Lists;
-
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Convert the expression in the filter into the output column corresponding to the child node and push it down.
@@ -58,14 +58,12 @@ public class PushdownFilterThroughSetOperation extends OneRewriteRuleFactory {
                     replaceMap.put(output, child.getOutput().get(i));
                 }
 
-                List<Expression> newFilterPredicates = Lists.newArrayList();
-                ExpressionUtils.extractConjunction(filter.getPredicates()).forEach(conjunct -> {
-                    newFilterPredicates.add(ExpressionUtils.replace(conjunct, replaceMap));
-                });
-                newChildren.add(new LogicalFilter<>(ExpressionUtils.and(newFilterPredicates), child));
+                Set<Expression> newFilterPredicates = filter.getConjuncts().stream().map(conjunct ->
+                        ExpressionUtils.replace(conjunct, replaceMap)).collect(Collectors.toSet());
+                newChildren.add(new LogicalFilter<>(newFilterPredicates, child));
             }
             if (setOperation instanceof LogicalUnion && setOperation.getQualifier() == Qualifier.DISTINCT) {
-                return new LogicalFilter<>(filter.getPredicates(),
+                return new LogicalFilter<>(filter.getConjuncts(),
                         ((LogicalUnion) setOperation).withHasPushedFilter().withChildren(newChildren));
             }
             return setOperation.withNewChildren(newChildren);

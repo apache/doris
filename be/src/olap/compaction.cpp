@@ -22,6 +22,7 @@
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_meta.h"
+#include "olap/rowset/rowset_writer_context.h"
 #include "olap/tablet.h"
 #include "olap/task/engine_checksum_task.h"
 #include "util/time.h"
@@ -92,9 +93,6 @@ bool Compaction::should_vertical_compaction() {
     if (!config::enable_vertical_compaction) {
         return false;
     }
-    if (_tablet->enable_unique_key_merge_on_write()) {
-        return false;
-    }
     return true;
 }
 
@@ -102,8 +100,8 @@ int64_t Compaction::get_avg_segment_rows() {
     // take care of empty rowset
     // input_rowsets_size is total disk_size of input_rowset, this size is the
     // final size after codec and compress, so expect dest segment file size
-    // in disk is config::max_segment_size_in_vertical_compaction
-    return config::max_segment_size_in_vertical_compaction /
+    // in disk is config::vertical_compaction_max_segment_size
+    return config::vertical_compaction_max_segment_size /
            (_input_rowsets_size / (_input_row_num + 1) + 1);
 }
 
@@ -204,7 +202,7 @@ bool Compaction::handle_ordered_data_compaction() {
     // has a delete version, use original compaction
     if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
         for (auto rowset : _input_rowsets) {
-            if (_tablet->version_for_delete_predicate(rowset->version())) {
+            if (rowset->rowset_meta()->has_delete_predicate()) {
                 return false;
             }
         }
@@ -278,6 +276,11 @@ Status Compaction::do_compaction_impl(int64_t permits) {
         stats.rowid_conversion = &_rowid_conversion;
     }
 
+    if (_cur_tablet_schema->store_row_column()) {
+        // table with row column not support vertical compaction now
+        vertical_compaction = false;
+    }
+
     if (use_vectorized_compaction) {
         if (vertical_compaction) {
             res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
@@ -288,8 +291,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
                                          _input_rs_readers, _output_rs_writer.get(), &stats);
         }
     } else {
-        res = Merger::merge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
-                                    _input_rs_readers, _output_rs_writer.get(), &stats);
+        LOG(FATAL) << "Only support vectorized compaction";
     }
 
     if (!res.ok()) {
@@ -358,14 +360,17 @@ Status Compaction::do_compaction_impl(int64_t permits) {
 }
 
 Status Compaction::construct_output_rowset_writer(bool is_vertical) {
+    RowsetWriterContext ctx;
+    ctx.version = _output_version;
+    ctx.rowset_state = VISIBLE;
+    ctx.segments_overlap = NONOVERLAPPING;
+    ctx.tablet_schema = _cur_tablet_schema;
+    ctx.oldest_write_timestamp = _oldest_write_timestamp;
+    ctx.newest_write_timestamp = _newest_write_timestamp;
     if (is_vertical) {
-        return _tablet->create_vertical_rowset_writer(_output_version, VISIBLE, NONOVERLAPPING,
-                                                      _cur_tablet_schema, _oldest_write_timestamp,
-                                                      _newest_write_timestamp, &_output_rs_writer);
+        return _tablet->create_vertical_rowset_writer(ctx, &_output_rs_writer);
     }
-    return _tablet->create_rowset_writer(_output_version, VISIBLE, NONOVERLAPPING,
-                                         _cur_tablet_schema, _oldest_write_timestamp,
-                                         _newest_write_timestamp, &_output_rs_writer);
+    return _tablet->create_rowset_writer(ctx, &_output_rs_writer);
 }
 
 Status Compaction::construct_input_rowset_readers() {

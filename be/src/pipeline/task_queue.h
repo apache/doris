@@ -29,7 +29,7 @@ class SubWorkTaskQueue {
 public:
     void push_back(PipelineTask* task) { _queue.emplace(task); }
 
-    PipelineTask* try_take();
+    PipelineTask* try_take(bool is_steal);
 
     void set_factor_for_normal(double factor_for_normal) { _factor_for_normal = factor_for_normal; }
 
@@ -53,9 +53,9 @@ public:
 
     void close();
 
-    PipelineTask* try_take_unprotected();
+    PipelineTask* try_take_unprotected(bool is_steal);
 
-    PipelineTask* try_take();
+    PipelineTask* try_take(bool is_steal);
 
     PipelineTask* take(uint32_t timeout_ms = 0);
 
@@ -108,7 +108,7 @@ private:
     size_t _core_size;
     std::atomic<size_t> _next_core = 0;
     std::atomic<bool> _closed;
-    static constexpr auto WAIT_CORE_TASK_TIMEOUT_MS = 200;
+    static constexpr auto WAIT_CORE_TASK_TIMEOUT_MS = 100;
 };
 
 } // namespace pipeline

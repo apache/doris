@@ -18,13 +18,15 @@
 package org.apache.doris.nereids.trees.expressions.functions.agg;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
-import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
@@ -32,7 +34,14 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /** count agg function. */
-public class Count extends AggregateFunction implements AlwaysNotNullable, CustomSignature {
+public class Count extends AggregateFunction
+        implements ExplicitlyCastableSignature, AlwaysNotNullable {
+
+    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            // count(*)
+            FunctionSignature.ret(BigIntType.INSTANCE).args(),
+            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(AnyDataType.INSTANCE)
+    );
 
     private final boolean isStar;
 
@@ -46,11 +55,26 @@ public class Count extends AggregateFunction implements AlwaysNotNullable, Custo
         this.isStar = false;
     }
 
-    public Count(boolean isDistinct, Expression arg0, Expression... varArgs) {
-        super("count", isDistinct, ExpressionUtils.mergeArguments(arg0, varArgs));
+    public Count(boolean distinct, Expression arg0, Expression... varArgs) {
+        super("count", distinct, ExpressionUtils.mergeArguments(arg0, varArgs));
         this.isStar = false;
-        if (!isDistinct && arity() > 1) {
-            throw new AnalysisException("COUNT must have DISTINCT for multiple arguments" + this.toSql());
+    }
+
+    @Override
+    public void checkLegalityBeforeTypeCoercion() {
+        // for multiple exprs count must be qualified with distinct
+        if (arity() > 1 && !distinct) {
+            throw new AnalysisException("COUNT must have DISTINCT for multiple arguments: " + this.toSql());
+        }
+    }
+
+    @Override
+    public void checkLegalityAfterRewrite() {
+        // after rewrite, count(distinct bitmap_column) should be rewritten to bitmap_union_count(bitmap_column)
+        for (Expression argument : getArguments()) {
+            if (argument.getDataType().isOnlyMetricType()) {
+                throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
+            }
         }
     }
 
@@ -59,8 +83,8 @@ public class Count extends AggregateFunction implements AlwaysNotNullable, Custo
     }
 
     @Override
-    public FunctionSignature customSignature() {
-        return FunctionSignature.of(BigIntType.INSTANCE, (List) getArgumentsTypes());
+    public boolean isConstant() {
+        return false;
     }
 
     @Override
@@ -69,29 +93,16 @@ public class Count extends AggregateFunction implements AlwaysNotNullable, Custo
     }
 
     @Override
-    public Count withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
+    public Count withDistinctAndChildren(boolean distinct, List<Expression> children) {
         if (children.size() == 0) {
-            if (isDistinct) {
+            if (distinct) {
                 throw new AnalysisException("Can not count distinct empty arguments");
             }
             return new Count();
         } else if (children.size() == 1) {
-            return new Count(isDistinct, children.get(0));
+            return new Count(distinct, children.get(0));
         } else {
-            return new Count(isDistinct, children.get(0),
-                    children.subList(1, children.size()).toArray(new Expression[0]));
-        }
-    }
-
-    @Override
-    public Count withChildren(List<Expression> children) {
-        if (children.size() == 0) {
-            return new Count();
-        }
-        if (children.size() == 1) {
-            return new Count(isDistinct, children.get(0));
-        } else {
-            return new Count(isDistinct, children.get(0),
+            return new Count(distinct, children.get(0),
                     children.subList(1, children.size()).toArray(new Expression[0]));
         }
     }
@@ -115,5 +126,10 @@ public class Count extends AggregateFunction implements AlwaysNotNullable, Custo
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitCount(this, context);
+    }
+
+    @Override
+    public List<FunctionSignature> getSignatures() {
+        return SIGNATURES;
     }
 }

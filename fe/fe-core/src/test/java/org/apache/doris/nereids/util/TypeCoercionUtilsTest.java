@@ -145,7 +145,8 @@ public class TypeCoercionUtilsTest {
         testFindTightestCommonType(BigIntType.INSTANCE, IntegerType.INSTANCE, BigIntType.INSTANCE);
         testFindTightestCommonType(StringType.INSTANCE, StringType.INSTANCE, IntegerType.INSTANCE);
         testFindTightestCommonType(StringType.INSTANCE, IntegerType.INSTANCE, StringType.INSTANCE);
-        testFindTightestCommonType(null, DecimalV2Type.SYSTEM_DEFAULT, DecimalV2Type.createDecimalV2Type(2, 1));
+        testFindTightestCommonType(DecimalV2Type.SYSTEM_DEFAULT, DecimalV2Type.SYSTEM_DEFAULT, DecimalV2Type.createDecimalV2Type(2, 1));
+        testFindTightestCommonType(FloatType.INSTANCE, FloatType.INSTANCE, DecimalV2Type.SYSTEM_DEFAULT);
         testFindTightestCommonType(VarcharType.createVarcharType(10), CharType.createCharType(8), CharType.createCharType(10));
         testFindTightestCommonType(VarcharType.createVarcharType(10), VarcharType.createVarcharType(8), VarcharType.createVarcharType(10));
         testFindTightestCommonType(VarcharType.createVarcharType(10), VarcharType.createVarcharType(8), CharType.createCharType(10));
@@ -155,7 +156,8 @@ public class TypeCoercionUtilsTest {
     }
 
     private void testFindTightestCommonType(DataType commonType, DataType left, DataType right) {
-        Assertions.assertEquals(Optional.ofNullable(commonType), TypeCoercionUtils.findTightestCommonType(left, right));
+        Assertions.assertEquals(Optional.ofNullable(commonType), TypeCoercionUtils.findTightestCommonType(null,
+                left, right));
     }
 
     @Test

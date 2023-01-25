@@ -26,13 +26,12 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
-import com.google.common.collect.Lists;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Sets;
 
 import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
 
 /**
@@ -80,9 +79,9 @@ public class PushdownFilterThroughAggregation extends OneRewriteRuleFactory {
                 }
             }
 
-            List<Expression> pushDownPredicates = Lists.newArrayList();
-            List<Expression> filterPredicates = Lists.newArrayList();
-            ExpressionUtils.extractConjunction(filter.getPredicates()).forEach(conjunct -> {
+            Set<Expression> pushDownPredicates = Sets.newHashSet();
+            Set<Expression> filterPredicates = Sets.newHashSet();
+            filter.getConjuncts().forEach(conjunct -> {
                 Set<Slot> conjunctSlots = conjunct.getInputSlots();
                 if (canPushDownSlots.containsAll(conjunctSlots)) {
                     pushDownPredicates.add(conjunct);
@@ -96,15 +95,14 @@ public class PushdownFilterThroughAggregation extends OneRewriteRuleFactory {
     }
 
     private Plan pushDownPredicate(LogicalFilter filter, LogicalAggregate aggregate,
-            List<Expression> pushDownPredicates, List<Expression> filterPredicates) {
+            Set<Expression> pushDownPredicates, Set<Expression> filterPredicates) {
         if (pushDownPredicates.size() == 0) {
             // nothing pushed down, just return origin plan
             return filter;
         }
-        LogicalFilter bottomFilter = new LogicalFilter<>(ExpressionUtils.and(pushDownPredicates),
-                aggregate.child(0));
+        LogicalFilter bottomFilter = new LogicalFilter<>(pushDownPredicates, aggregate.child(0));
 
-        aggregate = aggregate.withChildren(Lists.newArrayList(bottomFilter));
+        aggregate = aggregate.withChildren(ImmutableList.of(bottomFilter));
         return PlanUtils.filterOrSelf(filterPredicates, aggregate);
     }
 }

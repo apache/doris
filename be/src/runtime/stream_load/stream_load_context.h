@@ -29,6 +29,7 @@
 #include "gen_cpp/FrontendService_types.h"
 #include "runtime/exec_env.h"
 #include "runtime/stream_load/load_stream_mgr.h"
+#include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
 #include "service/backend_options.h"
 #include "util/string_util.h"
@@ -92,7 +93,7 @@ public:
             need_rollback = false;
         }
 
-        _exec_env->load_stream_mgr()->remove(id);
+        _exec_env->new_load_stream_mgr()->remove(id);
     }
 
     std::string to_json() const;

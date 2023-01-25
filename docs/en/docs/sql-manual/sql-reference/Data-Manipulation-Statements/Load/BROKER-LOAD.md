@@ -67,8 +67,8 @@ WITH BROKER broker_name
   [FORMAT AS "file_type"]
   [(column_list)]
   [COLUMNS FROM PATH AS (c1, c2, ...)]
-  [PRECEDING FILTER predicate]
   [SET (column_mapping)]
+  [PRECEDING FILTER predicate]
   [WHERE predicate]
   [DELETE ON expr]
   [ORDER BY source_sequence]
@@ -109,13 +109,13 @@ WITH BROKER broker_name
 
     Specifies the columns to extract from the import file path.
 
-  - `PRECEDING FILTER predicate`
-
-    Pre-filter conditions. The data is first concatenated into raw data rows in order according to `column list` and `COLUMNS FROM PATH AS`. Then filter according to the pre-filter conditions. For a detailed introduction to this part, please refer to the [Column Mapping, Conversion and Filtering](../../../../../data-operate/import/import-scenes/load-data-convert) document.
-
   - `SET (column_mapping)`
 
     Specifies the conversion function for the column.
+  
+  - `PRECEDING FILTER predicate`
+
+    Pre-filter conditions. The data is first concatenated into raw data rows in order according to `column list` and `COLUMNS FROM PATH AS`. Then filter according to the pre-filter conditions. For a detailed introduction to this part, please refer to the [Column Mapping, Conversion and Filtering](../../../../../data-operate/import/import-scenes/load-data-convert) document.
 
   - `WHERE predicate`
 
@@ -313,10 +313,10 @@ WITH BROKER broker_name
        DATA INFILE("hdfs://host:port/input/file")
        INTO TABLE `my_table`
        (k1, k2, k3)
-       PRECEDING FILTER k1 = 1
        SET (
            k2 = k2 + 1
        )
+       PRECEDING FILTER k1 = 1
        WHERE k1 > k2
    )
    WITH BROKER hdfs
@@ -489,7 +489,7 @@ WITH BROKER broker_name
 
 2. Cancel the import task
 
-   Import tasks that have been submitted but not yet completed can be canceled by the [CANCEL LOAD](./CANCEL-LOAD.md) command. After cancellation, the written data will also be rolled back and will not take effect.
+   Import tasks that have been submitted but not yet completed can be canceled by the [CANCEL LOAD](./CANCEL-LOAD) command. After cancellation, the written data will also be rolled back and will not take effect.
 
 3. Label, import transaction, multi-table atomicity
 

@@ -26,10 +26,8 @@
 #include "olap/olap_main.cpp"
 #include "runtime/descriptors.h"
 #include "runtime/dpp_sink_internal.h"
-#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
-#include "runtime/tuple_row.h"
 #include "util/file_utils.h"
 
 namespace doris {

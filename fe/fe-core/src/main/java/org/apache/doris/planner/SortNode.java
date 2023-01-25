@@ -62,9 +62,9 @@ public class SortNode extends PlanNode {
     List<Expr> resolvedTupleExprs;
     private final SortInfo info;
     private final boolean  useTopN;
+    private boolean useTopnOpt;
 
     private boolean  isDefaultLimit;
-    private long offset;
     // if true, the output of this node feeds an AnalyticNode
     private boolean isAnalyticSort;
     private DataPartition inputPartition;
@@ -130,16 +130,20 @@ public class SortNode extends PlanNode {
         this.inputPartition = inputPartition;
     }
 
-    public long getOffset() {
-        return offset;
-    }
-
-    public void setOffset(long offset) {
-        this.offset = offset;
-    }
-
     public SortInfo getSortInfo() {
         return info;
+    }
+
+    public boolean getUseTopnOpt() {
+        return useTopnOpt;
+    }
+
+    public void setUseTopnOpt(boolean useTopnOpt) {
+        this.useTopnOpt = useTopnOpt;
+    }
+
+    public List<Expr> getResolvedTupleExprs() {
+        return resolvedTupleExprs;
     }
 
     @Override
@@ -168,6 +172,10 @@ public class SortNode extends PlanNode {
             output.append(isAsc.next() ? "ASC" : "DESC");
         }
         output.append("\n");
+
+        if (useTopnOpt) {
+            output.append(detailPrefix + "TOPN OPT\n");
+        }
         output.append(detailPrefix).append("offset: ").append(offset).append("\n");
         return output.toString();
     }
@@ -282,6 +290,7 @@ public class SortNode extends PlanNode {
 
         msg.sort_node = sortNode;
         msg.sort_node.setOffset(offset);
+        msg.sort_node.setUseTopnOpt(useTopnOpt);
     }
 
     @Override
@@ -315,7 +324,13 @@ public class SortNode extends PlanNode {
      */
     public void finalizeForNereids(TupleDescriptor tupleDescriptor,
             List<Expr> outputList, List<Expr> orderingExpr) {
-        resolvedTupleExprs = Lists.newArrayList(orderingExpr);
+        resolvedTupleExprs = Lists.newArrayList();
+        // TODO: should fix the duplicate order by exprs in nereids code later
+        for (Expr order : orderingExpr) {
+            if (!resolvedTupleExprs.contains(order)) {
+                resolvedTupleExprs.add(order);
+            }
+        }
         for (Expr output : outputList) {
             if (!resolvedTupleExprs.contains(output)) {
                 resolvedTupleExprs.add(output);

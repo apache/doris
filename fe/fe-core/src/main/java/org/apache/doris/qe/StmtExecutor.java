@@ -24,6 +24,7 @@ import org.apache.doris.analysis.DdlStmt;
 import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.DropTableStmt;
 import org.apache.doris.analysis.EnterStmt;
+import org.apache.doris.analysis.ExecuteStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.ExportStmt;
 import org.apache.doris.analysis.Expr;
@@ -34,6 +35,7 @@ import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.LockTablesStmt;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.OutFileClause;
+import org.apache.doris.analysis.PrepareStmt;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.RedirectStatus;
@@ -88,12 +90,14 @@ import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.mysql.MysqlChannel;
+import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.Planner;
@@ -186,6 +190,8 @@ public class StmtExecutor implements ProfileWriter {
     private Data.PQueryStatistics.Builder statisticsForAuditLog;
     private boolean isCached;
     private QueryPlannerProfile plannerProfile = new QueryPlannerProfile();
+    private String stmtName;
+    private PrepareStmt prepareStmt;
 
     // this constructor is mainly for proxy
     public StmtExecutor(ConnectContext context, OriginStatement originStmt, boolean isProxy) {
@@ -197,9 +203,9 @@ public class StmtExecutor implements ProfileWriter {
         this.context.setStatementContext(statementContext);
     }
 
-    // this constructor is only for test now.
     public StmtExecutor(ConnectContext context, String stmt) {
         this(context, new OriginStatement(stmt, 0), false);
+        this.stmtName = stmt;
     }
 
     // constructor for receiving parsed stmt from connect processor
@@ -301,6 +307,7 @@ public class StmtExecutor implements ProfileWriter {
 
     private Map<String, String> getSummaryInfo() {
         Map<String, String> infos = Maps.newLinkedHashMap();
+        infos.put(ProfileManager.JOB_ID, "N/A");
         infos.put(ProfileManager.QUERY_ID, DebugUtil.printId(context.queryId()));
         infos.put(ProfileManager.QUERY_TYPE, queryType);
         infos.put(ProfileManager.DORIS_VERSION, Version.DORIS_BUILD_VERSION);
@@ -314,6 +321,8 @@ public class StmtExecutor implements ProfileWriter {
         infos.put(ProfileManager.TOTAL_INSTANCES_NUM,
                 String.valueOf(beToInstancesNum.values().stream().reduce(0, Integer::sum)));
         infos.put(ProfileManager.INSTANCES_NUM_PER_BE, beToInstancesNum.toString());
+        infos.put(ProfileManager.PARALLEL_FRAGMENT_EXEC_INSTANCE,
+                String.valueOf(context.sessionVariable.parallelExecInstanceNum));
         return infos;
     }
 
@@ -423,8 +432,16 @@ public class StmtExecutor implements ProfileWriter {
         context.setStmtId(STMT_ID_GENERATOR.incrementAndGet());
         context.setQueryId(queryId);
         // set isQuery first otherwise this state will be lost if some error occurs
-        if (parsedStmt instanceof QueryStmt || parsedStmt instanceof LogicalPlanAdapter) {
+        if (parsedStmt instanceof QueryStmt) {
             context.getState().setIsQuery(true);
+        }
+
+        if (parsedStmt instanceof LogicalPlanAdapter) {
+            context.getState().setNereids(true);
+            if (parsedStmt.getExplainOptions() == null
+                    && !(((LogicalPlanAdapter) parsedStmt).getLogicalPlan() instanceof Command)) {
+                context.getState().setIsQuery(true);
+            }
         }
 
         try {
@@ -450,6 +467,7 @@ public class StmtExecutor implements ProfileWriter {
                         // fall back to legacy planner
                         LOG.warn("fall back to legacy planner, because: {}", e.getMessage(), e);
                         parsedStmt = null;
+                        context.getState().setNereids(false);
                         analyze(context.getSessionVariable().toThrift());
                     }
                 } catch (Exception e) {
@@ -478,6 +496,11 @@ public class StmtExecutor implements ProfileWriter {
             } else {
                 analyzer = new Analyzer(context.getEnv(), context);
                 parsedStmt.analyze(analyzer);
+            }
+
+            if (prepareStmt instanceof PrepareStmt) {
+                handlePrepareStmt();
+                return;
             }
 
             if (parsedStmt instanceof QueryStmt || parsedStmt instanceof LogicalPlanAdapter) {
@@ -584,7 +607,8 @@ public class StmtExecutor implements ProfileWriter {
             throw e;
         } catch (UserException e) {
             // analysis exception only print message, not print the stack
-            LOG.warn("execute Exception. {}, {}", context.getQueryIdentifier(), e.getMessage());
+            LOG.warn("execute Exception. {}, {}", context.getQueryIdentifier(),
+                                    e.getMessage());
             context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
         } catch (Exception e) {
@@ -674,6 +698,30 @@ public class StmtExecutor implements ProfileWriter {
                     context.getStmtId(), context.getForwardedStmtId());
         }
 
+        boolean preparedStmtReanalyzed = false;
+        PrepareStmtContext preparedStmtCtx = null;
+        if (parsedStmt instanceof ExecuteStmt) {
+            ExecuteStmt execStmt = (ExecuteStmt) parsedStmt;
+            preparedStmtCtx = context.getPreparedStmt(execStmt.getName());
+            if (preparedStmtCtx == null) {
+                throw new UserException("Could not execute, since `" + execStmt.getName() + "` not exist");
+            }
+            // parsedStmt may already by set when constructing this StmtExecutor();
+            preparedStmtCtx.stmt.asignValues(execStmt.getArgs());
+            parsedStmt = preparedStmtCtx.stmt.getInnerStmt();
+            planner = preparedStmtCtx.planner;
+            analyzer = preparedStmtCtx.analyzer;
+            Preconditions.checkState(parsedStmt.isAnalyzed());
+            LOG.debug("already prepared stmt: {}", preparedStmtCtx.stmtString);
+            if (!preparedStmtCtx.stmt.needReAnalyze()) {
+                // Return directly to bypass analyze and plan
+                return;
+            }
+            // continue analyze
+            preparedStmtReanalyzed = true;
+            preparedStmtCtx.stmt.analyze(analyzer);
+        }
+
         parse();
 
         // yiguolei: insert stmt's grammar analysis will write editlog,
@@ -684,6 +732,20 @@ public class StmtExecutor implements ProfileWriter {
         }
 
         analyzer = new Analyzer(context.getEnv(), context);
+
+        if (parsedStmt instanceof PrepareStmt || context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
+            if (context.getCommand() == MysqlCommand.COM_STMT_PREPARE) {
+                prepareStmt = new PrepareStmt(parsedStmt,
+                        String.valueOf(context.getEnv().getNextStmtId()), true /*binary protocol*/);
+            } else {
+                prepareStmt = (PrepareStmt) parsedStmt;
+            }
+            prepareStmt.setContext(context);
+            prepareStmt.analyze(analyzer);
+            // Need analyze inner statement
+            parsedStmt = prepareStmt.getInnerStmt();
+        }
+
         // Convert show statement to select statement here
         if (parsedStmt instanceof ShowStmt) {
             SelectStmt selectStmt = ((ShowStmt) parsedStmt).toSelectStmt(analyzer);
@@ -751,6 +813,13 @@ public class StmtExecutor implements ProfileWriter {
                 LOG.warn("Analyze failed. {}", context.getQueryIdentifier(), e);
                 throw new AnalysisException("Unexpected exception: " + e.getMessage());
             }
+        }
+        if (preparedStmtReanalyzed) {
+            LOG.debug("update planner and analyzer after prepared statement reanalyzed");
+            preparedStmtCtx.planner = planner;
+            preparedStmtCtx.analyzer = analyzer;
+            Preconditions.checkNotNull(preparedStmtCtx.stmt);
+            preparedStmtCtx.analyzer.setPrepareStmt(preparedStmtCtx.stmt);
         }
     }
 
@@ -851,10 +920,14 @@ public class StmtExecutor implements ProfileWriter {
                 }
                 List<String> origColLabels =
                         Lists.newArrayList(parsedStmt.getColLabels());
-
                 // Re-analyze the stmt with a new analyzer.
                 analyzer = new Analyzer(context.getEnv(), context);
 
+                if (prepareStmt != null) {
+                    // Re-analyze prepareStmt with a new analyzer
+                    prepareStmt.reset();
+                    prepareStmt.analyze(analyzer);
+                }
                 // query re-analyze
                 parsedStmt.reset();
                 parsedStmt.analyze(analyzer);
@@ -1237,7 +1310,8 @@ public class StmtExecutor implements ProfileWriter {
                 return;
             }
             TTxnParams txnParams = new TTxnParams();
-            txnParams.setNeedTxn(true).setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb("").setTbl("");
+            txnParams.setNeedTxn(true).setEnablePipelineTxnLoad(Config.enable_pipeline_load)
+                    .setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb("").setTbl("");
             if (context.getSessionVariable().getEnableInsertStrict()) {
                 txnParams.setMaxFilterRatio(0);
             } else {
@@ -1609,6 +1683,21 @@ public class StmtExecutor implements ProfileWriter {
         context.getState().setOk();
     }
 
+    private void handlePrepareStmt() throws Exception {
+        // register prepareStmt
+        LOG.debug("add prepared statement {}, isBinaryProtocol {}",
+                        prepareStmt.getName(), prepareStmt.isBinaryProtocol());
+        context.addPreparedStmt(prepareStmt.getName(),
+                new PrepareStmtContext(prepareStmt,
+                            context, planner, analyzer, prepareStmt.getName()));
+        if (prepareStmt.isBinaryProtocol()) {
+            sendStmtPrepareOK();
+        }
+        // context.getState().setEof();
+        context.getState().setOk();
+    }
+
+
     // Process use statement.
     private void handleUseStmt() throws AnalysisException {
         UseStmt useStmt = (UseStmt) parsedStmt;
@@ -1646,10 +1735,34 @@ public class StmtExecutor implements ProfileWriter {
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
     }
 
+    private void sendStmtPrepareOK() throws IOException {
+        // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_prepare.html#sect_protocol_com_stmt_prepare_response
+        serializer.reset();
+        // 0x00 OK
+        serializer.writeInt1(0);
+        // statement_id
+        serializer.writeInt4(Integer.valueOf(prepareStmt.getName()));
+        // num_columns
+        int numColumns = 0;
+        serializer.writeInt2(numColumns);
+        // num_params
+        int numParams = prepareStmt.getColLabelsOfPlaceHolders().size();
+        serializer.writeInt2(numParams);
+        // reserved_1
+        // serializer.writeInt1(0);
+        context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
+        if (numParams > 0) {
+            sendFields(prepareStmt.getColLabelsOfPlaceHolders(),
+                        exprToType(prepareStmt.getSlotRefOfPlaceHolders()));
+        }
+        context.getState().setOk();
+    }
+
     private void sendFields(List<String> colNames, List<PrimitiveType> types) throws IOException {
         // sends how many columns
         serializer.reset();
         serializer.writeVInt(colNames.size());
+        LOG.debug("sendFields {}", colNames.size());
         context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         // send field one by one
         for (int i = 0; i < colNames.size(); ++i) {

@@ -38,25 +38,19 @@ struct PartitionedHashTableGrower : public HashTableGrowerWithPrecalculation<ini
     void increase_size() { this->increase_size_degree(this->size_degree() >= 15 ? 1 : 2); }
 };
 
-template <typename Key, typename Cell, typename Hash, typename Grower, typename Allocator,
-          typename ImplTable = HashTable<Key, Cell, Hash, Grower, Allocator>,
-          size_t BITS_FOR_SUB_TABLE = 4>
-class PartitionedHashTable : private boost::noncopyable,
-                             protected Hash /// empty base optimization
-{
+template <typename Impl, size_t BITS_FOR_SUB_TABLE = 4>
+class PartitionedHashTable : private boost::noncopyable, Impl::Hash {
 public:
-    using Impl = ImplTable;
-
     using key_type = typename Impl::key_type;
     using mapped_type = typename Impl::mapped_type;
     using value_type = typename Impl::value_type;
     using cell_type = typename Impl::cell_type;
+    using Key = typename Impl::key_type;
 
     using LookupResult = typename Impl::LookupResult;
     using ConstLookupResult = typename Impl::ConstLookupResult;
 
 protected:
-    using HashValue = size_t;
     using Self = PartitionedHashTable;
 
 private:
@@ -86,11 +80,10 @@ public:
             level1_sub_tables[i] = std::move(rhs.level1_sub_tables[i]);
         }
 
-        Hash::operator=(std::move(rhs));
         return *this;
     }
 
-    size_t hash(const Key& x) const { return Hash::operator()(x); }
+    size_t hash(const Key& x) const { return Impl::Hash::operator()(x); }
 
     float get_factor() const { return MAX_SUB_TABLE_OCCUPANCY_FRACTION; }
 
@@ -270,10 +263,10 @@ public:
             return *this;
         }
 
-        Cell& operator*() const { return *current_it; }
-        Cell* operator->() const { return current_it.get_ptr(); }
+        auto& operator*() const { return *current_it; }
+        auto* operator->() const { return current_it.get_ptr(); }
 
-        Cell* get_ptr() const { return current_it.get_ptr(); }
+        auto* get_ptr() const { return current_it.get_ptr(); }
         size_t get_hash() const { return current_it.get_hash(); }
     };
 
@@ -313,10 +306,10 @@ public:
             return *this;
         }
 
-        const Cell& operator*() const { return *current_it; }
-        const Cell* operator->() const { return current_it->get_ptr(); }
+        const auto& operator*() const { return *current_it; }
+        const auto* operator->() const { return current_it->get_ptr(); }
 
-        const Cell* get_ptr() const { return current_it.get_ptr(); }
+        const auto* get_ptr() const { return current_it.get_ptr(); }
         size_t get_hash() const { return current_it.get_hash(); }
     };
 
@@ -358,10 +351,10 @@ public:
 
     /// Insert a value. In the case of any more complex values, it is better to use the `emplace` function.
     std::pair<LookupResult, bool> ALWAYS_INLINE insert(const value_type& x) {
-        size_t hash_value = hash(Cell::get_key(x));
+        size_t hash_value = hash(cell_type::get_key(x));
 
         std::pair<LookupResult, bool> res;
-        emplace(Cell::get_key(x), res.first, res.second, hash_value);
+        emplace(cell_type::get_key(x), res.first, res.second, hash_value);
 
         if (res.second) insert_set_mapped(lookup_result_get_mapped(res.first), x);
 
@@ -531,7 +524,7 @@ private:
         }
 
         for (; it != level0_sub_table.end(); ++it) {
-            const Cell* cell = it.get_ptr();
+            const auto* cell = it.get_ptr();
             size_t hash_value = cell->get_hash(level0_sub_table);
             size_t sub_table_idx = get_sub_table_from_hash(hash_value);
             level1_sub_tables[sub_table_idx].insert_unique_non_zero(cell, hash_value);

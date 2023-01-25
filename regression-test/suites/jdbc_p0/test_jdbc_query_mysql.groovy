@@ -46,7 +46,7 @@ suite("test_jdbc_query_mysql", "p0") {
         sql """drop table if exists $jdbcMysql57Table1"""
         sql """
             CREATE EXTERNAL TABLE `$jdbcMysql57Table1` (
-                k1 boolean,
+                k1 tinyint,
                 k2 char(100),
                 k3 varchar(128),
                 k4 date,
@@ -541,7 +541,7 @@ suite("test_jdbc_query_mysql", "p0") {
                  birthday DATETIME,
                  country varchar(128),
                  gender varchar(128),
-                 covid BOOLEAN
+                 covid tinyint
                ) ENGINE=JDBC
                COMMENT "JDBC Mysql 外部表"
                PROPERTIES (
@@ -933,6 +933,15 @@ suite("test_jdbc_query_mysql", "p0") {
                                     t3 AS (SELECT max(x) OVER() FROM t2) SELECT * FROM t3 limit 3"""
         order_qt_sql111 """ SELECT rank() OVER () FROM (SELECT k8 FROM $jdbcMysql57Table1 LIMIT 10) as t LIMIT 3 """
         order_qt_sql112 """ SELECT k7, count(DISTINCT k8) FROM $jdbcMysql57Table1 WHERE k8 > 110 GROUP BY GROUPING SETS ((), (k7)) """
+
+
+        // test alter resource
+        sql """alter resource $jdbcResourceMysql57 properties("password" = "1234567")"""
+        test {
+            sql """select count(*) from $jdbcMysql57Table1"""
+            exception "Access denied for user"
+        }
+        sql """alter resource $jdbcResourceMysql57 properties("password" = "123456")"""
 
         // test for type check
         sql  """ drop table if exists ${exMysqlTypeTable} """

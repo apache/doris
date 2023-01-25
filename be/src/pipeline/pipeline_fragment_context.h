@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "io/fs/stream_load_pipe.h"
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_task.h"
 #include "runtime/runtime_state.h"
@@ -41,7 +42,7 @@ public:
                             ExecEnv* exec_env,
                             std::function<void(RuntimeState*, Status*)> call_back);
 
-    ~PipelineFragmentContext() { _call_back(_runtime_state.get(), &_exec_status); }
+    ~PipelineFragmentContext();
 
     PipelinePtr add_pipeline();
 
@@ -57,6 +58,8 @@ public:
     Status prepare(const doris::TExecPlanFragmentParams& request);
 
     Status submit();
+
+    void close_if_prepare_failed();
 
     void set_is_report_success(bool is_report_success) { _is_report_success = is_report_success; }
 
@@ -83,6 +86,9 @@ public:
     }
 
     void send_report(bool);
+
+    void set_pipe(std::shared_ptr<io::StreamLoadPipe> pipe) { _pipe = pipe; }
+    std::shared_ptr<io::StreamLoadPipe> get_pipe() const { return _pipe; }
 
 private:
     // Id of this query
@@ -130,6 +136,8 @@ private:
     MonotonicStopWatch _fragment_watcher;
     RuntimeProfile::Counter* _start_timer;
     RuntimeProfile::Counter* _prepare_timer;
+
+    std::shared_ptr<io::StreamLoadPipe> _pipe;
 
     Status _create_sink(const TDataSink& t_data_sink);
     Status _build_pipelines(ExecNode*, PipelinePtr);

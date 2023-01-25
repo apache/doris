@@ -991,7 +991,7 @@ colocate join PlanFragment instance 的 memory_limit = exec_mem_limit / min (que
 
 #### `enable_new_load_scan_node`
 
-默认值：false
+默认值：true
 
 是否开启新的 file scan node
 
@@ -2363,16 +2363,6 @@ hive metastore 的默认超时时间
 
 FE 会在每隔 es_state_sync_interval_secs 调用 es api 获取 es 索引分片信息
 
-#### `enable_new_es_dsl`
-
-默认值：true
-
-是否可以动态配置：true
-
-是否为 Master FE 节点独有的配置项：false
-
-使用新的 fe 生成的 es dsl
-
 ### 外部资源
 
 #### `dpp_hadoop_client_path`
@@ -2582,3 +2572,15 @@ SmallFileMgr 中存储的最大文件数
 是否为 Master FE 节点独有的配置项：false
 
 在ODBC、JDBC的MYSQL外部表查询时，是否将带函数的过滤条件下推到MYSQL中执行
+
+#### `jdbc_drivers_dir`
+
+默认值：`${DORIS_HOME}/jdbc_drivers`;
+
+是否可以动态配置：false
+
+是否为 Master FE 节点独有的配置项：false
+
+用于存放默认的 jdbc drivers
+
+

@@ -27,8 +27,8 @@
 #include <sse2neon.h>
 #endif
 
-#include "runtime/string_value.hpp"
 #include "util/simd/lower_upper_impl.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
@@ -42,6 +42,10 @@ static constexpr std::array<uint8, 256> UTF8_BYTE_LENGTH = {
         1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2,
         2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3,
         3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6};
+
+inline uint8_t get_utf8_byte_length(uint8_t character) {
+    return UTF8_BYTE_LENGTH[character];
+}
 
 namespace simd {
 

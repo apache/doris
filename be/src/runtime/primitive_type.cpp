@@ -21,7 +21,7 @@
 #include "runtime/collection_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/jsonb_value.h"
-#include "runtime/string_value.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
@@ -584,7 +584,7 @@ int get_slot_size(PrimitiveType type) {
     case TYPE_OBJECT:
     case TYPE_HLL:
     case TYPE_QUANTILE_STATE:
-        return sizeof(StringValue);
+        return sizeof(StringRef);
     case TYPE_JSONB:
         return sizeof(JsonBinaryValue);
     case TYPE_ARRAY:

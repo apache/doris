@@ -45,6 +45,10 @@ namespace pipeline {
 class PipelineFragmentContext;
 }
 
+namespace io {
+class StreamLoadPipe;
+}
+
 class QueryFragmentsCtx;
 class ExecEnv;
 class FragmentExecState;
@@ -54,7 +58,6 @@ class TExecPlanFragmentParams;
 class TExecPlanFragmentParamsList;
 class TUniqueId;
 class RuntimeFilterMergeController;
-class StreamLoadPipe;
 
 std::string to_load_error_http_path(const std::string& file_name);
 
@@ -104,9 +107,10 @@ public:
     Status merge_filter(const PMergeFilterRequest* request,
                         butil::IOBufAsZeroCopyInputStream* attach_data);
 
-    void set_pipe(const TUniqueId& fragment_instance_id, std::shared_ptr<StreamLoadPipe> pipe);
+    void set_pipe(const TUniqueId& fragment_instance_id, std::shared_ptr<io::StreamLoadPipe> pipe,
+                  bool enable_pipeline_engine);
 
-    std::shared_ptr<StreamLoadPipe> get_pipe(const TUniqueId& fragment_instance_id);
+    std::shared_ptr<io::StreamLoadPipe> get_pipe(const TUniqueId& fragment_instance_id);
 
 private:
     void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb);
@@ -116,15 +120,16 @@ private:
 
     bool _is_scan_node(const TPlanNodeType::type& type);
 
+    void _setup_shared_hashtable_for_broadcast_join(const TExecPlanFragmentParams& params,
+                                                    RuntimeState* state,
+                                                    QueryFragmentsCtx* fragments_ctx);
+
     // This is input params
     ExecEnv* _exec_env;
 
     std::mutex _lock;
 
     std::condition_variable _cv;
-
-    std::mutex _lock_for_shared_hash_table;
-    std::condition_variable _cv_for_sharing_hashtable;
 
     // Make sure that remove this before no data reference FragmentExecState
     std::unordered_map<TUniqueId, std::shared_ptr<FragmentExecState>> _fragment_map;

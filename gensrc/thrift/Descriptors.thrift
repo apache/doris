@@ -34,6 +34,9 @@ struct TColumn {
     10: optional list<TColumn> children_column
     11: optional i32 col_unique_id  = -1
     12: optional bool has_bitmap_index = false
+    13: optional bool has_ngram_bf_index = false
+    14: optional i32 gram_size
+    15: optional i32 gram_bf_size
 }
 
 struct TSlotDescriptor {
@@ -48,6 +51,10 @@ struct TSlotDescriptor {
   9: required i32 slotIdx
   10: required bool isMaterialized
   11: optional i32 col_unique_id = -1
+  12: optional bool is_key = false
+  // If set to false, then such slots will be ignored during
+  // materialize them.Used to optmize to read less data and less memory usage
+  13: optional bool need_materialize = true
 }
 
 struct TTupleDescriptor {
@@ -120,7 +127,8 @@ enum THdfsCompression {
 enum TIndexType {
   BITMAP,
   INVERTED,
-  BLOOMFILTER
+  BLOOMFILTER,
+  NGRAM_BF
 }
 
 // Mapping from names defined by Avro to the enum.

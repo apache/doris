@@ -50,6 +50,8 @@ import java.util.List;
 public class StmtRewriter {
     private static final Logger LOG = LoggerFactory.getLogger(StmtRewriter.class);
 
+    private static final String BITMAP_CONTAINS = "bitmap_contains";
+
     /**
      * Rewrite the statement of an analysis result. The unanalyzed rewritten
      * statement is returned.
@@ -799,8 +801,12 @@ public class StmtRewriter {
         if (!hasEqJoinPred && !inlineView.isCorrelated()) {
             // Join with InPredicate is actually an equal join, so we choose HashJoin.
             if (expr instanceof ExistsPredicate) {
-                joinOp = ((ExistsPredicate) expr).isNotExists() ? JoinOperator.LEFT_ANTI_JOIN
-                        : JoinOperator.LEFT_SEMI_JOIN;
+                joinOp = ((ExistsPredicate) expr).isNotExists() ? JoinOperator.LEFT_ANTI_JOIN :
+                        JoinOperator.LEFT_SEMI_JOIN;
+            } else if (expr instanceof InPredicate && joinConjunct instanceof FunctionCallExpr
+                    && (((FunctionCallExpr) joinConjunct).getFnName().getFunction()
+                    .equalsIgnoreCase(BITMAP_CONTAINS))) {
+                joinOp = ((InPredicate) expr).isNotIn() ? JoinOperator.LEFT_ANTI_JOIN : JoinOperator.LEFT_SEMI_JOIN;
             } else {
                 joinOp = JoinOperator.CROSS_JOIN;
                 // We can equal the aggregate subquery using a cross join. All conjuncts
@@ -1166,6 +1172,32 @@ public class StmtRewriter {
         }
     }
 
+    // If left expr of in predicate is a constant and a bitmap filter cannot be used, then the normal nested loop join
+    // process is used, with the join Conjunct being `bitmap_contains`,
+    // e.g. 'select k1, k2 from (select 2 k1, 11 k2) t where k1 in (select bitmap_col from bitmap_tbl)'.
+    private static Expr createInBitmapConjunct(Expr exprWithSubquery, SlotRef bitmapSlotRef, Analyzer analyzer,
+            boolean isCorrelated) throws AnalysisException {
+        if (isCorrelated) {
+            throw new AnalysisException("In bitmap does not support correlated subquery: " + exprWithSubquery.toSql());
+        }
+
+        boolean useBitmapFilter = false;
+        List<SlotRef> slotRefs = Lists.newArrayList();
+        exprWithSubquery.getChild(0).collect(SlotRef.class, slotRefs);
+        for (SlotRef slotRef : slotRefs) {
+            List<Expr> sourceExprs = slotRef.getDesc().getSourceExprs();
+            if (sourceExprs.isEmpty() || sourceExprs.stream().anyMatch(expr -> !expr.isConstant())) {
+                useBitmapFilter = true;
+            }
+        }
+
+        Expr pred = useBitmapFilter ? new BitmapFilterPredicate(exprWithSubquery.getChild(0), bitmapSlotRef,
+                ((InPredicate) exprWithSubquery).isNotIn()) : new FunctionCallExpr(new FunctionName(BITMAP_CONTAINS),
+                Lists.newArrayList(bitmapSlotRef, exprWithSubquery.getChild(0)));
+        pred.analyze(analyzer);
+        return pred;
+    }
+
     /**
      * Converts an expr containing a subquery into an analyzed conjunct to be
      * used in a join. The conversion is performed in place by replacing the
@@ -1189,14 +1221,7 @@ public class StmtRewriter {
         Expr subquerySubstitute = slotRef;
         if (exprWithSubquery instanceof InPredicate) {
             if (slotRef.getType().isBitmapType()) {
-                if (isCorrelated) {
-                    throw new AnalysisException(
-                            "In bitmap does not support correlated subquery: " + exprWithSubquery.toSql());
-                }
-                Expr pred = new BitmapFilterPredicate(exprWithSubquery.getChild(0), slotRef,
-                        ((InPredicate) exprWithSubquery).isNotIn());
-                pred.analyze(analyzer);
-                return pred;
+                return createInBitmapConjunct(exprWithSubquery, slotRef, analyzer, isCorrelated);
             }
             BinaryPredicate pred = new BinaryPredicate(BinaryPredicate.Operator.EQ,
                     exprWithSubquery.getChild(0), slotRef);

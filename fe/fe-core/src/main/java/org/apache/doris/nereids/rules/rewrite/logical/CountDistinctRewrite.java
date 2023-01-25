@@ -24,6 +24,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.BitmapUnionCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.HllUnionAgg;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 
 import com.google.common.collect.ImmutableList;
@@ -34,7 +35,6 @@ import java.util.List;
  * Rewrite count distinct for bitmap and hll type value.
  * <p>
  * count(distinct bitmap_col) -> bitmap_union_count(bitmap col)
- * todo: add support for HLL type.
  */
 public class CountDistinctRewrite extends OneRewriteRuleFactory {
     @Override
@@ -60,8 +60,11 @@ public class CountDistinctRewrite extends OneRewriteRuleFactory {
         public Expression visitCount(Count count, Void context) {
             if (count.isDistinct() && count.arity() == 1) {
                 Expression child = count.child(0);
-                if (child.getDataType().isBitmap()) {
+                if (child.getDataType().isBitmapType()) {
                     return new BitmapUnionCount(child);
+                }
+                if (child.getDataType().isHllType()) {
+                    return new HllUnionAgg(child);
                 }
             }
             return count;

@@ -22,8 +22,8 @@ namespace doris {
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(new_stream_load_pipe_count, MetricUnit::NOUNIT);
 
 NewLoadStreamMgr::NewLoadStreamMgr() {
-    // Each StreamLoadPipeReader has a limited buffer size (default 1M), it's not needed to count the
-    // actual size of all StreamLoadPipeReader.
+    // Each StreamLoadPipe has a limited buffer size (default 1M), it's not needed to count the
+    // actual size of all StreamLoadPipe.
     REGISTER_HOOK_METRIC(new_stream_load_pipe_count, [this]() { return _stream_map.size(); });
 }
 

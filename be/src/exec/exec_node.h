@@ -26,7 +26,6 @@
 
 #include "common/status.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "runtime/bufferpool/buffer_pool.h"
 #include "runtime/descriptors.h"
 #include "runtime/query_statistics.h"
 #include "service/backend_options.h"
@@ -36,14 +35,10 @@
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {
-class Expr;
-class ExprContext;
 class ObjectPool;
 class Counters;
-class RowBatch;
 class RuntimeState;
 class TPlan;
-class TupleRow;
 class MemTracker;
 
 namespace vectorized {
@@ -109,7 +104,6 @@ public:
     // row_batch's tuple_data_pool.
     // Caller must not be holding any io buffers. This will cause deadlock.
     // TODO: AggregationNode and HashJoinNode cannot be "re-opened" yet.
-    virtual Status get_next(RuntimeState* state, RowBatch* row_batch, bool* eos);
     virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos);
     // new interface to compatible new optimizers in FE
     Status get_next_after_projects(
@@ -194,16 +188,8 @@ public:
     // This improve is cautious, we ensure the correctness firstly.
     void try_do_aggregate_serde_improve();
 
-    using EvalConjunctsFn = bool (*)(ExprContext* const*, int, TupleRow*);
-    // Evaluate exprs over row.  Returns true if all exprs return true.
-    // TODO: This doesn't use the vector<Expr*> signature because I haven't figured
-    // out how to deal with declaring a templated std:vector type in IR
-    static bool eval_conjuncts(ExprContext* const* ctxs, int num_ctxs, TupleRow* row);
-
     // Returns a string representation in DFS order of the plan rooted at this.
     std::string debug_string() const;
-
-    virtual void push_down_predicate(RuntimeState* state, std::list<ExprContext*>* expr_ctxs);
 
     // recursive helper method for generating a string for Debug_string().
     // implementations should call debug_string(int, std::stringstream) on their children.
@@ -212,8 +198,6 @@ public:
     // Output parameters:
     //   out: Stream to accumulate debug string.
     virtual void debug_string(int indentation_level, std::stringstream* out) const;
-
-    const std::vector<ExprContext*>& conjunct_ctxs() const { return _conjunct_ctxs; }
 
     int id() const { return _id; }
     TPlanNodeType::type type() const { return _type; }
@@ -232,9 +216,7 @@ public:
     RuntimeProfile* runtime_profile() const { return _runtime_profile.get(); }
     RuntimeProfile::Counter* memory_used_counter() const { return _memory_used_counter; }
 
-    MemTracker* mem_tracker_held() const { return _mem_tracker_held.get(); }
-    MemTracker* mem_tracker_growh() const { return _mem_tracker_growh.get(); }
-    std::shared_ptr<MemTracker> mem_tracker_growh_shared() const { return _mem_tracker_growh; }
+    MemTracker* mem_tracker() const { return _mem_tracker.get(); }
 
     OpentelemetrySpan get_next_span() { return _get_next_span; }
 
@@ -250,15 +232,6 @@ public:
 protected:
     friend class DataSink;
 
-    /// Initialize 'buffer_pool_client_' and claim the initial reservation for this
-    /// ExecNode. Only needs to be called by ExecNodes that will use the client.
-    /// The client is automatically cleaned up in Close(). Should not be called if
-    /// the client is already open.
-    /// The ExecNode must return the initial reservation to
-    /// QueryState::initial_reservations(), which is done automatically in Close() as long
-    /// as the initial reservation is not released before Close().
-    Status claim_buffer_reservation(RuntimeState* state);
-
     /// Release all memory of block which got from child. The block
     // 1. clear mem of valid column get from child, make sure child can reuse the mem
     // 2. delete and release the column which create by function all and other reason
@@ -267,55 +240,9 @@ protected:
     /// Only use in vectorized exec engine try to do projections to trans _row_desc -> _output_row_desc
     Status do_projections(vectorized::Block* origin_block, vectorized::Block* output_block);
 
-    /// Extends blocking queue for row batches. Row batches have a property that
-    /// they must be processed in the order they were produced, even in cancellation
-    /// paths. Preceding row batches can contain ptrs to memory in subsequent row batches
-    /// and we need to make sure those ptrs stay valid.
-    /// Row batches that are added after Shutdown() are queued in another queue, which can
-    /// be cleaned up during Close().
-    /// All functions are thread safe.
-    class RowBatchQueue : public BlockingQueue<RowBatch*> {
-    public:
-        /// max_batches is the maximum number of row batches that can be queued.
-        /// When the queue is full, producers will block.
-        RowBatchQueue(int max_batches);
-        ~RowBatchQueue();
-
-        /// Adds a batch to the queue. This is blocking if the queue is full.
-        void AddBatch(RowBatch* batch);
-
-        /// Adds a batch to the queue. If the queue is full, this blocks until space becomes
-        /// available or 'timeout_micros' has elapsed.
-        /// Returns true if the element was added to the queue, false if it wasn't. If this
-        /// method returns false, the queue didn't take ownership of the batch and it must be
-        /// managed externally.
-        bool AddBatchWithTimeout(RowBatch* batch, int64_t timeout_micros);
-
-        /// Gets a row batch from the queue. Returns nullptr if there are no more.
-        /// This function blocks.
-        /// Returns nullptr after Shutdown().
-        RowBatch* GetBatch();
-
-        /// Deletes all row batches in cleanup_queue_. Not valid to call AddBatch()
-        /// after this is called.
-        /// Returns the number of io buffers that were released (for debug tracking)
-        int Cleanup();
-
-    private:
-        /// Lock protecting cleanup_queue_
-        // SpinLock lock_;
-        // TODO(dhc): need to modify spinlock
-        std::mutex lock_;
-
-        /// Queue of orphaned row batches
-        std::list<RowBatch*> cleanup_queue_;
-    };
-
     int _id; // unique w/in single plan tree
     TPlanNodeType::type _type;
     ObjectPool* _pool;
-    std::vector<Expr*> _conjuncts;
-    std::vector<ExprContext*> _conjunct_ctxs;
     std::vector<TupleId> _tuple_ids;
 
     std::unique_ptr<doris::vectorized::VExprContext*> _vconjunct_ctx_ptr;
@@ -335,11 +262,9 @@ protected:
 
     std::unique_ptr<RuntimeProfile> _runtime_profile;
 
-    // Record the memory size held by this node.
-    std::unique_ptr<MemTracker> _mem_tracker_held;
-    // Record the memory size allocated by this node.
-    // Similar to tcmalloc heap profile growh, only track memory alloc, not track memory free.
-    std::shared_ptr<MemTracker> _mem_tracker_growh;
+    // Record this node memory size. it is expected that artificial guarantees are accurate,
+    // which will providea reference for operator memory.
+    std::unique_ptr<MemTracker> _mem_tracker;
 
     RuntimeProfile::Counter* _rows_returned_counter;
     RuntimeProfile::Counter* _rows_returned_rate;
@@ -360,12 +285,6 @@ protected:
     // "Codegen Enabled"
     std::mutex _exec_options_lock;
     std::string _runtime_exec_options;
-
-    /// Buffer pool client for this node. Initialized with the node's minimum reservation
-    /// in ClaimBufferReservation(). After initialization, the client must hold onto at
-    /// least the minimum reservation so that it can be returned to the initial
-    /// reservations pool in Close().
-    BufferPool::ClientHandle _buffer_pool_client;
 
     // Set to true if this is a vectorized exec node.
     bool _is_vec = false;

@@ -107,6 +107,9 @@ AT: 'AT';
 AUTHORIZATION: 'AUTHORIZATION';
 AVG: 'AVG';
 BETWEEN: 'BETWEEN';
+BITAND: 'BITAND';
+BITOR: 'BITOR';
+BITXOR: 'BITXOR';
 BOTH: 'BOTH';
 BUCKET: 'BUCKET';
 BUCKETS: 'BUCKETS';
@@ -322,6 +325,7 @@ SEMI: 'SEMI';
 SEPARATED: 'SEPARATED';
 SERDE: 'SERDE';
 SERDEPROPERTIES: 'SERDEPROPERTIES';
+SESSION: 'SESSION';
 SESSION_USER: 'SESSION_USER';
 SET: 'SET';
 SETMINUS: 'MINUS';
@@ -337,9 +341,6 @@ STORED: 'STORED';
 STRATIFY: 'STRATIFY';
 STRUCT: 'STRUCT';
 SUBDATE: 'SUBDATE';
-SUBSTR: 'SUBSTR';
-SUBSTRING: 'SUBSTRING';
-SUM: 'SUM';
 SYNC: 'SYNC';
 SYSTEM_TIME: 'SYSTEM_TIME';
 SYSTEM_VERSION: 'SYSTEM_VERSION';
@@ -390,6 +391,7 @@ WITH: 'WITH';
 WITHIN: 'WITHIN';
 YEAR: 'YEAR';
 ZONE: 'ZONE';
+DATEV2: 'DATEV2';
 //--DORIS-KEYWORD-LIST-END
 //============================
 // End of the keywords list
@@ -410,13 +412,16 @@ SLASH: '/';
 PERCENT: '%';
 TILDE: '~';
 AMPERSAND: '&';
+LOGICALAND: '&&';
 PIPE: '|';
-CONCAT_PIPE: '||';
+DOUBLEPIPES: '||';
 HAT: '^';
 COLON: ':';
 ARROW: '->';
 HINT_START: '/*+';
 HINT_END: '*/';
+ATSIGN: '@';
+DOUBLEATSIGN: '@@';
 
 STRING
     : '\'' ( ~('\''|'\\') | ('\\' .) )* '\''
@@ -477,7 +482,10 @@ fragment DIGIT
     ;
 
 fragment LETTER
-    : [A-Z]
+    : [a-zA-Z$_] // these are the "java letters" below 0x7F
+    |   // covers all characters above 0x7F which are not a surrogate
+    ~[\u0000-\u007F\uD800-\uDBFF]
+     {Character.isJavaIdentifierStart(_input.LA(-1))}?
     ;
 
 SIMPLE_COMMENT

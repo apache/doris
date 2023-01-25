@@ -31,6 +31,7 @@
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_time.h"
 #include "vec/data_types/data_type_time_v2.h"
 #include "vec/data_types/number_traits.h"
 #include "vec/functions/function.h"
@@ -75,7 +76,7 @@ public:
         } else if (which.is_decimal()) {
             return_type = nested_type;
         } else if (which.is_date_time() || which.is_date_time_v2()) {
-            return_type = std::make_shared<DataTypeFloat64>();
+            return_type = std::make_shared<DataTypeTime>();
         } else if (which.is_date() || which.is_date_v2()) {
             return_type = std::make_shared<DataTypeInt32>();
         }

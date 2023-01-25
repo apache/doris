@@ -54,6 +54,12 @@ export TP_JAR_DIR="${TP_INSTALL_DIR}/lib/jar"
 # of all thirdparties
 #####################################################
 
+#clucene
+CLUCENE_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libclucene-v2.4.4.zip"
+CLUCENE_NAME="doris-thirdparty-libclucene-v2.4.4.zip"
+CLUCENE_SOURCE="doris-thirdparty-libclucene-v2.4.4"
+CLUCENE_MD5SUM="431b4c2dc5c75df5e114da72a2e9b74a"
+
 # libevent
 LIBEVENT_DOWNLOAD="https://github.com/libevent/libevent/archive/release-2.1.12-stable.tar.gz"
 LIBEVENT_NAME=libevent-release-2.1.12-stable.tar.gz
@@ -61,10 +67,10 @@ LIBEVENT_SOURCE=libevent-release-2.1.12-stable
 LIBEVENT_MD5SUM="0d5a27436bf7ff8253420c8cf09f47ca"
 
 # openssl
-OPENSSL_DOWNLOAD="https://github.com/openssl/openssl/archive/OpenSSL_1_1_1m.tar.gz"
-OPENSSL_NAME=openssl-OpenSSL_1_1_1m.tar.gz
-OPENSSL_SOURCE=openssl-OpenSSL_1_1_1m
-OPENSSL_MD5SUM="710c2368d28f1a25ab92e25b5b9b11ec"
+OPENSSL_DOWNLOAD="https://github.com/openssl/openssl/archive/OpenSSL_1_1_1s.tar.gz"
+OPENSSL_NAME=openssl-OpenSSL_1_1_1s.tar.gz
+OPENSSL_SOURCE=openssl-OpenSSL_1_1_1s
+OPENSSL_MD5SUM="7e79a7560dee77c0758baa33c61af4b4"
 
 # thrift
 THRIFT_DOWNLOAD="http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz"
@@ -73,10 +79,10 @@ THRIFT_SOURCE=thrift-0.13.0
 THRIFT_MD5SUM="38a27d391a2b03214b444cb13d5664f1"
 
 # protobuf
-PROTOBUF_DOWNLOAD="https://github.com/google/protobuf/archive/v3.14.0.tar.gz"
-PROTOBUF_NAME=protobuf-3.14.0.tar.gz
-PROTOBUF_SOURCE=protobuf-3.14.0
-PROTOBUF_MD5SUM="0c9d2a96f3656ba7ef3b23b533fb6170"
+PROTOBUF_DOWNLOAD="https://github.com/google/protobuf/archive/v3.15.0.tar.gz"
+PROTOBUF_NAME=protobuf-3.15.0.tar.gz
+PROTOBUF_SOURCE=protobuf-3.15.0
+PROTOBUF_MD5SUM="3fb6c41f7b3c621424543f43d54baa42"
 
 # gflags
 GFLAGS_DOWNLOAD="https://github.com/gflags/gflags/archive/v2.2.2.tar.gz"
@@ -122,7 +128,6 @@ LZ4_MD5SUM="3a1ab1684e14fc1afc66228ce61b2db3"
 
 # bzip
 BZIP_DOWNLOAD="https://fossies.org/linux/misc/bzip2-1.0.8.tar.gz"
-BZIP_DOWNLOAD="ftp://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz"
 BZIP_NAME=bzip2-1.0.8.tar.gz
 BZIP_SOURCE=bzip2-1.0.8
 BZIP_MD5SUM="67e051268d0c475ea773822f7500d0e5"
@@ -198,10 +203,10 @@ LEVELDB_SOURCE=leveldb-1.23
 LEVELDB_MD5SUM="afbde776fb8760312009963f09a586c7"
 
 # brpc
-BRPC_DOWNLOAD="https://github.com/apache/incubator-brpc/archive/refs/tags/1.2.0.tar.gz"
-BRPC_NAME="incubator-brpc-1.2.0.tar.gz"
-BRPC_SOURCE="incubator-brpc-1.2.0"
-BRPC_MD5SUM="556c024d5f770dbd2336ca4541ae8c96"
+BRPC_DOWNLOAD="https://github.com/apache/brpc/archive/refs/tags/1.2.0.tar.gz"
+BRPC_NAME="brpc-1.2.0.tar.gz"
+BRPC_SOURCE="brpc-1.2.0"
+BRPC_MD5SUM="c3c148e672dc660ad48d8bd973f95dcf"
 
 # rocksdb
 ROCKSDB_DOWNLOAD="https://github.com/facebook/rocksdb/archive/v5.14.2.tar.gz"
@@ -258,10 +263,10 @@ S2_SOURCE=s2geometry-0.10.0
 S2_MD5SUM="c68f3c5d326dde9255681b9201393a9f"
 
 # bitshuffle
-BITSHUFFLE_DOWNLOAD="https://github.com/kiyo-masui/bitshuffle/archive/0.3.5.tar.gz"
-BITSHUFFLE_NAME=bitshuffle-0.3.5.tar.gz
-BITSHUFFLE_SOURCE=bitshuffle-0.3.5
-BITSHUFFLE_MD5SUM="2648ec7ccd0b896595c6636d926fc867"
+BITSHUFFLE_DOWNLOAD="https://github.com/kiyo-masui/bitshuffle/archive/0.5.1.tar.gz"
+BITSHUFFLE_NAME=bitshuffle-0.5.1.tar.gz
+BITSHUFFLE_SOURCE=bitshuffle-0.5.1
+BITSHUFFLE_MD5SUM="b3bf6a9838927f7eb62214981c138e2f"
 
 # croaringbitmap
 CROARINGBITMAP_DOWNLOAD="https://github.com/RoaringBitmap/CRoaring/archive/refs/tags/v0.4.0.tar.gz"
@@ -363,10 +368,10 @@ KRB5_SOURCE="krb5-1.19"
 KRB5_MD5SUM="aaf18447a5a014aa3b7e81814923f4c9"
 
 # hdfs3
-HDFS3_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libhdfs3-v2.3.2.tar.gz"
-HDFS3_NAME="doris-thirdparty-libhdfs3-v2.3.2.tar.gz"
-HDFS3_SOURCE="doris-thirdparty-libhdfs3-v2.3.2"
-HDFS3_MD5SUM="5087ffec0fda4fbcd60a53ed92eb4d2d"
+HDFS3_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libhdfs3-v2.3.6.tar.gz"
+HDFS3_NAME="doris-thirdparty-libhdfs3-v2.3.6.tar.gz"
+HDFS3_SOURCE="doris-thirdparty-libhdfs3-v2.3.6"
+HDFS3_MD5SUM="179e492ee71b6dc484e8f44bc2865de9"
 
 #libdivide
 LIBDIVIDE_DOWNLOAD="https://github.com/ridiculousfish/libdivide/archive/5.0.tar.gz"
@@ -394,10 +399,10 @@ XSIMD_SOURCE=xsimd-aeec9c872c8b475dedd7781336710f2dd2666cb2
 XSIMD_MD5SUM="d024855f71c0a2837a6918c0f8f66245"
 
 # simdjson
-SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v1.0.2.tar.gz"
-SIMDJSON_NAME=simdjson-1.0.2.tar.gz
-SIMDJSON_SOURCE=simdjson-1.0.2
-SIMDJSON_MD5SUM="5bb34cca7087a99c450dbdfe406bdc7d"
+SIMDJSON_DOWNLOAD="https://github.com/simdjson/simdjson/archive/refs/tags/v3.0.1.tar.gz"
+SIMDJSON_NAME=simdjson-3.0.1.tar.gz
+SIMDJSON_SOURCE=simdjson-3.0.1
+SIMDJSON_MD5SUM="993576b47249f2bade2bfb2552b2896a"
 
 # nlohmann_json
 NLOHMANN_JSON_DOWNLOAD="https://github.com/nlohmann/json/archive/refs/tags/v3.10.1.tar.gz"
@@ -443,6 +448,7 @@ CONCURRENTQUEUE_MD5SUM="118e5bb661b567634647312991e10222"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
+    'CLUCENE'
     'LIBEVENT'
     'OPENSSL'
     'THRIFT'

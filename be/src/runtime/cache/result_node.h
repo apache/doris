@@ -34,8 +34,6 @@
 #include "olap/olap_define.h"
 #include "runtime/cache/cache_utils.h"
 #include "runtime/mem_pool.h"
-#include "runtime/row_batch.h"
-#include "runtime/tuple_row.h"
 #include "util/uid_util.h"
 
 namespace doris {

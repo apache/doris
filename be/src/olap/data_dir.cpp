@@ -73,7 +73,7 @@ DataDir::DataDir(const std::string& path, int64_t capacity_bytes,
                  TStorageMedium::type storage_medium, TabletManager* tablet_manager,
                  TxnManager* txn_manager)
         : _path(path),
-          _fs(std::make_shared<io::LocalFileSystem>(path)),
+          _fs(io::LocalFileSystem::create(path)),
           _capacity_bytes(capacity_bytes),
           _available_bytes(0),
           _disk_capacity_bytes(0),

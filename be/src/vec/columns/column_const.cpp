@@ -36,7 +36,8 @@ ColumnConst::ColumnConst(const ColumnPtr& data_, size_t s_) : data(data_), s(s_)
 
     if (data->size() != 1) {
         LOG(FATAL) << fmt::format(
-                "Incorrect size of nested column in constructor of ColumnConst: {}, must be 1.");
+                "Incorrect size of nested column in constructor of ColumnConst: {}, must be 1.",
+                data->size());
     }
 }
 

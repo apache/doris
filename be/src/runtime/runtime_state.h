@@ -38,12 +38,10 @@ class DescriptorTbl;
 class ObjectPool;
 class Status;
 class ExecEnv;
-class Expr;
 class DateTimeValue;
 class MemTracker;
 class DataStreamRecvr;
 class ResultBufferMgr;
-class DiskIoMgrs;
 class TmpFileMgr;
 class BufferedBlockMgr;
 class BufferedBlockMgr2;
@@ -76,16 +74,8 @@ public:
     Status init(const TUniqueId& fragment_instance_id, const TQueryOptions& query_options,
                 const TQueryGlobals& query_globals, ExecEnv* exec_env);
 
-    // after SCOPED_ATTACH_TASK;
-    void init_scanner_mem_trackers() {
-        _scanner_mem_tracker = std::make_shared<MemTracker>(
-                fmt::format("Scanner#QueryId={}", print_id(_query_id)));
-    }
     // for ut and non-query.
     Status init_mem_trackers(const TUniqueId& query_id = TUniqueId());
-
-    // Gets/Creates the query wide block mgr.
-    Status create_block_mgr();
 
     Status create_load_dir();
 
@@ -115,7 +105,6 @@ public:
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
     ExecEnv* exec_env() { return _exec_env; }
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker() { return _query_mem_tracker; }
-    std::shared_ptr<MemTracker> scanner_mem_tracker() { return _scanner_mem_tracker; }
     ThreadResourceMgr::ResourcePool* resource_pool() { return _resource_pool; }
 
     void set_fragment_root_id(PlanNodeId id) {
@@ -136,6 +125,11 @@ public:
     bool enable_function_pushdown() const {
         return _query_options.__isset.enable_function_pushdown &&
                _query_options.enable_function_pushdown;
+    }
+
+    bool check_overflow_for_decimal() const {
+        return _query_options.__isset.check_overflow_for_decimal &&
+               _query_options.check_overflow_for_decimal;
     }
 
     // Create a codegen object in _codegen. No-op if it has already been called.
@@ -315,8 +309,6 @@ public:
 
     int32_t runtime_filter_max_in_num() const { return _query_options.runtime_filter_max_in_num; }
 
-    bool enable_vectorized_exec() const { return _query_options.enable_vectorized_engine; }
-
     int be_exec_version() const {
         if (!_query_options.__isset.be_exec_version) {
             return 0;
@@ -403,6 +395,24 @@ public:
                _query_options.enable_share_hash_table_for_broadcast_join;
     }
 
+    int repeat_max_num() const {
+#ifndef BE_TEST
+        if (!_query_options.__isset.repeat_max_num) {
+            return 10000;
+        }
+        return _query_options.repeat_max_num;
+#else
+        return 10;
+#endif
+    }
+
+    int64_t external_sort_bytes_threshold() const {
+        if (_query_options.__isset.external_sort_bytes_threshold) {
+            return _query_options.external_sort_bytes_threshold;
+        }
+        return 0;
+    }
+
 private:
     // Use a custom block manager for the query for testing purposes.
     void set_block_mgr2(const std::shared_ptr<BufferedBlockMgr2>& block_mgr) {
@@ -414,8 +424,6 @@ private:
     static const int DEFAULT_BATCH_SIZE = 2048;
 
     std::shared_ptr<MemTrackerLimiter> _query_mem_tracker;
-    // Count the memory consumption of Scanner
-    std::shared_ptr<MemTracker> _scanner_mem_tracker;
 
     // put runtime state before _obj_pool, so that it will be deconstructed after
     // _obj_pool. Because some of object in _obj_pool will use profile when deconstructing.

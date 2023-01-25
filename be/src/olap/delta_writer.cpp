@@ -17,17 +17,13 @@
 
 #include "olap/delta_writer.h"
 
-#include "olap/base_compaction.h"
-#include "olap/cumulative_compaction.h"
 #include "olap/data_dir.h"
 #include "olap/memtable.h"
 #include "olap/memtable_flush_executor.h"
+#include "olap/rowset/rowset_writer_context.h"
 #include "olap/schema.h"
-#include "olap/schema_change.h"
 #include "olap/storage_engine.h"
 #include "runtime/load_channel_mgr.h"
-#include "runtime/row_batch.h"
-#include "runtime/tuple_row.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
 #include "util/ref_count_closure.h"
@@ -35,14 +31,12 @@
 namespace doris {
 using namespace ErrorCode;
 
-Status DeltaWriter::open(WriteRequest* req, DeltaWriter** writer, const UniqueId& load_id,
-                         bool is_vec) {
-    *writer = new DeltaWriter(req, StorageEngine::instance(), load_id, is_vec);
+Status DeltaWriter::open(WriteRequest* req, DeltaWriter** writer, const UniqueId& load_id) {
+    *writer = new DeltaWriter(req, StorageEngine::instance(), load_id);
     return Status::OK();
 }
 
-DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, const UniqueId& load_id,
-                         bool is_vec)
+DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, const UniqueId& load_id)
         : _req(*req),
           _tablet(nullptr),
           _cur_rowset(nullptr),
@@ -50,8 +44,7 @@ DeltaWriter::DeltaWriter(WriteRequest* req, StorageEngine* storage_engine, const
           _tablet_schema(new TabletSchema),
           _delta_written_success(false),
           _storage_engine(storage_engine),
-          _load_id(load_id),
-          _is_vec(is_vec) {}
+          _load_id(load_id) {}
 
 DeltaWriter::~DeltaWriter() {
     if (_is_init && !_delta_written_success) {
@@ -138,74 +131,27 @@ Status DeltaWriter::init() {
     // build tablet schema in request level
     _build_current_tablet_schema(_req.index_id, _req.ptable_schema_param,
                                  *_tablet->tablet_schema());
-
-    RETURN_NOT_OK(_tablet->create_rowset_writer(_req.txn_id, _req.load_id, PREPARED, OVERLAPPING,
-                                                _tablet_schema, &_rowset_writer));
+    RowsetWriterContext context;
+    context.txn_id = _req.txn_id;
+    context.load_id = _req.load_id;
+    context.rowset_state = PREPARED;
+    context.segments_overlap = OVERLAPPING;
+    context.tablet_schema = _tablet_schema;
+    context.oldest_write_timestamp = UnixSeconds();
+    context.newest_write_timestamp = UnixSeconds();
+    context.tablet_id = _tablet->table_id();
+    RETURN_NOT_OK(_tablet->create_rowset_writer(context, &_rowset_writer));
     _schema.reset(new Schema(_tablet_schema));
     _reset_mem_table();
 
     // create flush handler
-    // unique key merge on write should flush serial cause calc delete bitmap should load segment serial
-    bool should_serial = (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-                          _tablet->enable_unique_key_merge_on_write());
+    // unique key should flush serial because we need to make sure same key should sort
+    // in the same order in all replica.
+    bool should_serial = _tablet->keys_type() == KeysType::UNIQUE_KEYS;
     RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_token(
             &_flush_token, _rowset_writer->type(), should_serial, _req.is_high_priority));
 
     _is_init = true;
-    return Status::OK();
-}
-
-Status DeltaWriter::write(Tuple* tuple) {
-    std::lock_guard<std::mutex> l(_lock);
-    if (!_is_init && !_is_cancelled) {
-        RETURN_NOT_OK(init());
-    }
-
-    if (_is_cancelled) {
-        // The writer may be cancelled at any time by other thread.
-        // just return ERROR if writer is cancelled.
-        return _cancel_status;
-    }
-
-    _total_received_rows++;
-    _mem_table->insert(tuple);
-
-    // if memtable is full, push it to the flush executor,
-    // and create a new memtable for incoming data
-    if (_mem_table->memory_usage() >= config::write_buffer_size) {
-        auto s = _flush_memtable_async();
-        // create a new memtable for new incoming data
-        _reset_mem_table();
-        if (OLAP_UNLIKELY(!s.ok())) {
-            return s;
-        }
-    }
-    return Status::OK();
-}
-
-Status DeltaWriter::write(const RowBatch* row_batch, const std::vector<int>& row_idxs) {
-    std::lock_guard<std::mutex> l(_lock);
-    if (!_is_init && !_is_cancelled) {
-        RETURN_NOT_OK(init());
-    }
-
-    if (_is_cancelled) {
-        return _cancel_status;
-    }
-
-    _total_received_rows += row_idxs.size();
-    for (const auto& row_idx : row_idxs) {
-        _mem_table->insert(row_batch->get_row(row_idx)->get_tuple(0));
-    }
-
-    if (_mem_table->memory_usage() >= config::write_buffer_size) {
-        auto s = _flush_memtable_async();
-        _reset_mem_table();
-        if (OLAP_UNLIKELY(!s.ok())) {
-            return s;
-        }
-    }
-
     return Status::OK();
 }
 
@@ -225,14 +171,14 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
     _total_received_rows += row_idxs.size();
     _mem_table->insert(block, row_idxs);
 
-    if (_mem_table->need_to_agg()) {
+    if (UNLIKELY(_mem_table->need_agg())) {
         _mem_table->shrink_memtable_by_agg();
-        if (_mem_table->is_flush()) {
-            auto s = _flush_memtable_async();
-            _reset_mem_table();
-            if (UNLIKELY(!s.ok())) {
-                return s;
-            }
+    }
+    if (UNLIKELY(_mem_table->need_flush())) {
+        auto s = _flush_memtable_async();
+        _reset_mem_table();
+        if (UNLIKELY(!s.ok())) {
+            return s;
         }
     }
 
@@ -275,14 +221,16 @@ Status DeltaWriter::flush_memtable_and_wait(bool need_wait) {
 }
 
 Status DeltaWriter::wait_flush() {
-    std::lock_guard<std::mutex> l(_lock);
-    if (!_is_init) {
-        // return OK instead of Status::Error<ALREADY_CANCELLED>() for same reason
-        // as described in flush_memtable_and_wait()
-        return Status::OK();
-    }
-    if (_is_cancelled) {
-        return _cancel_status;
+    {
+        std::lock_guard<std::mutex> l(_lock);
+        if (!_is_init) {
+            // return OK instead of Status::Error<ALREADY_CANCELLED>() for same reason
+            // as described in flush_memtable_and_wait()
+            return Status::OK();
+        }
+        if (_is_cancelled) {
+            return _cancel_status;
+        }
     }
     RETURN_NOT_OK(_flush_token->wait());
     return Status::OK();
@@ -296,11 +244,11 @@ void DeltaWriter::_reset_mem_table() {
     auto mem_table_insert_tracker = std::make_shared<MemTracker>(
             fmt::format("MemTableManualInsert:TabletId={}:MemTableNum={}#loadID={}",
                         std::to_string(tablet_id()), _mem_table_num, _load_id.to_string()),
-            nullptr, ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker_set());
+            ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker());
     auto mem_table_flush_tracker = std::make_shared<MemTracker>(
             fmt::format("MemTableHookFlush:TabletId={}:MemTableNum={}#loadID={}",
                         std::to_string(tablet_id()), _mem_table_num++, _load_id.to_string()),
-            nullptr, ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker_set());
+            ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker());
 #else
     auto mem_table_insert_tracker = std::make_shared<MemTracker>(
             fmt::format("MemTableManualInsert:TabletId={}:MemTableNum={}#loadID={}",
@@ -317,7 +265,7 @@ void DeltaWriter::_reset_mem_table() {
     _mem_table.reset(new MemTable(_tablet, _schema.get(), _tablet_schema.get(), _req.slots,
                                   _req.tuple_desc, _rowset_writer.get(), _delete_bitmap,
                                   _rowset_ids, _cur_max_version, mem_table_insert_tracker,
-                                  mem_table_flush_tracker, _is_vec));
+                                  mem_table_flush_tracker));
 }
 
 Status DeltaWriter::close() {

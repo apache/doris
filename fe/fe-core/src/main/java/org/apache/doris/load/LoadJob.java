@@ -34,7 +34,6 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.task.PushTask;
-import org.apache.doris.thrift.TEtlState;
 import org.apache.doris.thrift.TPriority;
 import org.apache.doris.thrift.TResourceInfo;
 
@@ -135,60 +134,6 @@ public class LoadJob implements Writable {
 
     public LoadJob(String label) {
         this(label, DEFAULT_TIMEOUT_S, Config.default_max_filter_ratio);
-    }
-
-    // convert an async delete job to load job
-    public LoadJob(long id, long dbId, long tableId, long partitionId, String label,
-                   Map<Long, Integer> indexIdToSchemaHash, List<Predicate> deleteConditions,
-                   DeleteInfo deleteInfo) {
-        this.id = id;
-        this.dbId = dbId;
-        this.tableId = tableId;
-        this.label = label;
-        this.transactionId = -1;
-        this.timestamp = -1;
-        this.timeoutSecond = DEFAULT_TIMEOUT_S;
-        this.state = JobState.LOADING;
-        this.progress = 0;
-        this.createTimeMs = System.currentTimeMillis();
-        this.etlStartTimeMs = -1;
-        this.etlFinishTimeMs = -1;
-        this.loadStartTimeMs = -1;
-        this.loadFinishTimeMs = -1;
-        this.quorumFinishTimeMs = -1;
-        this.failMsg = new FailMsg(CancelType.UNKNOWN, "");
-        this.etlJobType = EtlJobType.DELETE;
-        EtlStatus etlStatus = new EtlStatus();
-        etlStatus.setState(TEtlState.FINISHED);
-        // has to use hadoop etl job info, because replay thread use hadoop job info
-        HadoopEtlJobInfo hadoopEtlJobInfo = new HadoopEtlJobInfo();
-        hadoopEtlJobInfo.setCluster("");
-        hadoopEtlJobInfo.setEtlOutputDir("");
-        this.etlJobInfo = hadoopEtlJobInfo;
-        this.etlJobInfo.setJobStatus(etlStatus);
-        this.idToTableLoadInfo = Maps.newHashMap();
-        this.idToTabletLoadInfo = Maps.newHashMap();
-        this.quorumTablets = new HashSet<Long>();
-        this.fullTablets = new HashSet<Long>();
-        this.unfinishedTablets = new ArrayList<>();
-        this.pushTasks = new HashSet<PushTask>();
-        this.replicaPersistInfos = Maps.newHashMap();
-        this.resourceInfo = null;
-        this.priority = TPriority.NORMAL;
-        this.execMemLimit = DEFAULT_EXEC_MEM_LIMIT;
-        this.finishedReplicas = Maps.newHashMap();
-
-        // generate table load info
-        PartitionLoadInfo partitionLoadInfo = new PartitionLoadInfo(null);
-        Map<Long, PartitionLoadInfo> idToPartitionLoadInfo = new HashMap<>();
-        idToPartitionLoadInfo.put(partitionId, partitionLoadInfo);
-        TableLoadInfo tableLoadInfo = new TableLoadInfo(idToPartitionLoadInfo);
-        tableLoadInfo.addAllSchemaHash(indexIdToSchemaHash);
-        idToTableLoadInfo.put(tableId, tableLoadInfo);
-
-        // add delete conditions to load job
-        this.conditions = deleteConditions;
-        this.deleteInfo = deleteInfo;
     }
 
     public LoadJob(String label, int timeoutSecond, double maxFilterRatio) {

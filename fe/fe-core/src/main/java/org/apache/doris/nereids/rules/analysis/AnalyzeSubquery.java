@@ -28,12 +28,14 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -52,18 +54,17 @@ public class AnalyzeSubquery implements AnalysisRuleFactory {
         return ImmutableList.of(
             RuleType.ANALYZE_FILTER_SUBQUERY.build(
                 logicalFilter().thenApply(ctx -> {
-                    LogicalFilter filter = ctx.root;
-                    Set<SubqueryExpr> subqueryExprs = filter.getPredicates()
-                            .collect(SubqueryExpr.class::isInstance);
+                    LogicalFilter<GroupPlan> filter = ctx.root;
+                    Set<SubqueryExpr> subqueryExprs = filter.getPredicate().collect(SubqueryExpr.class::isInstance);
                     if (subqueryExprs.isEmpty()) {
                         return filter;
                     }
 
                     // first step: Replace the subquery of predicate in LogicalFilter
                     // second step: Replace subquery with LogicalApply
-                    return new LogicalFilter<>(new ReplaceSubquery().replace(filter.getPredicates()),
+                    return new LogicalFilter<>(new ReplaceSubquery().replace(filter.getConjuncts()),
                             analyzedSubquery(
-                            subqueryExprs, (LogicalPlan) filter.child(), ctx.cascadesContext
+                            subqueryExprs, filter.child(), ctx.cascadesContext
                     ));
                 })
             )
@@ -110,23 +111,24 @@ public class AnalyzeSubquery implements AnalysisRuleFactory {
      *      2.filter(True);
      *      3.filter(True);
      */
-    private static class ReplaceSubquery extends DefaultExpressionRewriter {
-        public Expression replace(Expression expression) {
-            return (Expression) expression.accept(this, null);
+    private static class ReplaceSubquery extends DefaultExpressionRewriter<Void> {
+        public Set<Expression> replace(Set<Expression> expressions) {
+            return expressions.stream().map(expr -> expr.accept(this, null))
+                    .collect(ImmutableSet.toImmutableSet());
         }
 
         @Override
-        public Object visitExistsSubquery(Exists exists, Object context) {
+        public Expression visitExistsSubquery(Exists exists, Void context) {
             return BooleanLiteral.TRUE;
         }
 
         @Override
-        public Object visitInSubquery(InSubquery in, Object context) {
+        public Expression visitInSubquery(InSubquery in, Void context) {
             return BooleanLiteral.TRUE;
         }
 
         @Override
-        public Object visitScalarSubquery(ScalarSubquery scalar, Object context) {
+        public Expression visitScalarSubquery(ScalarSubquery scalar, Void context) {
             return scalar.getQueryPlan().getOutput().get(0);
         }
     }

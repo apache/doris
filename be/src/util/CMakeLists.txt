@@ -25,6 +25,7 @@ set(UTIL_FILES
   arrow/row_batch.cpp
   arrow/row_block.cpp
   arrow/utils.cpp
+  arrow/block_convertor.cpp
   array_parser.cpp
   bfd_parser.cpp
   bitmap.cpp
@@ -84,7 +85,6 @@ set(UTIL_FILES
   faststring.cc
   slice.cpp
   frame_of_reference_coding.cpp
-  zip_util.cpp
   utf8_check.cpp
   cgroup_util.cpp
   path_util.cpp
@@ -106,6 +106,7 @@ set(UTIL_FILES
   hdfs_util.cpp
   time_lut.cpp
   topn_counter.cpp
+  cityhash102/city.cc
   tuple_row_zorder_compare.cpp
   telemetry/telemetry.cpp
   telemetry/brpc_carrier.cpp

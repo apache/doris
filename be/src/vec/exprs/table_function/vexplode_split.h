@@ -17,30 +17,34 @@
 
 #pragma once
 
-#include "exprs/table_function/explode_split.h"
 #include "gutil/strings/stringpiece.h"
-#include "runtime/string_value.h"
 #include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
+#include "vec/exprs/table_function/table_function.h"
 
 namespace doris::vectorized {
 
-class VExplodeSplitTableFunction : public ExplodeSplitTableFunction {
+class VExplodeSplitTableFunction final : public TableFunction {
 public:
     VExplodeSplitTableFunction();
-    virtual ~VExplodeSplitTableFunction() = default;
+    ~VExplodeSplitTableFunction() override = default;
 
-    virtual Status open() override;
-    virtual Status process_init(vectorized::Block* block) override;
-    virtual Status process_row(size_t row_idx) override;
-    virtual Status process_close() override;
-    virtual Status get_value(void** output) override;
-    virtual Status get_value_length(int64_t* length) override;
+    Status open() override;
+    Status process_init(vectorized::Block* block) override;
+    Status process_row(size_t row_idx) override;
+    Status process_close() override;
+    Status get_value(void** output) override;
+    Status get_value_length(int64_t* length) override;
+    Status reset() override;
 
 private:
-    using ExplodeSplitTableFunction::process;
+    std::vector<std::string_view> _backup;
 
     ColumnPtr _text_column;
-    ColumnPtr _delimiter_column;
+    const uint8_t* _test_null_map = nullptr;
+    const ColumnString* _real_text_column = nullptr;
+
+    StringRef _delimiter = {};
 };
 
 } // namespace doris::vectorized

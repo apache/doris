@@ -30,7 +30,6 @@ namespace doris {
 
 class KafkaConsumerPipe;
 class Status;
-class StreamLoadPipe;
 
 class DataConsumer {
 public:
@@ -156,7 +155,6 @@ private:
 
     KafkaEventCb _k_event_cb;
     RdKafka::KafkaConsumer* _k_consumer = nullptr;
-    std::shared_ptr<KafkaConsumerPipe> _k_consumer_pipe;
 };
 
 } // end namespace doris

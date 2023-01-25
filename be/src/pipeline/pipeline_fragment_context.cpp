@@ -20,43 +20,44 @@
 #include <gen_cpp/DataSinks_types.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include "exec/aggregation_sink_operator.h"
-#include "exec/aggregation_source_operator.h"
-#include "exec/analytic_sink_operator.h"
-#include "exec/analytic_source_operator.h"
 #include "exec/data_sink.h"
-#include "exec/datagen_operator.h"
-#include "exec/empty_set_operator.h"
-#include "exec/exchange_sink_operator.h"
-#include "exec/exchange_source_operator.h"
-#include "exec/hashjoin_build_sink.h"
-#include "exec/hashjoin_probe_operator.h"
-#include "exec/mysql_scan_operator.h"
-#include "exec/repeat_operator.h"
-#include "exec/result_sink_operator.h"
 #include "exec/scan_node.h"
-#include "exec/scan_operator.h"
-#include "exec/schema_scan_operator.h"
-#include "exec/select_operator.h"
-#include "exec/set_probe_sink_operator.h"
-#include "exec/set_sink_operator.h"
-#include "exec/set_source_operator.h"
-#include "exec/sort_sink_operator.h"
-#include "exec/sort_source_operator.h"
-#include "exec/streaming_aggregation_sink_operator.h"
-#include "exec/streaming_aggregation_source_operator.h"
-#include "exec/table_sink_operator.h"
 #include "gen_cpp/FrontendService.h"
 #include "gen_cpp/HeartbeatService_types.h"
+#include "pipeline/exec/aggregation_sink_operator.h"
+#include "pipeline/exec/aggregation_source_operator.h"
+#include "pipeline/exec/analytic_sink_operator.h"
+#include "pipeline/exec/analytic_source_operator.h"
 #include "pipeline/exec/assert_num_rows_operator.h"
-#include "pipeline/exec/broker_scan_operator.h"
 #include "pipeline/exec/const_value_operator.h"
 #include "pipeline/exec/data_queue.h"
+#include "pipeline/exec/datagen_operator.h"
+#include "pipeline/exec/empty_set_operator.h"
+#include "pipeline/exec/empty_source_operator.h"
+#include "pipeline/exec/exchange_sink_operator.h"
+#include "pipeline/exec/exchange_source_operator.h"
+#include "pipeline/exec/hashjoin_build_sink.h"
+#include "pipeline/exec/hashjoin_probe_operator.h"
+#include "pipeline/exec/mysql_scan_operator.h"
 #include "pipeline/exec/nested_loop_join_build_operator.h"
 #include "pipeline/exec/nested_loop_join_probe_operator.h"
 #include "pipeline/exec/olap_table_sink_operator.h"
 #include "pipeline/exec/operator.h"
+#include "pipeline/exec/repeat_operator.h"
+#include "pipeline/exec/result_file_sink_operator.h"
+#include "pipeline/exec/result_sink_operator.h"
+#include "pipeline/exec/scan_operator.h"
+#include "pipeline/exec/schema_scan_operator.h"
+#include "pipeline/exec/select_operator.h"
+#include "pipeline/exec/set_probe_sink_operator.h"
+#include "pipeline/exec/set_sink_operator.h"
+#include "pipeline/exec/set_source_operator.h"
+#include "pipeline/exec/sort_sink_operator.h"
+#include "pipeline/exec/sort_source_operator.h"
+#include "pipeline/exec/streaming_aggregation_sink_operator.h"
+#include "pipeline/exec/streaming_aggregation_source_operator.h"
 #include "pipeline/exec/table_function_operator.h"
+#include "pipeline/exec/table_sink_operator.h"
 #include "pipeline/exec/union_sink_operator.h"
 #include "pipeline/exec/union_source_operator.h"
 #include "pipeline_task.h"
@@ -78,6 +79,7 @@
 #include "vec/exec/vsort_node.h"
 #include "vec/exec/vunion_node.h"
 #include "vec/runtime/vdata_stream_mgr.h"
+#include "vec/sink/vresult_file_sink.h"
 #include "vec/sink/vresult_sink.h"
 
 using apache::thrift::transport::TTransportException;
@@ -99,6 +101,10 @@ PipelineFragmentContext::PipelineFragmentContext(
     _fragment_watcher.start();
 }
 
+PipelineFragmentContext::~PipelineFragmentContext() {
+    _call_back(_runtime_state.get(), &_exec_status);
+}
+
 void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
                                      const std::string& msg) {
     if (!_runtime_state->is_cancelled()) {
@@ -110,6 +116,9 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
             _exec_status = Status::Cancelled(msg);
         }
         _runtime_state->set_is_cancelled(true);
+        if (_pipe != nullptr) {
+            _pipe->cancel(PPlanFragmentCancelReason_Name(reason));
+        }
         _cancel_reason = reason;
         _cancel_msg = msg;
         // To notify wait_for_start()
@@ -156,12 +165,6 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
             .tag("backend_num", request.backend_num)
             .tag("pthread_id", (uintptr_t)pthread_self());
 
-    // Must be vec exec engine
-    if (!request.query_options.__isset.enable_vectorized_engine ||
-        !request.query_options.enable_vectorized_engine) {
-        return Status::InternalError("should set enable_vectorized_engine to true");
-    }
-
     // 1. init _runtime_state
     _runtime_state = std::make_unique<RuntimeState>(params, request.query_options,
                                                     _query_ctx->query_globals, _exec_env);
@@ -171,7 +174,6 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
 
     // TODO should be combine with plan_fragment_executor.prepare funciton
     SCOPED_ATTACH_TASK(get_runtime_state());
-    _runtime_state->init_scanner_mem_trackers();
     _runtime_state->runtime_filter_mgr()->init();
     _runtime_state->set_be_number(request.backend_num);
 
@@ -264,8 +266,9 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
         RETURN_IF_ERROR(_create_sink(request.fragment.output_sink));
     }
     RETURN_IF_ERROR(_build_pipeline_tasks(request));
-
-    _runtime_state->runtime_profile()->add_child(_sink->profile(), true, nullptr);
+    if (_sink) {
+        _runtime_state->runtime_profile()->add_child(_sink->profile(), true, nullptr);
+    }
     _runtime_state->runtime_profile()->add_child(_root_plan->runtime_profile(), true, nullptr);
     _runtime_state->runtime_profile()->add_child(_runtime_profile.get(), true, nullptr);
 
@@ -299,23 +302,16 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
 
 // TODO: use virtual function to do abstruct
 Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur_pipe) {
-    auto* fragment_context = this;
     auto node_type = node->type();
     switch (node_type) {
     // for source
-    case TPlanNodeType::BROKER_SCAN_NODE: {
-        OperatorBuilderPtr operator_t = std::make_shared<BrokerScanOperatorBuilder>(
-                fragment_context->next_operator_builder_id(), node);
-        RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
-        break;
-    }
     case TPlanNodeType::OLAP_SCAN_NODE:
     case TPlanNodeType::JDBC_SCAN_NODE:
     case TPlanNodeType::ODBC_SCAN_NODE:
     case TPlanNodeType::FILE_SCAN_NODE:
     case TPlanNodeType::ES_SCAN_NODE: {
-        OperatorBuilderPtr operator_t = std::make_shared<ScanOperatorBuilder>(
-                fragment_context->next_operator_builder_id(), node);
+        OperatorBuilderPtr operator_t =
+                std::make_shared<ScanOperatorBuilder>(next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
         break;
     }
@@ -326,8 +322,8 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
         break;
     }
     case TPlanNodeType::SCHEMA_SCAN_NODE: {
-        OperatorBuilderPtr operator_t = std::make_shared<SchemaScanOperatorBuilder>(
-                fragment_context->next_operator_builder_id(), node);
+        OperatorBuilderPtr operator_t =
+                std::make_shared<SchemaScanOperatorBuilder>(next_operator_builder_id(), node);
         RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
         break;
     }
@@ -446,10 +442,17 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
     case TPlanNodeType::HASH_JOIN_NODE: {
         auto* join_node = assert_cast<vectorized::HashJoinNode*>(node);
         auto new_pipe = add_pipeline();
-        RETURN_IF_ERROR(_build_pipelines(node->child(1), new_pipe));
+        if (join_node->should_build_hash_table()) {
+            RETURN_IF_ERROR(_build_pipelines(node->child(1), new_pipe));
+        } else {
+            OperatorBuilderPtr builder = std::make_shared<EmptySourceOperatorBuilder>(
+                    next_operator_builder_id(), node->child(1)->row_desc());
+            new_pipe->add_operator(builder);
+        }
         OperatorBuilderPtr join_sink =
                 std::make_shared<HashJoinBuildSinkBuilder>(next_operator_builder_id(), join_node);
         RETURN_IF_ERROR(new_pipe->set_sink(join_sink));
+        new_pipe->disable_task_steal();
 
         RETURN_IF_ERROR(_build_pipelines(node->child(0), cur_pipe));
         OperatorBuilderPtr join_source = std::make_shared<HashJoinProbeOperatorBuilder>(
@@ -547,6 +550,14 @@ Status PipelineFragmentContext::submit() {
     }
 }
 
+void PipelineFragmentContext::close_if_prepare_failed() {
+    for (auto& task : _tasks) {
+        DCHECK(!task->is_pending_finish());
+        WARN_IF_ERROR(task->close(), "close_if_prepare_failed failed: ");
+        close_a_pipeline();
+    }
+}
+
 // construct sink operator
 Status PipelineFragmentContext::_create_sink(const TDataSink& thrift_sink) {
     OperatorBuilderPtr sink_;
@@ -570,6 +581,11 @@ Status PipelineFragmentContext::_create_sink(const TDataSink& thrift_sink) {
     case TDataSinkType::JDBC_TABLE_SINK:
     case TDataSinkType::ODBC_TABLE_SINK: {
         sink_ = std::make_shared<TableSinkOperatorBuilder>(next_operator_builder_id(), _sink.get());
+        break;
+    }
+    case TDataSinkType::RESULT_FILE_SINK: {
+        sink_ = std::make_shared<ResultFileSinkOperatorBuilder>(next_operator_builder_id(),
+                                                                _sink.get());
         break;
     }
     default:

@@ -22,6 +22,7 @@
 #include "io/cache/sub_file_cache.h"
 #include "io/cache/whole_file_cache.h"
 #include "io/fs/local_file_system.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
 #include "util/file_utils.h"
 #include "util/string_util.h"
@@ -125,7 +126,7 @@ void FileCacheManager::_gc_unused_file_caches(std::list<FileCachePtr>& result) {
             for (Path seg_file : seg_file_paths) {
                 std::string seg_filename = seg_file.native();
                 // check if it is a dir name
-                if (ends_with(seg_filename, ".dat") || ends_with(seg_filename, "clone")) {
+                if (!BetaRowset::is_segment_cache_dir(seg_filename)) {
                     continue;
                 }
                 // skip file cache already in memory
@@ -215,12 +216,13 @@ void FileCacheManager::gc_file_caches() {
 
 FileCachePtr FileCacheManager::new_file_cache(const std::string& cache_dir, int64_t alive_time_sec,
                                               io::FileReaderSPtr remote_file_reader,
-                                              const std::string& file_cache_type) {
-    if (file_cache_type == "whole_file_cache") {
+                                              io::FileCachePolicy cache_type) {
+    switch (cache_type) {
+    case io::FileCachePolicy::SUB_FILE_CACHE:
         return std::make_unique<WholeFileCache>(cache_dir, alive_time_sec, remote_file_reader);
-    } else if (file_cache_type == "sub_file_cache") {
+    case io::FileCachePolicy::WHOLE_FILE_CACHE:
         return std::make_unique<SubFileCache>(cache_dir, alive_time_sec, remote_file_reader);
-    } else {
+    default:
         return nullptr;
     }
 }

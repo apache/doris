@@ -26,6 +26,7 @@ import org.apache.doris.rewrite.ExprRewriter;
 import com.google.common.base.Predicates;
 import com.google.common.collect.Lists;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -55,6 +56,14 @@ public class SelectList {
         }
         isDistinct = other.isDistinct;
         isExcept = other.isExcept;
+    }
+
+    public List<Expr> getExprs() {
+        List<Expr> exprs = new ArrayList<Expr>();
+        for (SelectListItem item : items) {
+            exprs.add(item.getExpr());
+        }
+        return exprs;
     }
 
     public SelectList() {

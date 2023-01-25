@@ -2,6 +2,9 @@
 -- !count_all --
 10
 
+-- !count_all --
+10
+
 -- !count_all_group_by --
 2
 2
@@ -116,6 +119,9 @@ name_4	1	4
 
 -- !group_by_count_distinct --
 5
+
+-- !count_all --
+10
 
 -- !count_all --
 10

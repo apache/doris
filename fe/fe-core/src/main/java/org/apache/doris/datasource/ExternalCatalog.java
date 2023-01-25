@@ -35,6 +35,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
+import org.apache.commons.lang.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -73,6 +74,11 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
 
     private ExternalSchemaCache schemaCache;
 
+    public ExternalCatalog(long catalogId, String name) {
+        this.id = catalogId;
+        this.name = name;
+    }
+
     /**
      * @return names of database in this catalog.
      */
@@ -92,6 +98,17 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
      * @return true if table exists, false otherwise
      */
     public abstract boolean tableExist(SessionContext ctx, String dbName, String tblName);
+
+    /**
+     * check if the specified table exist in doris.
+     *
+     * @param dbName
+     * @param tblName
+     * @return true if table exists, false otherwise
+     */
+    public boolean tableExistInLocal(String dbName, String tblName) {
+        throw new NotImplementedException();
+    }
 
     /**
      * Catalog can't be init when creating because the external catalog may depend on third system.
@@ -131,6 +148,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     protected abstract void init();
 
     public void setUninitialized(boolean invalidCache) {
+        this.objectCreated = false;
         this.initialized = false;
         this.invalidCacheInInit = invalidCache;
         if (invalidCache) {
@@ -176,7 +194,12 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     @Nullable
     @Override
     public ExternalDatabase getDbNullable(String dbName) {
-        makeSureInitialized();
+        try {
+            makeSureInitialized();
+        } catch (Exception e) {
+            LOG.warn("failed to get db {} in catalog {}", dbName, name, e);
+            return null;
+        }
         String realDbName = ClusterNamespace.getNameFromFullName(dbName);
         if (!dbNameToId.containsKey(realDbName)) {
             return null;
@@ -187,7 +210,12 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     @Nullable
     @Override
     public ExternalDatabase getDbNullable(long dbId) {
-        makeSureInitialized();
+        try {
+            makeSureInitialized();
+        } catch (Exception e) {
+            LOG.warn("failed to get db {} in catalog {}", dbId, name, e);
+            return null;
+        }
         return idToDb.get(dbId);
     }
 
@@ -285,10 +313,21 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
             db.setTableExtCatalog(this);
         }
         objectCreated = false;
+        if (this instanceof HMSExternalCatalog) {
+            ((HMSExternalCatalog) this).setLastSyncedEventId(-1L);
+        }
     }
 
     public void addDatabaseForTest(ExternalDatabase db) {
         idToDb.put(db.getId(), db);
         dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
+    }
+
+    public void dropDatabase(String dbName) {
+        throw new NotImplementedException();
+    }
+
+    public void createDatabase(long dbId, String dbName) {
+        throw new NotImplementedException();
     }
 }

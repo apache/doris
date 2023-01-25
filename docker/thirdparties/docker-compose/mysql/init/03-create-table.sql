@@ -214,4 +214,13 @@ create table doris_test.ex_tb19 (
     timestamp_value timestamp
 ) engine=innodb charset=utf8;
 
+create table doris_test.ex_tb20 (
+    decimal_normal decimal(38, 5),
+    decimal_unsigned decimal(37, 5) unsigned,
+    decimal_out1 decimal(39, 5),
+    decimal_unsigned_out1 decimal(38, 5) unsigned,
+    decimal_long decimal(65, 5),
+    decimal_unsigned_long decimal(65, 5) unsigned
+) engine=innodb charset=utf8;
+
 

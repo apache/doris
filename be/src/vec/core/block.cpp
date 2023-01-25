@@ -26,9 +26,7 @@
 #include "agent/be_exec_version_manager.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
-#include "runtime/row_batch.h"
 #include "runtime/tuple.h"
-#include "runtime/tuple_row.h"
 #include "udf/udf.h"
 #include "util/block_compression.h"
 #include "util/exception.h"
@@ -55,8 +53,12 @@ Block::Block(const ColumnsWithTypeAndName& data_) : data {data_} {
     initialize_index_by_name();
 }
 
-Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size) {
+Block::Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
+             bool ignore_trivial_slot) {
     for (const auto slot_desc : slots) {
+        if (ignore_trivial_slot && !slot_desc->need_materialize()) {
+            continue;
+        }
         auto column_ptr = slot_desc->get_empty_mutable_column();
         column_ptr->reserve(block_size);
         insert(ColumnWithTypeAndName(std::move(column_ptr), slot_desc->get_data_type_ptr(),
@@ -197,6 +199,9 @@ void Block::erase_impl(size_t position) {
             if (it->second > position) --it->second;
             ++it;
         }
+    }
+    if (position < row_same_bit.size()) {
+        row_same_bit.erase(row_same_bit.begin() + position);
     }
 }
 
@@ -339,6 +344,9 @@ void Block::set_num_rows(size_t length) {
                 elem.column = elem.column->cut(0, length);
             }
         }
+        if (length < row_same_bit.size()) {
+            row_same_bit.resize(length);
+        }
     }
 }
 
@@ -352,6 +360,9 @@ void Block::skip_num_rows(int64_t& length) {
             if (elem.column) {
                 elem.column = elem.column->cut(length, origin_rows - length);
             }
+        }
+        if (length < row_same_bit.size()) {
+            row_same_bit.assign(row_same_bit.begin() + length, row_same_bit.end());
         }
     }
 }
@@ -593,6 +604,7 @@ DataTypes Block::get_data_types() const {
 void Block::clear() {
     data.clear();
     index_by_name.clear();
+    row_same_bit.clear();
 }
 
 void Block::clear_column_data(int column_size) noexcept {
@@ -607,17 +619,20 @@ void Block::clear_column_data(int column_size) noexcept {
         DCHECK_EQ(d.column->use_count(), 1);
         (*std::move(d.column)).assume_mutable()->clear();
     }
+    row_same_bit.clear();
 }
 
 void Block::swap(Block& other) noexcept {
     data.swap(other.data);
     index_by_name.swap(other.index_by_name);
+    row_same_bit.swap(other.row_same_bit);
 }
 
 void Block::swap(Block&& other) noexcept {
     clear();
     data = std::move(other.data);
     initialize_index_by_name();
+    row_same_bit = std::move(other.row_same_bit);
 }
 
 void Block::update_hash(SipHash& hash) const {
@@ -793,46 +808,6 @@ Status Block::serialize(int be_exec_version, PBlock* pblock,
     return Status::OK();
 }
 
-void Block::serialize(RowBatch* output_batch, const RowDescriptor& row_desc) {
-    auto num_rows = rows();
-    auto mem_pool = output_batch->tuple_data_pool();
-
-    for (int i = 0; i < num_rows; ++i) {
-        auto tuple_row = output_batch->get_row(i);
-        const auto& tuple_descs = row_desc.tuple_descriptors();
-        auto column_offset = 0;
-
-        for (int j = 0; j < tuple_descs.size(); ++j) {
-            auto tuple_desc = tuple_descs[j];
-            tuple_row->set_tuple(j, deep_copy_tuple(*tuple_desc, mem_pool, i, column_offset));
-            column_offset += tuple_desc->slots().size();
-        }
-        output_batch->commit_last_row();
-    }
-}
-
-doris::Tuple* Block::deep_copy_tuple(const doris::TupleDescriptor& desc, MemPool* pool, int row,
-                                     int column_offset, bool padding_char) {
-    auto dst = reinterpret_cast<doris::Tuple*>(pool->allocate(desc.byte_size()));
-
-    for (int i = 0; i < desc.slots().size(); ++i) {
-        auto slot_desc = desc.slots()[i];
-        auto& type_desc = slot_desc->type();
-        const auto& column = get_by_position(column_offset + i).column;
-        const auto& data_ref =
-                type_desc.type != TYPE_ARRAY ? column->get_data_at(row) : StringRef();
-        bool is_null = is_column_data_null(slot_desc->type(), data_ref, column, row);
-        if (is_null) {
-            dst->set_null(slot_desc->null_indicator_offset());
-        } else {
-            dst->set_not_null(slot_desc->null_indicator_offset());
-            deep_copy_slot(dst->get_slot(slot_desc->tuple_offset()), pool, type_desc, data_ref,
-                           column.get(), row, padding_char);
-        }
-    }
-    return dst;
-}
-
 inline bool Block::is_column_data_null(const doris::TypeDescriptor& type_desc,
                                        const StringRef& data_ref, const IColumn* column, int row) {
     if (type_desc.type != TYPE_ARRAY) {
@@ -879,7 +854,7 @@ void Block::deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor
                 auto item_offset = offset + i;
                 const auto& data_ref = item_type_desc.type != TYPE_ARRAY
                                                ? item_column->get_data_at(item_offset)
-                                               : StringRef();
+                                               : StringRef {};
                 if (item_type_desc.is_date_type()) {
                     // In CollectionValue, date type data is stored as either uint24_t or uint64_t.
                     DateTimeValue datetime_value;
@@ -914,42 +889,50 @@ void Block::deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor
         auto size = bitmap_value->getSizeInBytes();
 
         // serialize the content of string
-        auto string_slot = reinterpret_cast<StringValue*>(dst);
-        string_slot->ptr = reinterpret_cast<char*>(pool->allocate(size));
-        bitmap_value->write(string_slot->ptr);
-        string_slot->len = size;
+        // TODO: NEED TO REWRITE COMPLETELY. the way writing now is WRONG.
+        // StringRef shouldn't managing exclusive memory cause it will break RAII.
+        // besides, accessing object which is essentially const by non-const object
+        // is UB!
+        auto string_slot = reinterpret_cast<StringRef*>(dst);
+        string_slot->data = reinterpret_cast<char*>(pool->allocate(size));
+        bitmap_value->write(const_cast<char*>(string_slot->data)); //!
+        string_slot->size = size;
     } else if (type_desc.type == TYPE_HLL) {
         auto hll_value = (HyperLogLog*)(data_ref.data);
         auto size = hll_value->max_serialized_size();
-        auto string_slot = reinterpret_cast<StringValue*>(dst);
-        string_slot->ptr = reinterpret_cast<char*>(pool->allocate(size));
-        size_t actual_size = hll_value->serialize((uint8_t*)string_slot->ptr);
-        string_slot->len = actual_size;
+        auto string_slot = reinterpret_cast<StringRef*>(dst);
+        string_slot->data = reinterpret_cast<char*>(pool->allocate(size));
+        size_t actual_size = hll_value->serialize((uint8_t*)string_slot->data);
+        string_slot->size = actual_size;
     } else if (type_desc.is_string_type()) { // TYPE_OBJECT and TYPE_HLL must be handled before.
         memcpy(dst, (const void*)(&data_ref), sizeof(data_ref));
         // Copy the content of string
         if (padding_char && type_desc.type == TYPE_CHAR) {
             // serialize the content of string
-            auto string_slot = reinterpret_cast<StringValue*>(dst);
-            string_slot->ptr = reinterpret_cast<char*>(pool->allocate(type_desc.len));
-            string_slot->len = type_desc.len;
-            memset(string_slot->ptr, 0, type_desc.len);
-            memcpy(string_slot->ptr, data_ref.data, data_ref.size);
+            auto string_slot = reinterpret_cast<StringRef*>(dst);
+            string_slot->data = reinterpret_cast<char*>(pool->allocate(type_desc.len));
+            string_slot->size = type_desc.len;
+            memset(const_cast<char*>(string_slot->data), 0, type_desc.len);             //!
+            memcpy(const_cast<char*>(string_slot->data), data_ref.data, data_ref.size); //!
         } else {
             auto str_ptr = pool->allocate(data_ref.size);
             memcpy(str_ptr, data_ref.data, data_ref.size);
-            auto string_slot = reinterpret_cast<StringValue*>(dst);
-            string_slot->ptr = reinterpret_cast<char*>(str_ptr);
-            string_slot->len = data_ref.size;
+            auto string_slot = reinterpret_cast<StringRef*>(dst);
+            string_slot->data = reinterpret_cast<char*>(str_ptr);
+            string_slot->size = data_ref.size;
         }
     } else {
         memcpy(dst, data_ref.data, data_ref.size);
     }
 }
 
-MutableBlock::MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size) {
+MutableBlock::MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size,
+                           bool ignore_trivial_slot) {
     for (auto tuple_desc : tuple_descs) {
         for (auto slot_desc : tuple_desc->slots()) {
+            if (ignore_trivial_slot && !slot_desc->need_materialize()) {
+                continue;
+            }
             _data_types.emplace_back(slot_desc->get_data_type_ptr());
             _columns.emplace_back(_data_types.back()->create_column());
             if (reserve_size != 0) {

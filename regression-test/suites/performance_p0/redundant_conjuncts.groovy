@@ -32,11 +32,10 @@ suite("redundant_conjuncts") {
     """
     
     qt_redundant_conjuncts """
-    EXPLAIN SELECT v1 FROM redundant_conjuncts WHERE k1 = 1 AND k1 = 1;
+    EXPLAIN SELECT /*+SET_VAR(REWRITE_OR_TO_IN_PREDICATE_THRESHOLD=2) */ v1 FROM redundant_conjuncts WHERE k1 = 1 AND k1 = 1;
     """
 
-    sql "set COMPACT_EQUAL_TO_IN_PREDICATE_THRESHOLD = 100"
     qt_redundant_conjuncts_gnerated_by_extract_common_filter """
-    EXPLAIN SELECT v1 FROM redundant_conjuncts WHERE k1 = 1 OR k1 = 2;
+    EXPLAIN SELECT /*+SET_VAR(REWRITE_OR_TO_IN_PREDICATE_THRESHOLD=100) */ v1 FROM redundant_conjuncts WHERE k1 = 1 OR k1 = 2;
     """
 }

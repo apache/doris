@@ -103,7 +103,7 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
             this.needTableStable = false;
             setStoragePolicy(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, ""));
         } else if (properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE)) {
-            throw new AnalysisException("Alter tablet type not supported");
+            throw new AnalysisException("Can not change UNIQUE KEY to Merge-On-Write mode");
         } else {
             throw new AnalysisException("Unknown table property: " + properties.keySet());
         }

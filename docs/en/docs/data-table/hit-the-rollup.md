@@ -24,17 +24,17 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Rollup and query
+# Rollup and Query
 
-ROLLUP in multidimensional analysis means "scroll up", which means that data is aggregated further at a specified granularity.
+In multidimensional analysis, Rollups refers to data tables that are aggregated at a specified granular level.
 
-### Basic concepts
+### Basic Concepts
 
-In Doris, we make the table created by the user through the table building statement a Base table. Base table holds the basic data stored in the way specified by the user's table-building statement.
+In Doris, tables that are created by users via the CREATE TABLE statement are called "Base Tables". Base Tables contains the basic data stored in the way specified by the user in the the CREATE TABLE statement.
 
-On top of the Base table, we can create any number of ROLLUP tables. These ROLLUP data are generated based on the Base table and physically **stored independently**.
+On top of Base Tables, you can create any number of Rollups. Data in Rollups are generated based on the Base Tables and are physically **independent in storage**.
 
-The basic function of ROLLUP tables is to obtain coarser aggregated data on the basis of Base tables.
+Rollups are created to  aggregated versions of Base Tables.
 
 Let's illustrate the ROLLUP tables and their roles in different data models with examples.
 
@@ -44,7 +44,7 @@ Because Uniq is only a special case of the Aggregate model, we do not distinguis
 
 Example 1: Get the total consumption per user
 
-Following [Data Model Aggregate Model](./data-model.md) in the **Aggregate Model** section, the Base table structure is as follows:
+Following [Data Model Aggregate Model](./data-model) in the **Aggregate Model** section, the Base table structure is as follows:
 
 | ColumnName        | Type         | AggregationType | Comment                                |
 |-------------------| ------------ | --------------- | -------------------------------------- |
@@ -128,7 +128,7 @@ Doris automatically hits the ROLLUP table.
 
 #### ROLLUP in Duplicate Model
 
-Because the Duplicate model has no aggregate semantics. So the ROLLLUP in this model has lost the meaning of "scroll up". It's just to adjust the column order to hit the prefix index. In the next section, we will introduce prefix index in [data model prefix index](./data-model.md), and how to use ROLLUP to change prefix index in order to achieve better query efficiency.
+Because the Duplicate model has no aggregate semantics. So the ROLLLUP in this model has lost the meaning of "scroll up". It's just to adjust the column order to hit the prefix index. In the next section, we will introduce prefix index in [data model prefix index](./data-model), and how to use ROLLUP to change prefix index in order to achieve better query efficiency.
 
 ## ROLLUP adjusts prefix index
 

@@ -24,10 +24,20 @@
 #include <vector>
 
 #include "common/status.h"
-#include "runtime/mysql_table_writer.h"
 
 namespace doris {
 namespace vectorized {
+
+struct MysqlConnInfo {
+    std::string host;
+    std::string user;
+    std::string passwd;
+    std::string db;
+    int port;
+    std::string charset;
+
+    std::string debug_string() const;
+};
 
 class VExprContext;
 class Block;

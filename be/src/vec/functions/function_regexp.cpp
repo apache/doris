@@ -20,8 +20,8 @@
 #include <random>
 
 #include "exprs/string_functions.h"
-#include "runtime/string_value.h"
 #include "udf/udf.h"
+#include "vec/common/string_ref.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function_string.h"

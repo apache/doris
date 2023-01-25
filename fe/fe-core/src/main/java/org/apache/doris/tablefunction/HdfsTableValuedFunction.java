@@ -70,18 +70,19 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
         for (String key : params.keySet()) {
             if (FILE_FORMAT_PROPERTIES.contains(key.toLowerCase())) {
                 fileFormatParams.put(key, params.get(key));
-            } else if (LOCATION_PROPERTIES.contains(key.toLowerCase()) || HADOOP_FS_NAME.equalsIgnoreCase(key)) {
+            } else {
                 // because HADOOP_FS_NAME contains upper and lower case
                 if (HADOOP_FS_NAME.equalsIgnoreCase(key)) {
                     locationProperties.put(HADOOP_FS_NAME, params.get(key));
                 } else {
-                    locationProperties.put(key.toLowerCase(), params.get(key));
+                    locationProperties.put(key, params.get(key));
                 }
-            } else {
-                throw new AnalysisException(key + " is invalid property");
             }
         }
 
+        if (!locationProperties.containsKey(HDFS_URI)) {
+            throw new AnalysisException(String.format("Configuration '%s' is required.", HDFS_URI));
+        }
         ExportStmt.checkPath(locationProperties.get(HDFS_URI), StorageType.HDFS);
         hdfsUri = URI.create(locationProperties.get(HDFS_URI));
         filePath = locationProperties.get(HADOOP_FS_NAME) + hdfsUri.getPath();

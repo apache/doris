@@ -32,7 +32,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCheckPolicy;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalExcept;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -42,6 +44,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalOneRowRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSelectHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
@@ -55,7 +58,9 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalExcept;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
@@ -68,6 +73,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalRepeat;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalSchemaScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalSetOperation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
@@ -160,6 +166,14 @@ public abstract class PlanVisitor<R, C> {
         return visitLogicalRelation(olapScan, context);
     }
 
+    public R visitLogicalSchemaScan(LogicalSchemaScan schemaScan, C context) {
+        return visitLogicalRelation(schemaScan, context);
+    }
+
+    public R visitLogicalFileScan(LogicalFileScan fileScan, C context) {
+        return visitLogicalRelation(fileScan, context);
+    }
+
     public R visitLogicalTVFRelation(LogicalTVFRelation tvfRelation, C context) {
         return visitLogicalRelation(tvfRelation, context);
     }
@@ -196,7 +210,7 @@ public abstract class PlanVisitor<R, C> {
         return visit(assertNumRows, context);
     }
 
-    public R visitLogicalHaving(LogicalHaving<Plan> having, C context) {
+    public R visitLogicalHaving(LogicalHaving<? extends Plan> having, C context) {
         return visit(having, context);
     }
 
@@ -215,6 +229,10 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitLogicalIntersect(LogicalIntersect intersect, C context) {
         return visitLogicalSetOperation(intersect, context);
+    }
+
+    public R visitLogicalGenerate(LogicalGenerate<? extends Plan> generate, C context) {
+        return visit(generate, context);
     }
 
     // *******************************
@@ -243,6 +261,14 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitPhysicalOlapScan(PhysicalOlapScan olapScan, C context) {
         return visitPhysicalScan(olapScan, context);
+    }
+
+    public R visitPhysicalSchemaScan(PhysicalSchemaScan schemaScan, C context) {
+        return visitPhysicalScan(schemaScan, context);
+    }
+
+    public R visitPhysicalFileScan(PhysicalFileScan fileScan, C context) {
+        return visitPhysicalScan(fileScan, context);
     }
 
     public R visitPhysicalStorageLayerAggregate(PhysicalStorageLayerAggregate storageLayerAggregate, C context) {
@@ -304,6 +330,10 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitPhysicalIntersect(PhysicalIntersect intersect, C context) {
         return visitPhysicalSetOperation(intersect, context);
+    }
+
+    public R visitPhysicalGenerate(PhysicalGenerate<? extends Plan> generate, C context) {
+        return visit(generate, context);
     }
 
     // *******************************

@@ -23,7 +23,7 @@ namespace doris::pipeline {
 
 UnionSinkOperatorBuilder::UnionSinkOperatorBuilder(int32_t id, int child_id, ExecNode* node,
                                                    std::shared_ptr<DataQueue> queue)
-        : OperatorBuilder(id, "UnionSinkOperatorBuilder", node),
+        : OperatorBuilder(id, "UnionSinkOperator", node),
           _cur_child_id(child_id),
           _data_queue(queue) {};
 
