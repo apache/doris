@@ -24,7 +24,6 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/olap")
 add_subdirectory(rowset)
 
 add_library(Olap STATIC
-    aggregate_func.cpp
     base_compaction.cpp
     base_tablet.cpp
     bloom_filter.hpp
