@@ -20,7 +20,6 @@
 #include <vector>
 
 #include "common/consts.h"
-#include "olap/aggregate_func.h"
 #include "olap/field.h"
 #include "olap/row_cursor_cell.h"
 #include "olap/tablet_schema.h"

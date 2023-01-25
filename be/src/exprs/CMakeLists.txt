@@ -22,10 +22,7 @@ set(LIBRARY_OUTPUT_PATH "${BUILD_DIR}/src/exprs")
 set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/exprs")
 
 add_library(Exprs
-  encryption_functions.cpp
   anyval_util.cpp
-  cast_functions.cpp
-  hash_functions.cpp
   block_bloom_filter_avx_impl.cc
   block_bloom_filter_impl.cc
   runtime_filter.cpp
@@ -35,11 +32,5 @@ add_library(Exprs
   math_functions.cpp
   rpc_fn_comm.cpp
   string_functions.cpp
-  timestamp_functions.cpp
-  udf_builtins.cpp
-  utility_functions.cpp
   json_functions.cpp
-  bitmap_function.cpp
-  quantile_function.cpp
-  topn_function.cpp
 )
