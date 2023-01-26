@@ -173,10 +173,10 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                 } else {
                     if (WhichDataType(remove_nullable(nested_type_ptr)).is_string()) {
                         buf_ret = rows_buffer[i].push_string("'", 1);
-                        buf_ret = _add_one_cell(data, j, nested_type_ptr, rows_buffer[i]);
+                        buf_ret = _add_one_cell(data, j, nested_type_ptr, rows_buffer[i], scale);
                         buf_ret = rows_buffer[i].push_string("'", 1);
                     } else {
-                        buf_ret = _add_one_cell(data, j, nested_type_ptr, rows_buffer[i]);
+                        buf_ret = _add_one_cell(data, j, nested_type_ptr, rows_buffer[i], scale);
                     }
                 }
                 begin = false;
@@ -281,7 +281,7 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
 template <bool is_binary_format>
 int VMysqlResultWriter<is_binary_format>::_add_one_cell(const ColumnPtr& column_ptr, size_t row_idx,
                                                         const DataTypePtr& type,
-                                                        MysqlRowBuffer<is_binary_format>& buffer) {
+                                                        MysqlRowBuffer<is_binary_format>& buffer, int scale) {
     WhichDataType which(type->get_type_id());
     if (which.is_nullable() && column_ptr->is_null_at(row_idx)) {
         return buffer.push_null();
@@ -359,7 +359,7 @@ int VMysqlResultWriter<is_binary_format>::_add_one_cell(const ColumnPtr& column_
         DateV2Value<DateTimeV2ValueType> datetimev2 =
                 binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(value);
         char buf[64];
-        char* pos = datetimev2.to_string(buf);
+        char* pos = datetimev2.to_string(buf, scale);
         return buffer.push_string(buf, pos - buf - 1);
     } else if (which.is_decimal32()) {
         DataTypePtr nested_type = type;
@@ -673,16 +673,19 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
             break;
         }
         case TYPE_ARRAY: {
+            // Currently all functions only support single-level nested arrays，
+            // so we use Array's child scale to represent the scale of nested type.
+            scale = _output_vexpr_ctxs[i]->root()->children()[0]->type().scale;
             if (type_ptr->is_nullable()) {
                 auto& nested_type =
                         assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
                 auto& sub_type = assert_cast<const DataTypeArray&>(*nested_type).get_nested_type();
                 status = _add_one_column<PrimitiveType::TYPE_ARRAY, true>(column_ptr, result,
-                                                                          rows_buffer, sub_type);
+                                                                          rows_buffer, sub_type, scale);
             } else {
                 auto& sub_type = assert_cast<const DataTypeArray&>(*type_ptr).get_nested_type();
                 status = _add_one_column<PrimitiveType::TYPE_ARRAY, false>(column_ptr, result,
-                                                                           rows_buffer, sub_type);
+                                                                           rows_buffer, sub_type, scale);
             }
             break;
         }
