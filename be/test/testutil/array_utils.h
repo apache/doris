@@ -33,8 +33,6 @@ public:
     using TypeDesc = FunctionContext::TypeDesc;
     static void prepare_context(FunctionContext& context, MemPool& mem_pool,
                                 const ColumnPB& column_pb);
-    static Status create_collection_value(CollectionValue* collection_value,
-                                          FunctionContext* context, const std::string& json_string);
 
 private:
     static TypeDesc create_function_type_desc(const ColumnPB& column_pb);
