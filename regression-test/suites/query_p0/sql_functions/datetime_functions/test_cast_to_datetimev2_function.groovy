@@ -15,9 +15,9 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_cast_to_datetimev2_function") {
+suite("test_cast_to_datetimev2_and_array_datetimev2_function") {
 
-    def tableName = "test_cast_to_datetimev2_function_table"
+    def tableName = "test_cast_to_datetimev2_function_and_array_datetimev2_table"
         sql "DROP TABLE IF EXISTS ${tableName}"
         sql """
             CREATE TABLE IF NOT EXISTS `${tableName}` (
@@ -45,6 +45,9 @@ suite("test_cast_to_datetimev2_function") {
 
         qt_select3 "select cast ('2022-12-02 22:23:24.999999' as datetimev2(3)),cast ('2022-12-02 22:23:23.999999' as datetimev2(3))"
         qt_select4 "select cast ('2022-12-02 22:23:24.999999' as datetimev2(3)),cast ('2022-12-02 22:23:23.999999' as datetimev2(3)) from ${tableName}"
+        qt_select5 "select array(cast ('2022-12-02 22:23:24.999999' as datetimev2(3)),cast ('2022-12-02 22:23:23.997799' as datetimev2(3))) from ${tableName}"
+        qt_select6 "select array(c_date_timev2) from ${tableName}"
         sql "DROP TABLE IF EXISTS ${tableName}"
-        qt_select5 "select cast ('2022-12-02 22:23:24.999999' as datetimev2(3)),cast ('2022-12-02 22:23:23.999999' as datetimev2(3))"
+        qt_select7 "select cast ('2022-12-02 22:23:24.999999' as datetimev2(3)),cast ('2022-12-02 22:23:23.999999' as datetimev2(3))"
+        qt_select8 "select array(cast ('2022-12-02 22:23:24.999999' as datetimev2(3)),cast ('2022-12-02 22:23:23.997799' as datetimev2(3)))"
 }
