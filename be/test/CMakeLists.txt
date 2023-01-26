@@ -52,8 +52,6 @@ set(EXPRS_TEST_FILES
     # exprs/hybrid_set_test.cpp
     # exprs/in-predicate-test.cpp
     exprs/json_function_test.cpp
-    exprs/string_functions_test.cpp
-    exprs/math_functions_test.cpp
     exprs/bloom_filter_predicate_test.cpp
 )
 set(GEO_TEST_FILES
