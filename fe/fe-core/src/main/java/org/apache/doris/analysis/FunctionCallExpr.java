@@ -1328,7 +1328,11 @@ public class FunctionCallExpr extends Expr {
                     if (fnName.getFunction().equalsIgnoreCase("money_format")
                             && children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3()) {
                         continue;
-                    } else if (!argTypes[i].matchesType(args[ix]) && !(
+                    } else if (fnName.getFunction().equalsIgnoreCase("array")
+                            && (children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3())
+                            || children.get(0).getType().isDatetimeV2() && args[ix].isDatetimeV2()) {
+                        continue;
+                    }else if (!argTypes[i].matchesType(args[ix]) && !(
                             argTypes[i].isDateOrDateTime() && args[ix].isDateOrDateTime())
                             && (!fn.getReturnType().isDecimalV3()
                             || (argTypes[i].isValid() && !argTypes[i].isDecimalV3() && args[ix].isDecimalV3()))) {
