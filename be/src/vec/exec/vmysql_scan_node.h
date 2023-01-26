@@ -58,10 +58,6 @@ private:
                              vectorized::MutableColumnPtr* column_ptr, RuntimeState* state);
     // Write debug string of this into out.
     void debug_string(int indentation_level, std::stringstream* out) const override;
-    // Writes a slot in tuple from an MySQL value containing text data.
-    // The Mysql value is converted into the appropriate target type.
-    Status write_text_slot(char* value, int value_length, SlotDescriptor* slot,
-                           RuntimeState* state);
 
     bool _is_init;
     MysqlScannerParam _my_param;
@@ -86,8 +82,6 @@ private:
     std::unique_ptr<MysqlScanner> _mysql_scanner;
     // Helper class for converting text to other types;
     std::unique_ptr<TextConverter> _text_converter;
-    // Current tuple.
-    doris::Tuple* _tuple = nullptr;
 };
 } // namespace vectorized
 } // namespace doris

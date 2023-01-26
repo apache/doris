@@ -29,7 +29,6 @@ class MemTable;
 class MemTracker;
 class Schema;
 class StorageEngine;
-class Tuple;
 class TupleDescriptor;
 class SlotDescriptor;
 

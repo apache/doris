@@ -52,8 +52,6 @@ set(EXPRS_TEST_FILES
     # exprs/hybrid_set_test.cpp
     # exprs/in-predicate-test.cpp
     exprs/json_function_test.cpp
-    exprs/string_functions_test.cpp
-    exprs/math_functions_test.cpp
     exprs/bloom_filter_predicate_test.cpp
 )
 set(GEO_TEST_FILES
@@ -166,7 +164,6 @@ set(RUNTIME_TEST_FILES
     runtime/memory/chunk_allocator_test.cpp
     runtime/memory/system_allocator_test.cpp
     runtime/cache/partition_cache_test.cpp
-    runtime/collection_value_test.cpp
     runtime/free_pool_test.cpp
     #runtime/array_test.cpp
 )
@@ -232,7 +229,6 @@ set(UTIL_TEST_FILES
     util/sort_heap_test.cpp
     util/counts_test.cpp
     util/date_func_test.cpp
-    util/array_parser_test.cpp
     util/quantile_state_test.cpp
     util/hdfs_storage_backend_test.cpp
     util/interval_tree_test.cpp
