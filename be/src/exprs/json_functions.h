@@ -95,29 +95,6 @@ struct JsonState {
 
 class JsonFunctions {
 public:
-    static void init();
-    static doris_udf::IntVal get_json_int(doris_udf::FunctionContext* context,
-                                          const doris_udf::StringVal& json_str,
-                                          const doris_udf::StringVal& path);
-    static doris_udf::StringVal get_json_string(doris_udf::FunctionContext* context,
-                                                const doris_udf::StringVal& json_str,
-                                                const doris_udf::StringVal& path);
-    static doris_udf::DoubleVal get_json_double(doris_udf::FunctionContext* context,
-                                                const doris_udf::StringVal& json_str,
-                                                const doris_udf::StringVal& path);
-
-    static rapidjson::Value* get_json_object(FunctionContext* context, std::string_view json_string,
-                                             std::string_view path_string,
-                                             const JsonFunctionType& fntype,
-                                             rapidjson::Document* document);
-
-    static doris_udf::StringVal json_array(doris_udf::FunctionContext* context, int num_args,
-                                           const doris_udf::StringVal* json_str);
-    static doris_udf::StringVal json_object(doris_udf::FunctionContext* context, int num_args,
-                                            const doris_udf::StringVal* json_str);
-    static doris_udf::StringVal json_quote(doris_udf::FunctionContext* context,
-                                           const doris_udf::StringVal& json_str);
-
     /**
      * The `document` parameter must be has parsed.
      * return Value Is Array object
@@ -136,12 +113,6 @@ public:
     static rapidjson::Value* get_json_object_from_parsed_json(
             const std::vector<JsonPath>& parsed_paths, rapidjson::Value* document,
             rapidjson::Document::AllocatorType& mem_allocator);
-
-    static void json_path_prepare(doris_udf::FunctionContext*,
-                                  doris_udf::FunctionContext::FunctionStateScope);
-
-    static void json_path_close(doris_udf::FunctionContext*,
-                                doris_udf::FunctionContext::FunctionStateScope);
 
     static void parse_json_paths(const std::string& path_strings,
                                  std::vector<JsonPath>* parsed_paths);
