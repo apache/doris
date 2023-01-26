@@ -88,21 +88,6 @@ public:
 
     void copy_null_signs(const CollectionValue* other);
 
-    size_t get_byte_size(const TypeDescriptor& item_type) const;
-
-    static CollectionValue from_collection_val(const CollectionVal& val);
-
-    // Deep copy collection.
-    // NOTICE: The CollectionValue* shallow_copied_cv must be initialized by calling memcpy function first (
-    // copy data from origin collection value).
-    static void deep_copy_collection(CollectionValue* shallow_copied_cv,
-                                     const TypeDescriptor& item_type,
-                                     const GenMemFootprintFunc& gen_mem_footprint,
-                                     bool convert_ptrs);
-
-    static void deserialize_collection(CollectionValue* cv, const char* tuple_data,
-                                       const TypeDescriptor& item_type);
-
     const void* data() const { return _data; }
     bool has_null() const { return _has_null; }
     const bool* null_signs() const { return _null_signs; }
