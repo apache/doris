@@ -166,9 +166,6 @@ public:
 
     void* get_data() { return _data; }
 
-    std::string to_string(const TupleDescriptor& d) const;
-    static std::string to_string(const Tuple* t, const TupleDescriptor& d);
-
 private:
     char _data[0];
 };

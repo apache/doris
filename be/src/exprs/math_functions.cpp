@@ -100,8 +100,6 @@ double MathFunctions::my_double_round(double value, int64_t dec, bool dec_unsign
     return tmp2;
 }
 
-void MathFunctions::init() {}
-
 DoubleVal MathFunctions::pi(FunctionContext* ctx) {
     return DoubleVal(M_PI);
 }

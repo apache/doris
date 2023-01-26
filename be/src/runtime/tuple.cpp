@@ -193,11 +193,4 @@ void Tuple::deep_copy(const TupleDescriptor& desc, char** data, int64_t* offset,
             convert_ptrs);
 }
 
-std::string Tuple::to_string(const Tuple* t, const TupleDescriptor& d) {
-    if (t == nullptr) {
-        return "null";
-    }
-    return t->to_string(d);
-}
-
 } // namespace doris
