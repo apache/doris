@@ -127,19 +127,6 @@ Status VMysqlScanNode::open(RuntimeState* state) {
     return Status::OK();
 }
 
-Status VMysqlScanNode::write_text_slot(char* value, int value_length, SlotDescriptor* slot,
-                                       RuntimeState* state) {
-    if (!_text_converter->write_slot(slot, _tuple, value, value_length, true, false,
-                                     _tuple_pool.get())) {
-        std::stringstream ss;
-        ss << "Fail to convert mysql value:'" << value << "' to " << slot->type() << " on column:`"
-           << slot->col_name() + "`";
-        return Status::InternalError(ss.str());
-    }
-
-    return Status::OK();
-}
-
 Status VMysqlScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
     if (state == nullptr || block == nullptr || eos == nullptr) {
         return Status::InternalError("input is nullptr");

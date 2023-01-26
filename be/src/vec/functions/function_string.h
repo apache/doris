@@ -1949,6 +1949,45 @@ public:
     }
 };
 
+namespace MoneyFormat {
+
+template <typename T, size_t N>
+static StringVal do_money_format(FunctionContext* context, const T int_value,
+                                 const int32_t frac_value = 0) {
+    char local[N];
+    char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
+    int32_t string_val_len = local + sizeof(local) - p + 3;
+    StringVal result = StringVal::create_temp_string_val(context, string_val_len);
+    memcpy(result.ptr, p, string_val_len - 3);
+    *(result.ptr + string_val_len - 3) = '.';
+    *(result.ptr + string_val_len - 2) = '0' + (frac_value / 10);
+    *(result.ptr + string_val_len - 1) = '0' + (frac_value % 10);
+    return result;
+};
+
+// Note string value must be valid decimal string which contains two digits after the decimal point
+static StringVal do_money_format(FunctionContext* context, const string& value) {
+    bool is_positive = (value[0] != '-');
+    int32_t result_len = value.size() + (value.size() - (is_positive ? 4 : 5)) / 3;
+    StringVal result = StringVal::create_temp_string_val(context, result_len);
+    if (!is_positive) {
+        *result.ptr = '-';
+    }
+    for (int i = value.size() - 4, j = result_len - 4; i >= 0; i = i - 3, j = j - 4) {
+        *(result.ptr + j) = *(value.data() + i);
+        if (i - 1 < 0) break;
+        *(result.ptr + j - 1) = *(value.data() + i - 1);
+        if (i - 2 < 0) break;
+        *(result.ptr + j - 2) = *(value.data() + i - 2);
+        if (j - 3 > 1 || (j - 3 == 1 && is_positive)) {
+            *(result.ptr + j - 3) = ',';
+        }
+    }
+    memcpy(result.ptr + result_len - 3, value.data() + value.size() - 3, 3);
+    return result;
+};
+
+} // namespace MoneyFormat
 struct MoneyFormatDoubleImpl {
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeFloat64>()}; }
 
@@ -1958,7 +1997,7 @@ struct MoneyFormatDoubleImpl {
         for (size_t i = 0; i < input_rows_count; i++) {
             double value =
                     MathFunctions::my_double_round(data_column->get_element(i), 2, false, false);
-            StringVal str = StringFunctions::do_money_format(context, fmt::format("{:.2f}", value));
+            StringVal str = MoneyFormat::do_money_format(context, fmt::format("{:.2f}", value));
             result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
         }
     }
@@ -1972,7 +2011,7 @@ struct MoneyFormatInt64Impl {
         const auto* data_column = assert_cast<const ColumnVector<Int64>*>(col_ptr.get());
         for (size_t i = 0; i < input_rows_count; i++) {
             Int64 value = data_column->get_element(i);
-            StringVal str = StringFunctions::do_money_format<Int64, 26>(context, value);
+            StringVal str = MoneyFormat::do_money_format<Int64, 26>(context, value);
             result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
         }
     }
@@ -1986,7 +2025,7 @@ struct MoneyFormatInt128Impl {
         const auto* data_column = assert_cast<const ColumnVector<Int128>*>(col_ptr.get());
         for (size_t i = 0; i < input_rows_count; i++) {
             Int128 value = data_column->get_element(i);
-            StringVal str = StringFunctions::do_money_format<Int128, 52>(context, value);
+            StringVal str = MoneyFormat::do_money_format<Int128, 52>(context, value);
             result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
         }
     }
@@ -2006,7 +2045,7 @@ struct MoneyFormatDecimalImpl {
                 DecimalV2Value rounded(0);
                 DecimalV2Value::from_decimal_val(value).round(&rounded, 2, HALF_UP);
 
-                StringVal str = StringFunctions::do_money_format<int64_t, 26>(
+                StringVal str = MoneyFormat::do_money_format<int64_t, 26>(
                         context, rounded.int_value(), abs(rounded.frac_value() / 10000000));
 
                 result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
@@ -2025,7 +2064,7 @@ struct MoneyFormatDecimalImpl {
                     frac_part = frac_part * multiplier;
                 }
 
-                StringVal str = StringFunctions::do_money_format<int64_t, 26>(
+                StringVal str = MoneyFormat::do_money_format<int64_t, 26>(
                         context, decimal32_column->get_whole_part(i), frac_part);
 
                 result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
@@ -2044,7 +2083,7 @@ struct MoneyFormatDecimalImpl {
                     frac_part = frac_part * multiplier;
                 }
 
-                StringVal str = StringFunctions::do_money_format<int64_t, 26>(
+                StringVal str = MoneyFormat::do_money_format<int64_t, 26>(
                         context, decimal64_column->get_whole_part(i), frac_part);
 
                 result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
@@ -2063,7 +2102,7 @@ struct MoneyFormatDecimalImpl {
                     frac_part = frac_part * multiplier;
                 }
 
-                StringVal str = StringFunctions::do_money_format<int64_t, 26>(
+                StringVal str = MoneyFormat::do_money_format<int64_t, 26>(
                         context, decimal128_column->get_whole_part(i), frac_part);
 
                 result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);

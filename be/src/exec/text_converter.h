@@ -24,7 +24,6 @@ class MemPool;
 class SlotDescriptor;
 class Status;
 struct StringRef;
-class Tuple;
 class TupleDescriptor;
 
 // Helper class for dealing with text data, e.g., converting text data to
@@ -32,19 +31,6 @@ class TupleDescriptor;
 class TextConverter {
 public:
     TextConverter(char escape_char);
-
-    // Converts slot data, of length 'len',  into type of slot_desc,
-    // and writes the result into the tuples's slot.
-    // copy_string indicates whether we need to make a separate copy of the string data:
-    // For regular unescaped strings, we point to the original data in the _file_buf.
-    // For regular escaped strings, we copy an its unescaped string into a separate buffer
-    // and point to it.
-    // If the string needs to be copied, the memory is allocated from 'pool', otherwise
-    // 'pool' is unused.
-    // Unsuccessful conversions are turned into NULLs.
-    // Returns true if the value was written successfully.
-    bool write_slot(const SlotDescriptor* slot_desc, Tuple* tuple, const char* data, int len,
-                    bool copy_string, bool need_escape, MemPool* pool);
 
     void write_string_column(const SlotDescriptor* slot_desc,
                              vectorized::MutableColumnPtr* column_ptr, const char* data,

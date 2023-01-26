@@ -41,6 +41,7 @@ add_library(Olap STATIC
     like_column_predicate.cpp
     key_coder.cpp
     lru_cache.cpp
+    match_predicate.cpp
     memtable.cpp
     memtable_flush_executor.cpp
     merger.cpp

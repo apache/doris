@@ -26,7 +26,6 @@ set(UTIL_FILES
   arrow/row_block.cpp
   arrow/utils.cpp
   arrow/block_convertor.cpp
-  array_parser.cpp
   bfd_parser.cpp
   bitmap.cpp
   block_compression.cpp
@@ -58,7 +57,6 @@ set(UTIL_FILES
   thrift_client.cpp
   thrift_server.cpp
   stack_util.cpp
-  symbols_util.cpp
   system_metrics.cpp
   url_parser.cpp
   url_coding.cpp
@@ -105,7 +103,6 @@ set(UTIL_FILES
   hdfs_storage_backend.cpp
   hdfs_util.cpp
   time_lut.cpp
-  topn_counter.cpp
   cityhash102/city.cc
   tuple_row_zorder_compare.cpp
   telemetry/telemetry.cpp
