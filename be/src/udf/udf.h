@@ -23,6 +23,7 @@
 #include <string.h>
 
 #include <cstdint>
+#include <functional>
 #include <iostream>
 #include <vector>
 

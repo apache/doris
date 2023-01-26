@@ -581,7 +581,7 @@ public:
         return value;
     }
 
-    uint32_t hash(int seed) const { return HashUtil::hash(this, sizeof(*this), seed); }
+    uint32_t hash(int seed) const { return doris::HashUtil::hash(this, sizeof(*this), seed); }
 
     int day_of_year() const { return daynr() - calc_daynr(_year, 1, 1) + 1; }
 
