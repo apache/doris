@@ -56,7 +56,6 @@ set(EXPRS_TEST_FILES
 )
 set(GEO_TEST_FILES
     geo/wkt_parse_test.cpp
-    geo/geo_functions_test.cpp
     geo/geo_types_test.cpp
 )
 set(GUTIL_TEST_FILES

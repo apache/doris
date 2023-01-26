@@ -25,6 +25,21 @@
 
 namespace doris::vectorized {
 
+struct StConstructState {
+    StConstructState() : is_null(false) {}
+    ~StConstructState() {}
+
+    bool is_null;
+    std::string encoded_buf;
+};
+
+struct StContainsState {
+    StContainsState() : is_null(false), shapes {nullptr, nullptr} {}
+    ~StContainsState() {}
+    bool is_null;
+    std::vector<std::shared_ptr<GeoShape>> shapes;
+};
+
 template <typename Impl, typename ReturnType = DataTypeString>
 class GeoFunction : public IFunction {
 public:

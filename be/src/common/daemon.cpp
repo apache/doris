@@ -25,7 +25,6 @@
 #include "common/logging.h"
 #include "exprs/math_functions.h"
 #include "exprs/string_functions.h"
-#include "geo/geo_functions.h"
 #include "olap/options.h"
 #include "runtime/block_spill_manager.h"
 #include "runtime/exec_env.h"
@@ -352,8 +351,6 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     DiskInfo::init();
     MemInfo::init();
     UserFunctionCache::instance()->init(config::user_function_dir);
-    LikePredicate::init();
-    GeoFunctions::init();
 
     LOG(INFO) << CpuInfo::debug_string();
     LOG(INFO) << DiskInfo::debug_string();
