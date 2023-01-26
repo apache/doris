@@ -29,12 +29,6 @@ namespace doris {
 
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(result_buffer_block_count, MetricUnit::NOUNIT);
 
-//std::size_t hash_value(const TUniqueId& fragment_id) {
-//    uint32_t value = RawValue::get_hash_value(&fragment_id.lo, TypeDescriptor(TYPE_BIGINT), 0);
-//    value = RawValue::get_hash_value(&fragment_id.hi, TypeDescriptor(TYPE_BIGINT), value);
-//    return value;
-//}
-
 ResultBufferMgr::ResultBufferMgr() : _stop_background_threads_latch(1) {
     // Each BufferControlBlock has a limited queue size of 1024, it's not needed to count the
     // actual size of all BufferControlBlock.

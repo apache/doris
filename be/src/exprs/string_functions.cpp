@@ -858,39 +858,6 @@ StringVal StringFunctions::parse_url_key(FunctionContext* ctx, const StringVal& 
     return result_sv;
 }
 
-StringVal StringFunctions::money_format(FunctionContext* context, const DoubleVal& v) {
-    if (v.is_null) {
-        return StringVal::null();
-    }
-    double v_cent = MathFunctions::my_double_round(v.val, 2, false, false);
-    return do_money_format(context, fmt::format("{:.2f}", v_cent));
-}
-
-StringVal StringFunctions::money_format(FunctionContext* context, const DecimalV2Val& v) {
-    if (v.is_null) {
-        return StringVal::null();
-    }
-
-    DecimalV2Value rounded(0);
-    DecimalV2Value::from_decimal_val(v).round(&rounded, 2, HALF_UP);
-    return do_money_format<int64_t, 26>(context, rounded.int_value(),
-                                        abs(rounded.frac_value() / 10000000));
-}
-
-StringVal StringFunctions::money_format(FunctionContext* context, const BigIntVal& v) {
-    if (v.is_null) {
-        return StringVal::null();
-    }
-    return do_money_format<int64_t, 26>(context, v.val);
-}
-
-StringVal StringFunctions::money_format(FunctionContext* context, const LargeIntVal& v) {
-    if (v.is_null) {
-        return StringVal::null();
-    }
-    return do_money_format<__int128_t, 52>(context, v.val);
-}
-
 static int index_of(const uint8_t* source, int source_offset, int source_count,
                     const uint8_t* target, int target_offset, int target_count, int from_index) {
     if (from_index >= source_count) {

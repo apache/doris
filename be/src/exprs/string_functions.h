@@ -132,54 +132,6 @@ public:
     static void parse_url_close(doris_udf::FunctionContext*,
                                 doris_udf::FunctionContext::FunctionStateScope);
 
-    static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,
-                                             const doris_udf::DoubleVal& v);
-
-    static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,
-                                             const doris_udf::DecimalV2Val& v);
-
-    static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,
-                                             const doris_udf::BigIntVal& v);
-
-    static doris_udf::StringVal money_format(doris_udf::FunctionContext* context,
-                                             const doris_udf::LargeIntVal& v);
-
-    template <typename T, size_t N>
-    static StringVal do_money_format(FunctionContext* context, const T int_value,
-                                     const int32_t frac_value = 0) {
-        char local[N];
-        char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
-        int32_t string_val_len = local + sizeof(local) - p + 3;
-        StringVal result = StringVal::create_temp_string_val(context, string_val_len);
-        memcpy(result.ptr, p, string_val_len - 3);
-        *(result.ptr + string_val_len - 3) = '.';
-        *(result.ptr + string_val_len - 2) = '0' + (frac_value / 10);
-        *(result.ptr + string_val_len - 1) = '0' + (frac_value % 10);
-        return result;
-    };
-
-    // Note string value must be valid decimal string which contains two digits after the decimal point
-    static StringVal do_money_format(FunctionContext* context, const string& value) {
-        bool is_positive = (value[0] != '-');
-        int32_t result_len = value.size() + (value.size() - (is_positive ? 4 : 5)) / 3;
-        StringVal result = StringVal::create_temp_string_val(context, result_len);
-        if (!is_positive) {
-            *result.ptr = '-';
-        }
-        for (int i = value.size() - 4, j = result_len - 4; i >= 0; i = i - 3, j = j - 4) {
-            *(result.ptr + j) = *(value.data() + i);
-            if (i - 1 < 0) break;
-            *(result.ptr + j - 1) = *(value.data() + i - 1);
-            if (i - 2 < 0) break;
-            *(result.ptr + j - 2) = *(value.data() + i - 2);
-            if (j - 3 > 1 || (j - 3 == 1 && is_positive)) {
-                *(result.ptr + j - 3) = ',';
-            }
-        }
-        memcpy(result.ptr + result_len - 3, value.data() + value.size() - 3, 3);
-        return result;
-    };
-
     static StringVal split_part(FunctionContext* context, const StringVal& content,
                                 const StringVal& delimiter, const IntVal& field);
 

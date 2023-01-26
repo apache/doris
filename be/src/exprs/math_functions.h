@@ -28,8 +28,6 @@ namespace doris {
 
 class MathFunctions {
 public:
-    static void init();
-
     static doris_udf::DoubleVal pi(doris_udf::FunctionContext* ctx);
     static doris_udf::DoubleVal e(doris_udf::FunctionContext* ctx);
 

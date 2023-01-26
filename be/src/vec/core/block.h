@@ -371,9 +371,6 @@ private:
     void erase_impl(size_t position);
     bool is_column_data_null(const doris::TypeDescriptor& type_desc, const StringRef& data_ref,
                              const IColumn* column_with_type_and_name, int row);
-    void deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor& type_desc,
-                        const StringRef& data_ref, const IColumn* column, int row,
-                        bool padding_char);
 };
 
 using Blocks = std::vector<Block>;

@@ -356,8 +356,6 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     MemInfo::init();
     UserFunctionCache::instance()->init(config::user_function_dir);
     LikePredicate::init();
-    StringFunctions::init();
-    MathFunctions::init();
     JsonFunctions::init();
     GeoFunctions::init();
     MatchPredicate::init();
