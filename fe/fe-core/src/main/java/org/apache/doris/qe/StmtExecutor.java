@@ -1854,6 +1854,11 @@ public class StmtExecutor implements ProfileWriter {
             }
             LoadManager loadManager = context.getEnv().getLoadManager();
             if (jobType == EtlJobType.LOCAL_FILE) {
+                if (!context.getCapability().supportClientLocalFile()) {
+                    context.getState().setError(ErrorCode.ERR_NOT_ALLOWED_COMMAND, "This client is not support"
+                            + " to load client local file.");
+                    return;
+                }
                 LoadJobRowResult submitResult = loadManager.executeMySqlLoadJobFromStmt(context, loadStmt);
                 context.getState().setOk(submitResult.getRecords(), submitResult.getWarnings(),
                         submitResult.toString());
