@@ -191,6 +191,13 @@ public class MysqlProto {
             return false;
         }
 
+        // check client support mysql load
+        if (authPacket.getCapability().supportClientLocalFile()) {
+            ErrorReport.report(ErrorCode.ERR_NOT_ALLOWED_COMMAND);
+            sendResponsePacket(context);
+            return false;
+        }
+
         // change the capability of serializer
         context.setCapability(context.getServerCapability());
         serializer.setCapability(context.getCapability());

@@ -46,6 +46,6 @@ public class MysqlCapabilityTest {
         Assert.assertEquals("CLIENT_CONNECT_WITH_DB | CLIENT_LOCAL_FILES | CLIENT_PROTOCOL_41"
                 + " | CLIENT_SECURE_CONNECTION | CLIENT_PLUGIN_AUTH",
                 capability.toString());
-        Assert.assertTrue(capability.isClientLocalFile());
+        Assert.assertTrue(capability.supportClientLocalFile());
     }
 }

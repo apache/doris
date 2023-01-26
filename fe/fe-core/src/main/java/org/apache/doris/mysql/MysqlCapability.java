@@ -141,7 +141,7 @@ public class MysqlCapability {
         return (flags & Flag.CLIENT_SESSION_TRACK.getFlagBit()) != 0;
     }
 
-    public boolean isClientLocalFile() {
+    public boolean supportClientLocalFile() {
         return (flags & Flag.CLIENT_LOCAL_FILES.getFlagBit()) != 0;
     }
 

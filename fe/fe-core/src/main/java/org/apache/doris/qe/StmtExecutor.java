@@ -1854,10 +1854,6 @@ public class StmtExecutor implements ProfileWriter {
             }
             LoadManager loadManager = context.getEnv().getLoadManager();
             if (jobType == EtlJobType.LOCAL_FILE) {
-                if (!context.getCapability().isClientLocalFile()) {
-                    throw new DdlException("Doris server does not support load local file from mysql client.");
-                }
-
                 LoadJobRowResult submitResult = loadManager.executeMySqlLoadJobFromStmt(context, loadStmt);
                 context.getState().setOk(submitResult.getRecords(), submitResult.getWarnings(),
                         submitResult.toString());

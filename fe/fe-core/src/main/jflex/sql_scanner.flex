@@ -479,13 +479,10 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("year", new Integer(SqlParserSymbols.KW_YEAR));
         keywordMap.put("mtmv", new Integer(SqlParserSymbols.KW_MTMV));
         keywordMap.put("histogram", new Integer(SqlParserSymbols.KW_HISTOGRAM));
-<<<<<<< HEAD
         keywordMap.put("auto", new Integer(SqlParserSymbols.KW_AUTO));
         keywordMap.put("prepare", new Integer(SqlParserSymbols.KW_PREPARE));
         keywordMap.put("execute", new Integer(SqlParserSymbols.KW_EXECUTE));
-=======
         keywordMap.put("lines", new Integer(SqlParserSymbols.KW_LINES));
->>>>>>> 8f6d1effb (mysql load)
    }
     
   // map from token id to token description
