@@ -16,6 +16,11 @@ import java.util.Set;
 public class UserRoleManager implements Writable {
     private Map<UserIdentity, Set<String>> userToRoles = Maps.newConcurrentMap();
     private Map<String, Set<UserIdentity>> roleToUsers = Maps.newConcurrentMap();
+    private RoleManager roleManager;
+
+    public UserRoleManager(RoleManager roleManager) {
+        this.roleManager = roleManager;
+    }
 
     public void addUserRole(UserIdentity userIdentity, String roleName) {
         Set<String> roles = userToRoles.get(userIdentity);
@@ -37,8 +42,8 @@ public class UserRoleManager implements Writable {
     }
 
     public void dropUser(UserIdentity userIdentity) {
-        Set<String> remove = userToRoles.remove(userIdentity);
-        for (String roleName : remove) {
+        Set<String> roles = userToRoles.remove(userIdentity);
+        for (String roleName : roles) {
             Set<UserIdentity> userIdentities = roleToUsers.get(roleName);
             if (CollectionUtils.isEmpty(userIdentities)) {
                 continue;
@@ -78,7 +83,7 @@ public class UserRoleManager implements Writable {
     }
 
     public static UserRoleManager read(DataInput in) throws IOException {
-        UserRoleManager userRoleManager = new UserRoleManager();
-        return userRoleManager;
+//        UserRoleManager userRoleManager = new UserRoleManager();
+        return null;
     }
 }

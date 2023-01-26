@@ -315,4 +315,69 @@ public class Role implements Writable {
     public void grant(TablePattern tblPattern, PrivBitSet of) {
 
     }
+
+    public void setTblPatternToPrivs(
+            Map<TablePattern, PrivBitSet> tblPatternToPrivs) {
+        this.tblPatternToPrivs = tblPatternToPrivs;
+    }
+
+    public void setResourcePatternToPrivs(
+            Map<ResourcePattern, PrivBitSet> resourcePatternToPrivs) {
+        this.resourcePatternToPrivs = resourcePatternToPrivs;
+    }
+
+    public GlobalPrivTable getGlobalPrivTable() {
+        return globalPrivTable;
+    }
+
+    public void setGlobalPrivTable(GlobalPrivTable globalPrivTable) {
+        this.globalPrivTable = globalPrivTable;
+    }
+
+    public CatalogPrivTable getCatalogPrivTable() {
+        return catalogPrivTable;
+    }
+
+    public void setCatalogPrivTable(CatalogPrivTable catalogPrivTable) {
+        this.catalogPrivTable = catalogPrivTable;
+    }
+
+    public DbPrivTable getDbPrivTable() {
+        return dbPrivTable;
+    }
+
+    public void setDbPrivTable(DbPrivTable dbPrivTable) {
+        this.dbPrivTable = dbPrivTable;
+    }
+
+    public TablePrivTable getTablePrivTable() {
+        return tablePrivTable;
+    }
+
+    public void setTablePrivTable(TablePrivTable tablePrivTable) {
+        this.tablePrivTable = tablePrivTable;
+    }
+
+    public ResourcePrivTable getResourcePrivTable() {
+        return resourcePrivTable;
+    }
+
+    public void setResourcePrivTable(ResourcePrivTable resourcePrivTable) {
+        this.resourcePrivTable = resourcePrivTable;
+    }
+
+    public boolean checkCanEnterCluster(String clusterName) {
+        if (checkGlobalPriv(PrivPredicate.ALL)) {
+            return true;
+        }
+
+        if (dbPrivTable.hasClusterPriv(clusterName)) {
+            return true;
+        }
+
+        if (tablePrivTable.hasClusterPriv(clusterName)) {
+            return true;
+        }
+        return false;
+    }
 }

@@ -20,6 +20,7 @@ import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 
 public class UserManager {
     public static final String ANY_HOST = "%";
@@ -134,10 +135,26 @@ public class UserManager {
     }
 
     public void clearEntriesSetByResolver() {
-        // delete user which isSetByDomainResolver is true
+        Iterator<Entry<String, List<User>>> iterator = nameToUsers.entrySet().iterator();
+        while (iterator.hasNext()) {
+            Entry<String, List<User>> next = iterator.next();
+            Iterator<User> iter = next.getValue().iterator();
+            while (iter.hasNext()) {
+                User user = iter.next();
+                if (user.isSetByDomainResolver()) {
+                    iter.remove();
+                }
+            }
+            if (CollectionUtils.isEmpty(next.getValue())) {
+                iterator.remove();
+            } else {
+                Collections.sort(next.getValue());
+            }
+        }
+
     }
 
-    // TODO: 2023/1/25 err on exist 
+    // TODO: 2023/1/25 err on exist
     public User createUser(UserIdentity userIdent, byte[] pwd, UserIdentity domainUserIdent, boolean setByResolver)
             throws AnalysisException {
         if (userIdentityExist(userIdent)) {
@@ -204,5 +221,14 @@ public class UserManager {
         } else {
             Collections.sort(nameToLists);
         }
+    }
+
+    public Map<String, List<User>> getNameToUsers() {
+        return nameToUsers;
+    }
+
+    public void setNameToUsers(
+            Map<String, List<User>> nameToUsers) {
+        this.nameToUsers = nameToUsers;
     }
 }

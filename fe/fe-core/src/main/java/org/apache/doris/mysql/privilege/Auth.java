@@ -35,11 +35,13 @@ import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -56,9 +58,11 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TFetchResourceResult;
 import org.apache.doris.thrift.TPrivilegeStatus;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -69,6 +73,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 
 public class Auth implements Writable {
     private static final Logger LOG = LogManager.getLogger(Auth.class);
@@ -83,7 +88,7 @@ public class Auth implements Writable {
 
     private RoleManager roleManager = new RoleManager();
     private UserManager userManager = new UserManager();
-    private UserRoleManager userRoleManager = new UserRoleManager();
+    private UserRoleManager userRoleManager = new UserRoleManager(roleManager);
     private UserPropertyMgr propertyMgr = new UserPropertyMgr();
 
     private LdapInfo ldapInfo = new LdapInfo();
@@ -924,22 +929,19 @@ public class Auth implements Writable {
         }
     }
 
-    //todo implement
     // refresh all priv entries set by domain resolver.
     // 1. delete all priv entries in user priv table which are set by domain resolver previously.
     // 2. add priv entries by new resolving IPs
     public void refreshUserPrivEntriesByResovledIPs(Map<String, Set<String>> resolvedIPsMap) {
-        //        writeLock();
-        //        try {
-        //            // 1. delete all previously set entries
-        //            userPrivTable.clearEntriesSetByResolver();
-        //            // 2. add new entries
-        //            propertyMgr.addUserPrivEntriesByResolvedIPs(resolvedIPsMap);
-        //        } finally {
-        //            writeUnlock();
-        //        }
-        userManager.clearEntriesSetByResolver();
-        propertyMgr.addUserPrivEntriesByResolvedIPs(resolvedIPsMap);
+        writeLock();
+        try {
+            // 1. delete all previously set entries
+            userManager.clearEntriesSetByResolver();
+            // 2. add new entries
+            propertyMgr.addUserPrivEntriesByResolvedIPs(resolvedIPsMap);
+        } finally {
+            writeUnlock();
+        }
     }
 
     // return the auth info of specified user, or infos of all users, if user is not specified.
@@ -947,21 +949,224 @@ public class Auth implements Writable {
     // the specified user identity should be the identity created by CREATE USER, same as result of
     // SELECT CURRENT_USER();
     public List<List<String>> getAuthInfo(UserIdentity specifiedUserIdent) {
+        List<List<String>> userAuthInfos = Lists.newArrayList();
+        readLock();
         try {
-            //merge all auth of roles
+            if (specifiedUserIdent == null) {
+                // get all users' auth info
+                // TODO: 2023/1/26 why not get domain user
+                Map<String, List<User>> nameToUsers = userManager.getNameToUsers();
+                for (List<User> users : nameToUsers.values()) {
+                    for (User user : users) {
+                        if (!user.isSetByDomainResolver()) {
+                            getUserAuthInfo(userAuthInfos, user.getUserIdentity());
+                        }
+                    }
+                }
+            } else {
+                getUserAuthInfo(userAuthInfos, specifiedUserIdent);
+            }
         } finally {
             readUnlock();
         }
-        return null;
+        return userAuthInfos;
     }
 
     private void getUserAuthInfo(List<List<String>> userAuthInfos, UserIdentity userIdent) {
-        //todo merge auth of roles
+        List<String> userAuthInfo = Lists.newArrayList();
+        User user = userManager.getUserByUserIdentity(userIdent);
+        // global
+        // ldap global privs.
+        PrivBitSet ldapGlobalPrivs = LdapPrivsChecker.getGlobalPrivFromLdap(userIdent);
+        for (PrivEntry entry : getUserGlobalPrivTable(userIdent).entries) {
+
+            GlobalPrivEntry gEntry = (GlobalPrivEntry) entry;
+            userAuthInfo.add(userIdent.toString());
+            if (userIdent.isDomain()) {
+                // for domain user ident, password is saved in property manager
+                userAuthInfo.add(propertyMgr.doesUserHasPassword(userIdent) ? "No" : "Yes");
+            } else {
+                userAuthInfo
+                        .add((user.getPassword().getPassword() == null || user.getPassword().getPassword().length == 0)
+                                ? "No" : "Yes");
+            }
+            PrivBitSet savedPrivs = gEntry.getPrivSet().copy();
+            savedPrivs.or(ldapGlobalPrivs);
+            userAuthInfo.add(savedPrivs.toString() + " (" + user.isSetByDomainResolver() + ")");
+            break;
+        }
+
+        if (userAuthInfo.isEmpty()) {
+            userAuthInfo.add(userIdent.toString());
+            if (LdapPrivsChecker.hasLdapPrivs(userIdent)) {
+                userAuthInfo.add("No");
+                userAuthInfo.add(ldapGlobalPrivs.toString() + " (false)");
+            } else if (!userIdent.isDomain()) {
+                // If this is not a domain user identity, it must have global priv entry.
+                // TODO(cmy): I don't know why previous comment said:
+                // This may happen when we grant non global privs to a non exist user via GRANT stmt.
+                LOG.warn("user identity does not have global priv entry: {}", userIdent);
+                userAuthInfo.add(FeConstants.null_string);
+                userAuthInfo.add(FeConstants.null_string);
+            } else {
+                // this is a domain user identity and fall in here, which means this user identity does not
+                // have global priv, we need to check user property to see if it has password.
+                userAuthInfo.add(propertyMgr.doesUserHasPassword(userIdent) ? "No" : "Yes");
+                userAuthInfo.add(FeConstants.null_string);
+            }
+        }
+
+        // catalog
+        String ctlPrivs = getUserCtlPrivTable(userIdent).entries.stream()
+                .map(entry -> String.format("%s: %s (%b)",
+                        ((CatalogPrivEntry) entry).getOrigCtl(), entry.privSet, user.isSetByDomainResolver()))
+                .collect(Collectors.joining("; "));
+        if (Strings.isNullOrEmpty(ctlPrivs)) {
+            ctlPrivs = FeConstants.null_string;
+        }
+        userAuthInfo.add(ctlPrivs);
+
+        // db
+        List<String> dbPrivs = Lists.newArrayList();
+        Set<String> addedDbs = Sets.newHashSet();
+        for (PrivEntry entry : getUserDbPrivTable(userIdent).entries) {
+            DbPrivEntry dEntry = (DbPrivEntry) entry;
+            /**
+             * Doris and Ldap may have different privs on one database.
+             * Merge these privs and add.
+             */
+            PrivBitSet savedPrivs = dEntry.getPrivSet().copy();
+            savedPrivs.or(LdapPrivsChecker.getDbPrivFromLdap(userIdent, dEntry.getOrigDb()));
+            addedDbs.add(dEntry.getOrigDb());
+            dbPrivs.add(String.format("%s.%s: %s (%b)", dEntry.getOrigCtl(), dEntry.getOrigDb(),
+                    savedPrivs, user.isSetByDomainResolver()));
+        }
+        // Add privs from ldap groups that have not been added in Doris.
+        if (LdapPrivsChecker.hasLdapPrivs(userIdent)) {
+            Map<TablePattern, PrivBitSet> ldapDbPrivs = LdapPrivsChecker.getLdapAllDbPrivs(userIdent);
+            for (Map.Entry<TablePattern, PrivBitSet> entry : ldapDbPrivs.entrySet()) {
+                if (!addedDbs.contains(entry.getKey().getQualifiedDb())) {
+                    dbPrivs.add(String.format("%s.%s: %s (%b)", entry.getKey().getQualifiedCtl(),
+                            entry.getKey().getQualifiedDb(), entry.getValue(), false));
+                }
+            }
+        }
+
+        if (dbPrivs.isEmpty()) {
+            userAuthInfo.add(FeConstants.null_string);
+        } else {
+            userAuthInfo.add(Joiner.on("; ").join(dbPrivs));
+        }
+
+        // tbl
+        List<String> tblPrivs = Lists.newArrayList();
+        Set<String> addedtbls = Sets.newHashSet();
+        for (PrivEntry entry : getUserTblPrivTable(userIdent).entries) {
+            TablePrivEntry tEntry = (TablePrivEntry) entry;
+            /**
+             * Doris and Ldap may have different privs on one table.
+             * Merge these privs and add.
+             */
+            PrivBitSet savedPrivs = tEntry.getPrivSet().copy();
+            savedPrivs.or(LdapPrivsChecker.getTblPrivFromLdap(userIdent, tEntry.getOrigDb(), tEntry.getOrigTbl()));
+            addedtbls.add(tEntry.getOrigDb().concat(".").concat(tEntry.getOrigTbl()));
+            tblPrivs.add(String.format("%s.%s.%s: %s (%b)", tEntry.getOrigCtl(), tEntry.getOrigDb(),
+                    tEntry.getOrigTbl(), savedPrivs, user.isSetByDomainResolver()));
+        }
+        // Add privs from ldap groups that have not been added in Doris.
+        if (LdapPrivsChecker.hasLdapPrivs(userIdent)) {
+            Map<TablePattern, PrivBitSet> ldapTblPrivs = LdapPrivsChecker.getLdapAllTblPrivs(userIdent);
+            for (Map.Entry<TablePattern, PrivBitSet> entry : ldapTblPrivs.entrySet()) {
+                if (!addedtbls.contains(entry.getKey().getQualifiedDb().concat(".").concat(entry.getKey().getTbl()))) {
+                    tblPrivs.add(String.format("%s: %s (%b)", entry.getKey(), entry.getValue(), false));
+                }
+            }
+        }
+
+        if (tblPrivs.isEmpty()) {
+            userAuthInfo.add(FeConstants.null_string);
+        } else {
+            userAuthInfo.add(Joiner.on("; ").join(tblPrivs));
+        }
+
+        // resource
+        List<String> resourcePrivs = Lists.newArrayList();
+        Set<String> addedResources = Sets.newHashSet();
+        for (PrivEntry entry : getUserResourcePrivTable(userIdent).entries) {
+            ResourcePrivEntry rEntry = (ResourcePrivEntry) entry;
+            /**
+             * Doris and Ldap may have different privs on one resource.
+             * Merge these privs and add.
+             */
+            PrivBitSet savedPrivs = rEntry.getPrivSet().copy();
+            savedPrivs.or(LdapPrivsChecker.getResourcePrivFromLdap(userIdent, rEntry.getOrigResource()));
+            addedResources.add(rEntry.getOrigResource());
+            resourcePrivs.add(rEntry.getOrigResource() + ": " + savedPrivs.toString()
+                    + " (" + user.isSetByDomainResolver() + ")");
+        }
+        // Add privs from ldap groups that have not been added in Doris.
+        if (LdapPrivsChecker.hasLdapPrivs(userIdent)) {
+            Map<ResourcePattern, PrivBitSet> ldapResourcePrivs = LdapPrivsChecker.getLdapAllResourcePrivs(userIdent);
+            for (Map.Entry<ResourcePattern, PrivBitSet> entry : ldapResourcePrivs.entrySet()) {
+                if (!addedResources.contains(entry.getKey().getResourceName())) {
+                    tblPrivs.add(entry.getKey().getResourceName().concat(": ").concat(entry.getValue().toString())
+                            .concat(" (false)"));
+                }
+            }
+        }
+
+        if (resourcePrivs.isEmpty()) {
+            userAuthInfo.add(FeConstants.null_string);
+        } else {
+            userAuthInfo.add(Joiner.on("; ").join(resourcePrivs));
+        }
+
+        userAuthInfos.add(userAuthInfo);
     }
 
-    private Set<UserIdentity> getAllUserIdents(boolean includeEntrySetByResolver) {
-        //        return userManager.getUsers();
-        return null;
+    private GlobalPrivTable getUserGlobalPrivTable(UserIdentity userIdentity) {
+        GlobalPrivTable table = new GlobalPrivTable();
+        Set<String> roles = userRoleManager.getRolesByUser(userIdentity);
+        for (String roleName : roles) {
+            table.merge(roleManager.getRole(roleName).getGlobalPrivTable());
+        }
+        return table;
+    }
+
+    private CatalogPrivTable getUserCtlPrivTable(UserIdentity userIdentity) {
+        CatalogPrivTable table = new CatalogPrivTable();
+        Set<String> roles = userRoleManager.getRolesByUser(userIdentity);
+        for (String roleName : roles) {
+            table.merge(roleManager.getRole(roleName).getCatalogPrivTable());
+        }
+        return table;
+    }
+
+    private DbPrivTable getUserDbPrivTable(UserIdentity userIdentity) {
+        DbPrivTable table = new DbPrivTable();
+        Set<String> roles = userRoleManager.getRolesByUser(userIdentity);
+        for (String roleName : roles) {
+            table.merge(roleManager.getRole(roleName).getDbPrivTable());
+        }
+        return table;
+    }
+
+    private TablePrivTable getUserTblPrivTable(UserIdentity userIdentity) {
+        TablePrivTable table = new TablePrivTable();
+        Set<String> roles = userRoleManager.getRolesByUser(userIdentity);
+        for (String roleName : roles) {
+            table.merge(roleManager.getRole(roleName).getTablePrivTable());
+        }
+        return table;
+    }
+
+    private ResourcePrivTable getUserResourcePrivTable(UserIdentity userIdentity) {
+        ResourcePrivTable table = new ResourcePrivTable();
+        Set<String> roles = userRoleManager.getRolesByUser(userIdentity);
+        for (String roleName : roles) {
+            table.merge(roleManager.getRole(roleName).getResourcePrivTable());
+        }
+        return table;
     }
 
     public List<List<String>> getUserProperties(String qualifiedUser) {
@@ -978,10 +1183,13 @@ public class Auth implements Writable {
     public void dropUserOfCluster(String clusterName, boolean isReplay) throws DdlException {
         writeLock();
         try {
-            Set<UserIdentity> allUserIdents = getAllUserIdents(true);
-            for (UserIdentity userIdent : allUserIdents) {
-                if (userIdent.getQualifiedUser().startsWith(clusterName)) {
-                    dropUserInternal(userIdent, false, isReplay);
+            // TODO: 2023/1/26 lock?
+            Map<String, List<User>> nameToUsers = userManager.getNameToUsers();
+            for (List<User> users : nameToUsers.values()) {
+                for (User user : users) {
+                    if (user.getUserIdentity().getQualifiedUser().startsWith(clusterName)) {
+                        dropUserInternal(user.getUserIdentity(), false, isReplay);
+                    }
                 }
             }
         } finally {
@@ -1002,8 +1210,12 @@ public class Auth implements Writable {
     public boolean checkCanEnterCluster(ConnectContext ctx, String clusterName) {
         readLock();
         try {
-            // TODO: 2023/1/16 roles 
-
+            Set<String> roles = userRoleManager.getRolesByUser(ctx.getCurrentUserIdentity());
+            for (String roleName : roles) {
+                if (roleManager.getRole(roleName).checkCanEnterCluster(clusterName)) {
+                    return true;
+                }
+            }
             return false;
         } finally {
             readUnlock();
@@ -1049,7 +1261,33 @@ public class Auth implements Writable {
     public void getTablePrivStatus(List<TPrivilegeStatus> tblPrivResult, UserIdentity currentUser) {
         readLock();
         try {
-            // TODO: merge roles
+            for (PrivEntry entry : getUserTblPrivTable(currentUser).getEntries()) {
+                TablePrivEntry tblPrivEntry = (TablePrivEntry) entry;
+                String dbName = ClusterNamespace.getNameFromFullName(tblPrivEntry.getOrigDb());
+                String tblName = tblPrivEntry.getOrigTbl();
+
+                if (dbName.equals("information_schema" /* Don't show privileges in information_schema */)
+                        || !checkTblPriv(currentUser, tblPrivEntry.getOrigDb(), tblName, PrivPredicate.SHOW)) {
+                    continue;
+                }
+
+                String grantee = new String("\'")
+                        .concat(ClusterNamespace.getNameFromFullName(currentUser.getQualifiedUser()))
+                        .concat("\'@\'").concat(currentUser.getHost()).concat("\'");
+                String isGrantable = tblPrivEntry.getPrivSet().get(2) ? "YES" : "NO"; // GRANT_PRIV
+                for (Privilege paloPriv : tblPrivEntry.getPrivSet().toPrivilegeList()) {
+                    if (!Privilege.privInPaloToMysql.containsKey(paloPriv)) {
+                        continue;
+                    }
+                    TPrivilegeStatus status = new TPrivilegeStatus();
+                    status.setTableName(tblName);
+                    status.setPrivilegeType(Privilege.privInPaloToMysql.get(paloPriv));
+                    status.setGrantee(grantee);
+                    status.setSchema(dbName);
+                    status.setIsGrantable(isGrantable);
+                    tblPrivResult.add(status);
+                }
+            }
         } finally {
             readUnlock();
         }
@@ -1059,7 +1297,32 @@ public class Auth implements Writable {
     public void getSchemaPrivStatus(List<TPrivilegeStatus> dbPrivResult, UserIdentity currentUser) {
         readLock();
         try {
-            // TODO: merge roles
+            for (PrivEntry entry : getUserDbPrivTable(currentUser).getEntries()) {
+                DbPrivEntry dbPrivEntry = (DbPrivEntry) entry;
+                String origDb = dbPrivEntry.getOrigDb();
+                String dbName = ClusterNamespace.getNameFromFullName(dbPrivEntry.getOrigDb());
+
+                if (dbName.equals("information_schema" /* Don't show privileges in information_schema */)
+                        || !checkDbPriv(currentUser, origDb, PrivPredicate.SHOW)) {
+                    continue;
+                }
+
+                String grantee = new String("\'")
+                        .concat(ClusterNamespace.getNameFromFullName(currentUser.getQualifiedUser()))
+                        .concat("\'@\'").concat(currentUser.getHost()).concat("\'");
+                String isGrantable = dbPrivEntry.getPrivSet().get(2) ? "YES" : "NO"; // GRANT_PRIV
+                for (Privilege paloPriv : dbPrivEntry.getPrivSet().toPrivilegeList()) {
+                    if (!Privilege.privInPaloToMysql.containsKey(paloPriv)) {
+                        continue;
+                    }
+                    TPrivilegeStatus status = new TPrivilegeStatus();
+                    status.setPrivilegeType(Privilege.privInPaloToMysql.get(paloPriv));
+                    status.setGrantee(grantee);
+                    status.setSchema(dbName);
+                    status.setIsGrantable(isGrantable);
+                    dbPrivResult.add(status);
+                }
+            }
         } finally {
             readUnlock();
         }
@@ -1069,7 +1332,37 @@ public class Auth implements Writable {
     public void getGlobalPrivStatus(List<TPrivilegeStatus> userPrivResult, UserIdentity currentUser) {
         readLock();
         try {
-            // TODO: merge roles
+            if (!checkGlobalPriv(currentUser, PrivPredicate.SHOW)) {
+                return;
+            }
+
+            for (PrivEntry userPrivEntry : getUserGlobalPrivTable(currentUser).getEntries()) {
+                String grantee = new String("\'")
+                        .concat(ClusterNamespace.getNameFromFullName(currentUser.getQualifiedUser()))
+                        .concat("\'@\'").concat(currentUser.getHost()).concat("\'");
+                String isGrantable = userPrivEntry.getPrivSet().get(2) ? "YES" : "NO"; // GRANT_PRIV
+                for (Privilege paloPriv : userPrivEntry.getPrivSet().toPrivilegeList()) {
+                    if (paloPriv == Privilege.ADMIN_PRIV) {
+                        // ADMIN_PRIV includes all privileges of table and resource.
+                        for (String priv : Privilege.privInPaloToMysql.values()) {
+                            TPrivilegeStatus status = new TPrivilegeStatus();
+                            status.setPrivilegeType(priv);
+                            status.setGrantee(grantee);
+                            status.setIsGrantable("YES");
+                            userPrivResult.add(status);
+                        }
+                        break;
+                    }
+                    if (!Privilege.privInPaloToMysql.containsKey(paloPriv)) {
+                        continue;
+                    }
+                    TPrivilegeStatus status = new TPrivilegeStatus();
+                    status.setPrivilegeType(Privilege.privInPaloToMysql.get(paloPriv));
+                    status.setGrantee(grantee);
+                    status.setIsGrantable(isGrantable);
+                    userPrivResult.add(status);
+                }
+            }
         } finally {
             readUnlock();
         }
@@ -1131,8 +1424,17 @@ public class Auth implements Writable {
         }
     }
 
-    //    todo need think if alter user can change default role
+
+    //tmp for current user can only has one role
     private void setRoleToUser(UserIdentity userIdent, String role) throws DdlException {
+        // 1. check if role exist
+        Role newRole = roleManager.getRole(role);
+        if (newRole == null) {
+            throw new DdlException("Role " + role + " does not exist");
+        }
+        userRoleManager.dropUser(userIdent);
+        userRoleManager.addUserRole(userIdent, role);
+        userRoleManager.addUserRole(userIdent, roleManager.getUserDefaultRoleName(userIdent));
     }
 
     public static Auth read(DataInput in) throws IOException {

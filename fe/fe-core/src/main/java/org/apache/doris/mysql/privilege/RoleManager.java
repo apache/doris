@@ -137,6 +137,9 @@ public class RoleManager implements Writable {
 
     public void getRoleInfo(List<List<String>> results) {
         for (Role role : roles.values()) {
+            if (role.getRoleName().startsWith(DEFAULT_ROLE_PREFIX)) {
+                continue;
+            }
             List<String> info = Lists.newArrayList();
             info.add(role.getRoleName());
 

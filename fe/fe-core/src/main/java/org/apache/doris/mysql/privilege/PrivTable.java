@@ -221,4 +221,8 @@ public abstract class PrivTable implements Writable {
         Collections.sort(entries);
     }
 
+    public void merge(PrivTable globalPrivTable) {
+        // TODO: 2023/1/26 implement
+        return;
+    }
 }

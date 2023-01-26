@@ -18,7 +18,6 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.common.io.Text;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
@@ -75,7 +74,7 @@ public class DbPrivTable extends PrivTable {
         return false;
     }
 
-    public boolean hasClusterPriv(ConnectContext ctx, String clusterName) {
+    public boolean hasClusterPriv(String clusterName) {
         for (PrivEntry entry : entries) {
             DbPrivEntry dbPrivEntry = (DbPrivEntry) entry;
             if (dbPrivEntry.getOrigDb().startsWith(clusterName)) {
