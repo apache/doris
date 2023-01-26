@@ -28,7 +28,6 @@ add_library(Exprs
   runtime_filter.cpp
   runtime_filter_rpc.cpp
   like_predicate.cpp
-  match_predicate.cpp
   math_functions.cpp
   rpc_fn_comm.cpp
   string_functions.cpp

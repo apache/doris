@@ -31,9 +31,6 @@ enum class MatchType;
 
 class MatchPredicate : public ColumnPredicate {
 public:
-    static void init() {}
-
-public:
     MatchPredicate(uint32_t column_id, const std::string& value, MatchType match_type);
 
     virtual PredicateType type() const override;

@@ -24,7 +24,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "exprs/like_predicate.h"
-#include "exprs/match_predicate.h"
 #include "exprs/math_functions.h"
 #include "exprs/string_functions.h"
 #include "geo/geo_functions.h"
@@ -356,7 +355,6 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     UserFunctionCache::instance()->init(config::user_function_dir);
     LikePredicate::init();
     GeoFunctions::init();
-    MatchPredicate::init();
 
     LOG(INFO) << CpuInfo::debug_string();
     LOG(INFO) << DiskInfo::debug_string();
