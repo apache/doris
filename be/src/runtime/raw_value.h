@@ -41,20 +41,6 @@ public:
     // Ascii output precision for double/float
     static const int ASCII_PRECISION;
 
-    // Convert 'value' into ascii and write to 'stream'. nullptr turns into NULL. 'scale'
-    // determines how many digits after the decimal are printed for floating point numbers,
-    // -1 indicates to use the stream's current formatting.
-    static void print_value(const void* value, const TypeDescriptor& type, int scale,
-                            std::stringstream* stream);
-
-    // write ascii value to string instead of stringstream.
-    static void print_value(const void* value, const TypeDescriptor& type, int scale,
-                            std::string* str);
-
-    // Writes the byte representation of a value to a stringstream character-by-character
-    static void print_value_as_bytes(const void* value, const TypeDescriptor& type,
-                                     std::stringstream* stream);
-
     static uint32_t get_hash_value(const void* value, const PrimitiveType& type) {
         return get_hash_value(value, type, 0);
     }
