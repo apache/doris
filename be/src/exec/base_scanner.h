@@ -25,7 +25,6 @@
 
 namespace doris {
 
-class Tuple;
 class TupleDescriptor;
 class RowDescriptor;
 class RuntimeState;

@@ -175,10 +175,6 @@ struct GenericArrayIteratorFunctions : public ArrayIteratorFunctionsBase {
                                const GenMemFootprintFunc& gen_mem_footprint, bool convert_ptrs) {}
     static void deserialize(void* item, const char* tuple_data, const TypeDescriptor& type_desc) {}
     static size_t get_byte_size(const void* item, const TypeDescriptor& type_desc) { return 0; }
-    static void raw_value_write(void* item, const void* value, const TypeDescriptor& type_desc,
-                                MemPool* pool) {
-        RawValue::write(value, item, type_desc, pool);
-    }
 };
 
 template <PrimitiveType type>
@@ -251,12 +247,6 @@ struct ArrayIteratorFunctions<TYPE_DATE> : public GenericArrayIteratorFunctions<
         data.from_olap_date(uint32_t(*src));
         data.to_datetime_val(dst);
     }
-    static void raw_value_write(void* item, const void* value, const TypeDescriptor& type_desc,
-                                MemPool* pool) {
-        DateTimeVal date_time_val;
-        shallow_get(&date_time_val, value);
-        shallow_set(item, &date_time_val);
-    }
 };
 template <>
 struct ArrayIteratorFunctions<TYPE_DATETIME> : public GenericArrayIteratorFunctions<TYPE_DATETIME> {
@@ -274,12 +264,6 @@ struct ArrayIteratorFunctions<TYPE_DATETIME> : public GenericArrayIteratorFuncti
         DateTimeValue data;
         data.from_olap_datetime(*src);
         data.to_datetime_val(dst);
-    }
-    static void raw_value_write(void* item, const void* value, const TypeDescriptor& type_desc,
-                                MemPool* pool) {
-        DateTimeVal date_time_val;
-        shallow_get(&date_time_val, value);
-        shallow_set(item, &date_time_val);
     }
 };
 
@@ -300,12 +284,6 @@ struct ArrayIteratorFunctions<TYPE_DECIMALV2>
         const auto* src = static_cast<const CppType*>(item);
         auto* dst = static_cast<AnyValType*>(value);
         DecimalV2Value(src->integer, src->fraction).to_decimal_val(dst);
-    }
-    static void raw_value_write(void* item, const void* value, const TypeDescriptor& type_desc,
-                                MemPool* pool) {
-        DecimalV2Val decimal_val;
-        shallow_get(&decimal_val, value);
-        shallow_set(item, &decimal_val);
     }
 };
 

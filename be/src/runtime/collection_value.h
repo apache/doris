@@ -217,12 +217,6 @@ public:
         }
         return _get_byte_size(get(), type);
     }
-    void raw_value_write(const void* value, const TypeDescriptor& type_desc, MemPool* pool) {
-        if (is_null()) {
-            return;
-        }
-        return _raw_value_write(get(), value, type_desc, pool);
-    }
 
 private:
     template <typename T,
@@ -233,7 +227,6 @@ private:
               _self_deep_copy(T::self_deep_copy),
               _deserialize(T::deserialize),
               _get_byte_size(T::get_byte_size),
-              _raw_value_write(T::raw_value_write),
               _collection_value(data),
               _offset(0),
               _type_size(T::get_type_size()),
@@ -243,8 +236,6 @@ private:
     void (*_self_deep_copy)(void*, const TypeDescriptor&, const GenMemFootprintFunc&, bool);
     void (*_deserialize)(void*, const char*, const TypeDescriptor&);
     size_t (*_get_byte_size)(const void* item, const TypeDescriptor&);
-    void (*_raw_value_write)(void* item, const void* value, const TypeDescriptor& type_desc,
-                             MemPool* pool);
 
 private:
     CollectionValue* _collection_value;

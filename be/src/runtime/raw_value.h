@@ -98,22 +98,6 @@ public:
     // Return value is < 0  if v1 < v2, 0 if v1 == v2, > 0 if v1 > v2.
     static int compare(const void* v1, const void* v2, const TypeDescriptor& type);
 
-    // Writes the bytes of a given value into the slot of a tuple.
-    // For string values, the string data is copied into memory allocated from 'pool'
-    // only if pool is non-nullptr.
-    static void write(const void* value, Tuple* tuple, const SlotDescriptor* slot_desc,
-                      MemPool* pool);
-
-    // Writes 'src' into 'dst' for type.
-    // For string values, the string data is copied into 'pool' if pool is non-nullptr.
-    // src must be non-nullptr.
-    static void write(const void* src, void* dst, const TypeDescriptor& type, MemPool* pool);
-
-    // Writes 'src' into 'dst' for type.
-    // String values are copied into *buffer and *buffer is updated by the length. *buf
-    // must be preallocated to be large enough.
-    static void write(const void* src, const TypeDescriptor& type, void* dst, uint8_t** buf);
-
     // Returns true if v1 == v2.
     // This is more performant than compare() == 0 for string equality, mostly because of
     // the length comparison check.

@@ -193,34 +193,6 @@ void Tuple::deep_copy(const TupleDescriptor& desc, char** data, int64_t* offset,
             convert_ptrs);
 }
 
-std::string Tuple::to_string(const TupleDescriptor& d) const {
-    std::stringstream out;
-    out << "(";
-
-    bool first_value = true;
-    for (auto slot : d.slots()) {
-        if (!slot->is_materialized()) {
-            continue;
-        }
-        if (first_value) {
-            first_value = false;
-        } else {
-            out << " ";
-        }
-
-        if (is_null(slot->null_indicator_offset())) {
-            out << "null";
-        } else {
-            std::string value_str;
-            RawValue::print_value(get_slot(slot->tuple_offset()), slot->type(), -1, &value_str);
-            out << value_str;
-        }
-    }
-
-    out << ")";
-    return out.str();
-}
-
 std::string Tuple::to_string(const Tuple* t, const TupleDescriptor& d) {
     if (t == nullptr) {
         return "null";

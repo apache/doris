@@ -42,7 +42,6 @@ namespace doris {
 class MemPool;
 class RowDescriptor;
 class Status;
-class Tuple;
 class TupleDescriptor;
 struct TypeDescriptor;
 
