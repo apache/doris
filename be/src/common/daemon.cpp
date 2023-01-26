@@ -23,7 +23,6 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "exprs/json_functions.h"
 #include "exprs/like_predicate.h"
 #include "exprs/match_predicate.h"
 #include "exprs/math_functions.h"
@@ -356,7 +355,6 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     MemInfo::init();
     UserFunctionCache::instance()->init(config::user_function_dir);
     LikePredicate::init();
-    JsonFunctions::init();
     GeoFunctions::init();
     MatchPredicate::init();
 
