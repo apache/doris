@@ -146,6 +146,28 @@ public class FunctionCallExpr extends Expr {
             }
         });
 
+        PRECISION_INFER_RULE.put("array_min", (children, returnType) -> {
+            Preconditions.checkArgument(children != null && children.size() > 0);
+            if (children.get(0).getType().isArrayType() && (
+                    ((ArrayType) children.get(0).getType()).getItemType().isDecimalV3() || ((ArrayType) children.get(0)
+                            .getType()).getItemType().isDecimalV3())) {
+                return ((ArrayType) children.get(0).getType()).getItemType();
+            } else {
+                return returnType;
+            }
+        });
+
+        PRECISION_INFER_RULE.put("array_max", (children, returnType) -> {
+            Preconditions.checkArgument(children != null && children.size() > 0);
+            if (children.get(0).getType().isArrayType() && (
+                    ((ArrayType) children.get(0).getType()).getItemType().isDecimalV3() || ((ArrayType) children.get(0)
+                            .getType()).getItemType().isDecimalV3())) {
+                return ((ArrayType) children.get(0).getType()).getItemType();
+            } else {
+                return returnType;
+            }
+        });
+
         PRECISION_INFER_RULE.put("round", roundRule);
         PRECISION_INFER_RULE.put("round_bankers", roundRule);
         PRECISION_INFER_RULE.put("ceil", roundRule);
@@ -1332,7 +1354,15 @@ public class FunctionCallExpr extends Expr {
                             && (children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3())
                             || children.get(0).getType().isDatetimeV2() && args[ix].isDatetimeV2()) {
                         continue;
-                    }else if (!argTypes[i].matchesType(args[ix]) && !(
+                    } else if ((fnName.getFunction().equalsIgnoreCase("array_min") || fnName.getFunction()
+                            .equalsIgnoreCase("array_max"))
+                            && (
+                            children.get(0).getChild(0).getType().isDecimalV3() && ((ArrayType) args[ix]).getItemType()
+                                    .isDecimalV3()
+                                    || children.get(0).getChild(0).getType().isDatetimeV2()
+                                    && ((ArrayType) args[ix]).getItemType().isDatetimeV2())) {
+                        continue;
+                    } else if (!argTypes[i].matchesType(args[ix]) && !(
                             argTypes[i].isDateOrDateTime() && args[ix].isDateOrDateTime())
                             && (!fn.getReturnType().isDecimalV3()
                             || (argTypes[i].isValid() && !argTypes[i].isDecimalV3() && args[ix].isDecimalV3()))) {
