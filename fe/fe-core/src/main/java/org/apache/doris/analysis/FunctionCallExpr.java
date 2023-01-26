@@ -150,7 +150,7 @@ public class FunctionCallExpr extends Expr {
             Preconditions.checkArgument(children != null && children.size() > 0);
             if (children.get(0).getType().isArrayType() && (
                     ((ArrayType) children.get(0).getType()).getItemType().isDecimalV3() || ((ArrayType) children.get(0)
-                            .getType()).getItemType().isDecimalV3())) {
+                            .getType()).getItemType().isDatetimeV2())) {
                 return ((ArrayType) children.get(0).getType()).getItemType();
             } else {
                 return returnType;
@@ -161,7 +161,7 @@ public class FunctionCallExpr extends Expr {
             Preconditions.checkArgument(children != null && children.size() > 0);
             if (children.get(0).getType().isArrayType() && (
                     ((ArrayType) children.get(0).getType()).getItemType().isDecimalV3() || ((ArrayType) children.get(0)
-                            .getType()).getItemType().isDecimalV3())) {
+                            .getType()).getItemType().isDatetimeV2())) {
                 return ((ArrayType) children.get(0).getType()).getItemType();
             } else {
                 return returnType;
