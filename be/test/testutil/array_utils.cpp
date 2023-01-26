@@ -18,7 +18,6 @@
 #include "testutil/array_utils.h"
 
 #include "common/status.h"
-#include "exprs/anyval_util.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "runtime/collection_value.h"
 #include "runtime/free_pool.hpp"

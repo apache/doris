@@ -1094,23 +1094,6 @@ public:
 
     bool get_date_from_daynr(uint64_t);
 
-    void to_datev2_val(doris_udf::DateV2Val* tv) const {
-        DCHECK(!is_datetime);
-        tv->datev2_value = this->to_date_int_val();
-    }
-
-    static DateV2Value<DateV2ValueType> from_datev2_val(const doris_udf::DateV2Val& tv) {
-        DCHECK(!is_datetime);
-        DateV2Value<DateV2ValueType> value;
-        value.from_date(tv.datev2_value);
-        return value;
-    }
-
-    void to_datetimev2_val(doris_udf::DateTimeV2Val* tv) const {
-        DCHECK(is_datetime);
-        tv->datetimev2_value = this->to_date_int_val();
-    }
-
     static DateV2Value<DateTimeV2ValueType> from_datetimev2_val(
             const doris_udf::DateTimeV2Val& tv) {
         DCHECK(is_datetime);

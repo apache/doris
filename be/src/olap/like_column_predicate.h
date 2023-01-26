@@ -16,7 +16,6 @@
 // under the License.
 #pragma once
 
-#include "exprs/like_predicate.h"
 #include "olap/column_predicate.h"
 #include "udf/udf.h"
 #include "vec/columns/column_dictionary.h"

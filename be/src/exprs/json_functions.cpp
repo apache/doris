@@ -32,7 +32,6 @@
 #include <vector>
 
 #include "common/logging.h"
-#include "exprs/anyval_util.h"
 #include "gutil/strings/stringpiece.h"
 #include "rapidjson/error/en.h"
 #include "udf/udf.h"

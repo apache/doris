@@ -23,7 +23,6 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "exprs/like_predicate.h"
 #include "exprs/math_functions.h"
 #include "exprs/string_functions.h"
 #include "geo/geo_functions.h"

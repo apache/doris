@@ -47,16 +47,9 @@ namespace doris_udf {
 // value is unspecified if the nullptr boolean is set.
 struct AnyVal;
 struct BooleanVal;
-struct TinyIntVal;
-struct SmallIntVal;
-struct IntVal;
-struct BigIntVal;
 struct StringVal;
 struct DateTimeVal;
-struct DateV2Val;
 struct DecimalV2Val;
-struct HllVal;
-struct CollectionVal;
 
 // The FunctionContext is passed to every UDF/UDA and is the interface for the UDF to the
 // rest of the system. It contains APIs to examine the system state, report errors
@@ -233,9 +226,6 @@ public:
     // Returns the number of arguments to this function (not including the FunctionContext*
     // argument).
     int get_num_args() const;
-
-    // Returns _constant_args size
-    int get_num_constant_args() const;
 
     // Returns the type information for the arg_idx-th argument (0-indexed, not including
     // the FunctionContext* argument). Returns nullptr if arg_idx is invalid.
@@ -435,84 +425,6 @@ struct BooleanVal : public AnyVal {
     bool operator!=(const BooleanVal& other) const { return !(*this == other); }
 };
 
-struct TinyIntVal : public AnyVal {
-    int8_t val;
-
-    TinyIntVal() : val(0) {}
-    TinyIntVal(int8_t val) : val(val) {}
-
-    static TinyIntVal null() {
-        TinyIntVal result;
-        result.is_null = true;
-        return result;
-    }
-
-    bool operator==(const TinyIntVal& other) const {
-        if (is_null && other.is_null) {
-            return true;
-        }
-
-        if (is_null || other.is_null) {
-            return false;
-        }
-
-        return val == other.val;
-    }
-    bool operator!=(const TinyIntVal& other) const { return !(*this == other); }
-};
-
-struct SmallIntVal : public AnyVal {
-    int16_t val;
-
-    SmallIntVal() : val(0) {}
-    SmallIntVal(int16_t val) : val(val) {}
-
-    static SmallIntVal null() {
-        SmallIntVal result;
-        result.is_null = true;
-        return result;
-    }
-
-    bool operator==(const SmallIntVal& other) const {
-        if (is_null && other.is_null) {
-            return true;
-        }
-
-        if (is_null || other.is_null) {
-            return false;
-        }
-
-        return val == other.val;
-    }
-    bool operator!=(const SmallIntVal& other) const { return !(*this == other); }
-};
-
-struct IntVal : public AnyVal {
-    int32_t val;
-
-    IntVal() : val(0) {}
-    IntVal(int32_t val) : val(val) {}
-
-    static IntVal null() {
-        IntVal result;
-        result.is_null = true;
-        return result;
-    }
-
-    bool operator==(const IntVal& other) const {
-        if (is_null && other.is_null) {
-            return true;
-        }
-
-        if (is_null || other.is_null) {
-            return false;
-        }
-
-        return val == other.val;
-    }
-    bool operator!=(const IntVal& other) const { return !(*this == other); }
-};
-
 struct BigIntVal : public AnyVal {
     int64_t val;
 
@@ -537,103 +449,6 @@ struct BigIntVal : public AnyVal {
         return val == other.val;
     }
     bool operator!=(const BigIntVal& other) const { return !(*this == other); }
-};
-
-struct Decimal32Val : public AnyVal {
-    int32_t val;
-
-    Decimal32Val() : val(0) {}
-    Decimal32Val(int32_t val) : val(val) {}
-
-    static Decimal32Val null() {
-        Decimal32Val result;
-        result.is_null = true;
-        return result;
-    }
-
-    bool operator==(const Decimal32Val& other) const {
-        if (is_null && other.is_null) {
-            return true;
-        }
-
-        if (is_null || other.is_null) {
-            return false;
-        }
-
-        return val == other.val;
-    }
-    bool operator!=(const Decimal32Val& other) const { return !(*this == other); }
-};
-
-struct Decimal64Val : public AnyVal {
-    int64_t val;
-
-    Decimal64Val() : val(0) {}
-    Decimal64Val(int64_t val) : val(val) {}
-
-    static Decimal64Val null() {
-        Decimal64Val result;
-        result.is_null = true;
-        return result;
-    }
-
-    bool operator==(const Decimal64Val& other) const {
-        if (is_null && other.is_null) {
-            return true;
-        }
-
-        if (is_null || other.is_null) {
-            return false;
-        }
-
-        return val == other.val;
-    }
-    bool operator!=(const Decimal64Val& other) const { return !(*this == other); }
-};
-
-struct Decimal128Val : public AnyVal {
-    __int128 val;
-
-    Decimal128Val() : val(0) {}
-
-    Decimal128Val(__int128 large_value) : val(large_value) {}
-
-    static Decimal128Val null() {
-        Decimal128Val result;
-        result.is_null = true;
-        return result;
-    }
-
-    bool operator==(const Decimal128Val& other) const {
-        if (is_null && other.is_null) {
-            return true;
-        }
-
-        if (is_null || other.is_null) {
-            return false;
-        }
-
-        return val == other.val;
-    }
-    bool operator!=(const Decimal128Val& other) const { return !(*this == other); }
-};
-
-struct FloatVal : public AnyVal {
-    float val;
-
-    FloatVal() : val(0.0) {}
-    FloatVal(float val) : val(val) {}
-
-    static FloatVal null() {
-        FloatVal result;
-        result.is_null = true;
-        return result;
-    }
-
-    bool operator==(const FloatVal& other) const {
-        return is_null == other.is_null && val == other.val;
-    }
-    bool operator!=(const FloatVal& other) const { return !(*this == other); }
 };
 
 struct DoubleVal : public AnyVal {
@@ -690,32 +505,6 @@ struct DateTimeVal : public AnyVal {
         return packed_time == other.packed_time;
     }
     bool operator!=(const DateTimeVal& other) const { return !(*this == other); }
-};
-
-struct DateV2Val : public AnyVal {
-    uint32_t datev2_value;
-
-    DateV2Val() : datev2_value(0) {}
-    DateV2Val(uint32_t val) : datev2_value(val) {}
-
-    static DateV2Val null() {
-        DateV2Val result;
-        result.is_null = true;
-        return result;
-    }
-
-    bool operator==(const DateV2Val& other) const {
-        if (is_null && other.is_null) {
-            return true;
-        }
-
-        if (is_null || other.is_null) {
-            return false;
-        }
-
-        return datev2_value == other.datev2_value;
-    }
-    bool operator!=(const DateV2Val& other) const { return !(*this == other); }
 };
 
 struct DateTimeV2Val : public AnyVal {
@@ -853,82 +642,10 @@ struct DecimalV2Val : public AnyVal {
     bool operator!=(const DecimalV2Val& other) const { return !(*this == other); }
 };
 
-struct LargeIntVal : public AnyVal {
-    __int128 val;
-
-    LargeIntVal() : val(0) {}
-
-    LargeIntVal(__int128 large_value) : val(large_value) {}
-
-    static LargeIntVal null() {
-        LargeIntVal result;
-        result.is_null = true;
-        return result;
-    }
-
-    bool operator==(const LargeIntVal& other) const {
-        if (is_null && other.is_null) {
-            return true;
-        }
-
-        if (is_null || other.is_null) {
-            return false;
-        }
-
-        return val == other.val;
-    }
-    bool operator!=(const LargeIntVal& other) const { return !(*this == other); }
-};
-
-// todo(kks): keep HllVal struct only for backward compatibility, we should remove it
-//            when doris 0.12 release
-struct HllVal : public StringVal {
-    HllVal() : StringVal() {}
-
-    void init(FunctionContext* ctx);
-
-    void agg_parse_and_cal(FunctionContext* ctx, const HllVal& other);
-
-    void agg_merge(const HllVal& other);
-};
-
-struct CollectionVal : public AnyVal {
-    void* data;
-    uint64_t length;
-    // item has no null value if has_null is false.
-    // item ```may``` has null value if has_null is true.
-    bool has_null;
-    // null bitmap
-    bool* null_signs;
-
-    CollectionVal() = default;
-
-    CollectionVal(void* data, uint64_t length, bool has_null, bool* null_signs)
-            : data(data), length(length), has_null(has_null), null_signs(null_signs) {};
-
-    static CollectionVal null() {
-        CollectionVal val;
-        val.is_null = true;
-        return val;
-    }
-};
-typedef uint8_t* BufferVal;
-} // namespace doris_udf
-
 using doris_udf::BooleanVal;
-using doris_udf::TinyIntVal;
-using doris_udf::SmallIntVal;
-using doris_udf::IntVal;
 using doris_udf::BigIntVal;
-using doris_udf::LargeIntVal;
-using doris_udf::FloatVal;
 using doris_udf::DoubleVal;
 using doris_udf::StringVal;
 using doris_udf::DecimalV2Val;
 using doris_udf::DateTimeVal;
-using doris_udf::HllVal;
 using doris_udf::FunctionContext;
-using doris_udf::CollectionVal;
-using doris_udf::Decimal32Val;
-using doris_udf::Decimal64Val;
-using doris_udf::Decimal128Val;
