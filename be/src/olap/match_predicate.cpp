@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/match_predicate.h"
+#include "olap/match_predicate.h"
 
 #include <string.h>
 
