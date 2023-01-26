@@ -150,7 +150,11 @@ public class DataDescription {
     private final Expr deleteCondition;
     private final Map<String, String> properties;
     private boolean trimDoubleQuotes = false;
+<<<<<<< HEAD
     private boolean isMysqlLoad = false;
+=======
+    private int skipLines = 0;
+>>>>>>> 7bb7ed4cf (1)
 
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
@@ -288,6 +292,7 @@ public class DataDescription {
         this.numAsString = taskInfo.isNumAsString();
         this.properties = Maps.newHashMap();
         this.trimDoubleQuotes = taskInfo.getTrimDoubleQuotes();
+        this.skipLines = taskInfo.getSkipLines();
     }
 
     private void getFileFormatAndCompressType(LoadTaskInfo taskInfo) {
@@ -700,6 +705,10 @@ public class DataDescription {
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    public int getSkipLines() {
+        return skipLines;
     }
 
     /*

@@ -88,14 +88,18 @@ CsvReader::~CsvReader() = default;
 Status CsvReader::init_reader(bool is_load) {
     // set the skip lines and start offset
     int64_t start_offset = _range.start_offset;
-    if (start_offset == 0 && _params.__isset.file_attributes &&
-        _params.file_attributes.__isset.header_type &&
-        _params.file_attributes.header_type.size() > 0) {
-        std::string header_type = to_lower(_params.file_attributes.header_type);
-        if (header_type == BeConsts::CSV_WITH_NAMES) {
-            _skip_lines = 1;
-        } else if (header_type == BeConsts::CSV_WITH_NAMES_AND_TYPES) {
-            _skip_lines = 2;
+    if (start_offset == 0) {
+        // check header typer first
+        if (_params.__isset.file_attributes && _params.file_attributes.__isset.header_type &&
+            _params.file_attributes.header_type.size() > 0) {
+            std::string header_type = to_lower(_params.file_attributes.header_type);
+            if (header_type == BeConsts::CSV_WITH_NAMES) {
+                _skip_lines = 1;
+            } else if (header_type == BeConsts::CSV_WITH_NAMES_AND_TYPES) {
+                _skip_lines = 2;
+            }
+        } else if (_params.file_attributes.__isset.skip_lines) {
+            _skip_lines = _params.file_attributes.skip_lines;
         }
     } else if (start_offset != 0) {
         if (_file_format_type != TFileFormatType::FORMAT_CSV_PLAIN ||
