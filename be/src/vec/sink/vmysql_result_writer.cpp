@@ -676,7 +676,9 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
         case TYPE_ARRAY: {
             // Currently all functions only support single-level nested arrays，
             // so we use Array's child scale to represent the scale of nested type.
-            scale = _output_vexpr_ctxs[i]->root()->children()[0]->type().scale;
+            if (!_output_vexpr_ctxs[i]->root()->children().empty()){
+                scale = _output_vexpr_ctxs[i]->root()->children()[0]->type().scale;
+            }
             if (type_ptr->is_nullable()) {
                 auto& nested_type =
                         assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
