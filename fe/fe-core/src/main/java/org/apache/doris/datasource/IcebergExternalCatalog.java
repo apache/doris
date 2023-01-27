@@ -17,11 +17,15 @@
 
 package org.apache.doris.datasource;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.IcebergExternalDatabase;
 
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.iceberg.types.Types;
 
 import java.util.List;
 import java.util.Map;
@@ -66,8 +70,57 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
     }
 
+    protected Type icebergTypeToDorisTypeBeta(org.apache.iceberg.types.Type type) {
+        switch (type.typeId()) {
+            case BOOLEAN:
+                return Type.BOOLEAN;
+            case INTEGER:
+                return Type.INT;
+            case LONG:
+                return Type.BIGINT;
+            case FLOAT:
+                return Type.FLOAT;
+            case DOUBLE:
+                return Type.DOUBLE;
+            case STRING:
+            case BINARY:
+            case FIXED:
+            case UUID:
+                return Type.STRING;
+            case STRUCT:
+                return Type.STRUCT;
+            case LIST:
+                return Type.ARRAY;
+            case MAP:
+                return Type.MAP;
+            case DATE:
+                return Type.DATEV2;
+            case TIME:
+                return Type.TIMEV2;
+            case TIMESTAMP:
+                return Type.DATETIMEV2;
+            case DECIMAL:
+                return Type.DECIMALV2;
+            default:
+                throw new IllegalArgumentException("Cannot transform unknown type: " + type);
+        }
+    }
+
     public String getIcebergCatalogType() {
         return icebergCatalogType;
+    }
+
+    @Override
+    public List<Column> getSchema(String dbName, String tblName) {
+        makeSureInitialized();
+        List<Types.NestedField> columns = getIcebergTable(dbName, tblName).schema().columns();
+        List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
+        for (Types.NestedField field : columns) {
+            tmpSchema.add(new Column(field.name(),
+                    icebergTypeToDorisTypeBeta(field.type()), true, null,
+                    true, null, field.doc(), true, null, -1));
+        }
+        return tmpSchema;
     }
 
     public abstract org.apache.iceberg.Table getIcebergTable(String dbName, String tblName);

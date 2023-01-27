@@ -17,7 +17,7 @@
 
 package org.apache.doris.planner.external.iceberg;
 
-import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -27,6 +27,9 @@ import org.apache.doris.planner.external.ExternalFileScanNode;
 import org.apache.doris.thrift.TFileAttributes;
 
 public interface IcebergSourceProvider {
+
+    TupleDescriptor getDesc();
+
     org.apache.iceberg.Table getIcebergTable() throws MetaNotFoundException;
 
     ExternalFileScanNode.ParamCreateContext createContext() throws UserException;

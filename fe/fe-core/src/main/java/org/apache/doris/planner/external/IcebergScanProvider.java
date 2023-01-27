@@ -20,7 +20,6 @@ package org.apache.doris.planner.external;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TableSnapshot;
-import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -67,11 +66,8 @@ public class IcebergScanProvider extends QueryScanProvider {
     private final Analyzer analyzer;
     private final IcebergSourceProvider delegate;
 
-    private TupleDescriptor desc;
-
-    public IcebergScanProvider(IcebergSourceProvider sourceProvider, TupleDescriptor desc, Analyzer analyzer) {
+    public IcebergScanProvider(IcebergSourceProvider sourceProvider, Analyzer analyzer) {
         this.delegate = sourceProvider;
-        this.desc = desc;
         this.analyzer = analyzer;
     }
 
@@ -130,7 +126,7 @@ public class IcebergScanProvider extends QueryScanProvider {
 
         org.apache.iceberg.Table table = getIcebergTable();
         TableScan scan = table.newScan();
-        TableSnapshot tableSnapshot = desc.getRef().getTableSnapshot();
+        TableSnapshot tableSnapshot = delegate.getDesc().getRef().getTableSnapshot();
         if (tableSnapshot != null) {
             TableSnapshot.VersionType type = tableSnapshot.getType();
             try {

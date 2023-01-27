@@ -44,8 +44,8 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.external.iceberg.IcebergHiveSourceProvider;
 import org.apache.doris.planner.external.iceberg.IcebergApiSourceProvider;
+import org.apache.doris.planner.external.iceberg.IcebergHiveSourceProvider;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
@@ -217,6 +217,9 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 } else if (this.desc.getTable() instanceof FunctionGenTable) {
                     FunctionGenTable table = (FunctionGenTable) this.desc.getTable();
                     initFunctionGenTable(table, (ExternalFileTableValuedFunction) table.getTvf());
+                } else if (this.desc.getTable() instanceof IcebergExternalTable) {
+                    IcebergExternalTable table = (IcebergExternalTable) this.desc.getTable();
+                    initIcebergExternalTable(table);
                 }
                 break;
             default:
@@ -251,7 +254,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 break;
             case ICEBERG:
                 IcebergHiveSourceProvider hmsSource = new IcebergHiveSourceProvider(hmsTable, desc, columnNameToRange);
-                scanProvider = new IcebergScanProvider(hmsSource, desc, analyzer);
+                scanProvider = new IcebergScanProvider(hmsSource, analyzer);
                 break;
             case HIVE:
                 scanProvider = new HiveScanProvider(hmsTable, desc, columnNameToRange);
@@ -275,8 +278,8 @@ public class ExternalFileScanNode extends ExternalScanNode {
         switch (catalogType) {
             case "hms":
                 IcebergApiSourceProvider icebergSource = new IcebergApiSourceProvider(
-                        icebergTable, columnNameToRange);
-                scanProvider = new IcebergScanProvider(icebergSource, desc, analyzer);
+                        icebergTable, desc, columnNameToRange);
+                scanProvider = new IcebergScanProvider(icebergSource, analyzer);
                 break;
             // TODO: support case "rest":
             default:

@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.HMSResource;
 
 import org.apache.hadoop.conf.Configuration;
@@ -91,18 +90,11 @@ public class IcebergHMSExternalCatalog extends IcebergExternalCatalog {
 
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
-        return hmsExternalCatalog.tableExist(ctx, dbName, tblName);
+        return hiveCatalog.tableExists(TableIdentifier.of(dbName, tblName));
     }
 
     @Override
-    protected void initLocalObjectsImpl() {
-        hmsExternalCatalog.initLocalObjectsImpl();
-    }
-
-    @Override
-    public List<Column> getSchema(String dbName, String tblName) {
-        return hmsExternalCatalog.getSchema(dbName, tblName);
-    }
+    protected void initLocalObjectsImpl() {}
 
     public HMSExternalCatalog getHmsExternalCatalog() {
         return hmsExternalCatalog;

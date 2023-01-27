@@ -17,15 +17,10 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.Column;
-import org.apache.doris.catalog.Type;
-
-import com.google.common.collect.Lists;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.rest.RESTCatalog;
-import org.apache.iceberg.types.Types;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -82,55 +77,5 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
             throw new IllegalArgumentException("Missing 'uri' property for rest catalog");
         }
         restProperties.put(CatalogProperties.URI, restUri);
-    }
-
-    @Override
-    public List<Column> getSchema(String dbName, String tblName) {
-        makeSureInitialized();
-        List<Types.NestedField> columns = restCatalog.loadTable(TableIdentifier.of(dbName, tblName))
-                .schema().columns();
-        List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
-        for (Types.NestedField field : columns) {
-            tmpSchema.add(new Column(field.name(),
-                    icebergTypeToDorisTypeBeta(field.type()), true, null,
-                    true, null, field.doc(), true, null, -1));
-        }
-        return tmpSchema;
-    }
-
-    private Type icebergTypeToDorisTypeBeta(org.apache.iceberg.types.Type type) {
-        switch (type.typeId()) {
-            case BOOLEAN:
-                return Type.BOOLEAN;
-            case INTEGER:
-                return Type.INT;
-            case LONG:
-                return Type.BIGINT;
-            case FLOAT:
-                return Type.FLOAT;
-            case DOUBLE:
-                return Type.DOUBLE;
-            case STRING:
-            case BINARY:
-            case FIXED:
-            case UUID:
-                return Type.STRING;
-            case STRUCT:
-                return Type.STRUCT;
-            case LIST:
-                return Type.ARRAY;
-            case MAP:
-                return Type.MAP;
-            case DATE:
-                return Type.DATEV2;
-            case TIME:
-                return Type.TIMEV2;
-            case TIMESTAMP:
-                return Type.DATETIMEV2;
-            case DECIMAL:
-                return Type.DECIMALV2;
-            default:
-                throw new IllegalArgumentException("Cannot transform unknown type: " + type);
-        }
     }
 }

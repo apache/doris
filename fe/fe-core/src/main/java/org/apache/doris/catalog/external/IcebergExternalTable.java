@@ -18,16 +18,13 @@
 package org.apache.doris.catalog.external;
 
 import org.apache.doris.catalog.Column;
-import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.IcebergExternalCatalog;
-import org.apache.doris.datasource.IcebergHMSExternalCatalog;
 import org.apache.doris.thrift.THiveTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import java.util.HashMap;
 import java.util.List;
-import java.util.Optional;
 
 public class IcebergExternalTable extends ExternalTable {
 
@@ -36,24 +33,6 @@ public class IcebergExternalTable extends ExternalTable {
     public IcebergExternalTable(long id, String name, String dbName, IcebergExternalCatalog catalog) {
         super(id, name, catalog, dbName, TableType.ICEBERG_EXTERNAL_TABLE);
         icebergCatalog = catalog;
-    }
-
-    public HMSExternalTable toHMSTable() {
-        if (icebergCatalog.getIcebergCatalogType().equals("hms")) {
-            IcebergHMSExternalCatalog icebergHMSCatalog = (IcebergHMSExternalCatalog) icebergCatalog;
-            HMSExternalCatalog hmsCatalog = icebergHMSCatalog.getHmsExternalCatalog();
-            if (!hmsCatalog.getDb(dbName).isPresent()) {
-                throw new IllegalArgumentException("Database " + dbName + " exists ");
-            }
-            HMSExternalDatabase hmsDb = (HMSExternalDatabase) hmsCatalog.getDb(dbName).get();
-            Optional<HMSExternalTable> hmsTable = hmsDb.getTable(name);
-            if (!hmsTable.isPresent()) {
-                throw new IllegalArgumentException("Database " + name + " exists ");
-            }
-            return hmsTable.get();
-        } else {
-            throw new RuntimeException("Only iceberg hive catalog can use");
-        }
     }
 
     public String getIcebergCatalogType() {
