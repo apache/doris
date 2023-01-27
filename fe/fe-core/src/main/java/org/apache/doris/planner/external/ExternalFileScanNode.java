@@ -46,6 +46,7 @@ import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.iceberg.IcebergApiSourceProvider;
 import org.apache.doris.planner.external.iceberg.IcebergHiveSourceProvider;
+import org.apache.doris.planner.external.iceberg.IcebergSourceProvider;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
@@ -253,7 +254,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 scanProvider = new HudiScanProvider(hmsTable, desc, columnNameToRange);
                 break;
             case ICEBERG:
-                IcebergHiveSourceProvider hmsSource = new IcebergHiveSourceProvider(hmsTable, desc, columnNameToRange);
+                IcebergSourceProvider hmsSource = new IcebergHiveSourceProvider(hmsTable, desc, columnNameToRange);
                 scanProvider = new IcebergScanProvider(hmsSource, analyzer);
                 break;
             case HIVE:
@@ -277,7 +278,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
         String catalogType = icebergTable.getIcebergCatalogType();
         switch (catalogType) {
             case "hms":
-                IcebergApiSourceProvider icebergSource = new IcebergApiSourceProvider(
+                IcebergSourceProvider icebergSource = new IcebergApiSourceProvider(
                         icebergTable, desc, columnNameToRange);
                 scanProvider = new IcebergScanProvider(icebergSource, analyzer);
                 break;

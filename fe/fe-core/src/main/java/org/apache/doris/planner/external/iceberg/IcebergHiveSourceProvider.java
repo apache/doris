@@ -18,7 +18,7 @@
 package org.apache.doris.planner.external.iceberg;
 
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.HMSResource;
+import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.DdlException;
@@ -30,11 +30,8 @@ import org.apache.doris.planner.external.ExternalFileScanNode;
 import org.apache.doris.planner.external.HiveScanProvider;
 import org.apache.doris.thrift.TFileAttributes;
 
-import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.TableProperties;
-import org.apache.iceberg.catalog.TableIdentifier;
 
-import java.util.HashMap;
 import java.util.Map;
 
 public class IcebergHiveSourceProvider implements IcebergSourceProvider {
@@ -63,15 +60,7 @@ public class IcebergHiveSourceProvider implements IcebergSourceProvider {
     }
 
     public org.apache.iceberg.Table getIcebergTable() throws MetaNotFoundException {
-        org.apache.iceberg.hive.HiveCatalog hiveCatalog = new org.apache.iceberg.hive.HiveCatalog();
-        Configuration conf = hiveScanProvider.getConfiguration();
-        hiveCatalog.setConf(conf);
-        // initialize hive catalog
-        Map<String, String> catalogProperties = new HashMap<>();
-        catalogProperties.put(HMSResource.HIVE_METASTORE_URIS, hiveScanProvider.getMetaStoreUrl());
-        catalogProperties.put("uri", hiveScanProvider.getMetaStoreUrl());
-        hiveCatalog.initialize("hive", catalogProperties);
-        return hiveCatalog.loadTable(TableIdentifier.of(hmsTable.getDbName(), hmsTable.getName()));
+        return HiveMetaStoreClientHelper.getIcebergTable(hmsTable);
     }
 
     @Override

@@ -22,6 +22,7 @@ import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
@@ -43,6 +44,7 @@ import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.HistoryEntry;
 import org.apache.iceberg.MetadataColumns;
+import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.expressions.Expression;
@@ -51,11 +53,11 @@ import org.apache.iceberg.types.Conversions;
 import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.stream.Collectors;
 
 /**
  * A file scan provider for iceberg.
@@ -111,7 +113,28 @@ public class IcebergScanProvider extends QueryScanProvider {
 
     @Override
     public TFileType getLocationType() throws DdlException, MetaNotFoundException {
-        return null;
+        String location = delegate.getIcebergTable().location();
+        if (location != null && !location.isEmpty()) {
+            if (location.startsWith(FeConstants.FS_PREFIX_S3)
+                    || location.startsWith(FeConstants.FS_PREFIX_S3A)
+                    || location.startsWith(FeConstants.FS_PREFIX_S3N)
+                    || location.startsWith(FeConstants.FS_PREFIX_BOS)
+                    || location.startsWith(FeConstants.FS_PREFIX_COS)
+                    || location.startsWith(FeConstants.FS_PREFIX_OSS)
+                    || location.startsWith(FeConstants.FS_PREFIX_OBS)) {
+                return TFileType.FILE_S3;
+            } else if (location.startsWith(FeConstants.FS_PREFIX_HDFS)) {
+                return TFileType.FILE_HDFS;
+            } else if (location.startsWith(FeConstants.FS_PREFIX_FILE)) {
+                return TFileType.FILE_LOCAL;
+            } else if (location.startsWith(FeConstants.FS_PREFIX_OFS)) {
+                return TFileType.FILE_BROKER;
+            } else if (location.startsWith(FeConstants.FS_PREFIX_JFS)) {
+                return TFileType.FILE_BROKER;
+            }
+        }
+        throw new DdlException("Unknown file location " + location
+            + " for hms table " + delegate.getIcebergTable().name());
     }
 
     @Override
@@ -124,7 +147,7 @@ public class IcebergScanProvider extends QueryScanProvider {
             }
         }
 
-        org.apache.iceberg.Table table = HiveMetaStoreClientHelper.getIcebergTable(hmsTable);
+        org.apache.iceberg.Table table = delegate.getIcebergTable();
         TableScan scan = table.newScan();
         TableSnapshot tableSnapshot = delegate.getDesc().getRef().getTableSnapshot();
         if (tableSnapshot != null) {
@@ -208,7 +231,8 @@ public class IcebergScanProvider extends QueryScanProvider {
 
     @Override
     public List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
-        return Collections.emptyList();
+        return delegate.getIcebergTable().spec().fields().stream().map(PartitionField::name)
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -228,10 +252,6 @@ public class IcebergScanProvider extends QueryScanProvider {
     @Override
     public Map<String, String> getLocationProperties() throws MetaNotFoundException, DdlException {
         return delegate.getCatalog().getProperties();
-    }
-
-    private org.apache.iceberg.Table getIcebergTable() throws MetaNotFoundException {
-        return delegate.getIcebergTable();
     }
 
     @Override
