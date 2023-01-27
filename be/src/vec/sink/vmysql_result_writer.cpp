@@ -98,7 +98,7 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
                             assert_cast<const vectorized::ColumnComplexType<BitmapValue>*>(
                                     column.get());
                     BitmapValue bitmapValue = pColumnComplexType->get_element(i);
-                    size_t size = bitmapValue.getSizeInBytes();
+                    int64_t size = bitmapValue.getSizeInBytes();
                     std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
                     bitmapValue.write(buf.get());
                     buf_ret = _buffer.push_string(buf.get(), size);
@@ -107,7 +107,7 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
                             assert_cast<const vectorized::ColumnComplexType<HyperLogLog>*>(
                                     column.get());
                     HyperLogLog hyperLogLog = pColumnComplexType->get_element(i);
-                    size_t size = hyperLogLog.max_serialized_size();
+                    int64_t size = hyperLogLog.max_serialized_size();
                     std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
                     hyperLogLog.serialize((uint8*)buf.get());
                     buf_ret = _buffer.push_string(buf.get(), size);
