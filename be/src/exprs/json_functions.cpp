@@ -31,9 +31,9 @@
 #include <string_view>
 #include <vector>
 
+#include "common/compiler_util.h"
 #include "common/logging.h"
 #include "gutil/strings/stringpiece.h"
-#include "rapidjson/error/en.h"
 #include "udf/udf.h"
 #include "util/string_util.h"
 

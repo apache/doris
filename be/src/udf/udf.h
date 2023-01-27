@@ -193,6 +193,7 @@ public:
     // byte sizes. For each call to TrackAllocation(), the UDF/UDA must call
     // the corresponding Free().
     void track_allocation(int64_t byte_size);
+
     void free(int64_t byte_size);
 
     // TODO: Do we need to add arbitrary key/value metadata. This would be plumbed
@@ -213,6 +214,7 @@ public:
     /// nullptr. SetFunctionState() does not take ownership of 'ptr'; it is up to the UDF/UDA
     /// to clean up any function state if necessary.
     void set_function_state(FunctionStateScope scope, void* ptr);
+
     void* get_function_state(FunctionStateScope scope) const;
 
     // Returns the return type information of this function. For UDAs, this is the final
@@ -254,10 +256,12 @@ public:
 
 private:
     friend class doris::FunctionContextImpl;
+
     FunctionContext();
 
     // Disable copy ctor and assignment operator
     FunctionContext(const FunctionContext& other);
+
     FunctionContext& operator=(const FunctionContext& other);
 
     doris::FunctionContextImpl* _impl; // Owned by this object.
@@ -268,13 +272,17 @@ private:
 //----------------------------------------------------------------------------
 struct AnyVal {
     bool is_null;
+
     AnyVal() : is_null(false) {}
+
     AnyVal(bool is_null) : is_null(is_null) {}
 };
+
 struct BigIntVal : public AnyVal {
     int64_t val;
 
     BigIntVal() : val(0) {}
+
     BigIntVal(int64_t val) : val(val) {}
 
     static BigIntVal null() {
@@ -294,6 +302,7 @@ struct BigIntVal : public AnyVal {
 
         return val == other.val;
     }
+
     bool operator!=(const BigIntVal& other) const { return !(*this == other); }
 };
 
@@ -301,6 +310,7 @@ struct DoubleVal : public AnyVal {
     double val;
 
     DoubleVal() : val(0.0) {}
+
     DoubleVal(double val) : val(val) {}
 
     static DoubleVal null() {
@@ -320,6 +330,7 @@ struct DoubleVal : public AnyVal {
 
         return val == other.val;
     }
+
     bool operator!=(const DoubleVal& other) const { return !(*this == other); }
 };
 
@@ -350,6 +361,7 @@ struct DateTimeVal : public AnyVal {
 
         return packed_time == other.packed_time;
     }
+
     bool operator!=(const DateTimeVal& other) const { return !(*this == other); }
 };
 
@@ -357,6 +369,7 @@ struct DateTimeV2Val : public AnyVal {
     uint64_t datetimev2_value;
 
     DateTimeV2Val() : datetimev2_value(0) {}
+
     DateTimeV2Val(uint64_t val) : datetimev2_value(val) {}
 
     static DateTimeV2Val null() {
@@ -376,6 +389,7 @@ struct DateTimeV2Val : public AnyVal {
 
         return datetimev2_value == other.datetimev2_value;
     }
+
     bool operator!=(const DateTimeV2Val& other) const { return !(*this == other); }
 };
 
@@ -445,10 +459,13 @@ struct StringVal : public AnyVal {
     /// the memory allocation becomes too large, will set an error on FunctionContext and
     /// return a nullptr string.
     void append(FunctionContext* ctx, const uint8_t* buf, int64_t len);
+
     void append(FunctionContext* ctx, const uint8_t* buf, int64_t len, const uint8_t* buf2,
                 int64_t buf2_len);
+
     std::string to_string() const { return std::string((char*)ptr, len); }
 };
+
 std::ostream& operator<<(std::ostream& os, const StringVal& string_val);
 
 struct DecimalV2Val : public AnyVal {
@@ -494,3 +511,4 @@ using doris_udf::StringVal;
 using doris_udf::DecimalV2Val;
 using doris_udf::DateTimeVal;
 using doris_udf::FunctionContext;
+} // namespace doris_udf

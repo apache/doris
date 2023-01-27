@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "geo/geo_types.h"
 #include "udf/udf.h"
 #include "vec/core/column_numbers.h"
 #include "vec/data_types/data_type_number.h"
