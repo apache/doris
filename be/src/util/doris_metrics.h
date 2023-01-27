@@ -147,9 +147,6 @@ public:
     // The following metrics will be calculated
     // by metric calculator
     IntGauge* query_scan_bytes_per_second;
-    IntGauge* max_disk_io_util_percent;
-    IntGauge* max_network_send_bytes_rate;
-    IntGauge* max_network_receive_bytes_rate;
 
     // Metrics related with file reader/writer
     IntCounter* local_file_reader_total;
@@ -226,7 +223,6 @@ public:
     MetricRegistry* metric_registry() { return &_metric_registry; }
     SystemMetrics* system_metrics() { return _system_metrics.get(); }
     MetricEntity* server_entity() { return _server_metric_entity.get(); }
-    bool is_inited() { return _is_inited; }
 
 private:
     // Don't allow constructor
@@ -245,8 +241,6 @@ private:
     std::unique_ptr<SystemMetrics> _system_metrics;
 
     std::shared_ptr<MetricEntity> _server_metric_entity;
-
-    bool _is_inited = false;
 };
 
 }; // namespace doris

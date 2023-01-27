@@ -134,8 +134,8 @@ private:
     Status _filter_block(Block* block, const ColumnPtr filter_column, int column_to_keep,
                          std::vector<uint32_t> columns_to_filter);
     Status _filter_block(Block* block, int column_to_keep,
-                         const vector<uint32_t>& columns_to_filter);
-    Status _filter_block_internal(Block* block, const vector<uint32_t>& columns_to_filter);
+                         const std::vector<uint32_t>& columns_to_filter);
+    Status _filter_block_internal(Block* block, const std::vector<uint32_t>& columns_to_filter);
 
     doris::FileReader* _file_reader;
     std::unordered_map<std::string, std::unique_ptr<ParquetColumnReader>> _column_readers;
