@@ -129,7 +129,9 @@ Status FieldDescriptor::parse_node_field(const std::vector<tparquet::SchemaEleme
         auto child = &node_field->children[0];
         parse_physical_field(t_schema, false, child);
 
-        node_field->name = t_schema.name;
+        std::string lower_case_name;
+        transform(t_schema.name.begin(), t_schema.name.end(), lower_case_name.begin(), ::tolower);
+        node_field->name = lower_case_name;
         node_field->type.type = TYPE_ARRAY;
         node_field->is_nullable = false;
         _next_schema_pos = curr_pos + 1;
@@ -146,7 +148,9 @@ Status FieldDescriptor::parse_node_field(const std::vector<tparquet::SchemaEleme
 
 void FieldDescriptor::parse_physical_field(const tparquet::SchemaElement& physical_schema,
                                            bool is_nullable, FieldSchema* physical_field) {
-    physical_field->name = physical_schema.name;
+    std::string lower_case_name = physical_schema.name;
+    transform(lower_case_name.begin(), lower_case_name.end(), lower_case_name.begin(), ::tolower);
+    physical_field->name = lower_case_name;
     physical_field->parquet_schema = physical_schema;
     physical_field->is_nullable = is_nullable;
     physical_field->physical_type = physical_schema.type;
