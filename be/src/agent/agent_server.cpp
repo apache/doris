@@ -165,8 +165,7 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
                         "task(signature={}) has wrong request member = push_req", signature);
                 break;
             }
-            if (task.push_req.push_type == TPushType::LOAD ||
-                task.push_req.push_type == TPushType::LOAD_V2) {
+            if (task.push_req.push_type == TPushType::LOAD_V2) {
                 _push_workers->submit_task(task);
             } else if (task.push_req.push_type == TPushType::DELETE) {
                 _delete_workers->submit_task(task);

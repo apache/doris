@@ -23,30 +23,9 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "exprs/array_functions.h"
-#include "exprs/bitmap_function.h"
-#include "exprs/cast_functions.h"
-#include "exprs/compound_predicate.h"
-#include "exprs/decimalv2_operators.h"
-#include "exprs/encryption_functions.h"
-#include "exprs/es_functions.h"
-#include "exprs/grouping_sets_functions.h"
-#include "exprs/hash_functions.h"
-#include "exprs/hll_function.h"
-#include "exprs/hll_hash_function.h"
-#include "exprs/is_null_predicate.h"
-#include "exprs/json_functions.h"
 #include "exprs/like_predicate.h"
-#include "exprs/match_predicate.h"
 #include "exprs/math_functions.h"
-#include "exprs/new_in_predicate.h"
-#include "exprs/operators.h"
-#include "exprs/quantile_function.h"
 #include "exprs/string_functions.h"
-#include "exprs/time_operators.h"
-#include "exprs/timestamp_functions.h"
-#include "exprs/topn_function.h"
-#include "exprs/utility_functions.h"
 #include "geo/geo_functions.h"
 #include "olap/options.h"
 #include "runtime/block_spill_manager.h"
@@ -261,13 +240,13 @@ void Daemon::calculate_metrics_thread() {
         DorisMetrics::instance()->metric_registry()->trigger_all_hooks(true);
 
         if (last_ts == -1L) {
-            last_ts = GetCurrentTimeMicros() / 1000;
+            last_ts = GetMonoTimeMicros() / 1000;
             lst_query_bytes = DorisMetrics::instance()->query_scan_bytes->value();
             DorisMetrics::instance()->system_metrics()->get_disks_io_time(&lst_disks_io_time);
             DorisMetrics::instance()->system_metrics()->get_network_traffic(&lst_net_send_bytes,
                                                                             &lst_net_receive_bytes);
         } else {
-            int64_t current_ts = GetCurrentTimeMicros() / 1000;
+            int64_t current_ts = GetMonoTimeMicros() / 1000;
             long interval = (current_ts - last_ts) / 1000;
             last_ts = current_ts;
 
@@ -374,31 +353,8 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     DiskInfo::init();
     MemInfo::init();
     UserFunctionCache::instance()->init(config::user_function_dir);
-    Operators::init();
-    IsNullPredicate::init();
     LikePredicate::init();
-    StringFunctions::init();
-    ArrayFunctions::init();
-    CastFunctions::init();
-    InPredicate::init();
-    MathFunctions::init();
-    EncryptionFunctions::init();
-    TimestampFunctions::init();
-    DecimalV2Operators::init();
-    TimeOperators::init();
-    UtilityFunctions::init();
-    CompoundPredicate::init();
-    JsonFunctions::init();
-    HllHashFunctions::init();
-    ESFunctions::init();
     GeoFunctions::init();
-    GroupingSetsFunctions::init();
-    BitmapFunctions::init();
-    HllFunctions::init();
-    QuantileStateFunctions::init();
-    HashFunctions::init();
-    TopNFunctions::init();
-    MatchPredicate::init();
 
     LOG(INFO) << CpuInfo::debug_string();
     LOG(INFO) << DiskInfo::debug_string();

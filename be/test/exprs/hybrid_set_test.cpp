@@ -278,52 +278,52 @@ TEST_F(HybridSetTest, double) {
 }
 TEST_F(HybridSetTest, string) {
     HybridSetBase* set = create_set(TYPE_VARCHAR);
-    StringValue a;
+    StringRef a;
 
     char buf[100];
 
     snprintf(buf, 100, "abcdefghigk");
-    a.ptr = buf;
+    a.data = buf;
 
-    a.len = 0;
+    a.size = 0;
     set->insert(&a);
-    a.len = 1;
+    a.size = 1;
     set->insert(&a);
-    a.len = 2;
+    a.size = 2;
     set->insert(&a);
-    a.len = 3;
+    a.size = 3;
     set->insert(&a);
-    a.len = 4;
+    a.size = 4;
     set->insert(&a);
-    a.len = 4;
+    a.size = 4;
     set->insert(&a);
 
     EXPECT_EQ(5, set->size());
     HybridSetBase::IteratorBase* base = set->begin();
 
     while (base->has_next()) {
-        LOG(INFO) << ((StringValue*)base->get_value())->ptr;
+        LOG(INFO) << ((StringRef*)base->get_value())->data;
         base->next();
     }
 
-    StringValue b;
+    StringRef b;
 
     char buf1[100];
 
     snprintf(buf1, 100, "abcdefghigk");
-    b.ptr = buf1;
+    b.data = buf1;
 
-    b.len = 0;
+    b.size = 0;
     EXPECT_TRUE(set->find(&b));
-    b.len = 1;
+    b.size = 1;
     EXPECT_TRUE(set->find(&b));
-    b.len = 2;
+    b.size = 2;
     EXPECT_TRUE(set->find(&b));
-    b.len = 3;
+    b.size = 3;
     EXPECT_TRUE(set->find(&b));
-    b.len = 4;
+    b.size = 4;
     EXPECT_TRUE(set->find(&b));
-    b.len = 5;
+    b.size = 5;
     EXPECT_FALSE(set->find(&b));
 }
 TEST_F(HybridSetTest, timestamp) {

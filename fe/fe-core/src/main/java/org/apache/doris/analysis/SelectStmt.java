@@ -27,6 +27,7 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Type;
@@ -45,6 +46,7 @@ import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicates;
@@ -61,9 +63,11 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -119,6 +123,9 @@ public class SelectStmt extends QueryStmt {
 
     // Members that need to be reset to origin
     private SelectList originSelectList;
+
+    // For quick get condition for point query
+    private Map<SlotRef, Expr> eqPredicates;
 
     public SelectStmt(ValueList valueList, ArrayList<OrderByElement> orderByElement, LimitElement limitElement) {
         super(orderByElement, limitElement);
@@ -557,7 +564,6 @@ public class SelectStmt extends QueryStmt {
                         "cannot combine SELECT DISTINCT with analytic functions");
             }
         }
-
         whereClauseRewrite();
         if (whereClause != null) {
             if (checkGroupingFn(whereClause)) {
@@ -576,7 +582,6 @@ public class SelectStmt extends QueryStmt {
             }
             analyzer.registerConjuncts(whereClause, false, getTableRefIds());
         }
-
         createSortInfo(analyzer);
         if (sortInfo != null && CollectionUtils.isNotEmpty(sortInfo.getOrderingExprs())) {
             if (groupingInfo != null) {
@@ -591,6 +596,33 @@ public class SelectStmt extends QueryStmt {
         analyzeAggregation(analyzer);
         createAnalyticInfo(analyzer);
         eliminatingSortNode();
+        if (checkEnableTwoPhaseRead(analyzer)) {
+            // If optimize enabled, we try our best to read less columns from ScanNode,
+            // here we analyze conjunct exprs and ordering exprs before resultExprs,
+            // rest of resultExprs will be marked as `INVALID`, such columns will
+            // be prevent from reading from ScanNode.Those columns will be finally
+            // read by the second fetch phase
+            LOG.debug("two phase read optimize enabled");
+            // Expr.analyze(resultExprs, analyzer);
+            Set<SlotRef> resultSlots = Sets.newHashSet();
+            Set<SlotRef> orderingSlots = Sets.newHashSet();
+            Set<SlotRef> conjuntSlots = Sets.newHashSet();
+            TreeNode.collect(resultExprs, Predicates.instanceOf(SlotRef.class), resultSlots);
+            TreeNode.collect(sortInfo.getOrderingExprs(), Predicates.instanceOf(SlotRef.class), orderingSlots);
+            if (whereClause != null) {
+                whereClause.collect(SlotRef.class, conjuntSlots);
+            }
+            resultSlots.removeAll(orderingSlots);
+            resultSlots.removeAll(conjuntSlots);
+            // reset slots need to do fetch column
+            for (SlotRef slot : resultSlots) {
+                // invalid slots will be pruned from reading from ScanNode
+                slot.setInvalid();
+            }
+            LOG.debug("resultsSlots {}", resultSlots);
+            LOG.debug("orderingSlots {}", orderingSlots);
+            LOG.debug("conjuntSlots {}", conjuntSlots);
+        }
         if (evaluateOrderBy) {
             createSortTupleInfo(analyzer);
         }
@@ -613,6 +645,72 @@ public class SelectStmt extends QueryStmt {
         if (hasOutFileClause()) {
             outFileClause.analyze(analyzer, resultExprs, colLabels);
         }
+    }
+
+    // Check whether enable two phase read optimize, if enabled query will be devieded into two phase read:
+    // 1. read conjuncts columns and order by columns along with an extra RowId column from ScanNode
+    // 2. sort and filter data, and get final RowId column, spawn RPC to other BE to fetch final data
+    // 3. final matrialize all data
+    public boolean checkEnableTwoPhaseRead(Analyzer analyzer) {
+        // only vectorized mode and session opt variable enabled
+        if (ConnectContext.get() == null
+                || ConnectContext.get().getSessionVariable() == null
+                || !ConnectContext.get().getSessionVariable().enableVectorizedEngine
+                || !ConnectContext.get().getSessionVariable().enableTwoPhaseReadOpt) {
+            return false;
+        }
+        if (!evaluateOrderBy) {
+            // Need evaluate orderby, if sort node was eliminated then this optmization
+            // could be useless
+            return false;
+        }
+        // Only handle the simplest `SELECT ... FROM <tbl> WHERE ... ORDER BY ... LIMIT ...` query
+        if (getAggInfo() != null
+                || getHavingPred() != null
+                || getWithClause() != null) {
+            return false;
+        }
+        if (!analyzer.isRootAnalyzer()) {
+            // ensure no sub query
+            return false;
+        }
+        // If select stmt has inline view or this is an inline view query stmt analyze call
+        if (hasInlineView() || analyzer.isInlineViewAnalyzer()) {
+            return false;
+        }
+        // single olap table
+        List<TableRef> tblRefs = getTableRefs();
+        if (tblRefs.size() != 1 || !(tblRefs.get(0) instanceof BaseTableRef)) {
+            return false;
+        }
+        TableRef tbl = tblRefs.get(0);
+        if (tbl.getTable().getType() != Table.TableType.OLAP) {
+            return false;
+        }
+        LOG.debug("table ref {}", tbl);
+        // Need enable light schema change, since opt rely on
+        // column_unique_id of each slot
+        OlapTable olapTable = (OlapTable) tbl.getTable();
+        if (!olapTable.getEnableLightSchemaChange()) {
+            return false;
+        }
+        // Only TOPN query at present
+        if (getOrderByElements() == null
+                    || !hasLimit()
+                    || getLimit() == 0
+                    || getLimit() > ConnectContext.get().getSessionVariable().twoPhaseReadLimitThreshold) {
+            return false;
+        }
+        // Check order by exprs are all slot refs
+        // Rethink? implement more generic to support all exprs
+        LOG.debug("getOrderingExprs {}", sortInfo.getOrderingExprs());
+        LOG.debug("getOrderByElements {}", getOrderByElements());
+        for (OrderByElement orderby : getOrderByElements()) {
+            if (!(orderby.getExpr() instanceof SlotRef)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     public List<TupleId> getTableRefIds() {
@@ -2231,5 +2329,116 @@ public class SelectStmt extends QueryStmt {
             return false;
         }
         return this.id.equals(((SelectStmt) obj).id);
+    }
+
+    public Map<SlotRef, Expr> getPointQueryEQPredicates() {
+        return eqPredicates;
+    }
+
+    // Check if it is a point query and set EQUAL predicates
+    public boolean checkAndSetPointQuery() {
+        if (isPointQuery) {
+            return true;
+        }
+        eqPredicates = new TreeMap<SlotRef, Expr>(
+                new Comparator<SlotRef>() {
+                    @Override
+                    public int compare(SlotRef o1, SlotRef o2) {
+                        // order by unique id
+                        return Integer.compare(o1.getColumn().getUniqueId(), o2.getColumn().getUniqueId());
+                    }
+                }
+        );
+        // Only handle the simplest `SELECT ... FROM <tbl> WHERE ...` query
+        if (getAggInfo() != null
+                || getHavingPred() != null
+                || getLimit() > 0
+                || getOffset() > 0
+                || getSortInfo() != null
+                || getOrderByElements() != null
+                || getWithClause() != null) {
+            return false;
+        }
+        List<TableRef> tblRefs = getTableRefs();
+        if (tblRefs.size() != 1 || !(tblRefs.get(0) instanceof BaseTableRef)) {
+            return false;
+        }
+        TableRef tbl = tblRefs.get(0);
+        if (tbl.getTable().getType() != Table.TableType.OLAP) {
+            return false;
+        }
+        OlapTable olapTable = (OlapTable) tbl.getTable();
+        Preconditions.checkNotNull(eqPredicates);
+        eqPredicates = getExpectedBinaryPredicates(eqPredicates, whereClause, TExprOpcode.EQ);
+        LOG.debug("predicates {}", eqPredicates);
+        if (eqPredicates == null) {
+            return false;
+        }
+        if (!olapTable.getEnableUniqueKeyMergeOnWrite() || !olapTable.storeRowColumn()) {
+            return false;
+        }
+        // check if PK columns are fully matched with predicate
+        List<Column> pkColumns = olapTable.getBaseSchemaKeyColumns();
+
+        // TODO(lhy) select does not support other conditions
+        if (pkColumns.size() != eqPredicates.size()) {
+            return false;
+        }
+
+        for (Column col : pkColumns) {
+            SlotRef slot = findSlot(eqPredicates.keySet(), col.getName());
+            if (slot == null) {
+                return false;
+            }
+        }
+        isPointQuery = true;
+        return true;
+    }
+
+    private SlotRef findSlot(Set<SlotRef> slots, String colName) {
+        for (SlotRef slot : slots) {
+            if (slot.getColumnName().equalsIgnoreCase(colName)) {
+                return slot;
+            }
+        }
+        return null;
+    }
+
+    // extract all the expected binary predicate in `expr`
+    // @param expected : the expected binary op type you need to collect in origin expr
+    private static Map<SlotRef, Expr> getExpectedBinaryPredicates(
+            Map<SlotRef, Expr> result, Expr expr, TExprOpcode expected) {
+        if (expr == null) {
+            return null;
+        }
+        if (expr instanceof CompoundPredicate) {
+            CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
+            if (compoundPredicate.getOp() != CompoundPredicate.Operator.AND) {
+                return null;
+            }
+            result = getExpectedBinaryPredicates(result, compoundPredicate.getChild(0), expected);
+            if (result == null) {
+                return null;
+            }
+            result = getExpectedBinaryPredicates(result, compoundPredicate.getChild(1), expected);
+            if (result == null) {
+                return null;
+            }
+            return result;
+        } else if ((expr instanceof BinaryPredicate)) {
+            BinaryPredicate binaryPredicate = (BinaryPredicate) expr;
+            if (binaryPredicate.getOpcode() != expected) {
+                return null;
+            }
+            LOG.debug("binary pred {}", expr);
+            Pair<SlotRef, Expr> p = binaryPredicate.extract();
+            if (p == null || result.containsKey(p.first)) {
+                return null;
+            }
+            result.put(p.first, p.second);
+            return result;
+        } else {
+            return null;
+        }
     }
 }

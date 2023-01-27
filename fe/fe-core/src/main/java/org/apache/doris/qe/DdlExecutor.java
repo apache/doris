@@ -114,7 +114,6 @@ import org.apache.doris.analysis.UninstallPluginStmt;
 import org.apache.doris.analysis.UpdateStmt;
 import org.apache.doris.catalog.EncryptKeyHelper;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.sync.SyncJobManager;
@@ -177,15 +176,11 @@ public class DdlExecutor {
             if (jobType == EtlJobType.UNKNOWN) {
                 throw new DdlException("Unknown load job type");
             }
-            if (jobType == EtlJobType.HADOOP && Config.disable_hadoop_load) {
+            if (jobType == EtlJobType.HADOOP) {
                 throw new DdlException("Load job by hadoop cluster is disabled."
                         + " Try using broker load. See 'help broker load;'");
             }
-            if (jobType == EtlJobType.HADOOP) {
-                env.getLoadManager().createLoadJobV1FromStmt(loadStmt, jobType, System.currentTimeMillis());
-            } else {
-                env.getLoadManager().createLoadJobFromStmt(loadStmt);
-            }
+            env.getLoadManager().createLoadJobFromStmt(loadStmt);
         } else if (ddlStmt instanceof CancelExportStmt) {
             env.getExportMgr().cancelExportJob((CancelExportStmt) ddlStmt);
         } else if (ddlStmt instanceof CancelLoadStmt) {

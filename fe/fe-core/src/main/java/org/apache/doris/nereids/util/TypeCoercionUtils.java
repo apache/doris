@@ -164,6 +164,14 @@ public class TypeCoercionUtils {
                 || leftType instanceof DecimalV2Type && rightType instanceof DoubleType) {
             return true;
         }
+        if (leftType instanceof CharacterType && rightType instanceof DecimalV2Type
+                || leftType instanceof DecimalV2Type && rightType instanceof CharacterType) {
+            return true;
+        }
+        if (leftType instanceof DateLikeType && rightType instanceof DecimalV2Type
+                || leftType instanceof DecimalV2Type && rightType instanceof DateLikeType) {
+            return true;
+        }
         // TODO: add decimal promotion support
         if (!(leftType instanceof DecimalV2Type)
                 && !(rightType instanceof DecimalV2Type)
@@ -214,16 +222,23 @@ public class TypeCoercionUtils {
         } else if (left instanceof CharacterType && right instanceof CharacterType) {
             tightestCommonType = CharacterType.widerCharacterType((CharacterType) left, (CharacterType) right);
         } else if (left instanceof CharacterType && right instanceof DateLikeType
-                    || left instanceof DateLikeType && right instanceof CharacterType) {
+                || left instanceof DateLikeType && right instanceof CharacterType) {
             // TODO: need check implicitCastMap to keep the behavior consistent with old optimizer
-            tightestCommonType = right;
+            tightestCommonType = right instanceof DateLikeType ? right : left;
+        } else if (left instanceof CharacterType && right instanceof DecimalV2Type
+                || left instanceof DecimalV2Type && right instanceof CharacterType) {
+            tightestCommonType = DoubleType.INSTANCE;
         } else if (left instanceof CharacterType || right instanceof CharacterType) {
             tightestCommonType = StringType.INSTANCE;
         } else if (left instanceof DecimalV2Type && right instanceof IntegralType) {
             tightestCommonType = DecimalV2Type.widerDecimalV2Type((DecimalV2Type) left, DecimalV2Type.forType(right));
         } else if (left instanceof IntegralType && right instanceof DecimalV2Type) {
             tightestCommonType = DecimalV2Type.widerDecimalV2Type((DecimalV2Type) right, DecimalV2Type.forType(left));
+        } else if (left instanceof DateLikeType && right instanceof DecimalV2Type
+                || left instanceof DecimalV2Type && right instanceof DateLikeType) {
+            tightestCommonType = DoubleType.INSTANCE;
         } else if (left instanceof DateLikeType && right instanceof DateLikeType) {
+            // if dateType exist, change all to dateType, otherwise change all to dateTimeType
             if (left instanceof DateTimeV2Type && right instanceof DateTimeV2Type) {
                 if (((DateTimeV2Type) left).getScale() > ((DateTimeV2Type) right).getScale()) {
                     tightestCommonType = left;
@@ -234,11 +249,33 @@ public class TypeCoercionUtils {
                 tightestCommonType = left;
             } else if (right instanceof DateTimeV2Type) {
                 tightestCommonType = right;
-            } else if (left instanceof DateTimeType || right instanceof DateTimeType) {
-                tightestCommonType = DateTimeType.INSTANCE;
             } else if (left instanceof DateV2Type || right instanceof DateV2Type) {
                 tightestCommonType = DateV2Type.INSTANCE;
+            } else if (left instanceof DateTimeType || right instanceof DateTimeType) {
+                tightestCommonType = DateTimeType.INSTANCE;
             }
+        } else if (left instanceof DoubleType && right instanceof DecimalV2Type
+                || left instanceof DecimalV2Type && right instanceof DoubleType) {
+            tightestCommonType = DoubleType.INSTANCE;
+        } else if (left instanceof DecimalV2Type && right instanceof DecimalV2Type) {
+            tightestCommonType = DecimalV2Type.widerDecimalV2Type((DecimalV2Type) left, (DecimalV2Type) right);
+        } else if (left instanceof FloatType && right instanceof DecimalV2Type
+                || left instanceof DecimalV2Type && right instanceof FloatType) {
+            //TODO: need refactor. let operator upgrade data type.
+            if (binaryOperator != null) {
+                // for arithmetic, like Float + Decimal, upgrade to Double
+                tightestCommonType = DoubleType.INSTANCE;
+            } else {
+                //of other case, like
+                //          case
+                //            when 1=1 then cast(1 as int)
+                //            when 1>1 then cast(1 as float)
+                //            else 0.0 end;
+                //do not upgrade data type, keep Float
+                tightestCommonType = FloatType.INSTANCE;
+            }
+        } else if (left instanceof DecimalV2Type && right instanceof DecimalV2Type) {
+            tightestCommonType = DecimalV2Type.widerDecimalV2Type((DecimalV2Type) left, (DecimalV2Type) right);
         } else if (canCompareDate(left, right)) {
             if (binaryOperator instanceof BinaryArithmetic) {
                 tightestCommonType = IntegerType.INSTANCE;

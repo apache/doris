@@ -1934,23 +1934,18 @@ public class SingleNodePlanner {
                 }
                 break;
             case BROKER:
-                scanNode = new BrokerScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "BrokerScanNode",
-                        null, -1);
-                break;
+                throw new RuntimeException("Broker external table is not supported, try to use table function please");
             case ELASTICSEARCH:
                 scanNode = new EsScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "EsScanNode");
                 break;
             case HIVE:
-                scanNode = new HiveScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HiveScanNode",
-                        null, -1);
-                break;
+                throw new RuntimeException("Hive external table is not supported, try to use hive catalog please");
             case ICEBERG:
                 scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc());
                 break;
             case HUDI:
-                scanNode = new HudiScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HudiScanNode",
-                        null, -1);
-                break;
+                throw new UserException(
+                        "Hudi table is no longer supported. Use Multi Catalog feature to connect to Hudi");
             case JDBC:
                 scanNode = new JdbcScanNode(ctx.getNextNodeId(), tblRef.getDesc(), false);
                 break;
@@ -1969,7 +1964,7 @@ public class SingleNodePlanner {
             default:
                 break;
         }
-        if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode || scanNode instanceof HiveScanNode
+        if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode
                 || scanNode instanceof ExternalFileScanNode) {
             if (analyzer.enableInferPredicate()) {
                 PredicatePushDown.visitScanNode(scanNode, tblRef.getJoinOp(), analyzer);

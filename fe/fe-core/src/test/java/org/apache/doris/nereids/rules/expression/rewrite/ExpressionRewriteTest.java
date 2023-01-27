@@ -42,6 +42,7 @@ import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DecimalV2Type;
 import org.apache.doris.nereids.types.StringType;
@@ -229,10 +230,11 @@ public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
 
         Expression dtv2 = new DateTimeV2Literal(1, 1, 1, 1, 1, 1);
         Expression dt = new DateTimeLiteral(1, 1, 1, 1, 1, 1);
+        Expression dtNoTime = new DateTimeLiteral(1, 1, 1, 0, 0, 0);
         Expression dv2 = new DateV2Literal(1, 1, 1);
         Expression dv2PlusOne = new DateV2Literal(1, 1, 2);
         Expression d = new DateLiteral(1, 1, 1);
-        Expression dPlusOne = new DateLiteral(1, 1, 2);
+        //Expression dPlusOne = new DateLiteral(1, 1, 2);
 
         // DateTimeV2 -> DateTime
         assertRewrite(
@@ -264,10 +266,10 @@ public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         // DateTimeV2 -> Date
         assertRewrite(
                 new GreaterThan(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dtv2),
-                new GreaterThan(d, d));
+                new GreaterThan(new Cast(d, DateTimeType.INSTANCE), dt));
         assertRewrite(
                 new LessThan(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dtv2),
-                new LessThan(d, dPlusOne));
+                new LessThan(new Cast(d, DateTimeType.INSTANCE), dt));
         assertRewrite(
                 new EqualTo(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dtv2),
                 new EqualTo(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dtv2));
@@ -275,10 +277,10 @@ public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         // DateTime -> Date
         assertRewrite(
                 new GreaterThan(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dt),
-                new GreaterThan(d, d));
+                new GreaterThan(new Cast(d, DateTimeType.INSTANCE), dt));
         assertRewrite(
                 new LessThan(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dt),
-                new LessThan(d, dPlusOne));
+                new LessThan(new Cast(d, DateTimeType.INSTANCE), dt));
         assertRewrite(
                 new EqualTo(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dt),
                 new EqualTo(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dt));
@@ -286,7 +288,7 @@ public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
         // DateV2 -> Date
         assertRewrite(
                 new GreaterThan(new Cast(d, DateTimeV2Type.SYSTEM_DEFAULT), dv2),
-                new GreaterThan(d, d));
+                new GreaterThan(new Cast(d, DateTimeType.INSTANCE), dtNoTime));
 
         // test hour, minute and second all zero
         Expression dtv2AtZeroClock = new DateTimeV2Literal(1, 1, 1, 0, 0, 0);

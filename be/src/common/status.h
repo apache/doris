@@ -251,6 +251,7 @@ E(INVERTED_INDEX_INVALID_PARAMETERS, -6000);
 E(INVERTED_INDEX_NOT_SUPPORTED, -6001);
 E(INVERTED_INDEX_CLUCENE_ERROR, -6002);
 E(INVERTED_INDEX_FILE_NOT_FOUND, -6003);
+E(INVERTED_INDEX_FILE_HIT_LIMIT, -6004);
 #undef E
 }; // namespace ErrorCode
 
@@ -276,7 +277,8 @@ static constexpr bool capture_stacktrace() {
         && code != ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS
         && code != ErrorCode::INVERTED_INDEX_NOT_SUPPORTED
         && code != ErrorCode::INVERTED_INDEX_CLUCENE_ERROR
-        && code != ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND;
+        && code != ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND
+        && code != ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT;
 }
 // clang-format on
 
@@ -404,6 +406,8 @@ public:
                ErrorCode::CHECKSUM_ERROR == _code || ErrorCode::FILE_DATA_ERROR == _code ||
                ErrorCode::TEST_FILE_ERROR == _code || ErrorCode::ROWBLOCK_READ_INFO_ERROR == _code;
     }
+
+    bool is_not_found() const { return _code == ErrorCode::NOT_FOUND; }
 
     // Convert into TStatus. Call this if 'status_container' contains an optional
     // TStatus field named 'status'. This also sets __isset.status.

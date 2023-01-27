@@ -182,6 +182,10 @@ public class SlotReference extends Slot {
         return new SlotReference(exprId, name, dataType, nullable, qualifiers, column);
     }
 
+    public boolean isVisible() {
+        return column == null || column.isVisible();
+    }
+
     @Override
     public Slot withName(String name) {
         return new SlotReference(exprId, name, dataType, nullable, qualifier, column);

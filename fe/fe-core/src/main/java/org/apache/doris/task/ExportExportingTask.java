@@ -271,6 +271,9 @@ public class ExportExportingTask extends MasterTask {
     }
 
     private void registerProfile() {
+        if (!job.getEnableProfile()) {
+            return;
+        }
         initProfile();
         for (RuntimeProfile p : fragmentProfiles) {
             profile.addChild(p);

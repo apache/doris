@@ -64,8 +64,8 @@ public class BindFunctionTest extends TestWithFeService implements PatternMatchS
                 .rewrite()
                 .matches(
                         leftOuterLogicalJoin(
-                                logicalFilter(),
-                                logicalOlapScan()
+                                logicalProject(logicalFilter()),
+                                logicalProject(logicalOlapScan())
                         ).when(join -> join.getHashJoinConjuncts().size() == 1)
                 );
     }

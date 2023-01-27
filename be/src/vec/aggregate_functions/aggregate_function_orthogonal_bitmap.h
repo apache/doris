@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "exprs/bitmap_function.h"
 #include "util/bitmap_intersect.h"
 #include "util/bitmap_value.h"
 #include "vec/aggregate_functions/aggregate_function.h"

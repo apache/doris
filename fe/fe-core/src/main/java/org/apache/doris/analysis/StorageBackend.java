@@ -115,6 +115,7 @@ public class StorageBackend extends StorageDesc implements ParseNode {
         HDFS("Hadoop Distributed File System"),
         LOCAL("Local file system"),
         OFS("Tencent CHDFS"),
+        JFS("Juicefs"),
         STREAM("Stream load pipe");
 
         private final String description;
@@ -136,6 +137,8 @@ public class StorageBackend extends StorageDesc implements ParseNode {
                     return TStorageBackendType.HDFS;
                 case OFS:
                     return TStorageBackendType.OFS;
+                case JFS:
+                    return TStorageBackendType.JFS;
                 case LOCAL:
                     return TStorageBackendType.LOCAL;
                 default:

@@ -18,8 +18,8 @@
 #pragma once
 
 #include "gutil/strings/stringpiece.h"
-#include "runtime/string_value.h"
 #include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
 #include "vec/exprs/table_function/table_function.h"
 
 namespace doris::vectorized {

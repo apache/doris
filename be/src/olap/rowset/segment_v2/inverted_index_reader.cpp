@@ -32,8 +32,8 @@
 #include "olap/rowset/segment_v2/inverted_index_desc.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
-#include "runtime/string_value.h"
 #include "util/time.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -110,7 +110,7 @@ Status FullTextIndexReader::query(const std::string& column_name, const void* qu
                                   InvertedIndexQueryType query_type,
                                   InvertedIndexParserType analyser_type,
                                   roaring::Roaring* bit_map) {
-    std::string search_str = reinterpret_cast<const StringValue*>(query_value)->to_string();
+    std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
     VLOG_DEBUG << column_name
                << " begin to load the fulltext index from clucene, query_str=" << search_str;
     std::unique_ptr<lucene::search::Query> query;
@@ -210,9 +210,9 @@ Status StringTypeInvertedIndexReader::query(const std::string& column_name, cons
                                             InvertedIndexQueryType query_type,
                                             InvertedIndexParserType analyser_type,
                                             roaring::Roaring* bit_map) {
-    const StringValue* search_query = reinterpret_cast<const StringValue*>(query_value);
-    auto act_len = strnlen(search_query->ptr, search_query->len);
-    std::string search_str(search_query->ptr, act_len);
+    const StringRef* search_query = reinterpret_cast<const StringRef*>(query_value);
+    auto act_len = strnlen(search_query->data, search_query->size);
+    std::string search_str(search_query->data, act_len);
     VLOG_DEBUG << "begin to query the inverted index from clucene"
                << ", column_name: " << column_name << ", search_str: " << search_str;
     std::wstring column_name_ws = std::wstring(column_name.begin(), column_name.end());
@@ -356,6 +356,26 @@ Status BkdIndexReader::bkd_query(const std::string& column_name, const void* que
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
     }
     visitor->set_reader(r.get());
+    return Status::OK();
+}
+
+Status BkdIndexReader::try_query(const std::string& column_name, const void* query_value,
+                                 InvertedIndexQueryType query_type,
+                                 InvertedIndexParserType analyser_type, uint32_t* count) {
+    uint64_t start = UnixMillis();
+    auto visitor = std::make_unique<InvertedIndexVisitor>(nullptr, query_type, true);
+    std::shared_ptr<lucene::util::bkd::bkd_reader> r;
+    try {
+        RETURN_IF_ERROR(
+                bkd_query(column_name, query_value, query_type, std::move(r), visitor.get()));
+        *count = r->estimate_point_count(visitor.get());
+    } catch (const CLuceneError& e) {
+        LOG(WARNING) << "BKD Query CLuceneError Occurred, error msg: " << e.what();
+        return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
+    }
+
+    LOG(INFO) << "BKD index try search time taken: " << UnixMillis() - start << "ms "
+              << " column: " << column_name << " result: " << *count;
     return Status::OK();
 }
 
@@ -598,7 +618,19 @@ Status InvertedIndexIterator::read_from_inverted_index(const std::string& column
                                                        const void* query_value,
                                                        InvertedIndexQueryType query_type,
                                                        uint32_t segment_num_rows,
-                                                       roaring::Roaring* bit_map) {
+                                                       roaring::Roaring* bit_map, bool skip_try) {
+    if (!skip_try && _reader->type() == InvertedIndexReaderType::BKD) {
+        auto query_bkd_limit_percent = config::query_bkd_inverted_index_limit_percent;
+        uint32_t hit_count = 0;
+        RETURN_IF_ERROR(
+                try_read_from_inverted_index(column_name, query_value, query_type, &hit_count));
+        if (hit_count > segment_num_rows * query_bkd_limit_percent / 100) {
+            LOG(INFO) << "hit count: " << hit_count << "for bkd inverted reached limit "
+                      << query_bkd_limit_percent << "%, segment num rows: " << segment_num_rows;
+            return Status::Error<ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT>();
+        }
+    }
+
     RETURN_IF_ERROR(_reader->query(column_name, query_value, query_type, _analyser_type, bit_map));
     return Status::OK();
 }
@@ -607,6 +639,15 @@ Status InvertedIndexIterator::try_read_from_inverted_index(const std::string& co
                                                            const void* query_value,
                                                            InvertedIndexQueryType query_type,
                                                            uint32_t* count) {
+    // NOTE: only bkd index support try read now.
+    if (query_type == InvertedIndexQueryType::GREATER_EQUAL_QUERY ||
+        query_type == InvertedIndexQueryType::GREATER_THAN_QUERY ||
+        query_type == InvertedIndexQueryType::LESS_EQUAL_QUERY ||
+        query_type == InvertedIndexQueryType::LESS_THAN_QUERY ||
+        query_type == InvertedIndexQueryType::EQUAL_QUERY) {
+        RETURN_IF_ERROR(
+                _reader->try_query(column_name, query_value, query_type, _analyser_type, count));
+    }
     return Status::OK();
 }
 

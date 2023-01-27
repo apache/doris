@@ -24,7 +24,6 @@
 #include "olap/schema.h"
 #include "olap/storage_engine.h"
 #include "runtime/load_channel_mgr.h"
-#include "runtime/tuple_row.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
 #include "util/ref_count_closure.h"
@@ -140,7 +139,7 @@ Status DeltaWriter::init() {
     context.tablet_schema = _tablet_schema;
     context.oldest_write_timestamp = UnixSeconds();
     context.newest_write_timestamp = UnixSeconds();
-
+    context.tablet_id = _tablet->table_id();
     RETURN_NOT_OK(_tablet->create_rowset_writer(context, &_rowset_writer));
     _schema.reset(new Schema(_tablet_schema));
     _reset_mem_table();

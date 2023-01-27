@@ -17,9 +17,9 @@
 #pragma once
 #include <parallel_hashmap/phmap.h>
 
-#include "runtime/string_value.h"
 #include "udf/udf.h"
 #include "util/bitmap_value.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
@@ -62,9 +62,9 @@ public:
 };
 
 template <>
-inline StringValue Helper::get_val<StringVal>(const StringVal& x) {
+inline StringRef Helper::get_val<StringVal>(const StringVal& x) {
     DCHECK(!x.is_null);
-    return StringValue::from_string_val(x);
+    return StringRef(x);
 }
 
 template <>
@@ -98,11 +98,11 @@ inline char* Helper::write_to<DecimalV2Value>(const DecimalV2Value& v, char* des
 }
 
 template <>
-inline char* Helper::write_to<StringValue>(const StringValue& v, char* dest) {
-    *(int32_t*)dest = v.len;
+inline char* Helper::write_to<StringRef>(const StringRef& v, char* dest) {
+    *(int32_t*)dest = v.size;
     dest += 4;
-    memcpy(dest, v.ptr, v.len);
-    dest += v.len;
+    memcpy(dest, v.data, v.size);
+    dest += v.size;
     return dest;
 }
 
@@ -127,8 +127,8 @@ inline int32_t Helper::serialize_size<DecimalV2Value>(const DecimalV2Value& v) {
 }
 
 template <>
-inline int32_t Helper::serialize_size<StringValue>(const StringValue& v) {
-    return v.len + 4;
+inline int32_t Helper::serialize_size<StringRef>(const StringRef& v) {
+    return v.size + 4;
 }
 
 template <>
@@ -157,10 +157,10 @@ inline void Helper::read_from<DecimalV2Value>(const char** src, DecimalV2Value* 
 }
 
 template <>
-inline void Helper::read_from<StringValue>(const char** src, StringValue* result) {
+inline void Helper::read_from<StringRef>(const char** src, StringRef* result) {
     int32_t length = *(int32_t*)(*src);
     *src += 4;
-    *result = StringValue((char*)*src, length);
+    *result = StringRef((char*)*src, length);
     *src += length;
 }
 

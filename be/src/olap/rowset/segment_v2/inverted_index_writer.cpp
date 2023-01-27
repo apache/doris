@@ -192,8 +192,7 @@ public:
             }
 
             for (int i = 0; i < count; ++i) {
-                auto empty_wide = lucene::util::Misc::_charToWide(empty_value.c_str());
-                _field->setValue(empty_wide, false);
+                new_fulltext_field(empty_value.c_str(), 0);
                 _index_writer->addDocument(_doc);
             }
         }

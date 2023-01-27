@@ -166,6 +166,7 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
     private Set<TupleId> disableTuplesMVRewriter = Sets.newHashSet();
 
     protected boolean toSQLWithSelectList;
+    protected boolean isPointQuery;
 
     QueryStmt(ArrayList<OrderByElement> orderByElements, LimitElement limitElement) {
         this.orderByElements = orderByElements;
@@ -814,4 +815,7 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         return toSql();
     }
 
+    public boolean isPointQuery() {
+        return isPointQuery;
+    }
 }

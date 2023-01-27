@@ -225,10 +225,9 @@ public class NereidsPlanner extends Planner {
             // To keep the root group is not changed, we add a project operator above join
             List<Slot> outputs = root.getLogicalExpression().getPlan().getOutput();
             GroupExpression newExpr = new GroupExpression(
-                    new LogicalProject(outputs, root.getLogicalExpression().getPlan()),
-                    Lists.newArrayList(root));
-            root = new Group();
-            root.addGroupExpression(newExpr);
+                    new LogicalProject(outputs, root.getLogicalExpression().getPlan()), Lists.newArrayList(root));
+            // FIXME: use wrong constructor.
+            root = new Group(null, newExpr, null);
             changeRoot = true;
         }
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));

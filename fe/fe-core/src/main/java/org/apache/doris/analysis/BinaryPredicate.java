@@ -219,6 +219,13 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     @Override
+    public String toString() {
+        StringBuilder builder = new StringBuilder();
+        builder.append(children.get(0)).append(" ").append(op).append(" ").append(children.get(1));
+        return builder.toString();
+    }
+
+    @Override
     public Expr negate() {
         Operator newOp = null;
         switch (op) {
@@ -398,9 +405,28 @@ public class BinaryPredicate extends Predicate implements Writable {
         return Type.DOUBLE;
     }
 
+    // Expr only support Literal
+    public Pair<SlotRef, Expr> extract() {
+        Expr lexpr = getChild(0);
+        Expr rexpr = getChild(1);
+        if (lexpr instanceof SlotRef && (rexpr instanceof LiteralExpr)) {
+            SlotRef slot = (SlotRef) lexpr;
+            return Pair.of(slot, rexpr);
+        } else if (rexpr instanceof SlotRef && (lexpr instanceof LiteralExpr)) {
+            SlotRef slot = (SlotRef) rexpr;
+            return Pair.of(slot, lexpr);
+        }
+        return null;
+    }
+
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
+
+        // Ignore placeholder
+        if (getChild(0) instanceof PlaceHolderExpr || getChild(1) instanceof PlaceHolderExpr) {
+            return;
+        }
 
         for (Expr expr : children) {
             if (expr instanceof Subquery) {

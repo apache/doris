@@ -456,6 +456,9 @@ public class Analyzer {
 
     private final GlobalState globalState;
 
+    // Attached PrepareStmt
+    public PrepareStmt prepareStmt;
+
     private final InferPredicateState inferPredicateState;
 
     // An analyzer stores analysis state for a single select block. A select block can be
@@ -551,8 +554,20 @@ public class Analyzer {
         isInlineView = inlineView;
     }
 
+    public boolean isInlineViewAnalyzer() {
+        return isInlineView;
+    }
+
     public void setExplicitViewAlias(String alias) {
         explicitViewAlias = alias;
+    }
+
+    public void setPrepareStmt(PrepareStmt stmt) {
+        prepareStmt = stmt;
+    }
+
+    public PrepareStmt getPrepareStmt() {
+        return prepareStmt;
     }
 
     public String getExplicitViewAlias() {
@@ -997,6 +1012,9 @@ public class Analyzer {
         result.setStats(srcSlotDesc.getStats());
         result.setType(srcSlotDesc.getType());
         result.setIsNullable(srcSlotDesc.getIsNullable());
+        if (srcSlotDesc.getColumn() != null) {
+            result.setColumn(srcSlotDesc.getColumn());
+        }
         // result.setItemTupleDesc(srcSlotDesc.getItemTupleDesc());
         return result;
     }

@@ -17,12 +17,12 @@
 
 #include "olap/rowset/segment_v2/segment_writer.h"
 
+#include "common/consts.h"
 #include "common/logging.h" // LOG
 #include "env/env.h"        // Env
 #include "io/fs/file_writer.h"
 #include "olap/data_dir.h"
 #include "olap/primary_key_index.h"
-#include "olap/row.h"                             // ContiguousRow
 #include "olap/row_cursor.h"                      // RowCursor
 #include "olap/rowset/rowset_writer_context.h"    // RowsetWriterContext
 #include "olap/rowset/segment_v2/column_writer.h" // ColumnWriter
@@ -93,6 +93,30 @@ Status SegmentWriter::init() {
         column_ids.emplace_back(i);
     }
     return init(column_ids, true);
+}
+
+Status SegmentWriter::append_row_column_writer() {
+    ColumnWriterOptions opts;
+    opts.meta = _footer.add_columns();
+
+    init_column_meta(opts.meta, _footer.columns_size(), TabletSchema::row_oriented_column(),
+                     _tablet_schema);
+    opts.need_bloom_filter = false;
+    opts.need_bitmap_index = false;
+    // smaller page size
+    opts.data_page_size = 16 * 1024;
+    opts.need_zone_map = false;
+    opts.need_bloom_filter = false;
+    opts.need_bitmap_index = false;
+
+    std::unique_ptr<ColumnWriter> writer;
+    RETURN_IF_ERROR(ColumnWriter::create(opts, &TabletSchema::row_oriented_column(), _file_writer,
+                                         &writer));
+    RETURN_IF_ERROR(writer->init());
+    _column_ids.push_back(_column_ids.size());
+    _column_writers.push_back(std::move(writer));
+    _olap_data_convertor->add_column_data_convertor(TabletSchema::row_oriented_column());
+    return Status::OK();
 }
 
 Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
@@ -345,7 +369,6 @@ Status SegmentWriter::append_row(const RowType& row) {
 }
 
 template Status SegmentWriter::append_row(const RowCursor& row);
-template Status SegmentWriter::append_row(const ContiguousRow& row);
 
 // TODO(lingbin): Currently this function does not include the size of various indexes,
 // We should make this more precise.
@@ -410,6 +433,9 @@ Status SegmentWriter::finalize_columns_index(uint64_t* index_size) {
 
 Status SegmentWriter::finalize_footer(uint64_t* segment_file_size) {
     RETURN_IF_ERROR(_write_footer());
+    // finish
+    RETURN_IF_ERROR(_file_writer->finalize());
+    *segment_file_size = _file_writer->bytes_appended();
     return Status::OK();
 }
 

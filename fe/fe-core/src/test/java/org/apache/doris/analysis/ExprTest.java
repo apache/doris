@@ -32,6 +32,7 @@ import mockit.Injectable;
 import mockit.Mocked;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.jupiter.api.Assertions;
 
 import java.io.DataInputStream;
 import java.io.DataOutputStream;
@@ -200,6 +201,15 @@ public class ExprTest {
         //list3 not equal list4
         list2.add(r4);
         Assert.assertFalse(Expr.equalSets(list1, list2));
+    }
+
+    @Test
+    public void testUncheckedCastChildAvoidDoubleCast() throws AnalysisException {
+        Expr cast = new CastExpr(Type.DATETIME, new IntLiteral(10000101));
+        FunctionCallExpr call = new FunctionCallExpr("leap", Lists.newArrayList(cast));
+        call.uncheckedCastChild(Type.DATETIME, 0);
+        //do not cast a castExpr
+        Assertions.assertTrue(call.getChild(0).getChild(0) instanceof IntLiteral);
     }
 
     @Test

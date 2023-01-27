@@ -150,7 +150,13 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
     public Void visitPhysicalNestedLoopJoin(
             PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> nestedLoopJoin, PlanContext context) {
         // TODO: currently doris only use NLJ to do cross join, update this if we use NLJ to do other joins.
-        addRequestPropertyToChildren(PhysicalProperties.ANY, PhysicalProperties.REPLICATED);
+        // see canParallelize() in NestedLoopJoinNode
+        if (nestedLoopJoin.getJoinType().isCrossJoin() || nestedLoopJoin.getJoinType().isInnerJoin()
+                || nestedLoopJoin.getJoinType().isLeftJoin()) {
+            addRequestPropertyToChildren(PhysicalProperties.ANY, PhysicalProperties.REPLICATED);
+        } else {
+            addRequestPropertyToChildren(PhysicalProperties.GATHER, PhysicalProperties.GATHER);
+        }
         return null;
     }
 

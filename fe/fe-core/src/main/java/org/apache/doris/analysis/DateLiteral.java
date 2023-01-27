@@ -1674,4 +1674,49 @@ public class DateLiteral extends LiteralExpr {
         second = 0;
         microsecond = 0;
     }
+
+    @Override
+    public void setupParamFromBinary(ByteBuffer data) {
+        int len = getParmLen(data);
+        if (type.getPrimitiveType() == PrimitiveType.DATE) {
+            if (len >= 4) {
+                year = (int) data.getChar();
+                month = (int) data.get();
+                day = (int) data.get();
+                hour = 0;
+                minute = 0;
+                second = 0;
+                microsecond = 0;
+            } else {
+                copy(MIN_DATE);
+            }
+            return;
+        }
+        if (type.getPrimitiveType() == PrimitiveType.DATETIME) {
+            if (len >= 4) {
+                year = (int) data.getChar();
+                month = (int) data.get();
+                day = (int) data.get();
+                microsecond = 0;
+                if (len > 4) {
+                    hour = (int) data.get();
+                    minute = (int) data.get();
+                    second = (int) data.get();
+                } else {
+                    hour = 0;
+                    minute = 0;
+                    second = 0;
+                    microsecond = 0;
+                }
+                if (len > 7) {
+                    microsecond = data.getInt();
+                    // choose highest scale to keep microsecond value
+                    type = ScalarType.createDatetimeV2Type(6);
+                }
+            } else {
+                copy(MIN_DATETIME);
+            }
+            return;
+        }
+    }
 }

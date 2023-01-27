@@ -191,14 +191,6 @@ Status BetaRowset::create_reader(RowsetReaderSharedPtr* result) {
     return Status::OK();
 }
 
-Status BetaRowset::split_range(const RowCursor& start_key, const RowCursor& end_key,
-                               uint64_t request_block_row_count, size_t key_num,
-                               std::vector<OlapTuple>* ranges) {
-    ranges->emplace_back(start_key.to_tuple());
-    ranges->emplace_back(end_key.to_tuple());
-    return Status::OK();
-}
-
 Status BetaRowset::remove() {
     // TODO should we close and remove all segment reader first?
     VLOG_NOTICE << "begin to remove files in rowset " << unique_id()

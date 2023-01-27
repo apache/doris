@@ -44,114 +44,6 @@ namespace doris {
 // json path cannot contains: ", [, ]
 static const re2::RE2 JSON_PATTERN("^([^\\\"\\[\\]]*)(?:\\[([0-9]+|\\*)\\])?");
 
-void JsonFunctions::init() {}
-
-IntVal JsonFunctions::get_json_int(FunctionContext* context, const StringVal& json_str,
-                                   const StringVal& path) {
-    if (json_str.is_null || path.is_null) {
-        return IntVal::null();
-    }
-    std::string_view json_string((char*)json_str.ptr, json_str.len);
-    std::string_view path_string((char*)path.ptr, path.len);
-    rapidjson::Document document;
-    rapidjson::Value* root =
-            get_json_object(context, json_string, path_string, JSON_FUN_INT, &document);
-    if (root != nullptr && root->IsInt()) {
-        return IntVal(root->GetInt());
-    } else {
-        return IntVal::null();
-    }
-}
-
-StringVal JsonFunctions::get_json_string(FunctionContext* context, const StringVal& json_str,
-                                         const StringVal& path) {
-    if (json_str.is_null || path.is_null) {
-        return StringVal::null();
-    }
-
-    std::string_view json_string((char*)json_str.ptr, json_str.len);
-    std::string_view path_string((char*)path.ptr, path.len);
-    rapidjson::Document document;
-    rapidjson::Value* root =
-            get_json_object(context, json_string, path_string, JSON_FUN_STRING, &document);
-    if (root == nullptr || root->IsNull()) {
-        return StringVal::null();
-    } else if (root->IsString()) {
-        return AnyValUtil::from_string_temp(context, root->GetString());
-    } else {
-        rapidjson::StringBuffer buf;
-        rapidjson::Writer<rapidjson::StringBuffer> writer(buf);
-        root->Accept(writer);
-        return AnyValUtil::from_string_temp(context, std::string(buf.GetString()));
-    }
-}
-
-DoubleVal JsonFunctions::get_json_double(FunctionContext* context, const StringVal& json_str,
-                                         const StringVal& path) {
-    if (json_str.is_null || path.is_null) {
-        return DoubleVal::null();
-    }
-    std::string_view json_string((char*)json_str.ptr, json_str.len);
-    std::string_view path_string((char*)path.ptr, path.len);
-    rapidjson::Document document;
-    rapidjson::Value* root =
-            get_json_object(context, json_string, path_string, JSON_FUN_DOUBLE, &document);
-    if (root == nullptr || root->IsNull()) {
-        return DoubleVal::null();
-    } else if (root->IsInt()) {
-        return DoubleVal(static_cast<double>(root->GetInt()));
-    } else if (root->IsDouble()) {
-        return DoubleVal(root->GetDouble());
-    } else {
-        return DoubleVal::null();
-    }
-}
-
-StringVal JsonFunctions::json_array(FunctionContext* context, int num_args,
-                                    const StringVal* json_str) {
-    if (json_str->is_null) {
-        return StringVal::null();
-    }
-    rapidjson::Value array_obj(rapidjson::kArrayType);
-    rapidjson::Document document;
-    rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
-    //flag: The number it contains represents the type of previous parameters
-    const StringVal& flag = json_str[num_args - 1];
-    DCHECK_EQ(num_args - 1, flag.len);
-    for (int i = 0; i < num_args - 1; ++i) {
-        const StringVal& arg = json_str[i];
-        rapidjson::Value val = parse_str_with_flag(arg, flag, i, allocator);
-        array_obj.PushBack(val, allocator);
-    }
-    rapidjson::StringBuffer buf;
-    rapidjson::Writer<rapidjson::StringBuffer> writer(buf);
-    array_obj.Accept(writer);
-    return AnyValUtil::from_string_temp(context, std::string(buf.GetString()));
-}
-
-StringVal JsonFunctions::json_object(FunctionContext* context, int num_args,
-                                     const StringVal* json_str) {
-    if (json_str->is_null) {
-        return StringVal::null();
-    }
-    rapidjson::Document document(rapidjson::kObjectType);
-    rapidjson::Document::AllocatorType& allocator = document.GetAllocator();
-    const StringVal& flag = json_str[num_args - 1];
-    document.SetObject();
-    DCHECK_EQ(num_args - 1, flag.len);
-    for (int i = 1; i < num_args - 1; i = i + 2) {
-        const StringVal& arg = json_str[i];
-        rapidjson::Value key(rapidjson::kStringType);
-        key.SetString((char*)json_str[i - 1].ptr, json_str[i - 1].len, allocator);
-        rapidjson::Value val = parse_str_with_flag(arg, flag, i, allocator);
-        document.AddMember(key, val, allocator);
-    }
-    rapidjson::StringBuffer buf;
-    rapidjson::Writer<rapidjson::StringBuffer> writer(buf);
-    document.Accept(writer);
-    return AnyValUtil::from_string_temp(context, std::string(buf.GetString()));
-}
-
 rapidjson::Value JsonFunctions::parse_str_with_flag(const StringVal& arg, const StringVal& flag,
                                                     const int num,
                                                     rapidjson::Document::AllocatorType& allocator) {
@@ -184,17 +76,6 @@ rapidjson::Value JsonFunctions::parse_str_with_flag(const StringVal& arg, const 
         DCHECK(false) << "parse json type error with unknown type";
     }
     return val;
-}
-StringVal JsonFunctions::json_quote(FunctionContext* context, const StringVal& json_str) {
-    if (json_str.is_null) {
-        return StringVal::null();
-    }
-    rapidjson::Value array_obj(rapidjson::kObjectType);
-    array_obj.SetString(rapidjson::StringRef((char*)json_str.ptr, json_str.len));
-    rapidjson::StringBuffer buf;
-    rapidjson::Writer<rapidjson::StringBuffer> writer(buf);
-    array_obj.Accept(writer);
-    return AnyValUtil::from_string_temp(context, std::string(buf.GetString()));
 }
 
 rapidjson::Value* JsonFunctions::match_value(const std::vector<JsonPath>& parsed_paths,
@@ -298,74 +179,6 @@ rapidjson::Value* JsonFunctions::match_value(const std::vector<JsonPath>& parsed
     return root;
 }
 
-rapidjson::Value* JsonFunctions::get_json_object(FunctionContext* context,
-                                                 std::string_view json_string,
-                                                 std::string_view path_string,
-                                                 const JsonFunctionType& fntype,
-                                                 rapidjson::Document* document) {
-    // split path by ".", and escape quota by "\"
-    // eg:
-    //    '$.text#abc.xyz'  ->  [$, text#abc, xyz]
-    //    '$."text.abc".xyz'  ->  [$, text.abc, xyz]
-    //    '$."text.abc"[1].xyz'  ->  [$, text.abc[1], xyz]
-    JsonState* json_state = nullptr;
-    JsonState tmp_json_state;
-
-#ifndef BE_TEST
-    json_state = reinterpret_cast<JsonState*>(
-            context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-    if (json_state == nullptr) {
-        json_state = &tmp_json_state;
-    }
-
-    if (json_state->json_paths.size() == 0) {
-#ifdef USE_LIBCPP
-        std::string s(path_string);
-        auto tok = get_json_token(s);
-#else
-        auto tok = get_json_token(path_string);
-#endif
-        std::vector<std::string> paths(tok.begin(), tok.end());
-        get_parsed_paths(paths, &json_state->json_paths);
-    }
-#else
-    json_state = &tmp_json_state;
-    std::string s(path_string);
-    auto tok = get_json_token(s);
-    std::vector<std::string> paths(tok.begin(), tok.end());
-    get_parsed_paths(paths, &json_state->json_paths);
-#endif
-
-    VLOG_TRACE << "first parsed path: " << json_state->json_paths[0].debug_string();
-
-    if (!json_state->json_paths[0].is_valid) {
-        return document;
-    }
-
-    if (UNLIKELY(json_state->json_paths.size() == 1)) {
-        if (fntype == JSON_FUN_STRING) {
-            document->SetString(json_string.data(), json_string.length(), document->GetAllocator());
-        } else {
-            return document;
-        }
-    }
-
-    if (!json_state->document.IsNull()) {
-        document = &json_state->document;
-    } else {
-        document->Parse(json_string.data(), json_string.length());
-        //rapidjson::Document document;
-        if (UNLIKELY(document->HasParseError())) {
-            VLOG_CRITICAL << "Error at offset " << document->GetErrorOffset() << ": "
-                          << GetParseError_En(document->GetParseError());
-            document->SetNull();
-            return document;
-        }
-    }
-
-    return match_value(json_state->json_paths, document, document->GetAllocator());
-}
-
 rapidjson::Value* JsonFunctions::get_json_array_from_parsed_json(
         const std::string& json_path, rapidjson::Value* document,
         rapidjson::Document::AllocatorType& mem_allocator, bool* wrap_explicitly) {
@@ -424,49 +237,6 @@ rapidjson::Value* JsonFunctions::get_json_object_from_parsed_json(
         return nullptr;
     }
     return root;
-}
-
-void JsonFunctions::json_path_prepare(doris_udf::FunctionContext* context,
-                                      doris_udf::FunctionContext::FunctionStateScope scope) {
-    if (scope != FunctionContext::FRAGMENT_LOCAL) {
-        return;
-    }
-
-    if (!context->is_arg_constant(0) && !context->is_arg_constant(1)) {
-        return;
-    }
-
-    JsonState* json_state = new JsonState;
-
-    StringVal* json_str = reinterpret_cast<StringVal*>(context->get_constant_arg(0));
-    if (json_str != nullptr && !json_str->is_null) {
-        std::string json_string((char*)json_str->ptr, json_str->len);
-        json_state->document.Parse(json_string.c_str());
-    }
-    StringVal* path = reinterpret_cast<StringVal*>(context->get_constant_arg(1));
-    if (path != nullptr && !path->is_null) {
-        std::string path_str(reinterpret_cast<char*>(path->ptr), path->len);
-        boost::tokenizer<boost::escaped_list_separator<char>> tok(
-                path_str, boost::escaped_list_separator<char>("\\", ".", "\""));
-        std::vector<std::string> path_exprs(tok.begin(), tok.end());
-        get_parsed_paths(path_exprs, &json_state->json_paths);
-    }
-
-    context->set_function_state(scope, json_state);
-    VLOG_TRACE << "prepare json path. size: " << json_state->json_paths.size();
-}
-
-void JsonFunctions::json_path_close(doris_udf::FunctionContext* context,
-                                    doris_udf::FunctionContext::FunctionStateScope scope) {
-    if (scope != FunctionContext::FRAGMENT_LOCAL) {
-        return;
-    }
-
-    JsonState* json_state = reinterpret_cast<JsonState*>(context->get_function_state(scope));
-    if (json_state != nullptr) {
-        delete json_state;
-        VLOG_TRACE << "close json state";
-    }
 }
 
 void JsonFunctions::parse_json_paths(const std::string& path_string,

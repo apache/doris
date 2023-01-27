@@ -82,7 +82,6 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
     }
 
     _sorter->init_profile(_runtime_profile.get());
-
     return Status::OK();
 }
 
@@ -127,7 +126,6 @@ Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool
                 old_top = std::move(new_top);
             }
         }
-
         if (!_reuse_mem) {
             input_block->clear();
         }

@@ -69,6 +69,15 @@ public class ArrayLiteral extends Literal {
     }
 
     @Override
+    public Expression checkedCastTo(DataType targetType) {
+        if (targetType instanceof ArrayType) {
+            return new Array(
+                    items.stream().toArray(Expression[]::new)).checkedCastTo(targetType);
+        }
+        return super.checkedCastTo(targetType);
+    }
+
+    @Override
     public String toString() {
         String items = this.items.stream()
                 .map(item -> item.toString())

@@ -244,6 +244,7 @@ public abstract class DataType implements AbstractDataType {
                     default:
                         throw new AnalysisException("Nereids do not support type: " + type);
                 }
+            case "character":
             case "char":
                 switch (types.size()) {
                     case 1:
@@ -335,8 +336,6 @@ public abstract class DataType implements AbstractDataType {
             return FloatType.INSTANCE;
         } else if (type == Type.DOUBLE) {
             return DoubleType.INSTANCE;
-        } else if (type == Type.STRING) {
-            return StringType.INSTANCE;
         } else if (type.isNull()) {
             return NullType.INSTANCE;
         } else if (type.isDatetimeV2()) {
@@ -361,6 +360,8 @@ public abstract class DataType implements AbstractDataType {
             return CharType.createCharType(type.getLength());
         } else if (type.getPrimitiveType() == org.apache.doris.catalog.PrimitiveType.VARCHAR) {
             return VarcharType.createVarcharType(type.getLength());
+        } else if (type.getPrimitiveType() == org.apache.doris.catalog.PrimitiveType.STRING) {
+            return StringType.INSTANCE;
         } else if (type.isDecimalV3()) {
             ScalarType scalarType = (ScalarType) type;
             int precision = scalarType.getScalarPrecision();
@@ -437,7 +438,7 @@ public abstract class DataType implements AbstractDataType {
     }
 
     public boolean isIntegerLikeType() {
-        return this instanceof IntegralType;
+        return this instanceof IntegralType && !(this instanceof LargeIntType);
     }
 
     public boolean isTinyIntType() {

@@ -23,13 +23,10 @@
 #include <unordered_map>
 
 #include "exec/tablet_info.h"
-#include "exprs/expr.h"
-#include "exprs/expr_context.h"
 #include "olap/hll.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
-#include "runtime/tuple_row.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
 #include "util/debug/sanitizer_scopes.h"
@@ -1247,8 +1244,6 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
         // shutdown it.
         _send_batch_thread_pool_token->wait();
     }
-
-    Expr::close(_output_expr_ctxs, state);
 
     _close_status = status;
     DataSink::close(state, exec_status);

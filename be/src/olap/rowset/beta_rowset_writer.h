@@ -42,8 +42,6 @@ public:
     Status init(const RowsetWriterContext& rowset_writer_context) override;
 
     Status add_row(const RowCursor& row) override { return _add_row(row); }
-    // For Memtable::flush()
-    Status add_row(const ContiguousRow& row) override { return _add_row(row); }
 
     Status add_block(const vectorized::Block* block) override;
 
@@ -130,6 +128,7 @@ private:
     bool _is_segment_overlapping(const std::vector<KeyBoundsPB>& segments_encoded_key_bounds);
 
 protected:
+    Status _append_row_column(vectorized::Block* block, vectorized::Block* dst_block);
     RowsetWriterContext _context;
     std::shared_ptr<RowsetMeta> _rowset_meta;
 

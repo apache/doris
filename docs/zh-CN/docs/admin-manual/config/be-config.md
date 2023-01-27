@@ -261,7 +261,7 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：该配置主要用来修改brpc中bthreads的数量. 该配置的默认值被设置为-1, 这意味着bthreads的数量将被设置为机器的cpu核数。
 
   - 用户可以将该配置的值调大来获取更好的QPS性能。更多的信息可以参考`https://github.com/apache/incubator-brpc/blob/master/docs/cn/benchmark.md`。
-* 默认值：1
+* 默认值：-1
 
 #### `thrift_rpc_timeout_ms`
 
@@ -1003,7 +1003,7 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `file_cache_type`
 
 * 类型：string
-* 描述：缓存文件的类型。whole_file_cache：将segment文件整个下载，sub_file_cache：将segment文件按大小切分成多个文件。
+* 描述：缓存文件的类型。`whole_file_cache`：将segment文件整个下载，`sub_file_cache`：将segment文件按大小切分成多个文件。设置为""，则不缓存文件，需要缓存的时候请设置此参数。
 * 默认值：""
 
 #### `file_cache_alive_time_sec`
@@ -1011,6 +1011,12 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 类型：int64
 * 描述：缓存文件的保存时间，单位：秒
 * 默认值：604800（1个星期）
+
+#### `file_cache_max_size_per_disk`
+
+* 类型：int64
+* 描述：缓存占用磁盘大小，一旦超过这个设置，会删除最久未访问的缓存，为0则不限制大小。单位字节
+* 默认值：0
 
 #### `max_sub_cache_file_size`
 

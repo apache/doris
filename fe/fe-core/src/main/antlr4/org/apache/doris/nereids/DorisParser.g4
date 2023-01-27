@@ -232,8 +232,7 @@ multipartIdentifier
 
 // -----------------Expression-----------------
 namedExpression
-    : expression (AS? name=errorCapturingIdentifier)?
-    | expression (AS? strName=STRING+)?
+    : expression (AS? (errorCapturingIdentifier | STRING))?
     ;
 
 namedExpressionSeq
@@ -287,7 +286,13 @@ primaryExpression
                 startTimestamp=valueExpression COMMA
                 endTimestamp=valueExpression
             RIGHT_PAREN                                                                        #timestampdiff
-    | name=(TIMESTAMPADD | ADDDATE | DAYS_ADD | DATE_ADD)
+    | name=(TIMESTAMPADD | DATEADD)
+                  LEFT_PAREN
+                      unit=datetimeUnit COMMA
+                      startTimestamp=valueExpression COMMA
+                      endTimestamp=valueExpression
+                  RIGHT_PAREN                                                                  #timestampadd
+    | name =(ADDDATE | DAYS_ADD | DATE_ADD)
             LEFT_PAREN
                 timestamp=valueExpression COMMA
                 (INTERVAL unitsAmount=valueExpression unit=datetimeUnit
@@ -334,10 +339,10 @@ specifiedPartition
 constant
     : NULL                                                                                     #nullLiteral
     | interval                                                                                 #intervalLiteral
-    | identifier STRING                                                                        #typeConstructor
+    | type=(DATE | DATEV2 | TIMESTAMP) STRING                                                  #typeConstructor
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
-    | STRING+                                                                                  #stringLiteral
+    | STRING                                                                                   #stringLiteral
     ;
 
 comparisonOperator
@@ -414,7 +419,6 @@ nonReserved
     | ANY
     | ARCHIVE
     | ARRAY
-    | AS
     | ASC
     | AT
     | AUTHORIZATION
@@ -459,6 +463,7 @@ nonReserved
     | DATABASE
     | DATABASES
     | DATE
+    | DATEV2
     | DATE_ADD
     | DATEDIFF
     | DATE_DIFF
@@ -624,9 +629,6 @@ nonReserved
     | STORED
     | STRATIFY
     | STRUCT
-    | SUBSTR
-    | SUBSTRING
-    | SUM
     | SYNC
     | SYSTEM_TIME
     | SYSTEM_VERSION

@@ -543,6 +543,8 @@ struct TSortInfo {
 
   // Indicates the nullable info of sort_tuple_slot_exprs is changed after substitute by child's smap
   5: optional list<bool> slot_exprs_nullability_changed_flags   
+  // Indicates whether topn query using two phase read
+  6: optional bool use_two_phase_read
 }
 
 enum TPushAggOp {
@@ -891,6 +893,8 @@ struct TExchangeNode {
   2: optional TSortInfo sort_info
   // This is tHe number of rows to skip before returning results
   3: optional i64 offset
+  // Nodes in this cluster, used for second phase fetch
+  4: optional Descriptors.TPaloNodesInfo nodes_info
 }
 
 struct TOlapRewriteNode {

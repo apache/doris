@@ -178,6 +178,7 @@ CONF_Int32(doris_scanner_thread_pool_thread_num, "48");
 CONF_Int32(doris_scanner_thread_pool_queue_size, "102400");
 // default thrift client connect timeout(in seconds)
 CONF_mInt32(thrift_connect_timeout_seconds, "3");
+CONF_mInt32(fetch_rpc_timeout_seconds, "20");
 // default thrift client retry interval (in milliseconds)
 CONF_mInt64(thrift_client_retry_interval_ms, "1000");
 // max row count number for single scan range, used in segmentv1
@@ -210,6 +211,8 @@ CONF_mInt64(memory_limitation_per_thread_for_storage_migration_bytes, "100000000
 
 // the clean interval of file descriptor cache and segment cache
 CONF_mInt32(cache_clean_interval, "1800");
+// the clean interval of tablet lookup cache
+CONF_mInt32(tablet_lookup_cache_clean_interval, "30");
 CONF_mInt32(disk_stat_monitor_interval, "5");
 CONF_mInt32(unused_rowset_monitor_interval, "30");
 CONF_String(storage_root_path, "${DORIS_HOME}/storage");

@@ -22,7 +22,6 @@
 
 #include "common/status.h"
 #include "exprs/bitmapfilter_predicate.h"
-#include "exprs/bloomfilter_predicate.h"
 #include "exprs/hybrid_set.h"
 #include "gen_cpp/Exprs_types.h"
 #include "runtime/types.h"
@@ -77,7 +76,7 @@ public:
     /// thread-local state should be initialized. Otherwise, if scope is THREAD_LOCAL, only
     /// thread-local state should be initialized.
     //
-    /// Subclasses overriding this function should call Expr::Open() to recursively call
+    /// Subclasses overriding this function should call VExpr::Open() to recursively call
     /// Open() on the expr tree
     virtual Status open(RuntimeState* state, VExprContext* context,
                         FunctionContext::FunctionStateScope scope);

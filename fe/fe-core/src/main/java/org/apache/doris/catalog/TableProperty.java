@@ -77,6 +77,8 @@ public class TableProperty implements Writable {
 
     private boolean disableAutoCompaction = false;
 
+    private boolean storeRowColumn = false;
+
     private DataSortInfo dataSortInfo = new DataSortInfo();
 
     public TableProperty(Map<String, String> properties) {
@@ -165,6 +167,16 @@ public class TableProperty implements Writable {
         return disableAutoCompaction;
     }
 
+    public TableProperty buildStoreRowColumn() {
+        storeRowColumn = Boolean.parseBoolean(
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN, "false"));
+        return this;
+    }
+
+    public boolean storeRowColumn() {
+        return storeRowColumn;
+    }
+
     public TableProperty buildStoragePolicy() {
         storagePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, "");
         return this;
@@ -244,6 +256,14 @@ public class TableProperty implements Writable {
         return isInMemory;
     }
 
+    public boolean isAutoBucket() {
+        return Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_AUTO_BUCKET, "false"));
+    }
+
+    public String getEstimatePartitionSize() {
+        return properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE, "");
+    }
+
     public TStorageFormat getStorageFormat() {
         // Force convert all V1 table to V2 table
         if (TStorageFormat.V1 == storageFormat) {
@@ -309,7 +329,8 @@ public class TableProperty implements Writable {
                 .buildDataSortInfo()
                 .buildCompressionType()
                 .buildStoragePolicy()
-                .buildEnableLightSchemaChange();
+                .buildEnableLightSchemaChange()
+                .buildStoreRowColumn();
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_105) {
             // get replica num from property map and create replica allocation
             String repNum = tableProperty.properties.remove(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM);

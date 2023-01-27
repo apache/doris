@@ -1850,7 +1850,7 @@ public class Config extends ConfigBase {
      * Used to determined how many statistics collection SQL could run simultaneously.
      */
     @ConfField
-    public static int statistics_simultaneously_running_job_num = 10;
+    public static int statistics_simultaneously_running_task_num = 10;
 
     /**
      * Internal table replica num, once set, user should promise the avaible BE is greater than this value,
@@ -1955,5 +1955,8 @@ public class Config extends ConfigBase {
      */
     @ConfField(masterOnly = true)
     public static int hms_events_polling_interval_ms = 10000;
+
+    @ConfField(mutable = false)
+    public static int topn_two_phase_limit_threshold = 512;
 }
 

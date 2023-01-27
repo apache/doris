@@ -29,9 +29,7 @@ class MemTable;
 class MemTracker;
 class Schema;
 class StorageEngine;
-class Tuple;
 class TupleDescriptor;
-class TupleRow;
 class SlotDescriptor;
 
 enum WriteType { LOAD = 1, LOAD_DELETE = 2, DELETE = 3 };

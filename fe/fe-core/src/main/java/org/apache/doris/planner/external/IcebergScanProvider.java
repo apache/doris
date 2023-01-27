@@ -124,7 +124,7 @@ public class IcebergScanProvider extends QueryScanProvider {
             }
         }
 
-        org.apache.iceberg.Table table = getIcebergTable();
+        org.apache.iceberg.Table table = HiveMetaStoreClientHelper.getIcebergTable(hmsTable);
         TableScan scan = table.newScan();
         TableSnapshot tableSnapshot = delegate.getDesc().getRef().getTableSnapshot();
         if (tableSnapshot != null) {

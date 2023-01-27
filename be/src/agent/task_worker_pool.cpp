@@ -1706,6 +1706,9 @@ void TaskWorkerPool::_push_cooldown_conf_worker_thread_callback() {
             while (_is_work && _tasks.empty()) {
                 _worker_thread_condition_variable.wait(worker_thread_lock);
             }
+            if (!_is_work) {
+                return;
+            }
 
             agent_task_req = _tasks.front();
             push_cooldown_conf_req = agent_task_req.push_cooldown_conf;

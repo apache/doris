@@ -31,12 +31,10 @@
 
 namespace doris {
 
-struct ContiguousRow;
 class RowsetWriter;
 class Schema;
 class SlotDescriptor;
 class TabletSchema;
-class Tuple;
 class TupleDescriptor;
 
 class MemTable {

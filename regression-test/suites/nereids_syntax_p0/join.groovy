@@ -231,6 +231,13 @@ suite("join") {
         && explainStr.contains("5:VAGGREGATE (update finalize)") 
         && explainStr.contains("4:VEXCHANGE")
         && explainStr.contains("3:VHASH JOIN")
-    )    
-}
+    )
 
+    test {
+        sql"""select * from test_table_a a cross join test_table_b b on a.wtid > b.wtid"""
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+}
