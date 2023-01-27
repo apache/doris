@@ -19,12 +19,10 @@ package org.apache.doris.planner;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.catalog.IcebergProperty;
 import org.apache.doris.catalog.IcebergTable;
 import org.apache.doris.common.UserException;
-import org.apache.doris.external.iceberg.util.IcebergUtils;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.thrift.TBrokerFileStatus;
@@ -37,7 +35,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.ListIterator;
 
 public class IcebergScanNode extends BrokerScanNode {
     private static final Logger LOG = LogManager.getLogger(IcebergScanNode.class);
@@ -74,28 +71,7 @@ public class IcebergScanNode extends BrokerScanNode {
 
     @Override
     protected void getFileStatus() throws UserException {
-        // extract iceberg conjuncts
-        ListIterator<Expr> it = conjuncts.listIterator();
-        while (it.hasNext()) {
-            Expression expression = IcebergUtils.convertToIcebergExpr(it.next());
-            if (expression != null) {
-                icebergPredicates.add(expression);
-            }
-        }
-        // get iceberg file status
-        List<TBrokerFileStatus> fileStatuses;
-        try {
-            fileStatuses = icebergTable.getIcebergDataFiles(icebergPredicates);
-        } catch (Exception e) {
-            LOG.warn("errors while load iceberg table {} data files.", icebergTable.getName(), e);
-            throw new UserException("errors while load Iceberg table ["
-                    + icebergTable.getName() + "] data files.");
-        }
-        fileStatusesList.add(fileStatuses);
-        filesAdded += fileStatuses.size();
-        for (TBrokerFileStatus fstatus : fileStatuses) {
-            LOG.debug("Add file status is {}", fstatus);
-        }
+        throw new UserException("IcebergScanNode is deprecated");
     }
 
     @Override
@@ -110,3 +86,4 @@ public class IcebergScanNode extends BrokerScanNode {
         return output.toString();
     }
 }
+

@@ -34,6 +34,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.iceberg.FileScanTask;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -169,6 +170,10 @@ public class IcebergTable extends Table {
             fileFormat = icebergTable.properties().get(TableProperties.DEFAULT_FILE_FORMAT);
         }
         return fileFormat;
+    }
+
+    public Schema getIcebergSchema() {
+        return icebergTable.schema();
     }
 
     private org.apache.iceberg.Table getTable() throws Exception {

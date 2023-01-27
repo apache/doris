@@ -58,8 +58,8 @@ IcebergTableReader::IcebergTableReader(GenericReader* file_format_reader, Runtim
 }
 
 Status IcebergTableReader::init_reader(
-        std::vector<std::string>& file_col_names,
-        std::unordered_map<int, std::string>& col_id_name_map,
+        const std::vector<std::string>& file_col_names,
+        const std::unordered_map<int, std::string>& col_id_name_map,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
         VExprContext* vconjunct_ctx) {
     ParquetReader* parquet_reader = static_cast<ParquetReader*>(_file_format_reader.get());

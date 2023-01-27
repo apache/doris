@@ -124,14 +124,14 @@ public class IcebergScanProvider extends HiveScanProvider {
     @Override
     public List<InputSplit> getSplits(List<Expr> exprs) throws UserException {
         List<Expression> expressions = new ArrayList<>();
+        org.apache.iceberg.Table table = HiveMetaStoreClientHelper.getIcebergTable(hmsTable);
         for (Expr conjunct : exprs) {
-            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct);
+            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct, table.schema());
             if (expression != null) {
                 expressions.add(expression);
             }
         }
 
-        org.apache.iceberg.Table table = HiveMetaStoreClientHelper.getIcebergTable(hmsTable);
         TableScan scan = table.newScan();
         for (Expression predicate : expressions) {
             scan = scan.filter(predicate);

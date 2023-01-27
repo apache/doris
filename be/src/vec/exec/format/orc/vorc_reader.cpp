@@ -170,7 +170,7 @@ Status OrcReader::init_reader(
     auto& selected_type = _row_reader->getSelectedType();
     _col_orc_type.resize(selected_type.getSubtypeCount());
     for (int i = 0; i < selected_type.getSubtypeCount(); ++i) {
-        _colname_to_idx[selected_type.getFieldName(i)] = i;
+        _colname_to_idx[_get_field_name_lower_case(&selected_type, i)] = i;
         _col_orc_type[i] = selected_type.getSubtype(i);
     }
     return Status::OK();
@@ -204,7 +204,7 @@ Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
 
     auto& root_type = _reader->getType();
     for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
-        col_names->emplace_back(root_type.getFieldName(i));
+        col_names->emplace_back(_get_field_name_lower_case(&root_type, i));
         col_types->emplace_back(_convert_to_doris_type(root_type.getSubtype(i)));
     }
     return Status::OK();
@@ -212,15 +212,20 @@ Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
 
 Status OrcReader::_init_read_columns() {
     auto& root_type = _reader->getType();
-    std::unordered_set<std::string> orc_cols;
+    std::vector<std::string> orc_cols;
+    std::vector<std::string> orc_cols_lower_case;
     for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
-        orc_cols.emplace(root_type.getFieldName(i));
+        orc_cols.emplace_back(root_type.getFieldName(i));
+        orc_cols_lower_case.emplace_back(_get_field_name_lower_case(&root_type, i));
     }
     for (auto& col_name : _column_names) {
-        if (orc_cols.find(col_name) == orc_cols.end()) {
+        auto iter = std::find(orc_cols_lower_case.begin(), orc_cols_lower_case.end(), col_name);
+        if (iter == orc_cols_lower_case.end()) {
             _missing_cols.emplace_back(col_name);
         } else {
-            _read_cols.emplace_back(col_name);
+            int pos = std::distance(orc_cols_lower_case.begin(), iter);
+            _read_cols.emplace_back(orc_cols[pos]);
+            _read_cols_lower_case.emplace_back(col_name);
         }
     }
     return Status::OK();
@@ -478,7 +483,7 @@ void OrcReader::_init_search_argument(
     auto& root_type = _reader->getType();
     std::unordered_map<std::string, const orc::Type*> type_map;
     for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
-        type_map.emplace(root_type.getFieldName(i), root_type.getSubtype(i));
+        type_map.emplace(_get_field_name_lower_case(&root_type, i), root_type.getSubtype(i));
     }
     for (auto it = colname_to_value_range->begin(); it != colname_to_value_range->end(); ++it) {
         auto type_it = type_map.find(it->first);
@@ -558,7 +563,7 @@ TypeDescriptor OrcReader::_convert_to_doris_type(const orc::Type* orc_type) {
         TypeDescriptor struct_type(PrimitiveType::TYPE_STRUCT);
         for (int i = 0; i < orc_type->getSubtypeCount(); ++i) {
             struct_type.children.emplace_back(_convert_to_doris_type(orc_type->getSubtype(i)));
-            struct_type.field_names.emplace_back(orc_type->getFieldName(i));
+            struct_type.field_names.emplace_back(_get_field_name_lower_case(orc_type, i));
         }
         return struct_type;
     }
@@ -571,7 +576,8 @@ std::unordered_map<std::string, TypeDescriptor> OrcReader::get_name_to_type() {
     std::unordered_map<std::string, TypeDescriptor> map;
     auto& root_type = _reader->getType();
     for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
-        map.emplace(root_type.getFieldName(i), _convert_to_doris_type(root_type.getSubtype(i)));
+        map.emplace(_get_field_name_lower_case(&root_type, i),
+                    _convert_to_doris_type(root_type.getSubtype(i)));
     }
     return map;
 }
@@ -580,7 +586,7 @@ Status OrcReader::get_columns(std::unordered_map<std::string, TypeDescriptor>* n
                               std::unordered_set<std::string>* missing_cols) {
     auto& root_type = _reader->getType();
     for (int i = 0; i < root_type.getSubtypeCount(); ++i) {
-        name_to_type->emplace(root_type.getFieldName(i),
+        name_to_type->emplace(_get_field_name_lower_case(&root_type, i),
                               _convert_to_doris_type(root_type.getSubtype(i)));
     }
     for (auto& col : _missing_cols) {
@@ -735,6 +741,12 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
     return Status::InternalError("Unsupported type for column '{}'", col_name);
 }
 
+std::string OrcReader::_get_field_name_lower_case(const orc::Type* orc_type, int pos) {
+    std::string name = orc_type->getFieldName(pos);
+    transform(name.begin(), name.end(), name.begin(), ::tolower);
+    return name;
+}
+
 Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     SCOPED_RAW_TIMER(&_statistics.column_read_time);
     {
@@ -746,7 +758,7 @@ Status OrcReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         }
     }
     const auto& batch_vec = down_cast<orc::StructVectorBatch*>(_batch.get())->fields;
-    for (auto& col : _read_cols) {
+    for (auto& col : _read_cols_lower_case) {
         auto& column_with_type_and_name = block->get_by_name(col);
         auto& column_ptr = column_with_type_and_name.column;
         auto& column_type = column_with_type_and_name.type;
