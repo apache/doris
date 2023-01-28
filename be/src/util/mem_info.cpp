@@ -137,14 +137,13 @@ void MemInfo::process_full_gc() {
         return;
     }
     if (config::enable_query_memroy_overcommit) {
-        freed_mem += MemTrackerLimiter::free_top_overcommit_query(
-                _s_process_full_gc_size - freed_mem, MemTrackerLimiter::Type::LOAD);
+        freed_mem +=
+                MemTrackerLimiter::free_top_overcommit_load(_s_process_full_gc_size - freed_mem);
         if (freed_mem > _s_process_full_gc_size) {
             return;
         }
     }
-    freed_mem += MemTrackerLimiter::free_top_memory_query(_s_process_full_gc_size - freed_mem,
-                                                          MemTrackerLimiter::Type::LOAD);
+    freed_mem += MemTrackerLimiter::free_top_memory_load(_s_process_full_gc_size - freed_mem);
 }
 
 #ifndef __APPLE__
