@@ -645,8 +645,7 @@ Status SegmentIterator::_apply_inverted_index() {
         if (_inverted_index_iterators.count(unique_id) < 1 ||
             _inverted_index_iterators[unique_id] == nullptr ||
             (pred->type() != PredicateType::MATCH && handle_by_fulltext) ||
-            pred->type() == PredicateType::IS_NULL ||
-            pred->type() == PredicateType::IS_NOT_NULL ||
+            pred->type() == PredicateType::IS_NULL || pred->type() == PredicateType::IS_NOT_NULL ||
             pred->type() == PredicateType::BF) {
             // 1. this column no inverted index
             // 2. equal or range for fulltext index
