@@ -33,6 +33,7 @@ import java.util.Objects;
  * Star expression.
  */
 public class UnboundStar extends NamedExpression implements LeafExpression, Unbound, PropagateNullable {
+
     private final List<String> qualifier;
 
     public UnboundStar(List<String> qualifier) {
