@@ -1743,7 +1743,8 @@ public class Env {
 
         if (jobSize > 0) {
             LOG.warn("there should be no load jobs, please rollback to 1.2.x and check if there are hadoop load jobs");
-            throw new RuntimeException("there should be no load jobs, please rollback to 1.2.x and check if there are hadoop load jobs");
+            throw new RuntimeException("there should be no load jobs, please rollback to 1.2.x "
+                    + "and check if there are hadoop load jobs");
         }
 
         // delete jobs
