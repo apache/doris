@@ -725,6 +725,8 @@ Doris 支持一些外部署数据源的查询。所以回归框架也提供了�
         :q
         ```
 
+        更多使用方式可参阅 [Tabular 官方文档](https://tabular.io/blog/docker-spark-and-iceberg/)。
+
 2. 运行回归测试
 
     外表相关的回归测试默认是关闭的，可以修改 `regression-test/conf/regression-conf.groovy` 中的以下配置来开启：
