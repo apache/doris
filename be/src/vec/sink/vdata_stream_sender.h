@@ -39,7 +39,6 @@ class RuntimeState;
 class RuntimeProfile;
 class BufferControlBlock;
 class MemTracker;
-class PartRangeKey;
 
 namespace pipeline {
 class ExchangeSinkOperator;
@@ -47,7 +46,6 @@ class ExchangeSinkOperator;
 
 namespace vectorized {
 class VExprContext;
-class VPartitionInfo;
 class Channel;
 
 class VDataStreamSender : public DataSink {
@@ -137,10 +135,6 @@ protected:
 
     std::vector<Channel*> _channels;
     std::vector<std::shared_ptr<Channel>> _channel_shared_ptrs;
-
-    // map from range value to partition_id
-    // sorted in ascending orderi by range for binary search
-    std::vector<VPartitionInfo*> _partition_infos;
 
     RuntimeProfile* _profile; // Allocated from _pool
     RuntimeProfile::Counter* _serialize_batch_timer;
