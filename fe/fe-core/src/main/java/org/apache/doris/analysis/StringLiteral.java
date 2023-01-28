@@ -21,7 +21,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -182,11 +181,11 @@ public class StringLiteral extends LiteralExpr {
     public LiteralExpr convertToDate(Type targetType) throws AnalysisException {
         LiteralExpr newLiteral = null;
         try {
-            newLiteral = new DateLiteral(value, ScalarType.getDefaultDateType(targetType));
+            newLiteral = new DateLiteral(value, targetType);
         } catch (AnalysisException e) {
             if (targetType.isScalarType(PrimitiveType.DATETIME)) {
-                newLiteral = new DateLiteral(value, ScalarType.getDefaultDateType(Type.DATE));
-                newLiteral.setType(ScalarType.getDefaultDateType(Type.DATETIME));
+                newLiteral = new DateLiteral(value, Type.DATE);
+                newLiteral.setType(Type.DATETIME);
             } else if (targetType.isScalarType(PrimitiveType.DATETIMEV2)) {
                 newLiteral = new DateLiteral(value, Type.DATEV2);
                 newLiteral.setType(targetType);

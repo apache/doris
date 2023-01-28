@@ -153,4 +153,31 @@ suite("test_array_functions") {
     qt_select_union "select class_id, student_ids, array_union(student_ids,[1,2,3]) from ${tableName3} order by class_id;"
     qt_select_except "select class_id, student_ids, array_except(student_ids,[1,2,3]) from ${tableName3} order by class_id;"
     qt_select_intersect "select class_id, student_ids, array_intersect(student_ids,[1,2,3,null]) from ${tableName3} order by class_id;"
+
+    def tableName4 = "tbl_test_array_datetimev2_functions"
+
+    sql """DROP TABLE IF EXISTS ${tableName4}"""
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName4} (
+              `k1` int COMMENT "",
+              `k2` ARRAY<datetimev2(4)> COMMENT "",
+              `k3` ARRAY<datetimev2(4)> COMMENT "",
+              `k4` ARRAY<datetimev2(6)> COMMENT ""
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k1`)
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+            PROPERTIES (
+            "replication_allocation" = "tag.location.default: 1",
+            "storage_format" = "V2"
+            )
+        """
+    sql """ INSERT INTO ${tableName4} VALUES(1,
+                                            ["2023-01-19 18:11:11.1111","2023-01-19 18:22:22.2222","2023-01-19 18:33:33.3333"],
+                                            ["2023-01-19 18:22:22.2222","2023-01-19 18:33:33.3333","2023-01-19 18:44:44.4444"],
+                                            ["2023-01-19 18:11:11.111111","2023-01-19 18:22:22.222222","2023-01-19 18:33:33.333333"]) """
+
+    qt_select_array_datetimev2_1 "SELECT * FROM ${tableName4}"
+    qt_select_array_datetimev2_2 "SELECT if(1,k2,k3) FROM ${tableName4}"
+    qt_select_array_datetimev2_3 "SELECT if(0,k2,k3) FROM ${tableName4}"
+    qt_select_array_datetimev2_4 "SELECT if(0,k2,k4) FROM ${tableName4}"
 }

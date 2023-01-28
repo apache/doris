@@ -1893,6 +1893,7 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale) {
         if (field_idx == 2 && *ptr == 'T') {
             // YYYYMMDDTHHMMDD, skip 'T' and continue
             ptr++;
+            field_idx++;
             continue;
         }
 

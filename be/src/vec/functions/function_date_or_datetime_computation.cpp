@@ -21,63 +21,48 @@
 
 namespace doris::vectorized {
 
-using FunctionAddSeconds = FunctionDateOrDateTimeComputation<
-        AddSecondsImpl<DataTypeDateTime, Int64, DataTypeDateTime>>;
-using FunctionAddMinutes = FunctionDateOrDateTimeComputation<
-        AddMinutesImpl<DataTypeDateTime, Int64, DataTypeDateTime>>;
-using FunctionAddHours =
-        FunctionDateOrDateTimeComputation<AddHoursImpl<DataTypeDateTime, Int64, DataTypeDateTime>>;
-using FunctionAddDays =
-        FunctionDateOrDateTimeComputation<AddDaysImpl<DataTypeDateTime, Int64, DataTypeDateTime>>;
-using FunctionAddWeeks =
-        FunctionDateOrDateTimeComputation<AddWeeksImpl<DataTypeDateTime, Int64, DataTypeDateTime>>;
-using FunctionAddMonths =
-        FunctionDateOrDateTimeComputation<AddMonthsImpl<DataTypeDateTime, Int64, DataTypeDateTime>>;
-using FunctionAddQuarters = FunctionDateOrDateTimeComputation<
-        AddQuartersImpl<DataTypeDateTime, Int64, DataTypeDateTime>>;
-using FunctionAddYears =
-        FunctionDateOrDateTimeComputation<AddYearsImpl<DataTypeDateTime, Int64, DataTypeDateTime>>;
+using FunctionAddSeconds = FunctionDateOrDateTimeComputation<AddSecondsImpl<DataTypeDateTime>>;
+using FunctionAddMinutes = FunctionDateOrDateTimeComputation<AddMinutesImpl<DataTypeDateTime>>;
+using FunctionAddHours = FunctionDateOrDateTimeComputation<AddHoursImpl<DataTypeDateTime>>;
+using FunctionAddDays = FunctionDateOrDateTimeComputation<AddDaysImpl<DataTypeDateTime>>;
+using FunctionAddWeeks = FunctionDateOrDateTimeComputation<AddWeeksImpl<DataTypeDateTime>>;
+using FunctionAddMonths = FunctionDateOrDateTimeComputation<AddMonthsImpl<DataTypeDateTime>>;
+using FunctionAddQuarters = FunctionDateOrDateTimeComputation<AddQuartersImpl<DataTypeDateTime>>;
+using FunctionAddYears = FunctionDateOrDateTimeComputation<AddYearsImpl<DataTypeDateTime>>;
 
-using FunctionSubSeconds = FunctionDateOrDateTimeComputation<
-        SubtractSecondsImpl<DataTypeDateTime, Int64, DataTypeDateTime>>;
-using FunctionSubMinutes = FunctionDateOrDateTimeComputation<
-        SubtractMinutesImpl<DataTypeDateTime, Int64, DataTypeDateTime>>;
-using FunctionSubHours = FunctionDateOrDateTimeComputation<
-        SubtractHoursImpl<DataTypeDateTime, Int64, DataTypeDateTime>>;
-using FunctionSubDays = FunctionDateOrDateTimeComputation<
-        SubtractDaysImpl<DataTypeDateTime, Int64, DataTypeDateTime>>;
-using FunctionSubWeeks = FunctionDateOrDateTimeComputation<
-        SubtractWeeksImpl<DataTypeDateTime, Int64, DataTypeDateTime>>;
-using FunctionSubMonths = FunctionDateOrDateTimeComputation<
-        SubtractMonthsImpl<DataTypeDateTime, Int64, DataTypeDateTime>>;
-using FunctionSubQuarters = FunctionDateOrDateTimeComputation<
-        SubtractQuartersImpl<DataTypeDateTime, Int64, DataTypeDateTime>>;
-using FunctionSubYears = FunctionDateOrDateTimeComputation<
-        SubtractYearsImpl<DataTypeDateTime, Int64, DataTypeDateTime>>;
+using FunctionSubSeconds = FunctionDateOrDateTimeComputation<SubtractSecondsImpl<DataTypeDateTime>>;
+using FunctionSubMinutes = FunctionDateOrDateTimeComputation<SubtractMinutesImpl<DataTypeDateTime>>;
+using FunctionSubHours = FunctionDateOrDateTimeComputation<SubtractHoursImpl<DataTypeDateTime>>;
+using FunctionSubDays = FunctionDateOrDateTimeComputation<SubtractDaysImpl<DataTypeDateTime>>;
+using FunctionSubWeeks = FunctionDateOrDateTimeComputation<SubtractWeeksImpl<DataTypeDateTime>>;
+using FunctionSubMonths = FunctionDateOrDateTimeComputation<SubtractMonthsImpl<DataTypeDateTime>>;
+using FunctionSubQuarters =
+        FunctionDateOrDateTimeComputation<SubtractQuartersImpl<DataTypeDateTime>>;
+using FunctionSubYears = FunctionDateOrDateTimeComputation<SubtractYearsImpl<DataTypeDateTime>>;
 
-using FunctionDateDiff = FunctionDateOrDateTimeComputation<DateDiffImpl<
-        VecDateTimeValue, VecDateTimeValue, DataTypeDateTime, DataTypeDateTime, Int64, Int64>>;
-using FunctionTimeDiff = FunctionDateOrDateTimeComputation<TimeDiffImpl<
-        VecDateTimeValue, VecDateTimeValue, DataTypeDateTime, DataTypeDateTime, Int64, Int64>>;
-using FunctionYearsDiff = FunctionDateOrDateTimeComputation<YearsDiffImpl<
-        VecDateTimeValue, VecDateTimeValue, DataTypeDateTime, DataTypeDateTime, Int64, Int64>>;
-using FunctionMonthsDiff = FunctionDateOrDateTimeComputation<MonthsDiffImpl<
-        VecDateTimeValue, VecDateTimeValue, DataTypeDateTime, DataTypeDateTime, Int64, Int64>>;
-using FunctionDaysDiff = FunctionDateOrDateTimeComputation<DaysDiffImpl<
-        VecDateTimeValue, VecDateTimeValue, DataTypeDateTime, DataTypeDateTime, Int64, Int64>>;
-using FunctionWeeksDiff = FunctionDateOrDateTimeComputation<WeeksDiffImpl<
-        VecDateTimeValue, VecDateTimeValue, DataTypeDateTime, DataTypeDateTime, Int64, Int64>>;
-using FunctionHoursDiff = FunctionDateOrDateTimeComputation<HoursDiffImpl<
-        VecDateTimeValue, VecDateTimeValue, DataTypeDateTime, DataTypeDateTime, Int64, Int64>>;
-using FunctionMinutesDiff = FunctionDateOrDateTimeComputation<MintueSDiffImpl<
-        VecDateTimeValue, VecDateTimeValue, DataTypeDateTime, DataTypeDateTime, Int64, Int64>>;
-using FunctionSecondsDiff = FunctionDateOrDateTimeComputation<SecondsDiffImpl<
-        VecDateTimeValue, VecDateTimeValue, DataTypeDateTime, DataTypeDateTime, Int64, Int64>>;
+using FunctionDateDiff =
+        FunctionDateOrDateTimeComputation<DateDiffImpl<DataTypeDateTime, DataTypeDateTime>>;
+using FunctionTimeDiff =
+        FunctionDateOrDateTimeComputation<TimeDiffImpl<DataTypeDateTime, DataTypeDateTime>>;
+using FunctionYearsDiff =
+        FunctionDateOrDateTimeComputation<YearsDiffImpl<DataTypeDateTime, DataTypeDateTime>>;
+using FunctionMonthsDiff =
+        FunctionDateOrDateTimeComputation<MonthsDiffImpl<DataTypeDateTime, DataTypeDateTime>>;
+using FunctionDaysDiff =
+        FunctionDateOrDateTimeComputation<DaysDiffImpl<DataTypeDateTime, DataTypeDateTime>>;
+using FunctionWeeksDiff =
+        FunctionDateOrDateTimeComputation<WeeksDiffImpl<DataTypeDateTime, DataTypeDateTime>>;
+using FunctionHoursDiff =
+        FunctionDateOrDateTimeComputation<HoursDiffImpl<DataTypeDateTime, DataTypeDateTime>>;
+using FunctionMinutesDiff =
+        FunctionDateOrDateTimeComputation<MintueSDiffImpl<DataTypeDateTime, DataTypeDateTime>>;
+using FunctionSecondsDiff =
+        FunctionDateOrDateTimeComputation<SecondsDiffImpl<DataTypeDateTime, DataTypeDateTime>>;
 
-using FunctionToYearWeekTwoArgs = FunctionDateOrDateTimeComputation<
-        ToYearWeekTwoArgsImpl<VecDateTimeValue, DataTypeDateTime, Int64>>;
-using FunctionToWeekTwoArgs = FunctionDateOrDateTimeComputation<
-        ToWeekTwoArgsImpl<VecDateTimeValue, DataTypeDateTime, Int64>>;
+using FunctionToYearWeekTwoArgs =
+        FunctionDateOrDateTimeComputation<ToYearWeekTwoArgsImpl<DataTypeDateTime>>;
+using FunctionToWeekTwoArgs =
+        FunctionDateOrDateTimeComputation<ToWeekTwoArgsImpl<DataTypeDateTime>>;
 
 struct NowFunctionName {
     static constexpr auto name = "now";

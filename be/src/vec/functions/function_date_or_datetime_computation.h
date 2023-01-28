@@ -27,13 +27,14 @@
 #include "vec/data_types/data_type_date.h"
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_time.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/runtime/vdatetime_value.h"
 namespace doris::vectorized {
 
-template <TimeUnit unit, typename Arg, typename DateValueType, typename ResultDateValueType,
-          typename ResultType>
+template <TimeUnit unit, typename DateValueType, typename ResultDateValueType, typename ResultType,
+          typename Arg>
 extern ResultType date_time_add(const Arg& t, Int64 delta, bool& is_null) {
     auto ts_value = binary_cast<Arg, DateValueType>(t);
     TimeInterval interval(unit, delta, false);
@@ -51,9 +52,20 @@ extern ResultType date_time_add(const Arg& t, Int64 delta, bool& is_null) {
 }
 
 #define ADD_TIME_FUNCTION_IMPL(CLASS, NAME, UNIT)                                                  \
-    template <typename DateType, typename ArgType, typename ResultType>                            \
+    template <typename DateType>                                                                   \
     struct CLASS {                                                                                 \
-        using ReturnType = ResultType;                                                             \
+        using ReturnType = std::conditional_t<                                                     \
+                std::is_same_v<DateType, DataTypeDate> ||                                          \
+                        std::is_same_v<DateType, DataTypeDateTime>,                                \
+                DataTypeDateTime,                                                                  \
+                std::conditional_t<                                                                \
+                        std::is_same_v<DateType, DataTypeDateV2>,                                  \
+                        std::conditional_t<TimeUnit::UNIT == TimeUnit::HOUR ||                     \
+                                                   TimeUnit::UNIT == TimeUnit::MINUTE ||           \
+                                                   TimeUnit::UNIT == TimeUnit::SECOND ||           \
+                                                   TimeUnit::UNIT == TimeUnit::SECOND_MICROSECOND, \
+                                           DataTypeDateTimeV2, DataTypeDateV2>,                    \
+                        DataTypeDateTimeV2>>;                                                      \
         using ReturnNativeType = std::conditional_t<                                               \
                 std::is_same_v<DateType, DataTypeDate> ||                                          \
                         std::is_same_v<DateType, DataTypeDateTime>,                                \
@@ -66,12 +78,18 @@ extern ResultType date_time_add(const Arg& t, Int64 delta, bool& is_null) {
                                                    TimeUnit::UNIT == TimeUnit::SECOND_MICROSECOND, \
                                            UInt64, UInt32>,                                        \
                         UInt64>>;                                                                  \
+        using InputNativeType = std::conditional_t<                                                \
+                std::is_same_v<DateType, DataTypeDate> ||                                          \
+                        std::is_same_v<DateType, DataTypeDateTime>,                                \
+                Int64,                                                                             \
+                std::conditional_t<std::is_same_v<DateType, DataTypeDateV2>, UInt32, UInt64>>;     \
         static constexpr auto name = #NAME;                                                        \
         static constexpr auto is_nullable = true;                                                  \
-        static inline ReturnNativeType execute(const ArgType& t, Int64 delta, bool& is_null) {     \
+        static inline ReturnNativeType execute(const InputNativeType& t, Int64 delta,              \
+                                               bool& is_null) {                                    \
             if constexpr (std::is_same_v<DateType, DataTypeDate> ||                                \
                           std::is_same_v<DateType, DataTypeDateTime>) {                            \
-                return date_time_add<TimeUnit::UNIT, ArgType, doris::vectorized::VecDateTimeValue, \
+                return date_time_add<TimeUnit::UNIT, doris::vectorized::VecDateTimeValue,          \
                                      doris::vectorized::VecDateTimeValue, ReturnNativeType>(       \
                         t, delta, is_null);                                                        \
             } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {                       \
@@ -79,17 +97,17 @@ extern ResultType date_time_add(const Arg& t, Int64 delta, bool& is_null) {
                               TimeUnit::UNIT == TimeUnit::MINUTE ||                                \
                               TimeUnit::UNIT == TimeUnit::SECOND ||                                \
                               TimeUnit::UNIT == TimeUnit::SECOND_MICROSECOND) {                    \
-                    return date_time_add<TimeUnit::UNIT, ArgType, DateV2Value<DateV2ValueType>,    \
+                    return date_time_add<TimeUnit::UNIT, DateV2Value<DateV2ValueType>,             \
                                          DateV2Value<DateTimeV2ValueType>, ReturnNativeType>(      \
                             t, delta, is_null);                                                    \
                 } else {                                                                           \
-                    return date_time_add<TimeUnit::UNIT, ArgType, DateV2Value<DateV2ValueType>,    \
+                    return date_time_add<TimeUnit::UNIT, DateV2Value<DateV2ValueType>,             \
                                          DateV2Value<DateV2ValueType>, ReturnNativeType>(t, delta, \
                                                                                          is_null); \
                 }                                                                                  \
                                                                                                    \
             } else {                                                                               \
-                return date_time_add<TimeUnit::UNIT, ArgType, DateV2Value<DateTimeV2ValueType>,    \
+                return date_time_add<TimeUnit::UNIT, DateV2Value<DateTimeV2ValueType>,             \
                                      DateV2Value<DateTimeV2ValueType>, ReturnNativeType>(t, delta, \
                                                                                          is_null); \
             }                                                                                      \
@@ -108,25 +126,33 @@ ADD_TIME_FUNCTION_IMPL(AddWeeksImpl, weeks_add, WEEK);
 ADD_TIME_FUNCTION_IMPL(AddMonthsImpl, months_add, MONTH);
 ADD_TIME_FUNCTION_IMPL(AddYearsImpl, years_add, YEAR);
 
-template <typename DateType, typename ArgType, typename ResultType>
+template <typename DateType>
 struct AddQuartersImpl {
-    using ReturnType = ResultType;
+    using ReturnType =
+            std::conditional_t<std::is_same_v<DateType, DataTypeDate> ||
+                                       std::is_same_v<DateType, DataTypeDateTime>,
+                               DataTypeDateTime,
+                               std::conditional_t<std::is_same_v<DateType, DataTypeDateV2>,
+                                                  DataTypeDateV2, DataTypeDateTimeV2>>;
+    using InputNativeType = std::conditional_t<
+            std::is_same_v<DateType, DataTypeDate> || std::is_same_v<DateType, DataTypeDateTime>,
+            Int64, std::conditional_t<std::is_same_v<DateType, DataTypeDateV2>, UInt32, UInt64>>;
     using ReturnNativeType = std::conditional_t<
             std::is_same_v<DateType, DataTypeDate> || std::is_same_v<DateType, DataTypeDateTime>,
             Int64, std::conditional_t<std::is_same_v<DateType, DataTypeDateV2>, UInt32, UInt64>>;
     static constexpr auto name = "quarters_add";
     static constexpr auto is_nullable = true;
-    static inline ReturnNativeType execute(const ArgType& t, Int64 delta, bool& is_null) {
+    static inline ReturnNativeType execute(const InputNativeType& t, Int64 delta, bool& is_null) {
         if constexpr (std::is_same_v<DateType, DataTypeDate> ||
                       std::is_same_v<DateType, DataTypeDateTime>) {
-            return date_time_add<TimeUnit::MONTH, ArgType, doris::vectorized::VecDateTimeValue,
+            return date_time_add<TimeUnit::MONTH, doris::vectorized::VecDateTimeValue,
                                  doris::vectorized::VecDateTimeValue, ReturnNativeType>(t, delta,
                                                                                         is_null);
         } else if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
-            return date_time_add<TimeUnit::MONTH, ArgType, DateV2Value<DateV2ValueType>,
+            return date_time_add<TimeUnit::MONTH, DateV2Value<DateV2ValueType>,
                                  DateV2Value<DateV2ValueType>, ReturnNativeType>(t, delta, is_null);
         } else {
-            return date_time_add<TimeUnit::MONTH, ArgType, DateV2Value<DateTimeV2ValueType>,
+            return date_time_add<TimeUnit::MONTH, DateV2Value<DateTimeV2ValueType>,
                                  DateV2Value<DateTimeV2ValueType>, ReturnNativeType>(t, delta,
                                                                                      is_null);
         }
@@ -135,11 +161,12 @@ struct AddQuartersImpl {
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DateType>()}; }
 };
 
-template <typename Transform, typename DateType, typename ArgType, typename ResultType>
+template <typename Transform, typename DateType>
 struct SubtractIntervalImpl {
-    using ReturnType = ResultType;
+    using ReturnType = typename Transform::ReturnType;
+    using InputNativeType = typename Transform::InputNativeType;
     static constexpr auto is_nullable = true;
-    static inline Int64 execute(const ArgType& t, Int64 delta, bool& is_null) {
+    static inline Int64 execute(const InputNativeType& t, Int64 delta, bool& is_null) {
         return Transform::execute(t, -delta, is_null);
     }
 
@@ -148,108 +175,81 @@ struct SubtractIntervalImpl {
     }
 };
 
-template <typename DateType, typename ArgType, typename ResultType>
-struct SubtractSecondsImpl : SubtractIntervalImpl<AddSecondsImpl<DateType, ArgType, ResultType>,
-                                                  DateType, ArgType, ResultType> {
+template <typename DateType>
+struct SubtractSecondsImpl : SubtractIntervalImpl<AddSecondsImpl<DateType>, DateType> {
     static constexpr auto name = "seconds_sub";
 };
 
-template <typename DateType, typename ArgType, typename ResultType>
-struct SubtractMinutesImpl : SubtractIntervalImpl<AddMinutesImpl<DateType, ArgType, ResultType>,
-                                                  DateType, ArgType, ResultType> {
+template <typename DateType>
+struct SubtractMinutesImpl : SubtractIntervalImpl<AddMinutesImpl<DateType>, DateType> {
     static constexpr auto name = "minutes_sub";
 };
 
-template <typename DateType, typename ArgType, typename ResultType>
-struct SubtractHoursImpl : SubtractIntervalImpl<AddHoursImpl<DateType, ArgType, ResultType>,
-                                                DateType, ArgType, ResultType> {
+template <typename DateType>
+struct SubtractHoursImpl : SubtractIntervalImpl<AddHoursImpl<DateType>, DateType> {
     static constexpr auto name = "hours_sub";
 };
 
-template <typename DateType, typename ArgType, typename ResultType>
-struct SubtractDaysImpl : SubtractIntervalImpl<AddDaysImpl<DateType, ArgType, ResultType>, DateType,
-                                               ArgType, ResultType> {
+template <typename DateType>
+struct SubtractDaysImpl : SubtractIntervalImpl<AddDaysImpl<DateType>, DateType> {
     static constexpr auto name = "days_sub";
 };
 
-template <typename DateType, typename ArgType, typename ResultType>
-struct SubtractWeeksImpl : SubtractIntervalImpl<AddWeeksImpl<DateType, ArgType, ResultType>,
-                                                DateType, ArgType, ResultType> {
+template <typename DateType>
+struct SubtractWeeksImpl : SubtractIntervalImpl<AddWeeksImpl<DateType>, DateType> {
     static constexpr auto name = "weeks_sub";
 };
 
-template <typename DateType, typename ArgType, typename ResultType>
-struct SubtractMonthsImpl : SubtractIntervalImpl<AddMonthsImpl<DateType, ArgType, ResultType>,
-                                                 DateType, ArgType, ResultType> {
+template <typename DateType>
+struct SubtractMonthsImpl : SubtractIntervalImpl<AddMonthsImpl<DateType>, DateType> {
     static constexpr auto name = "months_sub";
 };
 
-template <typename DateType, typename ArgType, typename ResultType>
-struct SubtractQuartersImpl : SubtractIntervalImpl<AddQuartersImpl<DateType, ArgType, ResultType>,
-                                                   DateType, ArgType, ResultType> {
+template <typename DateType>
+struct SubtractQuartersImpl : SubtractIntervalImpl<AddQuartersImpl<DateType>, DateType> {
     static constexpr auto name = "quarters_sub";
 };
 
-template <typename DateType, typename ArgType, typename ResultType>
-struct SubtractYearsImpl : SubtractIntervalImpl<AddYearsImpl<DateType, ArgType, ResultType>,
-                                                DateType, ArgType, ResultType> {
+template <typename DateType>
+struct SubtractYearsImpl : SubtractIntervalImpl<AddYearsImpl<DateType>, DateType> {
     static constexpr auto name = "years_sub";
 };
 
-template <typename DateValueType1, typename DateValueType2, typename DateType1, typename DateType2,
-          typename ArgType1, typename ArgType2>
-struct DateDiffImpl {
-    using ReturnType = DataTypeInt32;
-    static constexpr auto name = "datediff";
-    static constexpr auto is_nullable = false;
-    static inline Int32 execute(const ArgType1& t0, const ArgType2& t1, bool& is_null) {
-        const auto& ts0 = reinterpret_cast<const DateValueType1&>(t0);
-        const auto& ts1 = reinterpret_cast<const DateValueType2&>(t1);
-        is_null = !ts0.is_valid_date() || !ts1.is_valid_date();
-        return ts0.daynr() - ts1.daynr();
-    }
+#define DECLARE_DATE_FUNCTIONS(NAME, FN_NAME, RETURN_TYPE, STMT)                                   \
+    template <typename DateType1, typename DateType2>                                              \
+    struct NAME {                                                                                  \
+        using ArgType1 = std::conditional_t<                                                       \
+                std::is_same_v<DateType1, DataTypeDateV2>, UInt32,                                 \
+                std::conditional_t<std::is_same_v<DateType1, DataTypeDateTimeV2>, UInt64, Int64>>; \
+        using ArgType2 = std::conditional_t<                                                       \
+                std::is_same_v<DateType2, DataTypeDateV2>, UInt32,                                 \
+                std::conditional_t<std::is_same_v<DateType2, DataTypeDateTimeV2>, UInt64, Int64>>; \
+        using DateValueType1 = std::conditional_t<                                                 \
+                std::is_same_v<DateType1, DataTypeDateV2>, DateV2Value<DateV2ValueType>,           \
+                std::conditional_t<std::is_same_v<DateType1, DataTypeDateTimeV2>,                  \
+                                   DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>>;           \
+        using DateValueType2 = std::conditional_t<                                                 \
+                std::is_same_v<DateType2, DataTypeDateV2>, DateV2Value<DateV2ValueType>,           \
+                std::conditional_t<std::is_same_v<DateType2, DataTypeDateTimeV2>,                  \
+                                   DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>>;           \
+        using ReturnType = RETURN_TYPE;                                                            \
+        static constexpr auto name = #FN_NAME;                                                     \
+        static constexpr auto is_nullable = false;                                                 \
+        static inline Int32 execute(const ArgType1& t0, const ArgType2& t1, bool& is_null) {       \
+            const auto& ts0 = reinterpret_cast<const DateValueType1&>(t0);                         \
+            const auto& ts1 = reinterpret_cast<const DateValueType2&>(t1);                         \
+            is_null = !ts0.is_valid_date() || !ts1.is_valid_date();                                \
+            return STMT;                                                                           \
+        }                                                                                          \
+        static DataTypes get_variadic_argument_types() {                                           \
+            return {std::make_shared<DateType1>(), std::make_shared<DateType2>()};                 \
+        }                                                                                          \
+    };
+DECLARE_DATE_FUNCTIONS(DateDiffImpl, datediff, DataTypeInt32, (ts0.daynr() - ts1.daynr()));
+DECLARE_DATE_FUNCTIONS(TimeDiffImpl, timediff, DataTypeTime, ts0.second_diff(ts1));
 
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DateType1>(), std::make_shared<DateType2>()};
-    }
-};
-
-template <typename DateValueType1, typename DateValueType2, typename DateType1, typename DateType2,
-          typename ArgType1, typename ArgType2>
-struct TimeDiffImpl {
-    using ReturnType = DataTypeFloat64;
-    static constexpr auto name = "timediff";
-    static constexpr auto is_nullable = false;
-    static inline double execute(const ArgType1& t0, const ArgType2& t1, bool& is_null) {
-        const auto& ts0 = reinterpret_cast<const DateValueType1&>(t0);
-        const auto& ts1 = reinterpret_cast<const DateValueType2&>(t1);
-        is_null = !ts0.is_valid_date() || !ts1.is_valid_date();
-        return ts0.second_diff(ts1);
-    }
-
-    static DataTypes get_variadic_argument_types() {
-        return {std::make_shared<DateType1>(), std::make_shared<DateType2>()};
-    }
-};
-
-#define TIME_DIFF_FUNCTION_IMPL(CLASS, NAME, UNIT)                                           \
-    template <typename DateValueType1, typename DateValueType2, typename DateType1,          \
-              typename DateType2, typename ArgType1, typename ArgType2>                      \
-    struct CLASS {                                                                           \
-        using ReturnType = DataTypeInt64;                                                    \
-        static constexpr auto name = #NAME;                                                  \
-        static constexpr auto is_nullable = false;                                           \
-        static inline Int64 execute(const ArgType1& t0, const ArgType2& t1, bool& is_null) { \
-            const auto& ts0 = reinterpret_cast<const DateValueType1&>(t0);                   \
-            const auto& ts1 = reinterpret_cast<const DateValueType2&>(t1);                   \
-            is_null = !ts0.is_valid_date() || !ts1.is_valid_date();                          \
-            return datetime_diff<TimeUnit::UNIT>(ts1, ts0);                                  \
-        }                                                                                    \
-                                                                                             \
-        static DataTypes get_variadic_argument_types() {                                     \
-            return {std::make_shared<DateType1>(), std::make_shared<DateType2>()};           \
-        }                                                                                    \
-    }
+#define TIME_DIFF_FUNCTION_IMPL(CLASS, NAME, UNIT) \
+    DECLARE_DATE_FUNCTIONS(CLASS, NAME, DataTypeInt64, datetime_diff<TimeUnit::UNIT>(ts1, ts0))
 
 TIME_DIFF_FUNCTION_IMPL(YearsDiffImpl, years_diff, YEAR);
 TIME_DIFF_FUNCTION_IMPL(MonthsDiffImpl, months_diff, MONTH);
@@ -259,20 +259,27 @@ TIME_DIFF_FUNCTION_IMPL(HoursDiffImpl, hours_diff, HOUR);
 TIME_DIFF_FUNCTION_IMPL(MintueSDiffImpl, minutes_diff, MINUTE);
 TIME_DIFF_FUNCTION_IMPL(SecondsDiffImpl, seconds_diff, SECOND);
 
-#define TIME_FUNCTION_TWO_ARGS_IMPL(CLASS, NAME, FUNCTION)                                  \
-    template <typename DateValueType, typename DateType, typename ArgType>                  \
-    struct CLASS {                                                                          \
-        using ReturnType = DataTypeInt32;                                                   \
-        static constexpr auto name = #NAME;                                                 \
-        static constexpr auto is_nullable = false;                                          \
-        static inline int64_t execute(const ArgType& t0, const Int32 mode, bool& is_null) { \
-            const auto& ts0 = reinterpret_cast<const DateValueType&>(t0);                   \
-            is_null = !ts0.is_valid_date();                                                 \
-            return ts0.FUNCTION;                                                            \
-        }                                                                                   \
-        static DataTypes get_variadic_argument_types() {                                    \
-            return {std::make_shared<DateType>(), std::make_shared<DataTypeInt32>()};       \
-        }                                                                                   \
+#define TIME_FUNCTION_TWO_ARGS_IMPL(CLASS, NAME, FUNCTION)                                        \
+    template <typename DateType>                                                                  \
+    struct CLASS {                                                                                \
+        using ArgType = std::conditional_t<                                                       \
+                std::is_same_v<DateType, DataTypeDateV2>, UInt32,                                 \
+                std::conditional_t<std::is_same_v<DateType, DataTypeDateTimeV2>, UInt64, Int64>>; \
+        using DateValueType = std::conditional_t<                                                 \
+                std::is_same_v<DateType, DataTypeDateV2>, DateV2Value<DateV2ValueType>,           \
+                std::conditional_t<std::is_same_v<DateType, DataTypeDateTimeV2>,                  \
+                                   DateV2Value<DateTimeV2ValueType>, VecDateTimeValue>>;          \
+        using ReturnType = DataTypeInt32;                                                         \
+        static constexpr auto name = #NAME;                                                       \
+        static constexpr auto is_nullable = false;                                                \
+        static inline int64_t execute(const ArgType& t0, const Int32 mode, bool& is_null) {       \
+            const auto& ts0 = reinterpret_cast<const DateValueType&>(t0);                         \
+            is_null = !ts0.is_valid_date();                                                       \
+            return ts0.FUNCTION;                                                                  \
+        }                                                                                         \
+        static DataTypes get_variadic_argument_types() {                                          \
+            return {std::make_shared<DateType>(), std::make_shared<DataTypeInt32>()};             \
+        }                                                                                         \
     }
 
 TIME_FUNCTION_TWO_ARGS_IMPL(ToYearWeekTwoArgsImpl, yearweek, year_week(mysql_week_mode(mode)));
@@ -792,7 +799,7 @@ struct CurrentDateImpl {
 
 template <typename FunctionName>
 struct CurrentTimeImpl {
-    using ReturnType = DataTypeFloat64;
+    using ReturnType = DataTypeTime;
     static constexpr auto name = FunctionName::name;
     static Status execute(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                           size_t result, size_t input_rows_count) {

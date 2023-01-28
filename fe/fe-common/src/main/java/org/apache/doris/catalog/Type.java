@@ -393,6 +393,10 @@ public abstract class Type {
                 || isScalarType(PrimitiveType.DATEV2) || isScalarType(PrimitiveType.DATETIMEV2);
     }
 
+    public boolean isDateOrDateTime() {
+        return isScalarType(PrimitiveType.DATE) || isScalarType(PrimitiveType.DATETIME);
+    }
+
     public boolean isDatetime() {
         return isScalarType(PrimitiveType.DATETIME);
     }
@@ -762,13 +766,17 @@ public abstract class Type {
                     type = ScalarType.createVarcharType(scalarType.getLen());
                 } else if (scalarType.getType() == TPrimitiveType.HLL) {
                     type = ScalarType.createHllType();
-                } else if (scalarType.getType() == TPrimitiveType.DECIMALV2
-                        || scalarType.getType() == TPrimitiveType.DECIMAL32
+                } else if (scalarType.getType() == TPrimitiveType.DECIMALV2) {
+                    Preconditions.checkState(scalarType.isSetPrecision()
+                            && scalarType.isSetPrecision());
+                    type = ScalarType.createDecimalType(scalarType.getPrecision(),
+                            scalarType.getScale());
+                } else if (scalarType.getType() == TPrimitiveType.DECIMAL32
                         || scalarType.getType() == TPrimitiveType.DECIMAL64
                         || scalarType.getType() == TPrimitiveType.DECIMAL128I) {
                     Preconditions.checkState(scalarType.isSetPrecision()
                             && scalarType.isSetScale());
-                    type = ScalarType.createDecimalType(scalarType.getPrecision(),
+                    type = ScalarType.createDecimalV3Type(scalarType.getPrecision(),
                             scalarType.getScale());
                 } else if (scalarType.getType() == TPrimitiveType.DATETIMEV2) {
                     Preconditions.checkState(scalarType.isSetPrecision()
@@ -1498,17 +1506,15 @@ public abstract class Type {
             case DATE:
             case DATEV2:
             case DATETIME:
+            case DATETIMEV2:
             case TIME:
+            case TIMEV2:
             case CHAR:
             case VARCHAR:
             case HLL:
             case BITMAP:
             case QUANTILE_STATE:
                 return VARCHAR;
-            case DATETIMEV2:
-                return DEFAULT_DATETIMEV2;
-            case TIMEV2:
-                return DEFAULT_TIMEV2;
             case DECIMALV2:
                 return DECIMALV2;
             case DECIMAL32:
@@ -1660,6 +1666,7 @@ public abstract class Type {
             case DATE:
             case DATEV2:
             case DATETIME:
+            case DATETIMEV2:
                 return Type.BIGINT;
             case LARGEINT:
                 return Type.LARGEINT;
@@ -1671,8 +1678,6 @@ public abstract class Type {
             case STRING:
             case HLL:
                 return Type.DOUBLE;
-            case DATETIMEV2:
-                return Type.DEFAULT_DATETIMEV2;
             case TIMEV2:
                 return Type.DEFAULT_TIMEV2;
             case DECIMALV2:
