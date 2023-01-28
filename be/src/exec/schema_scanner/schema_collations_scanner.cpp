@@ -79,14 +79,12 @@ Status SchemaCollationsScanner::_fill_block_impl(vectorized::Block* block) {
     }
     // is_default
     for (int i = 0; i < row_num; ++i) {
-        StringRef str =
-                StringRef(_s_collations[i].is_default, strlen(_s_collations[i].is_default));
+        StringRef str = StringRef(_s_collations[i].is_default, strlen(_s_collations[i].is_default));
         fill_dest_column(block, &str, _tuple_desc->slots()[3]);
     }
     // IS_COMPILED
     for (int i = 0; i < row_num; ++i) {
-        StringRef str =
-                StringRef(_s_collations[i].is_compile, strlen(_s_collations[i].is_compile));
+        StringRef str = StringRef(_s_collations[i].is_compile, strlen(_s_collations[i].is_compile));
         fill_dest_column(block, &str, _tuple_desc->slots()[4]);
     }
     // sortlen

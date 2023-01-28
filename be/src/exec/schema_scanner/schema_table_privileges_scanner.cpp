@@ -132,7 +132,7 @@ Status SchemaTablePrivilegesScanner::_fill_block_impl(vectorized::Block* block) 
         for (int i = 0; i < privileges_num; ++i) {
             const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
             StringRef str = StringRef(priv_status.privilege_type.c_str(),
-                                          priv_status.privilege_type.size());
+                                      priv_status.privilege_type.size());
             fill_dest_column(block, &str, _tuple_desc->slots()[4]);
         }
     }
