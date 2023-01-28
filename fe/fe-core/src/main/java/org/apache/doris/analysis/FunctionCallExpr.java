@@ -1356,8 +1356,8 @@ public class FunctionCallExpr extends Expr {
                             && children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3()) {
                         continue;
                     } else if (fnName.getFunction().equalsIgnoreCase("array")
-                            && (children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3())
-                            || children.get(0).getType().isDatetimeV2() && args[ix].isDatetimeV2()) {
+                            && (children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3()
+                            || children.get(0).getType().isDatetimeV2() && args[ix].isDatetimeV2())) {
                         continue;
                     } else if ((fnName.getFunction().equalsIgnoreCase("array_min") || fnName.getFunction()
                             .equalsIgnoreCase("array_max"))
