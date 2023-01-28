@@ -39,11 +39,6 @@ public class GroupId extends Id<GroupId> {
             public GroupId getNextId() {
                 return new GroupId(nextId++);
             }
-
-            @Override
-            public GroupId getMaxId() {
-                return new GroupId(nextId - 1);
-            }
         };
     }
 

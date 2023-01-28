@@ -141,12 +141,7 @@ public class ThriftServer {
         ThriftServerEventProcessor eventProcessor = new ThriftServerEventProcessor(this);
         server.setServerEventHandler(eventProcessor);
 
-        serverThread = new Thread(new Runnable() {
-            @Override
-            public void run() {
-                server.serve();
-            }
-        });
+        serverThread = new Thread(() -> server.serve());
         serverThread.setDaemon(true);
         serverThread.start();
     }
