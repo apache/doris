@@ -25,7 +25,6 @@ suite("nereids_scalar_fn_4") {
     sql "select random(1000) from fn_test order by kbint"
     qt_sql "select regexp_extract(kvchrs1, kvchrs1, kbint) from fn_test order by kvchrs1, kvchrs1, kbint"
     qt_sql "select regexp_extract(kstr, kstr, kbint) from fn_test order by kstr, kstr, kbint"
-    // core
     qt_sql "select regexp_extract_all(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
     qt_sql "select regexp_extract_all(kstr, kstr) from fn_test order by kstr, kstr"
     qt_sql "select regexp_replace(kvchrs1, kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1, kvchrs1"
@@ -43,8 +42,8 @@ suite("nereids_scalar_fn_4") {
     qt_sql "select round_bankers(kdbl) from fn_test order by kdbl"
     qt_sql "select round_bankers(kdbl, 2) from fn_test order by kdbl, kint"
     // timeout
-    // qt_sql "select rpad(kvchrs1, kint, kvchrs1) from fn_test order by kvchrs1, kint, kvchrs1"
-    // qt_sql "select rpad(kstr, kint, kstr) from fn_test order by kstr, kint, kstr"
+    qt_sql "select rpad(kvchrs1, kint%1000, kvchrs1) from fn_test order by kvchrs1, kint, kvchrs1"
+    qt_sql "select rpad(kstr, kint%1000, kstr) from fn_test order by kstr, kint, kstr"
     qt_sql "select rtrim(kvchrs1) from fn_test order by kvchrs1"
     qt_sql "select rtrim(kstr) from fn_test order by kstr"
     sql "select running_difference(ktint) from fn_test order by ktint"
