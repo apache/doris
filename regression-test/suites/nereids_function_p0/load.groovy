@@ -36,7 +36,7 @@ suite("load") {
             `kdcmlv3s1` decimalv3(9, 3) null,
             `kdcmlv3s2` decimalv3(15, 5) null,
             `kdcmlv3s3` decimalv3(27, 9) null,
-            `kchrs1` char(5) null,
+            `kchrs1` char(10) null,
             `kchrs2` char(20) null,
             `kchrs3` char(50) null,
             `kvchrs1` varchar(10) null,
