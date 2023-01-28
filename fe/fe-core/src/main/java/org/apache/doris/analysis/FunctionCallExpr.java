@@ -91,6 +91,9 @@ public class FunctionCallExpr extends Expr {
             } else if (children != null && children.size() > 0 && children.get(0).getType().isDatetimeV2()
                     && returnType.isDatetimeV2()) {
                 return children.get(0).getType();
+            } else if (children != null && children.size() > 0 && children.get(0).getType().isDecimalV2()
+                    && returnType.isDecimalV2()) {
+                return children.get(0).getType();
             } else {
                 return returnType;
             }
@@ -1358,11 +1361,13 @@ public class FunctionCallExpr extends Expr {
                         continue;
                     } else if ((fnName.getFunction().equalsIgnoreCase("array_min") || fnName.getFunction()
                             .equalsIgnoreCase("array_max"))
-                            && (
+                            && ((
                             children.get(0).getChild(0).getType().isDecimalV3() && ((ArrayType) args[ix]).getItemType()
-                                    .isDecimalV3()
-                                    || children.get(0).getChild(0).getType().isDatetimeV2()
-                                    && ((ArrayType) args[ix]).getItemType().isDatetimeV2())) {
+                                    .isDecimalV3())
+                            || (children.get(0).getChild(0).getType().isDatetimeV2()
+                            && ((ArrayType) args[ix]).getItemType().isDatetimeV2())
+                            || (children.get(0).getChild(0).getType().isDecimalV2()
+                            && ((ArrayType) args[ix]).getItemType().isDecimalV2()))) {
                         continue;
                     } else if (!argTypes[i].matchesType(args[ix]) && !(
                             argTypes[i].isDateOrDateTime() && args[ix].isDateOrDateTime())
@@ -1421,16 +1426,12 @@ public class FunctionCallExpr extends Expr {
             this.type = fn.getReturnType();
         }
 
-        if (this.type.isDecimalV2()) {
-            this.type = Type.MAX_DECIMALV2_TYPE;
-            fn.setReturnType(Type.MAX_DECIMALV2_TYPE);
-        }
-
-        if (this.type.isDecimalV3() || (this.type.isDatetimeV2()
+        if (this.type.isDecimalV2() || this.type.isDecimalV3() || (this.type.isDatetimeV2()
                 && !TIME_FUNCTIONS_WITH_PRECISION.contains(fnName.getFunction().toLowerCase()))) {
             // TODO(gabriel): If type exceeds max precision of DECIMALV3, we should change it to a double function
             this.type = PRECISION_INFER_RULE.getOrDefault(fnName.getFunction(), DEFAULT_PRECISION_INFER_RULE)
                     .apply(children, this.type);
+            fn.setReturnType(this.type);
         }
         // rewrite return type if is nested type function
         analyzeNestedFunction();
@@ -1439,7 +1440,7 @@ public class FunctionCallExpr extends Expr {
     // if return type is nested type, need to be determined the sub-element type
     private void analyzeNestedFunction() {
         // array
-        if ("array".equalsIgnoreCase(fnName.getFunction())) {
+        if (fnName.getFunction().equalsIgnoreCase("array")) {
             if (children.size() > 0) {
                 this.type = new ArrayType(children.get(0).getType());
             }
