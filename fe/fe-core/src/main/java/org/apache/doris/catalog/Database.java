@@ -71,6 +71,8 @@ import java.util.stream.Collectors;
 public class Database extends MetaObject implements Writable, DatabaseIf<Table> {
     private static final Logger LOG = LogManager.getLogger(Database.class);
 
+    private static final String TRANSACTION_QUOTA_SIZE = "transactionQuotaSize";
+
     private long id;
     private volatile String fullQualifiedName;
     private String clusterName;
@@ -569,7 +571,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         dbEncryptKey.write(out);
 
         out.writeLong(replicaQuotaSize);
-        dbProperties.put("transactionQuotaSize", String.valueOf(transactionQuotaSize));
+        dbProperties.put(TRANSACTION_QUOTA_SIZE, String.valueOf(transactionQuotaSize));
         dbProperties.write(out);
     }
 
@@ -617,9 +619,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
 
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_105) {
             dbProperties = DatabaseProperty.read(in);
-            String txnQuotaStr = dbProperties.getOrDefault("transactionQuotaSize", (transactionQuotaSize == -1L)
-                    ? String.valueOf(Config.max_running_txn_num_per_db)
-                    : String.valueOf(Config.default_db_max_running_txn_num));
+            String txnQuotaStr = dbProperties.getOrDefault(TRANSACTION_QUOTA_SIZE, String.valueOf(Config.max_running_txn_num_per_db));
             transactionQuotaSize = Long.parseLong(txnQuotaStr);
         } else {
             transactionQuotaSize = (transactionQuotaSize == -1L)
