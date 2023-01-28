@@ -168,7 +168,6 @@ set(RUNTIME_TEST_FILES
 )
 set(TESTUTIL_TEST_FILES
     testutil/test_util.cpp
-    testutil/array_utils.cpp
     testutil/desc_tbl_builder.cc
     testutil/function_utils.cpp
     testutil/run_all_tests.cpp
