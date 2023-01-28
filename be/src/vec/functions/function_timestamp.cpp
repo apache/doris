@@ -723,7 +723,7 @@ struct LastDayImpl {
                                 ->get_data());
             }
             block.replace_by_position(
-                    result, ColumnNullable::create(std::move(res_column), std::move(null_map)));
+                    result, ColumnNullable::create(res_column, std::move(null_map)));
         } else {
             if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
                 auto data_col = assert_cast<const ColumnVector<UInt32>*>(argument_column.get());
