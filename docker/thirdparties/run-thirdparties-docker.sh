@@ -113,7 +113,7 @@ if [[ "${CONTAINER_UID}"x == "doris--"x ]]; then
     exit 1
 fi
 
-COMPONENTS=`echo "${COMPONENTS}" | sed 's/ //g'`
+COMPONENTS=$(echo "${COMPONENTS}" | sed 's/ //g')
 echo "Components are: ${COMPONENTS}"
 echo "Container UID: ${CONTAINER_UID}"
 echo "Stop: ${STOP}"
@@ -127,13 +127,13 @@ RUN_SQLSERVER=0
 RUN_HIVE=0
 RUN_ES=0
 RUN_ICEBERG=0
-for element in ${COMPONENTS_ARR[@]}; do
+for element in "${COMPONENTS_ARR[@]}"; do
     if [[ "${element}"x == "mysql"x ]]; then
         RUN_MYSQL=1
     elif [[ "${element}"x == "pg"x ]]; then
-        RUN_PG=1 
+        RUN_PG=1
     elif [[ "${element}"x == "oracle"x ]]; then
-        RUN_ORACLE=1 
+        RUN_ORACLE=1
     elif [[ "${element}"x == "sqlserver"x ]]; then
         RUN_SQLSERVER=1
     elif [[ "${element}"x == "es"x ]]; then
