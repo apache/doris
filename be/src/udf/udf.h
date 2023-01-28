@@ -32,7 +32,7 @@
 namespace doris {
 class FunctionContextImpl;
 struct ColumnPtrWrapper;
-struct StringValue;
+struct StringRef;
 class BitmapValue;
 class DecimalV2Value;
 class DateTimeValue;
@@ -303,7 +303,8 @@ private:
 // the same lifetime as results for the UDF. In other words, the UDF can return
 // memory from input arguments without making copies. For example, a function like
 // substring will not need to allocate and copy the smaller string. For cases where
-// the UDF needs a buffer, it should use the StringValue(FunctionContext, len) c'tor.
+// the UDF needs a buffer, it should use the StringRef(FunctionContext, len) c'tor.
+// TODO: things above is not right. StringRef shouldn't use here.
 //
 // The UDF can optionally specify a Prepare function. The prepare function is called
 // once before any calls to the Udf to evaluate values. This is the appropriate time for
@@ -743,6 +744,7 @@ struct DateTimeV2Val : public AnyVal {
     bool operator!=(const DateTimeV2Val& other) const { return !(*this == other); }
 };
 
+// TODO: need to set explicit align?
 // Note: there is a difference between a nullptr string (is_null == true) and an
 // empty string (len == 0).
 struct StringVal : public AnyVal {

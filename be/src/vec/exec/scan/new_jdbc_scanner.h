@@ -48,6 +48,8 @@ protected:
     RuntimeProfile::Counter* _connector_close_timer = nullptr;
 
 private:
+    void _update_profile();
+
     bool _is_init;
 
     bool _jdbc_eos;

@@ -156,6 +156,14 @@ public class ExchangeNode extends PlanNode {
         }
     }
 
+    /**
+     * Used by new optimizer only.
+     */
+    @Override
+    public void setOffSetDirectly(long offset) {
+        this.offset = offset;
+    }
+
     @Override
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.EXCHANGE_NODE;

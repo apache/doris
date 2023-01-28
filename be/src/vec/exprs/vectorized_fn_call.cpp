@@ -22,7 +22,6 @@
 #include "common/consts.h"
 #include "common/status.h"
 #include "exprs/anyval_util.h"
-#include "exprs/rpc_fn.h"
 #include "fmt/format.h"
 #include "fmt/ranges.h"
 #include "udf/udf_internal.h"

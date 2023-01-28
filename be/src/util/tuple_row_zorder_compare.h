@@ -17,14 +17,11 @@
 
 #pragma once
 
-#include "exprs/expr.h"
-#include "exprs/expr_context.h"
 #include "olap/row_cursor.h"
 #include "olap/schema.h"
 #include "runtime/descriptors.h"
 #include "runtime/raw_value.h"
 #include "runtime/tuple.h"
-#include "runtime/tuple_row.h"
 
 namespace doris {
 class RowComparator {

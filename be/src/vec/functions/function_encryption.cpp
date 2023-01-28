@@ -15,13 +15,43 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/encryption_functions.h"
 #include "util/encryption_util.h"
 #include "vec/functions/function_string.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
 
+inline StringCaseUnorderedMap<EncryptionMode> aes_mode_map {
+        {"AES_128_ECB", EncryptionMode::AES_128_ECB},
+        {"AES_192_ECB", EncryptionMode::AES_192_ECB},
+        {"AES_256_ECB", EncryptionMode::AES_256_ECB},
+        {"AES_128_CBC", EncryptionMode::AES_128_CBC},
+        {"AES_192_CBC", EncryptionMode::AES_192_CBC},
+        {"AES_256_CBC", EncryptionMode::AES_256_CBC},
+        {"AES_128_CFB", EncryptionMode::AES_128_CFB},
+        {"AES_192_CFB", EncryptionMode::AES_192_CFB},
+        {"AES_256_CFB", EncryptionMode::AES_256_CFB},
+        {"AES_128_CFB1", EncryptionMode::AES_128_CFB1},
+        {"AES_192_CFB1", EncryptionMode::AES_192_CFB1},
+        {"AES_256_CFB1", EncryptionMode::AES_256_CFB1},
+        {"AES_128_CFB8", EncryptionMode::AES_128_CFB8},
+        {"AES_192_CFB8", EncryptionMode::AES_192_CFB8},
+        {"AES_256_CFB8", EncryptionMode::AES_256_CFB8},
+        {"AES_128_CFB128", EncryptionMode::AES_128_CFB128},
+        {"AES_192_CFB128", EncryptionMode::AES_192_CFB128},
+        {"AES_256_CFB128", EncryptionMode::AES_256_CFB128},
+        {"AES_128_CTR", EncryptionMode::AES_128_CTR},
+        {"AES_192_CTR", EncryptionMode::AES_192_CTR},
+        {"AES_256_CTR", EncryptionMode::AES_256_CTR},
+        {"AES_128_OFB", EncryptionMode::AES_128_OFB},
+        {"AES_192_OFB", EncryptionMode::AES_192_OFB},
+        {"AES_256_OFB", EncryptionMode::AES_256_OFB}};
+inline StringCaseUnorderedMap<EncryptionMode> sm4_mode_map {
+        {"SM4_128_ECB", EncryptionMode::SM4_128_ECB},
+        {"SM4_128_CBC", EncryptionMode::SM4_128_CBC},
+        {"SM4_128_CFB128", EncryptionMode::SM4_128_CFB128},
+        {"SM4_128_OFB", EncryptionMode::SM4_128_OFB},
+        {"SM4_128_CTR", EncryptionMode::SM4_128_CTR}};
 template <typename Impl, typename FunctionName>
 class FunctionEncryptionAndDecrypt : public IFunction {
 public:

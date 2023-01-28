@@ -1245,11 +1245,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             long offset = 0;
             Token offsetToken = limitCtx.get().offset;
             if (offsetToken != null) {
-                if (input instanceof LogicalSort) {
-                    offset = Long.parseLong(offsetToken.getText());
-                } else {
-                    throw new ParseException("OFFSET requires an ORDER BY clause", limitCtx.get());
-                }
+                offset = Long.parseLong(offsetToken.getText());
             }
             return new LogicalLimit<>(limit, offset, input);
         });

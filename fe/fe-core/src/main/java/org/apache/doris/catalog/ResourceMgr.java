@@ -229,7 +229,7 @@ public class ResourceMgr implements Writable {
                 Resource resource = entry.getValue();
                 // check resource privs
                 if (!Env.getCurrentEnv().getAuth().checkResourcePriv(ConnectContext.get(), resource.getName(),
-                                                                             PrivPredicate.SHOW)) {
+                                                                             PrivPredicate.SHOW_RESOURCES)) {
                     continue;
                 }
                 resource.getProcNodeData(result);

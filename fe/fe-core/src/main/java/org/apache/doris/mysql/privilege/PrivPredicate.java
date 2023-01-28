@@ -27,8 +27,11 @@ public class PrivPredicate {
                     PaloPrivilege.LOAD_PRIV,
                     PaloPrivilege.ALTER_PRIV,
                     PaloPrivilege.CREATE_PRIV,
-                    PaloPrivilege.DROP_PRIV,
-                    PaloPrivilege.USAGE_PRIV),
+                    PaloPrivilege.DROP_PRIV),
+            Operator.OR);
+    //show resources
+    public static final PrivPredicate SHOW_RESOURCES = PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,
+            PaloPrivilege.USAGE_PRIV),
             Operator.OR);
     // create/drop/alter/show user
     public static final PrivPredicate GRANT = PrivPredicate.of(PrivBitSet.of(PaloPrivilege.ADMIN_PRIV,

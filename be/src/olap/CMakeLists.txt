@@ -24,15 +24,12 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/olap")
 add_subdirectory(rowset)
 
 add_library(Olap STATIC
-    aggregate_func.cpp
     base_compaction.cpp
     base_tablet.cpp
     bloom_filter.hpp
     block_column_predicate.cpp
-    byte_buffer.cpp
     compaction.cpp
-    compaction_permit_limiter.cpp
-    compress.cpp
+    compaction_permit_limiter.cpp   
     cumulative_compaction.cpp
     cumulative_compaction_policy.cpp
     delete_handler.cpp
@@ -44,6 +41,7 @@ add_library(Olap STATIC
     like_column_predicate.cpp
     key_coder.cpp
     lru_cache.cpp
+    match_predicate.cpp
     memtable.cpp
     memtable_flush_executor.cpp
     merger.cpp

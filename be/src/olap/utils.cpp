@@ -542,18 +542,6 @@ unsigned int crc32c_lut(char const* b, unsigned int off, unsigned int len, unsig
     return localCrc;
 }
 
-uint32_t olap_crc32(uint32_t crc32, const char* buf, size_t len) {
-#if defined(__i386) || defined(__x86_64__)
-    if (OLAP_LIKELY(CpuInfo::is_supported(CpuInfo::SSE4_2))) {
-        return baidu_crc32_qw(buf, crc32, len);
-    } else {
-        return crc32c_lut(buf, 0, len, crc32);
-    }
-#else
-    return crc32c_lut(buf, 0, len, crc32);
-#endif
-}
-
 Status gen_timestamp_string(string* out_string) {
     time_t now = time(nullptr);
     tm local_tm;

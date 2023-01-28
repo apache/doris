@@ -24,9 +24,7 @@
 
 #include "common/logging.h"
 #include "common/utils.h"
-#include "exec/arrow/orc_reader.h"
 #include "exec/text_converter.hpp"
-#include "exprs/expr_context.h"
 #include "olap/iterators.h"
 #include "runtime/descriptors.h"
 #include "runtime/raw_value.h"

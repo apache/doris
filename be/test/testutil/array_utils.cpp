@@ -25,7 +25,6 @@
 #include "runtime/mem_pool.h"
 #include "runtime/memory/mem_tracker.h"
 #include "udf/udf_internal.h"
-#include "util/array_parser.h"
 
 namespace doris {
 
@@ -36,19 +35,6 @@ void ArrayUtils::prepare_context(FunctionContext& context, MemPool& mem_pool,
     auto function_type_desc = create_function_type_desc(column_pb);
     context.impl()->_return_type = function_type_desc;
     context.impl()->_pool = new FreePool(&mem_pool);
-}
-
-Status ArrayUtils::create_collection_value(CollectionValue* collection_value,
-                                           FunctionContext* context,
-                                           const std::string& json_string) {
-    CollectionVal collection_val;
-    auto status = ArrayParser::parse(collection_val, context, StringVal(json_string.c_str()));
-    if (!status.ok()) {
-        return status;
-    }
-    new (collection_value) CollectionValue(collection_val.data, collection_val.length,
-                                           collection_val.has_null, collection_val.null_signs);
-    return Status::OK();
 }
 
 TypeDesc ArrayUtils::create_function_type_desc(const ColumnPB& column_pb) {

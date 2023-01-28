@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "runtime/large_int_value.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "util/time.h"
@@ -27,12 +28,9 @@ class IOBufAsZeroCopyInputStream;
 }
 
 namespace doris {
-class Predicate;
 class ObjectPool;
-class ExprContext;
 class RuntimePredicateWrapper;
 class MemTracker;
-class TupleRow;
 class PPublishFilterRequest;
 class PMergeFilterRequest;
 class TRuntimeFilterDesc;
@@ -363,5 +361,149 @@ public:
 private:
     WrapperPtr _wrapper;
 };
+
+// copied from expr.h since it is only used in runtime filter
+
+template <PrimitiveType T>
+Status create_texpr_literal_node(const void* data, TExprNode* node, int precision = 0,
+                                 int scale = 0) {
+    if constexpr (T == TYPE_BOOLEAN) {
+        auto origin_value = reinterpret_cast<const bool*>(data);
+        TBoolLiteral boolLiteral;
+        (*node).__set_node_type(TExprNodeType::BOOL_LITERAL);
+        boolLiteral.__set_value(*origin_value);
+        (*node).__set_bool_literal(boolLiteral);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_BOOLEAN));
+    } else if constexpr (T == TYPE_TINYINT) {
+        auto origin_value = reinterpret_cast<const int8_t*>(data);
+        (*node).__set_node_type(TExprNodeType::INT_LITERAL);
+        TIntLiteral intLiteral;
+        intLiteral.__set_value(*origin_value);
+        (*node).__set_int_literal(intLiteral);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TINYINT));
+    } else if constexpr (T == TYPE_SMALLINT) {
+        auto origin_value = reinterpret_cast<const int16_t*>(data);
+        (*node).__set_node_type(TExprNodeType::INT_LITERAL);
+        TIntLiteral intLiteral;
+        intLiteral.__set_value(*origin_value);
+        (*node).__set_int_literal(intLiteral);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_SMALLINT));
+    } else if constexpr (T == TYPE_INT) {
+        auto origin_value = reinterpret_cast<const int32_t*>(data);
+        (*node).__set_node_type(TExprNodeType::INT_LITERAL);
+        TIntLiteral intLiteral;
+        intLiteral.__set_value(*origin_value);
+        (*node).__set_int_literal(intLiteral);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_INT));
+    } else if constexpr (T == TYPE_BIGINT) {
+        auto origin_value = reinterpret_cast<const int64_t*>(data);
+        (*node).__set_node_type(TExprNodeType::INT_LITERAL);
+        TIntLiteral intLiteral;
+        intLiteral.__set_value(*origin_value);
+        (*node).__set_int_literal(intLiteral);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_BIGINT));
+    } else if constexpr (T == TYPE_LARGEINT) {
+        auto origin_value = reinterpret_cast<const int128_t*>(data);
+        (*node).__set_node_type(TExprNodeType::LARGE_INT_LITERAL);
+        TLargeIntLiteral large_int_literal;
+        large_int_literal.__set_value(LargeIntValue::to_string(*origin_value));
+        (*node).__set_large_int_literal(large_int_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_LARGEINT));
+    } else if constexpr ((T == TYPE_DATE) || (T == TYPE_DATETIME) || (T == TYPE_TIME)) {
+        auto origin_value = reinterpret_cast<const doris::DateTimeValue*>(data);
+        TDateLiteral date_literal;
+        char convert_buffer[30];
+        origin_value->to_string(convert_buffer);
+        date_literal.__set_value(convert_buffer);
+        (*node).__set_date_literal(date_literal);
+        (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
+        if (origin_value->type() == TimeType::TIME_DATE) {
+            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATE));
+        } else if (origin_value->type() == TimeType::TIME_DATETIME) {
+            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATETIME));
+        } else if (origin_value->type() == TimeType::TIME_TIME) {
+            (*node).__set_type(create_type_desc(PrimitiveType::TYPE_TIME));
+        }
+    } else if constexpr (T == TYPE_DATEV2) {
+        auto origin_value = reinterpret_cast<
+                const doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(data);
+        TDateLiteral date_literal;
+        char convert_buffer[30];
+        origin_value->to_string(convert_buffer);
+        date_literal.__set_value(convert_buffer);
+        (*node).__set_date_literal(date_literal);
+        (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATEV2));
+    } else if constexpr (T == TYPE_DATETIMEV2) {
+        auto origin_value = reinterpret_cast<
+                const doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(
+                data);
+        TDateLiteral date_literal;
+        char convert_buffer[30];
+        origin_value->to_string(convert_buffer);
+        date_literal.__set_value(convert_buffer);
+        (*node).__set_date_literal(date_literal);
+        (*node).__set_node_type(TExprNodeType::DATE_LITERAL);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DATETIMEV2));
+    } else if constexpr (T == TYPE_DECIMALV2) {
+        auto origin_value = reinterpret_cast<const DecimalV2Value*>(data);
+        (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
+        TDecimalLiteral decimal_literal;
+        decimal_literal.__set_value(origin_value->to_string());
+        (*node).__set_decimal_literal(decimal_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMALV2, precision, scale));
+    } else if constexpr (T == TYPE_DECIMAL32) {
+        auto origin_value = reinterpret_cast<const int32_t*>(data);
+        (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
+        TDecimalLiteral decimal_literal;
+        std::stringstream ss;
+        vectorized::write_text<int32_t>(*origin_value, scale, ss);
+        decimal_literal.__set_value(ss.str());
+        (*node).__set_decimal_literal(decimal_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL32, precision, scale));
+    } else if constexpr (T == TYPE_DECIMAL64) {
+        auto origin_value = reinterpret_cast<const int64_t*>(data);
+        (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
+        TDecimalLiteral decimal_literal;
+        std::stringstream ss;
+        vectorized::write_text<int64_t>(*origin_value, scale, ss);
+        decimal_literal.__set_value(ss.str());
+        (*node).__set_decimal_literal(decimal_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL64, precision, scale));
+    } else if constexpr (T == TYPE_DECIMAL128I) {
+        auto origin_value = reinterpret_cast<const int128_t*>(data);
+        (*node).__set_node_type(TExprNodeType::DECIMAL_LITERAL);
+        TDecimalLiteral decimal_literal;
+        std::stringstream ss;
+        vectorized::write_text<int128_t>(*origin_value, scale, ss);
+        decimal_literal.__set_value(ss.str());
+        (*node).__set_decimal_literal(decimal_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DECIMAL128I, precision, scale));
+    } else if constexpr (T == TYPE_FLOAT) {
+        auto origin_value = reinterpret_cast<const float*>(data);
+        (*node).__set_node_type(TExprNodeType::FLOAT_LITERAL);
+        TFloatLiteral float_literal;
+        float_literal.__set_value(*origin_value);
+        (*node).__set_float_literal(float_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_FLOAT));
+    } else if constexpr (T == TYPE_DOUBLE) {
+        auto origin_value = reinterpret_cast<const double*>(data);
+        (*node).__set_node_type(TExprNodeType::FLOAT_LITERAL);
+        TFloatLiteral float_literal;
+        float_literal.__set_value(*origin_value);
+        (*node).__set_float_literal(float_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_DOUBLE));
+    } else if constexpr ((T == TYPE_STRING) || (T == TYPE_CHAR) || (T == TYPE_VARCHAR)) {
+        auto origin_value = reinterpret_cast<const StringRef*>(data);
+        (*node).__set_node_type(TExprNodeType::STRING_LITERAL);
+        TStringLiteral string_literal;
+        string_literal.__set_value(origin_value->to_string());
+        (*node).__set_string_literal(string_literal);
+        (*node).__set_type(create_type_desc(PrimitiveType::TYPE_STRING));
+    } else {
+        return Status::InvalidArgument("Invalid argument type!");
+    }
+    return Status::OK();
+}
 
 } // namespace doris

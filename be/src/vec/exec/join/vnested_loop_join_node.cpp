@@ -22,7 +22,6 @@
 #include <sstream>
 
 #include "common/status.h"
-#include "exprs/expr.h"
 #include "exprs/runtime_filter_slots_cross.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_state.h"
@@ -30,6 +29,7 @@
 #include "util/simd/bits.h"
 #include "vec/columns/column_const.h"
 #include "vec/common/typeid_cast.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/utils/template_helpers.hpp"
 #include "vec/utils/util.hpp"
 
