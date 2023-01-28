@@ -127,13 +127,16 @@ public class MTMVJobManager {
     private void registerJobs() {
         LOG.info("registerJobs = " + nameToJobMap.size());
         for (MTMVJob job : nameToJobMap.values()) {
-            if (job.getState() != JobState.ACTIVE) {
+            if (!job.getState().equals(JobState.ACTIVE)) {
                 continue;
             }
             LOG.info("register single job");
             if (job.getTriggerMode() == TriggerMode.PERIODICAL) {
                 LOG.info("register single1 job");
                 JobSchedule schedule = job.getSchedule();
+                LOG.info("delay seconds = " + MTMVUtils.getDelaySeconds(job));
+                LOG.info("getPeriod = " + schedule.getPeriod());
+                LOG.info("getTimeUnit = " + schedule.getTimeUnit());
                 ScheduledFuture<?> future = periodScheduler.scheduleAtFixedRate(() -> submitJobTask(job.getName()),
                         MTMVUtils.getDelaySeconds(job), schedule.getPeriod(), schedule.getTimeUnit());
                 periodFutureMap.put(job.getId(), future);
@@ -239,6 +242,7 @@ public class MTMVJobManager {
 
     public MTMVUtils.TaskSubmitStatus submitJobTask(String jobName, MTMVTaskExecuteParams param) {
         MTMVJob job = nameToJobMap.get(jobName);
+        LOG.info("Submit a job task");
         if (job == null) {
             return MTMVUtils.TaskSubmitStatus.FAILED;
         }

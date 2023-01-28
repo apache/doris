@@ -99,6 +99,7 @@ public class MTMVTaskManager {
     }
 
     public MTMVUtils.TaskSubmitStatus submitTask(MTMVTaskExecutor taskExecutor, MTMVTaskExecuteParams params) {
+        LOG.info("submit a task");
         // duplicate submit
         if (taskExecutor.getTask() != null) {
             return MTMVUtils.TaskSubmitStatus.FAILED;
@@ -118,6 +119,7 @@ public class MTMVTaskManager {
         }
 
         String taskId = UUID.randomUUID().toString();
+        LOG.info("task id = " + taskId);
         MTMVTask task = taskExecutor.initTask(taskId, MTMVUtils.getNowTimeStamp());
         task.setPriority(params.getPriority());
         Env.getCurrentEnv().getEditLog().logCreateScheduleTask(task);
