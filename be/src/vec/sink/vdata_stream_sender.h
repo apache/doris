@@ -29,6 +29,7 @@
 #include "service/backend_options.h"
 #include "util/ref_count_closure.h"
 #include "util/uid_util.h"
+#include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"
