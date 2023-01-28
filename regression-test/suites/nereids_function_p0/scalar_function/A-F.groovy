@@ -81,8 +81,7 @@ suite("nereids_scalar_fn_1") {
 // function bitmap_xor_count(bitmap, bitmap) is unsupported for the test suite.
     qt_sql "select cbrt(kdbl) from fn_test order by kdbl"
     qt_sql "select ceil(kdbl) from fn_test order by kdbl"
-    // core
-    // qt_sql "select ceiling(kdbl) from fn_test order by kdbl"
+    qt_sql "select ceiling(kdbl) from fn_test order by kdbl"
     qt_sql "select character_length(kvchrs1) from fn_test order by kvchrs1"
     qt_sql "select character_length(kstr) from fn_test order by kstr"
     qt_sql "select coalesce(kbool) from fn_test order by kbool"
