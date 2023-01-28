@@ -34,6 +34,7 @@ Usage: $0 <options>
      --help,-h          show this usage
      -c mysql           start MySQL
      -c mysql,hive      start MySQL and Hive
+     --stop             stop the specified components
   
   All valid components:
     mysql,pg,oracle,sqlserver,es,hive,iceberg
@@ -45,6 +46,7 @@ if ! OPTS="$(getopt \
     -n "$0" \
     -o '' \
     -l 'help' \
+    -l 'stop' \
     -o 'hc:' \
     -- "$@")"; then
     usage
@@ -54,6 +56,7 @@ eval set -- "${OPTS}"
 
 COMPONENTS=""
 HELP=0
+STOP=0
 
 if [[ "$#" == 1 ]]; then
     # default
@@ -67,6 +70,10 @@ else
             ;;
         --help)
             HELP=1
+            shift
+            ;;
+        --stop)
+            STOP=1
             shift
             ;;
         -c)
@@ -83,6 +90,11 @@ else
             ;;
         esac
     done
+    if [[ "${COMPONENTS}"x == ""x ]]; then
+        if [[ "${STOP}" -eq 1 ]]; then
+            COMPONENTS="mysql,pg,oracle,sqlserver,hive,iceberg"
+        fi
+    fi
 fi
 
 if [[ "${HELP}" -eq 1 ]]; then
@@ -104,6 +116,7 @@ fi
 COMPONENTS=`echo "${COMPONENTS}" | sed 's/ //g'`
 echo "Components are: ${COMPONENTS}"
 echo "Container UID: ${CONTAINER_UID}"
+echo "Stop: ${STOP}"
 
 COMPONENTS_ARR=(${COMPONENTS//,/ })
 
@@ -141,14 +154,16 @@ if [[ "${RUN_ES}" -eq 1 ]]; then
     cp "${ROOT}"/docker-compose/elasticsearch/es.yaml.tpl "${ROOT}"/docker-compose/elasticsearch/es.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/elasticsearch/es.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/elasticsearch/es.yaml --env-file "${ROOT}"/docker-compose/elasticsearch/es.env down
-    sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/data/es6/
-    sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/data/es6/*
-    sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/data/es7/
-    sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/data/es7/*
-    sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/data/es8/
-    sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/data/es8/*
-    sudo chmod -R 777 "${ROOT}"/docker-compose/elasticsearch/data
-    sudo docker compose -f "${ROOT}"/docker-compose/elasticsearch/es.yaml --env-file "${ROOT}"/docker-compose/elasticsearch/es.env up -d --remove-orphans
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/data/es6/
+        sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/data/es6/*
+        sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/data/es7/
+        sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/data/es7/*
+        sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/data/es8/
+        sudo rm -rf "${ROOT}"/docker-compose/elasticsearch/data/es8/*
+        sudo chmod -R 777 "${ROOT}"/docker-compose/elasticsearch/data
+        sudo docker compose -f "${ROOT}"/docker-compose/elasticsearch/es.yaml --env-file "${ROOT}"/docker-compose/elasticsearch/es.env up -d --remove-orphans
+    fi
 fi
 
 if [[ "${RUN_MYSQL}" -eq 1 ]]; then
@@ -156,9 +171,11 @@ if [[ "${RUN_MYSQL}" -eq 1 ]]; then
     cp "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml.tpl "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml --env-file "${ROOT}"/docker-compose/mysql/mysql-5.7.env down
-    sudo mkdir -p "${ROOT}"/docker-compose/mysql/data/
-    sudo rm "${ROOT}"/docker-compose/mysql/data/* -rf
-    sudo docker compose -f "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml --env-file "${ROOT}"/docker-compose/mysql/mysql-5.7.env up -d
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo mkdir -p "${ROOT}"/docker-compose/mysql/data/
+        sudo rm "${ROOT}"/docker-compose/mysql/data/* -rf
+        sudo docker compose -f "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml --env-file "${ROOT}"/docker-compose/mysql/mysql-5.7.env up -d
+    fi
 fi
 
 if [[ "${RUN_PG}" -eq 1 ]]; then
@@ -166,9 +183,11 @@ if [[ "${RUN_PG}" -eq 1 ]]; then
     cp "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml.tpl "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env down
-    sudo mkdir -p "${ROOT}"/docker-compose/postgresql/data/data
-    sudo rm "${ROOT}"/docker-compose/postgresql/data/data/* -rf
-    sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env up -d
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo mkdir -p "${ROOT}"/docker-compose/postgresql/data/data
+        sudo rm "${ROOT}"/docker-compose/postgresql/data/data/* -rf
+        sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env up -d
+    fi
 fi
 
 if [[ "${RUN_ORACLE}" -eq 1 ]]; then
@@ -176,9 +195,11 @@ if [[ "${RUN_ORACLE}" -eq 1 ]]; then
     cp "${ROOT}"/docker-compose/oracle/oracle-11.yaml.tpl "${ROOT}"/docker-compose/oracle/oracle-11.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/oracle/oracle-11.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/oracle/oracle-11.yaml --env-file "${ROOT}"/docker-compose/oracle/oracle-11.env down
-    sudo mkdir -p "${ROOT}"/docker-compose/oracle/data/
-    sudo rm "${ROOT}"/docker-compose/oracle/data/* -rf
-    sudo docker compose -f "${ROOT}"/docker-compose/oracle/oracle-11.yaml --env-file "${ROOT}"/docker-compose/oracle/oracle-11.env up -d
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo mkdir -p "${ROOT}"/docker-compose/oracle/data/
+        sudo rm "${ROOT}"/docker-compose/oracle/data/* -rf
+        sudo docker compose -f "${ROOT}"/docker-compose/oracle/oracle-11.yaml --env-file "${ROOT}"/docker-compose/oracle/oracle-11.env up -d
+    fi
 fi
 
 if [[ "${RUN_SQLSERVER}" -eq 1 ]]; then
@@ -186,9 +207,11 @@ if [[ "${RUN_SQLSERVER}" -eq 1 ]]; then
     cp "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml.tpl "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml --env-file "${ROOT}"/docker-compose/sqlserver/sqlserver.env down
-    sudo mkdir -p "${ROOT}"/docker-compose/sqlserver/data/
-    sudo rm "${ROOT}"/docker-compose/sqlserver/data/* -rf
-    sudo docker compose -f "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml --env-file "${ROOT}"/docker-compose/sqlserver/sqlserver.env up -d
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo mkdir -p "${ROOT}"/docker-compose/sqlserver/data/
+        sudo rm "${ROOT}"/docker-compose/sqlserver/data/* -rf
+        sudo docker compose -f "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml --env-file "${ROOT}"/docker-compose/sqlserver/sqlserver.env up -d
+    fi
 fi
 
 if [[ "${RUN_HIVE}" -eq 1 ]]; then
@@ -200,7 +223,9 @@ if [[ "${RUN_HIVE}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/hive/hadoop-hive.env.tpl
     sudo "${ROOT}"/docker-compose/hive/gen_env.sh
     sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env down
-    sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up -d
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up -d
+    fi
 fi
 
 if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
@@ -211,12 +236,14 @@ if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/iceberg/iceberg.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/iceberg/entrypoint.sh
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/iceberg/spark-defaults.conf
-    sudo rm -rf "${ROOT}"/docker-compose/iceberg/notebooks
-    sudo mkdir "${ROOT}"/docker-compose/iceberg/notebooks
-    sudo rm -rf "${ROOT}"/docker-compose/iceberg/spark
-    sudo mkdir "${ROOT}"/docker-compose/iceberg/spark
-    sudo rm -rf "${ROOT}"/docker-compose/iceberg/warehouse
-    sudo mkdir "${ROOT}"/docker-compose/iceberg/warehouse
     sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env down
-    sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env up -d
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo rm -rf "${ROOT}"/docker-compose/iceberg/notebooks
+        sudo mkdir "${ROOT}"/docker-compose/iceberg/notebooks
+        sudo rm -rf "${ROOT}"/docker-compose/iceberg/spark
+        sudo mkdir "${ROOT}"/docker-compose/iceberg/spark
+        sudo rm -rf "${ROOT}"/docker-compose/iceberg/warehouse
+        sudo mkdir "${ROOT}"/docker-compose/iceberg/warehouse
+        sudo docker compose -f "${ROOT}"/docker-compose/iceberg/iceberg.yaml --env-file "${ROOT}"/docker-compose/iceberg/iceberg.env up -d
+    fi
 fi
