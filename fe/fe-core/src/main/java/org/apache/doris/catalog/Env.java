@@ -99,6 +99,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
+import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -121,6 +122,7 @@ import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.consistency.ConsistencyChecker;
+import org.apache.doris.cooldown.CooldownHandler;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.EsExternalCatalog;
@@ -143,14 +145,11 @@ import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteHandler;
-import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.ExportChecker;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
-import org.apache.doris.load.LoadChecker;
 import org.apache.doris.load.LoadErrorHub;
-import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.StreamLoadRecordMgr;
 import org.apache.doris.load.loadv2.LoadEtlChecker;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
@@ -261,7 +260,6 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
@@ -317,6 +315,7 @@ public class Env {
     private DeleteHandler deleteHandler;
     private DbUsedDataQuotaInfoCollector dbUsedDataQuotaInfoCollector;
     private PartitionInMemoryInfoCollector partitionInMemoryInfoCollector;
+    private CooldownHandler cooldownHandler;
     private MetastoreEventsProcessor metastoreEventsProcessor;
 
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
@@ -440,6 +439,8 @@ public class Env {
 
     private FQDNManager fqdnManager;
 
+    private AtomicLong stmtIdCounter;
+
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
             // get all
@@ -551,9 +552,11 @@ public class Env {
         this.deleteHandler = new DeleteHandler();
         this.dbUsedDataQuotaInfoCollector = new DbUsedDataQuotaInfoCollector();
         this.partitionInMemoryInfoCollector = new PartitionInMemoryInfoCollector();
+        this.cooldownHandler = new CooldownHandler();
         this.metastoreEventsProcessor = new MetastoreEventsProcessor();
 
         this.replayedJournalId = new AtomicLong(0L);
+        this.stmtIdCounter = new AtomicLong(0L);
         this.isElectable = false;
         this.synchronizedTimeMs = 0;
         this.feType = FrontendNodeType.INIT;
@@ -636,7 +639,9 @@ public class Env {
         this.mtmvJobManager = new MTMVJobManager();
         this.extMetaCacheMgr = new ExternalMetaCacheMgr();
         this.fqdnManager = new FQDNManager(systemInfo);
-        this.analysisManager = new AnalysisManager();
+        if (!isCheckpointCatalog) {
+            this.analysisManager = new AnalysisManager();
+        }
     }
 
     public static void destroyCheckpoint() {
@@ -1350,9 +1355,6 @@ public class Env {
         // heartbeat mgr
         heartbeatMgr.setMaster(clusterId, token, epoch);
         heartbeatMgr.start();
-        // Load checker
-        LoadChecker.init(Config.load_checker_interval_second * 1000L);
-        LoadChecker.startAll();
         // New load scheduler
         pendingLoadTaskScheduler.start();
         loadingLoadTaskScheduler.start();
@@ -1399,6 +1401,9 @@ public class Env {
         dbUsedDataQuotaInfoCollector.start();
         // start daemon thread to update global partition in memory information periodically
         partitionInMemoryInfoCollector.start();
+        if (Config.cooldown_single_remote_file) {
+            cooldownHandler.start();
+        }
         streamLoadRecordMgr.start();
         getInternalCatalog().getIcebergTableCreationRecordMgr().start();
         new InternalSchemaInitializer().start();
@@ -1707,32 +1712,39 @@ public class Env {
         return getInternalCatalog().loadDb(dis, checksum);
     }
 
+    public long saveLoadJob(CountingDataOutputStream dos, long checksum) throws IOException {
+        // 1. save load.dbToLoadJob, force set to 0 since there should be none load jobs
+        int jobSize = 0;
+        checksum ^= jobSize;
+        dos.writeInt(jobSize);
+
+        // 2. save delete jobs
+        // delete jobs are moved to DeleteHandler. So here we just set job size as 0.
+        jobSize = 0;
+        checksum ^= jobSize;
+        dos.writeInt(jobSize);
+
+        // 3. load error hub info
+        LoadErrorHub.Param param = load.getLoadErrorHubInfo();
+        param.write(dos);
+
+        // 4. save delete load job info
+        // delete jobs are moved to DeleteHandler. So here we just set job size as 0.
+        int deleteJobSize = 0;
+        checksum ^= deleteJobSize;
+        dos.writeInt(deleteJobSize);
+        return checksum;
+    }
+
     public long loadLoadJob(DataInputStream dis, long checksum) throws IOException, DdlException {
         // load jobs
         int jobSize = dis.readInt();
         long newChecksum = checksum ^ jobSize;
-        for (int i = 0; i < jobSize; i++) {
-            long dbId = dis.readLong();
-            newChecksum ^= dbId;
 
-            int loadJobCount = dis.readInt();
-            newChecksum ^= loadJobCount;
-            long currentTimeMs = System.currentTimeMillis();
-            for (int j = 0; j < loadJobCount; j++) {
-                LoadJob job = new LoadJob();
-                job.readFields(dis);
-
-                // Delete the history load jobs that are older than
-                // LABEL_KEEP_MAX_MS
-                // This job must be FINISHED or CANCELLED
-                if (!job.isExpired(currentTimeMs)) {
-                    if (job.getEtlJobType() != EtlJobType.HADOOP) {
-                        LOG.warn("job {} with type is deprecated, skip it", job.getId(), job.getEtlJobType());
-                        continue;
-                    }
-                    load.unprotectAddLoadJob(job, true /* replay */);
-                }
-            }
+        if (jobSize > 0) {
+            LOG.warn("there should be no load jobs, please rollback to 1.2.x and check if there are hadoop load jobs");
+            throw new RuntimeException("there should be no load jobs, please rollback to 1.2.x "
+                    + "and check if there are hadoop load jobs");
         }
 
         // delete jobs
@@ -1778,6 +1790,12 @@ public class Env {
             syncJobManager.readField(dis);
         }
         LOG.info("finished replay syncJobMgr from image");
+        return checksum;
+    }
+
+    public long loadCooldownJob(DataInputStream dis, long checksum) throws IOException {
+        cooldownHandler.readField(dis);
+        LOG.info("finished replay loadCooldownJob from image");
         return checksum;
     }
 
@@ -2047,45 +2065,6 @@ public class Env {
         return getInternalCatalog().saveDb(dos, checksum);
     }
 
-    public long saveLoadJob(CountingDataOutputStream dos, long checksum) throws IOException {
-        // 1. save load.dbToLoadJob
-        Map<Long, List<LoadJob>> dbToLoadJob = load.getDbToLoadJobs();
-        int jobSize = dbToLoadJob.size();
-        checksum ^= jobSize;
-        dos.writeInt(jobSize);
-        for (Entry<Long, List<LoadJob>> entry : dbToLoadJob.entrySet()) {
-            long dbId = entry.getKey();
-            checksum ^= dbId;
-            dos.writeLong(dbId);
-
-            List<LoadJob> loadJobs = entry.getValue();
-            int loadJobCount = loadJobs.size();
-            checksum ^= loadJobCount;
-            dos.writeInt(loadJobCount);
-            for (LoadJob job : loadJobs) {
-                job.write(dos);
-            }
-        }
-
-        // 2. save delete jobs
-        // delete jobs are moved to DeleteHandler. So here we just set job size as 0.
-        jobSize = 0;
-        checksum ^= jobSize;
-        dos.writeInt(jobSize);
-
-        // 3. load error hub info
-        LoadErrorHub.Param param = load.getLoadErrorHubInfo();
-        param.write(dos);
-
-        // 4. save delete load job info
-        // delete jobs are moved to DeleteHandler. So here we just set job size as 0.
-        int deleteJobSize = 0;
-        checksum ^= deleteJobSize;
-        dos.writeInt(deleteJobSize);
-
-        return checksum;
-    }
-
     public long saveExportJob(CountingDataOutputStream dos, long checksum) throws IOException {
         long curTime = System.currentTimeMillis();
         List<ExportJob> jobs = exportMgr.getJobs().stream().filter(t -> !t.isExpired(curTime))
@@ -2228,6 +2207,14 @@ public class Env {
      */
     public long saveCatalog(CountingDataOutputStream out, long checksum) throws IOException {
         Env.getCurrentEnv().getCatalogMgr().write(out);
+        return checksum;
+    }
+
+    /**
+     * Save CooldownJob.
+     */
+    public long saveCooldownJob(CountingDataOutputStream out, long checksum) throws IOException {
+        Env.getCurrentEnv().getCooldownHandler().write(out);
         return checksum;
     }
 
@@ -2955,6 +2942,12 @@ public class Env {
                 sb.append(olapTable.getCompressionType()).append("\"");
             }
 
+            // estimate_partition_size
+            if (!olapTable.getEstimatePartitionSize().equals("")) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE).append("\" = \"");
+                sb.append(olapTable.getEstimatePartitionSize()).append("\"");
+            }
+
             // unique key table with merge on write
             if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
                 sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE).append("\" = \"");
@@ -2984,6 +2977,12 @@ public class Env {
                             + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE).append("\" = \"");
                     sb.append(olapTable.getSequenceType().toString()).append("\"");
                 }
+            }
+
+            // store row column
+            if (olapTable.storeRowColumn()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN).append("\" = \"");
+                sb.append(olapTable.storeRowColumn()).append("\"");
             }
 
             // disable auto compaction
@@ -3308,6 +3307,11 @@ public class Env {
         return idGenerator.getNextId();
     }
 
+    // counter for prepared statement id
+    public long getNextStmtId() {
+        return this.stmtIdCounter.getAndIncrement();
+    }
+
     public IdGeneratorBuffer getIdGeneratorBuffer(long bufferSize) {
         return idGenerator.getIdGeneratorBuffer(bufferSize);
     }
@@ -3436,6 +3440,10 @@ public class Env {
 
     public MaterializedViewHandler getMaterializedViewHandler() {
         return (MaterializedViewHandler) this.alter.getMaterializedViewHandler();
+    }
+
+    public CooldownHandler getCooldownHandler() {
+        return cooldownHandler;
     }
 
     public SystemHandler getClusterHandler() {
@@ -4421,7 +4429,10 @@ public class Env {
 
         String currentDB = ctx.getDatabase();
         if (StringUtils.isNotEmpty(currentDB)) {
-            catalogMgr.addLastDBOfCatalog(ctx.getCurrentCatalog().getName(), currentDB);
+            // When dropped the current catalog in current context, the current catalog will be null.
+            if (ctx.getCurrentCatalog() != null) {
+                catalogMgr.addLastDBOfCatalog(ctx.getCurrentCatalog().getName(), currentDB);
+            }
         }
         ctx.changeDefaultCatalog(catalogName);
         String lastDb = catalogMgr.getLastDB(catalogName);
@@ -4782,7 +4793,11 @@ public class Env {
         Preconditions.checkState(configs.size() == 1);
 
         for (Map.Entry<String, String> entry : configs.entrySet()) {
-            ConfigBase.setMutableConfig(entry.getKey(), entry.getValue());
+            try {
+                ConfigBase.setMutableConfig(entry.getKey(), entry.getValue());
+            } catch (ConfigException e) {
+                throw new DdlException(e.getMessage());
+            }
         }
     }
 

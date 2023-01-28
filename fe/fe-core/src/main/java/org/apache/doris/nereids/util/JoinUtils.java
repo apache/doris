@@ -42,6 +42,7 @@ import com.google.common.collect.Lists;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -151,11 +152,15 @@ public class JoinUtils {
 
         for (Expression expr : join.getHashJoinConjuncts()) {
             EqualTo equalTo = (EqualTo) expr;
-            if (!(equalTo.left() instanceof Slot) || !(equalTo.right() instanceof Slot)) {
+            // TODO: we could meet a = cast(b as xxx) here, need fix normalize join hash equals future
+            Optional<Slot> leftSlot = ExpressionUtils.extractSlotOrCastOnSlot(equalTo.left());
+            Optional<Slot> rightSlot = ExpressionUtils.extractSlotOrCastOnSlot(equalTo.right());
+            if (!leftSlot.isPresent() || !rightSlot.isPresent()) {
                 continue;
             }
-            ExprId leftExprId = ((Slot) equalTo.left()).getExprId();
-            ExprId rightExprId = ((Slot) equalTo.right()).getExprId();
+
+            ExprId leftExprId = leftSlot.get().getExprId();
+            ExprId rightExprId = rightSlot.get().getExprId();
 
             if (checker.isCoveredByLeftSlots(leftExprId)
                     && checker.isCoveredByRightSlots(rightExprId)) {
@@ -288,12 +293,12 @@ public class JoinUtils {
      * replace JoinConjuncts by using slots map.
      */
     public static List<Expression> replaceJoinConjuncts(List<Expression> joinConjuncts,
-            Map<Slot, Slot> replaceMaps) {
+            Map<ExprId, Slot> replaceMaps) {
         return joinConjuncts.stream()
                 .map(expr ->
                         expr.rewriteUp(e -> {
-                            if (e instanceof Slot && replaceMaps.containsKey(e)) {
-                                return replaceMaps.get(e);
+                            if (e instanceof Slot && replaceMaps.containsKey(((Slot) e).getExprId())) {
+                                return replaceMaps.get(((Slot) e).getExprId());
                             } else {
                                 return e;
                             }
@@ -318,10 +323,10 @@ public class JoinUtils {
         });
     }
 
-    public static Set<Slot> getJoinOutputSet(Plan left, Plan right) {
-        HashSet<Slot> joinOutput = new HashSet<>();
-        joinOutput.addAll(left.getOutput());
-        joinOutput.addAll(right.getOutput());
-        return joinOutput;
+    public static Set<ExprId> getJoinOutputExprIdSet(Plan left, Plan right) {
+        Set<ExprId> joinOutputExprIdSet = new HashSet<>();
+        joinOutputExprIdSet.addAll(left.getOutputExprIdSet());
+        joinOutputExprIdSet.addAll(right.getOutputExprIdSet());
+        return joinOutputExprIdSet;
     }
 }

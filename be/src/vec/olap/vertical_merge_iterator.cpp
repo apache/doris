@@ -28,11 +28,11 @@ RowSource::RowSource(uint16_t source_num, bool agg_flag) {
     _data = agg_flag ? (_data | AGG_FLAG) : (_data & SOURCE_FLAG);
 }
 
-uint16_t RowSource::get_source_num() {
+uint16_t RowSource::get_source_num() const {
     return _data & SOURCE_FLAG;
 }
 
-bool RowSource::agg_flag() {
+bool RowSource::agg_flag() const {
     return (_data & AGG_FLAG) != 0;
 }
 
@@ -257,7 +257,6 @@ void VerticalMergeIteratorContext::copy_rows(Block* block, bool advanced) {
 
     // copy a row to dst block column by column
     size_t start = _index_in_block - _cur_batch_num + 1 - advanced;
-    DCHECK(start >= 0);
 
     for (size_t i = 0; i < _ori_return_cols; ++i) {
         auto& s_col = src.get_by_position(i);
@@ -430,12 +429,12 @@ Status VerticalHeapMergeIterator::next_batch(Block* block) {
 }
 
 Status VerticalHeapMergeIterator::init(const StorageReadOptions& opts) {
+    DCHECK(_origin_iters.size() == _iterator_init_flags.size());
+    _record_rowids = opts.record_rowids;
     if (_origin_iters.empty()) {
         return Status::OK();
     }
-    DCHECK(_origin_iters.size() == _iterator_init_flags.size());
     _schema = &(*_origin_iters.begin())->schema();
-    _record_rowids = opts.record_rowids;
 
     auto seg_order = 0;
     // Init contxt depends on _iterator_init_flags
@@ -606,8 +605,7 @@ std::shared_ptr<RowwiseIterator> new_vertical_heap_merge_iterator(
 std::shared_ptr<RowwiseIterator> new_vertical_mask_merge_iterator(
         const std::vector<RowwiseIterator*>& inputs, size_t ori_return_cols,
         RowSourcesBuffer* row_sources) {
-    return std::make_shared<VerticalMaskMergeIterator>(std::move(inputs), ori_return_cols,
-                                                       row_sources);
+    return std::make_shared<VerticalMaskMergeIterator>(inputs, ori_return_cols, row_sources);
 }
 
 } // namespace vectorized

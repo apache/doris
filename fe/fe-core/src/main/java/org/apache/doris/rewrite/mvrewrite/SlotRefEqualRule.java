@@ -31,7 +31,8 @@ public class SlotRefEqualRule implements MVExprEqualRule {
         }
         SlotRef querySlotRef = (SlotRef) queryExpr;
         SlotRef mvColumnSlotRef = (SlotRef) mvColumnExpr;
-        if (querySlotRef.getColumnName().equalsIgnoreCase(mvColumnSlotRef.getColumnName())) {
+        if (querySlotRef.getColumnName() != null
+                && querySlotRef.getColumnName().equalsIgnoreCase(mvColumnSlotRef.getColumnName())) {
             return true;
         }
         return false;

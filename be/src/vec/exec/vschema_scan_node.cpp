@@ -20,12 +20,10 @@
 #include "exec/text_converter.h"
 #include "exec/text_converter.hpp"
 #include "gen_cpp/PlanNodes_types.h"
-#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
-#include "runtime/string_value.h"
-#include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
 #include "util/types.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 namespace doris::vectorized {
 
@@ -105,7 +103,11 @@ Status VSchemaScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 Status VSchemaScanNode::open(RuntimeState* state) {
-    START_AND_SCOPE_SPAN(state->get_tracer(), span, "AggregationNode::close");
+    if (nullptr == state) {
+        return Status::InternalError("input pointer is nullptr.");
+    }
+
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSchemaScanNode::open");
     if (!_is_init) {
         span->SetStatus(opentelemetry::trace::StatusCode::kError, "Open before Init.");
         return Status::InternalError("Open before Init.");
@@ -119,7 +121,6 @@ Status VSchemaScanNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     if (_scanner_param.user) {
         TSetSessionParams param;
@@ -138,11 +139,10 @@ Status VSchemaScanNode::prepare(RuntimeState* state) {
     }
 
     if (nullptr == state) {
-        return Status::InternalError("input pointer is nullptr.");
+        return Status::InternalError("state pointer is nullptr.");
     }
-
+    START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSchemaScanNode::prepare");
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     // new one mem pool
     _tuple_pool.reset(new (std::nothrow) MemPool());
@@ -244,13 +244,13 @@ Status VSchemaScanNode::prepare(RuntimeState* state) {
 }
 
 Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
+    if (state == nullptr || block == nullptr || eos == nullptr) {
+        return Status::InternalError("input is NULL pointer");
+    }
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VSchemaScanNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     VLOG_CRITICAL << "VSchemaScanNode::GetNext";
-    if (state == nullptr || block == nullptr || eos == nullptr) {
-        return Status::InternalError("input is NULL pointer");
-    }
     if (!_is_init) {
         return Status::InternalError("used before initialize.");
     }
@@ -347,9 +347,9 @@ Status VSchemaScanNode::write_slot_to_vectorized_column(void* slot, SlotDescript
     case TYPE_VARCHAR:
     case TYPE_CHAR:
     case TYPE_STRING: {
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(str_slot->ptr,
-                                                                          str_slot->len);
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
+        reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(str_slot->data,
+                                                                          str_slot->size);
         break;
     }
 

@@ -26,9 +26,9 @@
 #include "io/buffered_reader.h"
 #include "io/fs/local_file_system.h"
 #include "olap/iterators.h"
-#include "runtime/string_value.h"
 #include "util/runtime_profile.h"
 #include "util/timezone_utils.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -47,10 +47,10 @@ public:
 };
 
 TEST_F(ParquetThriftReaderTest, normal) {
-    io::FileSystemSPtr local_fs = std::make_shared<io::LocalFileSystem>("");
+    io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
     io::FileReaderSPtr reader;
     auto st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/localfile.parquet",
-                                  &reader);
+                                  &reader, nullptr);
     EXPECT_TRUE(st.ok());
 
     std::shared_ptr<FileMetaData> meta_data;
@@ -79,10 +79,10 @@ TEST_F(ParquetThriftReaderTest, complex_nested_file) {
     //   `friend` map<string,string>,
     //   `mark` struct<math:int,english:int>)
 
-    io::FileSystemSPtr local_fs = std::make_shared<io::LocalFileSystem>("");
+    io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
     io::FileReaderSPtr reader;
     auto st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/hive-complex.parquet",
-                                  &reader);
+                                  &reader, nullptr);
     EXPECT_TRUE(st.ok());
 
     std::shared_ptr<FileMetaData> metadata;
@@ -235,14 +235,14 @@ static void create_block(std::unique_ptr<vectorized::Block>& block) {
             {"boolean_col", TYPE_BOOLEAN, sizeof(bool), true},
             {"float_col", TYPE_FLOAT, sizeof(float_t), true},
             {"double_col", TYPE_DOUBLE, sizeof(double_t), true},
-            {"string_col", TYPE_STRING, sizeof(StringValue), true},
+            {"string_col", TYPE_STRING, sizeof(StringRef), true},
             // binary is not supported, use string instead
-            {"binary_col", TYPE_STRING, sizeof(StringValue), true},
+            {"binary_col", TYPE_STRING, sizeof(StringRef), true},
             // 64-bit-length, see doris::get_slot_size in primitive_type.cpp
             {"timestamp_col", TYPE_DATETIME, sizeof(DateTimeValue), true},
             {"decimal_col", TYPE_DECIMALV2, sizeof(DecimalV2Value), true},
-            {"char_col", TYPE_CHAR, sizeof(StringValue), true},
-            {"varchar_col", TYPE_VARCHAR, sizeof(StringValue), true},
+            {"char_col", TYPE_CHAR, sizeof(StringRef), true},
+            {"varchar_col", TYPE_VARCHAR, sizeof(StringRef), true},
             {"date_col", TYPE_DATE, sizeof(DateTimeValue), true},
             {"date_v2_col", TYPE_DATEV2, sizeof(uint32_t), true},
             {"timestamp_v2_col", TYPE_DATETIMEV2, sizeof(DateTimeValue), true, 18, 0}};
@@ -283,9 +283,9 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
      * `list_string` array<string>) // 14
      */
 
-    io::FileSystemSPtr local_fs = std::make_shared<io::LocalFileSystem>("");
+    io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
     io::FileReaderSPtr reader;
-    auto st = local_fs->open_file(parquet_file, &reader);
+    auto st = local_fs->open_file(parquet_file, &reader, nullptr);
     EXPECT_TRUE(st.ok());
 
     std::unique_ptr<vectorized::Block> block;
@@ -325,7 +325,7 @@ static void read_parquet_data_and_check(const std::string& parquet_file,
     }
 
     io::FileReaderSPtr result;
-    auto rst = local_fs->open_file(result_file, &result);
+    auto rst = local_fs->open_file(result_file, &result, nullptr);
     EXPECT_TRUE(rst.ok());
     uint8_t result_buf[result->size() + 1];
     result_buf[result->size()] = '\0';
@@ -355,12 +355,12 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
             {"boolean_col", TYPE_BOOLEAN, sizeof(bool), true},
             {"float_col", TYPE_FLOAT, sizeof(float_t), true},
             {"double_col", TYPE_DOUBLE, sizeof(double_t), true},
-            {"string_col", TYPE_STRING, sizeof(StringValue), true},
-            {"binary_col", TYPE_STRING, sizeof(StringValue), true},
+            {"string_col", TYPE_STRING, sizeof(StringRef), true},
+            {"binary_col", TYPE_STRING, sizeof(StringRef), true},
             {"timestamp_col", TYPE_DATETIME, sizeof(DateTimeValue), true},
             {"decimal_col", TYPE_DECIMALV2, sizeof(DecimalV2Value), true},
-            {"char_col", TYPE_CHAR, sizeof(StringValue), true},
-            {"varchar_col", TYPE_VARCHAR, sizeof(StringValue), true},
+            {"char_col", TYPE_CHAR, sizeof(StringRef), true},
+            {"varchar_col", TYPE_VARCHAR, sizeof(StringRef), true},
             {"date_col", TYPE_DATE, sizeof(DateTimeValue), true}};
     int num_cols = sizeof(column_descs) / sizeof(SchemaScanner::ColumnDesc);
     SchemaScanner schema_scanner(column_descs, num_cols);
@@ -405,10 +405,10 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
         lazy_read_ctx.all_read_columns.emplace_back(slot->col_name());
         read_columns.emplace_back(ParquetReadColumn(7, slot->col_name()));
     }
-    io::FileSystemSPtr local_fs = std::make_shared<io::LocalFileSystem>("");
+    io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
     io::FileReaderSPtr file_reader;
     auto st = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/type-decoder.parquet",
-                                  &file_reader);
+                                  &file_reader, nullptr);
     EXPECT_TRUE(st.ok());
 
     // prepare metadata
@@ -445,7 +445,7 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
 
     io::FileReaderSPtr result;
     auto rst = local_fs->open_file("./be/test/exec/test_data/parquet_scanner/group-reader.txt",
-                                   &result);
+                                   &result, nullptr);
     EXPECT_TRUE(rst.ok());
     uint8_t result_buf[result->size() + 1];
     result_buf[result->size()] = '\0';

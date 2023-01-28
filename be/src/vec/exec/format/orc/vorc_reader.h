@@ -70,10 +70,11 @@ public:
 
     OrcReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
               const TFileRangeDesc& range, const std::vector<std::string>& column_names,
-              size_t batch_size, const std::string& ctz);
+              size_t batch_size, const std::string& ctz, IOContext* io_ctx);
 
     OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
-              const std::vector<std::string>& column_names, const std::string& ctz);
+              const std::vector<std::string>& column_names, const std::string& ctz,
+              IOContext* io_ctx);
 
     ~OrcReader() override;
     // for test
@@ -253,6 +254,8 @@ private:
                                      const MutableColumnPtr& data_column, orc::ListVectorBatch* lvb,
                                      size_t num_values, size_t* element_size);
 
+    std::string _get_field_name_lower_case(const orc::Type* orc_type, int pos);
+
     RuntimeProfile* _profile;
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
@@ -264,6 +267,7 @@ private:
     cctz::time_zone _time_zone;
 
     std::list<std::string> _read_cols;
+    std::list<std::string> _read_cols_lower_case;
     std::list<std::string> _missing_cols;
     std::unordered_map<std::string, int> _colname_to_idx;
     std::vector<const orc::Type*> _col_orc_type;
@@ -278,7 +282,9 @@ private:
     orc::ReaderOptions _reader_options;
     orc::RowReaderOptions _row_reader_options;
 
-    std::unique_ptr<io::FileSystem> _file_system;
+    std::shared_ptr<io::FileSystem> _file_system;
+
+    IOContext* _io_ctx;
 
     // only for decimal
     DecimalScaleParams _decimal_scale_params;

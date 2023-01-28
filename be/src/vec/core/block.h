@@ -42,7 +42,6 @@ namespace doris {
 class MemPool;
 class RowDescriptor;
 class Status;
-class Tuple;
 class TupleDescriptor;
 struct TypeDescriptor;
 
@@ -74,7 +73,8 @@ public:
     Block(std::initializer_list<ColumnWithTypeAndName> il);
     Block(const ColumnsWithTypeAndName& data_);
     Block(const PBlock& pblock);
-    Block(const std::vector<SlotDescriptor*>& slots, size_t block_size);
+    Block(const std::vector<SlotDescriptor*>& slots, size_t block_size,
+          bool ignore_trivial_slot = false);
 
     /// insert the column at the specified position
     void insert(size_t position, const ColumnWithTypeAndName& elem);
@@ -100,6 +100,8 @@ public:
         }
         std::swap(data, new_data);
     }
+
+    void initialize_index_by_name();
 
     /// References are invalidated after calling functions above.
     ColumnWithTypeAndName& get_by_position(size_t position) { return data[position]; }
@@ -366,12 +368,8 @@ public:
 
 private:
     void erase_impl(size_t position);
-    void initialize_index_by_name();
     bool is_column_data_null(const doris::TypeDescriptor& type_desc, const StringRef& data_ref,
                              const IColumn* column_with_type_and_name, int row);
-    void deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor& type_desc,
-                        const StringRef& data_ref, const IColumn* column, int row,
-                        bool padding_char);
 };
 
 using Blocks = std::vector<Block>;
@@ -391,7 +389,8 @@ public:
     MutableBlock() = default;
     ~MutableBlock() = default;
 
-    MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size = 0);
+    MutableBlock(const std::vector<TupleDescriptor*>& tuple_descs, int reserve_size = 0,
+                 bool igore_trivial_slot = false);
 
     MutableBlock(Block* block)
             : _columns(block->mutate_columns()), _data_types(block->get_data_types()) {}
@@ -459,7 +458,9 @@ public:
             DCHECK_EQ(_columns.size(), block.columns());
             for (int i = 0; i < _columns.size(); ++i) {
                 if (!_data_types[i]->equals(*block.get_by_position(i).type)) {
-                    DCHECK(_data_types[i]->is_nullable());
+                    DCHECK(_data_types[i]->is_nullable())
+                            << " target type: " << _data_types[i]->get_name()
+                            << " src type: " << block.get_by_position(i).type->get_name();
                     DCHECK(((DataTypeNullable*)_data_types[i].get())
                                    ->get_nested_type()
                                    ->equals(*block.get_by_position(i).type));

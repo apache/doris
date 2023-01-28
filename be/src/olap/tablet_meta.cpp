@@ -228,9 +228,11 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     if (tablet_schema.__isset.disable_auto_compaction) {
         schema->set_disable_auto_compaction(tablet_schema.disable_auto_compaction);
     }
-
     if (tablet_schema.__isset.delete_sign_idx) {
         schema->set_delete_sign_idx(tablet_schema.delete_sign_idx);
+    }
+    if (tablet_schema.__isset.store_row_column) {
+        schema->set_store_row_column(tablet_schema.store_row_column);
     }
 
     init_from_pb(tablet_meta_pb);
@@ -253,6 +255,8 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _in_restore_mode(b._in_restore_mode),
           _preferred_rowset_type(b._preferred_rowset_type),
           _storage_policy(b._storage_policy),
+          _cooldown_replica_id(b._cooldown_replica_id),
+          _cooldown_term(b._cooldown_term),
           _enable_unique_key_merge_on_write(b._enable_unique_key_merge_on_write),
           _delete_bitmap(b._delete_bitmap) {};
 
@@ -521,6 +525,8 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     }
 
     _storage_policy = tablet_meta_pb.storage_policy();
+    _cooldown_replica_id = -1;
+    _cooldown_term = -1;
     if (tablet_meta_pb.has_enable_unique_key_merge_on_write()) {
         _enable_unique_key_merge_on_write = tablet_meta_pb.enable_unique_key_merge_on_write();
     }
@@ -544,6 +550,10 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
 }
 
 void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
+    to_meta_pb(false, tablet_meta_pb);
+}
+
+void TabletMeta::to_meta_pb(bool only_include_remote_rowset, TabletMetaPB* tablet_meta_pb) {
     tablet_meta_pb->set_table_id(table_id());
     tablet_meta_pb->set_partition_id(partition_id());
     tablet_meta_pb->set_tablet_id(tablet_id());
@@ -573,7 +583,9 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     }
 
     for (auto& rs : _rs_metas) {
-        rs->to_rowset_pb(tablet_meta_pb->add_rs_metas());
+        if ((only_include_remote_rowset && !rs->is_local()) || !only_include_remote_rowset) {
+            rs->to_rowset_pb(tablet_meta_pb->add_rs_metas());
+        }
     }
     for (auto rs : _stale_rs_metas) {
         rs->to_rowset_pb(tablet_meta_pb->add_stale_rs_metas());
@@ -866,6 +878,12 @@ bool operator==(const TabletMeta& a, const TabletMeta& b) {
     if (a._in_restore_mode != b._in_restore_mode) return false;
     if (a._preferred_rowset_type != b._preferred_rowset_type) return false;
     if (a._storage_policy != b._storage_policy) return false;
+    if (a._cooldown_replica_id != b._cooldown_replica_id) {
+        return false;
+    }
+    if (a._cooldown_term != b._cooldown_term) {
+        return false;
+    }
     return true;
 }
 

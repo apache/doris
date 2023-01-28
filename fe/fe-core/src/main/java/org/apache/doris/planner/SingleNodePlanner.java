@@ -1116,6 +1116,11 @@ public class SingleNodePlanner {
             return createConstantSelectPlan(selectStmt, analyzer);
         }
 
+        if (analyzer.enableStarJoinReorder()) {
+            LOG.debug("use old reorder logical in select stmt");
+            selectStmt.reorderTable(analyzer);
+        }
+
         // Slot materialization:
         // We need to mark all slots as materialized that are needed during the execution
         // of selectStmt, and we need to do that prior to creating plans for the TableRefs
@@ -1712,7 +1717,7 @@ public class SingleNodePlanner {
             return;
         }
         preds.removeAll(pushDownFailedPredicates);
-        unassignedConjuncts.remove(preds);
+        unassignedConjuncts.removeAll(preds);
         unassignedConjuncts.addAll(pushDownFailedPredicates);
 
         // Remove unregistered predicates that reference the same slot on
@@ -1929,23 +1934,18 @@ public class SingleNodePlanner {
                 }
                 break;
             case BROKER:
-                scanNode = new BrokerScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "BrokerScanNode",
-                        null, -1);
-                break;
+                throw new RuntimeException("Broker external table is not supported, try to use table function please");
             case ELASTICSEARCH:
                 scanNode = new EsScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "EsScanNode");
                 break;
             case HIVE:
-                scanNode = new HiveScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HiveScanNode",
-                        null, -1);
-                break;
+                throw new RuntimeException("Hive external table is not supported, try to use hive catalog please");
             case ICEBERG:
                 scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc());
                 break;
             case HUDI:
-                scanNode = new HudiScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HudiScanNode",
-                        null, -1);
-                break;
+                throw new UserException(
+                        "Hudi table is no longer supported. Use Multi Catalog feature to connect to Hudi");
             case JDBC:
                 scanNode = new JdbcScanNode(ctx.getNextNodeId(), tblRef.getDesc(), false);
                 break;
@@ -1964,7 +1964,7 @@ public class SingleNodePlanner {
             default:
                 break;
         }
-        if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode || scanNode instanceof HiveScanNode
+        if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode
                 || scanNode instanceof ExternalFileScanNode) {
             if (analyzer.enableInferPredicate()) {
                 PredicatePushDown.visitScanNode(scanNode, tblRef.getJoinOp(), analyzer);
@@ -2065,11 +2065,10 @@ public class SingleNodePlanner {
             // Also assign conjuncts from On clause. All remaining unassigned conjuncts
             // that can be evaluated by this join are assigned in createSelectPlan().
             ojConjuncts = analyzer.getUnassignedOjConjuncts(innerRef);
-        } else if (innerRef.getJoinOp().isAntiJoin()) {
-            ojConjuncts = analyzer.getUnassignedAntiJoinConjuncts(innerRef);
-        } else if (innerRef.getJoinOp().isSemiJoin()) {
-            final List<TupleId> tupleIds = innerRef.getAllTupleIds();
-            ojConjuncts = analyzer.getUnassignedConjuncts(tupleIds, false);
+        } else if (innerRef.getJoinOp().isAntiJoinNullAware()) {
+            ojConjuncts = analyzer.getUnassignedAntiJoinNullAwareConjuncts(innerRef);
+        } else if (innerRef.getJoinOp().isSemiOrAntiJoinNoNullAware()) {
+            ojConjuncts = analyzer.getUnassignedSemiAntiJoinNoNullAwareConjuncts(innerRef);
         }
         analyzer.markConjunctsAssigned(ojConjuncts);
         if (eqJoinConjuncts.isEmpty()) {
@@ -2085,8 +2084,8 @@ public class SingleNodePlanner {
 
         HashJoinNode result = new HashJoinNode(ctx.getNextNodeId(), outer, inner,
                 innerRef, eqJoinConjuncts, ojConjuncts);
-        result.init(analyzer);
         result.addConjuncts(analyzer.getMarkConjuncts(innerRef));
+        result.init(analyzer);
         return result;
     }
 

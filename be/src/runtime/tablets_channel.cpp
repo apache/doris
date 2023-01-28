@@ -22,7 +22,6 @@
 #include "olap/memtable.h"
 #include "olap/storage_engine.h"
 #include "runtime/load_channel.h"
-#include "runtime/row_batch.h"
 #include "util/doris_metrics.h"
 
 namespace doris {
@@ -192,6 +191,7 @@ void TabletsChannel::_close_wait(DeltaWriter* writer,
         PTabletInfo* tablet_info = tablet_vec->Add();
         tablet_info->set_tablet_id(writer->tablet_id());
         tablet_info->set_schema_hash(writer->schema_hash());
+        tablet_info->set_received_rows(writer->total_received_rows());
     } else {
         PTabletError* tablet_error = tablet_errors->Add();
         tablet_error->set_tablet_id(writer->tablet_id());
@@ -242,7 +242,7 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
         wrequest.tuple_desc = _tuple_desc;
         wrequest.slots = index_slots;
         wrequest.is_high_priority = _is_high_priority;
-        wrequest.ptable_schema_param = request.schema();
+        wrequest.table_schema_param = _schema;
 
         DeltaWriter* writer = nullptr;
         auto st = DeltaWriter::open(&wrequest, &writer, _load_id);

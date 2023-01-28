@@ -24,6 +24,7 @@ import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundFunction;
 import org.apache.doris.nereids.analyzer.UnboundTVFRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.jobs.batch.CheckLegalityBeforeTypeCoercion;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
@@ -40,7 +41,6 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.TableGener
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
@@ -168,6 +168,7 @@ public class BindFunction implements AnalysisRuleFactory {
 
     private <E extends Expression> E bindAndTypeCoercion(E expr, Env env, ExpressionRewriteContext ctx) {
         expr = FunctionBinder.INSTANCE.bind(expr, env);
+        expr = (E) expr.accept(CheckLegalityBeforeTypeCoercion.INSTANCE, ctx);
         expr = (E) CharacterLiteralTypeCoercion.INSTANCE.rewrite(expr, ctx);
         return (E) TypeCoercion.INSTANCE.rewrite(expr, null);
     }
@@ -204,9 +205,7 @@ public class BindFunction implements AnalysisRuleFactory {
             if (!(function instanceof TableValuedFunction)) {
                 throw new AnalysisException(function.toSql() + " is not a TableValuedFunction");
             }
-
-            RelationId relationId = statementContext.getNextRelationId();
-            return new LogicalTVFRelation(relationId, (TableValuedFunction) function);
+            return new LogicalTVFRelation(unboundTVFRelation.getId(), (TableValuedFunction) function);
         }
 
         /**
@@ -215,12 +214,15 @@ public class BindFunction implements AnalysisRuleFactory {
         public BoundFunction bindTableGeneratingFunction(UnboundFunction unboundFunction,
                 StatementContext statementContext) {
             Env env = statementContext.getConnectContext().getEnv();
+            List<Expression> boundArguments = unboundFunction.getArguments().stream()
+                    .map(e -> INSTANCE.bind(e, env))
+                    .collect(Collectors.toList());
             FunctionRegistry functionRegistry = env.getFunctionRegistry();
 
             String functionName = unboundFunction.getName();
             FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder(
-                    functionName, unboundFunction.getArguments());
-            BoundFunction function = functionBuilder.build(functionName, unboundFunction.getArguments());
+                    functionName, boundArguments);
+            BoundFunction function = functionBuilder.build(functionName, boundArguments);
             if (!(function instanceof TableGeneratingFunction)) {
                 throw new AnalysisException(function.toSql() + " is not a TableGeneratingFunction");
             }

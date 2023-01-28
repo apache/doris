@@ -54,10 +54,10 @@ public class AnalyzeRulesJob extends BatchRulesJob {
     public AnalyzeRulesJob(CascadesContext cascadesContext, Optional<Scope> scope) {
         super(cascadesContext);
         rulesJob.addAll(ImmutableList.of(
-                bottomUpBatch(ImmutableList.of(
+                bottomUpBatch(
                     new RegisterCTE()
-                )),
-                bottomUpBatch(ImmutableList.of(
+                ),
+                bottomUpBatch(
                     new BindRelation(),
                     new CheckPolicy(),
                     new UserAuthentication(),
@@ -76,14 +76,14 @@ public class AnalyzeRulesJob extends BatchRulesJob {
                     new HideOneRowRelationUnderUnion(),
                     new ExpressionNormalization(cascadesContext.getConnectContext(),
                                 ImmutableList.of(CharacterLiteralTypeCoercion.INSTANCE, TypeCoercion.INSTANCE))
-                )),
-                topDownBatch(ImmutableList.of(
+                ),
+                topDownBatch(
                     new FillUpMissingSlots(),
                     // We should use NormalizeRepeat to compute nullable properties for LogicalRepeat in the analysis
                     // stage. NormalizeRepeat will compute nullable property, add virtual slot, LogicalAggregate and
                     // LogicalProject for normalize. This rule depends on FillUpMissingSlots to fill up slots.
                     new NormalizeRepeat()
-                ))
+                )
         ));
     }
 }

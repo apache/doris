@@ -389,7 +389,6 @@ void test_arrow_to_decimal_column(std::shared_ptr<arrow::Decimal128Type> type,
 template <bool is_nullable>
 void test_decimalv2(std::shared_ptr<arrow::Decimal128Type> type,
                     const std::vector<std::string>& test_cases, size_t num_elements) {
-    using ArrowCppType = typename arrow::TypeTraits<arrow::Decimal128Type>::CType;
     size_t counter = 0;
     auto pt = arrow_type_to_primitive_type(type->id());
     ASSERT_NE(pt, INVALID_TYPE);

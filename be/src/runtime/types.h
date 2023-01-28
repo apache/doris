@@ -74,6 +74,7 @@ struct TypeDescriptor {
             precision = 27;
             scale = 9;
         } else if (type == TYPE_DATETIMEV2) {
+            precision = 18;
             scale = 6;
         }
     }
@@ -199,9 +200,6 @@ struct TypeDescriptor {
     bool is_array_type() const { return type == TYPE_ARRAY; }
 
     bool is_bitmap_type() const { return type == TYPE_OBJECT; }
-
-    /// Returns the byte size of this type.  Returns 0 for variable length types.
-    int get_byte_size() const { return ::doris::get_byte_size(type); }
 
     int get_slot_size() const { return ::doris::get_slot_size(type); }
 

@@ -23,7 +23,7 @@
 #include "runtime/decimalv2_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
-#include "runtime/string_value.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
@@ -61,11 +61,10 @@ public:
     virtual IteratorBase* begin() = 0;
 };
 
-template <PrimitiveType T, bool is_vec = false>
+template <PrimitiveType T>
 class HybridSet : public HybridSetBase {
 public:
-    using CppType = std::conditional_t<is_vec, typename VecPrimitiveTypeTraits<T>::CppType,
-                                       typename PrimitiveTypeTraits<T>::CppType>;
+    using CppType = typename VecPrimitiveTypeTraits<T>::CppType;
 
     HybridSet() = default;
 
@@ -94,7 +93,7 @@ public:
     }
 
     void insert(HybridSetBase* set) override {
-        HybridSet<T, is_vec>* hybrid_set = reinterpret_cast<HybridSet<T, is_vec>*>(set);
+        HybridSet<T>* hybrid_set = reinterpret_cast<HybridSet<T>*>(set);
         _set.insert(hybrid_set->_set.begin(), hybrid_set->_set.end());
     }
 
@@ -160,8 +159,8 @@ public:
             return;
         }
 
-        const auto* value = reinterpret_cast<const StringValue*>(data);
-        std::string str_value(value->ptr, value->len);
+        const auto* value = reinterpret_cast<const StringRef*>(data);
+        std::string str_value(value->data, value->size);
         _set.insert(str_value);
     }
 
@@ -186,8 +185,8 @@ public:
             return false;
         }
 
-        auto* value = reinterpret_cast<const StringValue*>(data);
-        std::string_view str_value(const_cast<const char*>(value->ptr), value->len);
+        auto* value = reinterpret_cast<const StringRef*>(data);
+        std::string_view str_value(const_cast<const char*>(value->data), value->size);
         auto it = _set.find(str_value);
 
         return !(it == _set.end());
@@ -207,8 +206,8 @@ public:
         ~Iterator() override = default;
         bool has_next() const override { return !(_begin == _end); }
         const void* get_value() override {
-            _value.ptr = const_cast<char*>(_begin->data());
-            _value.len = _begin->length();
+            _value.data = const_cast<char*>(_begin->data());
+            _value.size = _begin->length();
             return &_value;
         }
         void next() override { ++_begin; }
@@ -216,7 +215,7 @@ public:
     private:
         typename phmap::flat_hash_set<std::string>::iterator _begin;
         typename phmap::flat_hash_set<std::string>::iterator _end;
-        StringValue _value;
+        StringRef _value;
     };
 
     IteratorBase* begin() override {
@@ -231,8 +230,8 @@ private:
 };
 
 // note: Two difference from StringSet
-// 1 StringValue has better comparison performance than std::string
-// 2 std::string keeps its own memory, bug StringValue just keeps ptr and len, so you the caller should manage memory of StringValue
+// 1 StringRef has better comparison performance than std::string
+// 2 std::string keeps its own memory, bug StringRef just keeps ptr and len, so you the caller should manage memory of StringRef
 class StringValueSet : public HybridSetBase {
 public:
     StringValueSet() = default;
@@ -244,13 +243,13 @@ public:
             return;
         }
 
-        const auto* value = reinterpret_cast<const StringValue*>(data);
-        StringValue sv(value->ptr, value->len);
+        const auto* value = reinterpret_cast<const StringRef*>(data);
+        StringRef sv(value->data, value->size);
         _set.insert(sv);
     }
 
     void insert(void* data, size_t size) override {
-        StringValue sv(reinterpret_cast<char*>(data), size);
+        StringRef sv(reinterpret_cast<char*>(data), size);
         _set.insert(sv);
     }
 
@@ -270,7 +269,7 @@ public:
             return false;
         }
 
-        auto* value = reinterpret_cast<const StringValue*>(data);
+        auto* value = reinterpret_cast<const StringRef*>(data);
         auto it = _set.find(*value);
 
         return !(it == _set.end());
@@ -281,39 +280,39 @@ public:
             return false;
         }
 
-        StringValue sv(reinterpret_cast<const char*>(data), size);
+        StringRef sv(reinterpret_cast<const char*>(data), size);
         auto it = _set.find(sv);
         return !(it == _set.end());
     }
 
     class Iterator : public IteratorBase {
     public:
-        Iterator(phmap::flat_hash_set<StringValue>::iterator begin,
-                 phmap::flat_hash_set<StringValue>::iterator end)
+        Iterator(phmap::flat_hash_set<StringRef>::iterator begin,
+                 phmap::flat_hash_set<StringRef>::iterator end)
                 : _begin(begin), _end(end) {}
         ~Iterator() override = default;
         bool has_next() const override { return !(_begin == _end); }
         const void* get_value() override {
-            _value.ptr = const_cast<char*>(_begin->ptr);
-            _value.len = _begin->len;
+            _value.data = const_cast<char*>(_begin->data);
+            _value.size = _begin->size;
             return &_value;
         }
         void next() override { ++_begin; }
 
     private:
-        typename phmap::flat_hash_set<StringValue>::iterator _begin;
-        typename phmap::flat_hash_set<StringValue>::iterator _end;
-        StringValue _value;
+        typename phmap::flat_hash_set<StringRef>::iterator _begin;
+        typename phmap::flat_hash_set<StringRef>::iterator _end;
+        StringRef _value;
     };
 
     IteratorBase* begin() override {
         return _pool.add(new (std::nothrow) Iterator(_set.begin(), _set.end()));
     }
 
-    phmap::flat_hash_set<StringValue>* get_inner_set() { return &_set; }
+    phmap::flat_hash_set<StringRef>* get_inner_set() { return &_set; }
 
 private:
-    phmap::flat_hash_set<StringValue> _set;
+    phmap::flat_hash_set<StringRef> _set;
     ObjectPool _pool;
 };
 

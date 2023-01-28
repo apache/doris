@@ -62,8 +62,14 @@ using namespace ErrorCode;
 Status olap_compress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
                      size_t* written_len, OLAPCompressionType compression_type) {
     if (nullptr == src_buf || nullptr == dest_buf || nullptr == written_len) {
-        LOG(WARNING) << "input param with nullptr pointer. [src_buf=" << src_buf
-                     << " dest_buf=" << dest_buf << " written_len=" << written_len << "]";
+        LOG(WARNING) << "input param with nullptr pointer. src_buf is nullptr: "
+                     << (src_buf == nullptr ? "true" : "false") << " src_buf=["
+                     << (src_buf == nullptr ? "nullptr" : src_buf)
+                     << "], dest_buf is nullptr: " << (dest_buf == nullptr ? "true" : "false")
+                     << " dest_buf=[" << (dest_buf == nullptr ? "nullptr" : dest_buf)
+                     << "], written_len is nullptr: "
+                     << (written_len == nullptr ? "true" : " false") << " written_len=["
+                     << (dest_buf == nullptr ? -1 : *dest_buf) << "]";
 
         return Status::Error<INVALID_ARGUMENT>();
     }
@@ -534,18 +540,6 @@ unsigned int crc32c_lut(char const* b, unsigned int off, unsigned int len, unsig
 
     // Publish crc out to object
     return localCrc;
-}
-
-uint32_t olap_crc32(uint32_t crc32, const char* buf, size_t len) {
-#if defined(__i386) || defined(__x86_64__)
-    if (OLAP_LIKELY(CpuInfo::is_supported(CpuInfo::SSE4_2))) {
-        return baidu_crc32_qw(buf, crc32, len);
-    } else {
-        return crc32c_lut(buf, 0, len, crc32);
-    }
-#else
-    return crc32c_lut(buf, 0, len, crc32);
-#endif
 }
 
 Status gen_timestamp_string(string* out_string) {

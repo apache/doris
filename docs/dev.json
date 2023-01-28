@@ -9,7 +9,7 @@
   },
   "sidebar.docs.category.Doris Introduction": {
     "message": "Doris 介绍",
-    "description": "The label for category Doris Architecture in sidebar docs"
+    "description": "The label for category Doris Introduction in sidebar docs"
   },
   "sidebar.docs.category.Install And Deploy": {
     "message": "安装部署",
@@ -73,7 +73,7 @@
   },
   "sidebar.docs.category.Data Cache": {
     "message": "数据缓存",
-    "description": "The label for category Date Cache in sidebar docs"
+    "description": "The label for category Data Cache in sidebar docs"
   },
   "sidebar.docs.category.Best Practice": {
     "message": "最佳实践",
@@ -82,10 +82,6 @@
   "sidebar.docs.category.Ecosystem": {
     "message": "生态扩展",
     "description": "The label for category Ecosystem in sidebar docs"
-  },
-  "sidebar.docs.category.Expansion table": {
-    "message": "扩展表",
-    "description": "The label for category Expansion table in sidebar docs"
   },
   "sidebar.docs.category.Doris Manager": {
     "message": "Doris Manager",
@@ -290,5 +286,17 @@
   "sidebar.docs.category.Benchmark": {
     "message": "性能测试",
     "description": "The label for category Benchmark in sidebar docs"
+  },
+  "sidebar.docs.category.Lakehouse": {
+    "message": "数据湖分析",
+    "description": "The label for category Lakehouse in sidebar docs"
+  },
+  "sidebar.docs.category.Multi Catalog": {
+    "message": "多源数据目录",
+    "description": "The label for category Lakehouse.Multi Catalog in sidebar docs"
+  },
+  "sidebar.docs.category.External Table": {
+    "message": "外部表",
+    "description": "The label for category Lakehouse.External Table in sidebar docs"
   }
 }

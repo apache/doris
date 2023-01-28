@@ -31,7 +31,9 @@ import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.Lists;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -51,6 +53,8 @@ public abstract class AbstractPhysicalJoin<
 
     protected boolean shouldTranslateOutput = true;
     protected final JoinHint hint;
+
+    protected final List<Expression> filterConjuncts = Lists.newArrayList();
 
     /**
      * Constructor of PhysicalJoin.
@@ -156,5 +160,13 @@ public abstract class AbstractPhysicalJoin<
     @Override
     public JoinHint getHint() {
         return hint;
+    }
+
+    public List<Expression> getFilterConjuncts() {
+        return filterConjuncts;
+    }
+
+    public void addFilterConjuncts(Collection<Expression> conjuncts) {
+        filterConjuncts.addAll(conjuncts);
     }
 }

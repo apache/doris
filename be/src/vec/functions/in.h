@@ -75,7 +75,7 @@ public:
             state->hybrid_set.reset(new StringValueSet());
         } else {
             state->hybrid_set.reset(
-                    create_set(convert_type_to_primitive(context->get_arg_type(0)->type), true));
+                    create_set(convert_type_to_primitive(context->get_arg_type(0)->type)));
         }
 
         DCHECK(context->get_num_args() >= 1);
@@ -191,8 +191,8 @@ public:
                     continue;
                 }
 
-                std::unique_ptr<HybridSetBase> hybrid_set(create_set(
-                        convert_type_to_primitive(context->get_arg_type(0)->type), true));
+                std::unique_ptr<HybridSetBase> hybrid_set(
+                        create_set(convert_type_to_primitive(context->get_arg_type(0)->type)));
                 bool null_in_set = false;
 
                 for (const auto& set_column : set_columns) {

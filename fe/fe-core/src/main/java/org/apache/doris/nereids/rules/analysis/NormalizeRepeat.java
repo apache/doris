@@ -23,8 +23,10 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeToSlot.NormalizeToSlotContext;
 import org.apache.doris.nereids.rules.rewrite.logical.NormalizeToSlot.NormalizeToSlotTriplet;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
@@ -43,6 +45,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import com.google.common.collect.Sets.SetView;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -85,16 +88,17 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
     }
 
     private void checkIfAggFuncSlotInGroupingSets(LogicalRepeat<Plan> repeat) {
-        Set<Slot> aggUsedSlot = repeat.getOutputExpressions().stream()
+        Set<Slot> aggUsedSlots = repeat.getOutputExpressions().stream()
                 .flatMap(e -> e.<Set<AggregateFunction>>collect(AggregateFunction.class::isInstance).stream())
                 .flatMap(e -> e.<Set<SlotReference>>collect(SlotReference.class::isInstance).stream())
                 .collect(ImmutableSet.toImmutableSet());
-        Set<Slot> groupingSetsUsedSlot = repeat.getGroupingSets().stream()
-                .flatMap(e -> e.stream())
+        Set<ExprId> groupingSetsUsedSlotExprIds = repeat.getGroupingSets().stream()
+                .flatMap(Collection::stream)
                 .flatMap(e -> e.<Set<SlotReference>>collect(SlotReference.class::isInstance).stream())
+                .map(SlotReference::getExprId)
                 .collect(Collectors.toSet());
-        for (Slot slot : aggUsedSlot) {
-            if (groupingSetsUsedSlot.contains(slot)) {
+        for (Slot slot : aggUsedSlots) {
+            if (groupingSetsUsedSlotExprIds.contains(slot.getExprId())) {
                 throw new AnalysisException("column: " + slot.toSql() + " cannot both in select "
                         + "list and aggregate functions when using GROUPING SETS/CUBE/ROLLUP, "
                         + "please use union instead.");
@@ -184,7 +188,13 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                 repeat.getOutputExpressions(), AggregateFunction.class::isInstance);
 
         ImmutableSet<Expression> argumentsOfAggregateFunction = aggregateFunctions.stream()
-                .flatMap(function -> function.getArguments().stream())
+                .flatMap(function -> function.getArguments().stream().map(arg -> {
+                    if (arg instanceof OrderExpression) {
+                        return arg.child(0);
+                    } else {
+                        return arg;
+                    }
+                }))
                 .collect(ImmutableSet.toImmutableSet());
 
         ImmutableSet<Expression> needPushDown = ImmutableSet.<Expression>builder()
@@ -206,7 +216,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         return originBottomPlan;
     }
 
-    /** toPushDownContext */
+    /** buildContext */
     public NormalizeToSlotContext buildContext(Repeat<? extends Plan> repeat,
             Set<? extends Expression> sourceExpressions) {
         Set<Alias> aliases = ExpressionUtils.collect(repeat.getOutputExpressions(), Alias.class::isInstance);
@@ -216,7 +226,6 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         }
 
         List<Expression> groupingSetExpressions = ExpressionUtils.flatExpressions(repeat.getGroupingSets());
-        Set<Expression> commonGroupingSetExpressions = repeat.getCommonGroupingSetExpressions();
 
         // nullable will be different from grouping set and output expressions,
         // so we can not use the slot in grouping set，but use the equivalent slot in output expressions.
@@ -229,9 +238,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                 expression = outputs.get(outputs.indexOf(expression));
             }
             if (groupingSetExpressions.contains(expression)) {
-                boolean isCommonGroupingSetExpression = commonGroupingSetExpressions.contains(expression);
-                pushDownTriplet = toGroupingSetExpressionPushDownTriplet(
-                        isCommonGroupingSetExpression, expression, existsAliasMap.get(expression));
+                pushDownTriplet = toGroupingSetExpressionPushDownTriplet(expression, existsAliasMap.get(expression));
             } else {
                 pushDownTriplet = Optional.of(
                         NormalizeToSlotTriplet.toTriplet(expression, existsAliasMap.get(expression)));
@@ -245,10 +252,10 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
     }
 
     private Optional<NormalizeToSlotTriplet> toGroupingSetExpressionPushDownTriplet(
-            boolean isCommonGroupingSetExpression, Expression expression, @Nullable Alias existsAlias) {
+            Expression expression, @Nullable Alias existsAlias) {
         NormalizeToSlotTriplet originTriplet = NormalizeToSlotTriplet.toTriplet(expression, existsAlias);
         SlotReference remainSlot = (SlotReference) originTriplet.remainExpr;
-        Slot newSlot = remainSlot.withCommonGroupingSetExpression(isCommonGroupingSetExpression);
+        Slot newSlot = remainSlot.withNullable(true);
         return Optional.of(new NormalizeToSlotTriplet(expression, newSlot, originTriplet.pushedExpr));
     }
 

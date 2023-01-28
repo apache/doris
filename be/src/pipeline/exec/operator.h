@@ -168,7 +168,7 @@ public:
     /**
      * Release all resources once this operator done its work.
      */
-    virtual Status close(RuntimeState* state) = 0;
+    virtual Status close(RuntimeState* state);
 
     Status set_child(OperatorPtr child) {
         if (is_source()) {
@@ -216,6 +216,8 @@ public:
      */
     virtual bool is_pending_finish() const { return false; }
 
+    virtual Status try_close() { return Status::OK(); }
+
     bool is_closed() const { return _is_closed; }
 
     MemTracker* mem_tracker() const { return _mem_tracker.get(); }
@@ -225,7 +227,7 @@ public:
     const RowDescriptor& row_desc();
 
     RuntimeProfile* runtime_profile() { return _runtime_profile.get(); }
-    std::string debug_string() const;
+    virtual std::string debug_string() const;
     int32_t id() const { return _operator_builder->id(); }
 
 protected:
@@ -262,8 +264,9 @@ public:
         _runtime_profile.reset(new RuntimeProfile(
                 fmt::format("{} (id={})", _operator_builder->get_name(), _operator_builder->id())));
         _sink->profile()->insert_child_head(_runtime_profile.get(), true);
-        _mem_tracker = std::make_unique<MemTracker>("DataSinkOperator:" + _runtime_profile->name(),
-                                                    _runtime_profile.get());
+        _mem_tracker =
+                std::make_unique<MemTracker>("DataSinkOperator:" + _runtime_profile->name(),
+                                             _runtime_profile.get(), nullptr, "PeakMemoryUsage");
         return Status::OK();
     }
 
@@ -319,8 +322,9 @@ public:
         _runtime_profile.reset(new RuntimeProfile(
                 fmt::format("{} (id={})", _operator_builder->get_name(), _operator_builder->id())));
         _node->runtime_profile()->insert_child_head(_runtime_profile.get(), true);
-        _mem_tracker = std::make_unique<MemTracker>(get_name() + ": " + _runtime_profile->name(),
-                                                    _runtime_profile.get());
+        _mem_tracker =
+                std::make_unique<MemTracker>(get_name() + ": " + _runtime_profile->name(),
+                                             _runtime_profile.get(), nullptr, "PeakMemoryUsage");
         _node->increase_ref();
         return Status::OK();
     }
@@ -355,7 +359,10 @@ public:
         DCHECK(_child);
         RETURN_IF_ERROR(_child->get_block(state, block, source_state));
         bool eos = false;
-        RETURN_IF_ERROR(_node->pull(state, block, &eos));
+        RETURN_IF_ERROR(_node->get_next_after_projects(
+                state, block, &eos,
+                std::bind(&ExecNode::pull, _node, std::placeholders::_1, std::placeholders::_2,
+                          std::placeholders::_3)));
         return Status::OK();
     }
 
@@ -437,7 +444,10 @@ public:
 
         if (!node->need_more_input_data()) {
             bool eos = false;
-            RETURN_IF_ERROR(node->pull(state, block, &eos));
+            RETURN_IF_ERROR(node->get_next_after_projects(
+                    state, block, &eos,
+                    std::bind(&ExecNode::pull, node, std::placeholders::_1, std::placeholders::_2,
+                              std::placeholders::_3)));
             if (eos) {
                 source_state = SourceState::FINISHED;
             } else if (!node->need_more_input_data()) {

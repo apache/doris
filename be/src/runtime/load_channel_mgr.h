@@ -58,7 +58,7 @@ public:
         std::lock_guard<std::mutex> l(_lock);
         _refresh_mem_tracker_without_lock();
     }
-    MemTrackerLimiter* mem_tracker_set() { return _mem_tracker_set.get(); }
+    MemTrackerLimiter* mem_tracker() { return _mem_tracker.get(); }
 
 private:
     template <typename Request>
@@ -74,11 +74,12 @@ private:
 
     // lock should be held when calling this method
     void _refresh_mem_tracker_without_lock() {
-        int64_t mem_usage = 0;
+        _mem_usage = 0;
         for (auto& kv : _load_channels) {
-            mem_usage += kv.second->mem_consumption();
+            _mem_usage += kv.second->mem_consumption();
         }
-        _mem_tracker->set_consumption(mem_usage);
+        THREAD_MEM_TRACKER_TRANSFER_TO(_mem_usage - _mem_tracker->consumption(),
+                                       _mem_tracker.get());
     }
 
 protected:
@@ -89,9 +90,8 @@ protected:
     Cache* _last_success_channel = nullptr;
 
     // check the total load channel mem consumption of this Backend
-    std::unique_ptr<MemTracker> _mem_tracker;
-    // Associate load channel tracker and memtable tracker, avoid default association to Orphan tracker.
-    std::unique_ptr<MemTrackerLimiter> _mem_tracker_set;
+    int64_t _mem_usage = 0;
+    std::unique_ptr<MemTrackerLimiter> _mem_tracker;
     int64_t _load_hard_mem_limit = -1;
     int64_t _load_soft_mem_limit = -1;
     bool _soft_reduce_mem_in_progress = false;

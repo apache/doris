@@ -66,6 +66,9 @@ public class ColumnPartitionDesc extends PartitionDesc {
                 }
             }
         }
+        if (matched == null) {
+            throw new AnalysisException("The partition columns doesn't match the ones in base table.");
+        }
         PartitionInfo partitionInfo = matched.getPartitionInfo();
         List<Column> partitionColumns = partitionInfo.getPartitionColumns();
         if (!columns.stream().map(SlotRef::getColumn).collect(Collectors.toList()).equals(partitionColumns)) {

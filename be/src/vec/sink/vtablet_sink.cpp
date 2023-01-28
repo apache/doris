@@ -23,14 +23,10 @@
 #include <unordered_map>
 
 #include "exec/tablet_info.h"
-#include "exprs/expr.h"
-#include "exprs/expr_context.h"
 #include "olap/hll.h"
 #include "runtime/exec_env.h"
-#include "runtime/row_batch.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
-#include "runtime/tuple_row.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
 #include "util/debug/sanitizer_scopes.h"
@@ -176,6 +172,12 @@ VNodeChannel::VNodeChannel(VOlapTableSink* parent, IndexChannel* index_channel, 
 }
 
 VNodeChannel::~VNodeChannel() {
+    if (_open_closure != nullptr) {
+        if (_open_closure->unref()) {
+            delete _open_closure;
+        }
+        _open_closure = nullptr;
+    }
     if (_add_block_closure != nullptr) {
         delete _add_block_closure;
         _add_block_closure = nullptr;
@@ -1242,8 +1244,6 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
         // shutdown it.
         _send_batch_thread_pool_token->wait();
     }
-
-    Expr::close(_output_expr_ctxs, state);
 
     _close_status = status;
     DataSink::close(state, exec_status);

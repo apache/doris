@@ -51,13 +51,26 @@ under the License.
 
 1. [Apache Doris Third Party Prebuilt](https://github.com/apache/doris-thirdparty/releases/tag/automation)页面有所有第三方库的源码，可以直接下载[doris-thirdparty-source.tgz](https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-source.tgz)获得。
 
-2. 如果平台使用的是 _**Intel**_ 芯片，也可以在[Apache Doris Third Party Prebuilt](https://github.com/apache/doris-thirdparty/releases/tag/automation)页面直接下载预编译好的第三方库[doris-thirdparty-prebuilt-darwin-x86_64.tar.xz](https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz)，省去编译第三方库的过程，参考下面的命令。
+2. 可以在[Apache Doris Third Party Prebuilt](https://github.com/apache/doris-thirdparty/releases/tag/automation)页面直接下载预编译好的第三方库，省去编译第三方库的过程，参考下面的命令。
     ```shell
     cd thirdparty
+    rm -rf installed
+
+    # Intel 芯片
     curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-x86_64.tar.xz \
-        -o doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
-    tar -xvf doris-thirdparty-prebuilt-darwin-x86_64.tar.xz
+        -o - | tar -Jxf -
+
+    # Apple Silicon 芯片
+    curl -L https://github.com/apache/doris-thirdparty/releases/download/automation/doris-thirdparty-prebuilt-darwin-arm64.tar.xz \
+        -o - | tar -Jxf -
+
+    # 保证protoc和thrift能够正常运行
+    cd installed/bin
+
+    ./protoc --version
+    ./thrift --version
     ```
+3. 运行`protoc`和`thrift`的时候可能会遇到**无法打开，因为无法验证开发者**的问题，可以到前往`安全性与隐私`。点按`通用`面板中的`仍要打开`按钮，以确认打算打开该二进制。参考[https://support.apple.com/zh-cn/HT202491](https://support.apple.com/zh-cn/HT202491)。
 
 ## 启动
 

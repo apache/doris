@@ -125,7 +125,8 @@ Status WholeFileCache::_generate_cache_reader(size_t offset, size_t req_size) {
             return st;
         }
     }
-    RETURN_IF_ERROR(io::global_local_filesystem()->open_file(cache_file, &_cache_file_reader));
+    RETURN_IF_ERROR(
+            io::global_local_filesystem()->open_file(cache_file, &_cache_file_reader, nullptr));
     _cache_file_size = _cache_file_reader->size();
     LOG(INFO) << "Create cache file from remote file successfully: "
               << _remote_file_reader->path().native() << " -> " << cache_file.native();

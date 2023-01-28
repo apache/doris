@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "exec/es/es_predicate.h"
 #include "vec/exec/scan/new_es_scanner.h"
 #include "vec/exec/scan/vscan_node.h"
 
@@ -42,9 +41,6 @@ protected:
     Status _init_scanners(std::list<VScanner*>* scanners) override;
 
 private:
-    Status build_conjuncts_list();
-
-private:
     TupleId _tuple_id;
     TupleDescriptor* _tuple_desc;
 
@@ -54,10 +50,6 @@ private:
 
     std::vector<std::unique_ptr<TEsScanRange>> _scan_ranges;
     std::vector<std::string> _column_names;
-
-    std::vector<EsPredicate*> _predicates;
-    std::vector<int> _predicate_to_conjunct;
-    std::vector<int> _conjunct_to_predicate;
 
     // Profile
     std::unique_ptr<RuntimeProfile> _es_profile;

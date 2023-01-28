@@ -17,8 +17,10 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.nereids.analyzer.UnboundStar;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.rules.analysis.BindSlotReference.BoundStar;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -41,8 +43,8 @@ import java.util.Optional;
  */
 public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Project {
 
-    private final ImmutableList<NamedExpression> projects;
-    private final ImmutableList<NamedExpression> excepts;
+    private final List<NamedExpression> projects;
+    private final List<NamedExpression> excepts;
 
     // For project nodes under union, erasure cannot be configured, so add this flag.
     private final boolean canEliminate;
@@ -140,10 +142,16 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
             return false;
         }
         LogicalProject that = (LogicalProject) o;
-        return projects.equals(that.projects)
+        boolean equal = projects.equals(that.projects)
                 && excepts.equals(that.excepts)
                 && canEliminate == that.canEliminate
                 && isDistinct == that.isDistinct;
+        // TODO: should add exprId for UnBoundStar and BoundStar for equality comparasion
+        if (!projects.isEmpty() && (projects.get(0) instanceof UnboundStar || projects.get(0) instanceof BoundStar)
+                && (child().getClass() == that.child().getClass())) {
+            equal = Objects.equals(child(), that.child());
+        }
+        return equal;
     }
 
     @Override
@@ -151,30 +159,35 @@ public class LogicalProject<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_
         return Objects.hash(projects, canEliminate);
     }
 
+    public LogicalProject<Plan> withEliminate(boolean isEliminate) {
+        return new LogicalProject<>(projects, excepts, isEliminate, child(), isDistinct);
+    }
+
+    public LogicalProject<Plan> withProjects(List<NamedExpression> projects) {
+        return new LogicalProject<>(projects, excepts, canEliminate,
+                Optional.empty(), Optional.of(getLogicalProperties()), child(), isDistinct);
+    }
+
     @Override
-    public LogicalUnary<Plan> withChildren(List<Plan> children) {
+    public LogicalProject<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalProject<>(projects, excepts, canEliminate, children.get(0), isDistinct);
     }
 
     @Override
-    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
+    public LogicalProject<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalProject<>(projects, excepts, canEliminate,
                 groupExpression, Optional.of(getLogicalProperties()), child(), isDistinct);
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+    public LogicalProject<Plan> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalProject<>(projects, excepts, canEliminate, Optional.empty(), logicalProperties, child(),
                 isDistinct);
     }
 
     public boolean canEliminate() {
         return canEliminate;
-    }
-
-    public Plan withEliminate(boolean isEliminate) {
-        return new LogicalProject<>(projects, excepts, isEliminate, child(), isDistinct);
     }
 
     public boolean isDistinct() {

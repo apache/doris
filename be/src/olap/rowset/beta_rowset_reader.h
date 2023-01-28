@@ -34,7 +34,8 @@ public:
     Status init(RowsetReaderContext* read_context) override;
 
     Status get_segment_iterators(RowsetReaderContext* read_context,
-                                 std::vector<RowwiseIterator*>* out_iters) override;
+                                 std::vector<RowwiseIterator*>* out_iters,
+                                 bool use_cache = false) override;
     void reset_read_options() override;
     Status next_block(vectorized::Block* block) override;
     Status next_block_view(vectorized::BlockView* block_view) override;
@@ -64,12 +65,7 @@ public:
 
     Status get_segment_num_rows(std::vector<uint32_t>* segment_num_rows) override;
 
-    bool update_profile(RuntimeProfile* profile) override {
-        if (_iterator != nullptr) {
-            return _iterator->update_profile(profile);
-        }
-        return false;
-    }
+    bool update_profile(RuntimeProfile* profile) override;
 
 private:
     bool _should_push_down_value_predicates() const;

@@ -71,6 +71,10 @@ private:
 
     RuntimeProfile::Counter* _sort_blocks_memory_usage;
 
+    bool _use_topn_opt = false;
+    // topn top value
+    Field old_top {Field::Types::Null};
+
     bool _reuse_mem;
 
     std::unique_ptr<Sorter> _sorter;

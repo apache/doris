@@ -19,10 +19,10 @@
 
 #include "exec/olap_common.h"
 #include "exec/text_converter.h"
-#include "exprs/bloomfilter_predicate.h"
 #include "exprs/function_filter.h"
 #include "io/file_factory.h"
 #include "runtime/tuple.h"
+#include "vec/exec/format/format_common.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/scan/vscanner.h"
 
@@ -33,7 +33,8 @@ class NewFileScanNode;
 class VFileScanner : public VScanner {
 public:
     VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t limit,
-                 const TFileScanRange& scan_range, RuntimeProfile* profile);
+                 const TFileScanRange& scan_range, RuntimeProfile* profile,
+                 KVCache<string>& kv_cache);
 
     Status open(RuntimeState* state) override;
 
@@ -42,6 +43,10 @@ public:
 public:
     Status prepare(VExprContext** vconjunct_ctx_ptr,
                    std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
+
+    doris::TabletStorageType get_storage_type() override {
+        return doris::TabletStorageType::STORAGE_TYPE_REMOTE;
+    }
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
@@ -62,12 +67,10 @@ protected:
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
     // File source slot descriptors
     std::vector<SlotDescriptor*> _file_slot_descs;
-    // File slot id to index in _file_slot_descs
-    std::unordered_map<SlotId, int> _file_slot_index_map;
-    // file col name to index in _file_slot_descs
-    std::map<std::string, int> _file_slot_name_map;
     // col names from _file_slot_descs
     std::vector<std::string> _file_col_names;
+    // column id to name map. Collect from FE slot descriptor.
+    std::unordered_map<int, std::string> _col_id_name_map;
 
     // Partition source slot descriptors
     std::vector<SlotDescriptor*> _partition_slot_descs;
@@ -104,8 +107,7 @@ protected:
     // Mem pool used to allocate _src_tuple and _src_tuple_row
     std::unique_ptr<MemPool> _mem_pool;
 
-    // Profile
-    RuntimeProfile* _profile;
+    KVCache<std::string>& _kv_cache;
 
     bool _scanner_eof = false;
     int _rows = 0;
@@ -119,6 +121,9 @@ protected:
     Block _src_block;
 
     VExprContext* _push_down_expr = nullptr;
+
+    std::unique_ptr<FileCacheStatistics> _file_cache_statistics;
+    std::unique_ptr<IOContext> _io_ctx;
 
 private:
     RuntimeProfile::Counter* _get_block_timer = nullptr;

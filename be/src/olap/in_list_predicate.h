@@ -31,42 +31,35 @@
 #include "olap/wrapper_field.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/primitive_type.h"
-#include "runtime/string_value.h"
 #include "runtime/type_limit.h"
 #include "uint24.h"
 #include "vec/columns/column_dictionary.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 
-namespace std {
-// for string value
 template <>
-struct hash<doris::StringValue> {
-    uint64_t operator()(const doris::StringValue& rhs) const { return hash_value(rhs); }
-};
-
-template <>
-struct equal_to<doris::StringValue> {
-    bool operator()(const doris::StringValue& lhs, const doris::StringValue& rhs) const {
+struct std::equal_to<doris::StringRef> {
+    bool operator()(const doris::StringRef& lhs, const doris::StringRef& rhs) const {
         return lhs == rhs;
     }
 };
 // for decimal12_t
 template <>
-struct hash<doris::decimal12_t> {
+struct std::hash<doris::decimal12_t> {
     int64_t operator()(const doris::decimal12_t& rhs) const {
         return hash<int64_t>()(rhs.integer) ^ hash<int32_t>()(rhs.fraction);
     }
 };
 
 template <>
-struct equal_to<doris::decimal12_t> {
+struct std::equal_to<doris::decimal12_t> {
     bool operator()(const doris::decimal12_t& lhs, const doris::decimal12_t& rhs) const {
         return lhs == rhs;
     }
 };
 // for uint24_t
 template <>
-struct hash<doris::uint24_t> {
+struct std::hash<doris::uint24_t> {
     size_t operator()(const doris::uint24_t& rhs) const {
         uint32_t val(rhs);
         return hash<int>()(val);
@@ -74,12 +67,11 @@ struct hash<doris::uint24_t> {
 };
 
 template <>
-struct equal_to<doris::uint24_t> {
+struct std::equal_to<doris::uint24_t> {
     bool operator()(const doris::uint24_t& lhs, const doris::uint24_t& rhs) const {
         return lhs == rhs;
     }
 };
-} // namespace std
 
 namespace doris {
 
@@ -115,8 +107,7 @@ public:
             : ColumnPredicate(column_id, false),
               _min_value(type_limit<T>::max()),
               _max_value(type_limit<T>::min()) {
-        using HybridSetType =
-                std::conditional_t<is_string_type(Type), StringSet, HybridSet<Type, true>>;
+        using HybridSetType = std::conditional_t<is_string_type(Type), StringSet, HybridSet<Type>>;
 
         CHECK(hybrid_set != nullptr);
 
@@ -125,13 +116,14 @@ public:
             auto values = ((HybridSetType*)hybrid_set.get())->get_inner_set();
 
             if constexpr (is_string_type(Type)) {
-                for (auto& value : *values) {
-                    StringValue sv = {value.data(), int(value.size())};
+                // values' type is "phmap::flat_hash_set<std::string>"
+                for (const std::string& value : *values) {
+                    StringRef sv = value;
                     if constexpr (Type == TYPE_CHAR) {
                         _temp_datas.push_back("");
                         _temp_datas.back().resize(std::max(char_length, value.size()));
                         memcpy(_temp_datas.back().data(), value.data(), value.size());
-                        sv = {_temp_datas.back().data(), int(_temp_datas.back().size())};
+                        sv = _temp_datas.back();
                     }
                     _values->insert(sv);
                 }
@@ -316,8 +308,8 @@ public:
                        sizeof(uint24_t));
                 return tmp_min_uint32_value <= _max_value && tmp_max_uint32_value >= _min_value;
             } else {
-                return *reinterpret_cast<const T*>(statistic.first->cell_ptr()) <= _max_value &&
-                       *reinterpret_cast<const T*>(statistic.second->cell_ptr()) >= _min_value;
+                return _get_zone_map_value<T>(statistic.first->cell_ptr()) <= _max_value &&
+                       _get_zone_map_value<T>(statistic.second->cell_ptr()) >= _min_value;
             }
         } else {
             return true;
@@ -338,8 +330,8 @@ public:
                        sizeof(uint24_t));
                 return tmp_min_uint32_value > _max_value || tmp_max_uint32_value < _min_value;
             } else {
-                return *reinterpret_cast<const T*>(statistic.first->cell_ptr()) > _max_value ||
-                       *reinterpret_cast<const T*>(statistic.second->cell_ptr()) < _min_value;
+                return _get_zone_map_value<T>(statistic.first->cell_ptr()) > _max_value ||
+                       _get_zone_map_value<T>(statistic.second->cell_ptr()) < _min_value;
             }
         } else {
             return false;
@@ -349,8 +341,8 @@ public:
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
         if constexpr (PT == PredicateType::IN_LIST) {
             for (auto value : *_values) {
-                if constexpr (std::is_same_v<T, StringValue>) {
-                    if (bf->test_bytes(value.ptr, value.len)) {
+                if constexpr (std::is_same_v<T, StringRef>) {
+                    if (bf->test_bytes(value.data, value.size)) {
                         return true;
                     }
                 } else if constexpr (Type == TYPE_DATE) {
@@ -391,7 +383,7 @@ private:
         uint16_t new_size = 0;
 
         if (column->is_column_dictionary()) {
-            if constexpr (std::is_same_v<T, StringValue>) {
+            if constexpr (std::is_same_v<T, StringRef>) {
                 auto* nested_col_ptr = vectorized::check_and_get_column<
                         vectorized::ColumnDictionary<vectorized::Int32>>(column);
                 auto& data_array = nested_col_ptr->get_data();
@@ -430,7 +422,7 @@ private:
                     }
                 }
             } else {
-                LOG(FATAL) << "column_dictionary must use StringValue predicate.";
+                LOG(FATAL) << "column_dictionary must use StringRef predicate.";
             }
         } else {
             auto* nested_col_ptr = vectorized::check_and_get_column<
@@ -470,7 +462,7 @@ private:
                             const vectorized::PaddedPODArray<vectorized::UInt8>* null_map,
                             const uint16_t* sel, uint16_t size, bool* flags) const {
         if (column->is_column_dictionary()) {
-            if constexpr (std::is_same_v<T, StringValue>) {
+            if constexpr (std::is_same_v<T, StringRef>) {
                 auto* nested_col_ptr = vectorized::check_and_get_column<
                         vectorized::ColumnDictionary<vectorized::Int32>>(column);
                 auto& data_array = nested_col_ptr->get_data();
@@ -506,7 +498,7 @@ private:
                     }
                 }
             } else {
-                LOG(FATAL) << "column_dictionary must use StringValue predicate.";
+                LOG(FATAL) << "column_dictionary must use StringRef predicate.";
             }
         } else {
             auto* nested_col_ptr = vectorized::check_and_get_column<

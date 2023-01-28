@@ -60,10 +60,10 @@ public class CountDistinctRewrite extends OneRewriteRuleFactory {
         public Expression visitCount(Count count, Void context) {
             if (count.isDistinct() && count.arity() == 1) {
                 Expression child = count.child(0);
-                if (child.getDataType().isBitmap()) {
+                if (child.getDataType().isBitmapType()) {
                     return new BitmapUnionCount(child);
                 }
-                if (child.getDataType().isHll()) {
+                if (child.getDataType().isHllType()) {
                     return new HllUnionAgg(child);
                 }
             }

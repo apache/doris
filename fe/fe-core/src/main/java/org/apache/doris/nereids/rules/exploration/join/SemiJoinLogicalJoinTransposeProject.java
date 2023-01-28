@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.exploration.join;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -56,11 +57,13 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
     @Override
     public Rule build() {
         return logicalJoin(logicalProject(logicalJoin()), group())
-                .when(topJoin -> topJoin.getJoinType() == JoinType.LEFT_SEMI_JOIN
-                        || topJoin.getJoinType() == JoinType.LEFT_ANTI_JOIN
-                        || topJoin.getJoinType() == JoinType.NULL_AWARE_LEFT_ANTI_JOIN)
+                .when(topJoin -> (topJoin.getJoinType().isLeftSemiOrAntiJoin()
+                        && (topJoin.left().child().getJoinType().isInnerJoin()
+                                || topJoin.left().child().getJoinType().isLeftOuterJoin()
+                                || topJoin.left().child().getJoinType().isRightOuterJoin())))
                 .whenNot(topJoin -> topJoin.left().child().getJoinType().isSemiOrAntiJoin())
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
+                .when(join -> JoinReorderCommon.checkProject(join.left()))
                 .when(this::conditionChecker)
                 .then(topSemiJoin -> {
                     LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = topSemiJoin.left();
@@ -69,14 +72,14 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                     GroupPlan b = bottomJoin.right();
                     GroupPlan c = topSemiJoin.right();
 
-                    Set<Slot> aOutputSet = a.getOutputSet();
+                    Set<ExprId> aOutputExprIdSet = a.getOutputExprIdSet();
 
                     List<Expression> hashJoinConjuncts = topSemiJoin.getHashJoinConjuncts();
 
                     boolean lasscom = false;
                     for (Expression hashJoinConjunct : hashJoinConjuncts) {
-                        Set<Slot> usedSlot = hashJoinConjunct.collect(Slot.class::isInstance);
-                        lasscom = ExpressionUtils.isIntersecting(usedSlot, aOutputSet) || lasscom;
+                        Set<ExprId> usedSlotExprIdSet = hashJoinConjunct.getInputSlotExprIds();
+                        lasscom = ExpressionUtils.isIntersecting(usedSlotExprIdSet, aOutputExprIdSet) || lasscom;
                     }
 
                     if (lasscom) {
@@ -89,12 +92,19 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                          *   /    \                    /      \
                          *  A      B                  A        C
                          */
+                        if (bottomJoin.getJoinType() == JoinType.RIGHT_OUTER_JOIN) {
+                            // when bottom join is right outer join, we change it to inner join
+                            // if we want to do this trans. However, we do not allow different logical properties
+                            // in one group. So we need to change it to inner join in rewrite step.
+                            return topSemiJoin;
+                        }
                         LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
                                 topSemiJoin.getJoinType(), topSemiJoin.getHashJoinConjuncts(),
                                 topSemiJoin.getOtherJoinConjuncts(), JoinHint.NONE, a, c);
 
                         LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
-                                bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(), JoinHint.NONE,
+                                bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(),
+                                JoinHint.NONE,
                                 newBottomSemiJoin, b);
 
                         return new LogicalProject<>(new ArrayList<>(topSemiJoin.getOutput()), newTopJoin);
@@ -108,12 +118,19 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                          *   /    \                               /      \
                          *  A      B                             B       C
                          */
+                        if (bottomJoin.getJoinType() == JoinType.LEFT_OUTER_JOIN) {
+                            // when bottom join is left outer join, we change it to inner join
+                            // if we want to do this trans. However, we do not allow different logical properties
+                            // in one group. So we need to change it to inner join in rewrite step.
+                            return topSemiJoin;
+                        }
                         LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
                                 topSemiJoin.getJoinType(), topSemiJoin.getHashJoinConjuncts(),
                                 topSemiJoin.getOtherJoinConjuncts(), JoinHint.NONE, b, c);
 
                         LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
-                                bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(), JoinHint.NONE,
+                                bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(),
+                                JoinHint.NONE,
                                 a, newBottomSemiJoin);
 
                         return new LogicalProject<>(new ArrayList<>(topSemiJoin.getOutput()), newTopJoin);

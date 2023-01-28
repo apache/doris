@@ -47,6 +47,8 @@ enum DecimalError {
 
 enum DecimalRoundMode { HALF_UP = 1, HALF_EVEN = 2, CEILING = 3, FLOOR = 4, TRUNCATE = 5 };
 
+using namespace doris_udf;
+
 class DecimalV2Value {
 public:
     friend DecimalV2Value operator+(const DecimalV2Value& v1, const DecimalV2Value& v2);
@@ -329,9 +331,7 @@ std::size_t hash_value(DecimalV2Value const& value);
 
 } // end namespace doris
 
-namespace std {
 template <>
-struct hash<doris::DecimalV2Value> {
+struct std::hash<doris::DecimalV2Value> {
     size_t operator()(const doris::DecimalV2Value& v) const { return doris::hash_value(v); }
 };
-} // namespace std

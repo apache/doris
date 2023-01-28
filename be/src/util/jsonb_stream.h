@@ -126,6 +126,11 @@ public:
         size_ += len;
     }
 
+    void write(__int128 l) {
+        // TODO
+        assert(false);
+    }
+
     // write the double to string
     void write(double d) {
         // snprintf automatically adds a NULL, so we need one more char

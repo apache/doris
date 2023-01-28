@@ -66,6 +66,7 @@
 
 namespace doris::vectorized {
 
+//TODO: these three functions could be merged.
 inline size_t get_char_len(const std::string_view& str, std::vector<size_t>* str_index) {
     size_t char_len = 0;
     for (size_t i = 0, char_size = 0; i < str.length(); i += char_size) {
@@ -86,10 +87,10 @@ inline size_t get_char_len(const StringVal& str, std::vector<size_t>* str_index)
     return char_len;
 }
 
-inline size_t get_char_len(const StringValue& str, size_t end_pos) {
+inline size_t get_char_len(const StringRef& str, size_t end_pos) {
     size_t char_len = 0;
-    for (size_t i = 0, char_size = 0; i < std::min(str.len, end_pos); i += char_size) {
-        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.ptr)[i]];
+    for (size_t i = 0, char_size = 0; i < std::min(str.size, end_pos); i += char_size) {
+        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.data)[i]];
         ++char_len;
     }
     return char_len;
@@ -1809,7 +1810,7 @@ public:
             auto param = parameter_col->get_data_at(i);
             auto res = extract_url(source, param);
 
-            col_res->insert_data(res.ptr, res.len);
+            col_res->insert_data(res.data, res.size);
         }
 
         block.replace_by_position(result, std::move(col_res));
@@ -1817,11 +1818,11 @@ public:
     }
 
 private:
-    StringValue extract_url(StringRef url, StringRef parameter) {
+    StringRef extract_url(StringRef url, StringRef parameter) {
         if (url.size == 0 || parameter.size == 0) {
-            return StringValue("", 0);
+            return StringRef("", 0);
         }
-        return UrlParser::extract_url(StringValue(url), StringValue(parameter));
+        return UrlParser::extract_url(url, parameter);
     }
 };
 
@@ -1875,18 +1876,18 @@ public:
             }
 
             auto part = part_col->get_data_at(i);
-            StringValue p(const_cast<char*>(part.data), part.size);
+            StringRef p(const_cast<char*>(part.data), part.size);
             UrlParser::UrlPart url_part = UrlParser::get_url_part(p);
-            StringValue url_key;
+            StringRef url_key;
             if (has_key) {
                 auto key = key_col->get_data_at(i);
-                url_key = StringValue(const_cast<char*>(key.data), key.size);
+                url_key = StringRef(const_cast<char*>(key.data), key.size);
             }
 
             auto source = url_col->get_data_at(i);
-            StringValue url_val(const_cast<char*>(source.data), source.size);
+            StringRef url_val(const_cast<char*>(source.data), source.size);
 
-            StringValue parse_res;
+            StringRef parse_res;
             bool success = false;
             if (has_key) {
                 success = UrlParser::parse_url_key(url_val, url_part, url_key, &parse_res);
@@ -1908,7 +1909,7 @@ public:
                 }
             }
 
-            StringOP::push_value_string(std::string_view(parse_res.ptr, parse_res.len), i,
+            StringOP::push_value_string(std::string_view(parse_res.data, parse_res.size), i,
                                         res_chars, res_offsets);
         }
         block.get_by_position(result).column =
@@ -1940,80 +1941,172 @@ public:
         ColumnPtr argument_column = block.get_by_position(arguments[0]).column;
 
         auto result_column = assert_cast<ColumnString*>(res_column.get());
-        auto data_column = assert_cast<const typename Impl::ColumnType*>(argument_column.get());
 
-        Impl::execute(context, result_column, data_column, input_rows_count);
+        Impl::execute(context, result_column, argument_column, input_rows_count);
 
         block.replace_by_position(result, std::move(res_column));
         return Status::OK();
     }
 };
 
-struct MoneyFormatDoubleImpl {
-    using ColumnType = ColumnVector<Float64>;
+namespace MoneyFormat {
 
+template <typename T, size_t N>
+static StringVal do_money_format(FunctionContext* context, const T int_value,
+                                 const int32_t frac_value = 0) {
+    char local[N];
+    char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
+    int32_t string_val_len = local + sizeof(local) - p + 3;
+    StringVal result = StringVal::create_temp_string_val(context, string_val_len);
+    memcpy(result.ptr, p, string_val_len - 3);
+    *(result.ptr + string_val_len - 3) = '.';
+    *(result.ptr + string_val_len - 2) = '0' + (frac_value / 10);
+    *(result.ptr + string_val_len - 1) = '0' + (frac_value % 10);
+    return result;
+};
+
+// Note string value must be valid decimal string which contains two digits after the decimal point
+static StringVal do_money_format(FunctionContext* context, const string& value) {
+    bool is_positive = (value[0] != '-');
+    int32_t result_len = value.size() + (value.size() - (is_positive ? 4 : 5)) / 3;
+    StringVal result = StringVal::create_temp_string_val(context, result_len);
+    if (!is_positive) {
+        *result.ptr = '-';
+    }
+    for (int i = value.size() - 4, j = result_len - 4; i >= 0; i = i - 3, j = j - 4) {
+        *(result.ptr + j) = *(value.data() + i);
+        if (i - 1 < 0) break;
+        *(result.ptr + j - 1) = *(value.data() + i - 1);
+        if (i - 2 < 0) break;
+        *(result.ptr + j - 2) = *(value.data() + i - 2);
+        if (j - 3 > 1 || (j - 3 == 1 && is_positive)) {
+            *(result.ptr + j - 3) = ',';
+        }
+    }
+    memcpy(result.ptr + result_len - 3, value.data() + value.size() - 3, 3);
+    return result;
+};
+
+} // namespace MoneyFormat
+struct MoneyFormatDoubleImpl {
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeFloat64>()}; }
 
     static void execute(FunctionContext* context, ColumnString* result_column,
-                        const ColumnType* data_column, size_t input_rows_count) {
+                        const ColumnPtr col_ptr, size_t input_rows_count) {
+        const auto* data_column = assert_cast<const ColumnVector<Float64>*>(col_ptr.get());
         for (size_t i = 0; i < input_rows_count; i++) {
             double value =
                     MathFunctions::my_double_round(data_column->get_element(i), 2, false, false);
-            StringVal str = StringFunctions::do_money_format(context, fmt::format("{:.2f}", value));
+            StringVal str = MoneyFormat::do_money_format(context, fmt::format("{:.2f}", value));
             result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
         }
     }
 };
 
 struct MoneyFormatInt64Impl {
-    using ColumnType = ColumnVector<Int64>;
-
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeInt64>()}; }
 
     static void execute(FunctionContext* context, ColumnString* result_column,
-                        const ColumnType* data_column, size_t input_rows_count) {
+                        const ColumnPtr col_ptr, size_t input_rows_count) {
+        const auto* data_column = assert_cast<const ColumnVector<Int64>*>(col_ptr.get());
         for (size_t i = 0; i < input_rows_count; i++) {
             Int64 value = data_column->get_element(i);
-            StringVal str = StringFunctions::do_money_format<Int64, 26>(context, value);
+            StringVal str = MoneyFormat::do_money_format<Int64, 26>(context, value);
             result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
         }
     }
 };
 
 struct MoneyFormatInt128Impl {
-    using ColumnType = ColumnVector<Int128>;
-
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeInt128>()}; }
 
     static void execute(FunctionContext* context, ColumnString* result_column,
-                        const ColumnType* data_column, size_t input_rows_count) {
+                        const ColumnPtr col_ptr, size_t input_rows_count) {
+        const auto* data_column = assert_cast<const ColumnVector<Int128>*>(col_ptr.get());
         for (size_t i = 0; i < input_rows_count; i++) {
             Int128 value = data_column->get_element(i);
-            StringVal str = StringFunctions::do_money_format<Int128, 52>(context, value);
+            StringVal str = MoneyFormat::do_money_format<Int128, 52>(context, value);
             result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
         }
     }
 };
 
 struct MoneyFormatDecimalImpl {
-    using ColumnType = ColumnDecimal<Decimal128>;
-
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<DataTypeDecimal<Decimal128>>(27, 9)};
     }
 
-    static void execute(FunctionContext* context, ColumnString* result_column,
-                        const ColumnType* data_column, size_t input_rows_count) {
-        for (size_t i = 0; i < input_rows_count; i++) {
-            DecimalV2Val value = DecimalV2Val(data_column->get_element(i));
+    static void execute(FunctionContext* context, ColumnString* result_column, ColumnPtr col_ptr,
+                        size_t input_rows_count) {
+        if (auto* decimalv2_column = check_and_get_column<ColumnDecimal<Decimal128>>(*col_ptr)) {
+            for (size_t i = 0; i < input_rows_count; i++) {
+                DecimalV2Val value = DecimalV2Val(decimalv2_column->get_element(i));
 
-            DecimalV2Value rounded(0);
-            DecimalV2Value::from_decimal_val(value).round(&rounded, 2, HALF_UP);
+                DecimalV2Value rounded(0);
+                DecimalV2Value::from_decimal_val(value).round(&rounded, 2, HALF_UP);
 
-            StringVal str = StringFunctions::do_money_format<int64_t, 26>(
-                    context, rounded.int_value(), abs(rounded.frac_value() / 10000000));
+                StringVal str = MoneyFormat::do_money_format<int64_t, 26>(
+                        context, rounded.int_value(), abs(rounded.frac_value() / 10000000));
 
-            result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+                result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+            }
+        } else if (auto* decimal32_column =
+                           check_and_get_column<ColumnDecimal<Decimal32>>(*col_ptr)) {
+            const UInt32 scale = decimal32_column->get_scale();
+            const auto multiplier =
+                    scale > 2 ? common::exp10_i32(scale - 2) : common::exp10_i32(2 - scale);
+            for (size_t i = 0; i < input_rows_count; i++) {
+                Decimal32 frac_part = decimal32_column->get_fractional_part(i);
+                if (scale > 2) {
+                    int delta = ((frac_part % multiplier) << 1) > multiplier;
+                    frac_part = frac_part / multiplier + delta;
+                } else if (scale < 2) {
+                    frac_part = frac_part * multiplier;
+                }
+
+                StringVal str = MoneyFormat::do_money_format<int64_t, 26>(
+                        context, decimal32_column->get_whole_part(i), frac_part);
+
+                result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+            }
+        } else if (auto* decimal64_column =
+                           check_and_get_column<ColumnDecimal<Decimal64>>(*col_ptr)) {
+            const UInt32 scale = decimal64_column->get_scale();
+            const auto multiplier =
+                    scale > 2 ? common::exp10_i32(scale - 2) : common::exp10_i32(2 - scale);
+            for (size_t i = 0; i < input_rows_count; i++) {
+                Decimal64 frac_part = decimal64_column->get_fractional_part(i);
+                if (scale > 2) {
+                    int delta = ((frac_part % multiplier) << 1) > multiplier;
+                    frac_part = frac_part / multiplier + delta;
+                } else if (scale < 2) {
+                    frac_part = frac_part * multiplier;
+                }
+
+                StringVal str = MoneyFormat::do_money_format<int64_t, 26>(
+                        context, decimal64_column->get_whole_part(i), frac_part);
+
+                result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+            }
+        } else if (auto* decimal128_column =
+                           check_and_get_column<ColumnDecimal<Decimal128I>>(*col_ptr)) {
+            const UInt32 scale = decimal128_column->get_scale();
+            const auto multiplier =
+                    scale > 2 ? common::exp10_i32(scale - 2) : common::exp10_i32(2 - scale);
+            for (size_t i = 0; i < input_rows_count; i++) {
+                Decimal128I frac_part = decimal128_column->get_fractional_part(i);
+                if (scale > 2) {
+                    int delta = ((frac_part % multiplier) << 1) > multiplier;
+                    frac_part = frac_part / multiplier + delta;
+                } else if (scale < 2) {
+                    frac_part = frac_part * multiplier;
+                }
+
+                StringVal str = MoneyFormat::do_money_format<int64_t, 26>(
+                        context, decimal128_column->get_whole_part(i), frac_part);
+
+                result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
+            }
         }
     }
 };
@@ -2083,11 +2176,11 @@ private:
         if (start_pos <= 0 || start_pos > str.len || start_pos > char_len) {
             return 0;
         }
-        StringValue substr_sv = StringValue::from_string_val(substr);
+        StringRef substr_sv = StringRef(substr);
         StringSearch search(&substr_sv);
         // Input start_pos starts from 1.
-        StringValue adjusted_str(reinterpret_cast<char*>(str.ptr) + index[start_pos - 1],
-                                 str.len - index[start_pos - 1]);
+        StringRef adjusted_str(reinterpret_cast<char*>(str.ptr) + index[start_pos - 1],
+                               str.len - index[start_pos - 1]);
         int32_t match_pos = search.search(&adjusted_str);
         if (match_pos >= 0) {
             // Hive returns the position in the original string starting from 1.

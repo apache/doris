@@ -21,7 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.datasource.HMSExternalCatalog;
-import org.apache.doris.datasource.PooledHiveMetaStoreClient;
+import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.statistics.AnalysisTaskInfo;
 import org.apache.doris.statistics.AnalysisTaskScheduler;
 import org.apache.doris.statistics.BaseAnalysisTask;
@@ -287,10 +287,6 @@ public class HMSExternalTable extends ExternalTable {
 
     public Map<String, String> getCatalogProperties() {
         return catalog.getProperties();
-    }
-
-    public Map<String, String> getS3HadoopProperties() {
-        return catalog.getCatalogProperty().getS3HadoopProperties();
     }
 
     public Map<String, String> getHadoopProperties() {

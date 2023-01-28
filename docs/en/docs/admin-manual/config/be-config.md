@@ -250,7 +250,7 @@ There are two ways to configure BE configuration items:
 
 * Description: This configuration is mainly used to modify the number of bthreads for brpc. The default value is set to -1, which means the number of bthreads is #cpu-cores.
   - User can set this configuration to a larger value to get better QPS performance. For more information, please refer to `https://github.com/apache/incubator-brpc/blob/master/docs/cn/benchmark.md`
-* Default value: 1
+* Default value: -1
 
 #### `thrift_rpc_timeout_ms`
 
@@ -334,8 +334,8 @@ There are two ways to configure BE configuration items:
 
 #### `fragment_pool_thread_num_max`
 
-* Description: Follow up query requests create threads dynamically, with a maximum of 256 threads created.
-* Default value: 256
+* Description: Follow up query requests create threads dynamically, with a maximum of 512 threads created.
+* Default value: 512
 
 #### `doris_max_pushdown_conjuncts_return_rate`
 
@@ -445,6 +445,42 @@ There are two ways to configure BE configuration items:
 * Description: Whether to enable vectorized compaction
 * Default value: true
 
+#### `enable_vertical_compaction`
+
+* Type: bool
+* Description: Whether to enable vertical compaction
+* Default value: true
+
+#### `vertical_compaction_num_columns_per_group`
+
+* Type: bool
+* Description: In vertical compaction, column number for every group
+* Default value: true
+
+#### `vertical_compaction_max_row_source_memory_mb`
+
+* Type: bool
+* Description: In vertical compaction, max memory usage for row_source_buffer
+* Default value: true
+
+#### `vertical_compaction_max_segment_size`
+
+* Type: bool
+* Description: In vertical compaction, max dest segment file size
+* Default value: true
+
+#### `enable_ordered_data_compaction`
+
+* Type: bool
+* Description: Whether to enable ordered data compaction
+* Default value: true
+
+#### `ordered_data_compaction_min_segment_size`
+
+* Type: bool
+* Description: In ordered data compaction, min segment size for input rowset
+* Default value: true
+
 #### `max_base_compaction_threads`
 
 * Type: int32
@@ -472,12 +508,6 @@ There are two ways to configure BE configuration items:
 * Description: The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
 * Default value: 10000
 * Dynamically modifiable: Yes
-
-#### `compaction_tablet_compaction_score_factor`
-
-* Type: int32
-* Description: Coefficient for compaction score when calculating tablet score to find a tablet for compaction.
-* Default value: 1
 
 #### `compaction_promotion_size_mbytes`
 
@@ -959,14 +989,20 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `file_cache_type`
 
 * Type: string
-* Description: Type of cache file. whole_ file_ Cache: download the entire segment file, sub_ file_ Cache: the segment file is divided into multiple files by size.
-* Default value: null
+* Description: Type of cache file.`whole_file_cache`: download the entire segment file, `sub_file_cache`: the segment file is divided into multiple files by size. if set "", no cache, please set this parameter when caching is required.
+* Default value: ""
 
 #### `file_cache_alive_time_sec`
 
 * Type: int64
 * Description: Save time of cache file
 * Default value: 604800 (1 week)
+
+#### `file_cache_max_size_per_disk`
+
+* Type: int64
+* Description: The cache occupies the disk size. Once this setting is exceeded, the cache that has not been accessed for the longest time will be deleted. If it is 0, the size is not limited. unit is bytes.
+* Default value: 0
 
 #### `max_sub_cache_file_size`
 

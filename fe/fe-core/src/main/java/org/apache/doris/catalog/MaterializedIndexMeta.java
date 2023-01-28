@@ -147,9 +147,17 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         }
     }
 
+    public static String normalizeName(String name) {
+        return name.replace("`", "");
+    }
+
+    public static boolean matchColumnName(String lhs, String rhs) {
+        return normalizeName(lhs).equalsIgnoreCase(normalizeName(rhs));
+    }
+
     public Column getColumnByName(String columnName) {
         for (Column column : schema) {
-            if (column.getName().equalsIgnoreCase(columnName)) {
+            if (matchColumnName(column.getName(), columnName)) {
                 return column;
             }
         }

@@ -175,8 +175,6 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_PARALLEL_OUTFILE = "enable_parallel_outfile";
 
-    public static final String ENABLE_LATERAL_VIEW = "enable_lateral_view";
-
     public static final String SQL_QUOTE_SHOW_CREATE = "sql_quote_show_create";
 
     public static final String RETURN_OBJECT_DATA_AS_BINARY = "return_object_data_as_binary";
@@ -254,6 +252,11 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String GROUP_CONCAT_MAX_LEN = "group_concat_max_len";
 
+    public static final String EXTERNAL_SORT_BYTES_THRESHOLD = "external_sort_bytes_threshold";
+
+    public static final String ENABLE_TWO_PHASE_READ_OPT = "enable_two_phase_read_opt";
+    public static final String TWO_PHASE_READ_OPT_LIMIT_THRESHOLD = "two_phase_read_opt_limit_threshold";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -294,7 +297,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // Set sqlMode to empty string
     @VariableMgr.VarAttr(name = SQL_MODE, needForward = true)
-    public long sqlMode = 0L;
+    public long sqlMode = SqlModeHelper.MODE_DEFAULT;
 
     @VariableMgr.VarAttr(name = RESOURCE_VARIABLE)
     public String resourceGroup = "normal";
@@ -647,11 +650,25 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN)
     public boolean enableShareHashTableForBroadcastJoin = true;
 
-    @VariableMgr.VarAttr(name = REPEAT_MAX_NUM)
+    @VariableMgr.VarAttr(name = REPEAT_MAX_NUM, needForward = true)
     public int repeatMaxNum = 10000;
 
     @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
     public long groupConcatMaxLen = 2147483646;
+
+    // If the memory consumption of sort node exceed this limit, will trigger spill to disk;
+    // Set to 0 to disable; min: 128M
+    public static final long MIN_EXTERNAL_SORT_BYTES_THRESHOLD = 134217728;
+    @VariableMgr.VarAttr(name = EXTERNAL_SORT_BYTES_THRESHOLD, checker = "checkExternalSortBytesThreshold")
+    public long externalSortBytesThreshold = 0;
+
+    // Whether enable two phase read optimization
+    // 1. read related rowids along with necessary column data
+    // 2. spawn fetch RPC to other nodes to get related data by sorted rowids
+    @VariableMgr.VarAttr(name = ENABLE_TWO_PHASE_READ_OPT)
+    public boolean enableTwoPhaseReadOpt = true;
+    @VariableMgr.VarAttr(name = TWO_PHASE_READ_OPT_LIMIT_THRESHOLD)
+    public long twoPhaseReadLimitThreshold = 512;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -665,6 +682,21 @@ public class SessionVariable implements Serializable, Writable {
         this.partitionedHashJoinRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
         this.rewriteOrToInPredicateThreshold = random.nextInt(100) + 2;
+        int randomInt = random.nextInt(4);
+        switch (randomInt) {
+            case 0:
+                this.externalSortBytesThreshold = 0;
+                break;
+            case 1:
+                this.externalSortBytesThreshold = 1;
+                break;
+            case 2:
+                this.externalSortBytesThreshold = 1024 * 1024;
+                break;
+            default:
+                this.externalSortBytesThreshold = 100 * 1024 * 1024 * 1024;
+                break;
+        }
     }
 
     /**
@@ -1123,7 +1155,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean enablePipelineEngine() {
-        return enablePipelineEngine && enableVectorizedEngine;
+        return enablePipelineEngine;
     }
 
     public void setEnablePipelineEngine(boolean enablePipelineEngine) {
@@ -1258,7 +1290,7 @@ public class SessionVariable implements Serializable, Writable {
      * @return true if both nereids and vectorized engine are enabled
      */
     public boolean isEnableNereidsPlanner() {
-        return enableNereidsPlanner && enableVectorizedEngine;
+        return enableNereidsPlanner;
     }
 
     public void setEnableNereidsPlanner(boolean enableNereidsPlanner) {
@@ -1319,6 +1351,14 @@ public class SessionVariable implements Serializable, Writable {
         this.fragmentTransmissionCompressionCodec = codec;
     }
 
+    public void checkExternalSortBytesThreshold(String externalSortBytesThreshold) {
+        long value = Long.valueOf(externalSortBytesThreshold);
+        if (value > 0 && value < MIN_EXTERNAL_SORT_BYTES_THRESHOLD) {
+            LOG.warn("external sort bytes threshold: {}, min: {}", value, MIN_EXTERNAL_SORT_BYTES_THRESHOLD);
+            throw new UnsupportedOperationException("minimum value is " + MIN_EXTERNAL_SORT_BYTES_THRESHOLD);
+        }
+    }
+
     /**
      * Serialize to thrift object.
      * Used for rest api.
@@ -1336,15 +1376,11 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setQueryTimeout(queryTimeoutS);
         tResult.setIsReportSuccess(enableProfile);
         tResult.setCodegenLevel(codegenLevel);
-        tResult.setEnableVectorizedEngine(enableVectorizedEngine);
         tResult.setBeExecVersion(Config.be_exec_version);
         tResult.setEnablePipelineEngine(enablePipelineEngine);
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
         tResult.setTrimTailingSpacesForExternalTableQuery(trimTailingSpacesForExternalTableQuery);
-
-        // TODO: enable share hashtable for broadcast after switching completely to pipeline engine.
-        tResult.setEnableShareHashTableForBroadcastJoin(
-                enablePipelineEngine ? false : enableShareHashTableForBroadcastJoin);
+        tResult.setEnableShareHashTableForBroadcastJoin(enableShareHashTableForBroadcastJoin);
 
         tResult.setBatchSize(batchSize);
         tResult.setDisableStreamPreaggregations(disableStreamPreaggregations);
@@ -1381,6 +1417,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setPartitionedHashJoinRowsThreshold(partitionedHashJoinRowsThreshold);
 
         tResult.setRepeatMaxNum(repeatMaxNum);
+
+        tResult.setExternalSortBytesThreshold(externalSortBytesThreshold);
 
         return tResult;
     }

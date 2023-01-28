@@ -20,7 +20,6 @@ suite("nereids_test_arithmetic_operators", "query,p0") {
     def tableName = "test"
 
     sql "use test_query_db"
-    sql "SET enable_vectorized_engine=true"
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 

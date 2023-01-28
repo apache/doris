@@ -24,3 +24,41 @@
 -- !avg --
 5.0	2356811.0
 
+-- !string_arithmetic --
+3.0	-1.0
+
+-- !subquery1 --
+1
+
+-- !subquery2 --
+6
+7
+8
+9
+
+-- !subquery3 --
+0
+1
+2
+3
+4
+5
+6
+7
+8
+9
+
+-- !floor --
+2
+
+-- !ceil --
+3
+
+-- !window_funnel --
+1
+
+-- !window_funnel --
+2
+
+-- !regexp_extract_all --
+['b']

@@ -32,7 +32,6 @@
 #include "runtime/runtime_state.h"
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/thread_resource_mgr.h"
-#include "runtime/tuple_row.h"
 #include "runtime/types.h"
 #include "service/brpc.h"
 #include "util/brpc_client_cache.h"

@@ -18,6 +18,7 @@
 #include "io/fs/remote_file_system.h"
 
 #include "gutil/strings/stringpiece.h"
+#include "io/cache/block/cached_remote_file_reader.h"
 #include "io/cache/file_cache_manager.h"
 #include "io/fs/file_reader_options.h"
 
@@ -25,18 +26,17 @@ namespace doris {
 namespace io {
 
 Status RemoteFileSystem::open_file(const Path& path, const FileReaderOptions& reader_options,
-                                   FileReaderSPtr* reader) {
+                                   FileReaderSPtr* reader, IOContext* io_ctx) {
     FileReaderSPtr raw_reader;
-    RETURN_IF_ERROR(open_file(path, &raw_reader));
+    RETURN_IF_ERROR(open_file(path, &raw_reader, io_ctx));
     switch (reader_options.cache_type) {
-    case io::FileCacheType::NO_CACHE: {
+    case io::FileCachePolicy::NO_CACHE: {
         *reader = raw_reader;
         break;
     }
-    case io::FileCacheType::SUB_FILE_CACHE:
-    case io::FileCacheType::WHOLE_FILE_CACHE: {
-        StringPiece str(path.native());
-        std::string cache_path = reader_options.path_policy.get_cache_path(str.as_string());
+    case io::FileCachePolicy::SUB_FILE_CACHE:
+    case io::FileCachePolicy::WHOLE_FILE_CACHE: {
+        std::string cache_path = reader_options.path_policy.get_cache_path(path.native());
         io::FileCachePtr cache_reader = FileCacheManager::instance()->new_file_cache(
                 cache_path, config::file_cache_alive_time_sec, raw_reader,
                 reader_options.cache_type);
@@ -44,11 +44,15 @@ Status RemoteFileSystem::open_file(const Path& path, const FileReaderOptions& re
         *reader = cache_reader;
         break;
     }
-    case io::FileCacheType::FILE_BLOCK_CACHE: {
-        return Status::NotSupported("add file block cache reader");
+    case io::FileCachePolicy::FILE_BLOCK_CACHE: {
+        DCHECK(io_ctx);
+        StringPiece str(raw_reader->path().native());
+        std::string cache_path = reader_options.path_policy.get_cache_path(str.as_string());
+        *reader =
+                std::make_shared<CachedRemoteFileReader>(std::move(raw_reader), cache_path, io_ctx);
+        break;
     }
     default: {
-        // TODO: add file block cache reader
         return Status::InternalError("Unknown cache type: {}", reader_options.cache_type);
     }
     }

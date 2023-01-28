@@ -39,6 +39,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Abstract class for all Expression in Nereids.
@@ -134,6 +135,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         return uncheckedCastTo(targetType);
     }
 
+    public Expression checkedCastTo(DataType targetType) throws AnalysisException {
+        return castTo(targetType);
+    }
+
     protected Expression uncheckedCastTo(DataType targetType) throws AnalysisException {
         throw new RuntimeException("Do not implement uncheckedCastTo");
     }
@@ -145,6 +150,10 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
      */
     public final Set<Slot> getInputSlots() {
         return collect(Slot.class::isInstance);
+    }
+
+    public final Set<ExprId> getInputSlotExprIds() {
+        return getInputSlots().stream().map(NamedExpression::getExprId).collect(Collectors.toSet());
     }
 
     public boolean isLiteral() {

@@ -100,8 +100,8 @@ int64_t Compaction::get_avg_segment_rows() {
     // take care of empty rowset
     // input_rowsets_size is total disk_size of input_rowset, this size is the
     // final size after codec and compress, so expect dest segment file size
-    // in disk is config::max_segment_size_in_vertical_compaction
-    return config::max_segment_size_in_vertical_compaction /
+    // in disk is config::vertical_compaction_max_segment_size
+    return config::vertical_compaction_max_segment_size /
            (_input_rowsets_size / (_input_row_num + 1) + 1);
 }
 
@@ -202,7 +202,7 @@ bool Compaction::handle_ordered_data_compaction() {
     // has a delete version, use original compaction
     if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
         for (auto rowset : _input_rowsets) {
-            if (_tablet->version_for_delete_predicate(rowset->version())) {
+            if (rowset->rowset_meta()->has_delete_predicate()) {
                 return false;
             }
         }
@@ -274,6 +274,11 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
         stats.rowid_conversion = &_rowid_conversion;
+    }
+
+    if (_cur_tablet_schema->store_row_column()) {
+        // table with row column not support vertical compaction now
+        vertical_compaction = false;
     }
 
     if (use_vectorized_compaction) {

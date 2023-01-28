@@ -35,15 +35,15 @@ struct StringKey24 {
     bool operator==(const StringKey24 rhs) const { return a == rhs.a && b == rhs.b && c == rhs.c; }
 };
 
-inline StringRef ALWAYS_INLINE to_string_ref(const StringKey8& n) {
+inline doris::StringRef ALWAYS_INLINE to_string_ref(const StringKey8& n) {
     assert(n != 0);
     return {reinterpret_cast<const char*>(&n), 8ul - (__builtin_clzll(n) >> 3)};
 }
-inline StringRef ALWAYS_INLINE to_string_ref(const StringKey16& n) {
+inline doris::StringRef ALWAYS_INLINE to_string_ref(const StringKey16& n) {
     assert(n.high != 0);
     return {reinterpret_cast<const char*>(&n), 16ul - (__builtin_clzll(n.high) >> 3)};
 }
-inline StringRef ALWAYS_INLINE to_string_ref(const StringKey24& n) {
+inline doris::StringRef ALWAYS_INLINE to_string_ref(const StringKey24& n) {
     assert(n.c != 0);
     return {reinterpret_cast<const char*>(&n), 24ul - (__builtin_clzll(n.c) >> 3)};
 }
@@ -79,7 +79,9 @@ struct StringHashTableHash {
         return util_hash::CityHash64(reinterpret_cast<const char*>(&key), 24);
     }
 #endif
-    size_t ALWAYS_INLINE operator()(StringRef key) const { return StringRefHash()(key); }
+    size_t ALWAYS_INLINE operator()(doris::StringRef key) const {
+        return doris::StringRefHash()(key);
+    }
 };
 
 template <typename Cell>
@@ -107,7 +109,9 @@ public:
 
     void clear_has_zero() {
         _has_zero = false;
-        if (!std::is_trivially_destructible_v<Cell>) zero_value()->~Cell();
+        if (!std::is_trivially_destructible_v<Cell>) {
+            zero_value()->~Cell();
+        }
     }
 
     Cell* zero_value() { return std::launder(reinterpret_cast<Cell*>(&zero_value_storage)); }
@@ -125,8 +129,9 @@ public:
             const auto& key = key_holder_get_key(key_holder);
             set_has_zero(key);
             inserted = true;
-        } else
+        } else {
             inserted = false;
+        }
         it = zero_value();
     }
 
@@ -219,7 +224,7 @@ protected:
     using T2 = typename SubMaps::T2;
     using T3 = typename SubMaps::T3;
 
-    // Long strings are stored as StringRef along with saved hash
+    // Long strings are stored as doris::StringRef along with saved hash
     using Ts = typename SubMaps::Ts;
     using Self = StringHashTable;
 
@@ -250,7 +255,7 @@ protected:
         friend class StringHashTable;
 
     public:
-        iterator_base() {}
+        iterator_base() = default;
         iterator_base(Container* container_, bool end = false) : container(container_) {
             if (end) {
                 sub_table_index = 4;
@@ -373,8 +378,6 @@ protected:
                 }
                 }
             }
-            while (need_switch_to_next)
-                ;
 
             return static_cast<Derived&>(*this);
         }
@@ -449,7 +452,7 @@ protected:
     };
 
 public:
-    using Key = StringRef;
+    using Key = doris::StringRef;
     using key_type = Key;
     using mapped_type = typename Ts::mapped_type;
     using value_type = typename Ts::value_type;
@@ -487,7 +490,7 @@ public:
     template <typename Self, typename KeyHolder, typename Func>
     static auto ALWAYS_INLINE dispatch(Self& self, KeyHolder&& key_holder, Func&& func) {
         StringHashTableHash hash;
-        const StringRef& x = key_holder_get_key(key_holder);
+        const doris::StringRef& x = key_holder_get_key(key_holder);
         const size_t sz = x.size;
         if (sz == 0) {
             key_holder_discard_key(key_holder);

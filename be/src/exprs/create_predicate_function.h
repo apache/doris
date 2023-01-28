@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "exprs/bloomfilter_predicate.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/minmax_predicate.h"
 #include "olap/bitmap_filter_predicate.h"
@@ -37,15 +36,14 @@ public:
     };
 };
 
-template <bool is_vec>
 class HybridSetTraits {
 public:
     using BasePtr = HybridSetBase*;
     template <PrimitiveType type>
     static BasePtr get_function() {
         using CppType = typename PrimitiveTypeTraits<type>::CppType;
-        using Set = std::conditional_t<std::is_same_v<CppType, StringValue>, StringSet,
-                                       HybridSet<type, is_vec>>;
+        using Set =
+                std::conditional_t<std::is_same_v<CppType, StringRef>, StringSet, HybridSet<type>>;
         return new Set();
     };
 };
@@ -144,12 +142,8 @@ inline auto create_minmax_filter(PrimitiveType type) {
     return create_predicate_function<MinmaxFunctionTraits>(type);
 }
 
-inline auto create_set(PrimitiveType type, bool is_vectorized = false) {
-    if (is_vectorized) {
-        return create_predicate_function<HybridSetTraits<true>>(type);
-    } else {
-        return create_predicate_function<HybridSetTraits<false>>(type);
-    }
+inline auto create_set(PrimitiveType type) {
+    return create_predicate_function<HybridSetTraits>(type);
 }
 
 inline auto create_bloom_filter(PrimitiveType type) {

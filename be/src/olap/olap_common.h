@@ -184,9 +184,9 @@ enum OLAPCompressionType {
 };
 
 enum PushType {
-    PUSH_NORMAL = 1,          // for broker/hadoop load
+    PUSH_NORMAL = 1,          // for broker/hadoop load, not used any more
     PUSH_FOR_DELETE = 2,      // for delete
-    PUSH_FOR_LOAD_DELETE = 3, // not use
+    PUSH_FOR_LOAD_DELETE = 3, // not used any more
     PUSH_NORMAL_V2 = 4,       // for spark load
 };
 
@@ -197,6 +197,25 @@ enum ReaderType {
     READER_CUMULATIVE_COMPACTION = 3,
     READER_CHECKSUM = 4,
 };
+
+constexpr bool field_is_slice_type(const FieldType& field_type) {
+    return field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR ||
+           field_type == OLAP_FIELD_TYPE_STRING;
+}
+
+constexpr bool field_is_numeric_type(const FieldType& field_type) {
+    return field_type == OLAP_FIELD_TYPE_INT || field_type == OLAP_FIELD_TYPE_UNSIGNED_INT ||
+           field_type == OLAP_FIELD_TYPE_BIGINT || field_type == OLAP_FIELD_TYPE_SMALLINT ||
+           field_type == OLAP_FIELD_TYPE_UNSIGNED_TINYINT ||
+           field_type == OLAP_FIELD_TYPE_UNSIGNED_SMALLINT ||
+           field_type == OLAP_FIELD_TYPE_TINYINT || field_type == OLAP_FIELD_TYPE_DOUBLE ||
+           field_type == OLAP_FIELD_TYPE_FLOAT || field_type == OLAP_FIELD_TYPE_DATE ||
+           field_type == OLAP_FIELD_TYPE_DATEV2 || field_type == OLAP_FIELD_TYPE_DATETIME ||
+           field_type == OLAP_FIELD_TYPE_DATETIMEV2 || field_type == OLAP_FIELD_TYPE_LARGEINT ||
+           field_type == OLAP_FIELD_TYPE_DECIMAL || field_type == OLAP_FIELD_TYPE_DECIMAL32 ||
+           field_type == OLAP_FIELD_TYPE_DECIMAL64 || field_type == OLAP_FIELD_TYPE_DECIMAL128I ||
+           field_type == OLAP_FIELD_TYPE_BOOL;
+}
 
 // <start_version_id, end_version_id>, such as <100, 110>
 //using Version = std::pair<TupleVersion, TupleVersion>;
@@ -263,6 +282,17 @@ class WrapperField;
 using KeyRange = std::pair<WrapperField*, WrapperField*>;
 
 static const int GENERAL_DEBUG_COUNT = 0;
+
+struct FileCacheStatistics {
+    int64_t num_io_total = 0;
+    int64_t num_io_hit_cache = 0;
+    int64_t num_io_bytes_read_total = 0;
+    int64_t num_io_bytes_read_from_file_cache = 0;
+    int64_t num_io_bytes_read_from_write_cache = 0;
+    int64_t num_io_written_in_file_cache = 0;
+    int64_t num_io_bytes_written_in_file_cache = 0;
+    int64_t num_io_bytes_skip_cache = 0;
+};
 
 // ReaderStatistics used to collect statistics when scan data from storage
 struct OlapReaderStatistics {
@@ -352,6 +382,9 @@ struct OlapReaderStatistics {
     // usage example:
     //               SCOPED_RAW_TIMER(&_stats->general_debug_ns[1]);
     int64_t general_debug_ns[GENERAL_DEBUG_COUNT] = {};
+
+    FileCacheStatistics file_cache_stats;
+    int64_t load_segments_timer = 0;
 };
 
 using ColumnId = uint32_t;

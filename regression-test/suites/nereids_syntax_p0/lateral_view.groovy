@@ -18,7 +18,6 @@
 suite("nereids_lateral_view") {
     sql "SET enable_fallback_to_original_planner=false"
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
 
     sql """DROP TABLE IF EXISTS nlv_test"""
 
@@ -70,5 +69,13 @@ suite("nereids_lateral_view") {
           LATERAL VIEW explode_json_array_string_outer(c2) lv2 AS clv2
           LATERAL VIEW explode_json_array_int(c3) lv3 AS clv3
           LATERAL VIEW explode_json_array_double_outer(c4) lv4 AS clv4
+    """
+
+    qt_function_nested """
+        select * from (
+            select 1 hour,'a' pid_code ,'u1' uid, 10 money
+            union all
+            select 3 hourr,'a' pid_code ,'u1' uid, 10 money
+        ) example1 lateral view explode_bitmap(bitmap_from_string("1,2,3,4")) tmp1 as e1 where hour=e1 order by hour;
     """
 }

@@ -28,7 +28,6 @@
 #include "io/fs/file_writer.h"
 #include "olap/memtable.h"
 #include "olap/olap_define.h"
-#include "olap/row.h"        // ContiguousRow
 #include "olap/row_cursor.h" // RowCursor
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
@@ -36,6 +35,7 @@
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
+#include "vec/jsonb/serialize.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -385,8 +385,10 @@ Status BetaRowsetWriter::_load_noncompacted_segments(
         auto seg_path =
                 BetaRowset::segment_file_path(_context.rowset_dir, _context.rowset_id, seg_id);
         std::shared_ptr<segment_v2::Segment> segment;
+        io::FileReaderOptions reader_options(io::cache_type_from_string(config::file_cache_type),
+                                             io::SegmentCachePathPolicy());
         auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(),
-                                           _context.tablet_schema, &segment);
+                                           _context.tablet_schema, reader_options, &segment);
         if (!s.ok()) {
             LOG(WARNING) << "failed to open segment. " << seg_path << ":" << s.to_string();
             return Status::Error<ROWSET_LOAD_FAILED>();
@@ -456,6 +458,30 @@ Status BetaRowsetWriter::_find_longest_consecutive_small_segment(
         VLOG_DEBUG << "candidate segments num:" << s
                    << " list of candidates:" << fmt::to_string(vlog_buffer);
     }
+    return Status::OK();
+}
+
+Status BetaRowsetWriter::_append_row_column(vectorized::Block* block,
+                                            vectorized::Block* dst_block) {
+    MonotonicStopWatch watch;
+    watch.start();
+    *dst_block = block->clone_empty();
+    dst_block->swap(*block);
+    if (!dst_block->has(BeConsts::SOURCE_COL)) {
+        auto string_type = std::make_shared<vectorized::DataTypeString>();
+        auto source_column = string_type->create_column();
+        dst_block->insert({std::move(source_column), string_type, BeConsts::SOURCE_COL});
+    }
+    auto column =
+            static_cast<vectorized::ColumnString*>(dst_block->get_by_name(BeConsts::SOURCE_COL)
+                                                           .column->assume_mutable_ref()
+                                                           .assume_mutable()
+                                                           .get());
+    vectorized::JsonbSerializeUtil::block_to_jsonb(*_context.tablet_schema, *dst_block, *column,
+                                                   _context.tablet_schema->num_columns());
+    VLOG_DEBUG << "serialize , num_rows:" << dst_block->rows()
+               << ", total_byte_size:" << dst_block->allocated_bytes() << ", serialize_cost(us)"
+               << watch.elapsed_time() / 1000;
     return Status::OK();
 }
 
@@ -547,6 +573,12 @@ Status BetaRowsetWriter::_segcompaction_ramaining_if_necessary() {
 
 Status BetaRowsetWriter::_add_block(const vectorized::Block* block,
                                     std::unique_ptr<segment_v2::SegmentWriter>* segment_writer) {
+    std::unique_ptr<vectorized::Block> temp;
+    if (_context.tablet_schema->store_row_column()) {
+        temp.reset(new vectorized::Block);
+        RETURN_IF_ERROR(_append_row_column(const_cast<vectorized::Block*>(block), temp.get()));
+        block = temp.get();
+    }
     size_t block_size_in_bytes = block->bytes();
     size_t block_row_num = block->rows();
     size_t row_avg_size_in_bytes = std::max((size_t)1, block_size_in_bytes / block_row_num);
@@ -586,28 +618,6 @@ Status BetaRowsetWriter::_add_block_for_segcompaction(
     return Status::OK();
 }
 
-template <typename RowType>
-Status BetaRowsetWriter::_add_row(const RowType& row) {
-    if (PREDICT_FALSE(_segment_writer == nullptr)) {
-        RETURN_NOT_OK(_create_segment_writer(&_segment_writer));
-    }
-    // TODO update rowset zonemap
-    auto s = _segment_writer->append_row(row);
-    if (PREDICT_FALSE(!s.ok())) {
-        LOG(WARNING) << "failed to append row: " << s.to_string();
-        return Status::Error<WRITER_DATA_WRITE_ERROR>();
-    }
-    if (PREDICT_FALSE(_segment_writer->estimate_segment_size() >= MAX_SEGMENT_SIZE ||
-                      _segment_writer->num_rows_written() >= _context.max_rows_per_segment)) {
-        RETURN_NOT_OK(_flush_segment_writer(&_segment_writer));
-    }
-    ++_raw_num_rows_written;
-    return Status::OK();
-}
-
-template Status BetaRowsetWriter::_add_row(const RowCursor& row);
-template Status BetaRowsetWriter::_add_row(const ContiguousRow& row);
-
 Status BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     assert(rowset->rowset_meta()->rowset_type() == BETA_ROWSET);
     RETURN_NOT_OK(rowset->link_files_to(_context.rowset_dir, _context.rowset_id));
@@ -637,51 +647,7 @@ Status BetaRowsetWriter::flush() {
     return Status::OK();
 }
 
-Status BetaRowsetWriter::flush_single_memtable(MemTable* memtable, int64_t* flush_size) {
-    int64_t size = 0;
-    int64_t sum_size = 0;
-    // Create segment writer for each memtable, so that
-    // all memtables can be flushed in parallel.
-    std::unique_ptr<segment_v2::SegmentWriter> writer;
-
-    MemTable::Iterator it(memtable);
-    for (it.seek_to_first(); it.valid(); it.next()) {
-        if (PREDICT_FALSE(writer == nullptr)) {
-            RETURN_NOT_OK(_segcompaction_if_necessary());
-            RETURN_NOT_OK(_create_segment_writer(&writer));
-        }
-        ContiguousRow dst_row = it.get_current_row();
-        auto s = writer->append_row(dst_row);
-        _raw_num_rows_written++;
-        if (PREDICT_FALSE(!s.ok())) {
-            LOG(WARNING) << "failed to append row: " << s.to_string();
-            return Status::Error<WRITER_DATA_WRITE_ERROR>();
-        }
-
-        if (PREDICT_FALSE(writer->estimate_segment_size() >= MAX_SEGMENT_SIZE ||
-                          writer->num_rows_written() >= _context.max_rows_per_segment)) {
-            auto s = _flush_segment_writer(&writer, &size);
-            sum_size += size;
-            if (OLAP_UNLIKELY(!s.ok())) {
-                *flush_size = sum_size;
-                return s;
-            }
-        }
-    }
-
-    if (writer != nullptr) {
-        auto s = _flush_segment_writer(&writer, &size);
-        sum_size += size;
-        *flush_size = sum_size;
-        if (OLAP_UNLIKELY(!s.ok())) {
-            return s;
-        }
-    }
-
-    return Status::OK();
-}
-
-Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block) {
+Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block, int64* flush_size) {
     if (block->rows() == 0) {
         return Status::OK();
     }
@@ -689,7 +655,7 @@ Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block) {
     std::unique_ptr<segment_v2::SegmentWriter> writer;
     RETURN_NOT_OK(_create_segment_writer(&writer));
     RETURN_NOT_OK(_add_block(block, &writer));
-    RETURN_NOT_OK(_flush_segment_writer(&writer));
+    RETURN_NOT_OK(_flush_segment_writer(&writer, flush_size));
     return Status::OK();
 }
 
@@ -903,6 +869,7 @@ Status BetaRowsetWriter::_do_create_segment_writer(
     DCHECK(file_writer != nullptr);
     segment_v2::SegmentWriterOptions writer_options;
     writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
+    writer_options.rowset_ctx = &_context;
 
     if (is_segcompaction) {
         writer->reset(new segment_v2::SegmentWriter(file_writer.get(), _num_segcompacted,
@@ -928,6 +895,9 @@ Status BetaRowsetWriter::_do_create_segment_writer(
         writer->reset(nullptr);
         return s;
     }
+    if (_context.tablet_schema->store_row_column()) {
+        (*writer)->append_row_column_writer();
+    }
     return Status::OK();
 }
 
@@ -935,12 +905,12 @@ Status BetaRowsetWriter::_create_segment_writer(
         std::unique_ptr<segment_v2::SegmentWriter>* writer) {
     size_t total_segment_num = _num_segment - _segcompacted_point + 1 + _num_segcompacted;
     if (UNLIKELY(total_segment_num > config::max_segment_num_per_rowset)) {
-        LOG(ERROR) << "too many segments in rowset."
-                   << " tablet_id:" << _context.tablet_id << " rowset_id:" << _context.rowset_id
-                   << " max:" << config::max_segment_num_per_rowset
-                   << " _num_segment:" << _num_segment
-                   << " _segcompacted_point:" << _segcompacted_point
-                   << " _num_segcompacted:" << _num_segcompacted;
+        LOG(WARNING) << "too many segments in rowset."
+                     << " tablet_id:" << _context.tablet_id << " rowset_id:" << _context.rowset_id
+                     << " max:" << config::max_segment_num_per_rowset
+                     << " _num_segment:" << _num_segment
+                     << " _segcompacted_point:" << _segcompacted_point
+                     << " _num_segcompacted:" << _num_segcompacted;
         return Status::Error<TOO_MANY_SEGMENTS>();
     } else {
         return _do_create_segment_writer(writer, false, -1, -1);

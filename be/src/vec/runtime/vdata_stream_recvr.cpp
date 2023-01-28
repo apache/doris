@@ -291,7 +291,7 @@ void VDataStreamRecvr::SenderQueue::close() {
 VDataStreamRecvr::VDataStreamRecvr(
         VDataStreamMgr* stream_mgr, RuntimeState* state, const RowDescriptor& row_desc,
         const TUniqueId& fragment_instance_id, PlanNodeId dest_node_id, int num_senders,
-        bool is_merging, int total_buffer_limit, RuntimeProfile* profile,
+        bool is_merging, RuntimeProfile* profile,
         std::shared_ptr<QueryStatisticsRecvr> sub_plan_query_statistics_recvr)
         : _mgr(stream_mgr),
 #ifdef USE_MEM_TRACKER
@@ -300,7 +300,6 @@ VDataStreamRecvr::VDataStreamRecvr(
 #endif
           _fragment_instance_id(fragment_instance_id),
           _dest_node_id(dest_node_id),
-          _total_buffer_limit(total_buffer_limit),
           _row_desc(row_desc),
           _is_merging(is_merging),
           _is_closed(false),
@@ -309,8 +308,9 @@ VDataStreamRecvr::VDataStreamRecvr(
           _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr),
           _enable_pipeline(state->enable_pipeline_exec()) {
     // DataStreamRecvr may be destructed after the instance execution thread ends.
-    _mem_tracker = std::make_unique<MemTracker>(
-            "VDataStreamRecvr:" + print_id(_fragment_instance_id), _profile);
+    _mem_tracker =
+            std::make_unique<MemTracker>("VDataStreamRecvr:" + print_id(_fragment_instance_id),
+                                         _profile, nullptr, "PeakMemoryUsage");
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     // Create one queue per sender if is_merging is true.

@@ -17,11 +17,11 @@
 
 #include "olap/schema_change.h"
 
+#include "common/config.h"
 #include "common/status.h"
 #include "gutil/integral_types.h"
 #include "olap/merger.h"
 #include "olap/olap_common.h"
-#include "olap/row.h"
 #include "olap/row_cursor.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/storage_engine.h"
@@ -268,7 +268,8 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
                     << ", expect=" << row_size
                     << ", real=" << ref_block->get_by_position(result_column_id).column->size();
 
-            if (ctx->root()->node_type() == TExprNodeType::CAST_EXPR) {
+            if (ctx->root()->node_type() == TExprNodeType::CAST_EXPR ||
+                ctx->root()->node_type() == TExprNodeType::SLOT_REF) {
                 RETURN_IF_ERROR(
                         _check_cast_valid(ref_block->get_by_position(ref_idx).column,
                                           ref_block->get_by_position(result_column_id).column));
@@ -304,13 +305,6 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
                 auto* ref_nullable_col = assert_cast<vectorized::ColumnNullable*>(
                         std::move(*ref_col.column).mutate().get());
 
-                const auto* null_map = ref_nullable_col->get_null_map_column().get_data().data();
-
-                for (size_t i = 0; i < row_size; i++) {
-                    if (null_map[i]) {
-                        return Status::DataQualityError("is_null of data is changed!");
-                    }
-                }
                 ref_nullable_col->swap_nested_column(new_col.column);
             }
         } else {
@@ -318,7 +312,6 @@ Status RowBlockChanger::change_block(vectorized::Block* ref_block,
                     ref_block->get_by_position(it.first).column);
         }
     }
-
     return Status::OK();
 }
 
@@ -327,7 +320,19 @@ Status RowBlockChanger::_check_cast_valid(vectorized::ColumnPtr ref_column,
                                           vectorized::ColumnPtr new_column) const {
     if (ref_column->is_nullable() != new_column->is_nullable()) {
         if (ref_column->is_nullable()) {
-            return Status::DataQualityError("Can not change nullable column to not nullable");
+            auto* ref_null_map =
+                    vectorized::check_and_get_column<vectorized::ColumnNullable>(ref_column)
+                            ->get_null_map_column()
+                            .get_data()
+                            .data();
+
+            bool is_changed = false;
+            for (size_t i = 0; i < ref_column->size(); i++) {
+                is_changed |= ref_null_map[i];
+            }
+            if (is_changed) {
+                return Status::DataQualityError("Null data is changed to not nullable");
+            }
         } else {
             auto* new_null_map =
                     vectorized::check_and_get_column<vectorized::ColumnNullable>(new_column)
@@ -340,7 +345,7 @@ Status RowBlockChanger::_check_cast_valid(vectorized::ColumnPtr ref_column,
                 is_changed |= new_null_map[i];
             }
             if (is_changed) {
-                return Status::DataQualityError("is_null of data is changed!");
+                return Status::DataQualityError("Some data is changed to null");
             }
         }
     }
@@ -817,6 +822,18 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
         sc_params.ref_rowset_readers = rs_readers;
         sc_params.delete_handler = &delete_handler;
         sc_params.base_tablet_schema = base_tablet_schema;
+        DCHECK(request.__isset.alter_tablet_type);
+        switch (request.alter_tablet_type) {
+        case TAlterTabletType::SCHEMA_CHANGE:
+            sc_params.alter_tablet_type = AlterTabletType::SCHEMA_CHANGE;
+            break;
+        case TAlterTabletType::ROLLUP:
+            sc_params.alter_tablet_type = AlterTabletType::ROLLUP;
+            break;
+        case TAlterTabletType::MIGRATION:
+            sc_params.alter_tablet_type = AlterTabletType::MIGRATION;
+            break;
+        }
         if (request.__isset.materialized_view_params) {
             for (auto item : request.materialized_view_params) {
                 AlterMaterializedViewParam mv_param;
@@ -829,25 +846,17 @@ Status SchemaChangeHandler::_do_process_alter_tablet_v2(const TAlterTabletReqV2&
                     mv_param.origin_column_name = item.origin_column_name;
                 }
 
-                /*
-                * TODO(lhy)
-                * Building the materialized view function for schema_change here based on defineExpr.
-                * This is a trick because the current storage layer does not support expression evaluation.
-                * We can refactor this part of the code until the uniform expression evaluates the logic.
-                * count distinct materialized view will set mv_expr with to_bitmap or hll_hash.
-                * count materialized view will set mv_expr with count.
-                */
                 if (item.__isset.mv_expr) {
                     if (item.mv_expr.nodes[0].node_type == TExprNodeType::FUNCTION_CALL) {
                         mv_param.mv_expr = item.mv_expr.nodes[0].fn.name.function_name;
-                        if (!_supported_functions.count(mv_param.mv_expr)) {
+                        if (!config::enable_vectorized_alter_table &&
+                            !_supported_functions.count(mv_param.mv_expr)) {
                             return Status::NotSupported("Unknow materialized view expr " +
                                                         mv_param.mv_expr);
                         }
                     } else if (item.mv_expr.nodes[0].node_type == TExprNodeType::CASE_EXPR) {
                         mv_param.mv_expr = "count_field";
                     }
-
                     mv_param.expr = std::make_shared<TExpr>(item.mv_expr);
                 }
                 sc_params.materialized_params_map.insert(
@@ -1026,6 +1035,12 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
         return process_alter_exit();
     }
 
+    if (!sc_sorting && !sc_directly && sc_params.alter_tablet_type == AlterTabletType::ROLLUP) {
+        res = Status::Error<SCHEMA_SCHEMA_INVALID>(
+                "Don't support to add materialized view by linked schema change");
+        return process_alter_exit();
+    }
+
     // b. Generate historical data converter
     auto sc_procedure = get_sc_procedure(rb_changer, sc_sorting, sc_directly);
 
@@ -1060,7 +1075,7 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
             !res) {
             LOG(WARNING) << "failed to process the version."
                          << " version=" << rs_reader->version().first << "-"
-                         << rs_reader->version().second;
+                         << rs_reader->version().second << ", " << res.to_string();
             new_tablet->data_dir()->remove_pending_ids(ROWSET_ID_PREFIX +
                                                        rowset_writer->rowset_id().to_string());
             return process_alter_exit();

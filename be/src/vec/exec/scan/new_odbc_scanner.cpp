@@ -26,8 +26,8 @@ static const std::string NEW_SCANNER_TYPE = "NewOdbcScanner";
 
 namespace doris::vectorized {
 NewOdbcScanner::NewOdbcScanner(RuntimeState* state, NewOdbcScanNode* parent, int64_t limit,
-                               const TOdbcScanNode& odbc_scan_node)
-        : VScanner(state, static_cast<VScanNode*>(parent), limit),
+                               const TOdbcScanNode& odbc_scan_node, RuntimeProfile* profile)
+        : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
           _is_init(false),
           _odbc_eof(false),
           _table_name(odbc_scan_node.table_name),

@@ -163,7 +163,7 @@ struct HashTableCell {
 
     Key key;
 
-    HashTableCell() {}
+    HashTableCell() = default;
 
     /// Create a cell with the given key / key and value.
     HashTableCell(const Key& key_, const State&) : key(key_) {}
@@ -420,9 +420,9 @@ struct ZeroValueStorage<false, Cell> {
     const Cell* zero_value() const { return nullptr; }
 };
 
-template <typename Key, typename Cell, typename Hash, typename Grower, typename Allocator>
+template <typename Key, typename Cell, typename HashMethod, typename Grower, typename Allocator>
 class HashTable : private boost::noncopyable,
-                  protected Hash,
+                  protected HashMethod,
                   protected Allocator,
                   protected Cell::State,
                   protected ZeroValueStorage<Cell::need_zero_value_storage,
@@ -431,7 +431,7 @@ class HashTable : private boost::noncopyable,
 protected:
     friend class Reader;
 
-    template <typename, typename, typename, typename, typename, typename, size_t>
+    template <typename, size_t>
     friend class PartitionedHashTable;
 
     template <typename SubMaps>
@@ -610,6 +610,8 @@ protected:
 public:
     using key_type = Key;
     using value_type = typename Cell::value_type;
+    using mapped_type = value_type;
+    using Hash = HashMethod;
 
     // Use lookup_result_get_mapped/Key to work with these values.
     using LookupResult = Cell*;

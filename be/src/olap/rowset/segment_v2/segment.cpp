@@ -46,19 +46,18 @@ using io::FileCacheManager;
 
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
                      RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
+                     const io::FileReaderOptions& reader_options,
                      std::shared_ptr<Segment>* output) {
-    io::FileReaderOptions reader_options(io::cache_type_from_string(config::file_cache_type),
-                                         io::SegmentCachePathPolicy());
     io::FileReaderSPtr file_reader;
 #ifndef BE_TEST
-    RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader));
+    RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader, nullptr));
 #else
     // be ut use local file reader instead of remote file reader while use remote cache
     if (!config::file_cache_type.empty()) {
-        RETURN_IF_ERROR(
-                io::global_local_filesystem()->open_file(path, reader_options, &file_reader));
+        RETURN_IF_ERROR(io::global_local_filesystem()->open_file(path, reader_options, &file_reader,
+                                                                 nullptr));
     } else {
-        RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader));
+        RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader, nullptr));
     }
 #endif
 
@@ -108,6 +107,24 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
             iter->reset(new EmptySegmentIterator(schema));
             read_options.stats->filtered_segment_number++;
             return Status::OK();
+        }
+    }
+
+    if (read_options.use_topn_opt) {
+        auto query_ctx = read_options.runtime_state->get_query_fragments_ctx();
+        auto runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
+        if (runtime_predicate) {
+            int32_t uid =
+                    read_options.tablet_schema->column(runtime_predicate->column_id()).unique_id();
+            AndBlockColumnPredicate and_predicate;
+            auto single_predicate = new SingleColumnBlockPredicate(runtime_predicate.get());
+            and_predicate.add_column_predicate(single_predicate);
+            if (!_column_readers.at(uid)->match_condition(&and_predicate)) {
+                // any condition not satisfied, return.
+                iter->reset(new EmptySegmentIterator(schema));
+                read_options.stats->filtered_segment_number++;
+                return Status::OK();
+            }
         }
     }
 
@@ -244,6 +261,19 @@ Status Segment::_create_column_readers() {
         _column_readers.emplace(column.unique_id(), std::move(reader));
     }
     return Status::OK();
+}
+
+Status Segment::new_row_column_iterator(ColumnIterator** iter) {
+    const auto& row_column = TabletSchema::row_oriented_column();
+    if (_column_readers.count(row_column.unique_id()) < 1) {
+        ColumnReaderOptions opts;
+        opts.kept_in_memory = _tablet_schema->is_in_memory();
+        std::unique_ptr<ColumnReader> reader;
+        RETURN_IF_ERROR(ColumnReader::create(opts, _footer.columns(_footer.columns_size() - 1),
+                                             _footer.num_rows(), _file_reader, &reader));
+        _column_readers.emplace(row_column.unique_id(), std::move(reader));
+    }
+    return _column_readers.at(row_column.unique_id())->new_iterator(iter);
 }
 
 // Not use cid anymore, for example original table schema is colA int, then user do following actions

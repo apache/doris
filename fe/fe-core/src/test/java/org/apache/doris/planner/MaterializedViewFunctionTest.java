@@ -549,7 +549,7 @@ public class MaterializedViewFunctionTest {
     @Test
     public void testMultiMVMultiUsage() throws Exception {
         String createEmpsMVSql01 = "create materialized view emp_mv_01 as select deptno, empid, salary "
-                + "from " + EMPS_TABLE_NAME + " order by deptno;";
+                + "from " + EMPS_TABLE_NAME + ";";
         String createEmpsMVSql02 = "create materialized view emp_mv_02 as select deptno, sum(salary) "
                 + "from " + EMPS_TABLE_NAME + " group by deptno;";
         String query = "select * from (select deptno, empid from " + EMPS_TABLE_NAME + " where deptno>100) A join "

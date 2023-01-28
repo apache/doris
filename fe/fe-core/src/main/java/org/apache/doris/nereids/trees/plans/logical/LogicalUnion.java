@@ -103,19 +103,19 @@ public class LogicalUnion extends LogicalSetOperation {
     }
 
     @Override
-    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
+    public LogicalUnion withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalUnion(qualifier, outputs, hasBuildAgg, hasPushedFilter, groupExpression,
                 Optional.of(getLogicalProperties()), children);
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+    public LogicalUnion withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalUnion(qualifier, outputs, hasBuildAgg, hasPushedFilter,
                 Optional.empty(), logicalProperties, children);
     }
 
     @Override
-    public Plan withNewOutputs(List<NamedExpression> newOutputs) {
+    public LogicalUnion withNewOutputs(List<NamedExpression> newOutputs) {
         return new LogicalUnion(qualifier, newOutputs, hasBuildAgg, hasPushedFilter,
                 Optional.empty(), Optional.empty(), children);
     }
@@ -124,7 +124,7 @@ public class LogicalUnion extends LogicalSetOperation {
         return hasBuildAgg;
     }
 
-    public Plan withHasBuildAgg() {
+    public LogicalUnion withHasBuildAgg() {
         return new LogicalUnion(qualifier, outputs, true, hasPushedFilter,
                 Optional.empty(), Optional.empty(), children);
     }
@@ -133,13 +133,13 @@ public class LogicalUnion extends LogicalSetOperation {
         return hasPushedFilter;
     }
 
-    public Plan withHasPushedFilter() {
+    public LogicalUnion withHasPushedFilter() {
         return new LogicalUnion(qualifier, outputs, hasBuildAgg, true,
                 Optional.empty(), Optional.empty(), children);
     }
 
     @Override
-    public Plan withNewChildren(List<Plan> children) {
+    public LogicalUnion withNewChildren(List<Plan> children) {
         return withChildren(children);
     }
 }

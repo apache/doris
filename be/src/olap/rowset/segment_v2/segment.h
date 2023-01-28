@@ -50,7 +50,6 @@ class ColumnIterator;
 class Segment;
 class SegmentIterator;
 using SegmentSharedPtr = std::shared_ptr<Segment>;
-
 // A Segment is used to represent a segment in memory format. When segment is
 // generated, it won't be modified, so this struct aimed to help read operation.
 // It will prepare all ColumnReader to create ColumnIterator as needed.
@@ -63,6 +62,7 @@ class Segment : public std::enable_shared_from_this<Segment> {
 public:
     static Status open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
                        RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
+                       const io::FileReaderOptions& reader_options,
                        std::shared_ptr<Segment>* output);
 
     ~Segment();
@@ -77,6 +77,7 @@ public:
     uint32_t num_rows() const { return _footer.num_rows(); }
 
     Status new_column_iterator(const TabletColumn& tablet_column, ColumnIterator** iter);
+    Status new_row_column_iterator(ColumnIterator** iter);
 
     Status new_bitmap_index_iterator(const TabletColumn& tablet_column, BitmapIndexIterator** iter);
 
@@ -110,6 +111,8 @@ public:
         DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _footer.has_primary_key_index_meta());
         return _footer.primary_key_index_meta().max_key();
     };
+
+    io::FileReaderSPtr file_reader() { return _file_reader; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);

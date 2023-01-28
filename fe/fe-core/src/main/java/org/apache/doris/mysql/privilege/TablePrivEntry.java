@@ -20,6 +20,8 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherException;
+import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.io.Text;
 
 import java.io.DataInput;
@@ -53,7 +55,8 @@ public class TablePrivEntry extends DbPrivEntry {
     public static TablePrivEntry create(String user, String host,
             String ctl, String db, String tbl,
             boolean isDomain, PrivBitSet privs) throws AnalysisException {
-        PatternMatcher hostPattern = PatternMatcher.createMysqlPattern(host, CaseSensibility.HOST.getCaseSensibility());
+        PatternMatcher hostPattern = PatternMatcherWrapper.createMysqlPattern(host,
+                CaseSensibility.HOST.getCaseSensibility());
         PatternMatcher dbPattern = PatternMatcher.createFlatPattern(
                 db, CaseSensibility.DATABASE.getCaseSensibility(), db.equals(ANY_DB));
         PatternMatcher userPattern = PatternMatcher.createFlatPattern(user, CaseSensibility.USER.getCaseSensibility());
@@ -136,7 +139,7 @@ public class TablePrivEntry extends DbPrivEntry {
         origTbl = Text.readString(in);
         try {
             tblPattern = PatternMatcher.createMysqlPattern(origTbl, CaseSensibility.TABLE.getCaseSensibility());
-        } catch (AnalysisException e) {
+        } catch (PatternMatcherException e) {
             throw new IOException(e);
         }
         isAnyTbl = origTbl.equals(ANY_TBL);

@@ -82,6 +82,13 @@ public class SchemaScanNode extends ScanNode {
     }
 
     @Override
+    public void finalizeForNereids() {
+        // Convert predicates to MySQL columns and filters.
+        frontendIP = FrontendOptions.getLocalHostAddress();
+        frontendPort = Config.rpc_port;
+    }
+
+    @Override
     protected void toThrift(TPlanNode msg) {
         msg.node_type = TPlanNodeType.SCHEMA_SCAN_NODE;
         msg.schema_scan_node = new TSchemaScanNode(desc.getId().asInt(), tableName);

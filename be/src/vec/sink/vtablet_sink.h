@@ -30,10 +30,8 @@
 #include "common/status.h"
 #include "exec/data_sink.h"
 #include "exec/tablet_info.h"
-#include "exprs/expr_context.h"
 #include "gen_cpp/Types_types.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "runtime/row_batch.h"
 #include "runtime/thread_context.h"
 #include "util/bitmap.h"
 #include "util/countdown_latch.h"
@@ -535,8 +533,6 @@ private:
     // only compute tablet index in the corresponding partition once for the whole time in olap table sink
     enum FindTabletMode { FIND_TABLET_EVERY_ROW, FIND_TABLET_EVERY_BATCH, FIND_TABLET_EVERY_SINK };
     FindTabletMode findTabletMode = FindTabletMode::FIND_TABLET_EVERY_ROW;
-
-    std::vector<ExprContext*> _output_expr_ctxs;
 
     VOlapTablePartitionParam* _vpartition = nullptr;
     std::vector<vectorized::VExprContext*> _output_vexpr_ctxs;

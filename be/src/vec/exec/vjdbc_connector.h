@@ -28,6 +28,9 @@
 
 namespace doris {
 namespace vectorized {
+
+class NewJdbcScanner;
+
 struct JdbcConnectorParam {
     std::string driver_path;
     std::string driver_class;
@@ -44,6 +47,15 @@ struct JdbcConnectorParam {
 
 class JdbcConnector : public TableConnector {
 public:
+    struct JdbcStatistic {
+        int64_t _load_jar_timer = 0;
+        int64_t _init_connector_timer = 0;
+        int64_t _get_data_timer = 0;
+        int64_t _check_type_timer = 0;
+        int64_t _execte_read_timer = 0;
+        int64_t _connector_close_timer = 0;
+    };
+
     JdbcConnector(const JdbcConnectorParam& param);
 
     ~JdbcConnector() override;
@@ -63,6 +75,8 @@ public:
     Status abort_trans() override; // should be call after transaction abort
     Status finish_trans() override; // should be call after transaction commit
 
+    JdbcStatistic& get_jdbc_statistic() { return _jdbc_statistic; }
+
     Status close() override;
 
 private:
@@ -79,8 +93,8 @@ private:
                                    vectorized::IColumn* column_ptr, int column_index,
                                    std::string_view column_name);
     std::string _jobject_to_string(JNIEnv* env, jobject jobj);
-    int64_t _jobject_to_date(JNIEnv* env, jobject jobj);
-    int64_t _jobject_to_datetime(JNIEnv* env, jobject jobj);
+    int64_t _jobject_to_date(JNIEnv* env, jobject jobj, bool is_date_v2);
+    int64_t _jobject_to_datetime(JNIEnv* env, jobject jobj, bool is_datetime_v2);
     Status _cast_string_to_array(const SlotDescriptor* slot_desc, Block* block, int column_index,
                                  int rows);
 
@@ -100,6 +114,7 @@ private:
     jmethodID _executor_write_id;
     jmethodID _executor_read_id;
     jmethodID _executor_has_next_id;
+    jmethodID _executor_block_rows_id;
     jmethodID _executor_get_blocks_id;
     jmethodID _executor_get_types_id;
     jmethodID _executor_get_arr_list_id;
@@ -119,6 +134,8 @@ private:
     std::vector<DataTypePtr> _input_array_string_types;
     std::vector<MutableColumnPtr>
             str_array_cols; // for array type to save data like big string [1,2,3]
+
+    JdbcStatistic _jdbc_statistic;
 
 #define FUNC_VARI_DECLARE(RETURN_TYPE)                                \
     RETURN_TYPE _jobject_to_##RETURN_TYPE(JNIEnv* env, jobject jobj); \

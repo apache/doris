@@ -37,11 +37,10 @@ set(RUNTIME_FILES
     primitive_type.cpp
     raw_value.cpp
     result_buffer_mgr.cpp
-    result_writer.cpp
-    row_batch.cpp
+    result_writer.cpp    
     runtime_state.cpp
     runtime_filter_mgr.cpp
-    string_value.cpp
+    runtime_predicate.cpp
     jsonb_value.cpp
     thread_context.cpp
     thread_resource_mgr.cpp
@@ -50,22 +49,14 @@ set(RUNTIME_FILES
     large_int_value.cpp
     collection_value.cpp
     tuple.cpp
-    tuple_row.cpp
     fragment_mgr.cpp
     dpp_sink_internal.cpp
     load_path_mgr.cpp
     types.cpp
     tmp_file_mgr.cc
-    disk_io_mgr.cc
-    disk_io_mgr_reader_context.cc
-    disk_io_mgr_scan_range.cc 
     load_channel_mgr.cpp
     load_channel.cpp
     tablets_channel.cpp
-    bufferpool/buffer_allocator.cc
-    bufferpool/buffer_pool.cc
-    bufferpool/suballocator.cc
-    bufferpool/system_allocator.cc
     snapshot_loader.cpp
     query_statistics.cpp 
     message_body_sink.cpp

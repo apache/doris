@@ -285,14 +285,14 @@ public class MTMVJobManager {
         if (dbName == null) {
             jobList.addAll(nameToJobMap.values());
         } else {
-            jobList.addAll(nameToJobMap.values().stream().filter(u -> u.getDbName().equals(dbName))
+            jobList.addAll(nameToJobMap.values().stream().filter(u -> u.getDBName().equals(dbName))
                     .collect(Collectors.toList()));
         }
         return jobList.stream().sorted().collect(Collectors.toList());
     }
 
     public List<MTMVJob> showJobs(String dbName, String mvName) {
-        return showJobs(dbName).stream().filter(u -> u.getMvName().equals(mvName)).collect(Collectors.toList());
+        return showJobs(dbName).stream().filter(u -> u.getMVName().equals(mvName)).collect(Collectors.toList());
     }
 
     private boolean tryLock() {

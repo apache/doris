@@ -26,12 +26,25 @@ namespace doris::vectorized {
 NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit,
                                bool aggregation, bool need_agg_finalize,
                                const TPaloScanRange& scan_range, RuntimeProfile* profile)
-        : VScanner(state, static_cast<VScanNode*>(parent), limit),
+        : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
-          _version(-1),
-          _profile(profile) {
+          _version(-1) {
     _tablet_schema = std::make_shared<TabletSchema>();
+}
+
+static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
+                                          const std::vector<uint32_t>& read_columns) {
+    std::string read_columns_string;
+    read_columns_string += "[";
+    for (auto it = read_columns.cbegin(); it != read_columns.cend(); it++) {
+        if (it != read_columns.cbegin()) {
+            read_columns_string += ", ";
+        }
+        read_columns_string += tablet_schema->columns().at(*it).name();
+    }
+    read_columns_string += "]";
+    return read_columns_string;
 }
 
 Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
@@ -78,6 +91,22 @@ Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
                 _tablet_schema->append_column(TabletColumn(column_desc));
             }
         }
+
+        {
+            if (_output_tuple_desc->slots().back()->col_name() == BeConsts::ROWID_COL) {
+                // inject ROWID_COL
+                TabletColumn rowid_column;
+                rowid_column.set_is_nullable(false);
+                rowid_column.set_name(BeConsts::ROWID_COL);
+                // avoid column reader init error
+                rowid_column.set_has_default_value(true);
+                // fake unique id
+                rowid_column.set_unique_id(INT32_MAX);
+                rowid_column.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+                _tablet_schema->append_column(rowid_column);
+            }
+        }
+
         {
             std::shared_lock rdlock(_tablet->get_header_lock());
             const RowsetSharedPtr rowset = _tablet->rowset_with_max_version();
@@ -107,6 +136,12 @@ Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
             RETURN_IF_ERROR(_init_tablet_reader_params(key_ranges, filters, filter_predicates,
                                                        function_filters));
         }
+    }
+
+    // add read columns in profile
+    if (_state->enable_profile()) {
+        _profile->add_info_string("ReadColumns",
+                                  read_columns_to_string(_tablet_schema, _return_columns));
     }
 
     return Status::OK();
@@ -184,6 +219,15 @@ Status NewOlapScanner::_init_tablet_reader_params(
                                         filter.column_name + "` is not inverted index column");
         }
         _tablet_reader_params.conditions.push_back(filter);
+    }
+
+    for (auto& filter : _compound_filters) {
+        if (is_match_condition(filter.condition_op) &&
+            !_tablet_schema->has_inverted_index(
+                    _tablet_schema->column(filter.column_name).unique_id())) {
+            return Status::NotSupported("Match query must with inverted index, column `" +
+                                        filter.column_name + "` is not inverted index column");
+        }
     }
 
     std::copy(_compound_filters.cbegin(), _compound_filters.cend(),
@@ -294,6 +338,9 @@ Status NewOlapScanner::_init_tablet_reader_params(
                     olap_scan_node.sort_info.is_asc_order.size();
         }
     }
+
+    _tablet_reader_params.use_topn_opt = ((NewOlapScanNode*)_parent)->_olap_scan_node.use_topn_opt;
+
     return Status::OK();
 }
 
@@ -302,10 +349,17 @@ Status NewOlapScanner::_init_return_columns() {
         if (!slot->is_materialized()) {
             continue;
         }
-
+        if (!slot->need_materialize()) {
+            continue;
+        }
         int32_t index = slot->col_unique_id() >= 0
                                 ? _tablet_schema->field_index(slot->col_unique_id())
                                 : _tablet_schema->field_index(slot->col_name());
+
+        if (index < 0) {
+            const std::string MATERIALIZED_VIEW_NAME_PREFIX = "mv_";
+            index = _tablet_schema->field_index(MATERIALIZED_VIEW_NAME_PREFIX + slot->col_name());
+        }
 
         if (index < 0) {
             std::stringstream ss;

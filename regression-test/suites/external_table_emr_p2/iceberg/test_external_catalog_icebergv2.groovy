@@ -44,10 +44,10 @@ suite("test_external_catalog_icebergv2", "p2") {
         }
         // test time travel stmt
         def q02 = {
-            qt_q09 """ select c_custkey from customer for time as of '2022-12-27 10:21:36' limit 3 """
-            qt_q10 """ select c_custkey from customer for time as of '2022-12-28 10:21:36' limit 3 """
-            qt_q11 """ select c_custkey from customer for version as of 906874575350293177  limit 3 """
-            qt_q12 """ select c_custkey from customer for version as of 6352416983354893547  limit 3 """
+            qt_q09 """ select c_custkey from customer for time as of '2022-12-27 10:21:36' order by c_custkey limit 3 """
+            qt_q10 """ select c_custkey from customer for time as of '2022-12-28 10:21:36' order by c_custkey desc limit 3 """
+            qt_q11 """ select c_custkey from customer for version as of 906874575350293177 order by c_custkey limit 3 """
+            qt_q12 """ select c_custkey from customer for version as of 6352416983354893547 order by c_custkey desc limit 3 """
         }
         sql """ use `tpch_1000_icebergv2`; """
         q01()
