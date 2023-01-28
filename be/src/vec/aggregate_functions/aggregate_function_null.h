@@ -363,7 +363,7 @@ public:
 
         if (number_of_arguments > MAX_ARGS) {
             LOG(FATAL) << fmt::format(
-                    "Max number of arguments for aggregate function with Nullable types is {}",
+                    "Maximum number of arguments for aggregate function with Nullable types is {}",
                     size_t(MAX_ARGS));
         }
 
@@ -401,7 +401,9 @@ public:
     }
 
 private:
-    static const size_t MAX_ARGS = 100000;
+    // The array length is fixed in the implementation of some aggregate functions.
+    // Therefore we choose 256 as the appropriate maximum length limit.
+    static const size_t MAX_ARGS = 256;
     size_t number_of_arguments = 0;
     std::array<char, MAX_ARGS>
             is_nullable; /// Plain array is better than std::vector due to one indirection less.
