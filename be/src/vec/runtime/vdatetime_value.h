@@ -1510,4 +1510,3 @@ struct std::hash<::doris::vectorized::DateV2Value<::doris::vectorized::DateTimeV
         return ::doris::vectorized::hash_value(v);
     }
 };
-
