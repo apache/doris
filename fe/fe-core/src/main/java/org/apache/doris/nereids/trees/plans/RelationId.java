@@ -51,11 +51,6 @@ public class RelationId extends Id<RelationId> {
             public RelationId getNextId() {
                 return new RelationId(nextId++);
             }
-
-            @Override
-            public RelationId getMaxId() {
-                return new RelationId(nextId);
-            }
         };
     }
 
