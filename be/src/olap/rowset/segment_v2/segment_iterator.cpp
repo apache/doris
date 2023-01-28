@@ -367,6 +367,12 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
     RowRanges zone_map_row_ranges = RowRanges::create_single(num_rows());
     // second filter data by zone map
     for (auto& cid : cids) {
+        if (_inverted_index_iterators[_schema.unique_id(cid)] != nullptr &&
+            _inverted_index_iterators[_schema.unique_id(cid)]->get_inverted_index_reader_type() ==
+                    InvertedIndexReaderType::FULLTEXT) {
+            // fulltext match query should not prune by zone map
+            continue;
+        }
         // get row ranges by zone map of this column,
         RowRanges column_row_ranges = RowRanges::create_single(num_rows());
         DCHECK(_opts.col_id_to_predicates.count(cid) > 0);

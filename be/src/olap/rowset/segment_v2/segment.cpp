@@ -101,6 +101,19 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
         if (_column_readers.count(uid) < 1 || !_column_readers.at(uid)->has_zone_map()) {
             continue;
         }
+
+        if (read_options.tablet_schema->has_inverted_index(uid)) {
+            auto inverted_index = read_options.tablet_schema->get_inverted_index(uid);
+            InvertedIndexParserType parser_type = get_inverted_index_parser_type_from_string(
+                    get_parser_string_from_properties(inverted_index->properties()));
+            if (parser_type == InvertedIndexParserType::PARSER_STANDARD ||
+                parser_type == InvertedIndexParserType::PARSER_ENGLISH ||
+                parser_type == InvertedIndexParserType::PARSER_CHINESE) {
+                // fulltext match query should not prune by zone map
+                continue;
+            }
+        }
+
         if (read_options.col_id_to_predicates.count(column_id) > 0 &&
             !_column_readers.at(uid)->match_condition(entry.second.get())) {
             // any condition not satisfied, return.
