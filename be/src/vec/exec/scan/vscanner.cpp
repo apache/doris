@@ -52,6 +52,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 
     {
         do {
+            block->clear_same_bit();
             // 1. Get input block from scanner
             {
                 SCOPED_TIMER(_parent->_scan_timer);
