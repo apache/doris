@@ -137,9 +137,7 @@ set(RUNTIME_TEST_FILES
     # runtime/result_buffer_mgr_test.cpp
     # runtime/parallel_executor_test.cpp
     # runtime/datetime_value_test.cpp
-    # runtime/dpp_sink_internal_test.cpp
     # runtime/dpp_sink_test.cpp
-    # runtime/data_spliter_test.cpp
     # runtime/tmp_file_mgr_test.cpp
     # runtime/thread_resource_mgr_test.cpp
     # runtime/export_task_mgr_test.cpp
