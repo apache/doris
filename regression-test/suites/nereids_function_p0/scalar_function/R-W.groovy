@@ -267,10 +267,9 @@ suite("nereids_scalar_fn_4") {
     qt_sql "select week_floor(kdtm, kint, kdtm) from fn_test order by kdtm, kint, kdtm"
     qt_sql "select week_floor(kdtmv2s1, kint, kdtmv2s1) from fn_test order by kdtmv2s1, kint, kdtmv2s1"
     qt_sql "select week_floor(kdtv2, kint, kdtv2) from fn_test order by kdtv2, kint, kdtv2"
-    // cannot find function
-    // qt_sql "select week_of_year(kdtm) from fn_test order by kdtm"
-    // qt_sql "select week_of_year(kdtmv2s1) from fn_test order by kdtmv2s1"
-    // qt_sql "select week_of_year(kdtv2) from fn_test order by kdtv2"
+    qt_sql "select weekofyear(kdtm) from fn_test order by kdtm"
+    qt_sql "select weekofyear(kdtmv2s1) from fn_test order by kdtmv2s1"
+    qt_sql "select weekofyear(kdtv2) from fn_test order by kdtv2"
     qt_sql "select weekday(kdtm) from fn_test order by kdtm"
     qt_sql "select weekday(kdtmv2s1) from fn_test order by kdtmv2s1"
     qt_sql "select weekday(kdtv2) from fn_test order by kdtv2"
