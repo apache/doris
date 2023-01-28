@@ -79,6 +79,7 @@ public class MTMVJobManager {
     }
 
     public void start() {
+        LOG.info("start isStarted = " + isStarted.get());
         if (isStarted.compareAndSet(false, true)) {
             taskManager.clearUnfinishedTasks();
 
@@ -115,6 +116,7 @@ public class MTMVJobManager {
     }
 
     public void stop() {
+        LOG.info("stop isStarted = " + isStarted.get());
         if (isStarted.compareAndSet(true, false)) {
             periodScheduler.shutdown();
             cleanerScheduler.shutdown();
@@ -123,16 +125,20 @@ public class MTMVJobManager {
     }
 
     private void registerJobs() {
+        LOG.info("registerJobs = " + nameToJobMap.size());
         for (MTMVJob job : nameToJobMap.values()) {
             if (job.getState() != JobState.ACTIVE) {
                 continue;
             }
+            LOG.info("register single job");
             if (job.getTriggerMode() == TriggerMode.PERIODICAL) {
+                LOG.info("register single1 job");
                 JobSchedule schedule = job.getSchedule();
                 ScheduledFuture<?> future = periodScheduler.scheduleAtFixedRate(() -> submitJobTask(job.getName()),
                         MTMVUtils.getDelaySeconds(job), schedule.getPeriod(), schedule.getTimeUnit());
                 periodFutureMap.put(job.getId(), future);
             } else if (job.getTriggerMode() == TriggerMode.ONCE) {
+                LOG.info("register single2 job");
                 if (job.getRetryPolicy() == TaskRetryPolicy.ALWAYS || job.getRetryPolicy() == TaskRetryPolicy.TIMES) {
                     MTMVTaskExecuteParams executeOption = new MTMVTaskExecuteParams();
                     submitJobTask(job.getName(), executeOption);
