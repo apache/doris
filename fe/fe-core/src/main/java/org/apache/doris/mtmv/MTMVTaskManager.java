@@ -67,7 +67,7 @@ public class MTMVTaskManager {
     // keep track of all the completed tasks
     private final Deque<MTMVTask> historyQueue = Queues.newLinkedBlockingDeque();
 
-    private final ScheduledExecutorService taskScheduler = Executors.newScheduledThreadPool(1);
+    private ScheduledExecutorService taskScheduler = Executors.newScheduledThreadPool(1);
 
     private final MTMVJobManager mtmvJobManager;
 
@@ -76,6 +76,9 @@ public class MTMVTaskManager {
     }
 
     public void startTaskScheduler() {
+        if (taskScheduler.isShutdown()) {
+            taskScheduler = Executors.newScheduledThreadPool(1);
+        }
         taskScheduler.scheduleAtFixedRate(() -> {
             if (!tryLock()) {
                 return;
@@ -89,6 +92,10 @@ public class MTMVTaskManager {
                 unlock();
             }
         }, 0, 1, TimeUnit.SECONDS);
+    }
+
+    public void stopTaskScheduler() {
+        taskScheduler.shutdown();
     }
 
     public MTMVUtils.TaskSubmitStatus submitTask(MTMVTaskExecutor taskExecutor, MTMVTaskExecuteParams params) {

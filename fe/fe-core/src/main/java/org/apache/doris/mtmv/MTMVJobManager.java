@@ -62,9 +62,9 @@ public class MTMVJobManager {
 
     private final MTMVTaskManager taskManager;
 
-    private final ScheduledExecutorService periodScheduler = Executors.newScheduledThreadPool(1);
+    private ScheduledExecutorService periodScheduler = Executors.newScheduledThreadPool(1);
 
-    private final ScheduledExecutorService cleanerScheduler = Executors.newScheduledThreadPool(1);
+    private ScheduledExecutorService cleanerScheduler = Executors.newScheduledThreadPool(1);
 
     private final ReentrantLock reentrantLock;
 
@@ -82,8 +82,17 @@ public class MTMVJobManager {
         if (isStarted.compareAndSet(false, true)) {
             taskManager.clearUnfinishedTasks();
 
+            // check the scheduler before using it
+            // since it may be shutdown when master change to follower without process shutdown.
+            if (periodScheduler.isShutdown()) {
+                periodScheduler = Executors.newScheduledThreadPool(1);
+            }
+
             registerJobs();
 
+            if (cleanerScheduler.isShutdown()) {
+                cleanerScheduler = Executors.newScheduledThreadPool(1);
+            }
             cleanerScheduler.scheduleAtFixedRate(() -> {
                 if (!Env.getCurrentEnv().isMaster()) {
                     return;
@@ -102,6 +111,14 @@ public class MTMVJobManager {
             }, 0, 1, TimeUnit.DAYS);
 
             taskManager.startTaskScheduler();
+        }
+    }
+
+    public void stop() {
+        if (isStarted.compareAndSet(true, false)) {
+            periodScheduler.shutdown();
+            cleanerScheduler.shutdown();
+            taskManager.stopTaskScheduler();
         }
     }
 
