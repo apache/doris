@@ -35,7 +35,6 @@ set(RUNTIME_FILES
     mem_pool.cpp
     plan_fragment_executor.cpp
     primitive_type.cpp
-    raw_value.cpp
     result_buffer_mgr.cpp
     result_writer.cpp    
     runtime_state.cpp
@@ -50,7 +49,6 @@ set(RUNTIME_FILES
     collection_value.cpp
     tuple.cpp
     fragment_mgr.cpp
-    dpp_sink_internal.cpp
     load_path_mgr.cpp
     types.cpp
     tmp_file_mgr.cc
