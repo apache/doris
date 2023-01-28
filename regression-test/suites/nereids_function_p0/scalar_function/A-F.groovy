@@ -198,13 +198,11 @@ suite("nereids_scalar_fn_1") {
     // qt_sql "select days_sub(kdtmv2s1, kint) from fn_test order by kdtmv2s1, kint"
     // qt_sql "select days_sub(kdt, kint) from fn_test order by kdt, kint"
     // qt_sql "select days_sub(kdtv2, kint) from fn_test order by kdtv2, kint"
-    // core
-    // qt_sql "select dceil(kdbl) from fn_test order by kdbl"
+    qt_sql "select dceil(kdbl) from fn_test order by kdbl"
     qt_sql "select degrees(kdbl) from fn_test order by kdbl"
     // data out of double range
     // qt_sql "select dexp(kdbl) from fn_test order by kdbl"
-    // core
-    // qt_sql "select dfloor(kdbl) from fn_test order by kdbl"
+    qt_sql "select dfloor(kdbl) from fn_test order by kdbl"
     qt_sql "select digital_masking(kbint) from fn_test order by kbint"
     qt_sql "select dlog1(kdbl) from fn_test order by kdbl"
     qt_sql "select dlog10(kdbl) from fn_test order by kdbl"
