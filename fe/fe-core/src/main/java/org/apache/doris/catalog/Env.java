@@ -1309,6 +1309,10 @@ public class Env {
         // start other daemon threads that should running on all FE
         startNonMasterDaemonThreads();
 
+        // start mtmv jobManager
+        LOG.info("Start mtmv job manager.");
+        mtmvJobManager.start();
+
         MetricRepo.init();
 
         canRead.set(true);
@@ -1410,8 +1414,6 @@ public class Env {
         if (Config.enable_hms_events_incremental_sync) {
             metastoreEventsProcessor.start();
         }
-        // start mtmv jobManager
-        mtmvJobManager.start();
     }
 
     // start threads that should running on all FE
