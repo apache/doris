@@ -39,7 +39,15 @@ public:
     size_t get_number_of_arguments() const override { return 1; }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        return make_nullable(std::make_shared<DataTypeString>());
+        bool is_nullable = false;
+        bool is_datev2 = false;
+        for (auto it : arguments) {
+            is_nullable = is_nullable || it.type->is_nullable();
+            is_datev2 = is_datev2 || WhichDataType(remove_nullable(it.type)).is_date_v2() ||
+                        WhichDataType(remove_nullable(it.type)).is_date_time_v2();
+        }
+        return is_nullable || !is_datev2 ? make_nullable(std::make_shared<DataTypeString>())
+                                         : std::make_shared<DataTypeString>();
     }
 
     bool is_variadic() const override { return true; }
@@ -55,17 +63,25 @@ public:
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         const ColumnPtr source_col = block.get_by_position(arguments[0]).column;
+        const auto is_nullable = block.get_by_position(result).type->is_nullable();
         const auto* sources =
                 check_and_get_column<ColumnVector<typename Transform::OpArgType>>(source_col.get());
         auto col_res = ColumnString::create();
-        auto null_map = ColumnVector<UInt8>::create();
+
         // Support all input of datetime is valind to make sure not null return
         if (sources) {
-            TransformerToStringOneArgument<Transform>::vector(
-                    context, sources->get_data(), col_res->get_chars(), col_res->get_offsets(),
-                    null_map->get_data());
-            block.replace_by_position(
-                    result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
+            if (is_nullable) {
+                auto null_map = ColumnVector<UInt8>::create();
+                TransformerToStringOneArgument<Transform>::vector(
+                        context, sources->get_data(), col_res->get_chars(), col_res->get_offsets(),
+                        null_map->get_data());
+                block.replace_by_position(
+                        result, ColumnNullable::create(std::move(col_res), std::move(null_map)));
+            } else {
+                TransformerToStringOneArgument<Transform>::vector(
+                        context, sources->get_data(), col_res->get_chars(), col_res->get_offsets());
+                block.replace_by_position(result, std::move(col_res));
+            }
         } else {
             return Status::InternalError("Illegal column {} of first argument of function {}",
                                          block.get_by_position(arguments[0]).column->get_name(),

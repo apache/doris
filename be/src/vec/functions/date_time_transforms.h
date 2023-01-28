@@ -255,6 +255,24 @@ struct TransformerToStringOneArgument {
             null_map[i] = !date_time_value.is_valid_date();
         }
     }
+
+    static void vector(FunctionContext* context,
+                       const PaddedPODArray<typename Transform::OpArgType>& ts,
+                       ColumnString::Chars& res_data, ColumnString::Offsets& res_offsets) {
+        const auto len = ts.size();
+        res_data.resize(len * Transform::max_size);
+        res_offsets.resize(len);
+
+        size_t offset = 0;
+        for (int i = 0; i < len; ++i) {
+            const auto& t = ts[i];
+            const auto& date_time_value =
+                    reinterpret_cast<const typename DateTraits<typename Transform::OpArgType>::T&>(
+                            t);
+            res_offsets[i] = Transform::execute(date_time_value, res_data, offset);
+            DCHECK(date_time_value.is_valid_date());
+        }
+    }
 };
 
 template <typename Transform>
@@ -302,6 +320,17 @@ struct Transformer {
                                    .is_valid_date();
         }
     }
+
+    static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to) {
+        size_t size = vec_from.size();
+        vec_to.resize(size);
+
+        for (size_t i = 0; i < size; ++i) {
+            vec_to[i] = Transform::execute(vec_from[i]);
+            DCHECK(((typename DateTraits<typename Transform::OpArgType>::T&)(vec_from[i]))
+                           .is_valid_date());
+        }
+    }
 };
 
 template <typename FromType, typename ToType>
@@ -324,6 +353,18 @@ struct Transformer<FromType, ToType, ToYearImpl<FromType>> {
             null_map_ptr[i] = to_ptr[i] > MAX_YEAR;
         }
     }
+
+    static void vector(const PaddedPODArray<FromType>& vec_from, PaddedPODArray<ToType>& vec_to) {
+        size_t size = vec_from.size();
+        vec_to.resize(size);
+
+        auto* __restrict to_ptr = vec_to.data();
+        auto* __restrict from_ptr = vec_from.data();
+
+        for (size_t i = 0; i < size; ++i) {
+            to_ptr[i] = ToYearImpl<FromType>::execute(from_ptr[i]);
+        }
+    }
 };
 
 template <typename FromType, typename ToType, typename Transform>
@@ -332,13 +373,20 @@ struct DateTimeTransformImpl {
                           size_t /*input_rows_count*/) {
         using Op = Transformer<FromType, ToType, Transform>;
 
+        const auto is_nullable = block.get_by_position(result).type->is_nullable();
+
         const ColumnPtr source_col = block.get_by_position(arguments[0]).column;
         if (const auto* sources = check_and_get_column<ColumnVector<FromType>>(source_col.get())) {
             auto col_to = ColumnVector<ToType>::create();
-            auto null_map = ColumnVector<UInt8>::create();
-            Op::vector(sources->get_data(), col_to->get_data(), null_map->get_data());
-            block.replace_by_position(
-                    result, ColumnNullable::create(std::move(col_to), std::move(null_map)));
+            if (is_nullable) {
+                auto null_map = ColumnVector<UInt8>::create();
+                Op::vector(sources->get_data(), col_to->get_data(), null_map->get_data());
+                block.replace_by_position(
+                        result, ColumnNullable::create(std::move(col_to), std::move(null_map)));
+            } else {
+                Op::vector(sources->get_data(), col_to->get_data());
+                block.replace_by_position(result, std::move(col_to));
+            }
         } else {
             return Status::RuntimeError("Illegal column {} of first argument of function {}",
                                         block.get_by_position(arguments[0]).column->get_name(),
