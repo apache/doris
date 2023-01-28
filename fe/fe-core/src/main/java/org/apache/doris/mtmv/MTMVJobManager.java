@@ -79,7 +79,6 @@ public class MTMVJobManager {
     }
 
     public void start() {
-        LOG.info("start isStarted = " + isStarted.get());
         if (isStarted.compareAndSet(false, true)) {
             taskManager.clearUnfinishedTasks();
 
@@ -116,7 +115,6 @@ public class MTMVJobManager {
     }
 
     public void stop() {
-        LOG.info("stop isStarted = " + isStarted.get());
         if (isStarted.compareAndSet(true, false)) {
             periodScheduler.shutdown();
             cleanerScheduler.shutdown();
@@ -125,29 +123,28 @@ public class MTMVJobManager {
     }
 
     private void registerJobs() {
-        LOG.info("registerJobs = " + nameToJobMap.size());
+        int num = nameToJobMap.size();
+        int periodNum = 0;
+        int onceNum = 0;
         for (MTMVJob job : nameToJobMap.values()) {
             if (!job.getState().equals(JobState.ACTIVE)) {
                 continue;
             }
-            LOG.info("register single job");
             if (job.getTriggerMode() == TriggerMode.PERIODICAL) {
-                LOG.info("register single1 job");
                 JobSchedule schedule = job.getSchedule();
-                LOG.info("delay seconds = " + MTMVUtils.getDelaySeconds(job));
-                LOG.info("getPeriod = " + schedule.getSecondPeriod());
-                LOG.info("getTimeUnit = " + schedule.getTimeUnit());
                 ScheduledFuture<?> future = periodScheduler.scheduleAtFixedRate(() -> submitJobTask(job.getName()),
                         MTMVUtils.getDelaySeconds(job), schedule.getSecondPeriod(), TimeUnit.SECONDS);
                 periodFutureMap.put(job.getId(), future);
+                periodNum++;
             } else if (job.getTriggerMode() == TriggerMode.ONCE) {
-                LOG.info("register single2 job");
                 if (job.getRetryPolicy() == TaskRetryPolicy.ALWAYS || job.getRetryPolicy() == TaskRetryPolicy.TIMES) {
                     MTMVTaskExecuteParams executeOption = new MTMVTaskExecuteParams();
                     submitJobTask(job.getName(), executeOption);
+                    onceNum++;
                 }
             }
         }
+        LOG.info("Register {} period jobs and {} once jobs in the total {} jobs.", periodNum, onceNum, num);
     }
 
     public void createJob(MTMVJob job, boolean isReplay) throws DdlException {
@@ -172,7 +169,7 @@ public class MTMVJobManager {
                 idToJobMap.put(job.getId(), job);
                 if (!isReplay) {
                     // log job before submit any task.
-                    Env.getCurrentEnv().getEditLog().logCreateScheduleJob(job);
+                    Env.getCurrentEnv().getEditLog().logCreateMTMVJob(job);
                     ScheduledFuture<?> future = periodScheduler.scheduleAtFixedRate(() -> submitJobTask(job.getName()),
                             MTMVUtils.getDelaySeconds(job), schedule.getSecondPeriod(), TimeUnit.SECONDS);
                     periodFutureMap.put(job.getId(), future);
@@ -183,7 +180,7 @@ public class MTMVJobManager {
                 nameToJobMap.put(job.getName(), job);
                 idToJobMap.put(job.getId(), job);
                 if (!isReplay) {
-                    Env.getCurrentEnv().getEditLog().logCreateScheduleJob(job);
+                    Env.getCurrentEnv().getEditLog().logCreateMTMVJob(job);
                     MTMVTaskExecuteParams executeOption = new MTMVTaskExecuteParams();
                     submitJobTask(job.getName(), executeOption);
                 }
@@ -192,7 +189,7 @@ public class MTMVJobManager {
                 nameToJobMap.put(job.getName(), job);
                 idToJobMap.put(job.getId(), job);
                 if (!isReplay) {
-                    Env.getCurrentEnv().getEditLog().logCreateScheduleJob(job);
+                    Env.getCurrentEnv().getEditLog().logCreateMTMVJob(job);
                 }
             } else {
                 throw new DdlException("Unsupported trigger mode for multi-table mv.");
@@ -242,7 +239,6 @@ public class MTMVJobManager {
 
     public MTMVUtils.TaskSubmitStatus submitJobTask(String jobName, MTMVTaskExecuteParams param) {
         MTMVJob job = nameToJobMap.get(jobName);
-        LOG.info("Submit a job task");
         if (job == null) {
             return MTMVUtils.TaskSubmitStatus.FAILED;
         }
@@ -262,7 +258,7 @@ public class MTMVJobManager {
             job.setState(changeJob.getToStatus());
             job.setLastModifyTime(changeJob.getLastModifyTime());
             if (!isReplay) {
-                Env.getCurrentEnv().getEditLog().logChangeScheduleJob(changeJob);
+                Env.getCurrentEnv().getEditLog().logChangeMTMVJob(changeJob);
             }
         } finally {
             unlock();
@@ -295,7 +291,7 @@ public class MTMVJobManager {
             }
 
             if (!isReplay) {
-                Env.getCurrentEnv().getEditLog().logDropScheduleJob(jobIds);
+                Env.getCurrentEnv().getEditLog().logDropMTMVJob(jobIds);
             }
         } finally {
             unlock();
@@ -370,11 +366,7 @@ public class MTMVJobManager {
     }
 
     public void replayDropJobTasks(List<String> taskIds) {
-        Map<String, String> index = Maps.newHashMapWithExpectedSize(taskIds.size());
-        for (String taskId : taskIds) {
-            index.put(taskId, null);
-        }
-        taskManager.getAllHistory().removeIf(runStatus -> index.containsKey(runStatus.getTaskId()));
+        taskManager.dropTasks(taskIds, true);
     }
 
     public void removeExpiredJobs() {
@@ -409,7 +401,7 @@ public class MTMVJobManager {
             unlock();
         }
 
-        dropJobs(jobIdsToDelete, true);
+        dropJobs(jobIdsToDelete, false);
     }
 
     public MTMVJob getJob(String jobName) {
