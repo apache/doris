@@ -36,12 +36,7 @@ Usage: $0 <options>
      -c mysql,hive      start MySQL and Hive
   
   All valid components:
-    mysql
-    pg
-    oracle
-    sqlserver
-    hive
-    iceberg
+    mysql,pg,oracle,sqlserver,es,hive,iceberg
   "
     exit 1
 }
@@ -141,8 +136,6 @@ for element in ${COMPONENTS_ARR[@]}; do
     fi
 done
 
-exit 0
-
 if [[ "${RUN_ES}" -eq 1 ]]; then
     # elasticsearch
     cp "${ROOT}"/docker-compose/elasticsearch/es.yaml.tpl "${ROOT}"/docker-compose/elasticsearch/es.yaml
@@ -158,7 +151,7 @@ if [[ "${RUN_ES}" -eq 1 ]]; then
     sudo docker compose -f "${ROOT}"/docker-compose/elasticsearch/es.yaml --env-file "${ROOT}"/docker-compose/elasticsearch/es.env up -d --remove-orphans
 fi
 
-if [[ "${RUN_ES}" -eq 1 ]]; then
+if [[ "${RUN_MYSQL}" -eq 1 ]]; then
     # mysql 5.7
     cp "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml.tpl "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml
@@ -168,7 +161,7 @@ if [[ "${RUN_ES}" -eq 1 ]]; then
     sudo docker compose -f "${ROOT}"/docker-compose/mysql/mysql-5.7.yaml --env-file "${ROOT}"/docker-compose/mysql/mysql-5.7.env up -d
 fi
 
-if [[ "${RUN_ES}" -eq 1 ]]; then
+if [[ "${RUN_PG}" -eq 1 ]]; then
     # pg 14
     cp "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml.tpl "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml
@@ -178,7 +171,7 @@ if [[ "${RUN_ES}" -eq 1 ]]; then
     sudo docker compose -f "${ROOT}"/docker-compose/postgresql/postgresql-14.yaml --env-file "${ROOT}"/docker-compose/postgresql/postgresql-14.env up -d
 fi
 
-if [[ "${RUN_ES}" -eq 1 ]]; then
+if [[ "${RUN_ORACLE}" -eq 1 ]]; then
     # oracle
     cp "${ROOT}"/docker-compose/oracle/oracle-11.yaml.tpl "${ROOT}"/docker-compose/oracle/oracle-11.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/oracle/oracle-11.yaml
@@ -188,9 +181,9 @@ if [[ "${RUN_ES}" -eq 1 ]]; then
     sudo docker compose -f "${ROOT}"/docker-compose/oracle/oracle-11.yaml --env-file "${ROOT}"/docker-compose/oracle/oracle-11.env up -d
 fi
 
-if [[ "${RUN_ES}" -eq 1 ]]; then
+if [[ "${RUN_SQLSERVER}" -eq 1 ]]; then
     # sqlserver
-    cp sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml.tpl sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml
+    cp "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml.tpl "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml
     sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml --env-file "${ROOT}"/docker-compose/sqlserver/sqlserver.env down
     sudo mkdir -p "${ROOT}"/docker-compose/sqlserver/data/
@@ -198,7 +191,7 @@ if [[ "${RUN_ES}" -eq 1 ]]; then
     sudo docker compose -f "${ROOT}"/docker-compose/sqlserver/sqlserver.yaml --env-file "${ROOT}"/docker-compose/sqlserver/sqlserver.env up -d
 fi
 
-if [[ "${RUN_ES}" -eq 1 ]]; then
+if [[ "${RUN_HIVE}" -eq 1 ]]; then
     # hive
     # before start it, you need to download parquet file package, see "README" in "docker-compose/hive/scripts/"
     cp "${ROOT}"/docker-compose/hive/hive-2x.yaml.tpl "${ROOT}"/docker-compose/hive/hive-2x.yaml
@@ -210,7 +203,7 @@ if [[ "${RUN_ES}" -eq 1 ]]; then
     sudo docker compose -f "${ROOT}"/docker-compose/hive/hive-2x.yaml --env-file "${ROOT}"/docker-compose/hive/hadoop-hive.env up -d
 fi
 
-if [[ "${RUN_ES}" -eq 1 ]]; then
+if [[ "${RUN_ICEBERG}" -eq 1 ]]; then
     # iceberg
     cp "${ROOT}"/docker-compose/iceberg/iceberg.yaml.tpl "${ROOT}"/docker-compose/iceberg/iceberg.yaml
     cp "${ROOT}"/docker-compose/iceberg/entrypoint.sh.tpl "${ROOT}"/docker-compose/iceberg/entrypoint.sh
