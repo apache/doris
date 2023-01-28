@@ -49,7 +49,10 @@ public:
         }
 
         T val_data;
-        if constexpr (sizeof(T) >= sizeof(int128_t)) {
+        if constexpr (std::is_same_v<T, DateTimeValue>) {
+            reinterpret_cast<const vectorized::VecDateTimeValue*>(data)->convert_vec_dt_to_dt(
+                    &val_data);
+        } else if constexpr (sizeof(T) >= sizeof(int128_t)) {
             // use dereference operator on unalign address maybe lead segmentation fault
             memcpy(&val_data, data, sizeof(T));
         } else {
