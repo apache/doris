@@ -37,7 +37,7 @@ under the License.
 和 Hive Catalog 基本一致，这里仅给出简单示例。其他示例可参阅 [Hive Catalog](./hive)。
 
 ```sql
-CREATE CATALOG iceberg PROPERTIES (
+CREATE CATALOG hudi PROPERTIES (
     'type'='hms',
     'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
     'hadoop.username' = 'hive',
