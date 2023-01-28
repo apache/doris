@@ -71,6 +71,12 @@ public class MetaPersistMethod {
                 metaPersistMethod.writeMethod =
                         Env.class.getDeclaredMethod("saveDb", CountingDataOutputStream.class, long.class);
                 break;
+            case "loadJob":
+                metaPersistMethod.readMethod =
+                        Env.class.getDeclaredMethod("loadLoadJob", DataInputStream.class, long.class);
+                metaPersistMethod.writeMethod =
+                        Env.class.getDeclaredMethod("saveLoadJob", CountingDataOutputStream.class, long.class);
+                break;
             case "alterJob":
                 metaPersistMethod.readMethod =
                         Env.class.getDeclaredMethod("loadAlterJob", DataInputStream.class, long.class);
