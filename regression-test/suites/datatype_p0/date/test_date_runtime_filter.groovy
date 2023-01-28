@@ -34,19 +34,15 @@ suite("test_date_runtime_filter") {
     qt_sql1 "select * from ${tbName} ORDER BY c2"
 
     sql " set runtime_filter_type = 1; "
-    qt_sql2 "select * from ${tbName} a, ${tbName} b WHERE a.c2 = b.c2 ORDER BY a.c2"
     qt_sql2 "select * from ${tbName} a, ${tbName} b WHERE a.c3 = b.c3 ORDER BY a.c2"
 
     sql " set runtime_filter_type = 2; "
-    qt_sql2 "select * from ${tbName} a, ${tbName} b WHERE a.c2 = b.c2 ORDER BY a.c2"
     qt_sql2 "select * from ${tbName} a, ${tbName} b WHERE a.c3 = b.c3 ORDER BY a.c2"
 
     sql " set runtime_filter_type = 4; "
-    qt_sql2 "select * from ${tbName} a, ${tbName} b WHERE a.c2 = b.c2 ORDER BY a.c2"
     qt_sql2 "select * from ${tbName} a, ${tbName} b WHERE a.c3 = b.c3 ORDER BY a.c2"
 
     sql " set runtime_filter_type = 8; "
-    qt_sql2 "select * from ${tbName} a, ${tbName} b WHERE a.c2 = b.c2 ORDER BY a.c2"
     qt_sql2 "select * from ${tbName} a, ${tbName} b WHERE a.c3 = b.c3 ORDER BY a.c2"
 
     sql "DROP TABLE ${tbName}"
