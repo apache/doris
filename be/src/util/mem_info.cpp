@@ -101,7 +101,7 @@ void MemInfo::process_cache_gc(int64_t& freed_mem) {
 
 // step1: free all cache
 // step2: free top overcommit query, if enable query memroy overcommit
-void MemInfo::process_minor_gc() {
+bool MemInfo::process_minor_gc() {
     int64_t freed_mem = 0;
     Defer defer {[&]() {
         LOG(INFO) << fmt::format("Process Minor GC Free Memory {} Bytes", freed_mem);
@@ -109,39 +109,47 @@ void MemInfo::process_minor_gc() {
 
     MemInfo::process_cache_gc(freed_mem);
     if (freed_mem > _s_process_minor_gc_size) {
-        return;
+        return true;
     }
     if (config::enable_query_memroy_overcommit) {
         freed_mem +=
                 MemTrackerLimiter::free_top_overcommit_query(_s_process_minor_gc_size - freed_mem);
     }
+    if (freed_mem > _s_process_minor_gc_size) {
+        return true;
+    }
+    return false;
 }
 
 // step1: free all cache
 // step2: free top memory query
 // step3: free top overcommit load, load retries are more expensive, So cancel at the end.
 // step4: free top memory load
-void MemInfo::process_full_gc() {
+bool MemInfo::process_full_gc() {
     int64_t freed_mem = 0;
     Defer defer {
             [&]() { LOG(INFO) << fmt::format("Process Full GC Free Memory {} Bytes", freed_mem); }};
 
     MemInfo::process_cache_gc(freed_mem);
     if (freed_mem > _s_process_full_gc_size) {
-        return;
+        return true;
     }
     freed_mem += MemTrackerLimiter::free_top_memory_query(_s_process_full_gc_size - freed_mem);
     if (freed_mem > _s_process_full_gc_size) {
-        return;
+        return true;
     }
     if (config::enable_query_memroy_overcommit) {
         freed_mem +=
                 MemTrackerLimiter::free_top_overcommit_load(_s_process_full_gc_size - freed_mem);
         if (freed_mem > _s_process_full_gc_size) {
-            return;
+            return true;
         }
     }
     freed_mem += MemTrackerLimiter::free_top_memory_load(_s_process_full_gc_size - freed_mem);
+    if (freed_mem > _s_process_full_gc_size) {
+        return true;
+    }
+    return false;
 }
 
 #ifndef __APPLE__

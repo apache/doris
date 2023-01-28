@@ -23,6 +23,7 @@
 #include <queue>
 
 #include "runtime/fragment_mgr.h"
+#include "runtime/load_channel_mgr.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "util/pretty_printer.h"
@@ -195,26 +196,35 @@ void MemTrackerLimiter::print_log_usage(const std::string& msg) {
     }
 }
 
+std::string MemTrackerLimiter::log_process_usage_str(const std::string& msg, bool with_stacktrace) {
+    std::string detail = msg;
+    detail += "\nProcess Memory Summary:\n    " + MemTrackerLimiter::process_mem_log_str();
+    if (with_stacktrace) detail += "\nAlloc Stacktrace:\n" + get_stack_trace();
+    std::vector<MemTracker::Snapshot> snapshots;
+    MemTrackerLimiter::make_process_snapshots(&snapshots);
+    MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::GLOBAL);
+
+    // Add additional tracker printed when memory exceeds limit.
+    snapshots.emplace_back(
+            ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker()->make_snapshot());
+
+    detail += "\nMemory Tracker Summary:";
+    for (const auto& snapshot : snapshots) {
+        if (snapshot.label == "" && snapshot.parent_label == "") {
+            detail += "\n    " + MemTrackerLimiter::type_log_usage(snapshot);
+        } else if (snapshot.parent_label == "") {
+            detail += "\n    " + MemTrackerLimiter::log_usage(snapshot);
+        } else {
+            detail += "\n    " + MemTracker::log_usage(snapshot);
+        }
+    }
+    return detail;
+}
+
 void MemTrackerLimiter::print_log_process_usage(const std::string& msg, bool with_stacktrace) {
     if (MemTrackerLimiter::_enable_print_log_process_usage) {
         MemTrackerLimiter::_enable_print_log_process_usage = false;
-        std::string detail = msg;
-        detail += "\nProcess Memory Summary:\n    " + MemTrackerLimiter::process_mem_log_str();
-        if (with_stacktrace) detail += "\nAlloc Stacktrace:\n" + get_stack_trace();
-        std::vector<MemTracker::Snapshot> snapshots;
-        MemTrackerLimiter::make_process_snapshots(&snapshots);
-        MemTrackerLimiter::make_type_snapshots(&snapshots, MemTrackerLimiter::Type::GLOBAL);
-        detail += "\nMemory Tracker Summary:";
-        for (const auto& snapshot : snapshots) {
-            if (snapshot.label == "" && snapshot.parent_label == "") {
-                detail += "\n    " + MemTrackerLimiter::type_log_usage(snapshot);
-            } else if (snapshot.parent_label == "") {
-                detail += "\n    " + MemTrackerLimiter::log_usage(snapshot);
-            } else {
-                detail += "\n    " + MemTracker::log_usage(snapshot);
-            }
-        }
-        LOG(WARNING) << detail;
+        LOG(WARNING) << log_process_usage_str(msg, with_stacktrace);
     }
 }
 
@@ -252,6 +262,10 @@ int64_t MemTrackerLimiter::free_top_memory_query(int64_t min_free_mem, Type type
         int64_t freed_mem = 0;
         while (!min_pq.empty()) {
             TUniqueId cancelled_queryid = label_to_queryid(min_pq.top().second);
+            if (cancelled_queryid == TUniqueId()) {
+                min_pq.pop();
+                continue;
+            }
             ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
                     cancelled_queryid, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED,
                     fmt::format("Process has no memory available, cancel top memory usage {}: "
@@ -344,6 +358,10 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(int64_t min_free_mem, Type 
     int64_t freed_mem = 0;
     while (!max_pq.empty()) {
         TUniqueId cancelled_queryid = label_to_queryid(max_pq.top().second);
+        if (cancelled_queryid == TUniqueId()) {
+            max_pq.pop();
+            continue;
+        }
         int64_t query_mem = query_consumption[max_pq.top().second];
         ExecEnv::GetInstance()->fragment_mgr()->cancel_query(
                 cancelled_queryid, PPlanFragmentCancelReason::MEMORY_LIMIT_EXCEED,

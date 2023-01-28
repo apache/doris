@@ -136,6 +136,7 @@ public:
     void print_log_usage(const std::string& msg);
     void enable_print_log_usage() { _enable_print_log_usage = true; }
     static void enable_print_log_process_usage() { _enable_print_log_process_usage = true; }
+    static std::string log_process_usage_str(const std::string& msg, bool with_stacktrace = true);
     static void print_log_process_usage(const std::string& msg, bool with_stacktrace = true);
 
     // Log the memory usage when memory limit is exceeded.
@@ -157,6 +158,9 @@ public:
     }
     // only for Type::QUERY or Type::LOAD.
     static TUniqueId label_to_queryid(const std::string& label) {
+        if (label.rfind("Query#Id=", 0) != 0 && label.rfind("Load#Id=", 0) != 0) {
+            return TUniqueId();
+        }
         auto queryid = split(label, "#Id=")[1];
         TUniqueId querytid;
         parse_id(queryid, &querytid);

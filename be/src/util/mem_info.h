@@ -119,8 +119,8 @@ public:
     static std::string debug_string();
 
     static void process_cache_gc(int64_t& freed_mem);
-    static void process_minor_gc();
-    static void process_full_gc();
+    static bool process_minor_gc();
+    static bool process_full_gc();
 
     // It is only used after the memory limit is exceeded. When multiple threads are waiting for the available memory of the process,
     // avoid multiple threads starting at the same time and causing OOM.
