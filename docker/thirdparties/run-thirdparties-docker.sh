@@ -24,7 +24,7 @@ set -eo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)"
 
-. "${ROOT}/custom_settings.sh"
+. "${ROOT}/custom_settings.env"
 
 usage() {
     echo "
@@ -113,12 +113,11 @@ if [[ "${CONTAINER_UID}"x == "doris--"x ]]; then
     exit 1
 fi
 
-COMPONENTS=$(echo "${COMPONENTS}" | sed 's/ //g')
 echo "Components are: ${COMPONENTS}"
 echo "Container UID: ${CONTAINER_UID}"
 echo "Stop: ${STOP}"
 
-COMPONENTS_ARR=(${COMPONENTS//,/ })
+COMPONENTS_ARR=("${COMPONENTS//,/ }")
 
 RUN_MYSQL=0
 RUN_PG=0

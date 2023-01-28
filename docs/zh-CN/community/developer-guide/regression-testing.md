@@ -597,7 +597,7 @@ Doris 支持一些外部署数据源的查询。所以回归框架也提供了�
 
 0. 准备工作
 
-    在启动 Docker 前，请先修改 `docker/thirdparties/custom_settings.sh` 文件中的 `CONTAINER_UID` 变量。
+    在启动 Docker 前，请先修改 `docker/thirdparties/custom_settings.env` 文件中的 `CONTAINER_UID` 变量。
 
     可以修改为如：`doris-10002-18sda1-`。
 
