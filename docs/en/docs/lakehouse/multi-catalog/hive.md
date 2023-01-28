@@ -130,7 +130,7 @@ CREATE RESOURCE hms_resource PROPERTIES (
 	
 # 2. Create Catalog and use an existing Resource. The key and value information in the followings will overwrite the corresponding information in the Resource.
 CREATE CATALOG hive WITH RESOURCE hms_resource PROPERTIES(
-	'key' = 'value'
+    'key' = 'value'
 );
 ```
 

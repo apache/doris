@@ -80,7 +80,7 @@ Doris can access DLF the same way as it accesses Hive Metastore.
    * `dlf.catalog.accessKeyId`：AccessKey, which you can create and manage on the [Alibaba Cloud console](https://ram.console.aliyun.com/manage/ak).
    * `dlf.catalog.accessKeySecret`：SecretKey, which you can create and manage on the [Alibaba Cloud console](https://ram.console.aliyun.com/manage/ak).
 
-   Other configuration items are fixed and require no  modifications.
+   Other configuration items are fixed and require no modifications.
 
 2. Restart FE, and create Catalog via the `CREATE CATALOG`  statement.
 
