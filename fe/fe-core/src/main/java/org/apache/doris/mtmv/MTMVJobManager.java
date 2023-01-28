@@ -175,8 +175,11 @@ public class MTMVJobManager {
                     periodFutureMap.put(job.getId(), future);
                 }
             } else if (job.getTriggerMode() == TriggerMode.ONCE) {
-                job.setState(JobState.ACTIVE);
-                job.setExpireTime(MTMVUtils.getNowTimeStamp() + Config.scheduler_mtmv_job_expired);
+                // only change once job state from unknown to active. if job is completed, only put it in map
+                if (job.getState() == JobState.UNKNOWN) {
+                    job.setState(JobState.ACTIVE);
+                    job.setExpireTime(MTMVUtils.getNowTimeStamp() + Config.scheduler_mtmv_job_expired);
+                }
                 nameToJobMap.put(job.getName(), job);
                 idToJobMap.put(job.getId(), job);
                 if (!isReplay) {
@@ -185,7 +188,10 @@ public class MTMVJobManager {
                     submitJobTask(job.getName(), executeOption);
                 }
             } else if (job.getTriggerMode() == TriggerMode.MANUAL) {
-                job.setState(JobState.ACTIVE);
+                // only change once job state from unknown to active. if job is completed, only put it in map
+                if (job.getState() == JobState.UNKNOWN) {
+                    job.setState(JobState.ACTIVE);
+                }
                 nameToJobMap.put(job.getName(), job);
                 idToJobMap.put(job.getId(), job);
                 if (!isReplay) {
