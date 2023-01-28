@@ -1193,6 +1193,14 @@ public class FunctionCallExpr extends Expr {
         } else if (fnName.getFunction().equalsIgnoreCase("if")) {
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[1], childTypes[2], true);
+            if (assignmentCompatibleType.isDecimalV3()) {
+                if (childTypes[1].isDecimalV3() && !((ScalarType) childTypes[1]).equals(assignmentCompatibleType)) {
+                    uncheckedCastChild(assignmentCompatibleType, 1);
+                }
+                if (childTypes[2].isDecimalV3() && !((ScalarType) childTypes[2]).equals(assignmentCompatibleType)) {
+                    uncheckedCastChild(assignmentCompatibleType, 2);
+                }
+            }
             childTypes[1] = assignmentCompatibleType;
             childTypes[2] = assignmentCompatibleType;
             fn = getBuiltinFunction(fnName.getFunction(), childTypes,
@@ -1200,6 +1208,8 @@ public class FunctionCallExpr extends Expr {
             if (assignmentCompatibleType.isDatetimeV2()) {
                 fn.setReturnType(assignmentCompatibleType);
             }
+
+
         } else if (AggregateFunction.SUPPORT_ORDER_BY_AGGREGATE_FUNCTION_NAME_SET.contains(
                 fnName.getFunction().toLowerCase())) {
             // order by elements add as child like windows function. so if we get the
