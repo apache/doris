@@ -581,7 +581,7 @@ public:
         return value;
     }
 
-    uint32_t hash(int seed) const { return HashUtil::hash(this, sizeof(*this), seed); }
+    uint32_t hash(int seed) const { return ::doris::HashUtil::hash(this, sizeof(*this), seed); }
 
     int day_of_year() const { return daynr() - calc_daynr(_year, 1, 1) + 1; }
 
@@ -1040,7 +1040,7 @@ public:
 
     DateV2Value<T>& operator--() { return *this += -1; }
 
-    uint32_t hash(int seed) const { return HashUtil::hash(this, sizeof(*this), seed); }
+    uint32_t hash(int seed) const { return ::doris::HashUtil::hash(this, sizeof(*this), seed); }
 
     int day_of_year() const { return daynr() - calc_daynr(this->year(), 1, 1) + 1; }
 
@@ -1093,23 +1093,6 @@ public:
     uint64_t set_datetime_uint64(uint64_t int_val);
 
     bool get_date_from_daynr(uint64_t);
-
-    void to_datev2_val(doris_udf::DateV2Val* tv) const {
-        DCHECK(!is_datetime);
-        tv->datev2_value = this->to_date_int_val();
-    }
-
-    static DateV2Value<DateV2ValueType> from_datev2_val(const doris_udf::DateV2Val& tv) {
-        DCHECK(!is_datetime);
-        DateV2Value<DateV2ValueType> value;
-        value.from_date(tv.datev2_value);
-        return value;
-    }
-
-    void to_datetimev2_val(doris_udf::DateTimeV2Val* tv) const {
-        DCHECK(is_datetime);
-        tv->datetimev2_value = this->to_date_int_val();
-    }
 
     static DateV2Value<DateTimeV2ValueType> from_datetimev2_val(
             const doris_udf::DateTimeV2Val& tv) {
@@ -1505,24 +1488,25 @@ struct DateTraits<uint64_t> {
 } // namespace doris
 
 template <>
-struct std::hash<doris::vectorized::VecDateTimeValue> {
-    size_t operator()(const doris::vectorized::VecDateTimeValue& v) const {
-        return doris::vectorized::hash_value(v);
+struct std::hash<::doris::vectorized::VecDateTimeValue> {
+    size_t operator()(const ::doris::vectorized::VecDateTimeValue& v) const {
+        return ::doris::vectorized::hash_value(v);
     }
 };
 
 template <>
-struct std::hash<doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>> {
+struct std::hash<::doris::vectorized::DateV2Value<::doris::vectorized::DateV2ValueType>> {
     size_t operator()(
-            const doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>& v) const {
-        return doris::vectorized::hash_value(v);
+            const ::doris::vectorized::DateV2Value<::doris::vectorized::DateV2ValueType>& v) const {
+        return ::doris::vectorized::hash_value(v);
     }
 };
 
 template <>
-struct std::hash<doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>> {
+struct std::hash<::doris::vectorized::DateV2Value<::doris::vectorized::DateTimeV2ValueType>> {
     size_t operator()(
-            const doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>& v) const {
-        return doris::vectorized::hash_value(v);
+            const ::doris::vectorized::DateV2Value<::doris::vectorized::DateTimeV2ValueType>& v)
+            const {
+        return ::doris::vectorized::hash_value(v);
     }
 };

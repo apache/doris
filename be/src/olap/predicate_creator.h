@@ -21,14 +21,13 @@
 #include <type_traits>
 
 #include "exec/olap_utils.h"
-#include "exprs/bloomfilter_predicate.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
-#include "exprs/match_predicate.h"
 #include "olap/bloom_filter_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/comparison_predicate.h"
 #include "olap/in_list_predicate.h"
+#include "olap/match_predicate.h"
 #include "olap/null_predicate.h"
 #include "olap/tablet_schema.h"
 #include "runtime/define_primitive_type.h"
@@ -116,8 +115,8 @@ public:
     }
 
 private:
-    static StringValue convert(const TabletColumn& column, const std::string& condition,
-                               MemPool* pool) {
+    static StringRef convert(const TabletColumn& column, const std::string& condition,
+                             MemPool* pool) {
         size_t length = condition.length();
         if constexpr (Type == TYPE_CHAR) {
             length = std::max(static_cast<size_t>(column.length()), length);
@@ -127,7 +126,7 @@ private:
         memset(buffer, 0, length);
         memory_copy(buffer, condition.data(), condition.length());
 
-        return StringValue(buffer, length);
+        return {buffer, length};
     }
 };
 

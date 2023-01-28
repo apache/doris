@@ -19,17 +19,17 @@
 
 #include "exec/schema_scanner/schema_helper.h"
 #include "runtime/primitive_type.h"
-#include "runtime/string_value.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
 SchemaScanner::ColumnDesc SchemaSchemaPrivilegesScanner::_s_tbls_columns[] = {
         //   name,       type,          size,     is_null
-        {"GRANTEE", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"TABLE_SCHEMA", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"PRIVILEGE_TYPE", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"IS_GRANTABLE", TYPE_VARCHAR, sizeof(StringValue), true},
+        {"GRANTEE", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"TABLE_SCHEMA", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"PRIVILEGE_TYPE", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"IS_GRANTABLE", TYPE_VARCHAR, sizeof(StringRef), true},
 };
 
 SchemaSchemaPrivilegesScanner::SchemaSchemaPrivilegesScanner()
@@ -102,13 +102,13 @@ Status SchemaSchemaPrivilegesScanner::fill_one_col(const std::string* src, MemPo
     if (nullptr == slot || nullptr == pool || nullptr == src) {
         return Status::InternalError("input pointer is nullptr.");
     }
-    StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-    str_slot->len = src->length();
-    str_slot->ptr = (char*)pool->allocate(str_slot->len);
-    if (nullptr == str_slot->ptr) {
-        return Status::InternalError("Allocate memcpy failed.");
+    StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
+    str_slot->size = src->length();
+    str_slot->data = (char*)pool->allocate(str_slot->size);
+    if (nullptr == str_slot->data) {
+        return Status::InternalError("Allocate memory failed.");
     }
-    memcpy(str_slot->ptr, src->c_str(), str_slot->len);
+    memcpy(const_cast<char*>(str_slot->data), src->c_str(), str_slot->size);
     return Status::OK();
 }
 

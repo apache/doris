@@ -24,7 +24,6 @@
 #include <iostream>
 
 #include "gen_cpp/Descriptors_types.h"
-#include "util/compress.h"
 
 using namespace std;
 

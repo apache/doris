@@ -27,8 +27,8 @@
 #include "runtime/define_primitive_type.h"
 #include "runtime/exec_env.h"
 #include "runtime/primitive_type.h"
-#include "runtime/string_value.h"
 #include "util/thrift_rpc_helper.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
@@ -87,12 +87,12 @@ Status SchemaBackendsScanner::_fill_one_col(Tuple* tuple, MemPool* pool, size_t 
         *(reinterpret_cast<int32_t*>(slot)) = _batch_data[_row_idx].column_value[col_idx].intVal;
     } else if (it->second == TYPE_VARCHAR) {
         void* slot = tuple->get_slot(_tuple_desc->slots()[col_idx]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        str_slot->ptr =
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
+        str_slot->data =
                 (char*)pool->allocate(_batch_data[_row_idx].column_value[col_idx].stringVal.size());
-        str_slot->len = _batch_data[_row_idx].column_value[col_idx].stringVal.size();
-        memcpy(str_slot->ptr, _batch_data[_row_idx].column_value[col_idx].stringVal.c_str(),
-               str_slot->len);
+        str_slot->size = _batch_data[_row_idx].column_value[col_idx].stringVal.size();
+        memcpy(const_cast<char*>(str_slot->data),
+               _batch_data[_row_idx].column_value[col_idx].stringVal.c_str(), str_slot->size);
     } else if (it->second == TYPE_DOUBLE) {
         void* slot = tuple->get_slot(_tuple_desc->slots()[col_idx]->tuple_offset());
         *(reinterpret_cast<double_t*>(slot)) =

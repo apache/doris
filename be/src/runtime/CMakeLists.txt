@@ -41,7 +41,6 @@ set(RUNTIME_FILES
     runtime_state.cpp
     runtime_filter_mgr.cpp
     runtime_predicate.cpp
-    string_value.cpp
     jsonb_value.cpp
     thread_context.cpp
     thread_resource_mgr.cpp
@@ -50,7 +49,6 @@ set(RUNTIME_FILES
     large_int_value.cpp
     collection_value.cpp
     tuple.cpp
-    tuple_row.cpp
     fragment_mgr.cpp
     dpp_sink_internal.cpp
     load_path_mgr.cpp

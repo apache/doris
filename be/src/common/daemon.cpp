@@ -23,31 +23,8 @@
 
 #include "common/config.h"
 #include "common/logging.h"
-#include "exprs/array_functions.h"
-#include "exprs/bitmap_function.h"
-#include "exprs/cast_functions.h"
-#include "exprs/compound_predicate.h"
-#include "exprs/decimalv2_operators.h"
-#include "exprs/encryption_functions.h"
-#include "exprs/es_functions.h"
-#include "exprs/grouping_sets_functions.h"
-#include "exprs/hash_functions.h"
-#include "exprs/hll_function.h"
-#include "exprs/hll_hash_function.h"
-#include "exprs/is_null_predicate.h"
-#include "exprs/json_functions.h"
-#include "exprs/like_predicate.h"
-#include "exprs/match_predicate.h"
 #include "exprs/math_functions.h"
-#include "exprs/new_in_predicate.h"
-#include "exprs/operators.h"
-#include "exprs/quantile_function.h"
 #include "exprs/string_functions.h"
-#include "exprs/time_operators.h"
-#include "exprs/timestamp_functions.h"
-#include "exprs/topn_function.h"
-#include "exprs/utility_functions.h"
-#include "geo/geo_functions.h"
 #include "olap/options.h"
 #include "runtime/block_spill_manager.h"
 #include "runtime/exec_env.h"
@@ -263,9 +240,11 @@ void Daemon::calculate_metrics_thread() {
         if (last_ts == -1L) {
             last_ts = GetMonoTimeMicros() / 1000;
             lst_query_bytes = DorisMetrics::instance()->query_scan_bytes->value();
-            DorisMetrics::instance()->system_metrics()->get_disks_io_time(&lst_disks_io_time);
-            DorisMetrics::instance()->system_metrics()->get_network_traffic(&lst_net_send_bytes,
-                                                                            &lst_net_receive_bytes);
+            if (config::enable_system_metrics) {
+                DorisMetrics::instance()->system_metrics()->get_disks_io_time(&lst_disks_io_time);
+                DorisMetrics::instance()->system_metrics()->get_network_traffic(
+                        &lst_net_send_bytes, &lst_net_receive_bytes);
+            }
         } else {
             int64_t current_ts = GetMonoTimeMicros() / 1000;
             long interval = (current_ts - last_ts) / 1000;
@@ -277,23 +256,27 @@ void Daemon::calculate_metrics_thread() {
             DorisMetrics::instance()->query_scan_bytes_per_second->set_value(qps < 0 ? 0 : qps);
             lst_query_bytes = current_query_bytes;
 
-            // 2. max disk io util
-            DorisMetrics::instance()->max_disk_io_util_percent->set_value(
-                    DorisMetrics::instance()->system_metrics()->get_max_io_util(lst_disks_io_time,
-                                                                                15));
-            // update lst map
-            DorisMetrics::instance()->system_metrics()->get_disks_io_time(&lst_disks_io_time);
+            if (config::enable_system_metrics) {
+                // 2. max disk io util
+                DorisMetrics::instance()->system_metrics()->update_max_disk_io_util_percent(
+                        lst_disks_io_time, 15);
 
-            // 3. max network traffic
-            int64_t max_send = 0;
-            int64_t max_receive = 0;
-            DorisMetrics::instance()->system_metrics()->get_max_net_traffic(
-                    lst_net_send_bytes, lst_net_receive_bytes, 15, &max_send, &max_receive);
-            DorisMetrics::instance()->max_network_send_bytes_rate->set_value(max_send);
-            DorisMetrics::instance()->max_network_receive_bytes_rate->set_value(max_receive);
-            // update lst map
-            DorisMetrics::instance()->system_metrics()->get_network_traffic(&lst_net_send_bytes,
-                                                                            &lst_net_receive_bytes);
+                // update lst map
+                DorisMetrics::instance()->system_metrics()->get_disks_io_time(&lst_disks_io_time);
+
+                // 3. max network traffic
+                int64_t max_send = 0;
+                int64_t max_receive = 0;
+                DorisMetrics::instance()->system_metrics()->get_max_net_traffic(
+                        lst_net_send_bytes, lst_net_receive_bytes, 15, &max_send, &max_receive);
+                DorisMetrics::instance()->system_metrics()->update_max_network_send_bytes_rate(
+                        max_send);
+                DorisMetrics::instance()->system_metrics()->update_max_network_receive_bytes_rate(
+                        max_receive);
+                // update lst map
+                DorisMetrics::instance()->system_metrics()->get_network_traffic(
+                        &lst_net_send_bytes, &lst_net_receive_bytes);
+            }
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(15)));
 }
@@ -374,31 +357,6 @@ void Daemon::init(int argc, char** argv, const std::vector<StorePath>& paths) {
     DiskInfo::init();
     MemInfo::init();
     UserFunctionCache::instance()->init(config::user_function_dir);
-    Operators::init();
-    IsNullPredicate::init();
-    LikePredicate::init();
-    StringFunctions::init();
-    ArrayFunctions::init();
-    CastFunctions::init();
-    InPredicate::init();
-    MathFunctions::init();
-    EncryptionFunctions::init();
-    TimestampFunctions::init();
-    DecimalV2Operators::init();
-    TimeOperators::init();
-    UtilityFunctions::init();
-    CompoundPredicate::init();
-    JsonFunctions::init();
-    HllHashFunctions::init();
-    ESFunctions::init();
-    GeoFunctions::init();
-    GroupingSetsFunctions::init();
-    BitmapFunctions::init();
-    HllFunctions::init();
-    QuantileStateFunctions::init();
-    HashFunctions::init();
-    TopNFunctions::init();
-    MatchPredicate::init();
 
     LOG(INFO) << CpuInfo::debug_string();
     LOG(INFO) << DiskInfo::debug_string();
@@ -425,12 +383,6 @@ void Daemon::start() {
     CHECK(st.ok()) << st;
 
     if (config::enable_metric_calculator) {
-        CHECK(DorisMetrics::instance()->is_inited())
-                << "enable metric calculator failed, maybe you set enable_system_metrics to false "
-                << " or there may be some hardware error which causes metric init failed, please "
-                   "check log first;"
-                << " you can set enable_metric_calculator = false to quickly recover ";
-
         st = Thread::create(
                 "Daemon", "calculate_metrics_thread",
                 [this]() { this->calculate_metrics_thread(); }, &_calculate_metrics_thread);

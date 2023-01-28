@@ -19,7 +19,7 @@
 
 #include <string>
 
-#include "exprs/bloomfilter_predicate.h"
+#include "exprs/bloom_filter_func.h"
 #include "exprs/runtime_filter.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/exec_env.h"

@@ -43,7 +43,6 @@ import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.Source;
 import org.apache.doris.metric.MetricRepo;
-import org.apache.doris.planner.BrokerScanNode;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.task.MasterTaskExecutor;
@@ -344,8 +343,7 @@ public class BrokerLoadJobTest {
                                           @Injectable FileGroupAggKey aggKey,
                                           @Mocked OlapTable olapTable,
                                           @Mocked PlanFragment sinkFragment,
-                                          @Mocked OlapTableSink olapTableSink,
-                                          @Mocked BrokerScanNode scanNode) throws Exception {
+                                          @Mocked OlapTableSink olapTableSink) throws Exception {
         List<Column> schema = new ArrayList<>();
         schema.add(new Column("a", PrimitiveType.BIGINT));
         Map<String, String> properties = new HashMap<>();

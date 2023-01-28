@@ -60,8 +60,8 @@ IcebergTableReader::IcebergTableReader(GenericReader* file_format_reader, Runtim
 }
 
 Status IcebergTableReader::init_reader(
-        std::vector<std::string>& file_col_names,
-        std::unordered_map<int, std::string>& col_id_name_map,
+        const std::vector<std::string>& file_col_names,
+        const std::unordered_map<int, std::string>& col_id_name_map,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
         VExprContext* vconjunct_ctx) {
     ParquetReader* parquet_reader = static_cast<ParquetReader*>(_file_format_reader.get());
@@ -181,6 +181,10 @@ Status IcebergTableReader::_position_delete(
             if (!init_schema) {
                 delete_reader.get_parsed_schema(&delete_file_col_names, &delete_file_col_types);
                 init_schema = true;
+            }
+            create_status = delete_reader.open();
+            if (!create_status.ok()) {
+                return nullptr;
             }
             create_status = delete_reader.init_reader(delete_file_col_names, _not_in_file_col_names,
                                                       nullptr, nullptr, false);
@@ -302,7 +306,7 @@ Status IcebergTableReader::_position_delete(
         parquet_reader->set_delete_rows(&_delete_rows);
         COUNTER_UPDATE(_iceberg_profile.num_delete_rows, num_delete_rows);
     }
-    // the delete rows are copy out, we can erase them.
+    // the deleted rows are copy out, we can erase them.
     for (auto& erase_item : erase_data) {
         erase_item->erase(data_file_path);
     }

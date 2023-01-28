@@ -20,8 +20,8 @@
 #include <rapidjson/document.h>
 #include <rapidjson/stringbuffer.h>
 
-#include "runtime/string_value.h"
 #include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
 #include "vec/exprs/table_function/table_function.h"
 
 namespace doris::vectorized {
@@ -35,7 +35,7 @@ struct ParsedData {
     // The number parsed from json array
     // the `_backup` saved the real number entity.
     std::vector<void*> _data;
-    std::vector<StringValue> _data_string;
+    std::vector<StringRef> _data_string;
     std::vector<int64_t> _backup_int;
     std::vector<double> _backup_double;
     std::vector<std::string> _backup_string;
