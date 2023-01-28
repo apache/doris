@@ -24,7 +24,6 @@
 
 #include <algorithm>
 
-#include "exprs/anyval_util.h"
 #include "math_functions.h"
 #include "util/simd/vstring_function.h"
 #include "util/url_parser.h"
@@ -80,7 +79,8 @@ re2::RE2* StringFunctions::compile_regex(const StringVal& pattern, std::string* 
     re2::RE2* re = new re2::RE2(pattern_sp, options);
     if (!re->ok()) {
         std::stringstream ss;
-        ss << "Could not compile regexp pattern: " << AnyValUtil::to_string(pattern) << std::endl
+        ss << "Could not compile regexp pattern: "
+           << std::string(reinterpret_cast<char*>(pattern.ptr), pattern.len) << std::endl
            << "Error: " << re->error();
         *error_str = ss.str();
         delete re;
