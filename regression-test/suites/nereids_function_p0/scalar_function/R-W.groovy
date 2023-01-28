@@ -26,8 +26,8 @@ suite("nereids_scalar_fn_4") {
     qt_sql "select regexp_extract(kvchrs1, kvchrs1, kbint) from fn_test order by kvchrs1, kvchrs1, kbint"
     qt_sql "select regexp_extract(kstr, kstr, kbint) from fn_test order by kstr, kstr, kbint"
     // core
-    // qt_sql "select regexp_extract_all(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
-    // qt_sql "select regexp_extract_all(kstr, kstr) from fn_test order by kstr, kstr"
+    qt_sql "select regexp_extract_all(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
+    qt_sql "select regexp_extract_all(kstr, kstr) from fn_test order by kstr, kstr"
     qt_sql "select regexp_replace(kvchrs1, kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1, kvchrs1"
     qt_sql "select regexp_replace(kstr, kstr, kstr) from fn_test order by kstr, kstr, kstr"
     qt_sql "select regexp_replace_one(kvchrs1, kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1, kvchrs1"
