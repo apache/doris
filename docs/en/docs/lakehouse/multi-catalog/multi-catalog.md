@@ -261,7 +261,7 @@ See [Hudi](./hudi)
 
 ### Connect to Elasticsearch
 
-See [Elasticsearch](./elasticsearch)
+See [Elasticsearch](./es)
 
 ### Connect to JDBC
 
