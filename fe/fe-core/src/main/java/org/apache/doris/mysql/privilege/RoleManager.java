@@ -97,17 +97,7 @@ public class RoleManager implements Writable {
             }
             return null;
         }
-
-        Map<TablePattern, PrivBitSet> map = existingRole.getTblPatternToPrivs();
-        PrivBitSet existingPriv = map.get(tblPattern);
-        if (existingPriv == null) {
-            if (errOnNonExist) {
-                throw new DdlException(tblPattern + " does not exist in role " + name);
-            }
-            return null;
-        }
-
-        existingPriv.remove(privs);
+        existingRole.revokePrivs(tblPattern, privs, errOnNonExist);
         return existingRole;
     }
 
@@ -120,17 +110,7 @@ public class RoleManager implements Writable {
             }
             return null;
         }
-
-        Map<ResourcePattern, PrivBitSet> map = existingRole.getResourcePatternToPrivs();
-        PrivBitSet existingPriv = map.get(resourcePattern);
-        if (existingPriv == null) {
-            if (errOnNonExist) {
-                throw new DdlException(resourcePattern + " does not exist in role " + role);
-            }
-            return null;
-        }
-
-        existingPriv.remove(privs);
+        existingRole.revokePrivs(resourcePattern, privs, errOnNonExist);
         return existingRole;
     }
 
@@ -209,7 +189,7 @@ public class RoleManager implements Writable {
         return sb.toString();
     }
 
-    public Role createDefaultRole(UserIdentity userIdent) {
+    public Role createDefaultRole(UserIdentity userIdent) throws DdlException {
         // grant read privs to database information_schema
         TablePattern tblPattern = new TablePattern(Auth.DEFAULT_CATALOG, InfoSchemaDb.DATABASE_NAME, "*");
         try {

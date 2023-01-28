@@ -78,7 +78,7 @@ public abstract class PrivTable implements Writable {
             if (errOnExist) {
                 throw new DdlException("entry already exist");
             } else {
-//                checkOperationAllowed(existingEntry, newEntry, "ADD ENTRY");
+                //                checkOperationAllowed(existingEntry, newEntry, "ADD ENTRY");
                 // if existing entry is set by domain resolver, just replace it with the new entry.
                 // if existing entry is not set by domain resolver, merge the 2 entries.
                 mergePriv(existingEntry, newEntry);
@@ -115,7 +115,7 @@ public abstract class PrivTable implements Writable {
             return;
         }
 
-//        checkOperationAllowed(existingEntry, entry, "REVOKE");
+        //        checkOperationAllowed(existingEntry, entry, "REVOKE");
 
         // check if privs to be revoked exist in priv entry.
         PrivBitSet tmp = existingEntry.getPrivSet().copy();

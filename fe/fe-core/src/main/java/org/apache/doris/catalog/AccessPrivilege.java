@@ -17,8 +17,8 @@
 
 package org.apache.doris.catalog;
 
-import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.mysql.privilege.PrivBitSet;
+import org.apache.doris.mysql.privilege.Privilege;
 
 import com.google.common.base.Preconditions;
 

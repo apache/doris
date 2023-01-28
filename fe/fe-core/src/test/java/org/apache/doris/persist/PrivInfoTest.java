@@ -23,8 +23,8 @@ import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.meta.MetaContext;
-import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.mysql.privilege.PrivBitSet;
+import org.apache.doris.mysql.privilege.Privilege;
 
 import org.junit.Assert;
 import org.junit.Before;

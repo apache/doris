@@ -20,6 +20,7 @@ package org.apache.doris.ldap;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.Role;
@@ -76,7 +77,12 @@ public class LdapManager {
         if (ldapUserInfo != null && !ldapUserInfo.checkTimeout()) {
             return ldapUserInfo;
         }
-        return getUserInfoAndUpdateCache(fullName);
+        try {
+            return getUserInfoAndUpdateCache(fullName);
+        } catch (DdlException e) {
+            LOG.warn("getUserInfo failed,", e);
+            return null;
+        }
     }
 
     public boolean doesUserExist(String fullName) {
@@ -120,7 +126,7 @@ public class LdapManager {
                 Auth.ROOT_USER) && !fullName.equalsIgnoreCase(Auth.ADMIN_USER);
     }
 
-    private LdapUserInfo getUserInfoAndUpdateCache(String fulName) {
+    private LdapUserInfo getUserInfoAndUpdateCache(String fulName) throws DdlException {
         String cluster = ClusterNamespace.getClusterNameFromFullName(fulName);
         String userName = ClusterNamespace.getNameFromFullName(fulName);
         if (Strings.isNullOrEmpty(userName)) {
@@ -194,7 +200,7 @@ public class LdapManager {
      * Step2: get roles by ldap groups;
      * Step3: merge the roles;
      */
-    private Role getLdapGroupsPrivs(String userName, String clusterName) {
+    private Role getLdapGroupsPrivs(String userName, String clusterName) throws DdlException {
         //get user ldap group. the ldap group name should be the same as the doris role name
         List<String> ldapGroups = ldapClient.getGroups(userName);
         List<String> rolesNames = Lists.newArrayList();

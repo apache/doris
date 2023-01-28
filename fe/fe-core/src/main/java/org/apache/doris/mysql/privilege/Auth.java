@@ -143,7 +143,7 @@ public class Auth implements Writable {
         return roleManager.getRole(qualifiedRole) != null;
     }
 
-    public void mergeRolesNoCheckName(List<String> roles, Role savedRole) {
+    public void mergeRolesNoCheckName(List<String> roles, Role savedRole) throws DdlException {
         readLock();
         try {
             for (String roleName : roles) {

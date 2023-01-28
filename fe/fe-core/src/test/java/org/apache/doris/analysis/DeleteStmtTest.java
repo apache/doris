@@ -21,8 +21,8 @@ package org.apache.doris.analysis;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;

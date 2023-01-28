@@ -21,8 +21,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.qe.ConnectContext;
 
 import mockit.Mocked;

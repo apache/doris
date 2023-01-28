@@ -24,24 +24,24 @@ public class PrivEntryTest {
     @Test
     public void testNameWithUnderscores() throws Exception {
         // TODO: 2023/1/20 zdtodo
-//        TablePrivEntry tablePrivEntry = TablePrivEntry.create("user1", "127.%", InternalCatalog.INTERNAL_CATALOG_NAME,
-//                "db_db1", "tbl_tbl1", false, PrivBitSet.of(Privilege.SELECT_PRIV, Privilege.DROP_PRIV));
-//        // pattern match
-//        Assert.assertFalse(tablePrivEntry.getDbPattern().match("db-db1"));
-//        Assert.assertFalse(tablePrivEntry.getTblPattern().match("tbl-tbl1"));
-//        // create TablePrivTable
-//        TablePrivTable tablePrivTable = new TablePrivTable();
-//        tablePrivTable.addEntry(tablePrivEntry, false, false);
-//        UserIdentity userIdentity = new UserIdentity("user1", "127.%", false);
-//        userIdentity.setIsAnalyzed();
-//
-//        PrivBitSet privs1 = PrivBitSet.of();
-//        tablePrivTable.getPrivs(userIdentity, "##internal", "db#db1", "tbl#tbl1", privs1);
-//        Assert.assertFalse(Privilege.satisfy(privs1, PrivPredicate.DROP));
-//
-//        PrivBitSet privs2 = PrivBitSet.of();
-//        tablePrivTable.getPrivs(userIdentity, InternalCatalog.INTERNAL_CATALOG_NAME, "db_db1", "tbl_tbl1", privs2);
-//        Assert.assertTrue(Privilege.satisfy(privs2, PrivPredicate.DROP));
+        //        TablePrivEntry tablePrivEntry = TablePrivEntry.create("user1", "127.%", InternalCatalog.INTERNAL_CATALOG_NAME,
+        //                "db_db1", "tbl_tbl1", false, PrivBitSet.of(Privilege.SELECT_PRIV, Privilege.DROP_PRIV));
+        //        // pattern match
+        //        Assert.assertFalse(tablePrivEntry.getDbPattern().match("db-db1"));
+        //        Assert.assertFalse(tablePrivEntry.getTblPattern().match("tbl-tbl1"));
+        //        // create TablePrivTable
+        //        TablePrivTable tablePrivTable = new TablePrivTable();
+        //        tablePrivTable.addEntry(tablePrivEntry, false, false);
+        //        UserIdentity userIdentity = new UserIdentity("user1", "127.%", false);
+        //        userIdentity.setIsAnalyzed();
+        //
+        //        PrivBitSet privs1 = PrivBitSet.of();
+        //        tablePrivTable.getPrivs(userIdentity, "##internal", "db#db1", "tbl#tbl1", privs1);
+        //        Assert.assertFalse(Privilege.satisfy(privs1, PrivPredicate.DROP));
+        //
+        //        PrivBitSet privs2 = PrivBitSet.of();
+        //        tablePrivTable.getPrivs(userIdentity, InternalCatalog.INTERNAL_CATALOG_NAME, "db_db1", "tbl_tbl1", privs2);
+        //        Assert.assertTrue(Privilege.satisfy(privs2, PrivPredicate.DROP));
     }
 
     @Test

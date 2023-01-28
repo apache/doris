@@ -23,12 +23,13 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.mysql.privilege.Auth;
-import org.apache.doris.mysql.privilege.Privilege;
-import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.Privilege;
+import org.apache.doris.mysql.privilege.Role;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
@@ -251,7 +252,7 @@ public class LdapPrivsChecker {
     }
 
     // Temporary user has information_schema 'Select_priv' priv by default.
-    public static void grantDefaultPrivToTempUser(Role role, String clusterName) {
+    public static void grantDefaultPrivToTempUser(Role role, String clusterName) throws DdlException {
         TablePattern tblPattern = new TablePattern(InfoSchemaDb.DATABASE_NAME, "*");
         try {
             tblPattern.analyze(clusterName);

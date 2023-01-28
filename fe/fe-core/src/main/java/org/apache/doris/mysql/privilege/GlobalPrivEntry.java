@@ -17,8 +17,6 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.common.AnalysisException;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -36,8 +34,7 @@ public class GlobalPrivEntry extends PrivEntry {
         super(privSet);
     }
 
-    public static GlobalPrivEntry create(PrivBitSet privs)
-            throws AnalysisException {
+    public static GlobalPrivEntry create(PrivBitSet privs) {
         return new GlobalPrivEntry(privs);
     }
 

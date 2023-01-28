@@ -24,8 +24,8 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
-import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;

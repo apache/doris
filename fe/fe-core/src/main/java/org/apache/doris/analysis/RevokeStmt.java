@@ -21,8 +21,8 @@ import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.mysql.privilege.Privilege;
 import org.apache.doris.mysql.privilege.PrivBitSet;
+import org.apache.doris.mysql.privilege.Privilege;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;

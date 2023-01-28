@@ -111,7 +111,7 @@ public class CatalogMgrTest extends TestWithFeService {
         user1.analyze(SystemInfoService.DEFAULT_CLUSTER);
         // user1 has the privileges of testc which is granted by ctl.db.tbl format.
         // TODO: 2023/1/20 zdtodo
-//        Assert.assertTrue(auth.getDbPrivTable().hasPrivsOfCatalog(user1, "testc"));
+        //        Assert.assertTrue(auth.getDbPrivTable().hasPrivsOfCatalog(user1, "testc"));
 
         // create hms catalog by resource
         CreateResourceStmt hmsResource = (CreateResourceStmt) parseAndAnalyzeStmt(

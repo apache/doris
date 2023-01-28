@@ -19,7 +19,8 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.TablePattern;
-import org.apache.doris.catalog.AuthorizationInfo;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
@@ -67,14 +68,16 @@ public class Role implements Writable {
         this.roleName = roleName;
     }
 
-    public Role(String roleName, TablePattern tablePattern, PrivBitSet privs) {
+    public Role(String roleName, TablePattern tablePattern, PrivBitSet privs) throws DdlException {
         this.roleName = roleName;
         this.tblPatternToPrivs.put(tablePattern, privs);
+        grantPrivs(tablePattern, privs);
     }
 
-    public Role(String roleName, ResourcePattern resourcePattern, PrivBitSet privs) {
+    public Role(String roleName, ResourcePattern resourcePattern, PrivBitSet privs) throws DdlException {
         this.roleName = roleName;
         this.resourcePatternToPrivs.put(resourcePattern, privs);
+        grantPrivs(resourcePattern, privs);
     }
 
     public Role(String roleName, TablePattern tablePattern, PrivBitSet tablePrivs,
@@ -82,6 +85,14 @@ public class Role implements Writable {
         this.roleName = roleName;
         this.tblPatternToPrivs.put(tablePattern, tablePrivs);
         this.resourcePatternToPrivs.put(resourcePattern, resourcePrivs);
+        //for init admin role,will not generate exception
+        try {
+            grantPrivs(tablePattern, tablePrivs);
+            grantPrivs(resourcePattern, resourcePrivs);
+        } catch (DdlException e) {
+            LOG.warn("grant failed,", e);
+        }
+
     }
 
     public String getRoleName() {
@@ -97,7 +108,7 @@ public class Role implements Writable {
     }
 
     // merge role not check role name.
-    public void mergeNotCheck(Role other) {
+    public void mergeNotCheck(Role other) throws DdlException {
         for (Map.Entry<TablePattern, PrivBitSet> entry : other.getTblPatternToPrivs().entrySet()) {
             if (tblPatternToPrivs.containsKey(entry.getKey())) {
                 PrivBitSet existPrivs = tblPatternToPrivs.get(entry.getKey());
@@ -105,6 +116,7 @@ public class Role implements Writable {
             } else {
                 tblPatternToPrivs.put(entry.getKey(), entry.getValue());
             }
+            grantPrivs(entry.getKey(), entry.getValue());
         }
         for (Map.Entry<ResourcePattern, PrivBitSet> entry : other.resourcePatternToPrivs.entrySet()) {
             if (resourcePatternToPrivs.containsKey(entry.getKey())) {
@@ -113,10 +125,11 @@ public class Role implements Writable {
             } else {
                 resourcePatternToPrivs.put(entry.getKey(), entry.getValue());
             }
+            grantPrivs(entry.getKey(), entry.getValue());
         }
     }
 
-    public void merge(Role other) {
+    public void merge(Role other) throws DdlException {
         Preconditions.checkState(roleName.equalsIgnoreCase(other.getRoleName()));
         mergeNotCheck(other);
     }
@@ -283,10 +296,6 @@ public class Role implements Writable {
         return Privilege.satisfy(savedPrivs, wanted);
     }
 
-    public boolean checkPrivByAuthInfo(AuthorizationInfo authInfo, PrivPredicate wanted) {
-        return true;
-    }
-
     public boolean checkHasPriv(PrivPredicate priv, PrivLevel[] levels) {
         for (PrivLevel privLevel : levels) {
             switch (privLevel) {
@@ -312,58 +321,24 @@ public class Role implements Writable {
         return false;
     }
 
-    public void grant(TablePattern tblPattern, PrivBitSet of) {
-
-    }
-
-    public void setTblPatternToPrivs(
-            Map<TablePattern, PrivBitSet> tblPatternToPrivs) {
-        this.tblPatternToPrivs = tblPatternToPrivs;
-    }
-
-    public void setResourcePatternToPrivs(
-            Map<ResourcePattern, PrivBitSet> resourcePatternToPrivs) {
-        this.resourcePatternToPrivs = resourcePatternToPrivs;
-    }
-
     public GlobalPrivTable getGlobalPrivTable() {
         return globalPrivTable;
-    }
-
-    public void setGlobalPrivTable(GlobalPrivTable globalPrivTable) {
-        this.globalPrivTable = globalPrivTable;
     }
 
     public CatalogPrivTable getCatalogPrivTable() {
         return catalogPrivTable;
     }
 
-    public void setCatalogPrivTable(CatalogPrivTable catalogPrivTable) {
-        this.catalogPrivTable = catalogPrivTable;
-    }
-
     public DbPrivTable getDbPrivTable() {
         return dbPrivTable;
-    }
-
-    public void setDbPrivTable(DbPrivTable dbPrivTable) {
-        this.dbPrivTable = dbPrivTable;
     }
 
     public TablePrivTable getTablePrivTable() {
         return tablePrivTable;
     }
 
-    public void setTablePrivTable(TablePrivTable tablePrivTable) {
-        this.tablePrivTable = tablePrivTable;
-    }
-
     public ResourcePrivTable getResourcePrivTable() {
         return resourcePrivTable;
-    }
-
-    public void setResourcePrivTable(ResourcePrivTable resourcePrivTable) {
-        this.resourcePrivTable = resourcePrivTable;
     }
 
     public boolean checkCanEnterCluster(String clusterName) {
@@ -379,5 +354,204 @@ public class Role implements Writable {
             return true;
         }
         return false;
+    }
+
+
+    private void grantPrivs(ResourcePattern resourcePattern, PrivBitSet privs) throws DdlException {
+
+        // grant privs to user
+        switch (resourcePattern.getPrivLevel()) {
+            case GLOBAL:
+                grantGlobalPrivs(privs);
+                break;
+            case RESOURCE:
+                grantResourcePrivs(resourcePattern.getResourceName(), privs);
+                break;
+            default:
+                Preconditions.checkNotNull(null, resourcePattern.getPrivLevel());
+        }
+
+    }
+
+    private void grantPrivs(TablePattern tblPattern, PrivBitSet privs) throws DdlException {
+        // grant privs to user
+        switch (tblPattern.getPrivLevel()) {
+            case GLOBAL:
+                grantGlobalPrivs(privs);
+                break;
+            case CATALOG:
+                grantCatalogPrivs(tblPattern.getQualifiedCtl(),
+                        privs);
+                break;
+            case DATABASE:
+                grantDbPrivs(tblPattern.getQualifiedCtl(),
+                        tblPattern.getQualifiedDb(),
+                        privs);
+                break;
+            case TABLE:
+                grantTblPrivs(tblPattern.getQualifiedCtl(),
+                        tblPattern.getQualifiedDb(),
+                        tblPattern.getTbl(),
+                        privs);
+                break;
+            default:
+                Preconditions.checkNotNull(null, tblPattern.getPrivLevel());
+        }
+
+    }
+
+    private GlobalPrivEntry grantGlobalPrivs(PrivBitSet privs) throws DdlException {
+        GlobalPrivEntry entry = GlobalPrivEntry.create(privs);
+        globalPrivTable.addEntry(entry, false, false);
+        return entry;
+    }
+
+    private void grantResourcePrivs(String resourceName, PrivBitSet privs) throws DdlException {
+        ResourcePrivEntry entry;
+        try {
+            entry = ResourcePrivEntry.create(resourceName, privs);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        resourcePrivTable.addEntry(entry, false, false);
+    }
+
+    private void grantCatalogPrivs(String ctl, PrivBitSet privs) throws DdlException {
+        CatalogPrivEntry entry;
+        try {
+            entry = CatalogPrivEntry.create(ctl, privs);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        catalogPrivTable.addEntry(entry, false, false);
+    }
+
+    private void grantDbPrivs(String ctl, String db,
+            PrivBitSet privs) throws DdlException {
+        DbPrivEntry entry;
+        try {
+            entry = DbPrivEntry.create(ctl, db, privs);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        dbPrivTable.addEntry(entry, false, false);
+    }
+
+    private void grantTblPrivs(String ctl, String db, String tbl, PrivBitSet privs) throws DdlException {
+        TablePrivEntry entry;
+        try {
+            entry = TablePrivEntry.create(ctl, db, tbl, privs);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        tablePrivTable.addEntry(entry, false, false);
+    }
+
+    public void revokePrivs(TablePattern tblPattern, PrivBitSet privs, boolean errOnNonExist) throws DdlException {
+        PrivBitSet existingPriv = tblPatternToPrivs.get(tblPattern);
+        if (existingPriv == null) {
+            if (errOnNonExist) {
+                throw new DdlException(tblPattern + " does not exist in role " + roleName);
+            }
+            return;
+        }
+        existingPriv.remove(privs);
+        revokePrivs(tblPattern, privs);
+    }
+
+    public void revokePrivs(ResourcePattern resourcePattern, PrivBitSet privs, boolean errOnNonExist)
+            throws DdlException {
+        PrivBitSet existingPriv = resourcePatternToPrivs.get(resourcePattern);
+        if (existingPriv == null) {
+            if (errOnNonExist) {
+                throw new DdlException(resourcePattern + " does not exist in role " + roleName);
+            }
+            return;
+        }
+        existingPriv.remove(privs);
+        revokePrivs(resourcePattern, privs);
+    }
+
+    private void revokePrivs(ResourcePattern resourcePattern, PrivBitSet privs) throws DdlException {
+        switch (resourcePattern.getPrivLevel()) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
+            case GLOBAL:
+                revokeGlobalPrivs(privs);
+                break;
+            case RESOURCE:
+                revokeResourcePrivs(resourcePattern.getResourceName(), privs);
+                break;
+        }
+    }
+
+    private void revokeResourcePrivs(String resourceName, PrivBitSet privs) throws DdlException {
+        ResourcePrivEntry entry;
+        try {
+            entry = ResourcePrivEntry.create(resourceName, privs);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        resourcePrivTable.revoke(entry, false, true);
+    }
+
+    private void revokePrivs(TablePattern tblPattern, PrivBitSet privs) throws DdlException {
+        switch (tblPattern.getPrivLevel()) {
+            case GLOBAL:
+                revokeGlobalPrivs(privs);
+                break;
+            case CATALOG:
+                revokeCatalogPrivs(tblPattern.getQualifiedCtl(), privs);
+                break;
+            case DATABASE:
+                revokeDbPrivs(tblPattern.getQualifiedCtl(),
+                        tblPattern.getQualifiedDb(), privs);
+                break;
+            case TABLE:
+                revokeTblPrivs(tblPattern.getQualifiedCtl(), tblPattern.getQualifiedDb(),
+                        tblPattern.getTbl(), privs);
+                break;
+            default:
+                Preconditions.checkNotNull(null, tblPattern.getPrivLevel());
+        }
+
+    }
+
+    private void revokeGlobalPrivs(PrivBitSet privs)
+            throws DdlException {
+        GlobalPrivEntry entry = GlobalPrivEntry.create(privs);
+        globalPrivTable.revoke(entry, false, false);
+    }
+
+    private void revokeCatalogPrivs(String ctl,
+            PrivBitSet privs) throws DdlException {
+        CatalogPrivEntry entry;
+        try {
+            entry = CatalogPrivEntry.create(
+                    ctl, privs);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        catalogPrivTable.revoke(entry, false, true);
+    }
+
+    private void revokeDbPrivs(String ctl, String db, PrivBitSet privs) throws DdlException {
+        DbPrivEntry entry;
+        try {
+            entry = DbPrivEntry.create(ctl, db, privs);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+
+        dbPrivTable.revoke(entry, false, true);
+    }
+
+    private void revokeTblPrivs(String ctl, String db, String tbl,
+            PrivBitSet privs) throws DdlException {
+        TablePrivEntry entry;
+        try {
+            entry = TablePrivEntry.create(ctl, db, tbl, privs);
+        } catch (AnalysisException e) {
+            throw new DdlException(e.getMessage());
+        }
+        tablePrivTable.revoke(entry, false, true);
     }
 }

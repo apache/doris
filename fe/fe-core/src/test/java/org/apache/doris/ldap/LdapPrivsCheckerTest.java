@@ -25,10 +25,10 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.Auth;
-import org.apache.doris.mysql.privilege.Privilege;
-import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.Privilege;
+import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.qe.ConnectContext;
 
 import mockit.Expectations;

@@ -105,8 +105,8 @@ public class TablePrivEntry extends DbPrivEntry {
 
     @Override
     public String toString() {
-        return String.format("table privilege.ctl: %s, db: %s, tbl: %s, priv: %s"
-                , origCtl, origDb, origTbl, privSet.toString());
+        return String.format("table privilege.ctl: %s, db: %s, tbl: %s, priv: %s", origCtl, origDb, origTbl,
+                privSet.toString());
     }
 
     @Override
