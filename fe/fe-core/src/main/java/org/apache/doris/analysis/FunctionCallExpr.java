@@ -1362,11 +1362,11 @@ public class FunctionCallExpr extends Expr {
                     } else if ((fnName.getFunction().equalsIgnoreCase("array_min") || fnName.getFunction()
                             .equalsIgnoreCase("array_max"))
                             && ((
-                            children.get(0).getChild(0).getType().isDecimalV3() && ((ArrayType) args[ix]).getItemType()
+                            children.get(0).getType().isDecimalV3() && ((ArrayType) args[ix]).getItemType()
                                     .isDecimalV3())
-                            || (children.get(0).getChild(0).getType().isDatetimeV2()
+                            || (children.get(0).getType().isDatetimeV2()
                             && ((ArrayType) args[ix]).getItemType().isDatetimeV2())
-                            || (children.get(0).getChild(0).getType().isDecimalV2()
+                            || (children.get(0).getType().isDecimalV2()
                             && ((ArrayType) args[ix]).getItemType().isDecimalV2()))) {
                         continue;
                     } else if (!argTypes[i].matchesType(args[ix]) && !(
