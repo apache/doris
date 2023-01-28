@@ -365,9 +365,7 @@ public:
         return row_same_bit[position];
     }
 
-    void clear_same_bit() {
-        row_same_bit.clear();
-    }
+    void clear_same_bit() { row_same_bit.clear(); }
 
 private:
     void erase_impl(size_t position);
