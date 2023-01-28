@@ -16,7 +16,6 @@
 // under the License.
 #pragma once
 
-#include "exprs/like_predicate.h"
 #include "olap/column_predicate.h"
 #include "udf/udf.h"
 #include "vec/columns/column_dictionary.h"
@@ -146,7 +145,7 @@ private:
     // lifetime controlled by scan node
     doris_udf::FunctionContext* _fn_ctx;
     using PatternType = std::conditional_t<is_vectorized, StringRef, StringVal>;
-    using StateType = std::conditional_t<is_vectorized, vectorized::LikeState, LikePredicateState>;
+    using StateType = vectorized::LikeState;
     PatternType pattern;
 
     StateType* _state;

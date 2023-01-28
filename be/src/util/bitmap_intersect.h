@@ -30,13 +30,6 @@ public:
     static const int DATETIME_TYPE_BYTE_SIZE = 4;
     static const int DECIMAL_BYTE_SIZE = 16;
 
-    // get_val start
-    template <typename ValType, typename T>
-    static T get_val(const ValType& x) {
-        DCHECK(!x.is_null);
-        return x.val;
-    }
-
     // serialize_size start
     template <typename T>
     static int32_t serialize_size(const T& v) {
@@ -60,23 +53,6 @@ public:
         *src += type_size;
     }
 };
-
-template <>
-inline StringRef Helper::get_val<StringVal>(const StringVal& x) {
-    DCHECK(!x.is_null);
-    return StringRef(x);
-}
-
-template <>
-inline DateTimeValue Helper::get_val<DateTimeVal>(const DateTimeVal& x) {
-    return DateTimeValue::from_datetime_val(x);
-}
-
-template <>
-inline DecimalV2Value Helper::get_val<DecimalV2Val>(const DecimalV2Val& x) {
-    return DecimalV2Value::from_decimal_val(x);
-}
-// get_val end
 
 template <>
 inline char* Helper::write_to<DateTimeValue>(const DateTimeValue& v, char* dest) {
