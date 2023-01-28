@@ -135,10 +135,10 @@ public class MTMVJobManager {
                 LOG.info("register single1 job");
                 JobSchedule schedule = job.getSchedule();
                 LOG.info("delay seconds = " + MTMVUtils.getDelaySeconds(job));
-                LOG.info("getPeriod = " + schedule.getPeriod());
+                LOG.info("getPeriod = " + schedule.getSecondPeriod());
                 LOG.info("getTimeUnit = " + schedule.getTimeUnit());
                 ScheduledFuture<?> future = periodScheduler.scheduleAtFixedRate(() -> submitJobTask(job.getName()),
-                        MTMVUtils.getDelaySeconds(job), schedule.getPeriod(), schedule.getTimeUnit());
+                        MTMVUtils.getDelaySeconds(job), schedule.getSecondPeriod(), TimeUnit.SECONDS);
                 periodFutureMap.put(job.getId(), future);
             } else if (job.getTriggerMode() == TriggerMode.ONCE) {
                 LOG.info("register single2 job");
@@ -174,7 +174,7 @@ public class MTMVJobManager {
                     // log job before submit any task.
                     Env.getCurrentEnv().getEditLog().logCreateScheduleJob(job);
                     ScheduledFuture<?> future = periodScheduler.scheduleAtFixedRate(() -> submitJobTask(job.getName()),
-                            MTMVUtils.getDelaySeconds(job), schedule.getPeriod(), schedule.getTimeUnit());
+                            MTMVUtils.getDelaySeconds(job), schedule.getSecondPeriod(), TimeUnit.SECONDS);
                     periodFutureMap.put(job.getId(), future);
                 }
             } else if (job.getTriggerMode() == TriggerMode.ONCE) {
