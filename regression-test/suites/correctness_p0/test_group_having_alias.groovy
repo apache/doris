@@ -71,7 +71,7 @@
         ORDER BY date;
     """
 
-    sql """ SET group_by_and_having_use_alias_first = true; """
+    sql """set group_by_and_having_use_alias_first=true"""
 
     qt_sql """
         SELECT
@@ -104,7 +104,7 @@
         ORDER BY date;
     """
 
-    sql """ SET group_by_and_having_use_alias_first = false; """
+    sql """set group_by_and_having_use_alias_first=false"""
 
     sql """
          CREATE TABLE `test_having_alias_tb` (
