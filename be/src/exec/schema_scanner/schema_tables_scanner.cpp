@@ -230,6 +230,8 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
                 time_slot.from_unixtime(create_time, TimezoneUtils::default_time_zone);
                 fill_dest_column(block, &time_slot, _tuple_desc->slots()[14]);
             }
+        } else {
+            fill_dest_column(block, nullptr, _tuple_desc->slots()[14]);
         }
     }
     // update_time
@@ -244,6 +246,8 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
                 time_slot.from_unixtime(update_time, TimezoneUtils::default_time_zone);
                 fill_dest_column(block, &time_slot, _tuple_desc->slots()[15]);
             }
+        } else {
+            fill_dest_column(block, nullptr, _tuple_desc->slots()[15]);
         }
     }
     // check_time

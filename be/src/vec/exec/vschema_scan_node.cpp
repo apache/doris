@@ -261,34 +261,57 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
 
     block->clear();
 
+    std::vector<int> index_map_inv(_src_tuple_desc->slots().size());
     for (int i = 0; i < _slot_num; ++i) {
         auto dest_slot_desc = _dest_tuple_desc->slots()[i];
         block->insert(ColumnWithTypeAndName(dest_slot_desc->get_empty_mutable_column(),
                                             dest_slot_desc->get_data_type_ptr(),
                                             dest_slot_desc->col_name()));
+
+        // Map from index in column of schema table to slots.
+        index_map_inv[_index_map[i]] = i;
     }
 
     do {
+        vectorized::Block src_block;
+
+        for (int i = 0; i < _src_tuple_desc->slots().size(); ++i) {
+            int j = index_map_inv[i];
+            auto slot_desc = _dest_tuple_desc->slots()[j];
+            src_block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
+                                                   slot_desc->get_data_type_ptr(),
+                                                   slot_desc->col_name()));
+        }
         while (true) {
             RETURN_IF_CANCELLED(state);
 
             // get all slots from schema table.
-            RETURN_IF_ERROR(_schema_scanner->get_next_block(block, &schema_eos));
+            RETURN_IF_ERROR(_schema_scanner->get_next_block(&src_block, &schema_eos));
 
             if (schema_eos) {
                 *eos = true;
                 break;
             }
 
-            if (block->rows() >= state->batch_size()) {
+            if (src_block.rows() >= state->batch_size()) {
                 break;
             }
         }
 
-        if (block->rows()) {
+        if (src_block.rows()) {
+            // block->check_number_of_rows();
+            for (int i = 0; i < _slot_num; ++i) {
+                auto dest_slot_desc = _dest_tuple_desc->slots()[i];
+                vectorized::MutableColumnPtr column_ptr =
+                        std::move(*block->get_by_position(i).column).mutate();
+                column_ptr->insert_range_from(
+                        *src_block.get_by_name(dest_slot_desc->col_name()).column, 0,
+                        src_block.rows());
+            }
             RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block,
                                                        _dest_tuple_desc->slots().size()));
-            VLOG_ROW << "VSchemaScanNode output rows: " << block->rows();
+            VLOG_ROW << "VSchemaScanNode output rows: " << src_block.rows();
+            src_block.clear();
         }
     } while (block->rows() == 0 && !(*eos));
 
