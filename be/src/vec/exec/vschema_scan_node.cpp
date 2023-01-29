@@ -222,19 +222,18 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
     RETURN_IF_CANCELLED(state);
     bool schema_eos = false;
 
-    block->clear();
     const std::vector<SchemaScanner::ColumnDesc>& columns_desc(_schema_scanner->get_column_desc());
 
-    for (int i = 0; i < _slot_num; ++i) {
-        auto dest_slot_desc = _dest_tuple_desc->slots()[i];
-        block->insert(ColumnWithTypeAndName(dest_slot_desc->get_empty_mutable_column(),
-                                            dest_slot_desc->get_data_type_ptr(),
-                                            dest_slot_desc->col_name()));
-    }
-
     do {
-        vectorized::Block src_block;
+        block->clear();
+        for (int i = 0; i < _slot_num; ++i) {
+            auto dest_slot_desc = _dest_tuple_desc->slots()[i];
+            block->insert(ColumnWithTypeAndName(dest_slot_desc->get_empty_mutable_column(),
+                                                dest_slot_desc->get_data_type_ptr(),
+                                                dest_slot_desc->col_name()));
+        }
 
+        vectorized::Block src_block;
         for (int i = 0; i < columns_desc.size(); ++i) {
             TypeDescriptor descriptor(columns_desc[i].type);
             auto data_type =
