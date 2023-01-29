@@ -37,7 +37,6 @@ import org.apache.doris.common.util.ProfileWriter;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.VectorizedUtil;
-import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.planner.DataPartition;
@@ -78,7 +77,6 @@ import org.apache.doris.thrift.TErrorTabletInfo;
 import org.apache.doris.thrift.TEsScanRange;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TExecPlanFragmentParamsList;
-import org.apache.doris.thrift.TLoadErrorHubInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPlanFragmentDestination;
@@ -2476,15 +2474,6 @@ public class Coordinator {
                     for (RuntimeFilter rf : assignedRuntimeFilters) {
                         params.params.runtime_filter_params.putToRidToRuntimeFilter(
                                 rf.getFilterId().asInt(), rf.toThrift());
-                    }
-                }
-                if (queryOptions.getQueryType() == TQueryType.LOAD) {
-                    LoadErrorHub.Param param = Env.getCurrentEnv().getLoadInstance().getLoadErrorHubInfo();
-                    if (param != null) {
-                        TLoadErrorHubInfo info = param.toThrift();
-                        if (info != null) {
-                            params.setLoadErrorHubInfo(info);
-                        }
                     }
                 }
                 paramsList.add(params);

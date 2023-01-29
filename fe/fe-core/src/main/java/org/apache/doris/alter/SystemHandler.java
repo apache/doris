@@ -167,9 +167,6 @@ public class SystemHandler extends AlterHandler {
         } else if (alterClause instanceof ModifyBrokerClause) {
             ModifyBrokerClause clause = (ModifyBrokerClause) alterClause;
             Env.getCurrentEnv().getBrokerMgr().execute(clause);
-        } else if (alterClause instanceof AlterLoadErrorUrlClause) {
-            AlterLoadErrorUrlClause clause = (AlterLoadErrorUrlClause) alterClause;
-            Env.getCurrentEnv().getLoadInstance().setLoadErrorHubInfo(clause.getProperties());
         } else if (alterClause instanceof ModifyBackendClause) {
             Env.getCurrentSystemInfo().modifyBackends(((ModifyBackendClause) alterClause));
         } else {
