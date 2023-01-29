@@ -65,5 +65,6 @@ suite("nereids_explain") {
         contains "SlotDescriptor{id=0, col=null, colUniqueId=null, type=FLOAT, nullable=false}"
     }
 
-    sql "select sum(if(lo_tax=1,lo_tax,0)) from lineorder where false"
+    def explainStr = sql("select sum(if(lo_tax=1,lo_tax,0)) from lineorder where false").toString()
+    assertTrue(!explainStr.contains("projections"))
 }
