@@ -35,7 +35,6 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "util/file_utils.h"
-#include "util/load_error_hub.h"
 #include "util/pretty_printer.h"
 #include "util/timezone_utils.h"
 #include "util/uid_util.h"
@@ -342,36 +341,11 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
 
     if (out.size() > 0) {
         (*_error_log_file) << fmt::to_string(out) << std::endl;
-        export_load_error(fmt::to_string(out));
     }
     return Status::OK();
 }
 
 const int64_t HUB_MAX_ERROR_NUM = 10;
-
-void RuntimeState::export_load_error(const std::string& err_msg) {
-    if (_error_hub == nullptr) {
-        std::lock_guard<std::mutex> lock(_create_error_hub_lock);
-        if (_error_hub == nullptr) {
-            if (_load_error_hub_info == nullptr) {
-                return;
-            }
-
-            Status st = LoadErrorHub::create_hub(_exec_env, _load_error_hub_info.get(),
-                                                 _error_log_file_path, &_error_hub);
-            if (!st.ok()) {
-                LOG(WARNING) << "failed to create load error hub: " << st;
-                return;
-            }
-        }
-    }
-
-    if (_error_row_number <= HUB_MAX_ERROR_NUM) {
-        LoadErrorHub::ErrorMsg err(_load_job_id, err_msg);
-        // TODO(lingbin): think if should check return value?
-        _error_hub->export_error(err);
-    }
-}
 
 int64_t RuntimeState::get_load_mem_limit() {
     // TODO: the code is abandoned, it can be deleted after v1.3

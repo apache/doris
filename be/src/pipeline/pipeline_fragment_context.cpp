@@ -189,9 +189,6 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
     if (request.__isset.load_job_id) {
         _runtime_state->set_load_job_id(request.load_job_id);
     }
-    if (request.__isset.load_error_hub_info) {
-        _runtime_state->set_load_error_hub_info(request.load_error_hub_info);
-    }
 
     if (request.query_options.__isset.is_report_success) {
         fragment_context->set_is_report_success(request.query_options.is_report_success);
