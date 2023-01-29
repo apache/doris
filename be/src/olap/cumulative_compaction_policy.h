@@ -158,9 +158,8 @@ private:
                               int64_t* promotion_size);
 
     /// calculate the disk size belong to which level, the level is divide by power of 2
-    /// between cumulative_size_based_promotion_min_size_mbytes
-    /// and cumulative_size_based_promotion_size_mbytes
-    int _level_size(const int64_t size);
+    /// between compaction_promotion_size_mbytes and 1KB
+    int64_t _level_size(const int64_t size);
 
     /// when policy calculate cumulative_compaction_score, update promotion size at the same time
     void _refresh_tablet_size_based_promotion_size(Tablet* tablet, int64_t promotion_size);
@@ -174,8 +173,6 @@ private:
     int64_t _size_based_promotion_min_size;
     /// lower bound size to do compaction compaction.
     int64_t _size_based_compaction_lower_bound_size;
-    /// levels division of disk size, same level rowsets can do compaction
-    std::vector<int64_t> _levels;
 };
 
 /// The factory of CumulativeCompactionPolicy, it can product different policy according to the `policy` parameter.
