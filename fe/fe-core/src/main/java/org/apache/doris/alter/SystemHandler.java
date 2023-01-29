@@ -21,7 +21,6 @@ import org.apache.doris.analysis.AddBackendClause;
 import org.apache.doris.analysis.AddFollowerClause;
 import org.apache.doris.analysis.AddObserverClause;
 import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.AlterLoadErrorUrlClause;
 import org.apache.doris.analysis.CancelAlterSystemStmt;
 import org.apache.doris.analysis.CancelStmt;
 import org.apache.doris.analysis.DecommissionBackendClause;

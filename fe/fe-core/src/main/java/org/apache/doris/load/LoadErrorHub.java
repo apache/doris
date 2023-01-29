@@ -17,28 +17,16 @@
 
 package org.apache.doris.load;
 
-import org.apache.doris.catalog.Env;
-import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.thrift.TBrokerErrorHubInfo;
-import org.apache.doris.thrift.TErrorHubType;
-import org.apache.doris.thrift.TMysqlErrorHubInfo;
-import org.apache.doris.thrift.TNetworkAddress;
 
-import com.google.common.base.MoreObjects;
-import com.google.common.base.MoreObjects.ToStringHelper;
 import com.google.common.base.Preconditions;
-import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.List;
 import java.util.Map;
 
 public abstract class LoadErrorHub {
@@ -100,7 +88,6 @@ public abstract class LoadErrorHub {
             table = Text.readString(in);
         }
     }
-    
 
     public static class BrokerParam implements Writable {
         private String brokerName;
@@ -193,29 +180,5 @@ public abstract class LoadErrorHub {
                     Preconditions.checkState(false, "unknown hub type");
             }
         }
-    }
-
-
-    public abstract boolean prepare();
-
-    public abstract boolean close();
-
-    public static LoadErrorHub createHub(Param param) {
-        switch (param.getType()) {
-            case MYSQL_TYPE: {
-                LoadErrorHub hub = new MysqlLoadErrorHub(param.getMysqlParam());
-                hub.prepare();
-                return hub;
-            }
-            case BROKER_TYPE: {
-                LoadErrorHub hub = new BrokerLoadErrorHub(param.getBrokerParam());
-                hub.prepare();
-                return hub;
-            }
-            default:
-                Preconditions.checkState(false, "unknown hub type");
-        }
-
-        return null;
     }
 }

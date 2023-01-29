@@ -528,7 +528,7 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_SET_LOAD_ERROR_HUB: {
-                    final LoadErrorHub.Param param = (LoadErrorHub.Param) journal.getData();
+                    // final LoadErrorHub.Param param = (LoadErrorHub.Param) journal.getData();
                     // ignore load error hub
                     break;
                 }
