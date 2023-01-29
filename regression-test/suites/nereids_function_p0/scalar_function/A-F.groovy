@@ -115,8 +115,6 @@ suite("nereids_scalar_fn_1") {
     sql "select current_date() from fn_test"
     sql "select current_time() from fn_test"
     sql "select current_timestamp() from fn_test"
-    // core
-    // qt_sql "select current_timestamp(kint) from fn_test order by kint"
     sql "select current_user() from fn_test"
     sql "select curtime() from fn_test"
     sql "select database() from fn_test"
