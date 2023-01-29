@@ -91,6 +91,9 @@ public class FunctionCallExpr extends Expr {
             } else if (children != null && children.size() > 0 && children.get(0).getType().isDatetimeV2()
                     && returnType.isDatetimeV2()) {
                 return children.get(0).getType();
+            } else if (children != null && children.size() > 0 && children.get(0).getType().isDecimalV2()
+                    && returnType.isDecimalV2()) {
+                return children.get(0).getType();
             } else {
                 return returnType;
             }
@@ -141,6 +144,30 @@ public class FunctionCallExpr extends Expr {
                 return ((ScalarType) children.get(1).getType()).decimalScale()
                         > ((ScalarType) children.get(2).getType()).decimalScale()
                         ? children.get(1).getType() : children.get(2).getType();
+            } else {
+                return returnType;
+            }
+        });
+
+        PRECISION_INFER_RULE.put("array_min", (children, returnType) -> {
+            Preconditions.checkArgument(children != null && children.size() > 0);
+            if (children.get(0).getType().isArrayType() && (
+                    ((ArrayType) children.get(0).getType()).getItemType().isDecimalV3() || ((ArrayType) children.get(0)
+                            .getType()).getItemType().isDecimalV2() || ((ArrayType) children.get(0)
+                            .getType()).getItemType().isDatetimeV2())) {
+                return ((ArrayType) children.get(0).getType()).getItemType();
+            } else {
+                return returnType;
+            }
+        });
+
+        PRECISION_INFER_RULE.put("array_max", (children, returnType) -> {
+            Preconditions.checkArgument(children != null && children.size() > 0);
+            if (children.get(0).getType().isArrayType() && (
+                    ((ArrayType) children.get(0).getType()).getItemType().isDecimalV3() || ((ArrayType) children.get(0)
+                            .getType()).getItemType().isDecimalV2() || ((ArrayType) children.get(0)
+                            .getType()).getItemType().isDatetimeV2())) {
+                return ((ArrayType) children.get(0).getType()).getItemType();
             } else {
                 return returnType;
             }
@@ -1338,6 +1365,20 @@ public class FunctionCallExpr extends Expr {
                     if (fnName.getFunction().equalsIgnoreCase("money_format")
                             && children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3()) {
                         continue;
+                    } else if (fnName.getFunction().equalsIgnoreCase("array")
+                            && (children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3()
+                            || children.get(0).getType().isDatetimeV2() && args[ix].isDatetimeV2())) {
+                        continue;
+                    } else if ((fnName.getFunction().equalsIgnoreCase("array_min") || fnName.getFunction()
+                            .equalsIgnoreCase("array_max"))
+                            && ((
+                            children.get(0).getType().isDecimalV3() && ((ArrayType) args[ix]).getItemType()
+                                    .isDecimalV3())
+                            || (children.get(0).getType().isDatetimeV2()
+                            && ((ArrayType) args[ix]).getItemType().isDatetimeV2())
+                            || (children.get(0).getType().isDecimalV2()
+                            && ((ArrayType) args[ix]).getItemType().isDecimalV2()))) {
+                        continue;
                     } else if (!argTypes[i].matchesType(args[ix]) && !(
                             argTypes[i].isDateOrDateTime() && args[ix].isDateOrDateTime())
                             && (!fn.getReturnType().isDecimalV3()
@@ -1413,7 +1454,7 @@ public class FunctionCallExpr extends Expr {
     // if return type is nested type, need to be determined the sub-element type
     private void analyzeNestedFunction() {
         // array
-        if ("array".equalsIgnoreCase(fnName.getFunction())) {
+        if (fnName.getFunction().equalsIgnoreCase("array")) {
             if (children.size() > 0) {
                 this.type = new ArrayType(children.get(0).getType());
             }
