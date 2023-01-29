@@ -252,7 +252,8 @@ Status VSetOperationNode<is_intersect>::prepare(RuntimeState* state) {
     int n = 0;
     for (auto ctx : _child_expr_lists[0]) {
         _build_not_ignore_null.push_back(ctx->root()->data_type()->is_nullable());
-        _left_table_data_types.push_back(nullable_flags[n] ? make_nullable(ctx->root()->data_type()) : ctx->root()->data_type());
+        _left_table_data_types.push_back(nullable_flags[n] ? make_nullable(ctx->root()->data_type())
+                                                           : ctx->root()->data_type());
         ++n;
     }
     hash_table_init();
