@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
 import org.apache.doris.nereids.trees.UnaryNode;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import com.google.common.collect.ImmutableList;
@@ -72,7 +73,7 @@ public class EliminateUnnecessaryProject implements RewriteRuleFactory {
             ),
             RuleType.ELIMINATE_UNNECESSARY_PROJECT.build(
                 logicalProject(logicalEmptyRelation())
-                        .then(UnaryNode::child)
+                        .then(project -> new LogicalEmptyRelation(project.getProjects()))
             )
         );
     }
