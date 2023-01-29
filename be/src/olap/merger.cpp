@@ -87,7 +87,7 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     while (!eof && !StorageEngine::instance()->stopped()) {
         // Read one block from block reader
         RETURN_NOT_OK_LOG(
-                reader.next_block_with_aggregation(&block, nullptr, nullptr, &eof),
+                reader.next_block_with_aggregation(&block, &eof),
                 "failed to read next block when merging rowsets of tablet " + tablet->full_name());
         RETURN_NOT_OK_LOG(
                 dst_rowset_writer->add_block(&block),
@@ -214,7 +214,7 @@ Status Merger::vertical_compact_one_group(
     while (!eof && !StorageEngine::instance()->stopped()) {
         // Read one block from block reader
         RETURN_NOT_OK_LOG(
-                reader.next_block_with_aggregation(&block, nullptr, nullptr, &eof),
+                reader.next_block_with_aggregation(&block, &eof),
                 "failed to read next block when merging rowsets of tablet " + tablet->full_name());
         RETURN_NOT_OK_LOG(
                 dst_rowset_writer->add_columns(&block, column_group, is_key, max_rows_per_segment),

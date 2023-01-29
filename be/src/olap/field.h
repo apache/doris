@@ -86,21 +86,6 @@ public:
         return local;
     }
 
-    // Test if these two cell is equal with each other
-    template <typename LhsCellType, typename RhsCellType>
-    bool equal(const LhsCellType& lhs, const RhsCellType& rhs) const {
-        bool l_null = lhs.is_null();
-        bool r_null = rhs.is_null();
-
-        if (l_null != r_null) {
-            return false;
-        } else if (l_null) {
-            return true;
-        } else {
-            return _type_info->equal(lhs.cell_ptr(), rhs.cell_ptr());
-        }
-    }
-
     // Only compare column content, without considering nullptr condition.
     // RETURNS:
     //      0 means equal,

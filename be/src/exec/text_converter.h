@@ -20,7 +20,6 @@
 #include "vec/columns/column.h"
 namespace doris {
 
-class MemPool;
 class SlotDescriptor;
 class Status;
 struct StringRef;
@@ -46,15 +45,7 @@ public:
     bool write_vec_column(const SlotDescriptor* slot_desc, vectorized::IColumn* nullable_col_ptr,
                           const char* data, size_t len, bool copy_string, bool need_escape,
                           size_t rows);
-
-    // Removes escape characters from len characters of the null-terminated string src,
-    // and copies the unescaped string into dest, changing *len to the unescaped length.
-    // No null-terminator is added to dest.
-    void unescape_string(const char* src, char* dest, size_t* len);
     void unescape_string_on_spot(const char* src, size_t* len);
-    // Removes escape characters from 'str', allocating a new string from pool.
-    // 'str' is updated with the new ptr and length.
-    void unescape_string(StringRef* str, MemPool* pool);
 
 private:
     char _escape_char;
