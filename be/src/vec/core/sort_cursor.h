@@ -232,11 +232,11 @@ struct ReceiveQueueSortCursorImpl : public MergeSortCursorImpl {
     bool has_next_block() override {
         auto status = _block_supplier(&_block_ptr);
         if (status.ok() && _block_ptr != nullptr) {
-            for (int i = 0; i < desc.size(); ++i) {
-                _ordering_expr[i]->execute(_block_ptr, &desc[i].column_number);
+            for (int i = 0; status.ok() && i < desc.size(); ++i) {
+                status = _ordering_expr[i]->execute(_block_ptr, &desc[i].column_number);
             }
             MergeSortCursorImpl::reset(*_block_ptr);
-            return true;
+            return status.ok();
         }
         _block_ptr = nullptr;
         return false;

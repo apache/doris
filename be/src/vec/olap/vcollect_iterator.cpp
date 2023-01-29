@@ -137,7 +137,7 @@ Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_reade
             if (!s.ok()) {
                 delete (*iter);
                 iter = _children.erase(iter);
-                if (!s.is<END_OF_FILE>()) {
+                if (!s.is_end_of_file()) {
                     return s;
                 }
             } else {

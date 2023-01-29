@@ -71,8 +71,11 @@ TEST(TEST_VEXPR, ABSTEST) {
                                      doris::TQueryGlobals(), nullptr);
     runtime_stat.init_mem_trackers();
     runtime_stat.set_desc_tbl(desc_tbl);
-    context->prepare(&runtime_stat, row_desc);
-    context->open(&runtime_stat);
+    auto state = doris::Status::OK();
+    state = context->prepare(&runtime_stat, row_desc);
+    ASSERT_TRUE(state.ok());
+    state = context->open(&runtime_stat);
+    ASSERT_TRUE(state.ok());
 
     auto block = row_batch.convert_to_vec_block();
     int ts = -1;
@@ -116,12 +119,20 @@ TEST(TEST_VEXPR, ABSTEST2) {
     DescriptorTbl desc_tbl;
     desc_tbl._slot_desc_map[0] = tuple_desc->slots()[0];
     runtime_stat.set_desc_tbl(&desc_tbl);
+<<<<<<< HEAD
     context->prepare(&runtime_stat, row_desc);
     context->open(&runtime_stat);
 
     auto block = row_batch.convert_to_vec_block();
     int ts = -1;
     context->execute(&block, &ts);
+=======
+    auto state = Status::OK();
+    state = context->prepare(&runtime_stat, row_desc);
+    ASSERT_TRUE(state.ok());
+    state = context->open(&runtime_stat);
+    ASSERT_TRUE(state.ok());
+>>>>>>> 46347a51d2... [Bug](exec) enable warning on ignoring function return value for vctx (#16157)
     context->close(&runtime_stat);
 }
 
