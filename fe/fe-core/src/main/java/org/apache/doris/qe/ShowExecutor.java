@@ -1238,6 +1238,7 @@ public class ShowExecutor {
                 }
             }
         }
+        List<List<String>> rows = Lists.newArrayList();
         long limit = showWarningsStmt.getLimitNum();
         if (limit != -1L && limit < rows.size()) {
             rows = rows.subList(0, (int) limit);
