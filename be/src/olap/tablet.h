@@ -544,6 +544,7 @@ inline size_t Tablet::num_rows() {
 }
 
 inline int Tablet::version_count() const {
+    std::shared_lock rdlock(_meta_lock);
     return _tablet_meta->version_count();
 }
 
@@ -552,6 +553,7 @@ inline Version Tablet::max_version() const {
 }
 
 inline uint64_t Tablet::segment_count() const {
+    std::shared_lock rdlock(_meta_lock);
     uint64_t segment_nums = 0;
     for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
         segment_nums += rs_meta->num_segments();
