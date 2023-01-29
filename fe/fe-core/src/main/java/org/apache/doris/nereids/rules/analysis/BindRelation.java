@@ -55,10 +55,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * Rule to bind relations in query plan.
@@ -217,7 +215,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
     private List<Long> getPartitionIds(TableIf t, UnboundRelation unboundRelation) {
         List<String> parts = unboundRelation.getPartNames();
         if (CollectionUtils.isEmpty(parts)) {
-            return Collections.emptyList();
+            return ImmutableList.of();
         }
         if (!t.getType().equals(TableIf.TableType.OLAP)) {
             throw new IllegalStateException(String.format(
@@ -230,6 +228,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 throw new IllegalStateException(String.format("Partition: %s is not exists", name));
             }
             return part.getId();
-        }).collect(Collectors.toList());
+        }).collect(ImmutableList.toImmutableList());
     }
 }

@@ -668,7 +668,8 @@ public class SelectStmt extends QueryStmt {
         // Only handle the simplest `SELECT ... FROM <tbl> WHERE ... ORDER BY ... LIMIT ...` query
         if (getAggInfo() != null
                 || getHavingPred() != null
-                || getWithClause() != null) {
+                || getWithClause() != null
+                || getAnalyticInfo() != null) {
             return false;
         }
         if (!analyzer.isRootAnalyzer()) {

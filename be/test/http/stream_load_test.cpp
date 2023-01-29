@@ -29,7 +29,6 @@
 #include "runtime/exec_env.h"
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
-#include "runtime/thread_resource_mgr.h"
 #include "util/brpc_client_cache.h"
 #include "util/cpu_info.h"
 
@@ -71,7 +70,6 @@ public:
         k_response_str = "";
         config::streaming_load_max_mb = 1;
 
-        _env._thread_mgr = new ThreadResourceMgr();
         _env._master_info = new TMasterInfo();
         _env._load_stream_mgr = new LoadStreamMgr();
         _env._internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
@@ -89,8 +87,6 @@ public:
         _env._load_stream_mgr = nullptr;
         delete _env._master_info;
         _env._master_info = nullptr;
-        delete _env._thread_mgr;
-        _env._thread_mgr = nullptr;
         delete _env._stream_load_executor;
         _env._stream_load_executor = nullptr;
 

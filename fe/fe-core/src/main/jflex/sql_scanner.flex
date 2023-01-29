@@ -482,6 +482,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("auto", new Integer(SqlParserSymbols.KW_AUTO));
         keywordMap.put("prepare", new Integer(SqlParserSymbols.KW_PREPARE));
         keywordMap.put("execute", new Integer(SqlParserSymbols.KW_EXECUTE));
+        keywordMap.put("lines", new Integer(SqlParserSymbols.KW_LINES));
    }
     
   // map from token id to token description
