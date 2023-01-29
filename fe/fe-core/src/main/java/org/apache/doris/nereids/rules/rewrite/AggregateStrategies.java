@@ -416,9 +416,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 .build();
         PhysicalHashAggregate<Plan> gatherLocalAgg = new PhysicalHashAggregate<>(
                 localAggGroupBy, localOutput, Optional.of(partitionExpressions),
-                new AggregateParam(AggPhase.LOCAL,
-                        logicalAgg.getGroupByExpressions().isEmpty() ? AggMode.INPUT_TO_RESULT
-                                : AggMode.INPUT_TO_BUFFER),
+                new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER),
                 maybeUsingStreamAgg(connectContext, logicalAgg),
                 logicalAgg.getLogicalProperties(), requireGather, logicalAgg.child()
         );
