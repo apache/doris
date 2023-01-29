@@ -145,8 +145,7 @@ suite("nereids_scalar_fn_1") {
     qt_sql "select day_ceil(kdtmv2s1, kint) from fn_test order by kdtmv2s1, kint"
     qt_sql "select day_ceil(kdtv2, kdtv2) from fn_test order by kdtv2, kdtv2"
     qt_sql "select day_ceil(kdtv2, kint) from fn_test order by kdtv2, kint"
-    // core
-    // qt_sql "select day_ceil(kdtm, kint, kdtm) from fn_test order by kdtm, kint, kdtm"
+    qt_sql "select day_ceil(kdtm, kint, kdtm) from fn_test order by kdtm, kint, kdtm"
     qt_sql "select day_ceil(kdtmv2s1, kint, kdtmv2s1) from fn_test order by kdtmv2s1, kint, kdtmv2s1"
     qt_sql "select day_ceil(kdtv2, kint, kdtv2) from fn_test order by kdtv2, kint, kdtv2"
     qt_sql "select day_floor(kdtm) from fn_test order by kdtm"
@@ -158,8 +157,7 @@ suite("nereids_scalar_fn_1") {
     qt_sql "select day_floor(kdtmv2s1, kint) from fn_test order by kdtmv2s1, kint"
     qt_sql "select day_floor(kdtv2, kdtv2) from fn_test order by kdtv2, kdtv2"
     qt_sql "select day_floor(kdtv2, kint) from fn_test order by kdtv2, kint"
-    // core
-    // qt_sql "select day_floor(kdtm, kint, kdtm) from fn_test order by kdtm, kint, kdtm"
+    qt_sql "select day_floor(kdtm, kint, kdtm) from fn_test order by kdtm, kint, kdtm"
     qt_sql "select day_floor(kdtmv2s1, kint, kdtmv2s1) from fn_test order by kdtmv2s1, kint, kdtmv2s1"
     qt_sql "select day_floor(kdtv2, kint, kdtv2) from fn_test order by kdtv2, kint, kdtv2"
     qt_sql "select dayname(kdtm) from fn_test order by kdtm"
@@ -187,11 +185,10 @@ suite("nereids_scalar_fn_1") {
     qt_sql "select days_diff(kdtm, kdtv2) from fn_test order by kdtm, kdtv2"
     qt_sql "select days_diff(kdtmv2s1, kdtm) from fn_test order by kdtmv2s1, kdtm"
     qt_sql "select days_diff(kdtm, kdtmv2s1) from fn_test order by kdtm, kdtmv2s1"
-    // cannot find function
-    // qt_sql "select days_sub(kdtm, kint) from fn_test order by kdtm, kint"
-    // qt_sql "select days_sub(kdtmv2s1, kint) from fn_test order by kdtmv2s1, kint"
-    // qt_sql "select days_sub(kdt, kint) from fn_test order by kdt, kint"
-    // qt_sql "select days_sub(kdtv2, kint) from fn_test order by kdtv2, kint"
+    qt_sql "select days_sub(kdtm, kint) from fn_test order by kdtm, kint"
+    qt_sql "select days_sub(kdtmv2s1, kint) from fn_test order by kdtmv2s1, kint"
+    qt_sql "select days_sub(kdt, kint) from fn_test order by kdt, kint"
+    qt_sql "select days_sub(kdtv2, kint) from fn_test order by kdtv2, kint"
     qt_sql "select dceil(kdbl) from fn_test order by kdbl"
     qt_sql "select degrees(kdbl) from fn_test order by kdbl"
     // data out of double range
