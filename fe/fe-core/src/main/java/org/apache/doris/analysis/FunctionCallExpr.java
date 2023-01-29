@@ -1426,12 +1426,16 @@ public class FunctionCallExpr extends Expr {
             this.type = fn.getReturnType();
         }
 
-        if (this.type.isDecimalV2() || this.type.isDecimalV3() || (this.type.isDatetimeV2()
+        if (this.type.isDecimalV2()) {
+            this.type = Type.MAX_DECIMALV2_TYPE;
+            fn.setReturnType(Type.MAX_DECIMALV2_TYPE);
+        }
+
+        if (this.type.isDecimalV3() || (this.type.isDatetimeV2()
                 && !TIME_FUNCTIONS_WITH_PRECISION.contains(fnName.getFunction().toLowerCase()))) {
             // TODO(gabriel): If type exceeds max precision of DECIMALV3, we should change it to a double function
             this.type = PRECISION_INFER_RULE.getOrDefault(fnName.getFunction(), DEFAULT_PRECISION_INFER_RULE)
                     .apply(children, this.type);
-            fn.setReturnType(this.type);
         }
         // rewrite return type if is nested type function
         analyzeNestedFunction();
