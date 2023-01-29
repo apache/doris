@@ -108,7 +108,7 @@ public class MTMVJobManager {
                 } finally {
                     unlock();
                 }
-            }, 0, 1, TimeUnit.DAYS);
+            }, 0, 1, TimeUnit.MINUTES);
 
             taskManager.startTaskScheduler();
         }
