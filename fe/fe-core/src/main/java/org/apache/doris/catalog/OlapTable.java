@@ -2010,4 +2010,7 @@ public class OlapTable extends Table {
         return idToPartition.keySet();
     }
 
+    public TStorageMedium getStorageMedium() {
+        return tableProperty.getStorageMedium();
+    }
 }

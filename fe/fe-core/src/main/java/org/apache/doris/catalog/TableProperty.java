@@ -27,10 +27,12 @@ import org.apache.doris.persist.OperationType;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TStorageFormat;
+import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -301,6 +303,15 @@ public class TableProperty implements Writable {
     public String getSequenceMapCol() {
         return properties.get(PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
                 + PropertyAnalyzer.PROPERTIES_SEQUENCE_COL);
+    }
+
+    public TStorageMedium getStorageMedium() {
+        String s = properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM);
+        if (StringUtils.isNotEmpty(s)) {
+            return TStorageMedium.valueOf(s);
+        } else {
+            return DataProperty.DEFAULT_STORAGE_MEDIUM;
+        }
     }
 
     public void buildReplicaAllocation() {

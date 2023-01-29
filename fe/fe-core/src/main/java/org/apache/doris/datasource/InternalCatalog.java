@@ -1356,6 +1356,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                         olapTable.storeRowColumn().toString());
             }
 
+            if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM)) {
+                properties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM,
+                        olapTable.getStorageMedium().name());
+            }
+
             singlePartitionDesc.analyze(partitionInfo.getPartitionColumns().size(), properties);
             partitionInfo.createAndCheckPartitionItem(singlePartitionDesc, isTempPartition);
 
@@ -2131,10 +2136,11 @@ public class InternalCatalog implements CatalogIf<Database> {
             } else if (partitionInfo.getType() == PartitionType.RANGE
                     || partitionInfo.getType() == PartitionType.LIST) {
                 try {
-                    // just for remove entries in stmt.getProperties(),
-                    // and then check if there still has unknown properties
-                    PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
-                            new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
+                    // remove entries in stmt.getProperties, and then check if there still has unknown properties
+                    DataProperty dataProperty = PropertyAnalyzer.analyzeDataProperty(stmt.getProperties(),
+                        new DataProperty(DataProperty.DEFAULT_STORAGE_MEDIUM));
+                    olapTable.getTableProperty().modifyTableProperties(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM,
+                            dataProperty.getStorageMedium().name());
                     if (partitionInfo.getType() == PartitionType.RANGE) {
                         DynamicPartitionUtil.checkAndSetDynamicPartitionProperty(olapTable, properties, db);
 
