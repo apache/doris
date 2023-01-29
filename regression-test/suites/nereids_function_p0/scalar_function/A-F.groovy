@@ -28,8 +28,7 @@ suite("nereids_scalar_fn_1") {
     qt_sql "select abs(kint) from fn_test order by kint"
     qt_sql "select abs(ktint) from fn_test order by ktint"
     qt_sql "select abs(kdcmls1) from fn_test order by kdcmls1"
-    // data out of function definition field
-    // qt_sql "select acos(kdbl) from fn_test order by kdbl"
+    qt_sql "select acos(kdbl) from fn_test order by kdbl"
     sql "select aes_decrypt(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
     sql "select aes_decrypt(kstr, kstr) from fn_test order by kstr, kstr"
     sql "select aes_decrypt(kvchrs1, kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1, kvchrs1"
