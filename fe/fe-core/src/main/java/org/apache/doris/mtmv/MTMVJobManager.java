@@ -239,6 +239,16 @@ public class MTMVJobManager {
         return taskManager.killTask(job.getId(), clearPending);
     }
 
+    public MTMVUtils.TaskSubmitStatus refreshMTMVTask(String dbName, String mvName) throws DdlException {
+        for (String jobName : nameToJobMap.keySet()) {
+            MTMVJob job = nameToJobMap.get(jobName);
+            if (job.getMVName().equals(mvName) && job.getDBName().equals(dbName)) {
+                return submitJobTask(jobName);
+            }
+        }
+        throw new DdlException("No job find for the MaterializedView " + dbName + "." + mvName + " .");
+    }
+
     public MTMVUtils.TaskSubmitStatus submitJobTask(String jobName) {
         return submitJobTask(jobName, new MTMVTaskExecuteParams());
     }

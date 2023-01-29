@@ -76,6 +76,7 @@ suite("test_create_mtmv") {
 
     assertEquals 'SUCCESS', state, show_task_result.last().toString()
     order_qt_select "SELECT * FROM ${mvName}"
+<<<<<<< HEAD
 
     sql """
         DROP MATERIALIZED VIEW ${mvName}
@@ -102,6 +103,20 @@ suite("test_create_mtmv") {
 
     def show_job_result = sql "SHOW MTMV JOB ON ${mvName}"
     assertEquals 1, show_job_result.size()
+
+    // test REFRESH make sure only defile one mv
+    sql """
+        REFRESH MATERIALIZED VIEW ${mvName} COMPLETE
+    """
+        do {
+        show_task_result = sql "${query}"
+        state = show_task_result.last().get(index)
+        println "The state of ${query} is ${state}"
+        Thread.sleep(1000);
+    } while (state.equals('PENDING') || state.equals('RUNNING'))
+
+    assertEquals 'SUCCESS', state, show_task_result.last().toString()
+    assertEquals 2, show_task_result.size()
 
     sql """
         DROP MATERIALIZED VIEW ${mvName}
