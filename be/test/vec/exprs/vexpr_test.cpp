@@ -32,7 +32,6 @@
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
-#include "runtime/tuple_row.h"
 #include "testutil/desc_tbl_builder.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/runtime/vdatetime_value.h"

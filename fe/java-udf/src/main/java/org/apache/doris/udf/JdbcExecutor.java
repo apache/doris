@@ -21,17 +21,20 @@ import org.apache.doris.thrift.TJdbcExecutorCtorParams;
 import org.apache.doris.thrift.TJdbcOperation;
 
 import com.google.common.base.Preconditions;
-import com.zaxxer.hikari.HikariConfig;
-import com.zaxxer.hikari.HikariDataSource;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
-import java.io.FileNotFoundException;
+import java.io.File;
+import java.lang.reflect.InvocationTargetException;
 import java.net.MalformedURLException;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.sql.Connection;
 import java.sql.Date;
+import java.sql.Driver;
+import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
@@ -50,10 +53,12 @@ public class JdbcExecutor {
     private Statement stmt = null;
     private ResultSet resultSet = null;
     private ResultSetMetaData resultSetMetaData = null;
-    // Use HikariDataSource to help us manage the JDBC connections.
-    private HikariDataSource dataSource = null;
     private List<String> resultColumnTypeNames = null;
     private int baseTypeInt = 0;
+    private URLClassLoader classLoader = null;
+    private List<List<Object>> block = null;
+    private int bacthSizeNum = 0;
+    private int curBlockRows = 0;
 
     public JdbcExecutor(byte[] thriftParams) throws Exception {
         TJdbcExecutorCtorParams request = new TJdbcExecutorCtorParams();
@@ -75,22 +80,31 @@ public class JdbcExecutor {
             stmt.close();
         }
         if (conn != null) {
+            conn.clearWarnings();
             conn.close();
         }
-        if (dataSource != null) {
-            dataSource.close();
+        if (classLoader != null) {
+            classLoader.clearAssertionStatus();
+            classLoader.close();
         }
         resultSet = null;
         stmt = null;
         conn = null;
-        dataSource = null;
+        classLoader = null;
     }
 
     public int read() throws UdfRuntimeException {
         try {
             resultSet = ((PreparedStatement) stmt).executeQuery();
             resultSetMetaData = resultSet.getMetaData();
-            return resultSetMetaData.getColumnCount();
+            int columnCount = resultSetMetaData.getColumnCount();
+            resultColumnTypeNames = new ArrayList<>(columnCount);
+            block = new ArrayList<>(columnCount);
+            for (int i = 0; i < columnCount; ++i) {
+                resultColumnTypeNames.add(resultSetMetaData.getColumnClassName(i + 1));
+                block.add(Arrays.asList(new Object[bacthSizeNum]));
+            }
+            return columnCount;
         } catch (SQLException e) {
             throw new UdfRuntimeException("JDBC executor sql has error: ", e);
         }
@@ -111,17 +125,8 @@ public class JdbcExecutor {
         }
     }
 
-    public List<String> getResultColumnTypeNames() throws UdfRuntimeException {
-        try {
-            int count = resultSetMetaData.getColumnCount();
-            resultColumnTypeNames = new ArrayList<>(count);
-            for (int i = 0; i < count; ++i) {
-                resultColumnTypeNames.add(resultSetMetaData.getColumnClassName(i + 1));
-            }
-            return resultColumnTypeNames;
-        } catch (SQLException e) {
-            throw new UdfRuntimeException("JDBC executor getResultColumnTypeNames has error: ", e);
-        }
+    public List<String> getResultColumnTypeNames() {
+        return resultColumnTypeNames;
     }
 
     public List<Object> getArrayColumnData(Object object) throws UdfRuntimeException {
@@ -169,26 +174,25 @@ public class JdbcExecutor {
     }
 
     public List<List<Object>> getBlock(int batchSize) throws UdfRuntimeException {
-        List<List<Object>> block = null;
         try {
             int columnCount = resultSetMetaData.getColumnCount();
-            block = new ArrayList<>(columnCount);
-            for (int i = 0; i < columnCount; ++i) {
-                block.add(new ArrayList<>(batchSize));
-            }
-            int numRows = 0;
+            curBlockRows = 0;
             do {
                 for (int i = 0; i < columnCount; ++i) {
-                    block.get(i).add(resultSet.getObject(i + 1));
+                    block.get(i).set(curBlockRows, resultSet.getObject(i + 1));
                 }
-                numRows++;
-            } while (numRows < batchSize && resultSet.next());
+                curBlockRows++;
+            } while (curBlockRows < batchSize && resultSet.next());
         } catch (SQLException e) {
             throw new UdfRuntimeException("get next block failed: ", e);
         } catch (Exception e) {
             throw new UdfRuntimeException("unable to get next : ", e);
         }
         return block;
+    }
+
+    public int getCurBlockRows() {
+        return curBlockRows;
     }
 
     public boolean hasNext() throws UdfRuntimeException {
@@ -242,34 +246,41 @@ public class JdbcExecutor {
     private void init(String driverUrl, String sql, int batchSize, String driverClass, String jdbcUrl, String jdbcUser,
             String jdbcPassword, TJdbcOperation op) throws UdfRuntimeException {
         try {
-            ClassLoader parent = getClass().getClassLoader();
-            ClassLoader classLoader = UdfUtils.getClassLoader(driverUrl, parent);
-            Thread.currentThread().setContextClassLoader(classLoader);
-            HikariConfig config = new HikariConfig();
-            config.setDriverClassName(driverClass);
-            config.setJdbcUrl(jdbcUrl);
-            config.setUsername(jdbcUser);
-            config.setPassword(jdbcPassword);
-            config.setMaximumPoolSize(1);
+            File file = new File(driverUrl);
+            URL url = file.toURI().toURL();
+            classLoader = new URLClassLoader(new URL[] {url});
+            Driver driver = (Driver) Class.forName(driverClass, true, classLoader).getDeclaredConstructor()
+                    .newInstance();
+            // in jdk11 cann't call addURL function by reflect to load class. so use this way
+            // But DriverManager can't find the driverClass correctly, so add a faker driver
+            // https://www.kfu.com/~nsayer/Java/dyn-jdbc.html
+            DriverManager.registerDriver(new FakeDriver(driver));
+            conn = DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword);
 
-            dataSource = new HikariDataSource(config);
-            conn = dataSource.getConnection();
             if (op == TJdbcOperation.READ) {
                 conn.setAutoCommit(false);
                 Preconditions.checkArgument(sql != null);
                 stmt = conn.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY,
                         ResultSet.FETCH_FORWARD);
                 stmt.setFetchSize(batchSize);
+                bacthSizeNum = batchSize;
             } else {
                 stmt = conn.createStatement();
             }
-        } catch (FileNotFoundException e) {
-            throw new UdfRuntimeException("Can not find driver file:  " + driverUrl, e);
+        } catch (ClassNotFoundException e) {
+            throw new UdfRuntimeException("ClassNotFoundException:  " + driverClass, e);
         } catch (MalformedURLException e) {
             throw new UdfRuntimeException("MalformedURLException to load class about " + driverUrl, e);
         } catch (SQLException e) {
             throw new UdfRuntimeException("Initialize datasource failed: ", e);
+        } catch (InstantiationException e) {
+            throw new UdfRuntimeException("InstantiationException failed: ", e);
+        } catch (IllegalAccessException e) {
+            throw new UdfRuntimeException("IllegalAccessException failed: ", e);
+        } catch (InvocationTargetException e) {
+            throw new UdfRuntimeException("InvocationTargetException new instance failed: ", e);
+        } catch (NoSuchMethodException e) {
+            throw new UdfRuntimeException("NoSuchMethodException Load class failed: ", e);
         }
     }
 }
-

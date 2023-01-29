@@ -324,14 +324,19 @@ public class BrokerLoadJob extends BulkLoadJob {
         summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Load");
         summaryProfile.addInfoString(ProfileManager.QUERY_STATE, "N/A");
         summaryProfile.addInfoString(ProfileManager.USER, "N/A");
-        summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, "N/A");
-        summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, "N/A");
+        summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, getDefaultDb());
+        summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, this.getOriginStmt().originStmt);
         summaryProfile.addInfoString(ProfileManager.IS_CACHED, "N/A");
 
         // Add the summary profile to the first
         jobProfile.addFirstChild(summaryProfile);
         jobProfile.computeTimeInChildProfile();
         ProfileManager.getInstance().pushProfile(jobProfile);
+    }
+
+    private String getDefaultDb() {
+        Database database = Env.getCurrentEnv().getInternalCatalog().getDb(this.dbId).orElse(null);
+        return database == null ? "N/A" : database.getFullName();
     }
 
     private void updateLoadingStatus(BrokerLoadingTaskAttachment attachment) {

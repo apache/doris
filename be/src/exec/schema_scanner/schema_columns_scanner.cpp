@@ -21,35 +21,35 @@
 
 #include "exec/schema_scanner/schema_helper.h"
 #include "runtime/primitive_type.h"
-#include "runtime/string_value.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
 SchemaScanner::ColumnDesc SchemaColumnsScanner::_s_col_columns[] = {
         //   name,       type,          size,                     is_null
-        {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"TABLE_SCHEMA", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"TABLE_NAME", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"COLUMN_NAME", TYPE_VARCHAR, sizeof(StringValue), false},
+        {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"TABLE_SCHEMA", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"TABLE_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"COLUMN_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
         {"ORDINAL_POSITION", TYPE_BIGINT, sizeof(int64_t), false},
-        {"COLUMN_DEFAULT", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"IS_NULLABLE", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"DATA_TYPE", TYPE_VARCHAR, sizeof(StringValue), false},
+        {"COLUMN_DEFAULT", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"IS_NULLABLE", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"DATA_TYPE", TYPE_VARCHAR, sizeof(StringRef), false},
         {"CHARACTER_MAXIMUM_LENGTH", TYPE_BIGINT, sizeof(int64_t), true},
         {"CHARACTER_OCTET_LENGTH", TYPE_BIGINT, sizeof(int64_t), true},
         {"NUMERIC_PRECISION", TYPE_BIGINT, sizeof(int64_t), true},
         {"NUMERIC_SCALE", TYPE_BIGINT, sizeof(int64_t), true},
         {"DATETIME_PRECISION", TYPE_BIGINT, sizeof(int64_t), true},
-        {"CHARACTER_SET_NAME", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"COLLATION_NAME", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"COLUMN_TYPE", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"COLUMN_KEY", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"EXTRA", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"PRIVILEGES", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"COLUMN_COMMENT", TYPE_VARCHAR, sizeof(StringValue), false},
+        {"CHARACTER_SET_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"COLLATION_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"COLUMN_TYPE", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"COLUMN_KEY", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"EXTRA", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"PRIVILEGES", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"COLUMN_COMMENT", TYPE_VARCHAR, sizeof(StringRef), false},
         {"COLUMN_SIZE", TYPE_BIGINT, sizeof(int64_t), true},
         {"DECIMAL_DIGITS", TYPE_BIGINT, sizeof(int64_t), true},
-        {"GENERATION_EXPRESSION", TYPE_VARCHAR, sizeof(StringValue), true},
+        {"GENERATION_EXPRESSION", TYPE_VARCHAR, sizeof(StringRef), true},
         {"SRS_ID", TYPE_BIGINT, sizeof(int64_t), true},
 };
 
@@ -59,7 +59,7 @@ SchemaColumnsScanner::SchemaColumnsScanner()
           _table_index(0),
           _column_index(0) {}
 
-SchemaColumnsScanner::~SchemaColumnsScanner() {}
+SchemaColumnsScanner::~SchemaColumnsScanner() = default;
 
 Status SchemaColumnsScanner::start(RuntimeState* state) {
     if (!_is_init) {
@@ -218,6 +218,9 @@ std::string SchemaColumnsScanner::type_to_string(TColumnDesc& desc) {
     }
 }
 
+// TODO: ALL schema algorithm like these need to be refactor to avoid UB and
+// keep StringRef semantic to be kept.
+
 //fill row in the "INFORMATION_SCHEMA COLUMNS"
 //Reference from https://dev.mysql.com/doc/refman/8.0/en/information-schema-columns-table.html
 Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
@@ -230,39 +233,43 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
             tuple->set_null(_tuple_desc->slots()[0]->null_indicator_offset());
         } else {
             void* slot = tuple->get_slot(_tuple_desc->slots()[0]->tuple_offset());
-            StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+            StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
+            // todo: we may change all of StringRef in similar usage
+            // to Slice someday to distinguish different purposes of use.
+            // or just merge them.
             std::string catalog_name = _db_result.catalogs[_db_index - 1];
-            str_slot->ptr = (char*)pool->allocate(catalog_name.size());
-            str_slot->len = catalog_name.size();
-            memcpy(str_slot->ptr, catalog_name.c_str(), str_slot->len);
+            str_slot->data = (char*)pool->allocate(catalog_name.size());
+            str_slot->size = catalog_name.size();
+            memcpy(const_cast<char*>(str_slot->data), catalog_name.c_str(), str_slot->size);
         }
     }
     // TABLE_SCHEMA
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[1]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
         std::string db_name = SchemaHelper::extract_db_name(_db_result.dbs[_db_index - 1]);
-        str_slot->ptr = (char*)pool->allocate(db_name.size());
-        str_slot->len = db_name.size();
-        memcpy(str_slot->ptr, db_name.c_str(), str_slot->len);
+        str_slot->data = (char*)pool->allocate(db_name.size());
+        str_slot->size = db_name.size();
+        memcpy(const_cast<char*>(str_slot->data), db_name.c_str(), str_slot->size);
     }
     // TABLE_NAME
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[2]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        str_slot->ptr = (char*)pool->allocate(_table_result.tables[_table_index - 1].length());
-        str_slot->len = _table_result.tables[_table_index - 1].length();
-        memcpy(str_slot->ptr, _table_result.tables[_table_index - 1].c_str(), str_slot->len);
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
+        str_slot->data = (char*)pool->allocate(_table_result.tables[_table_index - 1].length());
+        str_slot->size = _table_result.tables[_table_index - 1].length();
+        memcpy(const_cast<char*>(str_slot->data), _table_result.tables[_table_index - 1].c_str(),
+               str_slot->size);
     }
     // COLUMN_NAME
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[3]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        str_slot->ptr = (char*)pool->allocate(
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
+        str_slot->data = (char*)pool->allocate(
                 _desc_result.columns[_column_index].columnDesc.columnName.length());
-        str_slot->len = _desc_result.columns[_column_index].columnDesc.columnName.length();
-        memcpy(str_slot->ptr, _desc_result.columns[_column_index].columnDesc.columnName.c_str(),
-               str_slot->len);
+        str_slot->size = _desc_result.columns[_column_index].columnDesc.columnName.length();
+        memcpy(const_cast<char*>(str_slot->data),
+               _desc_result.columns[_column_index].columnDesc.columnName.c_str(), str_slot->size);
     }
     // ORDINAL_POSITION
     {
@@ -275,33 +282,33 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     // IS_NULLABLE
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[6]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
 
         if (_desc_result.columns[_column_index].columnDesc.__isset.isAllowNull) {
             if (_desc_result.columns[_column_index].columnDesc.isAllowNull) {
-                str_slot->len = strlen("YES");
-                str_slot->ptr = (char*)pool->allocate(str_slot->len);
-                memcpy(str_slot->ptr, "YES", str_slot->len);
+                str_slot->size = strlen("YES");
+                str_slot->data = (char*)pool->allocate(str_slot->size);
+                memcpy(const_cast<char*>(str_slot->data), "YES", str_slot->size);
             } else {
-                str_slot->len = strlen("NO");
-                str_slot->ptr = (char*)pool->allocate(str_slot->len);
-                memcpy(str_slot->ptr, "NO", str_slot->len);
+                str_slot->size = strlen("NO");
+                str_slot->data = (char*)pool->allocate(str_slot->size);
+                memcpy(const_cast<char*>(str_slot->data), "NO", str_slot->size);
             }
         } else {
-            str_slot->len = strlen("NO");
-            str_slot->ptr = (char*)pool->allocate(str_slot->len);
-            memcpy(str_slot->ptr, "NO", str_slot->len);
+            str_slot->size = strlen("NO");
+            str_slot->data = (char*)pool->allocate(str_slot->size);
+            memcpy(const_cast<char*>(str_slot->data), "NO", str_slot->size);
         }
     }
     // DATA_TYPE
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[7]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
         std::string buffer =
                 to_mysql_data_type_string(_desc_result.columns[_column_index].columnDesc);
-        str_slot->len = buffer.length();
-        str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        memcpy(str_slot->ptr, buffer.c_str(), str_slot->len);
+        str_slot->size = buffer.length();
+        str_slot->data = (char*)pool->allocate(str_slot->size);
+        memcpy(const_cast<char*>(str_slot->data), buffer.c_str(), str_slot->size);
     }
     // CHARACTER_MAXIMUM_LENGTH
     // For string columns, the maximum length in characters.
@@ -366,51 +373,54 @@ Status SchemaColumnsScanner::fill_one_row(Tuple* tuple, MemPool* pool) {
     // COLUMN_TYPE
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[15]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
         std::string buffer = type_to_string(_desc_result.columns[_column_index].columnDesc);
-        str_slot->len = buffer.length();
-        str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        memcpy(str_slot->ptr, buffer.c_str(), str_slot->len);
+        str_slot->size = buffer.length();
+        str_slot->data = (char*)pool->allocate(str_slot->size);
+        memcpy(const_cast<char*>(str_slot->data), buffer.c_str(), str_slot->size);
     }
     // COLUMN_KEY
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[16]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
         if (_desc_result.columns[_column_index].columnDesc.__isset.columnKey) {
-            str_slot->len = _desc_result.columns[_column_index].columnDesc.columnKey.length();
-            str_slot->ptr = (char*)pool->allocate(
+            str_slot->size = _desc_result.columns[_column_index].columnDesc.columnKey.length();
+            str_slot->data = (char*)pool->allocate(
                     _desc_result.columns[_column_index].columnDesc.columnKey.length());
-            memcpy(str_slot->ptr, _desc_result.columns[_column_index].columnDesc.columnKey.c_str(),
-                   str_slot->len);
+            memcpy(const_cast<char*>(str_slot->data),
+                   _desc_result.columns[_column_index].columnDesc.columnKey.c_str(),
+                   str_slot->size);
         } else {
-            str_slot->len = strlen("") + 1;
-            str_slot->ptr = (char*)pool->allocate(str_slot->len);
-            memcpy(str_slot->ptr, "", str_slot->len);
+            str_slot->size = strlen("") + 1;
+            str_slot->data = (char*)pool->allocate(str_slot->size);
+            memcpy(const_cast<char*>(str_slot->data), "", str_slot->size);
         }
     }
     // EXTRA
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[17]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        str_slot->len = strlen("") + 1;
-        str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        memcpy(str_slot->ptr, "", str_slot->len);
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
+        str_slot->size = strlen("") + 1;
+        str_slot->data = (char*)pool->allocate(str_slot->size);
+        memcpy(const_cast<char*>(str_slot->data), "", str_slot->size);
     }
     // PRIVILEGES
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[18]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        str_slot->len = strlen("") + 1;
-        str_slot->ptr = (char*)pool->allocate(str_slot->len);
-        memcpy(str_slot->ptr, "", str_slot->len);
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
+        str_slot->size = strlen("") + 1;
+        str_slot->data = (char*)pool->allocate(str_slot->size);
+        memcpy(const_cast<char*>(str_slot->data), "", str_slot->size);
     }
     // COLUMN_COMMENT
     {
         void* slot = tuple->get_slot(_tuple_desc->slots()[19]->tuple_offset());
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        str_slot->ptr = (char*)pool->allocate(_desc_result.columns[_column_index].comment.length());
-        str_slot->len = _desc_result.columns[_column_index].comment.length();
-        memcpy(str_slot->ptr, _desc_result.columns[_column_index].comment.c_str(), str_slot->len);
+        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
+        str_slot->data =
+                (char*)pool->allocate(_desc_result.columns[_column_index].comment.length());
+        str_slot->size = _desc_result.columns[_column_index].comment.length();
+        memcpy(const_cast<char*>(str_slot->data),
+               _desc_result.columns[_column_index].comment.c_str(), str_slot->size);
     }
     // COLUMN_SIZE
     {

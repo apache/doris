@@ -269,7 +269,7 @@ public class CooldownJob implements Writable {
                     replayCreateJob(replayedJob);
                     break;
                 case SEND_CONF:
-                    replayPengingJob();
+                    replayPendingJob();
                     break;
                 case FINISHED:
                     replayRunningJob(replayedJob);
@@ -321,7 +321,7 @@ public class CooldownJob implements Writable {
     /**
      * Replay job in PENDING state. set cooldown type in Replica
      */
-    private void replayPengingJob() throws CooldownException {
+    private void replayPendingJob() throws CooldownException {
         for (CooldownConf cooldownConf : cooldownConfList) {
             setCooldownReplica(cooldownConf.getDbId(), cooldownConf.getTableId(), cooldownConf.getPartitionId(),
                     cooldownConf.getIndexId(), cooldownConf.getTabletId(), cooldownConf.getCooldownReplicaId(),

@@ -45,7 +45,6 @@ class ObjectPool;
 class TDescriptorTable;
 class TSlotDescriptor;
 class TTupleDescriptor;
-class Expr;
 class RuntimeState;
 class SchemaScanner;
 class OlapTableSchemaParam;

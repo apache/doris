@@ -19,6 +19,7 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include "exec/tablet_info.h"
 #include "gen_cpp/descriptors.pb.h"
 #include "olap/utils.h"
 #include "tablet_meta.h"
@@ -611,7 +612,7 @@ std::string TabletSchema::to_key() const {
 }
 
 void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version,
-                                               const POlapTableIndexSchema& index,
+                                               const OlapTableIndexSchema* index,
                                                const TabletSchema& ori_tablet_schema) {
     // copy from ori_tablet_schema
     _keys_type = ori_tablet_schema.keys_type();
@@ -637,26 +638,24 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _field_name_to_index.clear();
     _field_id_to_index.clear();
 
-    for (auto& pcolumn : index.columns_desc()) {
-        TabletColumn column;
-        column.init_from_pb(pcolumn);
-        if (column.is_key()) {
+    for (auto& column : index->columns) {
+        if (column->is_key()) {
             _num_key_columns++;
         }
-        if (column.is_nullable()) {
+        if (column->is_nullable()) {
             _num_null_columns++;
         }
-        if (column.is_bf_column()) {
+        if (column->is_bf_column()) {
             has_bf_columns = true;
         }
-        if (UNLIKELY(column.name() == DELETE_SIGN)) {
+        if (UNLIKELY(column->name() == DELETE_SIGN)) {
             _delete_sign_idx = _num_columns;
-        } else if (UNLIKELY(column.name() == SEQUENCE_COL)) {
+        } else if (UNLIKELY(column->name() == SEQUENCE_COL)) {
             _sequence_col_idx = _num_columns;
         }
-        _field_name_to_index[column.name()] = _num_columns;
-        _field_id_to_index[column.unique_id()] = _num_columns;
-        _cols.emplace_back(std::move(column));
+        _field_name_to_index[column->name()] = _num_columns;
+        _field_id_to_index[column->unique_id()] = _num_columns;
+        _cols.emplace_back(*column);
         _num_columns++;
     }
 

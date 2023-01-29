@@ -20,7 +20,6 @@
 #include <cstdint>
 
 #include "exprs/bitmapfilter_predicate.h"
-#include "exprs/cast_functions.h"
 #include "exprs/runtime_filter.h"
 #include "olap/column_predicate.h"
 #include "olap/wrapper_field.h"

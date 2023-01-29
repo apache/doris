@@ -30,7 +30,7 @@ void validate_string(const std::string& std_str, const StringBuffer& str) {
     EXPECT_EQ((int)std_str.size(), str.size());
 
     if (std_str.size() > 0) {
-        EXPECT_EQ(strncmp(std_str.c_str(), str.str().ptr, std_str.size()), 0);
+        EXPECT_EQ(strncmp(std_str.c_str(), str.str().data, std_str.size()), 0);
     }
 }
 

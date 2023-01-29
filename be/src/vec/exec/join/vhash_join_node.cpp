@@ -17,6 +17,7 @@
 
 #include "vec/exec/join/vhash_join_node.h"
 
+#include "exprs/bloom_filter_func.h"
 #include "exprs/runtime_filter_slots.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gutil/strings/substitute.h"

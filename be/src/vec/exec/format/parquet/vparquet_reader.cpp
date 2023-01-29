@@ -186,6 +186,10 @@ Status ParquetReader::init_reader(
         const std::vector<std::string>& missing_column_names,
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
         VExprContext* vconjunct_ctx, bool filter_groups) {
+    if (_file_metadata == nullptr) {
+        return Status::InternalError("failed to init parquet reader, please open reader first");
+    }
+
     SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
     _total_groups = _t_metadata->row_groups.size();
     if (_total_groups == 0) {
@@ -402,8 +406,12 @@ Status ParquetReader::get_next_block(Block* block, size_t* read_rows, bool* eof)
     DCHECK(_current_group_reader != nullptr);
     {
         SCOPED_RAW_TIMER(&_statistics.column_read_time);
-        RETURN_IF_ERROR(
-                _current_group_reader->next_batch(block, _batch_size, read_rows, &_row_group_eof));
+        Status batch_st =
+                _current_group_reader->next_batch(block, _batch_size, read_rows, &_row_group_eof);
+        if (!batch_st.ok()) {
+            return Status::InternalError("Read parquet file {} failed, reason = {}",
+                                         _scan_range.path, batch_st.to_string());
+        }
     }
     if (_row_group_eof) {
         auto column_st = _current_group_reader->statistics();

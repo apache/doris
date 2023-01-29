@@ -17,7 +17,6 @@
 
 #include "vec/functions/functions_geo.h"
 
-#include "geo/geo_functions.h"
 #include "geo/geo_types.h"
 #include "gutil/strings/substitute.h"
 #include "vec/columns/column_const.h"
