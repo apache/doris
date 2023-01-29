@@ -323,7 +323,8 @@ public class BrokerLoadJob extends BulkLoadJob {
 
         summaryProfile.addInfoString(ProfileManager.QUERY_TYPE, "Load");
         summaryProfile.addInfoString(ProfileManager.QUERY_STATE, "N/A");
-        summaryProfile.addInfoString(ProfileManager.USER, "N/A");
+        summaryProfile.addInfoString(ProfileManager.USER,
+                getUserInfo() != null ? getUserInfo().getQualifiedUser() : "N/A");
         summaryProfile.addInfoString(ProfileManager.DEFAULT_DB, getDefaultDb());
         summaryProfile.addInfoString(ProfileManager.SQL_STATEMENT, this.getOriginStmt().originStmt);
         summaryProfile.addInfoString(ProfileManager.IS_CACHED, "N/A");
