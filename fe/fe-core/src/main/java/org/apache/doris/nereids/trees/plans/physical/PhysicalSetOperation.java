@@ -40,6 +40,7 @@ import java.util.Optional;
  * Physical SetOperation.
  */
 public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implements SetOperation {
+
     protected final Qualifier qualifier;
 
     public PhysicalSetOperation(PlanType planType,

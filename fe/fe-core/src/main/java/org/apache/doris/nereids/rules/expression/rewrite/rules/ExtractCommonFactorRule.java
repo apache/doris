@@ -24,10 +24,12 @@ import org.apache.doris.nereids.trees.expressions.CompoundPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -47,8 +49,7 @@ public class ExtractCommonFactorRule extends AbstractExpressionRewriteRule {
     public Expression visitCompoundPredicate(CompoundPredicate expr, ExpressionRewriteContext context) {
 
         Expression rewrittenChildren = ExpressionUtils.combine(expr.getClass(), ExpressionUtils.extract(expr).stream()
-                .map(predicate -> rewrite(predicate, context)).collect(Collectors.toList()));
-
+                .map(predicate -> rewrite(predicate, context)).collect(ImmutableList.toImmutableList()));
         if (!(rewrittenChildren instanceof CompoundPredicate)) {
             return rewrittenChildren;
         }
@@ -59,8 +60,10 @@ public class ExtractCommonFactorRule extends AbstractExpressionRewriteRule {
                 .map(predicate -> predicate instanceof CompoundPredicate ? ExpressionUtils.extract(
                         (CompoundPredicate) predicate) : Lists.newArrayList(predicate)).collect(Collectors.toList());
 
-        Set<Expression> commons = partitions.stream().map(predicates -> predicates.stream().collect(Collectors.toSet()))
-                .reduce(Sets::intersection).orElse(Collections.emptySet());
+        Set<Expression> commons = partitions.stream()
+                .<Set<Expression>>map(HashSet::new)
+                .reduce(Sets::intersection)
+                .orElse(Collections.emptySet());
 
         List<List<Expression>> uncorrelated = partitions.stream()
                 .map(predicates -> predicates.stream().filter(p -> !commons.contains(p)).collect(Collectors.toList()))
