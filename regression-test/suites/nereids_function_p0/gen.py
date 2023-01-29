@@ -19,9 +19,28 @@
 
 import os
 import re
+from typing import List
 DORIS_HOME = "../../../"
 mp = {}
-
+mp1 = {'tinyint': ['ktint'],
+       'smallint': ['ksint'],
+       'integer': ['kint'],
+       'bigint': ['kbint'],
+       'largeint': ['klint'],
+       'float': ['kfloat'],
+       'double': ['kdbl'],
+       'decimalv2': ['kdcmls1'],
+       'char': ['kchrs1'],
+       'varchar': ['kvchrs1'],
+       'string': ['kstr'],
+       'date': ['kdt'],
+       'datetime': ['kdtm'],
+       'datev2': ['kdtv2'],
+       'datetimev2': ['kdtmv2s1'],
+       'boolean': ['kbool'],
+       'st_string': ['st_point_str'],
+       'st_varchar': ['st_point_vc'],
+       '': ['']}
 
 def run(path):
     for f in os.listdir(path):
@@ -45,31 +64,16 @@ def run(path):
             lines = [[to_snake_case(s1).replace('_', '') for s1 in s.split(', ')] for s in lines]
             mp[name] = lines
 
+def generete_args(func_name: str, args_type: List[str]):
+    need_change = lambda x : x == 'string' or x == 'varchar'
+    if "st_" == func_name[:3]:
+        need_change = lambda x : x == 'string' or x == 'varchar'
+        args_type = ["st_"+t if need_change(t) else t for t in args_type]
+    return [mp1[s][0] for s in args_type]
 
 def to_snake_case(camel_case: str):
     snake_case = re.sub(r"(?P<key>[A-Z])", r"_\g<key>", camel_case)
     return snake_case.lower().strip('_')
-
-
-mp1 = {'tinyint': ['ktint'],
-       'smallint': ['ksint'],
-       'integer': ['kint'],
-       'bigint': ['kbint'],
-       'largeint': ['klint'],
-       'float': ['kfloat'],
-       'double': ['kdbl'],
-       'decimalv2': ['kdcmls1'],
-       'char': ['kchrs1'],
-       'varchar': ['kvchrs1'],
-       'string': ['kstr'],
-       'date': ['kdt'],
-       'datetime': ['kdtm'],
-       'datev2': ['kdtv2'],
-       'datetimev2': ['kdtmv2s1'],
-       'boolean': ['kbool'],
-       'string': ['st_point_str'],
-       'varchar': ['st_point_vc'],
-       '': ['']}
 
 run(f'{DORIS_HOME}/fe/fe-core/src/main/java/org/apache/doris/nereids/trees/expressions/functions/scalar')
 for k in sorted(mp):
@@ -84,6 +88,6 @@ for k in sorted(mp):
         if flag == 1:
             print('// function ' + k + '(' + ", ".join(i[1:]) + ') is unsupported for the test suite.')
             continue
-        args = ", ".join([mp1[s][0] for s in list(i[1:])])
+        args = ", ".join(generete_args(k, list(i[1:])))
         print('sql "select ' + k + '(' + args + ') from fn_test order by ' + args + '"')
 

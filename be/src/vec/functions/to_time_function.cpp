@@ -66,7 +66,7 @@ using FunctionDateTimeV2ToDate =
 using FunctionDateTimeV2Date = FunctionDateOrDateTimeToSomething<DataTypeDateV2, DateImpl<UInt64>>;
 
 using FunctionTimeStamp = FunctionDateOrDateTimeToSomething<DataTypeDateTime, TimeStampImpl<Int64>>;
-using FunctionTimeStampV2 = 
+using FunctionTimeStampV2 =
         FunctionDateOrDateTimeToSomething<DataTypeDateTimeV2, TimeStampImpl<UInt64>>;
 
 void register_function_to_time_function(SimpleFunctionFactory& factory) {

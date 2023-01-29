@@ -219,7 +219,7 @@ struct RegexpExtractAllImpl {
                     StringOP::push_empty_string(i, result_data, result_offset);
                     break;
                 }
-                res_matches.push_back(matches[0]);
+                res_matches.push_back(matches[1]);
                 auto offset =
                         std::string(str_pos, str_size).find(std::string(matches[0].as_string()));
                 pos += offset + matches[0].size();
