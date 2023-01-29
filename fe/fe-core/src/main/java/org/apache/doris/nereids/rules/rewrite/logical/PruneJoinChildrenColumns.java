@@ -73,15 +73,15 @@ public class PruneJoinChildrenColumns
                 .collect(Collectors.toSet());
 
         List<NamedExpression> leftInputs = joinPlan.left().getOutput().stream()
-                .filter(r -> exprIds.contains(r.getExprId())).collect(Collectors.toList());
+                .filter(r -> exprIds.contains(r.getExprId())).collect(ImmutableList.toImmutableList());
         List<NamedExpression> rightInputs = joinPlan.right().getOutput().stream()
-                .filter(r -> exprIds.contains(r.getExprId())).collect(Collectors.toList());
+                .filter(r -> exprIds.contains(r.getExprId())).collect(ImmutableList.toImmutableList());
 
         if (leftInputs.isEmpty()) {
-            leftInputs.add(ExpressionUtils.selectMinimumColumn(joinPlan.left().getOutput()));
+            leftInputs = ImmutableList.of(ExpressionUtils.selectMinimumColumn(joinPlan.left().getOutput()));
         }
         if (rightInputs.isEmpty()) {
-            rightInputs.add(ExpressionUtils.selectMinimumColumn(joinPlan.right().getOutput()));
+            rightInputs = ImmutableList.of(ExpressionUtils.selectMinimumColumn(joinPlan.right().getOutput()));
         }
 
         Plan leftPlan = joinPlan.left();

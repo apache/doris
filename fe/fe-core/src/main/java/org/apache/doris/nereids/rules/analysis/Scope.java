@@ -25,6 +25,7 @@ import com.google.common.collect.ImmutableList.Builder;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -60,16 +61,13 @@ public class Scope {
 
     public Scope(Optional<Scope> outerScope, List<Slot> slots, Optional<SubqueryExpr> subqueryExpr) {
         this.outerScope = outerScope;
-        this.slots = slots;
+        this.slots = ImmutableList.copyOf(Objects.requireNonNull(slots, "slots can not be null"));
         this.ownerSubquery = subqueryExpr;
         this.correlatedSlots = new ArrayList<>();
     }
 
     public Scope(List<Slot> slots) {
-        this.outerScope = Optional.empty();
-        this.slots = slots;
-        this.ownerSubquery = Optional.empty();
-        this.correlatedSlots = new ArrayList<>();
+        this(Optional.empty(), slots, Optional.empty());
     }
 
     public List<Slot> getSlots() {

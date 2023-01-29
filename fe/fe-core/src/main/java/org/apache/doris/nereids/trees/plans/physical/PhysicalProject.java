@@ -41,7 +41,7 @@ import java.util.Optional;
  */
 public class PhysicalProject<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> implements Project {
 
-    private final ImmutableList<NamedExpression> projects;
+    private final List<NamedExpression> projects;
 
     public PhysicalProject(List<NamedExpression> projects, LogicalProperties logicalProperties, CHILD_TYPE child) {
         this(projects, Optional.empty(), logicalProperties, child);
