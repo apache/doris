@@ -59,13 +59,15 @@ class OutputUtils {
         if (dataType == "FLOAT" || dataType == "DOUBLE" || dataType == "DECIMAL") {
             Boolean expectNull = expectCell.equals("\\\\N")
             Boolean actualNull = realCell.equals("\\\\N")
+            Boolean expectNan = expectCell.equals("nan")
+            Boolean actualNan = realCell.equals("nan")
+            Boolean expectInf = expectCell.equals("inf")
+            Boolean actualInf = realCell.equals("inf")
+            Boolean expectMinusInf = expectCell.equals("-inf")
+            Boolean actualMinusInf = realCell.equals("-inf")
 
-            if (expectNull != actualNull) {
+            if (expectNull != actualNull || expectNan != actualNan || expectInf != actualInf || expectMinusInf != actualMinusInf) {
                 return "${info}, line ${line}, ${dataType} result mismatch.\nExpect cell: ${expectCell}\nBut real is: ${realCell}"
-            } else if (expectCell.equals("nan") || expectCell.equals("inf") || expectCell.equals("-inf")) {
-                return expectCell == realCell
-                        ? null
-                        : "${info}, line ${line}, ${dataType} result mismatch.\nExpect cell: ${expectCell}\nBut real is: ${realCell}"
             } else if (!expectNull) {
                 // both are not null
                 double expectDouble = Double.parseDouble(expectCell)
