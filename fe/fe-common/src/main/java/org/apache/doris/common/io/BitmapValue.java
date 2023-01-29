@@ -320,20 +320,24 @@ public class BitmapValue {
         }
     }
 
-    public boolean equals(BitmapValue other) {
-        boolean ret = false;
-        if (this.bitmapType != other.bitmapType) {
+    @Override
+    public boolean equals(Object other) {
+        if (other == null || !(other instanceof BitmapValue)) {
             return false;
         }
-        switch (other.bitmapType) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
+        boolean ret = false;
+        if (this.bitmapType != ((BitmapValue) other).bitmapType) {
+            return false;
+        }
+        switch (((BitmapValue) other).bitmapType) { // CHECKSTYLE IGNORE THIS LINE: missing switch default
             case EMPTY:
                 ret = true;
                 break;
             case SINGLE_VALUE:
-                ret = this.singleValue == other.singleValue;
+                ret = this.singleValue == ((BitmapValue) other).singleValue;
                 break;
             case BITMAP_VALUE:
-                ret = bitmap.equals(other.bitmap);
+                ret = bitmap.equals(((BitmapValue) other).bitmap);
         }
         return ret;
     }

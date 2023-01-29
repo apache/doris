@@ -84,10 +84,10 @@ public class EsExternalTable extends ExternalTable {
         esTable.setClient(esCatalog.getEsRestClient());
         esTable.setUserName(esCatalog.getUsername());
         esTable.setPasswd(esCatalog.getPassword());
-        esTable.setEnableDocValueScan(esCatalog.isEnableDocValueScan());
-        esTable.setEnableKeywordSniff(esCatalog.isEnableKeywordSniff());
-        esTable.setNodesDiscovery(esCatalog.isEnableNodesDiscovery());
-        esTable.setHttpSslEnabled(esCatalog.isEnableSsl());
+        esTable.setEnableDocValueScan(esCatalog.enableDocValueScan());
+        esTable.setEnableKeywordSniff(esCatalog.enableKeywordSniff());
+        esTable.setNodesDiscovery(esCatalog.enableNodesDiscovery());
+        esTable.setHttpSslEnabled(esCatalog.enableSsl());
         esTable.setSeeds(esCatalog.getNodes());
         esTable.setHosts(String.join(",", esCatalog.getNodes()));
         esTable.syncTableMetaData();

@@ -647,8 +647,13 @@ public class DateLiteral extends LiteralExpr {
             }
         } else if (targetType.isStringType()) {
             return new StringLiteral(getStringValue());
-        } else if (Type.isImplicitlyCastable(this.type, targetType, true)) {
-            return new CastExpr(targetType, this);
+        } else if (targetType.isBigIntType()) {
+            long value = getYear() * 1000 + getMonth() * 100 + getDay();
+            return new IntLiteral(value, Type.BIGINT);
+        } else {
+            if (Type.isImplicitlyCastable(this.type, targetType, true)) {
+                return new CastExpr(targetType, this);
+            }
         }
         Preconditions.checkState(false);
         return this;

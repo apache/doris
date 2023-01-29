@@ -22,43 +22,32 @@
 #include "vec/common/hash_table/hash_map.h"
 #include "vec/common/hash_table/partitioned_hash_table.h"
 
-template <typename Key, typename Cell, typename Hash = DefaultHash<Key>,
-          typename Grower = PartitionedHashTableGrower<>, typename Allocator = HashTableAllocator,
-          template <typename...> typename ImplTable = HashMapTable>
-class PartitionedHashMapTable
-        : public PartitionedHashTable<Key, Cell, Hash, Grower, Allocator,
-                                      ImplTable<Key, Cell, Hash, Grower, Allocator>> {
+template <typename ImplTable>
+class PartitionedHashMapTable : public PartitionedHashTable<ImplTable> {
 public:
-    using Impl = ImplTable<Key, Cell, Hash, Grower, Allocator>;
-    using Base = PartitionedHashTable<Key, Cell, Hash, Grower, Allocator,
-                                      ImplTable<Key, Cell, Hash, Grower, Allocator>>;
+    using Impl = ImplTable;
+    using Base = PartitionedHashTable<ImplTable>;
+    using Key = typename ImplTable::key_type;
     using LookupResult = typename Impl::LookupResult;
 
     using Base::Base;
     using Base::prefetch;
 
-    using mapped_type = typename Cell::Mapped;
+    using mapped_type = typename Base::mapped_type;
 
-    typename Cell::Mapped& ALWAYS_INLINE operator[](const Key& x) {
+    auto& ALWAYS_INLINE operator[](const Key& x) {
         LookupResult it;
         bool inserted;
         this->emplace(x, it, inserted);
 
-        if (inserted) new (lookup_result_get_mapped(it)) mapped_type();
+        if (inserted) {
+            new (lookup_result_get_mapped(it)) mapped_type();
+        }
 
         return *lookup_result_get_mapped(it);
     }
 };
 
-template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>,
-          typename Grower = PartitionedHashTableGrower<>, typename Allocator = HashTableAllocator,
-          template <typename...> typename ImplTable = HashMapTable>
-using PartitionedHashMap = PartitionedHashMapTable<Key, HashMapCell<Key, Mapped, Hash>, Hash,
-                                                   Grower, Allocator, ImplTable>;
-
-template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>,
-          typename Grower = PartitionedHashTableGrower<>, typename Allocator = HashTableAllocator,
-          template <typename...> typename ImplTable = HashMapTable>
-using PartitionedHashMapWithSavedHash =
-        PartitionedHashMapTable<Key, HashMapCellWithSavedHash<Key, Mapped, Hash>, Hash, Grower,
-                                Allocator, ImplTable>;
+template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>>
+using PartitionedHashMap =
+        PartitionedHashMapTable<HashMap<Key, Mapped, Hash, PartitionedHashTableGrower<>>>;

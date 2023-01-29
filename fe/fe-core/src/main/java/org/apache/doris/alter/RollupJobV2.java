@@ -80,9 +80,11 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.StringReader;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -377,7 +379,23 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                     DescriptorTable descTable = new DescriptorTable();
                     TupleDescriptor destTupleDesc = descTable.createTupleDescriptor();
                     Map<String, SlotDescriptor> descMap = Maps.newHashMap();
-                    for (Column column : tbl.getFullSchema()) {
+
+                    List<Column> rollupColumns = new ArrayList<Column>();
+                    Set<String> columnNames = new HashSet<String>();
+                    for (Column column : tbl.getBaseSchema()) {
+                        rollupColumns.add(column);
+                        columnNames.add(column.getName());
+                    }
+
+                    for (Column column : rollupSchema) {
+                        if (columnNames.contains(column.getName())) {
+                            continue;
+                        }
+                        rollupColumns.add(column);
+                    }
+
+                    for (Column column : rollupColumns) {
+
                         SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
                         destSlotDesc.setIsMaterialized(true);
                         destSlotDesc.setColumn(column);
@@ -386,14 +404,19 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                         descMap.put(column.getName(), destSlotDesc);
                     }
 
-                    for (Column column : tbl.getFullSchema()) {
+                    for (Column column : rollupColumns) {
                         if (column.getDefineExpr() != null) {
                             defineExprs.put(column.getName(), column.getDefineExpr());
 
                             List<SlotRef> slots = new ArrayList<>();
                             column.getDefineExpr().collect(SlotRef.class, slots);
                             Preconditions.checkArgument(slots.size() == 1);
-                            slots.get(0).setDesc(descMap.get(slots.get(0).getColumnName()));
+                            SlotDescriptor slotDesc = descMap.get(slots.get(0).getColumnName());
+                            if (slotDesc == null) {
+                                slotDesc = descMap.get(column.getName());
+                            }
+                            Preconditions.checkArgument(slotDesc != null);
+                            slots.get(0).setDesc(slotDesc);
                         }
                     }
 

@@ -19,12 +19,13 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.Int32OrLessType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 
 /**
  * Integer data type in Nereids.
  */
-public class IntegerType extends IntegralType {
+public class IntegerType extends IntegralType implements Int32OrLessType {
     public static final IntegerType INSTANCE = new IntegerType();
 
     private static final int WIDTH = 4;

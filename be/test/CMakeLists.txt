@@ -86,6 +86,7 @@ set(HTTP_TEST_FILES
 )
 set(IO_TEST_FILES
     io/cache/remote_file_cache_test.cpp
+    io/cache/file_block_cache_test.cpp
 )
 set(OLAP_TEST_FILES
     olap/engine_storage_migration_task_test.cpp
@@ -158,7 +159,6 @@ set(RUNTIME_TEST_FILES
     # runtime/dpp_sink_test.cpp
     # runtime/data_spliter_test.cpp
     # runtime/tmp_file_mgr_test.cpp
-    # runtime/disk_io_mgr_test.cpp
     # runtime/thread_resource_mgr_test.cpp
     # runtime/export_task_mgr_test.cpp
     runtime/mem_pool_test.cpp
@@ -328,7 +328,16 @@ add_executable(doris_be_test
 )
 
 target_link_libraries(doris_be_test ${TEST_LINK_LIBS})
-set_target_properties(doris_be_test PROPERTIES COMPILE_FLAGS "-fno-access-control" ENABLE_EXPORTS 1)
+set_target_properties(doris_be_test PROPERTIES COMPILE_FLAGS "-fno-access-control")
+
+if (OS_MACOSX AND ARCH_ARM)
+    find_program(DSYMUTIL NAMES dsymutil)
+    message(STATUS "dsymutil found: ${DSYMUTIL}")
+    add_custom_command(TARGET doris_be_test POST_BUILD
+        COMMAND ${DSYMUTIL} $<TARGET_FILE:doris_be_test>
+        COMMAND ${CMAKE_STRIP} -S $<TARGET_FILE:doris_be_test>
+    )
+endif()
 
 if (BUILD_BENCHMARK_TOOL AND BUILD_BENCHMARK_TOOL STREQUAL "ON")
     add_executable(benchmark_tool

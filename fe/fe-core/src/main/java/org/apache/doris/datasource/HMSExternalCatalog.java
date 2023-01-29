@@ -26,7 +26,7 @@ import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
 
 import com.google.common.collect.Lists;
@@ -58,14 +58,10 @@ public class HMSExternalCatalog extends ExternalCatalog {
     /**
      * Default constructor for HMSExternalCatalog.
      */
-    public HMSExternalCatalog(
-            long catalogId, String name, String resource, Map<String, String> props) throws DdlException {
-        this.id = catalogId;
-        this.name = name;
+    public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
+        super(catalogId, name);
         this.type = "hms";
-        if (resource == null) {
-            props.putAll(HMSResource.getPropertiesFromDLF());
-        }
+        props.putAll(HMSResource.getPropertiesFromDLF());
         catalogProperty = new CatalogProperty(resource, props);
     }
 
@@ -102,11 +98,6 @@ public class HMSExternalCatalog extends ExternalCatalog {
         dbNameToId = tmpDbNameToId;
         idToDb = tmpIdToDb;
         Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
-    }
-
-    @Override
-    public void notifyPropertiesUpdated() {
-        initLocalObjectsImpl();
     }
 
     @Override

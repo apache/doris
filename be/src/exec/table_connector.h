@@ -28,7 +28,6 @@
 #include "common/status.h"
 #include "exprs/expr_context.h"
 #include "runtime/descriptors.h"
-#include "runtime/row_batch.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {

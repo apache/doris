@@ -1227,6 +1227,12 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         return this;
     }
 
+    public Map<Long, Set<String>> getTableIdToColumnNames() {
+        Map<Long, Set<String>> tableIdToColumnNames = new HashMap<Long, Set<String>>();
+        getTableIdToColumnNames(tableIdToColumnNames);
+        return tableIdToColumnNames;
+    }
+
     public void getTableIdToColumnNames(Map<Long, Set<String>> tableIdToColumnNames) {
         Preconditions.checkState(tableIdToColumnNames != null);
         for (Expr child : children) {
@@ -1785,7 +1791,9 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         CAST_EXPR(14),
         JSON_LITERAL(15),
         ARITHMETIC_EXPR(16);
-	MAP_LITERAL(17);
+	      MAP_LITERAL(17);
+        ARITHMETIC_EXPR(16),
+        STRUCT_LITERAL(17);
 
         private static Map<Integer, ExprSerCode> codeMap = Maps.newHashMap();
 
@@ -1839,7 +1847,9 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             output.writeInt(ExprSerCode.ARRAY_LITERAL.getCode());
         } else if (expr instanceof MapLiteral) {
             output.writeInt(ExprSerCode.MAP_LITERAL.getCode());
-	} else if (expr instanceof CastExpr) {
+        } else if (expr instanceof StructLiteral) {
+            output.writeInt(ExprSerCode.STRUCT_LITERAL.getCode());
+        } else if (expr instanceof CastExpr) {
             output.writeInt(ExprSerCode.CAST_EXPR.getCode());
         } else if (expr instanceof ArithmeticExpr) {
             output.writeInt(ExprSerCode.ARITHMETIC_EXPR.getCode());
@@ -1888,8 +1898,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 return FunctionCallExpr.read(in);
             case ARRAY_LITERAL:
                 return ArrayLiteral.read(in);
-	    case MAP_LITERAL:
+	          case MAP_LITERAL:
                 return MapLiteral.read(in);
+            case STRUCT_LITERAL:
+                return StructLiteral.read(in);
             case CAST_EXPR:
                 return CastExpr.read(in);
             case ARITHMETIC_EXPR:
@@ -2102,6 +2114,28 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         } else {
             return this instanceof LiteralExpr;
         }
+    }
+
+    public boolean matchExprs(List<Expr> exprs) {
+        for (Expr expr : exprs) {
+            if (expr == null) {
+                continue;
+            }
+            if (expr.toSql().equals(toSql())) {
+                return true;
+            }
+        }
+
+        if (getChildren().isEmpty()) {
+            return false;
+        }
+
+        for (Expr expr : getChildren()) {
+            if (!expr.matchExprs(exprs)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     protected Type[] getActualArgTypes(Type[] originType) {

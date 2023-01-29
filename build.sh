@@ -130,7 +130,7 @@ BUILD_BROKER=0
 BUILD_AUDIT=0
 BUILD_META_TOOL='OFF'
 BUILD_SPARK_DPP=0
-BUILD_JAVA_UDF=1
+BUILD_JAVA_UDF=0
 BUILD_HIVE_UDF=0
 CLEAN=0
 HELP=0
@@ -153,10 +153,12 @@ else
             BUILD_FE=1
             BUILD_SPARK_DPP=1
             BUILD_HIVE_UDF=1
+            BUILD_JAVA_UDF=1
             shift
             ;;
         --be)
             BUILD_BE=1
+            BUILD_JAVA_UDF=1
             shift
             ;;
         --broker)
@@ -228,7 +230,12 @@ if [[ ! -f "${DORIS_THIRDPARTY}/installed/lib/libbacktrace.a" ]]; then
     echo "Thirdparty libraries need to be build ..."
     # need remove all installed pkgs because some lib like lz4 will throw error if its lib alreay exists
     rm -rf "${DORIS_THIRDPARTY}/installed"
-    "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
+
+    if [[ "${CLEAN}" -eq 0 ]]; then
+        "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}"
+    else
+        "${DORIS_THIRDPARTY}/build-thirdparty.sh" -j "${PARALLEL}" --clean
+    fi
 fi
 
 if [[ "${CLEAN}" -eq 1 && "${BUILD_BE}" -eq 0 && "${BUILD_FE}" -eq 0 && "${BUILD_SPARK_DPP}" -eq 0 ]]; then
@@ -568,6 +575,7 @@ EOF
     copy_common_files "${DORIS_OUTPUT}/be/"
     mkdir -p "${DORIS_OUTPUT}/be/log"
     mkdir -p "${DORIS_OUTPUT}/be/storage"
+    cp -r -p "${DORIS_THIRDPARTY}/installed/share/dict" "${DORIS_OUTPUT}/be/"
 fi
 
 if [[ "${BUILD_BROKER}" -eq 1 ]]; then

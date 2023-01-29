@@ -64,7 +64,7 @@ struct TypeDescriptor {
     std::vector<std::string> field_names;
 
     // Used for complex types only.
-    bool contains_null = true;
+    std::vector<bool> contains_nulls;
 
     TypeDescriptor() : type(INVALID_TYPE), len(-1), precision(-1), scale(-1) {}
 
@@ -74,6 +74,7 @@ struct TypeDescriptor {
             precision = 27;
             scale = 9;
         } else if (type == TYPE_DATETIMEV2) {
+            precision = 18;
             scale = 6;
         }
     }

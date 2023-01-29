@@ -361,9 +361,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Slot> output = emptyRelation.getOutput();
         TupleDescriptor tupleDescriptor = generateTupleDesc(output, null, context);
         for (int i = 0; i < output.size(); i++) {
-            SlotDescriptor slotDescriptor = tupleDescriptor.getSlots().get(i);
-            slotDescriptor.setIsNullable(true); // we should set to nullable, or else BE would core
-
             Slot slot = output.get(i);
             SlotRef slotRef = context.findSlotRef(slot.getExprId());
             slotRef.setLabel(slot.getName());
@@ -523,7 +520,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         tupleDescriptor.setTable(table);
 
         SchemaScanNode scanNode = new SchemaScanNode(context.nextPlanNodeId(), tupleDescriptor);
-
+        scanNode.finalizeForNereids();
         context.getScanNodes().add(scanNode);
         PlanFragment planFragment =
                 new PlanFragment(context.nextFragmentId(), scanNode, DataPartition.RANDOM);
@@ -971,7 +968,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     .filter(Objects::nonNull)
                     .collect(Collectors.toList());
 
-            if (nestedLoopJoinNode.getConjuncts().isEmpty()
+            if (nestedLoopJoin.getOtherJoinConjuncts().isEmpty()
                     && (joinType == JoinType.LEFT_ANTI_JOIN
                         || joinType == JoinType.LEFT_SEMI_JOIN
                         || joinType == JoinType.NULL_AWARE_LEFT_ANTI_JOIN)) {
@@ -983,7 +980,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                     SlotDescriptor sd = context.createSlotDesc(intermediateDescriptor, sf);
                     leftIntermediateSlotDescriptor.add(sd);
                 }
-            } else if (nestedLoopJoinNode.getConjuncts().isEmpty()
+            } else if (nestedLoopJoin.getOtherJoinConjuncts().isEmpty()
                     && (joinType == JoinType.RIGHT_ANTI_JOIN || joinType == JoinType.RIGHT_SEMI_JOIN)) {
                 for (SlotDescriptor rightSlotDescriptor : rightSlotDescriptors) {
                     if (!rightSlotDescriptor.isMaterialized()) {
@@ -1552,9 +1549,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         DistributionSpecHash leftDistributionSpec
                 = (DistributionSpecHash) physicalHashJoin.left().getPhysicalProperties().getDistributionSpec();
         Pair<List<ExprId>, List<ExprId>> onClauseUsedSlots = JoinUtils.getOnClauseUsedSlots(physicalHashJoin);
-        List<ExprId> rightPartitionExprIds = Lists.newArrayList(onClauseUsedSlots.second);
-        for (int i = 0; i < onClauseUsedSlots.first.size(); i++) {
-            int idx = leftDistributionSpec.getExprIdToEquivalenceSet().get(onClauseUsedSlots.first.get(i));
+        List<ExprId> rightPartitionExprIds = Lists.newArrayList(leftDistributionSpec.getOrderedShuffledColumns());
+        for (int i = 0; i < leftDistributionSpec.getOrderedShuffledColumns().size(); i++) {
+            int idx = leftDistributionSpec.getExprIdToEquivalenceSet()
+                    .get(leftDistributionSpec.getOrderedShuffledColumns().get(i));
             rightPartitionExprIds.set(idx, onClauseUsedSlots.second.get(i));
         }
         // assemble fragment

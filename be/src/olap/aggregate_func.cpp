@@ -17,11 +17,10 @@
 
 #include "olap/aggregate_func.h"
 
-namespace std {
-namespace {
 // algorithm from boost: http://www.boost.org/doc/libs/1_61_0/doc/html/hash/reference.html#boost.hash_combine
+// `static` make them with internal linkage.
 template <class T>
-inline void hash_combine(std::size_t& seed, T const& v) {
+inline static void hash_combine(std::size_t& seed, T const& v) {
     seed ^= std::hash<T>()(v) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
 }
 
@@ -37,17 +36,15 @@ template <class Tuple>
 struct HashValueImpl<Tuple, 0> {
     static void apply(size_t& seed, Tuple const& tuple) { hash_combine(seed, std::get<0>(tuple)); }
 };
-} // namespace
 
 template <typename... TT>
-struct hash<std::tuple<TT...>> {
+struct std::hash<std::tuple<TT...>> {
     size_t operator()(std::tuple<TT...> const& tt) const {
         size_t seed = 0;
         HashValueImpl<std::tuple<TT...>>::apply(seed, tt);
         return seed;
     }
 };
-} // namespace std
 
 namespace doris {
 
@@ -147,6 +144,8 @@ AggregateFuncResolver::AggregateFuncResolver() {
                           OLAP_FIELD_TYPE_DECIMAL128I>();
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY,
                           OLAP_FIELD_TYPE_ARRAY>();
+    // struct types
+    add_aggregate_mapping<OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_STRUCT>();
 
     // Min Aggregate Function
     add_aggregate_mapping<OLAP_FIELD_AGGREGATION_MIN, OLAP_FIELD_TYPE_TINYINT>();

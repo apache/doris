@@ -459,7 +459,7 @@ public class TableFunctionPlanTest {
         String sql = "desc verbose select min(c1) from (select k1 as c1, min(k2) as c2 from db1.tbl1 group by c1) a "
                 + "lateral view explode_split(c2, \",\") tmp1 as e1 order by min(c1)";
         String errorMsg = UtFrameUtils.getSQLPlanOrErrorMsg(ctx, sql, true);
-        errorMsg.equalsIgnoreCase("lateral view as a inline view");
+        Assert.assertTrue(errorMsg.toLowerCase().contains("lateral view as a inline view"));
     }
 
     /*

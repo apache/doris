@@ -51,14 +51,14 @@ Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t se
                                          io::SegmentCachePathPolicy());
     io::FileReaderSPtr file_reader;
 #ifndef BE_TEST
-    RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader));
+    RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader, nullptr));
 #else
     // be ut use local file reader instead of remote file reader while use remote cache
     if (!config::file_cache_type.empty()) {
-        RETURN_IF_ERROR(
-                io::global_local_filesystem()->open_file(path, reader_options, &file_reader));
+        RETURN_IF_ERROR(io::global_local_filesystem()->open_file(path, reader_options, &file_reader,
+                                                                 nullptr));
     } else {
-        RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader));
+        RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader, nullptr));
     }
 #endif
 
@@ -108,6 +108,24 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
             iter->reset(new EmptySegmentIterator(schema));
             read_options.stats->filtered_segment_number++;
             return Status::OK();
+        }
+    }
+
+    if (read_options.use_topn_opt) {
+        auto query_ctx = read_options.runtime_state->get_query_fragments_ctx();
+        auto runtime_predicate = query_ctx->get_runtime_predicate().get_predictate();
+        if (runtime_predicate) {
+            int32_t uid =
+                    read_options.tablet_schema->column(runtime_predicate->column_id()).unique_id();
+            AndBlockColumnPredicate and_predicate;
+            auto single_predicate = new SingleColumnBlockPredicate(runtime_predicate.get());
+            and_predicate.add_column_predicate(single_predicate);
+            if (!_column_readers.at(uid)->match_condition(&and_predicate)) {
+                // any condition not satisfied, return.
+                iter->reset(new EmptySegmentIterator(schema));
+                read_options.stats->filtered_segment_number++;
+                return Status::OK();
+            }
         }
     }
 

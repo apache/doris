@@ -27,10 +27,10 @@ namespace doris {
 namespace io {
 
 S3FileReader::S3FileReader(Path path, size_t file_size, std::string key, std::string bucket,
-                           S3FileSystem* fs)
+                           std::shared_ptr<S3FileSystem> fs)
         : _path(std::move(path)),
           _file_size(file_size),
-          _fs(fs),
+          _fs(std::move(fs)),
           _bucket(std::move(bucket)),
           _key(std::move(key)) {
     DorisMetrics::instance()->s3_file_open_reading->increment(1);

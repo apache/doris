@@ -18,6 +18,7 @@
 package org.apache.doris.catalog;
 
 import org.apache.doris.alter.SchemaChangeHandler;
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.DefaultValueExprDef;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.IndexDef;
@@ -58,6 +59,7 @@ public class Column implements Writable, GsonPostProcessable {
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
     private static final String COLUMN_ARRAY_CHILDREN = "item";
+    private static final String COLUMN_STRUCT_CHILDREN = "field";
     public static final int COLUMN_UNIQUE_ID_INIT_VALUE = -1;
     private static final String COLUMN_MAP_KEY = "key";
     private static final String COLUMN_MAP_VALUE = "value";
@@ -112,7 +114,7 @@ public class Column implements Writable, GsonPostProcessable {
         this.stats = new ColumnStats();
         this.visible = true;
         this.defineExpr = null;
-        this.children = new ArrayList<>(Type.MAX_NESTING_DEPTH);
+        this.children = new ArrayList<>();
         this.uniqueId = -1;
     }
 
@@ -161,7 +163,7 @@ public class Column implements Writable, GsonPostProcessable {
         this.comment = comment;
         this.stats = new ColumnStats();
         this.visible = visible;
-        this.children = new ArrayList<>(Type.MAX_NESTING_DEPTH);
+        this.children = new ArrayList<>();
         createChildrenColumn(this.type, this);
         this.uniqueId = colUniqueId;
     }
@@ -193,6 +195,13 @@ public class Column implements Writable, GsonPostProcessable {
             Column v = new Column(COLUMN_MAP_VALUE, ((MapType) type).getValueType());
             column.addChildrenColumn(k);
             column.addChildrenColumn(v);
+        } else if (type.isStructType()) {
+            ArrayList<StructField> fields = ((StructType) type).getFields();
+            for (StructField field : fields) {
+                Column c = new Column(field.getName(), field.getType());
+                c.setIsAllowNull(field.getContainsNull());
+                column.addChildrenColumn(c);
+            }
         }
     }
 
@@ -212,11 +221,15 @@ public class Column implements Writable, GsonPostProcessable {
         return this.name;
     }
 
+    public String getNameWithoutMvPrefix() {
+        return this.getNameWithoutPrefix(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX);
+    }
+
     public String getDisplayName() {
         if (defineExpr == null) {
-            return name;
+            return getNameWithoutMvPrefix();
         } else {
-            return defineExpr.toSql();
+            return MaterializedIndexMeta.normalizeName(defineExpr.toSql());
         }
     }
 
@@ -403,8 +416,6 @@ public class Column implements Writable, GsonPostProcessable {
         return tColumn;
     }
 
-
-    // here to make complex type column easy
     private void setChildrenTColumn(Column children, TColumn tColumn) {
         TColumn childrenTColumn = new TColumn();
         childrenTColumn.setColumnName(children.name);
@@ -429,7 +440,6 @@ public class Column implements Writable, GsonPostProcessable {
         toChildrenThrift(children, childrenTColumn);
     }
 
-
     private void toChildrenThrift(Column column, TColumn tColumn) {
         if (column.type.isArrayType()) {
             Column children = column.getChildren().get(0);
@@ -441,6 +451,12 @@ public class Column implements Writable, GsonPostProcessable {
             tColumn.setChildrenColumn(new ArrayList<>());
             setChildrenTColumn(k, tColumn);
             setChildrenTColumn(v, tColumn);
+        } else if (column.type.isStructType()) {
+            List<Column> childrenColumns = column.getChildren();
+            tColumn.setChildrenColumn(new ArrayList<>());
+            for (Column children : childrenColumns) {
+                setChildrenTColumn(children, tColumn);
+            }
         }
     }
 

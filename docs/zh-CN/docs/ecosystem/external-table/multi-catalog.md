@@ -24,9 +24,10 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-<version since="1.2.0">
 
 # 多源数据目录
+
+<version since="1.2.0">
 
 多源数据目录（Multi-Catalog）是 Doris 1.2.0 版本中推出的功能，旨在能够更方便对接外部数据目录，以增强Doris的数据湖分析和联邦数据查询能力。
 
@@ -39,6 +40,8 @@ under the License.
 3. JDBC: 对接数据库访问的标准接口(JDBC)来访问各式数据库的数据。（目前只支持访问MYSQL）
 
 该功能将作为之前外表连接方式（External Table）的补充和增强，帮助用户进行快速的多数据目录联邦查询。
+
+</version>
 
 ## 基础概念
 
@@ -96,12 +99,16 @@ CREATE RESOURCE hms_resource PROPERTIES (
     'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
-CREATE CATALOG hive WITH RESOURCE hms_resource;
+
+// 在 PROERPTIES 中指定的配置，将会覆盖 Resource 中的配置。
+CREATE CATALOG hive WITH RESOURCE hms_resource PROPERTIES(
+    'key' = 'value'
+);
 ```
 
 **通过 properties 创建 catalog**
 
-`1.2.0` 版本通过 properties 创建 catalog，该方法将在后续版本弃用。
+`1.2.0` 版本通过 properties 创建 catalog
 ```sql
 CREATE CATALOG hive PROPERTIES (
     'type'='hms',
@@ -142,6 +149,11 @@ CREATE CATALOG hive PROPERTIES (
     'hadoop.kerberos.xxx' = 'xxx',
     ...
 );
+```
+
+如果需要 hadoop KMS 认证，可以在properties中添加:
+```
+'dfs.encryption.key.provider.uri' = 'kms://http@kms_host:kms_port/kms'
 ```
 
 创建后，可以通过 `SHOW CATALOGS` 命令查看 catalog：
@@ -295,15 +307,15 @@ Query OK, 1000 rows affected (0.28 sec)
 -- 1.2.0+ 版本
 CREATE RESOURCE es_resource PROPERTIES (
     "type"="es",
-    "elasticsearch.hosts"="http://192.168.120.12:29200",
-    "elasticsearch.nodes_discovery"="false"
+    "hosts"="http://127.0.0.1:9200",
+    "nodes_discovery"="false"
 );
 CREATE CATALOG es WITH RESOURCE es_resource;
 
 -- 1.2.0 版本
 CREATE CATALOG es PROPERTIES (
     "type"="es",
-    "elasticsearch.hosts"="http://192.168.120.12:29200",
+    "elasticsearch.hosts"="http://127.0.0.1:9200",
     "elasticsearch.nodes_discovery"="false"
 );
 ```
@@ -443,23 +455,70 @@ mysql> select * from test;
 ### 连接JDBC
 
 以下示例，用于创建一个名为 jdbc 的 Catalog, 通过jdbc 连接指定的Mysql。
-jdbc Catalog会根据`jdbc.jdbc_url` 来连接指定的数据库（示例中是`jdbc::mysql`, 所以连接MYSQL数据库），当前只支持MYSQL数据库类型。
+jdbc Catalog会根据`jdbc.jdbc_url` 来连接指定的数据库（示例中是`jdbc::mysql`, 所以连接MYSQL数据库），当前支持MYSQL、POSTGRESQL、CLICKHOUSE数据库类型。
+
+**MYSQL catalog示例**
+
 ```sql
 -- 1.2.0+ 版本
 CREATE RESOURCE mysql_resource PROPERTIES (
     "type"="jdbc",
-    "jdbc.user"="root",
-    "jdbc.password"="123456",
-    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
-    "jdbc.driver_url" = "file:/path/to/mysql-connector-java-5.1.47.jar",
-    "jdbc.driver_class" = "com.mysql.jdbc.Driver"
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
+    "driver_url" = "file:///path/to/mysql-connector-java-5.1.47.jar",
+    "driver_class" = "com.mysql.jdbc.Driver"
 )
 CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
 
 -- 1.2.0 版本
 CREATE CATALOG jdbc PROPERTIES (
     "type"="jdbc",
-    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
+    ...
+)
+```
+
+**POSTGRESQL catalog示例**
+
+```sql
+-- 1.2.0+ 版本
+CREATE RESOURCE pg_resource PROPERTIES (
+    "type"="jdbc",
+    "user"="postgres",
+    "password"="123456",
+    "jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
+    "driver_url" = "file:///path/to/postgresql-42.5.1.jar",
+    "driver_class" = "org.postgresql.Driver"
+);
+CREATE CATALOG jdbc WITH RESOURCE pg_resource;
+
+-- 1.2.0 版本
+CREATE CATALOG jdbc PROPERTIES (
+    "type"="jdbc",
+    "jdbc.jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
+    ...
+)
+```
+
+**CLICKHOUSE catalog示例**
+
+```sql
+-- 1.2.0+ 版本
+CREATE RESOURCE clickhouse_resource PROPERTIES (
+    "type"="jdbc",
+    "user"="default",
+    "password"="123456",
+    "jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
+    "driver_url" = "file:///path/to/clickhouse-jdbc-0.3.2-patch11-all.jar",
+    "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"
+)
+CREATE CATALOG jdbc WITH RESOURCE clickhouse_resource;
+
+-- 1.2.0 版本
+CREATE CATALOG jdbc PROPERTIES (
+    "type"="jdbc",
+    "jdbc.jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
     ...
 )
 ```
@@ -469,11 +528,11 @@ CREATE CATALOG jdbc PROPERTIES (
 ```sql
 CREATE RESOURCE mysql_resource PROPERTIES (
     "type"="jdbc",
-    "jdbc.user"="root",
-    "jdbc.password"="123456",
-    "jdbc.jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
-    "jdbc.driver_url" = "https://path/jdbc_driver/mysql-connector-java-8.0.25.jar",
-    "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver"
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:13396/demo",
+    "driver_url" = "https://path/jdbc_driver/mysql-connector-java-8.0.25.jar",
+    "driver_class" = "com.mysql.cj.jdbc.Driver"
 )
 
 CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
@@ -517,6 +576,8 @@ MySQL [(none)]> show databases;
 +--------------------+
 9 rows in set (0.67 sec)
 ```
+
+> 注意：在postgresql catalog中，doris的一个database对应于postgresql中指定catalog（`jdbc.jdbc_url`参数中指定的catalog）下的一个schema，database下的tables则对应于postgresql该schema下的tables。
 
 查看`db1`数据库下的表，并查询：
 ```sql
@@ -566,6 +627,28 @@ MySQL [db1]> select * from tbl1;
 ## 列类型映射
 
 用户创建 Catalog 后，Doris 会自动同步数据目录的数据库和表，针对不同的数据目录和数据表格式，Doris 会进行以下列映射关系。
+
+<version since="dev">
+
+对于当前无法映射到 Doris 列类型的外表类型，如 map，struct 等。Doris 会将列类型映射为 UNSUPPORTED 类型。对于 UNSUPPORTED 类型的查询，示例如下：
+
+假设同步后的表 schema 为：
+
+```
+k1 INT,
+k2 INT,
+k3 UNSUPPORTED,
+k4 INT
+```
+
+```
+select * from table;                // Error: Unsupported type 'UNSUPPORTED_TYPE' in '`k3`
+select * except(k3) from table;     // Query OK.
+select k1, k3 from table;           // Error: Unsupported type 'UNSUPPORTED_TYPE' in '`k3`
+select k1, k4 from table;           // Query OK.
+```
+
+</version>
 
 ### Hive MetaStore
 
@@ -637,6 +720,50 @@ MySQL [db1]> select * from tbl1;
 | CHAR | CHAR | |
 | VARCHAR | STRING | |
 | TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT、TINYBLOB、BLOB、MEDIUMBLOB、LONGBLOB、TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING、BINARY、VARBINARY、JSON、SET、BIT | STRING | |
+
+#### POSTGRESQL
+ POSTGRESQL Type | Doris Type | Comment |
+|---|---|---|
+| boolean | BOOLEAN | |
+| smallint/int2 | SMALLINT | |
+| integer/int4 | INT | |
+| bigint/int8 | BIGINT | |
+| decimal/numeric | DECIMAL | |
+| real/float4 | FLOAT | |
+| double precision | DOUBLE | |
+| smallserial | SMALLINT | |
+| serial | INT | |
+| bigserial | BIGINT | |
+| char | CHAR | |
+| varchar/text | STRING | |
+| timestamp | DATETIME | |
+| date | DATE | |
+| time | STRING | |
+| interval | STRING | |
+| point/line/lseg/box/path/polygon/circle | STRING | |
+| cidr/inet/macaddr | STRING | |
+| bit/bit(n)/bit varying(n) | STRING | `bit`类型映射为doris的`STRING`类型，读出的数据是`true/false`, 而不是`1/0` |
+| uuid/josnb | STRING | |
+
+#### CLICKHOUSE
+
+| ClickHouse Type        | Doris Type | Comment                                             |
+|------------------------|------------|-----------------------------------------------------|
+| Bool                   | BOOLEAN    |                                                     |
+| String                 | STRING     |                                                     |
+| Date/Date32            | DATE       |                                                     |
+| DateTime/DateTime64    | DATETIME   | 对于超过了Doris最大的DateTime精度的数据，将截断处理                    |
+| Float32                | FLOAT      |                                                     |
+| Float64                | DOUBLE     |                                                     |
+| Int8                   | TINYINT    |                                                     |
+| Int16/UInt8            | SMALLINT   | Doris没有UNSIGNED数据类型，所以扩大一个数量级                       |
+| Int32/UInt16           | INT        | Doris没有UNSIGNED数据类型，所以扩大一个数量级                       |
+| Int64/Uint32           | BIGINT     | Doris没有UNSIGNED数据类型，所以扩大一个数量级                       |
+| Int128/UInt64          | LARGEINT   | Doris没有UNSIGNED数据类型，所以扩大一个数量级                       |
+| Int256/UInt128/UInt256 | STRING     | Doris没有这个数量级的数据类型，采用STRING处理                        |
+| DECIMAL                | DECIMAL    | 对于超过了Doris最大的Decimal精度的数据，将映射为STRING                |
+| Enum/IPv4/IPv6/UUID    | STRING     | 在显示上IPv4,IPv6会额外在数据最前面显示一个`/`,需要自己用`split_part`函数处理 |
+
 ## 权限管理
 
 使用 Doris 对 External Catalog 中库表进行访问，并不受外部数据目录自身的权限控制，而是依赖 Doris 自身的权限访问管理功能。
@@ -645,11 +772,63 @@ Doris 的权限管理功能提供了对 Cataloig 层级的扩展，具体可参�
 
 ## 元数据更新
 
+### 手动刷新
+
 外部数据源的元数据变动，如创建、删除表，加减列等操作，不会同步给 Doris。
 
-目前需要用户通过 [REFRESH CATALOG](../../sql-manual/sql-reference/Utility-Statements/REFRESH.md) 命令手动刷新元数据。
+用户通过 [REFRESH CATALOG](../../sql-manual/sql-reference/Utility-Statements/REFRESH.md) 命令手动刷新元数据。
 
-后续会支持元数据的自动同步。
+### 自动刷新
+
+#### Hive MetaStore(HMS)数据目录
+
+<version since="dev">
+
+通过让FE节点定时读取HMS的notification event来感知Hive表元数据的变更情况，目前支持处理如下event：
+
+</version>
+
+1. CREATE DATABASE event:在对应数据目录下创建数据库。
+2. DROP DATABASE event:在对应数据目录下删除数据库。
+3. ALTER DATABASE event:此事件的影响主要有更改数据库的属性信息，注释及默认存储位置等，这些改变不影响doris对外部数据目录的查询操作，因此目前会忽略此event。
+4. CREATE TABLE event:在对应数据库下创建表。
+5. DROP TABLE event:在对应数据库下删除表，并失效表的缓存。
+6. ALTER TABLE event:如果是重命名，先删除旧名字的表，再用新名字创建表，否则失效该表的缓存。
+7. ADD PARTITION event:在对应表缓存的分区列表里添加分区。
+8. DROP PARTITION event:在对应表缓存的分区列表里删除分区，并失效该分区的缓存。
+9. ALTER PARTITION event:如果是重命名，先删除旧名字的分区，再用新名字创建分区，否则失效该分区的缓存。
+10. 当导入数据导致文件变更,分区表会走ALTER PARTITION event逻辑，不分区表会走ALTER TABLE event逻辑(注意：如果绕过HMS直接操作文件系统的话，HMS不会生成对应事件，doris因此也无法感知)。
+
+该特性被fe的如下参数控制：
+
+1. enable_hms_events_incremental_sync:是否开启元数据自动增量同步功能,默认关闭。
+2. hms_events_polling_interval_ms: 读取 event 的间隔时间，默认值为 10000，单位：毫秒。
+3. hms_events_batch_size_per_rpc:每次读取 event 的最大数量，默认值为 500。
+
+如果想使用该特性，需要更改HMS的hive-site.xml并重启HMS
+```
+<property>
+    <name>hive.metastore.event.db.notification.api.auth</name>
+    <value>false</value>
+</property>
+<property>
+    <name>hive.metastore.dml.events</name>
+    <value>true</value>
+</property>
+<property>
+    <name>hive.metastore.transactional.event.listeners</name>
+    <value>org.apache.hive.hcatalog.listener.DbNotificationListener</value>
+</property>
+
+```
+##### 使用建议
+
+无论是之前已经创建好的catalog现在想改为自动刷新，还是新创建的catalog，都只需要把enable_hms_events_incremental_sync设置为true，重启fe节点，
+无需重启之前或之后再手动刷新元数据。
+
+#### 其它数据目录
+
+暂未支持。
 
 ## 常见问题
 
@@ -662,4 +841,14 @@ Doris 的权限管理功能提供了对 Cataloig 层级的扩展，具体可参�
   
 配置完成后需要重启Hive Metastore。
 
-</version>
+### Kerberos
+
+1.2.0 版本连接 `Kerberos` 认证的 `Hive Metastore` 出现 `GSS initiate failed` 异常信息。
+   
+   - 请更新到 1.2.2 版本，或使用最新的 docker 开发镜像重新编译 1.2.1 版本的 FE。
+
+### HDFS
+
+读取 HDFS 3.x 时出现 `java.lang.VerifyError: xxx` 错误。
+
+   - 更新 `fe/pom.xml` 中的 hadoop 相关依赖到 2.10.2 版本，并重新编译 FE。

@@ -31,6 +31,7 @@ import java.util.List;
 
 public enum PrimitiveType {
     INVALID_TYPE("INVALID_TYPE", -1, TPrimitiveType.INVALID_TYPE),
+    UNSUPPORTED("UNSUPPORTED_TYPE", -1, TPrimitiveType.UNSUPPORTED),
     // NULL_TYPE - used only in LiteralPredicate and NullLiteral to make NULLs compatible
     // with all other types.
     NULL_TYPE("NULL_TYPE", 1, TPrimitiveType.NULL_TYPE),
@@ -67,7 +68,10 @@ public enum PrimitiveType {
     // sizeof(CollectionValue)
     ARRAY("ARRAY", 32, TPrimitiveType.ARRAY),
     MAP("MAP", 24, TPrimitiveType.MAP),
-    STRUCT("STRUCT", 24, TPrimitiveType.STRUCT),
+    // sizeof(StructValue)
+    // 8-byte pointer and 4-byte size and 1 bytes has_null (13 bytes total)
+    // Aligning to 16 bytes total.
+    STRUCT("STRUCT", 16, TPrimitiveType.STRUCT),
     STRING("STRING", 16, TPrimitiveType.STRING),
     // Unsupported scalar types.
     BINARY("BINARY", -1, TPrimitiveType.BINARY),

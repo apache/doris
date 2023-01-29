@@ -50,7 +50,9 @@ public:
               _index_size(column.index_length()),
               _is_nullable(column.is_nullable()),
               _unique_id(column.unique_id()) {
-        if (column.type() == OLAP_FIELD_TYPE_ARRAY || column.type() == OLAP_FIELD_TYPE_MAP) {
+        if (column.type() == OLAP_FIELD_TYPE_STRUCT) {
+            _agg_info = get_aggregate_info(column.aggregation(), column.type());
+        } else if (column.type() == OLAP_FIELD_TYPE_ARRAY) {
             _agg_info = get_aggregate_info(column.aggregation(), column.type(),
                                            column.get_sub_column(0).type());
         } else {
@@ -312,6 +314,9 @@ protected:
     const AggregateInfo* _agg_info;
     // unit : byte
     // except for strings, other types have fixed lengths
+    // Note that, the struct type itself has fixed length, but due to
+    // its number of subfields is a variable, so the actual length of
+    // a struct field is not fixed.
     uint32_t _length;
     // Since the length of the STRING type cannot be determined,
     // only dynamic memory can be used. Mempool cannot realize realloc.
@@ -451,10 +456,10 @@ uint32_t Field::hash_code(const CellType& cell, uint32_t seed) const {
     return _type_info->hash_code(cell.cell_ptr(), seed);
 }
 
+
 class MapField : public Field {
 public:
     explicit MapField(const TabletColumn& column) : Field(column) {}
-
     void consume(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
                  ObjectPool* agg_pool) const override {
         dst->set_is_null(src_null);
@@ -463,13 +468,34 @@ public:
         }
         _type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
     }
-
-    // make variable_ptr memory allocate to cell_ptr as MapValue
+     // make variable_ptr memory allocate to cell_ptr as MapValue
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
         return variable_ptr + _length;
     }
 
     size_t get_variable_len() const override { return _length; }
+};
+    
+class StructField : public Field {
+public:
+    explicit StructField(const TabletColumn& column) : Field(column) {}
+    char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
+        auto struct_v = (StructValue*)cell_ptr;
+        struct_v->set_values(reinterpret_cast<void**>(variable_ptr));
+        variable_ptr += _length;
+        for (size_t i = 0; i < get_sub_field_count(); i++) {
+            variable_ptr += get_sub_field(i)->get_variable_len();
+        }
+        return variable_ptr;
+    }
+
+    size_t get_variable_len() const override {
+        size_t variable_len = _length;
+        for (size_t i = 0; i < get_sub_field_count(); i++) {
+            variable_len += get_sub_field(i)->get_variable_len();
+        }
+        return variable_len;
+    }
 };
 
 class ArrayField : public Field {
@@ -768,6 +794,15 @@ public:
                 return new VarcharField(column);
             case OLAP_FIELD_TYPE_STRING:
                 return new StringField(column);
+            case OLAP_FIELD_TYPE_STRUCT: {
+                auto* local = new StructField(column);
+                for (uint32_t i = 0; i < column.get_subtype_count(); i++) {
+                    std::unique_ptr<Field> sub_field(
+                            FieldFactory::create(column.get_sub_column(i)));
+                    local->add_sub_field(std::move(sub_field));
+                }
+                return local;
+            }
             case OLAP_FIELD_TYPE_ARRAY: {
                 std::unique_ptr<Field> item_field(FieldFactory::create(column.get_sub_column(0)));
                 auto* local = new ArrayField(column);
@@ -816,6 +851,15 @@ public:
                 return new VarcharField(column);
             case OLAP_FIELD_TYPE_STRING:
                 return new StringField(column);
+            case OLAP_FIELD_TYPE_STRUCT: {
+                auto* local = new StructField(column);
+                for (uint32_t i = 0; i < column.get_subtype_count(); i++) {
+                    std::unique_ptr<Field> sub_field(
+                            FieldFactory::create(column.get_sub_column(i)));
+                    local->add_sub_field(std::move(sub_field));
+                }
+                return local;
+            }
             case OLAP_FIELD_TYPE_ARRAY: {
                 std::unique_ptr<Field> item_field(FieldFactory::create(column.get_sub_column(0)));
                 auto* local = new ArrayField(column);

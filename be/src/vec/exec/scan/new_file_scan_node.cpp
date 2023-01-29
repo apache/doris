@@ -97,8 +97,8 @@ Status NewFileScanNode::_init_scanners(std::list<VScanner*>* scanners) {
 }
 
 VScanner* NewFileScanNode::_create_scanner(const TFileScanRange& scan_range) {
-    VScanner* scanner =
-            new VFileScanner(_state, this, _limit_per_scanner, scan_range, runtime_profile());
+    VScanner* scanner = new VFileScanner(_state, this, _limit_per_scanner, scan_range,
+                                         runtime_profile(), _kv_cache);
     ((VFileScanner*)scanner)->prepare(_vconjunct_ctx_ptr.get(), &_colname_to_value_range);
     _scanner_pool.add(scanner);
     // TODO: Can we remove _conjunct_ctxs and use _vconjunct_ctx_ptr instead?

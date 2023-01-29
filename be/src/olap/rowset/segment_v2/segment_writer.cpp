@@ -135,6 +135,15 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
                 break;
             }
         }
+        if (column.type() == FieldType::OLAP_FIELD_TYPE_STRUCT) {
+            opts.need_zone_map = false;
+            if (opts.need_bloom_filter) {
+                return Status::NotSupported("Do not support bloom filter for struct type");
+            }
+            if (opts.need_bitmap_index) {
+                return Status::NotSupported("Do not support bitmap index for struct type");
+            }
+        }
         if (column.type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
             opts.need_zone_map = false;
             if (opts.need_bloom_filter) {

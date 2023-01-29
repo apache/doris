@@ -41,6 +41,7 @@
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
+#include "vec/data_types/data_type_struct.h"
 
 namespace doris::vectorized {
 
@@ -95,7 +96,10 @@ public:
         });
         return instance;
     }
+
+    // TODO(xy): support creator to create dynamic struct type
     DataTypePtr get(const std::string& name) { return _data_type_map[name]; }
+    // TODO(xy): support creator to create dynamic struct type
     const std::string& get(const DataTypePtr& data_type) const {
         auto type_ptr = data_type->is_nullable()
                                 ? ((DataTypeNullable*)(data_type.get()))->get_nested_type()
@@ -106,6 +110,14 @@ public:
             }
             if (is_decimal(type_ptr) && type_ptr->get_type_id() == entity.first->get_type_id()) {
                 return entity.second;
+            }
+        }
+        if (type_ptr->get_type_id() == TypeIndex::Struct) {
+            DataTypeFactory::instance().register_data_type(type_ptr->get_name(), type_ptr);
+            for (const auto& entity : _invert_data_type_map) {
+                if (entity.first->equals(*type_ptr)) {
+                    return entity.second;
+                }
             }
         }
         return _empty_string;

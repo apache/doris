@@ -315,6 +315,8 @@ private:
     std::vector<roaring::Roaring> _pred_except_leafnode_of_andnode_evaluate_result;
     std::unique_ptr<ColumnPredicateInfo> _column_predicate_info;
 
+    std::shared_ptr<ColumnPredicate> _runtime_predicate {nullptr};
+
     // row schema of the key to seek
     // only used in `_get_row_ranges_by_keys`
     std::unique_ptr<Schema> _seek_schema;

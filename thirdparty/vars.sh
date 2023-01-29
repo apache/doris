@@ -54,6 +54,12 @@ export TP_JAR_DIR="${TP_INSTALL_DIR}/lib/jar"
 # of all thirdparties
 #####################################################
 
+#clucene
+CLUCENE_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libclucene-v2.4.4.zip"
+CLUCENE_NAME="doris-thirdparty-libclucene-v2.4.4.zip"
+CLUCENE_SOURCE="doris-thirdparty-libclucene-v2.4.4"
+CLUCENE_MD5SUM="431b4c2dc5c75df5e114da72a2e9b74a"
+
 # libevent
 LIBEVENT_DOWNLOAD="https://github.com/libevent/libevent/archive/release-2.1.12-stable.tar.gz"
 LIBEVENT_NAME=libevent-release-2.1.12-stable.tar.gz
@@ -61,10 +67,10 @@ LIBEVENT_SOURCE=libevent-release-2.1.12-stable
 LIBEVENT_MD5SUM="0d5a27436bf7ff8253420c8cf09f47ca"
 
 # openssl
-OPENSSL_DOWNLOAD="https://github.com/openssl/openssl/archive/OpenSSL_1_1_1m.tar.gz"
-OPENSSL_NAME=openssl-OpenSSL_1_1_1m.tar.gz
-OPENSSL_SOURCE=openssl-OpenSSL_1_1_1m
-OPENSSL_MD5SUM="710c2368d28f1a25ab92e25b5b9b11ec"
+OPENSSL_DOWNLOAD="https://github.com/openssl/openssl/archive/OpenSSL_1_1_1s.tar.gz"
+OPENSSL_NAME=openssl-OpenSSL_1_1_1s.tar.gz
+OPENSSL_SOURCE=openssl-OpenSSL_1_1_1s
+OPENSSL_MD5SUM="7e79a7560dee77c0758baa33c61af4b4"
 
 # thrift
 THRIFT_DOWNLOAD="http://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz"
@@ -198,10 +204,10 @@ LEVELDB_SOURCE=leveldb-1.23
 LEVELDB_MD5SUM="afbde776fb8760312009963f09a586c7"
 
 # brpc
-BRPC_DOWNLOAD="https://github.com/apache/incubator-brpc/archive/refs/tags/1.2.0.tar.gz"
-BRPC_NAME="incubator-brpc-1.2.0.tar.gz"
-BRPC_SOURCE="incubator-brpc-1.2.0"
-BRPC_MD5SUM="556c024d5f770dbd2336ca4541ae8c96"
+BRPC_DOWNLOAD="https://github.com/apache/brpc/archive/refs/tags/1.2.0.tar.gz"
+BRPC_NAME="brpc-1.2.0.tar.gz"
+BRPC_SOURCE="brpc-1.2.0"
+BRPC_MD5SUM="c3c148e672dc660ad48d8bd973f95dcf"
 
 # rocksdb
 ROCKSDB_DOWNLOAD="https://github.com/facebook/rocksdb/archive/v5.14.2.tar.gz"
@@ -363,10 +369,10 @@ KRB5_SOURCE="krb5-1.19"
 KRB5_MD5SUM="aaf18447a5a014aa3b7e81814923f4c9"
 
 # hdfs3
-HDFS3_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libhdfs3-v2.3.4.tar.gz"
-HDFS3_NAME="doris-thirdparty-libhdfs3-v2.3.4.tar.gz"
-HDFS3_SOURCE="doris-thirdparty-libhdfs3-v2.3.4"
-HDFS3_MD5SUM="5da1d32ec83b3732ccbe26346a7f5f9a"
+HDFS3_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libhdfs3-v2.3.5.tar.gz"
+HDFS3_NAME="doris-thirdparty-libhdfs3-v2.3.5.tar.gz"
+HDFS3_SOURCE="doris-thirdparty-libhdfs3-v2.3.5"
+HDFS3_MD5SUM="8da623120add76f5595e5978b123e157"
 
 #libdivide
 LIBDIVIDE_DOWNLOAD="https://github.com/ridiculousfish/libdivide/archive/5.0.tar.gz"
@@ -443,6 +449,7 @@ CONCURRENTQUEUE_MD5SUM="118e5bb661b567634647312991e10222"
 
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
+    'CLUCENE'
     'LIBEVENT'
     'OPENSSL'
     'THRIFT'

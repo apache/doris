@@ -90,6 +90,7 @@ public:
         TYPE_OBJECT,
         TYPE_ARRAY,
         TYPE_MAP,
+        TYPE_STRUCT,
         TYPE_QUANTILE_STATE,
         TYPE_DATEV2,
         TYPE_DATETIMEV2,

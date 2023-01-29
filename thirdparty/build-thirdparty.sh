@@ -146,6 +146,7 @@ if [[ "${CC}" == *gcc ]]; then
     warning_stringop_truncation='-Wno-stringop-truncation'
     warning_class_memaccess='-Wno-class-memaccess'
     warning_array_parameter='-Wno-array-parameter'
+    warning_narrowing='-Wno-narrowing'
     boost_toolset='gcc'
 elif [[ "${CC}" == *clang ]]; then
     warning_uninitialized='-Wno-uninitialized'
@@ -156,6 +157,7 @@ elif [[ "${CC}" == *clang ]]; then
     warning_reserved_identifier='-Wno-reserved-identifier'
     warning_suggest_override='-Wno-suggest-override -Wno-suggest-destructor-override'
     warning_option_ignored='-Wno-option-ignored'
+    warning_narrowing='-Wno-c++11-narrowing'
     boost_toolset='clang'
     libhdfs_cxx17='-std=c++1z'
 
@@ -449,7 +451,7 @@ build_gflags() {
     rm -rf CMakeCache.txt CMakeFiles/
 
     "${CMAKE_CMD}" -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
-        -DCMAKE_POSITION_INDEPENDENT_CODE=On ../
+        -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=On ../
 
     "${BUILD_SYSTEM}" -j "${PARALLEL}"
     "${BUILD_SYSTEM}" install
@@ -681,7 +683,7 @@ build_hyperscan() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 \
+    "${CMAKE_CMD}" -G "${GENERATOR}" -DBUILD_SHARED_LIBS=0 -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DBOOST_ROOT="${BOOST_SOURCE}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_EXAMPLES=OFF ..
     "${BUILD_SYSTEM}" -j "${PARALLEL}" install
     strip_lib libhs.a
@@ -1066,7 +1068,7 @@ build_bitshuffle() {
             if [[ ! -f "${nm}" ]]; then nm="$(command -v nm)"; fi
             if [[ ! -f "${objcopy}" ]]; then
                 if ! objcopy="$(command -v objcopy)"; then
-                    objcopy="${TP_INSTALL_DIR}/bin/objcopy"
+                    objcopy="${TP_INSTALL_DIR}/binutils/bin/objcopy"
                 fi
             fi
 
@@ -1340,7 +1342,9 @@ build_gsasl() {
         cflags='-Wno-implicit-function-declaration'
     fi
 
-    CFLAGS="${cflags} -I${TP_INCLUDE_DIR}" ../configure --prefix="${TP_INSTALL_DIR}" --with-gssapi-impl=mit --enable-shared=no --with-pic --with-libidn-prefix="${TP_INSTALL_DIR}"
+    KRB5_CONFIG="${TP_INSTALL_DIR}/bin/krb5-config" \
+        CFLAGS="${cflags} -I${TP_INCLUDE_DIR}" \
+        ../configure --prefix="${TP_INSTALL_DIR}" --with-gssapi-impl=mit --enable-shared=no --with-pic --with-libidn-prefix="${TP_INSTALL_DIR}"
 
     make -j "${PARALLEL}"
     make install
@@ -1514,9 +1518,10 @@ build_binutils() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    ../configure --prefix="${TP_INSTALL_DIR}" --enable-install-libiberty
+    ../configure --prefix="${TP_INSTALL_DIR}/binutils" --includedir="${TP_INCLUDE_DIR}" --libdir="${TP_LIB_DIR}" \
+        --enable-install-libiberty --without-msgpack
     make -j "${PARALLEL}"
-    make install
+    make install-bfd install-libiberty install-binutils
 }
 
 build_gettext() {
@@ -1527,7 +1532,8 @@ build_gettext() {
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
 
-    ../configure --prefix="${TP_INSTALL_DIR}" --disable-java
+    ../gettext-runtime/configure --prefix="${TP_INSTALL_DIR}" --disable-java
+    cd intl
     make -j "${PARALLEL}"
     make install
 
@@ -1539,6 +1545,32 @@ build_concurrentqueue() {
     check_if_source_exist "${CONCURRENTQUEUE_SOURCE}"
     cd "${TP_SOURCE_DIR}/${CONCURRENTQUEUE_SOURCE}"
     cp ./*.h "${TP_INSTALL_DIR}/include/"
+}
+
+#clucene
+build_clucene() {
+    if [[ -z ${USE_AVX2} ]]; then
+        USE_AVX2=1
+    fi
+    if [[ -z ${BUILD_TYPE} ]]; then
+        BUILD_TYPE=Release
+    fi
+    check_if_source_exist "${CLUCENE_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${CLUCENE_SOURCE}"
+    mkdir -p "${BUILD_DIR}" && cd "${BUILD_DIR}"
+    rm -rf CMakeCache.txt CMakeFiles/
+
+    ${CMAKE_CMD} -G "${GENERATOR}" -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" -DBUILD_STATIC_LIBRARIES=ON \
+        -DBUILD_SHARED_LIBRARIES=OFF -DCMAKE_CXX_FLAGS="-fno-omit-frame-pointer ${warning_narrowing}" \
+        -DUSE_STAT64=0 -DUSE_AVX2="${USE_AVX2}" -DCMAKE_BUILD_TYPE="${BUILD_TYPE}" -DBUILD_CONTRIBS_LIB=ON ..
+    ${BUILD_SYSTEM} -j "${PARALLEL}"
+    ${BUILD_SYSTEM} install
+
+    cd "${TP_SOURCE_DIR}/${CLUCENE_SOURCE}"
+    if [[ ! -d "${TP_INSTALL_DIR}"/share ]]; then
+        mkdir -p "${TP_INSTALL_DIR}"/share
+    fi
+    cp -rf src/contribs-lib/CLucene/analysis/jieba/dict "${TP_INSTALL_DIR}"/share/
 }
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then
@@ -1603,5 +1635,6 @@ build_libbacktrace
 build_sse2neon
 build_xxhash
 build_concurrentqueue
+build_clucene
 
 echo "Finished to build all thirdparties"

@@ -319,10 +319,8 @@ struct StringRefHash : StringRefHash64 {};
 
 #endif
 
-namespace std {
 template <>
-struct hash<StringRef> : public StringRefHash {};
-} // namespace std
+struct std::hash<StringRef> : public StringRefHash {};
 
 namespace ZeroTraits {
 inline bool check(const StringRef& x) {

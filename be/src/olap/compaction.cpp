@@ -202,7 +202,7 @@ bool Compaction::handle_ordered_data_compaction() {
     // has a delete version, use original compaction
     if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
         for (auto rowset : _input_rowsets) {
-            if (_tablet->version_for_delete_predicate(rowset->version())) {
+            if (rowset->rowset_meta()->has_delete_predicate()) {
                 return false;
             }
         }

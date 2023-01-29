@@ -615,7 +615,8 @@ terminal String
     KW_WRITE,
     KW_YEAR,
     KW_MTMV,
-    KW_TYPECAST;
+    KW_TYPECAST,
+    KW_HISTOGRAM;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, LBRACE, RBRACE, DIVIDE, MOD, ADD, SUBTRACT;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -729,6 +730,7 @@ nonterminal ArrayLiteral array_literal;
 nonterminal MapLiteral map_literal;
 nonterminal StructField struct_field;
 nonterminal ArrayList<StructField> struct_field_list;
+nonterminal StructLiteral struct_literal;
 nonterminal AnalyticWindow opt_window_clause;
 nonterminal AnalyticWindow.Type window_type;
 nonterminal AnalyticWindow.Boundary window_boundary;
@@ -1741,11 +1743,11 @@ create_stmt ::=
     /* Catalog */
     | KW_CREATE KW_CATALOG opt_if_not_exists:ifNotExists ident:catalogName opt_properties:properties
     {:
-         RESULT = new CreateCatalogStmt(ifNotExists, catalogName, properties);
+         RESULT = new CreateCatalogStmt(ifNotExists, catalogName, null, properties);
     :}
-    | KW_CREATE KW_CATALOG opt_if_not_exists:ifNotExists ident:catalogName KW_WITH KW_RESOURCE ident:resourceName
+    | KW_CREATE KW_CATALOG opt_if_not_exists:ifNotExists ident:catalogName KW_WITH KW_RESOURCE ident:resourceName opt_properties:properties
     {:
-         RESULT = new CreateCatalogStmt(ifNotExists, catalogName, resourceName);
+         RESULT = new CreateCatalogStmt(ifNotExists, catalogName, resourceName, properties);
     :}
     /* cluster */
    /* KW_CREATE KW_CLUSTER ident:name  opt_properties:properties KW_IDENTIFIED KW_BY STRING_LITERAL:password
@@ -2650,9 +2652,13 @@ show_create_routine_load_stmt ::=
 
 // analyze statment
 analyze_stmt ::=
-    KW_ANALYZE table_name:tbl opt_col_list:cols opt_partition_names:partitionNames opt_properties:properties
+    KW_ANALYZE KW_TABLE table_name:tbl opt_col_list:cols opt_partition_names:partitionNames opt_properties:properties
     {:
         RESULT = new AnalyzeStmt(tbl, cols, partitionNames, properties);
+    :}
+    | KW_ANALYZE KW_TABLE table_name:tbl KW_UPDATE KW_HISTOGRAM KW_ON ident_list:cols opt_properties:properties
+    {:
+        RESULT = new AnalyzeStmt(tbl, cols, properties);
     :}
     ;
 
@@ -5859,16 +5865,23 @@ struct_field ::=
   ;
 
 struct_field_list ::=
-    struct_field:field
-    {:
-      RESULT = Lists.newArrayList(field);
-    :}
-    | struct_field_list:fields COMMA struct_field:field
-    {:
-       fields.add(field);
-       RESULT = fields;
-    :}
-    ;
+  struct_field:field
+  {:
+    RESULT = Lists.newArrayList(field);
+  :}
+  | struct_field_list:fields COMMA struct_field:field
+  {:
+     fields.add(field);
+     RESULT = fields;
+  :}
+  ;
+
+struct_literal ::=
+  LBRACE expr_list:list RBRACE
+  {:
+    RESULT = new StructLiteral(list.toArray(new LiteralExpr[0]));
+  :}
+  ;
 
 exists_predicate ::=
   KW_EXISTS subquery:s
@@ -5894,6 +5907,8 @@ non_pred_expr ::=
   {: RESULT = a; :}
   | map_literal:a
   {: RESULT = a; :}
+  | struct_literal:s
+  {: RESULT = s; :}
   | function_call_expr:e
   {: RESULT = e; :}
   | KW_DATE STRING_LITERAL:l

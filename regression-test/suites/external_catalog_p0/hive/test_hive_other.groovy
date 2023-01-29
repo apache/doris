@@ -47,8 +47,26 @@ suite("test_hive_other", "p0") {
         order_qt_q48 """ select k2, k5 from table_with_x01 where dt in ('2022-11-25') order by k2 desc limit 10;"""
         order_qt_q49 """ select k2, k5 from table_with_x01 where dt in ('2022-11-10', '2022-11-10') order by k2 desc limit 10;"""
         order_qt_q50 """ select dt, dt, k2, k5, dt from table_with_x01 where dt in ('2022-11-10') or dt in ('2022-11-10') order by k2 desc limit 10;"""
-    }
 
+        test {
+            sql """select * from unsupported_type_table"""
+            exception """Unsupported type 'UNSUPPORTED_TYPE'"""
+        }
+
+        qt_q51 """select * except(k4,k5) from unsupported_type_table;"""
+
+        test {
+            sql """select k1,k4 from unsupported_type_table"""
+            exception """Unsupported type 'UNSUPPORTED_TYPE'"""
+        }
+
+        test {
+            sql """select k1 from unsupported_type_table where k4 is null;"""
+            exception """Unsupported type 'UNSUPPORTED_TYPE'"""
+        }
+
+        qt_q52 """select k1,k3,k6 from unsupported_type_table"""
+    }
 
     String enabled = context.config.otherConfigs.get("enableHiveTest")
     if (enabled != null && enabled.equalsIgnoreCase("true")) {

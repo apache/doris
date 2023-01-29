@@ -24,7 +24,7 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
@@ -37,6 +37,11 @@ import java.util.stream.Collectors;
 /** MultiDistinctCount */
 public class MultiDistinctCount extends AggregateFunction
         implements AlwaysNotNullable, ExplicitlyCastableSignature {
+
+    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(BigIntType.INSTANCE).varArgs(AnyDataType.INSTANCE)
+    );
+
     // MultiDistinctCount is created in AggregateStrategies phase
     // can't change getSignatures to use type coercion rule to add a cast expr
     // because AggregateStrategies phase is after type coercion
@@ -46,41 +51,30 @@ public class MultiDistinctCount extends AggregateFunction
                 .collect(Collectors.toList()));
     }
 
-    public MultiDistinctCount(boolean isDistinct, Expression arg0, Expression... varArgs) {
+    public MultiDistinctCount(boolean distinct, Expression arg0, Expression... varArgs) {
         super("multi_distinct_count", true, ExpressionUtils.mergeArguments(arg0, varArgs).stream()
                 .map(arg -> arg.getDataType() instanceof DateLikeType ? new Cast(arg, BigIntType.INSTANCE) : arg)
                 .collect(Collectors.toList()));
     }
 
     @Override
-    public List<FunctionSignature> getSignatures() {
-        List<DataType> argumentsTypes = getArgumentsTypes();
-        return ImmutableList.of(FunctionSignature.of(BigIntType.INSTANCE, (List) argumentsTypes));
-    }
-
-    @Override
-    public MultiDistinctCount withChildren(List<Expression> children) {
+    public MultiDistinctCount withDistinctAndChildren(boolean distinct, List<Expression> children) {
         Preconditions.checkArgument(children.size() > 0);
         if (children.size() > 1) {
-            return new MultiDistinctCount(children.get(0),
+            return new MultiDistinctCount(distinct, children.get(0),
                     children.subList(1, children.size()).toArray(new Expression[0]));
         } else {
-            return new MultiDistinctCount(children.get(0));
-        }
-    }
-
-    @Override
-    public MultiDistinctCount withDistinctAndChildren(boolean isDistinct, List<Expression> children) {
-        if (children.size() > 1) {
-            return new MultiDistinctCount(isDistinct, children.get(0),
-                    children.subList(1, children.size()).toArray(new Expression[0]));
-        } else {
-            return new MultiDistinctCount(isDistinct, children.get(0));
+            return new MultiDistinctCount(distinct, children.get(0));
         }
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitMultiDistinctCount(this, context);
+    }
+
+    @Override
+    public List<FunctionSignature> getSignatures() {
+        return SIGNATURES;
     }
 }

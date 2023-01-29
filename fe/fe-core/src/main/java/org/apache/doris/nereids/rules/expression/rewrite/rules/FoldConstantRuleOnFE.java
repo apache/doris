@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite.rules;
 
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.AggregateExpression;
@@ -43,15 +44,25 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.User;
+import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
+import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * evaluate an expression on fe.
@@ -158,12 +169,35 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     }
 
     @Override
+    public Expression visitDatabase(Database database, ExpressionRewriteContext context) {
+        String res = ClusterNamespace.getNameFromFullName(context.connectContext.getDatabase());
+        return new VarcharLiteral(res);
+    }
+
+    @Override
+    public Expression visitCurrentUser(CurrentUser currentUser, ExpressionRewriteContext context) {
+        String res = context.connectContext.get().getCurrentUserIdentity().toString();
+        return new VarcharLiteral(res);
+    }
+
+    @Override
+    public Expression visitUser(User user, ExpressionRewriteContext context) {
+        String res = context.connectContext.get().getUserIdentity().toString();
+        return new VarcharLiteral(res);
+    }
+
+    @Override
+    public Expression visitConnectionId(ConnectionId connectionId, ExpressionRewriteContext context) {
+        return new BigIntLiteral(context.connectContext.get().getConnectionId());
+    }
+
+    @Override
     public Expression visitAnd(And and, ExpressionRewriteContext context) {
         if (and.getArguments().stream().anyMatch(BooleanLiteral.FALSE::equals)) {
             return BooleanLiteral.FALSE;
         }
         if (argsHasNullLiteral(and)) {
-            return Literal.of(null);
+            return new NullLiteral(BooleanType.INSTANCE);
         }
         List<Expression> nonTrueLiteral = and.children()
                 .stream()
@@ -187,7 +221,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
             return BooleanLiteral.TRUE;
         }
         if (ExpressionUtils.isAllNullLiteral(or.getArguments())) {
-            return Literal.of(null);
+            return new NullLiteral(BooleanType.INSTANCE);
         }
         List<Expression> nonFalseLiteral = or.children()
                 .stream()
@@ -221,7 +255,11 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
             return new NullLiteral(cast.getDataType());
         }
         try {
-            return child.castTo(cast.getDataType());
+            Expression castResult = child.castTo(cast.getDataType());
+            if (!Objects.equals(castResult, cast) && !Objects.equals(castResult, child)) {
+                castResult = rewrite(castResult, context);
+            }
+            return castResult;
         } catch (Throwable t) {
             return cast;
         }
@@ -262,12 +300,14 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
             }
         }
 
-        Expression defaultResult = caseWhen.getDefaultValue().isPresent() ? rewrite(caseWhen.getDefaultValue().get(),
-                context) : null;
+        Expression defaultResult = caseWhen.getDefaultValue().isPresent()
+                ? rewrite(caseWhen.getDefaultValue().get(), context)
+                : null;
         if (foundNewDefault) {
             defaultResult = newDefault;
         }
         if (whenClauses.isEmpty()) {
+            // TODO: compute the type of null literal
             return defaultResult == null ? Literal.of(null) : defaultResult;
         }
         if (defaultResult == null) {
@@ -280,7 +320,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     public Expression visitInPredicate(InPredicate inPredicate, ExpressionRewriteContext context) {
         Expression value = inPredicate.child(0);
         if (value.isNullLiteral()) {
-            return Literal.of(null);
+            return new NullLiteral(BooleanType.INSTANCE);
         }
 
         boolean valueIsLiteral = value.isLiteral();
@@ -307,6 +347,15 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
     @Override
     public Expression visitTimestampArithmetic(TimestampArithmetic arithmetic, ExpressionRewriteContext context) {
         return ExpressionEvaluator.INSTANCE.eval(arithmetic);
+    }
+
+    @Override
+    public Expression visitArray(Array array, ExpressionRewriteContext context) {
+        if (!allArgsIsAllLiteral(array)) {
+            return array;
+        }
+        List<Literal> arguments = (List) array.getArguments();
+        return new ArrayLiteral(arguments);
     }
 
     private Expression rewriteChildren(Expression expr, ExpressionRewriteContext ctx) {

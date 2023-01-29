@@ -21,6 +21,10 @@ parser grammar DorisParser;
 
 options { tokenVocab = DorisLexer; }
 
+@members {
+    public boolean doris_legacy_SQL_syntax = true;
+}
+
 multiStatements
     : (statement SEMICOLON*)+ EOF
     ;
@@ -53,7 +57,8 @@ planType
 
 //  -----------------Query-----------------
 query
-    : cte? queryTerm queryOrganization
+    : {!doris_legacy_SQL_syntax}? cte? queryTerm queryOrganization
+    | {doris_legacy_SQL_syntax}? queryTerm
     ;
 
 queryTerm
@@ -74,11 +79,13 @@ queryPrimary
     ;
 
 querySpecification
-    : selectClause
+    : {doris_legacy_SQL_syntax}? cte?
+      selectClause
       fromClause?
       whereClause?
       aggClause?
-      havingClause?                                                         #regularQuerySpecification
+      havingClause?
+      {doris_legacy_SQL_syntax}? queryOrganization                                               #regularQuerySpecification
     ;
 
 cte
@@ -238,18 +245,19 @@ expression
     ;
 
 booleanExpression
-    : NOT booleanExpression                                         #logicalNot
-    | EXISTS LEFT_PAREN query RIGHT_PAREN                           #exist
-    | (ISNULL | IS_NULL_PRED) LEFT_PAREN valueExpression RIGHT_PAREN        #isnull
-    | IS_NOT_NULL_PRED LEFT_PAREN valueExpression RIGHT_PAREN        #is_not_null_pred
-    | valueExpression predicate?                                    #predicated
-    | left=booleanExpression operator=AND right=booleanExpression   #logicalBinary
-    | left=booleanExpression operator=OR right=booleanExpression    #logicalBinary
+    : NOT booleanExpression                                                         #logicalNot
+    | EXISTS LEFT_PAREN query RIGHT_PAREN                                           #exist
+    | (ISNULL | IS_NULL_PRED) LEFT_PAREN valueExpression RIGHT_PAREN                #isnull
+    | IS_NOT_NULL_PRED LEFT_PAREN valueExpression RIGHT_PAREN                       #is_not_null_pred
+    | valueExpression predicate?                                                    #predicated
+    | left=booleanExpression operator=(AND | LOGICALAND) right=booleanExpression    #logicalBinary
+    | left=booleanExpression operator=OR right=booleanExpression                    #logicalBinary
+    | left=booleanExpression operator=DOUBLEPIPES right=booleanExpression           #doublePipes
     ;
 
 predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression
-    | NOT? kind=(LIKE | REGEXP) pattern=valueExpression
+    | NOT? kind=(LIKE | REGEXP | RLIKE) pattern=valueExpression
     | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
     | NOT? kind=IN LEFT_PAREN query RIGHT_PAREN
     | IS NOT? kind=NULL
@@ -297,14 +305,21 @@ primaryExpression
     | constant                                                                                 #constantDefault
     | ASTERISK                                                                                 #star
     | qualifiedName DOT ASTERISK                                                               #star
-    | identifier LEFT_PAREN ((DISTINCT|ALL)? arguments+=expression
-      (COMMA arguments+=expression)*)? RIGHT_PAREN                                             #functionCall
+    | functionIdentifier LEFT_PAREN ((DISTINCT|ALL)? arguments+=expression
+      (COMMA arguments+=expression)* (ORDER BY sortItem (COMMA sortItem)*)?)? RIGHT_PAREN      #functionCall
     | LEFT_PAREN query RIGHT_PAREN                                                             #subqueryExpression
+    | ATSIGN identifier                                                                        #userVariable
+    | DOUBLEATSIGN (kind=(GLOBAL | SESSION) DOT)? identifier                                     #systemVariable
     | identifier                                                                               #columnReference
     | base=primaryExpression DOT fieldName=identifier                                          #dereference
     | LEFT_PAREN expression RIGHT_PAREN                                                        #parenthesizedExpression
     | EXTRACT LEFT_PAREN field=identifier FROM (DATE | TIMESTAMP)?
       source=valueExpression RIGHT_PAREN                                                       #extract
+    ;
+
+functionIdentifier
+    : identifier
+    | LEFT | RIGHT
     ;
 
 qualifiedName
@@ -652,6 +667,7 @@ nonReserved
     | VERSION
     | VIEW
     | VIEWS
+    | WEEK
     | WHEN
     | WHERE
     | WINDOW

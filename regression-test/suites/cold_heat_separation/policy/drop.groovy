@@ -39,7 +39,7 @@ suite("drop_policy") {
             CREATE RESOURCE "resouce_policy_drop"
             PROPERTIES(
                 "type"="s3",
-                "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
+                "AWS_ENDPOINT" = "bj.s3.comaaaa",
                 "AWS_REGION" = "bj",
                 "AWS_ROOT_PATH" = "path/to/rootaaaa",
                 "AWS_ACCESS_KEY" = "bbba",
@@ -47,7 +47,8 @@ suite("drop_policy") {
                 "AWS_MAX_CONNECTIONS" = "50",
                 "AWS_REQUEST_TIMEOUT_MS" = "3000",
                 "AWS_CONNECTION_TIMEOUT_MS" = "1000",
-                "AWS_BUCKET" = "test-bucket"
+                "AWS_BUCKET" = "test-bucket",
+                "s3_validity_check" = "false"
             );
             """
         }
@@ -62,7 +63,7 @@ suite("drop_policy") {
         CREATE RESOURCE "resouce_policy_drop"
         PROPERTIES(
             "type"="s3",
-            "AWS_ENDPOINT" = "http://bj.s3.comaaaa",
+            "AWS_ENDPOINT" = "bj.s3.comaaaa",
             "AWS_REGION" = "bj",
             "AWS_ROOT_PATH" = "path/to/rootaaaa",
             "AWS_ACCESS_KEY" = "bbba",
@@ -70,7 +71,8 @@ suite("drop_policy") {
             "AWS_MAX_CONNECTIONS" = "50",
             "AWS_REQUEST_TIMEOUT_MS" = "3000",
             "AWS_CONNECTION_TIMEOUT_MS" = "1000",
-            "AWS_BUCKET" = "test-bucket"
+            "AWS_BUCKET" = "test-bucket",
+            "s3_validity_check" = "false"
         );
         """
 

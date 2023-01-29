@@ -51,6 +51,7 @@ public abstract class Type {
 
     // Static constant types for scalar types that don't require additional information.
     public static final ScalarType INVALID = new ScalarType(PrimitiveType.INVALID_TYPE);
+    public static final ScalarType UNSUPPORTED = new ScalarType(PrimitiveType.UNSUPPORTED);
     public static final ScalarType NULL = new ScalarType(PrimitiveType.NULL_TYPE);
     public static final ScalarType BOOLEAN = new ScalarType(PrimitiveType.BOOLEAN);
     public static final ScalarType TINYINT = new ScalarType(PrimitiveType.TINYINT);
@@ -111,6 +112,7 @@ public abstract class Type {
     private static final ArrayList<ScalarType> numericDateTimeTypes;
     private static final ArrayList<ScalarType> supportedTypes;
     private static final ArrayList<Type> arraySubTypes;
+    private static final ArrayList<Type> structSubTypes;
     private static final ArrayList<ScalarType> trivialTypes;
 
     static {
@@ -172,6 +174,22 @@ public abstract class Type {
         arraySubTypes.add(CHAR);
         arraySubTypes.add(VARCHAR);
         arraySubTypes.add(STRING);
+
+        structSubTypes = Lists.newArrayList();
+        structSubTypes.addAll(numericTypes);
+        structSubTypes.add(BOOLEAN);
+        structSubTypes.add(VARCHAR);
+        structSubTypes.add(STRING);
+        structSubTypes.add(CHAR);
+        structSubTypes.add(DATE);
+        structSubTypes.add(DATETIME);
+        structSubTypes.add(DATEV2);
+        structSubTypes.add(DATETIMEV2);
+        structSubTypes.add(TIME);
+        structSubTypes.add(TIMEV2);
+        structSubTypes.add(DECIMAL32);
+        structSubTypes.add(DECIMAL64);
+        structSubTypes.add(DECIMAL128);
     }
 
     public static ArrayList<ScalarType> getIntegerTypes() {
@@ -196,6 +214,17 @@ public abstract class Type {
 
     public static ArrayList<Type> getArraySubTypes() {
         return arraySubTypes;
+    }
+
+    public static ArrayList<Type> getStructSubTypes() {
+        return structSubTypes;
+    }
+
+    /**
+     * Return true if this is complex type and support subType
+     */
+    public boolean supportSubType(Type subType) {
+        return false;
     }
 
     /**
@@ -380,7 +409,7 @@ public abstract class Type {
     }
 
     public boolean isCollectionType() {
-        return isMapType() || isArrayType() || isMultiRowType();
+        return isMapType() || isArrayType() || isMultiRowType() || isStructType();
     }
 
     public boolean isMapType() {
@@ -507,6 +536,10 @@ public abstract class Type {
                 && !sourceType.isNull()) {
             // TODO: current not support cast any non-array type(except for null) to nested array type.
             return false;
+        } else if (targetType.isStructType() && sourceType.isStringType()) {
+            return true;
+        } else if (sourceType.isStructType() && targetType.isStructType()) {
+            return StructType.canCastTo((StructType) sourceType, (StructType) targetType);
         }
         return sourceType.isNull() || sourceType.getPrimitiveType().isCharFamily();
     }
@@ -774,13 +807,17 @@ public abstract class Type {
                     type = ScalarType.createVarcharType(scalarType.getLen());
                 } else if (scalarType.getType() == TPrimitiveType.HLL) {
                     type = ScalarType.createHllType();
-                } else if (scalarType.getType() == TPrimitiveType.DECIMALV2
-                        || scalarType.getType() == TPrimitiveType.DECIMAL32
-                        || scalarType.getType() == TPrimitiveType.DECIMAL64
-                        || scalarType.getType() == TPrimitiveType.DECIMAL128I) {
+                } else if (scalarType.getType() == TPrimitiveType.DECIMALV2) {
                     Preconditions.checkState(scalarType.isSetPrecision()
                             && scalarType.isSetPrecision());
                     type = ScalarType.createDecimalType(scalarType.getPrecision(),
+                            scalarType.getScale());
+                } else if (scalarType.getType() == TPrimitiveType.DECIMAL32
+                        || scalarType.getType() == TPrimitiveType.DECIMAL64
+                        || scalarType.getType() == TPrimitiveType.DECIMAL128I) {
+                    Preconditions.checkState(scalarType.isSetPrecision()
+                            && scalarType.isSetScale());
+                    type = ScalarType.createDecimalV3Type(scalarType.getPrecision(),
                             scalarType.getScale());
                 } else if (scalarType.getType() == TPrimitiveType.DATETIMEV2) {
                     Preconditions.checkState(scalarType.isSetPrecision()
@@ -825,7 +862,7 @@ public abstract class Type {
                     }
                     Pair<Type, Integer> res = fromThrift(col, tmpNodeIdx);
                     tmpNodeIdx = res.second.intValue();
-                    structFields.add(new StructField(name, res.first, comment));
+                    structFields.add(new StructField(name, res.first, comment, true));
                 }
                 type = new StructType(structFields);
                 break;
@@ -1421,7 +1458,6 @@ public abstract class Type {
         compatibilityMatrix[DECIMAL128.ordinal()][DECIMAL32.ordinal()] = PrimitiveType.DECIMAL128;
         compatibilityMatrix[DECIMAL128.ordinal()][DECIMAL64.ordinal()] = PrimitiveType.DECIMAL128;
 
-
         // HLL
         compatibilityMatrix[HLL.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[HLL.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1457,7 +1493,6 @@ public abstract class Type {
         compatibilityMatrix[QUANTILE_STATE.ordinal()][DECIMAL64.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[QUANTILE_STATE.ordinal()][DECIMAL128.ordinal()] = PrimitiveType.INVALID_TYPE;
 
-
         // TIME why here not???
         compatibilityMatrix[TIME.ordinal()][TIME.ordinal()] = PrimitiveType.INVALID_TYPE;
         compatibilityMatrix[TIME.ordinal()][TIMEV2.ordinal()] = PrimitiveType.INVALID_TYPE;
@@ -1487,7 +1522,8 @@ public abstract class Type {
                         || t1 == PrimitiveType.TIME || t2 == PrimitiveType.TIME
                         || t1 == PrimitiveType.TIMEV2 || t2 == PrimitiveType.TIMEV2
                         || t1 == PrimitiveType.MAP || t2 == PrimitiveType.MAP
-                        || t1 == PrimitiveType.STRUCT || t2 == PrimitiveType.STRUCT) {
+                        || t1 == PrimitiveType.STRUCT || t2 == PrimitiveType.STRUCT
+                        || t1 == PrimitiveType.UNSUPPORTED || t2 == PrimitiveType.UNSUPPORTED) {
                     continue;
                 }
                 Preconditions.checkNotNull(compatibilityMatrix[i][j]);
@@ -1511,17 +1547,15 @@ public abstract class Type {
             case DATE:
             case DATEV2:
             case DATETIME:
+            case DATETIMEV2:
             case TIME:
+            case TIMEV2:
             case CHAR:
             case VARCHAR:
             case HLL:
             case BITMAP:
             case QUANTILE_STATE:
                 return VARCHAR;
-            case DATETIMEV2:
-                return DEFAULT_DATETIMEV2;
-            case TIMEV2:
-                return DEFAULT_TIMEV2;
             case DECIMALV2:
                 return DECIMALV2;
             case DECIMAL32:

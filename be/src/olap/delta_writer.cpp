@@ -24,7 +24,6 @@
 #include "olap/schema.h"
 #include "olap/storage_engine.h"
 #include "runtime/load_channel_mgr.h"
-#include "runtime/row_batch.h"
 #include "runtime/tuple_row.h"
 #include "service/backend_options.h"
 #include "util/brpc_client_cache.h"
@@ -144,9 +143,9 @@ Status DeltaWriter::init() {
     _reset_mem_table();
 
     // create flush handler
-    // unique key merge on write should flush serial cause calc delete bitmap should load segment serial
-    bool should_serial = (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-                          _tablet->enable_unique_key_merge_on_write());
+    // unique key should flush serial because we need to make sure same key should sort
+    // in the same order in all replica.
+    bool should_serial = _tablet->keys_type() == KeysType::UNIQUE_KEYS;
     RETURN_NOT_OK(_storage_engine->memtable_flush_executor()->create_flush_token(
             &_flush_token, _rowset_writer->type(), should_serial, _req.is_high_priority));
 
@@ -170,14 +169,14 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
     _total_received_rows += row_idxs.size();
     _mem_table->insert(block, row_idxs);
 
-    if (_mem_table->need_to_agg()) {
+    if (UNLIKELY(_mem_table->need_agg())) {
         _mem_table->shrink_memtable_by_agg();
-        if (_mem_table->is_flush()) {
-            auto s = _flush_memtable_async();
-            _reset_mem_table();
-            if (UNLIKELY(!s.ok())) {
-                return s;
-            }
+    }
+    if (UNLIKELY(_mem_table->need_flush())) {
+        auto s = _flush_memtable_async();
+        _reset_mem_table();
+        if (UNLIKELY(!s.ok())) {
+            return s;
         }
     }
 

@@ -478,6 +478,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("write", new Integer(SqlParserSymbols.KW_WRITE));
         keywordMap.put("year", new Integer(SqlParserSymbols.KW_YEAR));
         keywordMap.put("mtmv", new Integer(SqlParserSymbols.KW_MTMV));
+        keywordMap.put("histogram", new Integer(SqlParserSymbols.KW_HISTOGRAM));
    }
     
   // map from token id to token description
@@ -648,6 +649,8 @@ EndOfLineComment = "--" !({HintContent}|{ContainsLineTerminator}) {LineTerminato
 ";" { return newToken(SqlParserSymbols.SEMICOLON, null); }
 "[" { return newToken(SqlParserSymbols.LBRACKET, null); }
 "]" { return newToken(SqlParserSymbols.RBRACKET, null); }
+"{" { return newToken(SqlParserSymbols.LBRACE, null); }
+"}" { return newToken(SqlParserSymbols.RBRACE, null); }
 "/" { return newToken(SqlParserSymbols.DIVIDE, null); }
 "%" { return newToken(SqlParserSymbols.MOD, null); }
 "+" { return newToken(SqlParserSymbols.ADD, null); }

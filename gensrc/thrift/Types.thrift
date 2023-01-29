@@ -91,6 +91,7 @@ enum TPrimitiveType {
   DECIMAL64,
   DECIMAL128I,
   JSONB,
+  UNSUPPORTED
 }
 
 enum TTypeNodeType {
@@ -124,6 +125,7 @@ struct TScalarType {
 struct TStructField {
     1: required string name
     2: optional string comment
+    3: optional bool contains_null
 }
 
 struct TTypeNode {

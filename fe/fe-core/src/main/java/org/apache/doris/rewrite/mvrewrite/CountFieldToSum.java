@@ -70,7 +70,7 @@ public class CountFieldToSum implements ExprRewriteRule {
         OlapTable olapTable = (OlapTable) table;
 
         // check column
-        String queryColumnName = column.getName();
+        String queryColumnName = column.getNameWithoutMvPrefix();
         String mvColumnName = CreateMaterializedViewStmt.mvColumnBuilder(FunctionSet.COUNT, queryColumnName);
         Column mvColumn = olapTable.getVisibleColumn(mvColumnName);
         if (mvColumn == null) {

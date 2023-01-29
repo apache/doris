@@ -335,6 +335,7 @@ public class DecimalLiteral extends LiteralExpr {
     @Override
     protected Expr uncheckedCastTo(Type targetType) throws AnalysisException {
         if (targetType.isDecimalV2() && type.isDecimalV2()) {
+            setType(targetType);
             return this;
         } else if ((targetType.isDecimalV3() && type.isDecimalV3()
                 && (((ScalarType) targetType).decimalPrecision() >= value.precision())

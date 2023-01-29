@@ -34,7 +34,8 @@ public class AnalysisTaskInfo {
 
     public enum AnalysisType {
         COLUMN,
-        INDEX
+        INDEX,
+        HISTOGRAM
     }
 
     public enum JobType {
@@ -68,6 +69,10 @@ public class AnalysisTaskInfo {
     public final AnalysisMethod analysisMethod;
 
     public final AnalysisType analysisType;
+
+    // TODO: define constants or get them from configuration properties
+    public final double sampleRate = 0.2;
+    public final int maxBucketNum = 128;
 
     public String message;
 

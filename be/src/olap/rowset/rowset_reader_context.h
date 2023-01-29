@@ -34,6 +34,8 @@ struct RowsetReaderContext {
     ReaderType reader_type = READER_QUERY;
     Version version {-1, -1};
     TabletSchemaSPtr tablet_schema = nullptr;
+    // flag for enable topn opt
+    bool use_topn_opt = false;
     // whether rowset should return ordered rows.
     bool need_ordered_result = true;
     // used for special optimization for query : ORDER BY key DESC LIMIT n

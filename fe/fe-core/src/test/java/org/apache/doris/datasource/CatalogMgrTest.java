@@ -33,6 +33,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.catalog.external.EsExternalTable;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
@@ -40,7 +41,6 @@ import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
-import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSet;
@@ -68,11 +68,13 @@ public class CatalogMgrTest extends TestWithFeService {
     private static UserIdentity user1;
     private static UserIdentity user2;
     private CatalogMgr mgr;
+    private ResourceMgr resourceMgr;
 
     @Override
     protected void runBeforeAll() throws Exception {
         FeConstants.runningUnitTest = true;
         mgr = Env.getCurrentEnv().getCatalogMgr();
+        resourceMgr = Env.getCurrentEnv().getResourceMgr();
 
         ConnectContext rootCtx = createDefaultCtx();
         env = Env.getCurrentEnv();
@@ -188,13 +190,9 @@ public class CatalogMgrTest extends TestWithFeService {
         // Can't alter catalog with resource directly
         String alterCltWithResource = "ALTER CATALOG hive SET PROPERTIES"
                 + " ('hive.metastore.uris' = 'thrift://192.168.0.2:9084');";
-        try {
-            mgr.alterCatalogProps((AlterCatalogPropertyStmt) parseAndAnalyzeStmt(alterCltWithResource));
-            Assert.fail("Can't alter catalog with resource directly");
-        } catch (UserException e) {
-            Assert.assertEquals(e.getMessage(),
-                    "errCode = 2, detailMessage = Catalog hive has hms_resource resource, please change the resource properties directly.");
-        }
+        mgr.alterCatalogProps((AlterCatalogPropertyStmt) parseAndAnalyzeStmt(alterCltWithResource));
+        Assertions.assertEquals("thrift://192.168.0.2:9084",
+                mgr.getCatalog("hive").getProperties().get("hive.metastore.uris"));
 
         showCatalogSql = "SHOW CATALOGS LIKE 'hms%'";
         showStmt = (ShowCatalogStmt) parseAndAnalyzeStmt(showCatalogSql);
