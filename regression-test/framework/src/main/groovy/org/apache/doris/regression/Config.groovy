@@ -267,7 +267,7 @@ class Config {
 
         if (config.jdbcUrl == null) {
             //jdbcUrl needs parameter here. Refer to function: buildUrl(String dbName)
-            config.jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true"
+            config.jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
             log.info("Set jdbcUrl to '${config.jdbcUrl}' because not specify.".toString())
         }
 

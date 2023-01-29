@@ -39,13 +39,13 @@ import com.google.common.collect.Lists;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * Logical join plan.
  */
 public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Plan>
         extends LogicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> implements Join {
+
     private final JoinType joinType;
     private final List<Expression> otherJoinConjuncts;
     private final List<Expression> hashJoinConjuncts;
@@ -154,10 +154,10 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     public List<Slot> computeOutput() {
 
         List<Slot> newLeftOutput = left().getOutput().stream().map(o -> o.withNullable(true))
-                .collect(Collectors.toList());
+                .collect(ImmutableList.toImmutableList());
 
         List<Slot> newRightOutput = right().getOutput().stream().map(o -> o.withNullable(true))
-                .collect(Collectors.toList());
+                .collect(ImmutableList.toImmutableList());
 
         switch (joinType) {
             case LEFT_SEMI_JOIN:

@@ -74,7 +74,7 @@ public class MysqlCapability {
 
     private static final int DEFAULT_FLAGS = Flag.CLIENT_PROTOCOL_41.getFlagBit()
             | Flag.CLIENT_CONNECT_WITH_DB.getFlagBit() | Flag.CLIENT_SECURE_CONNECTION.getFlagBit()
-            | Flag.CLIENT_PLUGIN_AUTH.getFlagBit();
+            | Flag.CLIENT_PLUGIN_AUTH.getFlagBit() | Flag.CLIENT_LOCAL_FILES.getFlagBit();
     public static final MysqlCapability DEFAULT_CAPABILITY = new MysqlCapability(DEFAULT_FLAGS);
 
     private int flags;
@@ -139,6 +139,10 @@ public class MysqlCapability {
 
     public boolean isSessionTrack() {
         return (flags & Flag.CLIENT_SESSION_TRACK.getFlagBit()) != 0;
+    }
+
+    public boolean supportClientLocalFile() {
+        return (flags & Flag.CLIENT_LOCAL_FILES.getFlagBit()) != 0;
     }
 
     @Override

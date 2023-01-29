@@ -243,6 +243,7 @@ under the License.
         <joda.version>2.8.1</joda.version>
         <revision>1.2-SNAPSHOT</revision>
         <project.scm.id>github</project.scm.id>
+        <spring.version>2.7.8</spring.version>
     </properties>
     <profiles>
         <!-- for custom internal repository -->

@@ -78,7 +78,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapXorCoun
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cbrt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceil;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceiling;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CharacterLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
@@ -91,16 +90,13 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountEqual;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Curtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateV2;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Day;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayName;
@@ -184,8 +180,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.LocalTime;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.LocalTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Locate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log10;
@@ -576,10 +570,6 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(ceil, context);
     }
 
-    default R visitCeiling(Ceiling ceiling, C context) {
-        return visitScalarFunction(ceiling, context);
-    }
-
     default R visitCharacterLength(CharacterLength characterLength, C context) {
         return visitScalarFunction(characterLength, context);
     }
@@ -624,14 +614,6 @@ public interface ScalarFunctionVisitor<R, C> {
         return visitScalarFunction(currentTime, context);
     }
 
-    default R visitCurrentTimestamp(CurrentTimestamp currentTimestamp, C context) {
-        return visitScalarFunction(currentTimestamp, context);
-    }
-
-    default R visitCurtime(Curtime curtime, C context) {
-        return visitScalarFunction(curtime, context);
-    }
-
     default R visitDate(Date date, C context) {
         return visitScalarFunction(date, context);
     }
@@ -666,10 +648,6 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitDateV2(DateV2 dateV2, C context) {
         return visitScalarFunction(dateV2, context);
-    }
-
-    default R visitDay(Day day, C context) {
-        return visitScalarFunction(day, context);
     }
 
     default R visitDayCeil(DayCeil dayCeil, C context) {
@@ -1034,14 +1012,6 @@ public interface ScalarFunctionVisitor<R, C> {
 
     default R visitLn(Ln ln, C context) {
         return visitScalarFunction(ln, context);
-    }
-
-    default R visitLocalTime(LocalTime localTime, C context) {
-        return visitScalarFunction(localTime, context);
-    }
-
-    default R visitLocalTimestamp(LocalTimestamp localTimestamp, C context) {
-        return visitScalarFunction(localTimestamp, context);
     }
 
     default R visitLocate(Locate locate, C context) {

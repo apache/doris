@@ -263,7 +263,7 @@ under the License.
 
 ### 连接 Elasticsearch
 
-详见 [Elasticsearch Catalog](./elasticsearch)
+详见 [Elasticsearch Catalog](./es)
 
 ### 连接 JDBC
 
