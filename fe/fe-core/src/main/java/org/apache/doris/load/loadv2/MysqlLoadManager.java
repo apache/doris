@@ -47,11 +47,9 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -142,18 +140,10 @@ public class MysqlLoadManager {
 
         httpPut.addHeader("Expect", "100-continue");
         httpPut.addHeader("Content-Type", "text/plain");
+        httpPut.addHeader("cluster_token", Env.getCurrentEnv().getToken());
 
         Map<String, String> props = desc.getProperties();
         if (props != null) {
-            // auth
-            if (!props.containsKey("auth")) {
-                throw new LoadException("Must have auth(user:password) in properties.");
-            }
-            // TODO: use token to send request to avoid double auth.
-            String auth = props.get("auth");
-            String base64Auth = Base64.getEncoder().encodeToString(auth.getBytes(StandardCharsets.UTF_8));
-            httpPut.addHeader("Authorization", "Basic " + base64Auth);
-
             // max_filter_ratio
             if (props.containsKey(LoadStmt.KEY_IN_PARAM_MAX_FILTER_RATIO)) {
                 String maxFilterRatio = props.get(LoadStmt.KEY_IN_PARAM_MAX_FILTER_RATIO);
