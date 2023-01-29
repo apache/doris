@@ -621,7 +621,8 @@ terminal String
     KW_AUTO,
     KW_PREPARE,
     KW_EXECUTE,
-    KW_LINES;
+    KW_LINES,
+    KW_IGNORE;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT, PLACEHOLDER;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -833,6 +834,7 @@ nonterminal String opt_user_role;
 nonterminal TablePattern tbl_pattern;
 nonterminal ResourcePattern resource_pattern;
 nonterminal String ident_or_star;
+nonterminal Integer opt_skip_lines;
 
 // password policy
 nonterminal PasswordOptions opt_password_option;
@@ -2365,12 +2367,13 @@ mysql_data_desc ::=
     opt_partition_names:partitionNames
     opt_field_term:colSep
     opt_line_term:lineDelimiter
+    opt_skip_lines:skipLines
     opt_col_list:colList
     opt_col_mapping_list:colMappingList
     opt_properties:properties
     {:
         RESULT = new DataDescription(tableName, partitionNames, file, clientLocal, colList, colSep, lineDelimiter,
-        colMappingList, properties);
+        skipLines, colMappingList, properties);
     :}
     ;
 
@@ -2413,6 +2416,21 @@ opt_line_term ::=
     | KW_LINES KW_TERMINATED KW_BY STRING_LITERAL:sep
     {:
         RESULT = new Separator(sep);
+    :}
+    ;
+
+opt_skip_lines ::=
+    /* Empty */
+    {:
+        RESULT = null;
+    :}
+    | KW_IGNORE INTEGER_LITERAL:number KW_LINES
+    {:
+        RESULT = number.intValue();
+    :}
+    | KW_IGNORE INTEGER_LITERAL:number KW_ROWS
+    {:
+        RESULT = number.intValue();
     :}
     ;
 

@@ -150,11 +150,8 @@ public class DataDescription {
     private final Expr deleteCondition;
     private final Map<String, String> properties;
     private boolean trimDoubleQuotes = false;
-<<<<<<< HEAD
     private boolean isMysqlLoad = false;
-=======
     private int skipLines = 0;
->>>>>>> 7bb7ed4cf (1)
 
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
@@ -236,6 +233,7 @@ public class DataDescription {
                            List<String> columns,
                            Separator columnSeparator,
                            Separator lineDelimiter,
+                           int skipLines,
                            List<Expr> columnMappingList,
                            Map<String, String> properties) {
         this.tableName = tableName.getTbl();
@@ -246,6 +244,7 @@ public class DataDescription {
         this.fileFieldNames = columns;
         this.columnSeparator = columnSeparator;
         this.lineDelimiter = lineDelimiter;
+        this.skipLines = skipLines;
         this.fileFormat = null;
         this.columnsFromPath = null;
         this.isNegative = false;
