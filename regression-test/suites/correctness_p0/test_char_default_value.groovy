@@ -24,6 +24,7 @@ suite("test_char_default_value") {
         CREATE TABLE `test_char_default_value` (
             `a` int(11) NULL,
             `b` char(10) NULL DEFAULT "ss"
+            `b` varchar(10) NULL DEFAULT "ass"
         ) ENGINE=OLAP
         DUPLICATE KEY(`a`, `b`)
         COMMENT 'OLAP'
@@ -38,16 +39,20 @@ suite("test_char_default_value") {
 
     sql """
         insert into test_char_default_value(a) values(1);
-        insert into test_char_default_value(a) values(2);
-        insert into test_char_default_value(a) values(3);
-        insert into test_char_default_value(a,b) values(4,'aaaaaa');
-        insert into test_char_default_value(a) values(5);
-        insert into test_char_default_value(a,b) values(6,'aaaaaaaa');
     """
+
+    sql """ """
+    sql """ insert into test_char_default_value(a) values(2); """
+    sql """ insert into test_char_default_value(a) values(3); """
+    sql """ insert into test_char_default_value(a,b) values(4,'aaaaaa'); """
+    sql """ insert into test_char_default_value(a) values(5); """
+    sql """ insert into test_char_default_value(a,b) values(6,'aaaaaaaa'); """
+    sql """ insert into test_char_default_value(a,b) values(7,'aaaaaaaa1'); """
+    sql """ insert into test_char_default_value(a,b,c) values(8,'aaaaaaaa1','a'); """
 
     qt_select """
         select
-        a,b
+        a,b,c,length(b),length(c)
         from
         test_char_default_value order by a desc;
     """
