@@ -34,6 +34,7 @@
 #include "vec/data_types/data_type_date_time.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/runtime/vdatetime_value.h"
+#include "vec/utils/util.hpp"
 
 namespace doris::vectorized {
 
@@ -370,17 +371,28 @@ struct Transformer<FromType, ToType, ToYearImpl<FromType>> {
 template <typename FromType, typename ToType, typename Transform>
 struct DateTimeTransformImpl {
     static Status execute(Block& block, const ColumnNumbers& arguments, size_t result,
-                          size_t /*input_rows_count*/) {
+                          size_t input_rows_count) {
         using Op = Transformer<FromType, ToType, Transform>;
 
         const auto is_nullable = block.get_by_position(result).type->is_nullable();
 
-        const ColumnPtr source_col = block.get_by_position(arguments[0]).column;
+        const ColumnPtr source_col = remove_nullable(block.get_by_position(arguments[0]).column);
         if (const auto* sources = check_and_get_column<ColumnVector<FromType>>(source_col.get())) {
             auto col_to = ColumnVector<ToType>::create();
             if (is_nullable) {
-                auto null_map = ColumnVector<UInt8>::create();
+                auto null_map = ColumnVector<UInt8>::create(input_rows_count);
                 Op::vector(sources->get_data(), col_to->get_data(), null_map->get_data());
+                if (const auto* nullable_col = check_and_get_column<ColumnNullable>(
+                            block.get_by_position(arguments[0]).column.get())) {
+
+                    NullMap& result_null_map =
+                            assert_cast<ColumnUInt8&>(*null_map).get_data();
+                    const NullMap& src_null_map =
+                            assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
+                                    .get_data();
+
+                    VectorizedUtils::update_null_map(result_null_map, src_null_map);
+                }
                 block.replace_by_position(
                         result, ColumnNullable::create(std::move(col_to), std::move(null_map)));
             } else {
