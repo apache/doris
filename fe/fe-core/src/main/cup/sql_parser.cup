@@ -620,7 +620,8 @@ terminal String
     KW_HISTOGRAM,
     KW_AUTO,
     KW_PREPARE,
-    KW_EXECUTE;
+    KW_EXECUTE,
+    KW_LINES;
 
 terminal COMMA, COLON, DOT, DOTDOTDOT, AT, STAR, LPAREN, RPAREN, SEMICOLON, LBRACKET, RBRACKET, DIVIDE, MOD, ADD, SUBTRACT, PLACEHOLDER;
 terminal BITAND, BITOR, BITXOR, BITNOT;
@@ -816,7 +817,7 @@ nonterminal List<String> string_list;
 nonterminal List<Long> integer_list, cancel_rollup_job_id_list;
 nonterminal AccessPrivilege privilege_type;
 
-nonterminal DataDescription data_desc;
+nonterminal DataDescription data_desc, mysql_data_desc;
 nonterminal List<DataDescription> data_desc_list;
 nonterminal LabelName job_label;
 nonterminal String opt_with_label;
@@ -827,7 +828,7 @@ nonterminal List<String> opt_col_list, opt_dup_keys, opt_columns_from_path;
 nonterminal List<ColWithComment> opt_col_with_comment_list, col_with_comment_list;
 nonterminal ColWithComment col_with_comment;
 nonterminal List<Expr> opt_col_mapping_list;
-nonterminal Separator opt_field_term, separator;
+nonterminal Separator opt_field_term, opt_line_term, separator;
 nonterminal String opt_user_role;
 nonterminal TablePattern tbl_pattern;
 nonterminal ResourcePattern resource_pattern;
@@ -844,7 +845,7 @@ nonterminal ParseNode load_property;
 nonterminal List<ParseNode> opt_load_property_list;
 
 // Boolean
-nonterminal Boolean opt_negative, opt_is_allow_null, opt_is_key, opt_read_only, opt_aggregate;
+nonterminal Boolean opt_negative, opt_is_allow_null, opt_is_key, opt_read_only, opt_aggregate, opt_local;
 nonterminal String opt_from_rollup, opt_to_rollup;
 nonterminal ColumnPosition opt_col_pos;
 
@@ -2244,6 +2245,10 @@ load_stmt ::=
     {:
         RESULT = new LoadStmt(label, dataDescList, resource, properties);
     :}
+    | KW_LOAD mysql_data_desc:desc opt_properties:properties
+    {:
+        RESULT = new LoadStmt(desc, properties);
+    :}
     ;
 
 job_label ::=
@@ -2351,11 +2356,39 @@ data_desc ::=
     :}
     ;
 
+/* MySQL LOAD DATA Statement */
+mysql_data_desc ::=
+    KW_DATA
+    opt_local:clientLocal
+    KW_INFILE STRING_LITERAL:file
+    KW_INTO KW_TABLE table_name:tableName
+    opt_partition_names:partitionNames
+    opt_field_term:colSep
+    opt_line_term:lineDelimiter
+    opt_col_list:colList
+    opt_col_mapping_list:colMappingList
+    opt_properties:properties
+    {:
+        RESULT = new DataDescription(tableName, partitionNames, file, clientLocal, colList, colSep, lineDelimiter,
+        colMappingList, properties);
+    :}
+    ;
+
 opt_negative ::=
     {:
         RESULT = false;
     :}
     | KW_NEGATIVE
+    {:
+        RESULT = true;
+    :}
+    ;
+
+opt_local ::=
+    {:
+        RESULT = false;
+    :}
+    | KW_LOCAL
     {:
         RESULT = true;
     :}
@@ -2367,6 +2400,17 @@ opt_field_term ::=
         RESULT = null;
     :}
     | KW_COLUMNS KW_TERMINATED KW_BY STRING_LITERAL:sep
+    {:
+        RESULT = new Separator(sep);
+    :}
+    ;
+
+opt_line_term ::=
+    /* Empty */
+    {:
+        RESULT = null;
+    :}
+    | KW_LINES KW_TERMINATED KW_BY STRING_LITERAL:sep
     {:
         RESULT = new Separator(sep);
     :}
@@ -7010,6 +7054,8 @@ keyword ::=
     | KW_RECYCLE:id
     {: RESULT = id; :}
     | KW_MTMV:id
+    {: RESULT = id; :}
+    | KW_LINES:id
     {: RESULT = id; :}
     ;
 
