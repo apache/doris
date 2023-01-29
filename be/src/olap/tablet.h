@@ -96,6 +96,7 @@ public:
     size_t num_rows();
     int version_count() const;
     bool exceed_version_limit(int32_t limit) const;
+    uint64_t segment_count() const;
     Version max_version() const;
     Version max_version_unlocked() const;
     CumulativeCompactionPolicy* cumulative_compaction_policy();
@@ -548,6 +549,14 @@ inline int Tablet::version_count() const {
 
 inline Version Tablet::max_version() const {
     return _tablet_meta->max_version();
+}
+
+inline uint64_t Tablet::segment_count() const {
+    uint64_t segment_nums = 0;
+    for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
+        segment_nums += rs_meta->num_segments();
+    }
+    return segment_nums;
 }
 
 inline Version Tablet::max_version_unlocked() const {
