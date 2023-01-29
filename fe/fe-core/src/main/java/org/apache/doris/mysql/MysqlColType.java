@@ -53,7 +53,7 @@ public enum MysqlColType {
     MYSQL_TYPE_VARSTRING(253, "VAR STRING"),
     MYSQL_TYPE_STRING(254, "STRING"),
     MYSQL_TYPE_GEOMETRY(255, "GEOMETRY"),
-    MYSQL_TYPE_MAP(256, "MAP");
+    MYSQL_TYPE_MAP(400, "MAP");
 
     private MysqlColType(int code, String desc) {
         this.code = code;

@@ -309,7 +309,7 @@ public:
             AggregateFunctionState = 22,
             JSONB = 23,
             Decimal128I = 24,
-	    Map = 25,
+            Map = 25,
         };
 
         static const int MIN_NON_POD = 16;
@@ -336,7 +336,7 @@ public:
                 return "Array";
             case Tuple:
                 return "Tuple";
-	    case Map:
+            case Map:
                 return "Map";
             case Decimal32:
                 return "Decimal32";
@@ -509,7 +509,7 @@ public:
             return get<Array>() < rhs.get<Array>();
         case Types::Tuple:
             return get<Tuple>() < rhs.get<Tuple>();
-	case Types::Map:
+        case Types::Map:
             return get<Map>() < rhs.get<Map>();
         case Types::Decimal32:
             return get<DecimalField<Decimal32>>() < rhs.get<DecimalField<Decimal32>>();
@@ -689,7 +689,7 @@ private:
             return;
         case Types::Map:
             f(field.template get<Map>());
-	    return;
+            return;
         case Types::Decimal32:
             f(field.template get<DecimalField<Decimal32>>());
             return;

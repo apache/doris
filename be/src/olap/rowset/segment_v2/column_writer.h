@@ -320,7 +320,6 @@ private:
     ColumnWriterOptions _opts;
 };
 
-
 class MapColumnWriter final : public ColumnWriter, public FlushPageCallback {
 public:
     explicit MapColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
@@ -362,13 +361,17 @@ public:
         }
         return Status::OK();
     }
+
+    // according key writer to get next rowid
     ordinal_t get_next_rowid() const override { return _key_writer->get_next_rowid(); }
 
 private:
-    std::unique_ptr<ScalarColumnWriter> _null_writer;
+    Status write_null_column(size_t num_rows, bool is_null); // 写入num_rows个null标记
+
     std::unique_ptr<ColumnWriter> _key_writer;
     std::unique_ptr<ColumnWriter> _value_writer;
-
+    // we need null writer to make sure a row is null or not
+    std::unique_ptr<ScalarColumnWriter> _null_writer;
     std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
     ColumnWriterOptions _opts;
 };

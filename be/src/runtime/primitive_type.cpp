@@ -362,7 +362,7 @@ TPrimitiveType::type to_thrift(PrimitiveType ptype) {
     case TYPE_ARRAY:
         return TPrimitiveType::ARRAY;
     case TYPE_MAP:
-        return  TPrimitiveType::MAP;
+        return TPrimitiveType::MAP;
     default:
         return TPrimitiveType::INVALID_TYPE;
     }

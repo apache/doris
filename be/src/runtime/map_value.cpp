@@ -36,5 +36,4 @@ MapValue MapValue::from_map_val(const MapVal& val) {
     return MapValue(val.key, val.value, val.length);
 }
 
-
 } // namespace doris

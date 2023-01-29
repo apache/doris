@@ -110,7 +110,7 @@ void _destruct_object(const void* obj, void*) {
 
 template <typename T>
 void _destruct_array(const void* array, void*) {
-    delete[] ((const T*)array);
+    delete[]((const T*)array);
 }
 
 // 根据压缩类型的不同，执行压缩。dest_buf_len是dest_buf的最大长度，

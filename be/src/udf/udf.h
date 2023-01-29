@@ -89,7 +89,7 @@ public:
         TYPE_DECIMALV2,
         TYPE_OBJECT,
         TYPE_ARRAY,
-	TYPE_MAP,
+        TYPE_MAP,
         TYPE_QUANTILE_STATE,
         TYPE_DATEV2,
         TYPE_DATETIMEV2,
@@ -918,15 +918,14 @@ struct MapVal : public AnyVal {
     uint64_t length;
     // item has no null value if has_null is false.
     // item ```may``` has null value if has_null is true.
-//    bool has_null;
+    //    bool has_null;
     // null bitmap
     bool* key_null_signs;
     bool* value_null_signs;
 
     MapVal() = default;
 
-    MapVal(void* k, void* v, uint64_t length)
-            : key(k), value(v), length(length) {};
+    MapVal(void* k, void* v, uint64_t length) : key(k), value(v), length(length) {};
 
     static MapVal null() {
         MapVal val;

@@ -21,7 +21,7 @@
 namespace doris::vectorized {
 
 Status VMapLiteral::prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                              VExprContext* context) {
+                            VExprContext* context) {
     DCHECK_EQ(type().children.size(), 2) << "map children type not 2";
 
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, row_desc, context));
@@ -30,7 +30,7 @@ Status VMapLiteral::prepare(RuntimeState* state, const RowDescriptor& row_desc,
     Field keys = Array();
     Field values = Array();
     // each child is slot with key1, value1, key2, value2...
-    for (int idx = 0; idx < _children.size(); ++idx ) {
+    for (int idx = 0; idx < _children.size(); ++idx) {
         Field item;
         ColumnPtrWrapper* const_col_wrapper = nullptr;
         RETURN_IF_ERROR(_children[idx]->get_const_col(context, &const_col_wrapper));

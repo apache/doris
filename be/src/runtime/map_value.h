@@ -18,6 +18,7 @@
 #pragma once
 
 #include <type_traits>
+
 #include "runtime/primitive_type.h"
 
 namespace doris_udf {
@@ -37,8 +38,7 @@ class MapValue {
 public:
     MapValue() = default;
 
-    explicit MapValue(int32_t length)
-            : _key_data(nullptr), _value_data(nullptr), _length(length){}
+    explicit MapValue(int32_t length) : _key_data(nullptr), _value_data(nullptr), _length(length) {}
 
     MapValue(void* k_data, void* v_data, int32_t length)
             : _key_data(k_data), _value_data(v_data), _length(length) {}
@@ -69,5 +69,5 @@ private:
     // length for map size
     int32_t _length;
 
-};//map-value
+}; //map-value
 } // namespace doris

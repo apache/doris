@@ -414,7 +414,7 @@ void TabletColumn::init_from_pb(const ColumnPB& column) {
     if (_type == FieldType::OLAP_FIELD_TYPE_MAP) {
         DCHECK(column.children_columns_size() == 2) << "MAP type has more than 2 children types.";
         TabletColumn key_column;
-	TabletColumn value_column;
+        TabletColumn value_column;
         key_column.init_from_pb(column.children_columns(0));
         value_column.init_from_pb(column.children_columns(1));
         add_sub_column(key_column);

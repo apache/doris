@@ -50,7 +50,7 @@ public:
               _index_size(column.index_length()),
               _is_nullable(column.is_nullable()),
               _unique_id(column.unique_id()) {
-        if (column.type() == OLAP_FIELD_TYPE_ARRAY ||  column.type() == OLAP_FIELD_TYPE_MAP) {
+        if (column.type() == OLAP_FIELD_TYPE_ARRAY || column.type() == OLAP_FIELD_TYPE_MAP) {
             _agg_info = get_aggregate_info(column.aggregation(), column.type(),
                                            column.get_sub_column(0).type());
         } else {
@@ -464,14 +464,12 @@ public:
         _type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
     }
 
-        // make variable_ptr memory allocate to cell_ptr as MapValue
+    // make variable_ptr memory allocate to cell_ptr as MapValue
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
         return variable_ptr + _length;
     }
 
-    size_t get_variable_len() const override {
-        return _length;
-    }
+    size_t get_variable_len() const override { return _length; }
 };
 
 class ArrayField : public Field {
@@ -775,8 +773,8 @@ public:
                 auto* local = new ArrayField(column);
                 local->add_sub_field(std::move(item_field));
                 return local;
-            }				            
-	    case OLAP_FIELD_TYPE_MAP: {
+            }
+            case OLAP_FIELD_TYPE_MAP: {
                 std::unique_ptr<Field> key_field(FieldFactory::create(column.get_sub_column(0)));
                 std::unique_ptr<Field> val_field(FieldFactory::create(column.get_sub_column(1)));
                 auto* local = new MapField(column);
@@ -824,9 +822,9 @@ public:
                 local->add_sub_field(std::move(item_field));
                 return local;
             }
-	    case OLAP_FIELD_TYPE_MAP: {
+            case OLAP_FIELD_TYPE_MAP: {
                 DCHECK(column.get_subtype_count() == 2);
-                auto* local= new MapField(column);
+                auto* local = new MapField(column);
                 std::unique_ptr<Field> key_field(FieldFactory::create(column.get_sub_column(0)));
                 std::unique_ptr<Field> value_field(FieldFactory::create(column.get_sub_column(1)));
                 local->add_sub_field(std::move(key_field));

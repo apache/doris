@@ -24,9 +24,9 @@
 #include "runtime/runtime_state.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/columns/column_vector.h"
-#include "vec/columns/column_map.h"
 #include "vec/common/assert_cast.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_decimal.h"
@@ -189,13 +189,7 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
             result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
         }
     } else if constexpr (type == TYPE_MAP) {
-    	        auto& column_map = assert_cast<const ColumnMap&>(*column);
-        auto& offsets = column_map.get_offsets();
-        auto& column_key_array = assert_cast<const ColumnArray&>(column_map.get_keys());
-        auto& column_val_array = assert_cast<const ColumnArray&>(column_map.get_values());
         auto& map_type = assert_cast<const DataTypeMap&>(*nested_type_ptr);
-        auto& key_nested_type_ptr = map_type.get_key_type();
-        auto& val_nested_type_ptr = map_type.get_value_type();
         for (ssize_t i = 0; i < row_size; ++i) {
             if (0 != buf_ret) {
                 return Status::InternalError("pack mysql buffer failed.");
@@ -203,40 +197,9 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
             _buffer.reset();
 
             _buffer.open_dynamic_mode();
-            buf_ret = _buffer.push_string("{", 1);
-            bool begin = true;
-            for (auto j = offsets[i - 1]; j < offsets[i]; ++j) {
-                if (!begin) {
-                    buf_ret = _buffer.push_string(", ", 2);
-                }
-                const auto& key_data = column_key_array.get_data_ptr();
-                if (key_data->is_null_at(j)) {
-                    buf_ret = _buffer.push_string("NULL", strlen("NULL"));
-                } else {
-                    if (WhichDataType(remove_nullable(key_nested_type_ptr)).is_string()) {
-                        buf_ret = _buffer.push_string("'", 1);
-                        buf_ret = _add_one_cell(key_data, j, key_nested_type_ptr, _buffer);
-                        buf_ret = _buffer.push_string("'", 1);
-                    } else {
-                        buf_ret = _add_one_cell(key_data, j, key_nested_type_ptr, _buffer);
-                    }
-                }
-                buf_ret = _buffer.push_string(":", 1);
-                const auto& val_data = column_val_array.get_data_ptr();
-                if (val_data->is_null_at(j)) {
-                    buf_ret = _buffer.push_string("NULL", strlen("NULL"));
-                } else {
-                    if (WhichDataType(remove_nullable(val_nested_type_ptr)).is_string()) {
-                        buf_ret = _buffer.push_string("'", 1);
-                        buf_ret = _add_one_cell(val_data, j, val_nested_type_ptr, _buffer);
-                        buf_ret = _buffer.push_string("'", 1);
-                    } else {
-                        buf_ret = _add_one_cell(val_data, j, val_nested_type_ptr, _buffer);
-                    }
-                }
-                begin = false;
-            }
-            buf_ret = _buffer.push_string("}", 1);
+            std::string cell_str = map_type.to_string(*column, i);
+            buf_ret = _buffer.push_string(cell_str.c_str(), strlen(cell_str.c_str()));
+
             _buffer.close_dynamic_mode();
             result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
         }
@@ -709,7 +672,7 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
             }
             break;
         }
-	case TYPE_MAP: {
+        case TYPE_MAP: {
             if (type_ptr->is_nullable()) {
                 auto& nested_type =
                         assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type(); //for map
@@ -720,7 +683,7 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
                                                                          type_ptr);
             }
             break;
-        }		 
+        }
         default: {
             LOG(WARNING) << "can't convert this type to mysql type. type = "
                          << _output_vexpr_ctxs[i]->root()->type();

@@ -22,7 +22,6 @@
 #include <string_view>
 
 #include "vec/columns/column_array.h"
-#include "vec/columns/column_const.h"
 #include "vec/columns/column_map.h"
 #include "vec/columns/column_string.h"
 #include "vec/data_types/data_type_array.h"
@@ -47,17 +46,20 @@ public:
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DCHECK(is_array(arguments[0]) || is_map(arguments[0]))
-                << "first argument for function: " << name << " should be DataTypeArray or DataTypeMap";
+                << "first argument for function: " << name
+                << " should be DataTypeArray or DataTypeMap";
         if (is_array(arguments[0])) {
-            DCHECK(is_integer(arguments[1])) << "second argument for function: " << name << " should be Integer for array element";
+            DCHECK(is_integer(arguments[1])) << "second argument for function: " << name
+                                             << " should be Integer for array element";
             return make_nullable(
                     check_and_get_data_type<DataTypeArray>(arguments[0].get())->get_nested_type());
-        } else {
+        } else if (is_map(arguments[0])) {
             return make_nullable(
                     check_and_get_data_type<DataTypeMap>(arguments[0].get())->get_value_type());
+        } else {
+            LOG(ERROR) << "element_at only support array and map so far.";
+            return nullptr;
         }
-
-
     }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
@@ -79,93 +81,60 @@ public:
         ColumnPtr res_column = nullptr;
         if (args[0].column->is_column_map()) {
             res_column = _execute_map(args, input_rows_count, src_null_map, dst_null_map);
-        }else {
-            res_column =
-                    _execute_non_nullable(args, input_rows_count, src_null_map, dst_null_map);
+        } else {
+            res_column = _execute_non_nullable(args, input_rows_count, src_null_map, dst_null_map);
         }
         if (!res_column) {
             return Status::RuntimeError("unsupported types for function {}({}, {})", get_name(),
                                         block.get_by_position(arguments[0]).type->get_name(),
                                         block.get_by_position(arguments[1]).type->get_name());
         }
-        block.replace_by_position(
-                result, ColumnNullable::create(std::move(res_column), std::move(dst_null_column)));
+        block.replace_by_position(result,
+                                  ColumnNullable::create(res_column, std::move(dst_null_column)));
         return Status::OK();
     }
 
 private:
     //=========================== map element===========================//
     ColumnPtr _get_mapped_idx(const ColumnArray& key_column,
-                           const ColumnWithTypeAndName& argument) {
-        if (key_column.get_data().is_column_string()) {
-            return _mapped_key_string(key_column, argument);
-        }
-        return nullptr;
+                              const ColumnWithTypeAndName& argument) {
+        return _mapped_key(key_column, argument);
     }
 
-    ColumnPtr _get_mapped_value(const ColumnArray& val_column,
-                                const IColumn& matched_indices,
-                                const UInt8* src_null_map,
-                                UInt8* dst_null_map) {
-        const UInt8* nested_null_map = nullptr;
-        ColumnPtr nested_column = nullptr;
-        if (is_column_nullable(val_column.get_data())) {
-            const auto& nested_null_column =
-                    reinterpret_cast<const ColumnNullable&>(val_column.get_data());
-            nested_null_map = nested_null_column.get_null_map_column().get_data().data();
-            nested_column = nested_null_column.get_nested_column_ptr();
-        } else {
-            nested_column = val_column.get_data_ptr();
-        }
-        if (check_column<ColumnInt8>(nested_column)) {
-            return _execute_number<ColumnInt8>(val_column.get_offsets(), *nested_column,
-                                                src_null_map, matched_indices,
-                                                nested_null_map, dst_null_map);
-        } else if (check_column<ColumnInt32>(nested_column)) {
-            _execute_number<ColumnInt32>(val_column.get_offsets(), *nested_column,
-                                        src_null_map, matched_indices,
-                                        nested_null_map, dst_null_map);
-        }
-        return nullptr;
-    }
-
-    ColumnPtr _mapped_key_string(const ColumnArray& column,
-                            const ColumnWithTypeAndName& argument) {
+    ColumnPtr _mapped_key(const ColumnArray& column, const ColumnWithTypeAndName& argument) {
         auto right_column = argument.column->convert_to_full_column_if_const();
-        const ColumnString& match_key = reinterpret_cast<const ColumnString&>(*right_column);
         const ColumnArray::Offsets64& offsets = column.get_offsets();
         ColumnPtr nested_ptr = nullptr;
         if (is_column_nullable(column.get_data())) {
-            nested_ptr = reinterpret_cast<const ColumnNullable&>(column.get_data()).get_nested_column_ptr();
+            nested_ptr = reinterpret_cast<const ColumnNullable&>(column.get_data())
+                                 .get_nested_column_ptr();
         } else {
             nested_ptr = column.get_data_ptr();
         }
-        const ColumnString& nested_key = reinterpret_cast<const ColumnString&>(*nested_ptr);
         size_t rows = offsets.size();
         // prepare return data
         auto matched_indices = ColumnVector<Int8>::create();
         matched_indices->reserve(rows);
 
-        for (size_t i = 0; i < rows; i++)
-        {
+        for (size_t i = 0; i < rows; i++) {
             bool matched = false;
             size_t begin = offsets[i - 1];
             size_t end = offsets[i];
             for (size_t j = begin; j < end; j++) {
-                if (nested_key.get_data_at(j) == match_key.get_data_at(i)) {
-                    matched_indices->insert_value(j-begin+1);
+                if (nested_ptr->compare_at(j, i, *right_column, -1) == 0) {
+                    matched_indices->insert_value(j - begin + 1);
                     matched = true;
                     break;
                 }
             }
 
-            if (!matched)
-                matched_indices->insert_value(end-begin+1); // make indices for null
+            if (!matched) {
+                matched_indices->insert_value(end - begin + 1); // make indices for null
+            }
         }
 
         return matched_indices;
     }
-
 
     template <typename ColumnType>
     ColumnPtr _execute_number(const ColumnArray::Offsets64& offsets, const IColumn& nested_column,
@@ -262,16 +231,14 @@ private:
         return dst_column;
     }
 
-    ColumnPtr _execute_map(const ColumnsWithTypeAndName& arguments,
-                           size_t input_rows_count, const UInt8* src_null_map,
-                           UInt8* dst_null_map) {
-
+    ColumnPtr _execute_map(const ColumnsWithTypeAndName& arguments, size_t input_rows_count,
+                           const UInt8* src_null_map, UInt8* dst_null_map) {
         auto left_column = arguments[0].column->convert_to_full_column_if_const();
-	DataTypePtr val_type = reinterpret_cast<const DataTypeMap&>(*arguments[0].type).get_values();
+        DataTypePtr val_type =
+                reinterpret_cast<const DataTypeMap&>(*arguments[0].type).get_values();
         const auto& map_column = reinterpret_cast<const ColumnMap&>(*left_column);
 
-        const ColumnArray& column_keys = assert_cast<const ColumnArray &> (map_column.get_keys());
-//        const ColumnArray& column_vals = assert_cast<const ColumnArray &> (map_column.get_values());
+        const ColumnArray& column_keys = assert_cast<const ColumnArray&>(map_column.get_keys());
 
         const auto& offsets = column_keys.get_offsets();
         const size_t rows = offsets.size();
@@ -289,7 +256,6 @@ private:
         ColumnWithTypeAndName data(map_column.get_values_ptr(), val_type, "value");
         ColumnsWithTypeAndName args = {data, indices};
         return _execute_non_nullable(args, input_rows_count, src_null_map, dst_null_map);
-        //return _get_mapped_value(column_vals, *matched_indices, src_null_map, dst_null_map);
     }
 
     ColumnPtr _execute_non_nullable(const ColumnsWithTypeAndName& arguments,

@@ -37,7 +37,7 @@ union TypeConverter {
 };
 
 template <typename C0, typename C1, typename T0, typename T1>
-inline constexpr bool match_v = std::is_same_v<C0, C1> && std::is_same_v<T0, T1>;
+inline constexpr bool match_v = std::is_same_v<C0, C1>&& std::is_same_v<T0, T1>;
 
 union DecimalInt128Union {
     DecimalV2Value decimal;

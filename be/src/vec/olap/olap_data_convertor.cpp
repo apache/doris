@@ -119,11 +119,13 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
                 create_olap_column_data_convertor(sub_column));
     }
     case FieldType::OLAP_FIELD_TYPE_MAP: {
-	const auto& key_column = column.get_sub_column(0);
+        const auto& key_column = column.get_sub_column(0);
         const auto& value_column = column.get_sub_column(1);
         return std::make_unique<OlapColumnDataConvertorMap>(
-                std::make_unique<OlapColumnDataConvertorArray>(create_olap_column_data_convertor(key_column)),
-                std::make_unique<OlapColumnDataConvertorArray>(create_olap_column_data_convertor(value_column)));
+                std::make_unique<OlapColumnDataConvertorArray>(
+                        create_olap_column_data_convertor(key_column)),
+                std::make_unique<OlapColumnDataConvertorArray>(
+                        create_olap_column_data_convertor(value_column)));
         //const auto& key_column = column.get_sub_column(0);
         //const auto& value_column = column.get_sub_column(1);
         //return std::make_unique<OlapColumnDataConvertorMap>(
@@ -729,8 +731,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap() {
     if (_nullmap) {
         const auto* nullable_column =
                 assert_cast<const ColumnNullable*>(_typed_column.column.get());
-        column_map =
-                assert_cast<const ColumnMap*>(nullable_column->get_nested_column_ptr().get());
+        column_map = assert_cast<const ColumnMap*>(nullable_column->get_nested_column_ptr().get());
         data_type_map = assert_cast<const DataTypeMap*>(
                 (assert_cast<const DataTypeNullable*>(_typed_column.type.get())->get_nested_type())
                         .get());
@@ -745,9 +746,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap() {
 }
 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
-        const ColumnMap* column_map,
-        const DataTypeMap* data_type_map) {
-
+        const ColumnMap* column_map, const DataTypeMap* data_type_map) {
     ColumnPtr key_data = column_map->get_keys_ptr();
     ColumnPtr value_data = column_map->get_values_ptr();
     if (column_map->get_keys().is_nullable()) {
@@ -764,8 +763,8 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
 
     const auto& offsets = column_map->get_offsets(); // use keys offsets
 
-    ColumnWithTypeAndName key_typed_column = {
-            key_data, remove_nullable(data_type_map->get_keys()),"map.key"};
+    ColumnWithTypeAndName key_typed_column = {key_data, remove_nullable(data_type_map->get_keys()),
+                                              "map.key"};
     _key_convertor->set_source_column(key_typed_column, _row_pos, _num_rows);
     _key_convertor->convert_to_olap();
 
@@ -788,14 +787,11 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
             continue;
         }
 
-        map_value->set_key(
-                const_cast<void*>(_key_convertor->get_data_at(i)));
-        map_value->set_value(
-                const_cast<void*>(_value_convertor->get_data_at(i)));
+        map_value->set_key(const_cast<void*>(_key_convertor->get_data_at(i)));
+        map_value->set_value(const_cast<void*>(_value_convertor->get_data_at(i)));
     }
 
     return Status::OK();
 }
-
 
 } // namespace doris::vectorized

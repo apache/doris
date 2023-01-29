@@ -34,14 +34,14 @@ ColumnMap::ColumnMap(MutableColumnPtr&& keys, MutableColumnPtr&& values)
 }
 
 ColumnArray::Offsets64& ColumnMap::get_offsets() const {
-    const ColumnArray & column_keys = assert_cast<const ColumnArray &> (get_keys());
+    const ColumnArray& column_keys = assert_cast<const ColumnArray&>(get_keys());
     // todo . did here check size ?
     return const_cast<Offsets64&>(column_keys.get_offsets());
 }
 
 void ColumnMap::check_size() const {
-    const auto * key_array = typeid_cast<const ColumnArray *>(keys.get());
-    const auto * value_array = typeid_cast<const ColumnArray *>(values.get());
+    const auto* key_array = typeid_cast<const ColumnArray*>(keys.get());
+    const auto* value_array = typeid_cast<const ColumnArray*>(values.get());
     CHECK(key_array) << "ColumnMap keys can be created only from array";
     CHECK(value_array) << "ColumnMap values can be created only from array";
     CHECK_EQ(get_keys_ptr()->size(), get_values_ptr()->size());
@@ -55,15 +55,16 @@ MutableColumnPtr ColumnMap::clone_resized(size_t to_size) const {
 
 // to support field functions
 Field ColumnMap::operator[](size_t n) const {
+    // Map is FieldVector , see in field.h
     Map res(2);
     keys->get(n, res[0]);
-    values->get(n, res[0]);
+    values->get(n, res[1]);
 
     return res;
 }
 
 // here to compare to below
-void ColumnMap::get(size_t n, Field & res) const {
+void ColumnMap::get(size_t n, Field& res) const {
     Map map(2);
     keys->get(n, map[0]);
     values->get(n, map[1]);
@@ -81,25 +82,19 @@ void ColumnMap::insert_data(const char*, size_t) {
 
 void ColumnMap::insert(const Field& x) {
     const auto& map = doris::vectorized::get<const Map&>(x);
-    // ({}, {}, {})
-    // ([], [])
     CHECK_EQ(map.size(), 2);
     keys->insert(map[0]);
     values->insert(map[1]);
 }
 
-void ColumnMap::insert_default() {
-    keys->insert_default();
-    values->insert_default();
-}
+void ColumnMap::insert_default() {}
 
 void ColumnMap::pop_back(size_t n) {
     keys->pop_back(n);
     values->pop_back(n);
 }
 
-StringRef ColumnMap::serialize_value_into_arena(size_t n, Arena & arena, char const*& begin)
-        const {
+StringRef ColumnMap::serialize_value_into_arena(size_t n, Arena& arena, char const*& begin) const {
     StringRef res(begin, 0);
     auto keys_ref = keys->serialize_value_into_arena(n, arena, begin);
     res.data = keys_ref.data - res.size;
@@ -114,11 +109,11 @@ StringRef ColumnMap::serialize_value_into_arena(size_t n, Arena & arena, char co
 void ColumnMap::insert_from(const IColumn& src_, size_t n) {
     const ColumnMap& src = assert_cast<const ColumnMap&>(src_);
 
-    if ((!get_keys().is_nullable() && src.get_keys().is_nullable())
-        || (!get_values().is_nullable() && src.get_values().is_nullable())) {
+    if ((!get_keys().is_nullable() && src.get_keys().is_nullable()) ||
+        (!get_values().is_nullable() && src.get_values().is_nullable())) {
         DCHECK(false);
-    } else if ((get_keys().is_nullable() && !src.get_keys().is_nullable())
-               || (get_values().is_nullable() && !src.get_values().is_nullable())) {
+    } else if ((get_keys().is_nullable() && !src.get_keys().is_nullable()) ||
+               (get_values().is_nullable() && !src.get_values().is_nullable())) {
         DCHECK(false);
     } else {
         keys->insert_from(*assert_cast<const ColumnMap&>(src_).keys, n);
@@ -127,7 +122,7 @@ void ColumnMap::insert_from(const IColumn& src_, size_t n) {
 }
 
 void ColumnMap::insert_indices_from(const IColumn& src, const int* indices_begin,
-                                      const int* indices_end) {
+                                    const int* indices_end) {
     for (auto x = indices_begin; x != indices_end; ++x) {
         if (*x == -1) {
             ColumnMap::insert_default();
@@ -144,7 +139,7 @@ const char* ColumnMap::deserialize_and_insert_from_arena(const char* pos) {
     return pos;
 }
 
-void ColumnMap::update_hash_with_value(size_t n, SipHash & hash) const {
+void ColumnMap::update_hash_with_value(size_t n, SipHash& hash) const {
     keys->update_hash_with_value(n, hash);
     values->update_hash_with_value(n, hash);
 }
@@ -155,7 +150,8 @@ void ColumnMap::insert_range_from(const IColumn& src, size_t start, size_t lengt
 }
 
 ColumnPtr ColumnMap::filter(const Filter& filt, ssize_t result_size_hint) const {
-    return ColumnMap::create(keys->filter(filt, result_size_hint), values->filter(filt, result_size_hint));
+    return ColumnMap::create(keys->filter(filt, result_size_hint),
+                             values->filter(filt, result_size_hint));
 }
 
 ColumnPtr ColumnMap::permute(const Permutation& perm, size_t limit) const {
@@ -165,26 +161,6 @@ ColumnPtr ColumnMap::permute(const Permutation& perm, size_t limit) const {
 ColumnPtr ColumnMap::replicate(const Offsets& offsets) const {
     return ColumnMap::create(keys->replicate(offsets), values->replicate(offsets));
 }
-
-//MutableColumns ColumnMap::scatter(ColumnIndex num_columns, const Selector& selector) const {
-//
-//    MutableColumns keys_scatter = keys->scatter(num_columns, selector);
-//    MutableColumns values_scatter = values->scatter(num_columns, selector);
-//
-//    MutableColumns res(num_columns);
-//
-//    for (size_t scattered_idx = 0; scattered_idx < num_columns; ++scattered_idx)
-//    {
-//        MutableColumns new_columns(2);
-//        for (size_t map_element_idx = 0; map_element_idx < 2; ++map_element_idx)
-//            new_columns[map_element_idx] = std::move(scattered_map_elements[map_element_idx][scattered_idx]);
-//        res[scattered_idx] = ColumnMap::create(std::move(new_columns));
-//    }
-//
-//
-//    return res;
-//}
-
 
 void ColumnMap::reserve(size_t n) {
     get_keys().reserve(n);
@@ -204,15 +180,4 @@ void ColumnMap::protect() {
     get_values().protect();
 }
 
-void ColumnMap::get_extremes(Field & min, Field & max) const {
-    Map min_map(2);
-    Map max_map(2);
-
-    keys->get_extremes(min_map[0], max_map[0]);
-    values->get_extremes(min_map[1], max_map[1]);
-
-    min = min_map;
-    max = max_map;
-}
-
-}
+} // namespace doris::vectorized

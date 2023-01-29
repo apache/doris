@@ -53,7 +53,7 @@ public class MapLiteral extends LiteralExpr {
                 if (keyType == Type.NULL) {
                     keyType = expr.getType();
                 } else {
-                    keyType = Type.getAssignmentCompatibleType(keyType, expr.getType(), false);
+                    keyType = Type.getAssignmentCompatibleType(keyType, expr.getType(), true);
                 }
                 if (keyType == Type.INVALID) {
                     throw new AnalysisException("Invalid element type in Map");
@@ -62,7 +62,7 @@ public class MapLiteral extends LiteralExpr {
                 if (valueType == Type.NULL) {
                     valueType = expr.getType();
                 } else {
-                    valueType = Type.getAssignmentCompatibleType(valueType, expr.getType(), false);
+                    valueType = Type.getAssignmentCompatibleType(valueType, expr.getType(), true);
                 }
                 if (valueType == Type.INVALID) {
                     throw new AnalysisException("Invalid element type in Map");
@@ -90,7 +90,7 @@ public class MapLiteral extends LiteralExpr {
 
         for (int i = 0; i < children.size(); ++ i) {
             Expr child = children.get(i);
-            if ((i & 1) == 0) {
+            if ((i % 2) == 0) {
                 literal.children.set(i, child.uncheckedCastTo(keyType));
             } else {
                 literal.children.set(i, child.uncheckedCastTo(valueType));
@@ -167,9 +167,7 @@ public class MapLiteral extends LiteralExpr {
 
     @Override
     public String getStringValue() {
-        List<String> list = new ArrayList<>(children.size());
-        children.forEach(v -> list.add(v.getStringValue()));
-        return "MAP{" + StringUtils.join(list, ", ") + "}";
+        return toSqlImpl();
     }
 
     @Override

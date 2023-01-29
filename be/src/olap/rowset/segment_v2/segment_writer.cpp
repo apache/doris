@@ -154,7 +154,6 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
             }
         }
 
-
         if (column.type() == FieldType::OLAP_FIELD_TYPE_MAP) {
             opts.need_zone_map = false;
             if (opts.need_bloom_filter) {

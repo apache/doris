@@ -18,7 +18,6 @@
 
 #include "vec/exprs/vliteral.h"
 
-
 namespace doris {
 
 namespace vectorized {
@@ -27,7 +26,7 @@ public:
     VMapLiteral(const TExprNode& node) : VLiteral(node, false) {}
     ~VMapLiteral() override = default;
     Status prepare(RuntimeState* state, const RowDescriptor& row_desc,
-                           VExprContext* context) override;
+                   VExprContext* context) override;
 };
 } // namespace vectorized
 

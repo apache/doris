@@ -184,7 +184,8 @@ TypeInfoPtr get_type_info(segment_v2::ColumnMetaPB* column_meta_pb) {
         segment_v2::ColumnMetaPB value_meta = column_meta_pb->children_columns(1);
         TypeInfoPtr value_type_info = get_type_info(&value_meta);
 
-        MapTypeInfo* map_type_info = new MapTypeInfo(std::move(key_type_info), std::move(value_type_info));
+        MapTypeInfo* map_type_info =
+                new MapTypeInfo(std::move(key_type_info), std::move(value_type_info));
         return create_static_type_info_ptr(map_type_info);
     } else {
         return create_static_type_info_ptr(get_scalar_type_info(type));
@@ -219,7 +220,7 @@ TypeInfoPtr get_type_info(const TabletColumn* col) {
         }
         return create_static_type_info_ptr(get_array_type_info(child_column->type(), iterations));
     } else if (UNLIKELY(type == OLAP_FIELD_TYPE_MAP)) {
-	const auto* key_column = &col->get_sub_column(0);
+        const auto* key_column = &col->get_sub_column(0);
         TypeInfoPtr key_type = get_type_info(key_column);
         const auto* val_column = &col->get_sub_column(1);
         TypeInfoPtr value_type = get_type_info(val_column);

@@ -84,18 +84,16 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
             *reader = std::move(array_reader);
             return Status::OK();
         }
-	case FieldType::OLAP_FIELD_TYPE_MAP: {
-	    // map reader now has 3 sub readers for key(arr), value(arr), null(scala)
+        case FieldType::OLAP_FIELD_TYPE_MAP: {
+            // map reader now has 3 sub readers for key(arr), value(arr), null(scala)
             std::unique_ptr<ColumnReader> map_reader(
                     new ColumnReader(opts, meta, num_rows, file_reader));
-            std::unique_ptr<ColumnReader> key_reader;				     
-	    RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(0),
-                                                 num_rows, file_reader,
-                                                 &key_reader));
-	    std::unique_ptr<ColumnReader> val_reader;
-	    RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(1),
-                                                 num_rows, file_reader,
-                                                 &val_reader));
+            std::unique_ptr<ColumnReader> key_reader;
+            RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(0), num_rows,
+                                                 file_reader, &key_reader));
+            std::unique_ptr<ColumnReader> val_reader;
+            RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(1), num_rows,
+                                                 file_reader, &val_reader));
             std::unique_ptr<ColumnReader> null_reader;
             if (meta.is_nullable()) {
                 RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(2),
@@ -111,7 +109,7 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
             }
             *reader = std::move(map_reader);
             return Status::OK();
-	}
+        }
         default:
             return Status::NotSupported("unsupported type for ColumnReader: {}",
                                         std::to_string(type));
@@ -478,7 +476,7 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
                     null_iterator);
             return Status::OK();
         }
-	case FieldType::OLAP_FIELD_TYPE_MAP: {
+        case FieldType::OLAP_FIELD_TYPE_MAP: {
             ColumnIterator* key_iterator = nullptr;
             RETURN_IF_ERROR(_sub_readers[0]->new_iterator(&key_iterator));
             ColumnIterator* val_iterator = nullptr;
@@ -487,8 +485,7 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
             if (is_nullable()) {
                 RETURN_IF_ERROR(_sub_readers[2]->new_iterator(&null_iterator));
             }
-            *iterator = new MapFileColumnIterator(this,null_iterator,
-                                                  key_iterator, val_iterator);
+            *iterator = new MapFileColumnIterator(this, null_iterator, key_iterator, val_iterator);
             return Status::OK();
         }
         default:
@@ -500,8 +497,8 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
 
 ///====================== MapFileColumnIterator ============================////
 MapFileColumnIterator::MapFileColumnIterator(ColumnReader* reader, ColumnIterator* null_iterator,
-                                                 ColumnIterator* key_iterator,
-                                                 ColumnIterator* val_iterator)
+                                             ColumnIterator* key_iterator,
+                                             ColumnIterator* val_iterator)
         : _map_reader(reader) {
     _key_iterator.reset(key_iterator);
     _val_iterator.reset(val_iterator);
@@ -519,14 +516,9 @@ Status MapFileColumnIterator::init(const ColumnIteratorOptions& opts) {
     return Status::OK();
 }
 
-Status MapFileColumnIterator::_peek_one_offset(ordinal_t* offset) {
-    return Status::OK();
-}
-
 Status MapFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) {
-    return Status::OK();
+    return Status::NotSupported("Not support next_batch");
 }
-
 
 Status MapFileColumnIterator::seek_to_ordinal(ordinal_t ord) {
     RETURN_IF_ERROR(_key_iterator->seek_to_ordinal(ord));
@@ -538,19 +530,19 @@ Status MapFileColumnIterator::seek_to_ordinal(ordinal_t ord) {
 }
 
 Status MapFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
-                                           bool* has_null) {
+                                         bool* has_null) {
     const auto* column_map = vectorized::check_and_get_column<vectorized::ColumnMap>(
             dst->is_nullable() ? static_cast<vectorized::ColumnNullable&>(*dst).get_nested_column()
                                : *dst);
+    size_t num_read = *n;
     auto column_key_ptr = column_map->get_keys().assume_mutable();
     auto column_val_ptr = column_map->get_values().assume_mutable();
-    RETURN_IF_ERROR(_key_iterator->next_batch(n, column_key_ptr, has_null));
-    RETURN_IF_ERROR(_val_iterator->next_batch(n, column_val_ptr, has_null));
+    RETURN_IF_ERROR(_key_iterator->next_batch(num_read, column_key_ptr, has_null));
+    RETURN_IF_ERROR(_val_iterator->next_batch(num_read, column_val_ptr, has_null));
 
     if (dst->is_nullable()) {
         auto null_map_ptr =
                 static_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column_ptr();
-        size_t num_read = *n;
         bool null_signs_has_null = false;
         RETURN_IF_ERROR(_null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
         DCHECK(num_read == *n);
@@ -559,7 +551,7 @@ Status MapFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr
 }
 
 Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
-                                               vectorized::MutableColumnPtr& dst) {
+                                             vectorized::MutableColumnPtr& dst) {
     for (size_t i = 0; i < count; ++i) {
         RETURN_IF_ERROR(seek_to_ordinal(rowids[i]));
         size_t num_read = 1;

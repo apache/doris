@@ -413,22 +413,19 @@ public:
     Status seek_to_first() override {
         RETURN_IF_ERROR(_key_iterator->seek_to_first());
         RETURN_IF_ERROR(_val_iterator->seek_to_first());
+        RETURN_IF_ERROR(_null_iterator->seek_to_first());
         return Status::OK();
     }
 
     Status seek_to_ordinal(ordinal_t ord) override;
 
-    ordinal_t get_current_ordinal() const override {
-        return _key_iterator->get_current_ordinal();
-    }
+    ordinal_t get_current_ordinal() const override { return _key_iterator->get_current_ordinal(); }
 
 private:
-    ColumnReader* _map_reader; // need ?
+    ColumnReader* _map_reader;
     std::unique_ptr<ColumnIterator> _null_iterator;
     std::unique_ptr<ColumnIterator> _key_iterator; // ArrayFileColumnIterator
     std::unique_ptr<ColumnIterator> _val_iterator; // ArrayFileColumnIterator
-
-    Status _peek_one_offset(ordinal_t* offset);
 };
 
 class ArrayFileColumnIterator final : public ColumnIterator {

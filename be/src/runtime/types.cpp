@@ -79,14 +79,14 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
     //     children.push_back(TypeDescriptor(types, idx));
     //     break;
     case TTypeNodeType::MAP: {
-         DCHECK(!node.__isset.scalar_type);
-         DCHECK_LT(*idx, types.size() - 2);
-         type = TYPE_MAP;
-         ++(*idx);
-         children.push_back(TypeDescriptor(types, idx));
-         ++(*idx);
-         children.push_back(TypeDescriptor(types, idx));
-         break;
+        DCHECK(!node.__isset.scalar_type);
+        DCHECK_LT(*idx, types.size() - 2);
+        type = TYPE_MAP;
+        ++(*idx);
+        children.push_back(TypeDescriptor(types, idx));
+        ++(*idx);
+        children.push_back(TypeDescriptor(types, idx));
+        break;
     }
     default:
         DCHECK(false) << node.type;
@@ -132,8 +132,7 @@ void TypeDescriptor::to_thrift(TTypeDesc* thrift_type) const {
 }
 
 void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
-    DCHECK(!is_complex_type() || type == TYPE_ARRAY || type == TYPE_MAP)
-            << "Don't support complex type now, type=" << type;
+    DCHECK(type == TYPE_STRUCT) << "Don't support complex type now, type=" << type;
     auto node = ptype->add_types();
     node->set_type(TTypeNodeType::SCALAR);
     auto scalar_type = node->mutable_scalar_type();
@@ -199,12 +198,15 @@ TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNod
     }
     case TTypeNodeType::MAP: {
         type = TYPE_MAP;
+        if (node.has_contains_null()) {
+            contains_null = node.contains_null();
+        }
         ++(*idx);
         children.push_back(TypeDescriptor(types, idx));
         ++(*idx);
         children.push_back(TypeDescriptor(types, idx));
         break;
-    }			       
+    }
     default:
         DCHECK(false) << node.type();
     }
@@ -234,7 +236,7 @@ std::string TypeDescriptor::debug_string() const {
     }
     case TYPE_MAP:
         ss << "MAP<" << children[0].debug_string() << ", " << children[1].debug_string() << ">";
-        return ss.str();		     
+        return ss.str();
     default:
         return type_to_string(type);
     }

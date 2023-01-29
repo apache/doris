@@ -173,14 +173,10 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
             *writer = std::move(writer_local);
             return Status::OK();
         }
-	case FieldType::OLAP_FIELD_TYPE_MAP: {
+        case FieldType::OLAP_FIELD_TYPE_MAP: {
             DCHECK(column->get_subtype_count() == 2);
-            // todo . here key and value is array only?
-            const TabletColumn& key_column = column->get_sub_column(0); // field_type is true key and value
-            const TabletColumn& value_column = column->get_sub_column(1);
-
-            // create null writer
             ScalarColumnWriter* null_writer = nullptr;
+            // create null writer
             if (opts.meta->is_nullable()) {
                 FieldType null_type = FieldType::OLAP_FIELD_TYPE_TINYINT;
                 ColumnWriterOptions null_options;
@@ -198,9 +194,9 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
                 null_options.need_bloom_filter = false;
                 null_options.need_bitmap_index = false;
 
-                TabletColumn null_column = TabletColumn(
-                        OLAP_FIELD_AGGREGATION_NONE, null_type, false,
-                        null_options.meta->unique_id(), null_options.meta->length());
+                TabletColumn null_column =
+                        TabletColumn(OLAP_FIELD_AGGREGATION_NONE, null_type, false,
+                                     null_options.meta->unique_id(), null_options.meta->length());
                 null_column.set_name("nullable");
                 null_column.set_index_length(-1); // no short key index
                 std::unique_ptr<Field> null_field(FieldFactory::create(null_column));
@@ -208,84 +204,49 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
                         new ScalarColumnWriter(null_options, std::move(null_field), file_writer);
             }
 
-            // create key writer
-            std::unique_ptr<ColumnWriter> key_writer;
-	    ColumnWriterOptions key_opts;
-            TabletColumn key_list_column(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY);
-            {
-		key_list_column.add_sub_column(const_cast<TabletColumn&>(key_column));
-//                key_list_column.add_sub_column(key_column);
-                key_list_column.set_name("map.key");
-                key_list_column.set_index_length(-1);
+            // create key & value writer
+            std::vector<std::unique_ptr<ColumnWriter>> inner_writer_list;
+            for (int i = 0; i < 2; ++i) {
+                std::unique_ptr<ColumnWriter> inner_array_writer;
+                ColumnWriterOptions arr_opts;
+                TabletColumn array_column(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY);
 
+                array_column.set_index_length(-1);
+                arr_opts.meta = opts.meta->mutable_children_columns(i);
+                arr_opts.meta->set_type(OLAP_FIELD_TYPE_ARRAY);
+                arr_opts.meta->set_encoding(opts.meta->encoding());
+                arr_opts.meta->set_compression(opts.meta->compression());
+                arr_opts.need_zone_map = false;
+                // no need inner array's null map
+                arr_opts.meta->set_is_nullable(false);
 
-                key_opts.meta = opts.meta->mutable_children_columns(0);
-                key_opts.meta->set_column_id(4);
-                key_opts.meta->set_unique_id(4);
-                key_opts.meta->set_type(OLAP_FIELD_TYPE_ARRAY);
-                key_opts.meta->set_length(0);
-		key_opts.meta->set_encoding(BIT_SHUFFLE);
-                key_opts.meta->set_compression(segment_v2::CompressionTypePB::LZ4F);
-                key_opts.need_zone_map = false;
-		// no need key array's null map
-                key_opts.meta->set_is_nullable(false);
+                ColumnMetaPB* child_meta = arr_opts.meta->add_children_columns();
+                // type and nullable and length.
+                const TabletColumn& inner_column =
+                        column->get_sub_column(i); // field_type is true key and value
+                array_column.add_sub_column(const_cast<TabletColumn&>(inner_column));
+                array_column.set_name("map.arr");
+                child_meta->set_type(inner_column.type());
+                child_meta->set_length(inner_column.length());
 
-                ColumnMetaPB* child_meta = key_opts.meta->add_children_columns();
-                child_meta->set_column_id(5);
-                child_meta->set_unique_id(5);
-                child_meta->set_type(key_column.type());
-                child_meta->set_length(key_column.length());
-		child_meta->set_compression(segment_v2::CompressionTypePB::LZ4F);
-                child_meta->set_encoding(DICT_ENCODING);
-                child_meta->set_is_nullable(key_column.is_nullable());
+                child_meta->set_column_id(arr_opts.meta->column_id() + 1);
+                child_meta->set_unique_id(arr_opts.meta->column_id() + 1);
+                child_meta->set_compression(opts.meta->compression());
+                child_meta->set_encoding(opts.meta->encoding());
+                child_meta->set_is_nullable(true);
+                RETURN_IF_ERROR(ColumnWriter::create(arr_opts, &array_column, file_writer,
+                                                     &inner_array_writer));
+                inner_writer_list.emplace_back(std::move(inner_array_writer));
             }
-
-            RETURN_IF_ERROR(
-                ColumnWriter::create(key_opts, &key_list_column, file_writer, &key_writer));
-
-
-            // create value writer
-            std::unique_ptr<ColumnWriter> value_writer;
-            ColumnWriterOptions val_opts;
-            TabletColumn val_list_column(OLAP_FIELD_AGGREGATION_NONE, OLAP_FIELD_TYPE_ARRAY);
-            {
-		val_list_column.add_sub_column(const_cast<TabletColumn&>(value_column));
-  //              val_list_column.add_sub_column(value_column);
-                val_list_column.set_name("map.val");
-                val_list_column.set_index_length(-1);
-
-
-                val_opts.meta = opts.meta->mutable_children_columns(1);
-                val_opts.meta->set_column_id(6);
-                val_opts.meta->set_unique_id(6);
-                val_opts.meta->set_type(OLAP_FIELD_TYPE_ARRAY);
-                val_opts.meta->set_length(0);
-		val_opts.meta->set_encoding(BIT_SHUFFLE);
-                val_opts.meta->set_compression(segment_v2::CompressionTypePB::LZ4F);
-                val_opts.need_zone_map = false;
-		// no need map value array nullable 
-                val_opts.meta->set_is_nullable(false);
-
-                ColumnMetaPB* child_v_meta = val_opts.meta->add_children_columns();
-                child_v_meta->set_column_id(7);
-                child_v_meta->set_unique_id(7);
-                child_v_meta->set_type(value_column.type());
-                child_v_meta->set_length(value_column.length());
-		child_v_meta->set_compression(segment_v2::CompressionTypePB::LZ4F);
-                child_v_meta->set_encoding(DEFAULT_ENCODING);
-                child_v_meta->set_is_nullable(value_column.is_nullable());
-            }
-
-            RETURN_IF_ERROR(
-                    ColumnWriter::create(val_opts, &val_list_column, file_writer, &value_writer));
-            // finally create map writer
-            std::unique_ptr<ColumnWriter> writer_local = std::unique_ptr<ColumnWriter>(
-                    new MapColumnWriter(opts, std::move(field), null_writer,
-                                          std::move(key_writer), std::move(value_writer)));
+            // create map writer
+            std::unique_ptr<ColumnWriter> writer_local =
+                    std::unique_ptr<ColumnWriter>(new MapColumnWriter(
+                            opts, std::move(field), null_writer, std::move(inner_writer_list[0]),
+                            std::move(inner_writer_list[1])));
 
             *writer = std::move(writer_local);
             return Status::OK();
-        }				       
+        }
         default:
             return Status::NotSupported("unsupported type for ColumnWriter: {}",
                                         std::to_string(field->type()));
@@ -810,9 +771,9 @@ Status ArrayColumnWriter::finish_current_page() {
 
 /// ============================= MapColumnWriter =====================////
 MapColumnWriter::MapColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
-                                     ScalarColumnWriter* null_writer,
-                                     std::unique_ptr<ColumnWriter> key_writer,
-                                     std::unique_ptr<ColumnWriter> value_writer)
+                                 ScalarColumnWriter* null_writer,
+                                 std::unique_ptr<ColumnWriter> key_writer,
+                                 std::unique_ptr<ColumnWriter> value_writer)
         : ColumnWriter(std::move(field), opts.meta->is_nullable()),
           _key_writer(std::move(key_writer)),
           _value_writer(std::move(value_writer)),
@@ -832,8 +793,7 @@ Status MapColumnWriter::init() {
 }
 
 uint64_t MapColumnWriter::estimate_buffer_size() {
-    size_t estimate =  _key_writer->estimate_buffer_size() +
-                      _value_writer->estimate_buffer_size();
+    size_t estimate = _key_writer->estimate_buffer_size() + _value_writer->estimate_buffer_size();
     if (is_nullable()) {
         estimate += _null_writer->estimate_buffer_size();
     }
@@ -855,17 +815,16 @@ Status MapColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     const auto* col_cursor = reinterpret_cast<const MapValue*>(*ptr);
     while (remaining > 0) {
         size_t num_written = 1;
-        auto* key_data_ptr = const_cast<MapValue*>(col_cursor)->mutable_key_data();
-	const uint8_t* key_ptr = (const uint8_t*)key_data_ptr;
-	RETURN_IF_ERROR(_key_writer->append_data(&key_ptr, 1));
-        auto* val_data_ptr = const_cast<MapValue*>(col_cursor)->mutable_value_data();
-	const uint8_t* val_ptr = (const uint8_t*)val_data_ptr;
-	RETURN_IF_ERROR(_value_writer->append_data(&val_ptr, 1));
+        auto* key_data_ptr = const_cast<MapValue*>(col_cursor)->key_data();
+        const uint8_t* key_ptr = (const uint8_t*)key_data_ptr;
+        RETURN_IF_ERROR(_key_writer->append_data(&key_ptr, 1));
+        auto* val_data_ptr = const_cast<MapValue*>(col_cursor)->value_data();
+        const uint8_t* val_ptr = (const uint8_t*)val_data_ptr;
+        RETURN_IF_ERROR(_value_writer->append_data(&val_ptr, 1));
         remaining -= num_written;
         col_cursor += num_written;
         *ptr += num_written * sizeof(MapValue);
     }
-
     if (is_nullable()) {
         return write_null_column(num_rows, false);
     }
@@ -876,7 +835,6 @@ Status MapColumnWriter::write_data() {
     if (is_nullable()) {
         RETURN_IF_ERROR(_null_writer->write_data());
     }
-    RETURN_IF_ERROR(_offset_writer->write_data());
     RETURN_IF_ERROR(_key_writer->write_data());
     RETURN_IF_ERROR(_value_writer->write_data());
     return Status::OK();
@@ -888,7 +846,6 @@ Status MapColumnWriter::write_ordinal_index() {
     }
     RETURN_IF_ERROR(_key_writer->write_ordinal_index());
     RETURN_IF_ERROR(_value_writer->write_ordinal_index());
-   
     return Status::OK();
 }
 
@@ -898,12 +855,12 @@ Status MapColumnWriter::append_nulls(size_t num_rows) {
 
 Status MapColumnWriter::write_null_column(size_t num_rows, bool is_null) {
     uint8_t null_sign = is_null ? 1 : 0;
-    while (num_rows > 0) {
-        // TODO llj bulk write
-        const uint8_t* null_sign_ptr = &null_sign;
-        RETURN_IF_ERROR(_null_writer->append_data(&null_sign_ptr, 1));
-        --num_rows;
+    uint8_t* null_sign_arr = new uint8_t[num_rows];
+    for (int i = 0; i < num_rows; ++i) {
+        null_sign_arr[i] = null_sign;
     }
+    const uint8_t* null_sign_ptr = reinterpret_cast<const uint8_t*>(null_sign_arr);
+    RETURN_IF_ERROR(_null_writer->append_data(&null_sign_ptr, num_rows));
     return Status::OK();
 }
 
