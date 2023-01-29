@@ -471,13 +471,11 @@ private:
 class DefaultValueColumnIterator : public ColumnIterator {
 public:
     DefaultValueColumnIterator(bool has_default_value, const std::string& default_value,
-                               bool is_nullable, TypeInfoPtr type_info, size_t schema_length,
-                               int precision, int scale)
+                               bool is_nullable, TypeInfoPtr type_info, int precision, int scale)
             : _has_default_value(has_default_value),
               _default_value(default_value),
               _is_nullable(is_nullable),
               _type_info(std::move(type_info)),
-              _schema_length(schema_length),
               _is_default_value_null(false),
               _type_size(0),
               _precision(precision),
@@ -521,7 +519,6 @@ private:
     std::string _default_value;
     bool _is_nullable;
     TypeInfoPtr _type_info;
-    size_t _schema_length;
     bool _is_default_value_null;
     size_t _type_size;
     int _precision;
