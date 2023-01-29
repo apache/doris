@@ -22,7 +22,7 @@
 
 namespace doris {
 
-SchemaScanner::ColumnDesc SchemaCharsetsScanner::_s_css_columns[] = {
+std::vector<SchemaScanner::ColumnDesc> SchemaCharsetsScanner::_s_css_columns = {
         //   name,       type,          size
         {"CHARACTER_SET_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
         {"DEFAULT_COLLATE_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
@@ -36,8 +36,7 @@ SchemaCharsetsScanner::CharsetStruct SchemaCharsetsScanner::_s_charsets[] = {
 };
 
 SchemaCharsetsScanner::SchemaCharsetsScanner()
-        : SchemaScanner(_s_css_columns, sizeof(_s_css_columns) / sizeof(SchemaScanner::ColumnDesc),
-                        TSchemaTableType::SCH_CHARSETS) {}
+        : SchemaScanner(_s_css_columns, TSchemaTableType::SCH_CHARSETS) {}
 
 SchemaCharsetsScanner::~SchemaCharsetsScanner() {}
 

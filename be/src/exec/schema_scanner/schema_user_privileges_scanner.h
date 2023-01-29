@@ -35,7 +35,7 @@ private:
     Status _fill_block_impl(vectorized::Block* block);
 
     TListPrivilegesResult _priv_result;
-    static SchemaScanner::ColumnDesc _s_tbls_columns[];
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
 };
 
 } // namespace doris

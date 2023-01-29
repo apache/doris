@@ -18,12 +18,12 @@
 #include "schema_dummy_scanner.h"
 
 namespace {
-doris::SchemaScanner::ColumnDesc DUMMY_COLUMN;
+std::vector<doris::SchemaScanner::ColumnDesc> DUMMY_COLUMN;
 }
 
 namespace doris {
 
-SchemaDummyScanner::SchemaDummyScanner() : SchemaScanner(&DUMMY_COLUMN, 0) {}
+SchemaDummyScanner::SchemaDummyScanner() : SchemaScanner(DUMMY_COLUMN) {}
 
 SchemaDummyScanner::~SchemaDummyScanner() {}
 

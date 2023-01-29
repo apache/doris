@@ -40,7 +40,7 @@ private:
 
     Status _fill_block_impl(vectorized::Block* block);
 
-    static SchemaScanner::ColumnDesc _s_css_columns[];
+    static std::vector<SchemaScanner::ColumnDesc> _s_css_columns;
     static CharsetStruct _s_charsets[];
 };
 

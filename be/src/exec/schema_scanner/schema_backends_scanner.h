@@ -36,7 +36,7 @@ private:
 
     // column_name -> type, set by _set_col_name_to_type()
     std::unordered_map<std::string, PrimitiveType> _col_name_to_type;
-    static SchemaScanner::ColumnDesc _s_tbls_columns[];
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
 
     std::vector<TRow> _batch_data;
 };

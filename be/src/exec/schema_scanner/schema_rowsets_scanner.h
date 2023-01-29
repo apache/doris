@@ -40,7 +40,7 @@ private:
     Status _get_all_rowsets();
     Status _fill_block_impl(vectorized::Block* block);
 
-    static SchemaScanner::ColumnDesc _s_tbls_columns[];
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
     int64_t backend_id_ = 0;
     size_t _rowsets_idx = 0;
     std::vector<RowsetSharedPtr> rowsets_;

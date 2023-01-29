@@ -44,7 +44,7 @@ private:
     TGetDbsResult _db_result;
     TGetTablesResult _table_result;
     TDescribeTableResult _desc_result;
-    static SchemaScanner::ColumnDesc _s_col_columns[];
+    static std::vector<SchemaScanner::ColumnDesc> _s_col_columns;
 };
 
 } // namespace doris

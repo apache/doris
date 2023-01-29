@@ -31,7 +31,7 @@
 #include "runtime/primitive_type.h"
 #include "vec/common/string_ref.h"
 namespace doris {
-SchemaScanner::ColumnDesc SchemaRowsetsScanner::_s_tbls_columns[] = {
+std::vector<SchemaScanner::ColumnDesc> SchemaRowsetsScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
         {"BACKEND_ID", TYPE_BIGINT, sizeof(int64_t), true},
         {"ROWSET_ID", TYPE_VARCHAR, sizeof(StringRef), true},
@@ -50,9 +50,7 @@ SchemaScanner::ColumnDesc SchemaRowsetsScanner::_s_tbls_columns[] = {
 };
 
 SchemaRowsetsScanner::SchemaRowsetsScanner()
-        : SchemaScanner(_s_tbls_columns,
-                        sizeof(_s_tbls_columns) / sizeof(SchemaScanner::ColumnDesc),
-                        TSchemaTableType::SCH_ROWSETS),
+        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_ROWSETS),
           backend_id_(0),
           _rowsets_idx(0) {};
 

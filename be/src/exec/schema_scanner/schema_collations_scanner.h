@@ -42,7 +42,7 @@ private:
 
     Status _fill_block_impl(vectorized::Block* block);
 
-    static SchemaScanner::ColumnDesc _s_cols_columns[];
+    static std::vector<SchemaScanner::ColumnDesc> _s_cols_columns;
     static CollationStruct _s_collations[];
 };
 

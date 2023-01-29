@@ -41,28 +41,16 @@ namespace doris {
 
 DorisServer* SchemaScanner::_s_doris_server;
 
-SchemaScanner::SchemaScanner(ColumnDesc* columns, int column_num)
+SchemaScanner::SchemaScanner(const std::vector<ColumnDesc>& columns)
         : _is_init(false),
           _param(nullptr),
           _columns(columns),
-          _column_num(column_num),
-          _tuple_desc(nullptr),
           _schema_table_type(TSchemaTableType::SCH_INVALID) {}
 
-SchemaScanner::SchemaScanner(ColumnDesc* columns, int column_num, TSchemaTableType::type type)
-        : _is_init(false),
-          _param(nullptr),
-          _columns(columns),
-          _column_num(column_num),
-          _tuple_desc(nullptr),
-          _schema_table_type(type) {}
+SchemaScanner::SchemaScanner(const std::vector<ColumnDesc>& columns, TSchemaTableType::type type)
+        : _is_init(false), _param(nullptr), _columns(columns), _schema_table_type(type) {}
 
-SchemaScanner::~SchemaScanner() {
-    if (_is_create_columns == true && _columns != nullptr) {
-        delete[] _columns;
-        _columns = nullptr;
-    }
-}
+SchemaScanner::~SchemaScanner() {}
 
 Status SchemaScanner::start(RuntimeState* state) {
     if (!_is_init) {
@@ -93,15 +81,10 @@ Status SchemaScanner::init(SchemaScannerParam* param, ObjectPool* pool) {
         return Status::InternalError("invalid parameter");
     }
 
-    if (_schema_table_type == TSchemaTableType::SCH_BACKENDS) {
-        RETURN_IF_ERROR(create_columns(param->table_structure, pool));
-    }
-
-    if (nullptr == _columns) {
+    if (_columns.empty()) {
         return Status::InternalError("invalid parameter");
     }
 
-    RETURN_IF_ERROR(create_tuple_desc(pool));
     _param = param;
     _is_init = true;
 
@@ -145,92 +128,6 @@ SchemaScanner* SchemaScanner::create(TSchemaTableType::type type) {
         return new (std::nothrow) SchemaDummyScanner();
         break;
     }
-}
-
-Status SchemaScanner::create_columns(const std::vector<TSchemaTableStructure>* table_structure,
-                                     ObjectPool* pool) {
-    _column_num = table_structure->size();
-    _columns = new ColumnDesc[_column_num];
-    _is_create_columns = true;
-    for (size_t idx = 0; idx < table_structure->size(); ++idx) {
-        _columns[idx].name = table_structure->at(idx).column_name.c_str();
-        _columns[idx].type = thrift_to_type(table_structure->at(idx).type);
-        _columns[idx].size = table_structure->at(idx).len;
-        _columns[idx].is_null = table_structure->at(idx).is_null;
-    }
-    return Status::OK();
-}
-
-Status SchemaScanner::create_tuple_desc(ObjectPool* pool) {
-    int null_column = 0;
-    for (int i = 0; i < _column_num; ++i) {
-        if (_columns[i].is_null) {
-            null_column++;
-        }
-    }
-
-    int offset = (null_column + 7) / 8;
-    std::vector<SlotDescriptor*> slots;
-    int null_byte = 0;
-    int null_bit = 0;
-
-    for (int i = 0; i < _column_num; ++i) {
-        TSlotDescriptor t_slot_desc;
-        if (_columns[i].type == TYPE_DECIMALV2) {
-            t_slot_desc.__set_slotType(TypeDescriptor::create_decimalv2_type(27, 9).to_thrift());
-        } else {
-            TypeDescriptor descriptor(_columns[i].type);
-            if (_columns[i].precision >= 0 && _columns[i].scale >= 0) {
-                descriptor.precision = _columns[i].precision;
-                descriptor.scale = _columns[i].scale;
-            }
-            t_slot_desc.__set_slotType(descriptor.to_thrift());
-        }
-        t_slot_desc.__set_colName(_columns[i].name);
-        t_slot_desc.__set_columnPos(i);
-        t_slot_desc.__set_byteOffset(offset);
-
-        if (_columns[i].is_null) {
-            t_slot_desc.__set_nullIndicatorByte(null_byte);
-            t_slot_desc.__set_nullIndicatorBit(null_bit);
-            null_bit = (null_bit + 1) % 8;
-
-            if (0 == null_bit) {
-                null_byte++;
-            }
-        } else {
-            t_slot_desc.__set_nullIndicatorByte(0);
-            t_slot_desc.__set_nullIndicatorBit(-1);
-        }
-
-        t_slot_desc.id = i;
-        t_slot_desc.__set_slotIdx(i);
-        t_slot_desc.__set_isMaterialized(true);
-
-        SlotDescriptor* slot = pool->add(new (std::nothrow) SlotDescriptor(t_slot_desc));
-
-        if (nullptr == slot) {
-            return Status::InternalError("no memory for _tuple_desc.");
-        }
-
-        slots.push_back(slot);
-        offset += _columns[i].size;
-    }
-
-    TTupleDescriptor t_tuple_desc;
-    t_tuple_desc.__set_byteSize(offset);
-    t_tuple_desc.__set_numNullBytes((null_byte * 8 + null_bit + 7) / 8);
-    _tuple_desc = pool->add(new (std::nothrow) TupleDescriptor(t_tuple_desc));
-
-    if (nullptr == _tuple_desc) {
-        return Status::InternalError("no memory for _tuple_desc.");
-    }
-
-    for (int i = 0; i < slots.size(); ++i) {
-        _tuple_desc->add_slot(slots[i]);
-    }
-
-    return Status::OK();
 }
 
 Status SchemaScanner::fill_dest_column(vectorized::Block* block, void* data,

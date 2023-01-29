@@ -23,7 +23,7 @@
 
 namespace doris {
 
-SchemaScanner::ColumnDesc SchemaUserPrivilegesScanner::_s_tbls_columns[] = {
+std::vector<SchemaScanner::ColumnDesc> SchemaUserPrivilegesScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
         {"GRANTEE", TYPE_VARCHAR, sizeof(StringRef), true},
         {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringRef), true},
@@ -32,9 +32,7 @@ SchemaScanner::ColumnDesc SchemaUserPrivilegesScanner::_s_tbls_columns[] = {
 };
 
 SchemaUserPrivilegesScanner::SchemaUserPrivilegesScanner()
-        : SchemaScanner(_s_tbls_columns,
-                        sizeof(_s_tbls_columns) / sizeof(SchemaScanner::ColumnDesc),
-                        TSchemaTableType::SCH_USER_PRIVILEGES) {}
+        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_USER_PRIVILEGES) {}
 
 SchemaUserPrivilegesScanner::~SchemaUserPrivilegesScanner() {}
 

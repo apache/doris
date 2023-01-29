@@ -24,17 +24,14 @@
 
 namespace doris {
 
-SchemaScanner::ColumnDesc SchemaVariablesScanner::_s_vars_columns[] = {
+std::vector<SchemaScanner::ColumnDesc> SchemaVariablesScanner::_s_vars_columns = {
         //   name,       type,          size
         {"VARIABLE_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
         {"VARIABLE_VALUE", TYPE_VARCHAR, sizeof(StringRef), false},
 };
 
 SchemaVariablesScanner::SchemaVariablesScanner(TVarType::type type)
-        : SchemaScanner(_s_vars_columns,
-                        sizeof(_s_vars_columns) / sizeof(SchemaScanner::ColumnDesc),
-                        TSchemaTableType::SCH_VARIABLES),
-          _type(type) {}
+        : SchemaScanner(_s_vars_columns, TSchemaTableType::SCH_VARIABLES), _type(type) {}
 
 SchemaVariablesScanner::~SchemaVariablesScanner() {}
 

@@ -34,7 +34,7 @@ public:
     int _table_index;
     TGetDbsResult _db_result;
     TListTableStatusResult _table_result;
-    static SchemaScanner::ColumnDesc _s_tbls_columns[];
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
 };
 
 } // namespace doris

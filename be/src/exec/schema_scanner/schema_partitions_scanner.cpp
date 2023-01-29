@@ -24,7 +24,7 @@
 
 namespace doris {
 
-SchemaScanner::ColumnDesc SchemaPartitionsScanner::_s_tbls_columns[] = {
+std::vector<SchemaScanner::ColumnDesc> SchemaPartitionsScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
         {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringRef), true},
         {"TABLE_SCHEMA", TYPE_VARCHAR, sizeof(StringRef), true},
@@ -54,9 +54,7 @@ SchemaScanner::ColumnDesc SchemaPartitionsScanner::_s_tbls_columns[] = {
 };
 
 SchemaPartitionsScanner::SchemaPartitionsScanner()
-        : SchemaScanner(_s_tbls_columns,
-                        sizeof(_s_tbls_columns) / sizeof(SchemaScanner::ColumnDesc),
-                        TSchemaTableType::SCH_PARTITIONS),
+        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_PARTITIONS),
           _db_index(0),
           _table_index(0) {}
 

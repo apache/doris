@@ -23,7 +23,7 @@
 
 namespace doris {
 
-SchemaScanner::ColumnDesc SchemaFilesScanner::_s_tbls_columns[] = {
+std::vector<SchemaScanner::ColumnDesc> SchemaFilesScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
         {"FILE_ID", TYPE_BIGINT, sizeof(int64_t), true},
         {"FILE_NAME", TYPE_STRING, sizeof(StringRef), true},
@@ -66,9 +66,7 @@ SchemaScanner::ColumnDesc SchemaFilesScanner::_s_tbls_columns[] = {
 };
 
 SchemaFilesScanner::SchemaFilesScanner()
-        : SchemaScanner(_s_tbls_columns,
-                        sizeof(_s_tbls_columns) / sizeof(SchemaScanner::ColumnDesc),
-                        TSchemaTableType::SCH_FILES),
+        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_FILES),
           _db_index(0),
           _table_index(0) {}
 

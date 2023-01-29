@@ -17,16 +17,21 @@
 
 #include "vec/exec/vschema_scan_node.h"
 
+#include <arrow/type.h>
+#include <arrow/type_fwd.h>
+
 #include "common/status.h"
 #include "exec/text_converter.h"
 #include "exec/text_converter.hpp"
 #include "gen_cpp/PlanNodes_types.h"
+#include "runtime/descriptors.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 #include "util/types.h"
 #include "vec/columns/column.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/types.h"
+#include "vec/data_types/data_type_factory.hpp"
 namespace doris::vectorized {
 
 VSchemaScanNode::VSchemaScanNode(ObjectPool* pool, const TPlanNode& tnode,
@@ -35,26 +40,13 @@ VSchemaScanNode::VSchemaScanNode(ObjectPool* pool, const TPlanNode& tnode,
           _is_init(false),
           _table_name(tnode.schema_scan_node.table_name),
           _tuple_id(tnode.schema_scan_node.tuple_id),
-          _src_tuple_desc(nullptr),
           _dest_tuple_desc(nullptr),
           _tuple_idx(0),
           _slot_num(0),
           _tuple_pool(nullptr),
-          _schema_scanner(nullptr),
-          _src_tuple(nullptr),
-          _src_single_tuple(nullptr),
-          _dest_single_tuple(nullptr) {}
+          _schema_scanner(nullptr) {}
 
-VSchemaScanNode::~VSchemaScanNode() {
-    delete[] reinterpret_cast<char*>(_src_tuple);
-    _src_tuple = nullptr;
-
-    delete[] reinterpret_cast<char*>(_src_single_tuple);
-    _src_single_tuple = nullptr;
-
-    delete[] reinterpret_cast<char*>(_dest_single_tuple);
-    _dest_single_tuple = nullptr;
-}
+VSchemaScanNode::~VSchemaScanNode() {}
 
 Status VSchemaScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::init(tnode, state));
@@ -177,70 +169,41 @@ Status VSchemaScanNode::prepare(RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(_schema_scanner->init(&_scanner_param, _pool));
-    // get column info from scanner
-    _src_tuple_desc = _schema_scanner->tuple_desc();
+    const std::vector<SchemaScanner::ColumnDesc>& columns_desc(_schema_scanner->get_column_desc());
 
-    if (nullptr == _src_tuple_desc) {
-        return Status::InternalError("failed to get src schema tuple desc.");
-    }
-
-    _src_tuple =
-            reinterpret_cast<doris::Tuple*>(new (std::nothrow) char[_src_tuple_desc->byte_size()]);
-
-    if (nullptr == _src_tuple) {
-        return Status::InternalError("new src tuple failed.");
-    }
-
-    // if src tuple desc slots is zero, it's the dummy slots.
-    if (0 == _src_tuple_desc->slots().size()) {
+    // if src columns size is zero, it's the dummy slots.
+    if (0 == columns_desc.size()) {
         _slot_num = 0;
     }
 
     // check if type is ok.
-    if (_slot_num > 0) {
-        _index_map.resize(_slot_num);
-    }
     for (int i = 0; i < _slot_num; ++i) {
         // TODO(zhaochun): Is this slow?
         int j = 0;
-        for (; j < _src_tuple_desc->slots().size(); ++j) {
-            if (boost::iequals(_dest_tuple_desc->slots()[i]->col_name(),
-                               _src_tuple_desc->slots()[j]->col_name())) {
+        for (; j < columns_desc.size(); ++j) {
+            if (boost::iequals(_dest_tuple_desc->slots()[i]->col_name(), columns_desc[j].name)) {
                 break;
             }
         }
 
-        if (j >= _src_tuple_desc->slots().size()) {
+        if (j >= columns_desc.size()) {
             LOG(WARNING) << "no match column for this column("
                          << _dest_tuple_desc->slots()[i]->col_name() << ")";
             return Status::InternalError("no match column for this column.");
         }
 
-        if (_src_tuple_desc->slots()[j]->type().type != _dest_tuple_desc->slots()[i]->type().type) {
-            LOG(WARNING) << "schema not match. input is " << _src_tuple_desc->slots()[j]->col_name()
-                         << "(" << _src_tuple_desc->slots()[j]->type() << ") and output is "
+        if (columns_desc[j].type != _dest_tuple_desc->slots()[i]->type().type) {
+            LOG(WARNING) << "schema not match. input is " << columns_desc[j].name << "("
+                         << columns_desc[j].type << ") and output is "
                          << _dest_tuple_desc->slots()[i]->col_name() << "("
                          << _dest_tuple_desc->slots()[i]->type() << ")";
             return Status::InternalError("schema not match.");
         }
-        _index_map[i] = j;
     }
 
     // TODO(marcel): add int _tuple_idx indexed by TupleId somewhere in runtime_state.h
     _tuple_idx = 0;
     _is_init = true;
-
-    _src_single_tuple =
-            reinterpret_cast<doris::Tuple*>(new (std::nothrow) char[_src_tuple_desc->byte_size()]);
-    if (nullptr == _src_single_tuple) {
-        return Status::InternalError("new src single tuple failed.");
-    }
-
-    _dest_single_tuple =
-            reinterpret_cast<doris::Tuple*>(new (std::nothrow) char[_dest_tuple_desc->byte_size()]);
-    if (nullptr == _dest_single_tuple) {
-        return Status::InternalError("new desc single tuple failed.");
-    }
 
     return Status::OK();
 }
@@ -260,27 +223,24 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
     bool schema_eos = false;
 
     block->clear();
+    const std::vector<SchemaScanner::ColumnDesc>& columns_desc(_schema_scanner->get_column_desc());
 
-    std::vector<int> index_map_inv(_src_tuple_desc->slots().size());
     for (int i = 0; i < _slot_num; ++i) {
         auto dest_slot_desc = _dest_tuple_desc->slots()[i];
         block->insert(ColumnWithTypeAndName(dest_slot_desc->get_empty_mutable_column(),
                                             dest_slot_desc->get_data_type_ptr(),
                                             dest_slot_desc->col_name()));
-
-        // Map from index in column of schema table to slots.
-        index_map_inv[_index_map[i]] = i;
     }
 
     do {
         vectorized::Block src_block;
 
-        for (int i = 0; i < _src_tuple_desc->slots().size(); ++i) {
-            int j = index_map_inv[i];
-            auto slot_desc = _dest_tuple_desc->slots()[j];
-            src_block.insert(ColumnWithTypeAndName(slot_desc->get_empty_mutable_column(),
-                                                   slot_desc->get_data_type_ptr(),
-                                                   slot_desc->col_name()));
+        for (int i = 0; i < columns_desc.size(); ++i) {
+            TypeDescriptor descriptor(columns_desc[i].type);
+            auto data_type =
+                    vectorized::DataTypeFactory::instance().create_data_type(descriptor, true);
+            src_block.insert(ColumnWithTypeAndName(data_type->create_column(), data_type,
+                                                   columns_desc[i].name));
         }
         while (true) {
             RETURN_IF_CANCELLED(state);
@@ -317,171 +277,6 @@ Status VSchemaScanNode::get_next(RuntimeState* state, vectorized::Block* block, 
 
     reached_limit(block, eos);
     return Status::OK();
-}
-
-Status VSchemaScanNode::write_slot_to_vectorized_column(void* slot, SlotDescriptor* slot_desc,
-                                                        vectorized::MutableColumnPtr* column_ptr) {
-    vectorized::IColumn* col_ptr = column_ptr->get();
-    if (slot_desc->is_nullable()) {
-        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr->get());
-        nullable_column->get_null_map_data().push_back(0);
-        col_ptr = &nullable_column->get_nested_column();
-    }
-    switch (slot_desc->type().type) {
-    case TYPE_HLL: {
-        HyperLogLog* hll_slot = reinterpret_cast<HyperLogLog*>(slot);
-        reinterpret_cast<vectorized::ColumnHLL*>(col_ptr)->get_data().emplace_back(*hll_slot);
-        break;
-    }
-    case TYPE_VARCHAR:
-    case TYPE_CHAR:
-    case TYPE_STRING: {
-        StringRef* str_slot = reinterpret_cast<StringRef*>(slot);
-        reinterpret_cast<vectorized::ColumnString*>(col_ptr)->insert_data(str_slot->data,
-                                                                          str_slot->size);
-        break;
-    }
-
-    case TYPE_BOOLEAN: {
-        uint8_t num = *reinterpret_cast<bool*>(slot);
-        reinterpret_cast<vectorized::ColumnVector<vectorized::UInt8>*>(col_ptr)->insert_value(num);
-        break;
-    }
-
-    case TYPE_TINYINT: {
-        int8_t num = *reinterpret_cast<int8_t*>(slot);
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int8>*>(col_ptr)->insert_value(num);
-        break;
-    }
-
-    case TYPE_SMALLINT: {
-        int16_t num = *reinterpret_cast<int16_t*>(slot);
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int16>*>(col_ptr)->insert_value(num);
-        break;
-    }
-
-    case TYPE_INT: {
-        int32_t num = *reinterpret_cast<int32_t*>(slot);
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int32>*>(col_ptr)->insert_value(num);
-        break;
-    }
-
-    case TYPE_BIGINT: {
-        int64_t num = *reinterpret_cast<int64_t*>(slot);
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_value(num);
-        break;
-    }
-
-    case TYPE_LARGEINT: {
-        __int128 num;
-        memcpy(&num, slot, sizeof(__int128));
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int128>*>(col_ptr)->insert_value(num);
-        break;
-    }
-
-    case TYPE_FLOAT: {
-        float num = *reinterpret_cast<float*>(slot);
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Float32>*>(col_ptr)->insert_value(
-                num);
-        break;
-    }
-
-    case TYPE_DOUBLE: {
-        double num = *reinterpret_cast<double*>(slot);
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Float64>*>(col_ptr)->insert_value(
-                num);
-        break;
-    }
-
-    case TYPE_DATE: {
-        VecDateTimeValue value;
-        DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(slot);
-        value.convert_dt_to_vec_dt(ts_slot);
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
-                reinterpret_cast<char*>(&value), 0);
-        break;
-    }
-
-    case TYPE_DATEV2: {
-        uint32_t num = *reinterpret_cast<uint32_t*>(slot);
-        reinterpret_cast<vectorized::ColumnVector<vectorized::UInt32>*>(col_ptr)->insert_value(num);
-        break;
-    }
-
-    case TYPE_DATETIME: {
-        VecDateTimeValue value;
-        DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(slot);
-        value.convert_dt_to_vec_dt(ts_slot);
-        reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
-                reinterpret_cast<char*>(&value), 0);
-        break;
-    }
-
-    case TYPE_DATETIMEV2: {
-        uint32_t num = *reinterpret_cast<uint64_t*>(slot);
-        reinterpret_cast<vectorized::ColumnVector<vectorized::UInt64>*>(col_ptr)->insert_value(num);
-        break;
-    }
-
-    case TYPE_DECIMALV2: {
-        const Int128 num = (reinterpret_cast<PackedInt128*>(slot))->value;
-        reinterpret_cast<vectorized::ColumnDecimal128*>(col_ptr)->insert_data(
-                reinterpret_cast<const char*>(&num), 0);
-        break;
-    }
-    case TYPE_DECIMAL128I: {
-        const Int128 num = (reinterpret_cast<PackedInt128*>(slot))->value;
-        reinterpret_cast<vectorized::ColumnDecimal128I*>(col_ptr)->insert_data(
-                reinterpret_cast<const char*>(&num), 0);
-        break;
-    }
-
-    case TYPE_DECIMAL32: {
-        const int32_t num = *reinterpret_cast<int32_t*>(slot);
-        reinterpret_cast<vectorized::ColumnDecimal32*>(col_ptr)->insert_data(
-                reinterpret_cast<const char*>(&num), 0);
-        break;
-    }
-
-    case TYPE_DECIMAL64: {
-        const int64_t num = *reinterpret_cast<int64_t*>(slot);
-        reinterpret_cast<vectorized::ColumnDecimal64*>(col_ptr)->insert_data(
-                reinterpret_cast<const char*>(&num), 0);
-        break;
-    }
-
-    default: {
-        DCHECK(false) << "bad slot type: " << slot_desc->type();
-        std::stringstream ss;
-        ss << "Fail to convert schema type:'" << slot_desc->type() << " on column:`"
-           << slot_desc->col_name() + "`";
-        return Status::InternalError(ss.str());
-    }
-    }
-
-    return Status::OK();
-}
-
-void VSchemaScanNode::project_tuple() {
-    memset(_dest_single_tuple, 0, _dest_tuple_desc->num_null_bytes());
-
-    for (int i = 0; i < _slot_num; ++i) {
-        if (!_dest_tuple_desc->slots()[i]->is_materialized()) {
-            continue;
-        }
-        int j = _index_map[i];
-
-        if (_src_single_tuple->is_null(_src_tuple_desc->slots()[j]->null_indicator_offset())) {
-            _dest_single_tuple->set_null(_dest_tuple_desc->slots()[i]->null_indicator_offset());
-        } else {
-            void* dest_slot =
-                    _dest_single_tuple->get_slot(_dest_tuple_desc->slots()[i]->tuple_offset());
-            void* src_slot =
-                    _src_single_tuple->get_slot(_src_tuple_desc->slots()[j]->tuple_offset());
-            int slot_size = _src_tuple_desc->slots()[j]->type().get_slot_size();
-            memcpy(dest_slot, src_slot, slot_size);
-        }
-    }
 }
 
 Status VSchemaScanNode::close(RuntimeState* state) {

@@ -34,7 +34,7 @@ private:
     Status _fill_block_impl(vectorized::Block* block);
 
     TGetDbsResult _db_result;
-    static SchemaScanner::ColumnDesc _s_columns[];
+    static std::vector<SchemaScanner::ColumnDesc> _s_columns;
 };
 
 } // namespace doris

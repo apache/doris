@@ -33,7 +33,7 @@
 
 namespace doris {
 
-SchemaScanner::ColumnDesc SchemaBackendsScanner::_s_tbls_columns[] = {
+std::vector<SchemaScanner::ColumnDesc> SchemaBackendsScanner::_s_tbls_columns = {
         //   name,       type,          size
         {"BackendId", TYPE_BIGINT, sizeof(StringRef), false},
         {"TabletNum", TYPE_BIGINT, sizeof(StringRef), false},
@@ -61,7 +61,7 @@ SchemaScanner::ColumnDesc SchemaBackendsScanner::_s_tbls_columns[] = {
 };
 
 SchemaBackendsScanner::SchemaBackendsScanner()
-        : SchemaScanner(nullptr, 0, TSchemaTableType::SCH_BACKENDS) {}
+        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_BACKENDS) {}
 
 Status SchemaBackendsScanner::start(RuntimeState* state) {
     if (!_is_init) {
@@ -85,7 +85,7 @@ Status SchemaBackendsScanner::get_next_block(vectorized::Block* block, bool* eos
 
 Status SchemaBackendsScanner::_fill_block_impl(vectorized::Block* block) {
     auto row_num = _batch_data.size();
-    for (size_t col_idx = 0; col_idx < _column_num; ++col_idx) {
+    for (size_t col_idx = 0; col_idx < _columns.size(); ++col_idx) {
         auto it = _col_name_to_type.find(_columns[col_idx].name);
         if (it == _col_name_to_type.end()) {
             if (_columns[col_idx].is_null) {

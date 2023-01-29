@@ -23,7 +23,7 @@
 
 namespace doris {
 
-SchemaScanner::ColumnDesc SchemaCollationsScanner::_s_cols_columns[] = {
+std::vector<SchemaScanner::ColumnDesc> SchemaCollationsScanner::_s_cols_columns = {
         //   name,       type,          size
         {"COLLATION_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
         {"CHARACTER_SET_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
@@ -39,9 +39,7 @@ SchemaCollationsScanner::CollationStruct SchemaCollationsScanner::_s_collations[
 };
 
 SchemaCollationsScanner::SchemaCollationsScanner()
-        : SchemaScanner(_s_cols_columns,
-                        sizeof(_s_cols_columns) / sizeof(SchemaScanner::ColumnDesc),
-                        TSchemaTableType::SCH_COLLATIONS) {}
+        : SchemaScanner(_s_cols_columns, TSchemaTableType::SCH_COLLATIONS) {}
 
 SchemaCollationsScanner::~SchemaCollationsScanner() {}
 

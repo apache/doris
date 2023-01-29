@@ -41,7 +41,7 @@ private:
 
     Status _fill_block_impl(vectorized::Block* block);
 
-    static SchemaScanner::ColumnDesc _s_vars_columns[];
+    static std::vector<SchemaScanner::ColumnDesc> _s_vars_columns;
 
     TShowVariableResult _var_result;
     TVarType::type _type;
