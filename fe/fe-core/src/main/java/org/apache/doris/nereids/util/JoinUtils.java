@@ -303,7 +303,7 @@ public class JoinUtils {
                                 return e;
                             }
                         })
-                ).collect(Collectors.toList());
+                ).collect(ImmutableList.toImmutableList());
     }
 
     /**

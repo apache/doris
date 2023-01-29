@@ -45,16 +45,15 @@ public abstract class AbstractPhysicalJoin<
         LEFT_CHILD_TYPE extends Plan,
         RIGHT_CHILD_TYPE extends Plan>
         extends PhysicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> implements Join {
+
     protected final JoinType joinType;
-
-    protected final ImmutableList<Expression> hashJoinConjuncts;
-
-    protected final ImmutableList<Expression> otherJoinConjuncts;
-
-    protected boolean shouldTranslateOutput = true;
+    protected final List<Expression> hashJoinConjuncts;
+    protected final List<Expression> otherJoinConjuncts;
     protected final JoinHint hint;
 
+    // use for translate only
     protected final List<Expression> filterConjuncts = Lists.newArrayList();
+    protected boolean shouldTranslateOutput = true;
 
     /**
      * Constructor of PhysicalJoin.

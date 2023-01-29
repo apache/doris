@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -50,7 +49,7 @@ public class PruneSortChildColumns extends AbstractPushDownProjectRule<LogicalSo
             return sortPlan;
         }
         return sortPlan.withChildren(
-            ImmutableList.of(new LogicalProject<>(Lists.newArrayList(required), sortPlan.child()))
+            ImmutableList.of(new LogicalProject<>(ImmutableList.copyOf(required), sortPlan.child()))
         );
     }
 }
