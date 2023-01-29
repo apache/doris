@@ -19,7 +19,7 @@
 
 import os
 import re
-
+DORIS_HOME = "../../../"
 mp = {}
 
 
@@ -67,9 +67,11 @@ mp1 = {'tinyint': ['ktint'],
        'datev2': ['kdtv2'],
        'datetimev2': ['kdtmv2s1'],
        'boolean': ['kbool'],
+       'string': ['st_point_str'],
+       'varchar': ['st_point_vc'],
        '': ['']}
 
-run('/Users/mochenhui/projects/doris/fe/fe-core/src/main/java/org/apache/doris/nereids/trees/expressions/functions/scalar')
+run(f'{DORIS_HOME}/fe/fe-core/src/main/java/org/apache/doris/nereids/trees/expressions/functions/scalar')
 for k in sorted(mp):
     v = mp[k]
     args = ''
