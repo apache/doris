@@ -330,7 +330,8 @@ Block VUnionNode::materialize_block(Block* src_block, int child_idx) {
     ColumnsWithTypeAndName colunms;
     for (size_t i = 0; i < child_exprs.size(); ++i) {
         int result_column_id = -1;
-        child_exprs[i]->execute(src_block, &result_column_id);
+        auto state = child_exprs[i]->execute(src_block, &result_column_id);
+        CHECK(state.ok()) << state.to_string();
         colunms.emplace_back(src_block->get_by_position(result_column_id));
     }
     _child_row_idx += src_block->rows();
