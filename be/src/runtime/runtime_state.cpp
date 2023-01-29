@@ -153,10 +153,6 @@ RuntimeState::~RuntimeState() {
         _error_log_file = nullptr;
     }
 
-    if (_error_hub != nullptr) {
-        _error_hub->close();
-    }
-
     _obj_pool->clear();
     _runtime_filter_mgr.reset();
 }
