@@ -21,9 +21,6 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.types.TinyIntType;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -136,10 +133,7 @@ public interface NormalizeToSlot {
             }
 
             Alias alias = new Alias(expression, expression.toSql());
-            SlotReference slot = (SlotReference) alias.toSlot();
-            // BE will create a nullable uint8 column to expand NullLiteral when necessary
-            return new NormalizeToSlotTriplet(expression, expression instanceof NullLiteral ? slot.withDataType(
-                    TinyIntType.INSTANCE) : slot, alias);
+            return new NormalizeToSlotTriplet(expression, alias.toSlot(), alias);
         }
     }
 }
