@@ -35,7 +35,7 @@ suite("sort") {
     SELECT /*+ SET_VAR(query_timeout = 600) */ ref_0.`l1` AS c0,
                                            bitmap_empty() AS c1,
                                            ref_0.`l1` AS c2
-    FROM regression_test_delete_p0.delete_partition_test AS ref_0
+    FROM delete_partition_test AS ref_0
     WHERE ref_0.`l2` IS NOT NULL
     ORDER BY ref_0.`l1` DESC
     LIMIT 110
