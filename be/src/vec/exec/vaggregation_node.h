@@ -246,7 +246,7 @@ struct AggregationDataWithNullKey : public Base {
     bool& has_null_key_data() { return has_null_key; }
     AggregateDataPtr& get_null_key_data() { return null_key_data; }
     bool has_null_key_data() const { return has_null_key; }
-    const AggregateDataPtr get_null_key_data() const { return null_key_data; }
+    AggregateDataPtr get_null_key_data() const { return null_key_data; }
     size_t size() const { return Base::size() + (has_null_key ? 1 : 0); }
     bool empty() const { return Base::empty() && !has_null_key; }
 
