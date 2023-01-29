@@ -17,13 +17,8 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.common.io.Text;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import java.io.DataOutput;
-import java.io.IOException;
 
 /*
  * GlobalPrivTable saves all global privs and also password for users
@@ -47,26 +42,5 @@ public class GlobalPrivTable extends PrivTable {
         }
 
         savedPrivs.or(matchedEntry.getPrivSet());
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        if (!isClassNameWrote) {
-            String className = GlobalPrivTable.class.getCanonicalName();
-            Text.writeString(out, className);
-            isClassNameWrote = true;
-        }
-
-        super.write(out);
-    }
-
-    /**
-     * When replay GlobalPrivTable from journal whose FeMetaVersion < VERSION_111, the global-level privileges should
-     * degrade to internal-catalog-level privileges.
-     */
-    public CatalogPrivTable degradeToInternalCatalogPriv() throws IOException {
-        CatalogPrivTable catalogPrivTable = new CatalogPrivTable();
-        // TODO: 2023/1/17 implement
-        return catalogPrivTable;
     }
 }

@@ -19,10 +19,19 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.io.Writable;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
 
-public class User implements Comparable<User> {
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+
+public class User implements Comparable<User>, Writable {
+    private static final Logger LOG = LogManager.getLogger(User.class);
+
     private UserIdentity userIdentity;
     private UserIdentity domainUserIdentity;
     private boolean isSetByDomainResolver = false;
@@ -87,6 +96,26 @@ public class User implements Comparable<User> {
 
     @Override
     public int compareTo(@NotNull User o) {
+        // TODO: 2023/1/28 implement
         return 0;
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        userIdentity.write(out);
+        out.writeBoolean(isSetByDomainResolver);
+        //password
+        // TODO: 2023/1/28 userIdent only can generate by string?
+    }
+
+    public static User read(DataInput in) throws IOException {
+        User user = new User();
+        user.readFields(in);
+        return user;
+    }
+
+    public void readFields(DataInput in) throws IOException {
+        userIdentity = UserIdentity.read(in);
+        isSetByDomainResolver = in.readBoolean();
     }
 }

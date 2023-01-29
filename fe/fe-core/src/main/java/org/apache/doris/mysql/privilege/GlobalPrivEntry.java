@@ -17,15 +17,21 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.analysis.UserIdentity;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 
 public class GlobalPrivEntry extends PrivEntry {
     private static final Logger LOG = LogManager.getLogger(GlobalPrivEntry.class);
+
+    @Deprecated
+    protected byte[] password;
+    @Deprecated
+    protected UserIdentity domainUserIdent;
 
     protected GlobalPrivEntry() {
     }
@@ -62,12 +68,10 @@ public class GlobalPrivEntry extends PrivEntry {
         return sb.toString();
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-
-    }
-
     public void readFields(DataInput in) throws IOException {
-
+        super.readFields(in);
+        int passwordLen = in.readInt();
+        password = new byte[passwordLen];
+        in.readFully(password);
     }
 }

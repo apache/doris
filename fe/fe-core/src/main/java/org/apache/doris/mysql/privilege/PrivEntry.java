@@ -17,18 +17,56 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.common.io.Writable;
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.CaseSensibility;
+import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.io.Text;
 
 import com.google.common.base.Preconditions;
 import org.apache.commons.lang.NotImplementedException;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
 
-public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
+public abstract class PrivEntry implements Comparable<PrivEntry> {
+    @Deprecated
+    protected static final String ANY_HOST = "%";
+    @Deprecated
+    protected static final String ANY_USER = "%";
 
     protected PrivBitSet privSet;
+
+    // host is not case sensitive
+    @Deprecated
+    protected PatternMatcher hostPattern;
+    @Deprecated
+    protected String origHost;
+    @Deprecated
+    protected boolean isAnyHost = false;
+    // user name is case sensitive
+    @Deprecated
+    protected PatternMatcher userPattern;
+    @Deprecated
+    protected String origUser;
+    @Deprecated
+    protected boolean isAnyUser = false;
+    // true if this entry is set by domain resolver
+    @Deprecated
+    protected boolean isSetByDomainResolver = false;
+    // true if origHost is a domain name.
+    // For global priv entry, if isDomain is true, it should only be used for priv checking, not password checking
+    @Deprecated
+    protected boolean isDomain = false;
+
+    // isClassNameWrote to guarantee the class name can only be written once when persisting.
+    // see PrivEntry.read() for more details.
+    @Deprecated
+    protected boolean isClassNameWrote = false;
+    @Deprecated
+    protected UserIdentity userIdentity;
 
     protected PrivEntry() {
     }
@@ -45,21 +83,92 @@ public abstract class PrivEntry implements Comparable<PrivEntry>, Writable {
         this.privSet = privSet;
     }
 
-
+    @Deprecated
+    public void setSetByDomainResolver(boolean isSetByDomainResolver) {
+        this.isSetByDomainResolver = isSetByDomainResolver;
+    }
     public abstract boolean keyMatch(PrivEntry other);
 
+    @Deprecated
+    protected PrivEntry(PatternMatcher hostPattern, String origHost, PatternMatcher userPattern, String origUser,
+            boolean isDomain, PrivBitSet privSet) {
+        this.hostPattern = hostPattern;
+        this.origHost = origHost;
+        if (origHost.equals(ANY_HOST)) {
+            isAnyHost = true;
+        }
+        this.userPattern = userPattern;
+        this.origUser = origUser;
+        if (origUser.equals(ANY_USER)) {
+            isAnyUser = true;
+        }
+        this.isDomain = isDomain;
+        this.privSet = privSet;
+        if (isDomain) {
+            userIdentity = UserIdentity.createAnalyzedUserIdentWithDomain(origUser, origHost);
+        } else {
+            userIdentity = UserIdentity.createAnalyzedUserIdentWithIp(origUser, origHost);
+        }
+    }
 
+    @Deprecated
     public static PrivEntry read(DataInput in) throws IOException {
-        return null;
+        String className = Text.readString(in);
+        if (className.startsWith("com.baidu.palo")) {
+            // we need to be compatible with former class name
+            className = className.replaceFirst("com.baidu.palo", "org.apache.doris");
+        }
+        PrivEntry privEntry = null;
+        try {
+            Class<? extends PrivEntry> derivedClass = (Class<? extends PrivEntry>) Class.forName(className);
+            privEntry = derivedClass.newInstance();
+            Class[] paramTypes = {DataInput.class};
+            Method readMethod = derivedClass.getMethod("readFields", paramTypes);
+            Object[] params = {in};
+            readMethod.invoke(privEntry, params);
+
+            return privEntry;
+        } catch (ClassNotFoundException | InstantiationException | IllegalAccessException | NoSuchMethodException
+                | SecurityException | IllegalArgumentException | InvocationTargetException e) {
+            throw new IOException("failed read PrivEntry", e);
+        }
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-
-    }
-
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
+        origHost = Text.readString(in);
+        try {
+            hostPattern = PatternMatcher.createMysqlPattern(origHost, CaseSensibility.HOST.getCaseSensibility());
+        } catch (AnalysisException e) {
+            throw new IOException(e);
+        }
+        isAnyHost = origHost.equals(ANY_HOST);
 
+        origUser = Text.readString(in);
+        try {
+            userPattern = PatternMatcher.createMysqlPattern(origUser, CaseSensibility.USER.getCaseSensibility());
+        } catch (AnalysisException e) {
+            throw new IOException(e);
+        }
+        isAnyUser = origUser.equals(ANY_USER);
+        privSet = PrivBitSet.read(in);
+        isSetByDomainResolver = in.readBoolean();
+        isDomain = in.readBoolean();
+
+        if (isDomain) {
+            userIdentity = UserIdentity.createAnalyzedUserIdentWithDomain(origUser, origHost);
+        } else {
+            userIdentity = UserIdentity.createAnalyzedUserIdentWithIp(origUser, origHost);
+        }
+    }
+
+    @Deprecated
+    public boolean match(UserIdentity userIdent, boolean exactMatch) {
+        if (exactMatch) {
+            return origUser.equals(userIdent.getQualifiedUser()) && origHost.equals(userIdent.getHost());
+        } else {
+            return origUser.equals(userIdent.getQualifiedUser()) && hostPattern.match(userIdent.getHost());
+        }
     }
 
     @Override

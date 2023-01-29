@@ -18,6 +18,7 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 
 import com.google.common.collect.Maps;
@@ -28,16 +29,12 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 
 public class UserRoleManager implements Writable {
     private Map<UserIdentity, Set<String>> userToRoles = Maps.newConcurrentMap();
     private Map<String, Set<UserIdentity>> roleToUsers = Maps.newConcurrentMap();
-    private RoleManager roleManager;
-
-    public UserRoleManager(RoleManager roleManager) {
-        this.roleManager = roleManager;
-    }
 
     public void addUserRole(UserIdentity userIdentity, String roleName) {
         Set<String> roles = userToRoles.get(userIdentity);
@@ -52,10 +49,6 @@ public class UserRoleManager implements Writable {
         }
         userIdentities.add(userIdentity);
         roleToUsers.put(roleName, userIdentities);
-    }
-
-    public void dropUserRole(UserIdentity user, String roleName) {
-
     }
 
     public void dropUser(UserIdentity userIdentity) {
@@ -87,20 +80,45 @@ public class UserRoleManager implements Writable {
     }
 
     public Set<String> getRolesByUser(UserIdentity user) {
-        return null;
-    }
-
-    public Set<UserIdentity> getUsersByRole(String roleName) {
-        return null;
+        return userToRoles.get(user);
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
-
+        out.writeInt(userToRoles.size());
+        for (Entry<UserIdentity, Set<String>> entry : userToRoles.entrySet()) {
+            entry.getKey().write(out);
+            out.writeInt(entry.getValue().size());
+            for (String role : entry.getValue()) {
+                Text.writeString(out, role);
+            }
+        }
     }
 
     public static UserRoleManager read(DataInput in) throws IOException {
-        //        UserRoleManager userRoleManager = new UserRoleManager();
-        return null;
+        UserRoleManager userRoleManager = new UserRoleManager();
+        userRoleManager.readFields(in);
+        return userRoleManager;
+    }
+
+    public void readFields(DataInput in) throws IOException {
+        int size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            UserIdentity userIdentity = UserIdentity.read(in);
+            int roleSize = in.readInt();
+            Set<String> roles = Sets.newHashSet();
+            for (int j = 0; j < roleSize; j++) {
+                String roleName = Text.readString(in);
+                roles.add(roleName);
+                //init role to user map
+                Set<UserIdentity> userIdentities = roleToUsers.get(roleName);
+                if (CollectionUtils.isEmpty(userIdentities)) {
+                    userIdentities = Sets.newHashSet();
+                }
+                userIdentities.add(userIdentity);
+                roleToUsers.put(roleName, userIdentities);
+            }
+            userToRoles.put(userIdentity, roles);
+        }
     }
 }

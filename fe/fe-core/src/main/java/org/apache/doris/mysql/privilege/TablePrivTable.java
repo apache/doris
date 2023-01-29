@@ -17,12 +17,7 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.common.io.Text;
-
 import com.google.common.base.Preconditions;
-
-import java.io.DataOutput;
-import java.io.IOException;
 
 /*
  * TablePrivTable saves all table level privs
@@ -95,17 +90,6 @@ public class TablePrivTable extends PrivTable {
             return true;
         }
         return false;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        if (!isClassNameWrote) {
-            String className = TablePrivTable.class.getCanonicalName();
-            Text.writeString(out, className);
-            isClassNameWrote = true;
-        }
-
-        super.write(out);
     }
 
     public boolean hasClusterPriv(String clusterName) {

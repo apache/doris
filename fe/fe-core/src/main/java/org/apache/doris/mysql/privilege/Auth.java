@@ -42,6 +42,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -88,8 +89,9 @@ public class Auth implements Writable {
 
     private RoleManager roleManager = new RoleManager();
     private UserManager userManager = new UserManager();
-    private UserRoleManager userRoleManager = new UserRoleManager(roleManager);
+    private UserRoleManager userRoleManager = new UserRoleManager();
     private UserPropertyMgr propertyMgr = new UserPropertyMgr();
+
 
     private LdapInfo ldapInfo = new LdapInfo();
 
@@ -1445,9 +1447,107 @@ public class Auth implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
+        // role manager must be first, because role should be exist before any user
+        roleManager.write(out);
+        userManager.write(out);
+        userRoleManager.write(out);
+        propertyMgr.write(out);
+        ldapInfo.write(out);
+        passwdPolicyManager.write(out);
     }
 
     public void readFields(DataInput in) throws IOException {
+        roleManager = RoleManager.read(in);
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_116) {
+            userManager = UserManager.read(in);
+            userRoleManager = UserRoleManager.read(in);
+        } else {
+            UserPrivTable userPrivTable = (UserPrivTable) PrivTable.read(in);
+            CatalogPrivTable catalogPrivTable;
+            if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_111) {
+                catalogPrivTable = (CatalogPrivTable) PrivTable.read(in);
+            } else {
+                catalogPrivTable = userPrivTable.degradeToInternalCatalogPriv();
+                LOG.info("Load PaloAuth from meta version < {}, degrade UserPrivTable to CatalogPrivTable",
+                        FeMetaVersion.VERSION_111);
+            }
+            DbPrivTable dbPrivTable = (DbPrivTable) PrivTable.read(in);
+            TablePrivTable tablePrivTable = (TablePrivTable) PrivTable.read(in);
+            ResourcePrivTable resourcePrivTable = (ResourcePrivTable) PrivTable.read(in);
+            try {
+                upgradeToVersion116(userPrivTable, catalogPrivTable, dbPrivTable, tablePrivTable, resourcePrivTable);
+            } catch (Exception e) {
+                // will not generate exception
+                LOG.warn("upgrade failed,", e);
+            }
+        }
+        propertyMgr = UserPropertyMgr.read(in);
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_106) {
+            ldapInfo = LdapInfo.read(in);
+        }
+
+        if (userManager.getNameToUsers().isEmpty()) {
+            // init root and admin user
+            initUser();
+        }
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_113) {
+            passwdPolicyManager = PasswordPolicyManager.read(in);
+        } else {
+            passwdPolicyManager = new PasswordPolicyManager();
+        }
+    }
+
+    private void upgradeToVersion116(UserPrivTable userPrivTable, CatalogPrivTable catalogPrivTable,
+            DbPrivTable dbPrivTable, TablePrivTable tablePrivTable, ResourcePrivTable resourcePrivTable)
+            throws AnalysisException, DdlException {
+        List<PrivEntry> userPrivTableEntries = userPrivTable.getEntries();
+        for (PrivEntry privEntry : userPrivTableEntries) {
+            GlobalPrivEntry globalPrivEntry = (GlobalPrivEntry) privEntry;
+            //create user
+            User user = userManager
+                    .createUser(globalPrivEntry.userIdentity, globalPrivEntry.password, globalPrivEntry.domainUserIdent,
+                            globalPrivEntry.isSetByDomainResolver);
+            //create default role
+            roleManager.createDefaultRole(user.getUserIdentity());
+            //grant global auth
+            // TODO: 2023/1/29 how to judge table or resource ?
+            Role newRole = new Role(roleManager.getUserDefaultRoleName(user.getUserIdentity()),
+                    new TablePattern("*", "*", "*"), globalPrivEntry.privSet);
+            roleManager.addRole(newRole, false);
+        }
+
+        List<PrivEntry> catalogPrivTableEntries = catalogPrivTable.getEntries();
+        for (PrivEntry privEntry : catalogPrivTableEntries) {
+            CatalogPrivEntry catalogPrivEntry = (CatalogPrivEntry) privEntry;
+            Role newRole = new Role(roleManager.getUserDefaultRoleName(catalogPrivEntry.userIdentity),
+                    new TablePattern(catalogPrivEntry.origCtl, "*", "*"), catalogPrivEntry.privSet);
+            roleManager.addRole(newRole, false);
+        }
+
+        List<PrivEntry> dbPrivTableEntries = dbPrivTable.getEntries();
+        for (PrivEntry privEntry : dbPrivTableEntries) {
+            DbPrivEntry dbPrivEntry = (DbPrivEntry) privEntry;
+            Role newRole = new Role(roleManager.getUserDefaultRoleName(dbPrivEntry.userIdentity),
+                    new TablePattern(dbPrivEntry.origCtl, dbPrivEntry.origDb, "*"), dbPrivEntry.privSet);
+            roleManager.addRole(newRole, false);
+        }
+
+        List<PrivEntry> tblPrivTableEntries = tablePrivTable.getEntries();
+        for (PrivEntry privEntry : tblPrivTableEntries) {
+            TablePrivEntry tblPrivEntry = (TablePrivEntry) privEntry;
+            Role newRole = new Role(roleManager.getUserDefaultRoleName(tblPrivEntry.userIdentity),
+                    new TablePattern(tblPrivEntry.origCtl, tblPrivEntry.origDb, tblPrivEntry.getOrigTbl()),
+                    tblPrivEntry.privSet);
+            roleManager.addRole(newRole, false);
+        }
+
+        List<PrivEntry> resourcePrivTableEntries = resourcePrivTable.getEntries();
+        for (PrivEntry privEntry : resourcePrivTableEntries) {
+            ResourcePrivEntry resourcePrivEntry = (ResourcePrivEntry) privEntry;
+            Role newRole = new Role(roleManager.getUserDefaultRoleName(resourcePrivEntry.userIdentity),
+                    new ResourcePattern(resourcePrivEntry.origResource), resourcePrivEntry.privSet);
+            roleManager.addRole(newRole, false);
+        }
 
     }
 

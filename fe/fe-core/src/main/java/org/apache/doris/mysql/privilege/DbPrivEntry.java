@@ -22,9 +22,9 @@ import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.io.Text;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 
 public class DbPrivEntry extends CatalogPrivEntry {
@@ -113,13 +113,17 @@ public class DbPrivEntry extends CatalogPrivEntry {
                 origCtl, origDb, privSet.toString());
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-
-    }
-
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
+        super.readFields(in);
 
+        origDb = Text.readString(in);
+        try {
+            dbPattern = createDbPatternMatcher(origDb);
+        } catch (AnalysisException e) {
+            throw new IOException(e);
+        }
+        isAnyDb = origDb.equals(ANY_DB);
     }
 
 }

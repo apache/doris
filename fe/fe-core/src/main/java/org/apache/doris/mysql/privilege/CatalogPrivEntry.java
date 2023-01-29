@@ -17,12 +17,15 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.datasource.InternalCatalog;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 
 public class CatalogPrivEntry extends PrivEntry {
@@ -46,6 +49,19 @@ public class CatalogPrivEntry extends PrivEntry {
         }
     }
 
+    @Deprecated
+    protected CatalogPrivEntry(PatternMatcher userPattern, String user,
+            PatternMatcher hostPattern, String origHost,
+            PatternMatcher ctlPattern, String origCtl,
+            boolean isDomain, PrivBitSet privSet) {
+        super(hostPattern, origHost, userPattern, user, isDomain, privSet);
+        this.ctlPattern = ctlPattern;
+        this.origCtl = origCtl;
+        if (origCtl.equals(ANY_CTL)) {
+            isAnyCtl = true;
+        }
+    }
+
     public static CatalogPrivEntry create(String ctl, PrivBitSet privs)
             throws AnalysisException {
         PatternMatcher ctlPattern = createCtlPatternMatcher(ctl);
@@ -55,6 +71,22 @@ public class CatalogPrivEntry extends PrivEntry {
         }
 
         return new CatalogPrivEntry(ctlPattern, ctl, privs);
+    }
+
+    @Deprecated
+    public static CatalogPrivEntry create(String user, String host, String ctl, boolean isDomain, PrivBitSet privs)
+            throws AnalysisException {
+        PatternMatcher hostPattern = PatternMatcher.createMysqlPattern(host, CaseSensibility.HOST.getCaseSensibility());
+
+        PatternMatcher ctlPattern = createCtlPatternMatcher(ctl);
+
+        PatternMatcher userPattern = PatternMatcher.createFlatPattern(user, CaseSensibility.USER.getCaseSensibility());
+
+        if (privs.containsNodePriv() || privs.containsResourcePriv()) {
+            throw new AnalysisException("Catalog privilege can not contains node or resource privileges: " + privs);
+        }
+
+        return new CatalogPrivEntry(userPattern, user, hostPattern, host, ctlPattern, ctl, isDomain, privs);
     }
 
     private static PatternMatcher createCtlPatternMatcher(String ctl) throws AnalysisException {
@@ -99,13 +131,21 @@ public class CatalogPrivEntry extends PrivEntry {
                 origCtl, privSet.toString());
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-
-    }
-
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
+
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_111) {
+            origCtl = Text.readString(in);
+        } else {
+            origCtl = InternalCatalog.INTERNAL_CATALOG_NAME;
+        }
+        try {
+            ctlPattern = createCtlPatternMatcher(origCtl);
+        } catch (AnalysisException e) {
+            throw new IOException(e);
+        }
+        isAnyCtl = origCtl.equals(ANY_CTL);
     }
 
 }

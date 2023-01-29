@@ -21,14 +21,12 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.io.Text;
-import org.apache.doris.common.io.Writable;
 
 import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -36,7 +34,7 @@ import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
 
-public abstract class PrivTable implements Writable {
+public abstract class PrivTable {
     private static final Logger LOG = LogManager.getLogger(PrivTable.class);
 
     protected List<PrivEntry> entries = Lists.newArrayList();
@@ -177,9 +175,9 @@ public abstract class PrivTable implements Writable {
         try {
             Class<? extends PrivTable> derivedClass = (Class<? extends PrivTable>) Class.forName(className);
             privTable = derivedClass.newInstance();
-            Class[] paramTypes = {DataInput.class};
+            Class[] paramTypes = { DataInput.class };
             Method readMethod = derivedClass.getMethod("readFields", paramTypes);
-            Object[] params = {in};
+            Object[] params = { in };
             readMethod.invoke(privTable, params);
 
             return privTable;
@@ -198,20 +196,7 @@ public abstract class PrivTable implements Writable {
         return sb.toString();
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        if (!isClassNameWrote) {
-            String className = PrivTable.class.getCanonicalName();
-            Text.writeString(out, className);
-            isClassNameWrote = true;
-        }
-        out.writeInt(entries.size());
-        for (PrivEntry privEntry : entries) {
-            privEntry.write(out);
-        }
-        isClassNameWrote = false;
-    }
-
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
         int size = in.readInt();
         for (int i = 0; i < size; i++) {

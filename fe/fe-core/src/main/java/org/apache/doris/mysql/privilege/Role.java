@@ -19,14 +19,18 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.TablePattern;
+import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
+import com.google.common.collect.Sets;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -34,6 +38,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
+import java.util.Set;
 
 public class Role implements Writable {
     private static final Logger LOG = LogManager.getLogger(Role.class);
@@ -59,6 +64,8 @@ public class Role implements Writable {
     private DbPrivTable dbPrivTable = new DbPrivTable();
     private TablePrivTable tablePrivTable = new TablePrivTable();
     private ResourcePrivTable resourcePrivTable = new ResourcePrivTable();
+    @Deprecated
+    private Set<UserIdentity> users = Sets.newConcurrentHashSet();
 
     private Role() {
 
@@ -137,7 +144,11 @@ public class Role implements Writable {
 
     public static Role read(DataInput in) throws IOException {
         Role role = new Role();
-        role.readFields(in);
+        try {
+            role.readFields(in);
+        } catch (DdlException e) {
+            LOG.warn("grant failed,", e);
+        }
         return role;
     }
 
@@ -156,19 +167,28 @@ public class Role implements Writable {
         }
     }
 
-    public void readFields(DataInput in) throws IOException {
+    public void readFields(DataInput in) throws IOException, DdlException {
         roleName = Text.readString(in);
         int size = in.readInt();
         for (int i = 0; i < size; i++) {
             TablePattern tblPattern = TablePattern.read(in);
             PrivBitSet privs = PrivBitSet.read(in);
             tblPatternToPrivs.put(tblPattern, privs);
+            grantPrivs(tblPattern, privs);
         }
         size = in.readInt();
         for (int i = 0; i < size; i++) {
             ResourcePattern resourcePattern = ResourcePattern.read(in);
             PrivBitSet privs = PrivBitSet.read(in);
             resourcePatternToPrivs.put(resourcePattern, privs);
+            grantPrivs(resourcePattern, privs);
+        }
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_116) {
+            size = in.readInt();
+            for (int i = 0; i < size; i++) {
+                UserIdentity userIdentity = UserIdentity.read(in);
+                users.add(userIdentity);
+            }
         }
     }
 

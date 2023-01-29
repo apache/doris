@@ -20,9 +20,9 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.io.Text;
 
 import java.io.DataInput;
-import java.io.DataOutput;
 import java.io.IOException;
 
 public class ResourcePrivEntry extends PrivEntry {
@@ -95,13 +95,16 @@ public class ResourcePrivEntry extends PrivEntry {
         return sb.toString();
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-
-    }
-
+    @Deprecated
     public void readFields(DataInput in) throws IOException {
-
+        super.readFields(in);
+        origResource = Text.readString(in);
+        try {
+            resourcePattern = PatternMatcher.createMysqlPattern(origResource,
+                    CaseSensibility.RESOURCE.getCaseSensibility());
+        } catch (AnalysisException e) {
+            throw new IOException(e);
+        }
         isAnyResource = origResource.equals(ANY_RESOURCE);
     }
 }

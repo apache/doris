@@ -24,6 +24,8 @@ import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.MysqlPassword;
 
 import com.google.common.base.Preconditions;
@@ -32,6 +34,10 @@ import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -39,12 +45,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 
-public class UserManager {
+public class UserManager implements Writable {
     public static final String ANY_HOST = "%";
     private static final Logger LOG = LogManager.getLogger(UserManager.class);
     //    Set<User> users = new HashSet<>();
     //One name may have multiple User,because host can be different
-    Map<String, List<User>> nameToUsers = new HashMap<>();
+    private Map<String, List<User>> nameToUsers = new HashMap<>();
 
     public boolean userIdentityExist(UserIdentity userIdentity) {
         List<User> users = nameToUsers.get(userIdentity.getQualifiedUser());
@@ -57,14 +63,6 @@ public class UserManager {
             }
         }
         return false;
-    }
-
-    //    public Set<User> getUsers() {
-    //        return users;
-    //    }
-
-    public void addUserIdentity(UserIdentity userIdentity) {
-
     }
 
     public List<User> getUserByName(String name) {
@@ -244,8 +242,35 @@ public class UserManager {
         return nameToUsers;
     }
 
-    public void setNameToUsers(
-            Map<String, List<User>> nameToUsers) {
-        this.nameToUsers = nameToUsers;
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeInt(nameToUsers.size());
+        for (Entry<String, List<User>> entry : nameToUsers.entrySet()) {
+            Text.writeString(out, entry.getKey());
+            out.writeInt(entry.getValue().size());
+            for (User user : entry.getValue()) {
+                user.write(out);
+            }
+        }
+    }
+
+    public static UserManager read(DataInput in) throws IOException {
+        UserManager userManager = new UserManager();
+        userManager.readFields(in);
+        return userManager;
+    }
+
+    public void readFields(DataInput in) throws IOException {
+        int size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            String name = Text.readString(in);
+            int userIdentSize = in.readInt();
+            List<User> users = new ArrayList<>(userIdentSize);
+            for (int j = 0; j < userIdentSize; j++) {
+                User user = User.read(in);
+                users.add(user);
+            }
+            nameToUsers.put(name, users);
+        }
     }
 }
