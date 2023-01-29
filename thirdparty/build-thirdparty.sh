@@ -1538,6 +1538,13 @@ build_concurrentqueue() {
     cp ./*.h "${TP_INSTALL_DIR}/include/"
 }
 
+# fast_float
+build_fast_float() {
+    check_if_source_exist "${FAST_FLOAT_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${FAST_FLOAT_SOURCE}"
+    cp -r ./include/fast_float "${TP_INSTALL_DIR}/include/"
+}
+
 if [[ "$(uname -s)" == 'Darwin' ]]; then
     echo 'build for Darwin'
     build_binutils
@@ -1599,5 +1606,6 @@ build_libbacktrace
 build_sse2neon
 build_xxhash
 build_concurrentqueue
+build_fast_float
 
 echo "Finished to build all thirdparties"
