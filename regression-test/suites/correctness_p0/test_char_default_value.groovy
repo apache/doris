@@ -23,8 +23,8 @@ suite("test_char_default_value") {
     sql """
         CREATE TABLE `test_char_default_value` (
             `a` int(11) NULL,
-            `b` char(10) NULL DEFAULT "ss"
-            `b` varchar(10) NULL DEFAULT "ass"
+            `b` char(10) NULL DEFAULT "ss",
+            `c` varchar(10) NULL DEFAULT "ass"
         ) ENGINE=OLAP
         DUPLICATE KEY(`a`, `b`)
         COMMENT 'OLAP'
