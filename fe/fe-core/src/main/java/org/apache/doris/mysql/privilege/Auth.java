@@ -1514,6 +1514,16 @@ public class Auth implements Writable {
             Role newRole = new Role(roleManager.getUserDefaultRoleName(user.getUserIdentity()),
                     new TablePattern("*", "*", "*"), globalPrivEntry.privSet);
             roleManager.addRole(newRole, false);
+            userRoleManager
+                    .addUserRole(user.getUserIdentity(), roleManager.getUserDefaultRoleName(user.getUserIdentity()));
+        }
+
+        Map<String, Role> roles = roleManager.getRoles();
+        for (Role role : roles.values()) {
+            Set<UserIdentity> users = role.getUsers();
+            for (UserIdentity userIdentity : users) {
+                userRoleManager.addUserRole(userIdentity, role.getRoleName());
+            }
         }
 
         List<PrivEntry> catalogPrivTableEntries = catalogPrivTable.getEntries();

@@ -210,4 +210,8 @@ public class RoleManager implements Writable {
     public String getUserDefaultRoleName(UserIdentity userIdentity) {
         return DEFAULT_ROLE_PREFIX + userIdentity.toString();
     }
+
+    public Map<String, Role> getRoles() {
+        return roles;
+    }
 }

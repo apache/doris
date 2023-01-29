@@ -64,8 +64,14 @@ public class Role implements Writable {
     private DbPrivTable dbPrivTable = new DbPrivTable();
     private TablePrivTable tablePrivTable = new TablePrivTable();
     private ResourcePrivTable resourcePrivTable = new ResourcePrivTable();
+
     @Deprecated
     private Set<UserIdentity> users = Sets.newConcurrentHashSet();
+
+    @Deprecated
+    public Set<UserIdentity> getUsers() {
+        return users;
+    }
 
     private Role() {
 
