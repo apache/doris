@@ -527,7 +527,7 @@ private:
     int _precision;
     int _scale;
     std::vector<char> _mem_value;
-    std::vector<char> _default_string_value;
+    std::vector<char> _resized_char_value;
 
     // current rowid
     ordinal_t _current_rowid = 0;

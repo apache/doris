@@ -895,14 +895,14 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
             Status s = Status::OK();
             if (_type_info->type() == OLAP_FIELD_TYPE_CHAR) {
                 int32_t length = _schema_length;
-                _default_string_value.resize(length);
+                _resized_char_value.resize(length);
                 // CHAR type should set the bits to 0 that larger than current char size
                 // could not reuse default value directly
-                memset(_default_string_value.data(), 0, length);
-                memory_copy(_default_string_value.data(), _default_value.c_str(),
+                memset(_resized_char_value.data(), 0, length);
+                memory_copy(_resized_char_value.data(), _default_value.c_str(),
                             _default_value.length());
                 ((Slice*)_mem_value.data())->size = length;
-                ((Slice*)_mem_value.data())->data = _default_string_value.data();
+                ((Slice*)_mem_value.data())->data = _resized_char_value.data();
             } else if (_type_info->type() == OLAP_FIELD_TYPE_VARCHAR ||
                        _type_info->type() == OLAP_FIELD_TYPE_HLL ||
                        _type_info->type() == OLAP_FIELD_TYPE_OBJECT ||
