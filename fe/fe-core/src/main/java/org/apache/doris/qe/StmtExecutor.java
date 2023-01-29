@@ -660,9 +660,13 @@ public class StmtExecutor implements ProfileWriter {
      * @throws DdlException
      */
     private void analyzeVariablesInStmt() throws DdlException {
+        analyzeVariablesInStmt(parsedStmt);
+    }
+
+    private void analyzeVariablesInStmt(StatementBase statement) throws DdlException {
         SessionVariable sessionVariable = context.getSessionVariable();
-        if (parsedStmt != null && parsedStmt instanceof SelectStmt) {
-            SelectStmt selectStmt = (SelectStmt) parsedStmt;
+        if (statement instanceof SelectStmt) {
+            SelectStmt selectStmt = (SelectStmt) statement;
             Map<String, String> optHints = selectStmt.getSelectList().getOptHints();
             if (optHints != null) {
                 sessionVariable.setIsSingleSetVar(true);
@@ -1511,6 +1515,8 @@ public class StmtExecutor implements ProfileWriter {
             handleExplainStmt(explainString);
             return;
         }
+
+        analyzeVariablesInStmt(insertStmt.getQueryStmt());
 
         long createTime = System.currentTimeMillis();
         Throwable throwable = null;

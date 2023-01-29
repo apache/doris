@@ -167,6 +167,7 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
 
     protected boolean toSQLWithSelectList;
     protected boolean isPointQuery;
+    protected boolean toSQLWithHint;
 
     QueryStmt(ArrayList<OrderByElement> orderByElements, LimitElement limitElement) {
         this.orderByElements = orderByElements;
@@ -817,5 +818,10 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
 
     public boolean isPointQuery() {
         return isPointQuery;
+    }
+
+    public String toSqlWithHint() {
+        toSQLWithHint = true;
+        return toSql();
     }
 }
