@@ -64,7 +64,9 @@ suite("load") {
             `kachr` array<char(50)> null,
             `kavchr` array<varchar(50)> null,
             `kastr` array<string> null,
-            `kadcml` array<decimal(27, 9)> null
+            `kadcml` array<decimal(27, 9)> null,
+            `st_point_str` string null,
+            `st_point_vc` varchar(50) null
         ) engine=olap
         DISTRIBUTED BY HASH(`ktint`) BUCKETS 5
         properties("replication_num" = "1")
