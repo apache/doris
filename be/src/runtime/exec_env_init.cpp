@@ -311,7 +311,6 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_fragment_mgr);
     SAFE_DELETE(_pipeline_task_scheduler);
     SAFE_DELETE(_cgroups_mgr);
-    SAFE_DELETE(_thread_mgr);
     SAFE_DELETE(_broker_client_cache);
     SAFE_DELETE(_frontend_client_cache);
     SAFE_DELETE(_backend_client_cache);
