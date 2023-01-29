@@ -135,6 +135,7 @@ public:
     void print_log_usage(const std::string& msg);
     void enable_print_log_usage() { _enable_print_log_usage = true; }
     static void enable_print_log_process_usage() { _enable_print_log_process_usage = true; }
+    static std::string log_process_usage_str(const std::string& msg, bool with_stacktrace = true);
     static void print_log_process_usage(const std::string& msg, bool with_stacktrace = true);
 
     // Log the memory usage when memory limit is exceeded.
@@ -156,6 +157,9 @@ public:
     }
     // only for Type::QUERY or Type::LOAD.
     static TUniqueId label_to_queryid(const std::string& label) {
+        if (label.rfind("Query#Id=", 0) != 0 && label.rfind("Load#Id=", 0) != 0) {
+            return TUniqueId();
+        }
         auto queryid = split(label, "#Id=")[1];
         TUniqueId querytid;
         parse_id(queryid, &querytid);
@@ -164,12 +168,14 @@ public:
 
     static std::string process_mem_log_str() {
         return fmt::format(
-                "OS physical memory {}, process memory used {} limit {}, sys mem available {} low "
-                "water mark {}, refresh interval memory growth {} B",
+                "OS physical memory {}. Process memory usage {}, limit {}, soft limit {}. Sys "
+                "available memory {}, low water mark {}, warning water mark {}. Refresh interval "
+                "memory growth {} B",
                 PrettyPrinter::print(MemInfo::physical_mem(), TUnit::BYTES),
                 PerfCounters::get_vm_rss_str(), MemInfo::mem_limit_str(),
-                MemInfo::sys_mem_available_str(),
+                MemInfo::soft_mem_limit_str(), MemInfo::sys_mem_available_str(),
                 PrettyPrinter::print(MemInfo::sys_mem_available_low_water_mark(), TUnit::BYTES),
+                PrettyPrinter::print(MemInfo::sys_mem_available_warning_water_mark(), TUnit::BYTES),
                 MemInfo::refresh_interval_memory_growth);
     }
 
