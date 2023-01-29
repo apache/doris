@@ -117,7 +117,10 @@ echo "Components are: ${COMPONENTS}"
 echo "Container UID: ${CONTAINER_UID}"
 echo "Stop: ${STOP}"
 
-COMPONENTS_ARR=(${COMPONENTS//,/ })
+OLD_IFS="${IFS}"
+IFS=','
+read -r -a COMPONENTS_ARR <<<"${COMPONENTS}"
+IFS="${OLD_IFS}"
 
 RUN_MYSQL=0
 RUN_PG=0
@@ -126,7 +129,7 @@ RUN_SQLSERVER=0
 RUN_HIVE=0
 RUN_ES=0
 RUN_ICEBERG=0
-for element in ${COMPONENTS_ARR[@]}; do
+for element in "${COMPONENTS_ARR[@]}"; do
     if [[ "${element}"x == "mysql"x ]]; then
         RUN_MYSQL=1
     elif [[ "${element}"x == "pg"x ]]; then
