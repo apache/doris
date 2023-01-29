@@ -47,6 +47,7 @@ int64_t MemInfo::_s_physical_mem = -1;
 int64_t MemInfo::_s_mem_limit = -1;
 std::string MemInfo::_s_mem_limit_str = "";
 int64_t MemInfo::_s_soft_mem_limit = -1;
+std::string MemInfo::_s_soft_mem_limit_str = "";
 
 int64_t MemInfo::_s_allocator_cache_mem = 0;
 std::string MemInfo::_s_allocator_cache_mem_str = "";
@@ -89,61 +90,66 @@ void MemInfo::refresh_allocator_mem() {
 #endif
 }
 
+void MemInfo::process_cache_gc(int64_t& freed_mem) {
+    // TODO, free more cache, and should free a certain percentage of capacity, not all.
+    freed_mem += ChunkAllocator::instance()->mem_consumption();
+    ChunkAllocator::instance()->clear();
+    freed_mem +=
+            StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE);
+    StoragePageCache::instance()->prune(segment_v2::DATA_PAGE);
+}
+
 // step1: free all cache
 // step2: free top overcommit query, if enable query memroy overcommit
-void MemInfo::process_minor_gc() {
-    // TODO, free more cache, and should free a certain percentage of capacity, not all.
+bool MemInfo::process_minor_gc() {
     int64_t freed_mem = 0;
     Defer defer {[&]() {
         LOG(INFO) << fmt::format("Process Minor GC Free Memory {} Bytes", freed_mem);
     }};
 
-    freed_mem += ChunkAllocator::instance()->mem_consumption();
-    ChunkAllocator::instance()->clear();
+    MemInfo::process_cache_gc(freed_mem);
     if (freed_mem > _s_process_minor_gc_size) {
-        return;
+        return true;
     }
-    freed_mem +=
-            StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE);
-    StoragePageCache::instance()->prune(segment_v2::DATA_PAGE);
     if (config::enable_query_memroy_overcommit) {
         freed_mem +=
                 MemTrackerLimiter::free_top_overcommit_query(_s_process_minor_gc_size - freed_mem);
     }
+    if (freed_mem > _s_process_minor_gc_size) {
+        return true;
+    }
+    return false;
 }
 
 // step1: free all cache
 // step2: free top memory query
 // step3: free top overcommit load, load retries are more expensive, So cancel at the end.
 // step4: free top memory load
-void MemInfo::process_full_gc() {
+bool MemInfo::process_full_gc() {
     int64_t freed_mem = 0;
     Defer defer {
             [&]() { LOG(INFO) << fmt::format("Process Full GC Free Memory {} Bytes", freed_mem); }};
 
-    freed_mem +=
-            StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE);
-    StoragePageCache::instance()->prune(segment_v2::DATA_PAGE);
+    MemInfo::process_cache_gc(freed_mem);
     if (freed_mem > _s_process_full_gc_size) {
-        return;
-    }
-    freed_mem += ChunkAllocator::instance()->mem_consumption();
-    ChunkAllocator::instance()->clear();
-    if (freed_mem > _s_process_full_gc_size) {
-        return;
+        return true;
     }
     freed_mem += MemTrackerLimiter::free_top_memory_query(_s_process_full_gc_size - freed_mem);
     if (freed_mem > _s_process_full_gc_size) {
-        return;
+        return true;
     }
     if (config::enable_query_memroy_overcommit) {
         freed_mem +=
                 MemTrackerLimiter::free_top_overcommit_load(_s_process_full_gc_size - freed_mem);
         if (freed_mem > _s_process_full_gc_size) {
-            return;
+            return true;
         }
     }
     freed_mem += MemTrackerLimiter::free_top_memory_load(_s_process_full_gc_size - freed_mem);
+    if (freed_mem > _s_process_full_gc_size) {
+        return true;
+    }
+    return false;
 }
 
 #ifndef __APPLE__
@@ -203,6 +209,7 @@ void MemInfo::init() {
     }
     _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
     _s_soft_mem_limit = _s_mem_limit * config::soft_mem_limit_frac;
+    _s_soft_mem_limit_str = PrettyPrinter::print(_s_soft_mem_limit, TUnit::BYTES);
 
     _s_process_minor_gc_size =
             ParseUtil::parse_mem_spec(config::process_minor_gc_size, -1, _s_mem_limit, &is_percent);
@@ -239,7 +246,7 @@ void MemInfo::init() {
             config::max_sys_mem_available_low_water_mark_bytes);
     int64_t p2 = std::max<int64_t>(_s_vm_min_free_kbytes - _s_physical_mem * 0.01, 0);
     _s_sys_mem_available_low_water_mark = std::max<int64_t>(p1 - p2, 0);
-    _s_sys_mem_available_warning_water_mark = _s_sys_mem_available_low_water_mark + p1 * 2;
+    _s_sys_mem_available_warning_water_mark = _s_sys_mem_available_low_water_mark + p1;
 
     LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
               << ", Mem Limit: " << _s_mem_limit_str
@@ -264,6 +271,7 @@ void MemInfo::init() {
     _s_mem_limit = ParseUtil::parse_mem_spec(config::mem_limit, -1, _s_physical_mem, &is_percent);
     _s_mem_limit_str = PrettyPrinter::print(_s_mem_limit, TUnit::BYTES);
     _s_soft_mem_limit = _s_mem_limit * config::soft_mem_limit_frac;
+    _s_soft_mem_limit_str = PrettyPrinter::print(_s_soft_mem_limit, TUnit::BYTES);
 
     LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES);
     _s_initialized = true;
