@@ -25,6 +25,7 @@ import org.apache.doris.statistics.StatsDeriveResult;
  * interface for all physical plan.
  */
 public interface PhysicalPlan extends Plan {
+
     PhysicalProperties getPhysicalProperties();
 
     PhysicalPlan withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,

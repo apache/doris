@@ -1643,7 +1643,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 // and the original exprId should be retained at this time.
                 groupSlotList.add((SlotReference) e);
             } else {
-                groupSlotList.add(new SlotReference(e.toSql(), e.getDataType(), e.nullable(), Collections.emptyList()));
+                groupSlotList.add(new SlotReference(e.toSql(), e.getDataType(), e.nullable(), ImmutableList.of()));
             }
         }
         return groupSlotList;

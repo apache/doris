@@ -42,7 +42,7 @@ public class UnboundFunction extends Function implements Unbound, PropagateNulla
     }
 
     public UnboundFunction(String name, boolean isDistinct, List<Expression> arguments) {
-        super(arguments.toArray(new Expression[0]));
+        super(arguments);
         this.name = Objects.requireNonNull(name, "name cannot be null");
         this.isDistinct = isDistinct;
     }
