@@ -2422,7 +2422,7 @@ opt_line_term ::=
 opt_skip_lines ::=
     /* Empty */
     {:
-        RESULT = null;
+        RESULT = 0;
     :}
     | KW_IGNORE INTEGER_LITERAL:number KW_LINES
     {:
