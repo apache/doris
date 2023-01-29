@@ -109,8 +109,7 @@ suite("nereids_scalar_fn_1") {
     qt_sql "select convert_to(kvchrs1, 'gbk') from fn_test order by kvchrs1, kvchrs1"
     qt_sql "select convert_tz(kdtm, 'Asia/Shanghai', 'Europe/Sofia') from fn_test order by kdtm, kvchrs1, kvchrs1"
     qt_sql "select convert_tz(kdtmv2s1, 'Asia/Shanghai', 'Europe/Sofia') from fn_test order by kdtmv2s1, kvchrs1, kvchrs1"
-    // core
-    // qt_sql "select convert_tz(kdtv2, kvchrs1, kvchrs1) from fn_test order by kdtv2, kvchrs1, kvchrs1"
+    qt_sql "select convert_tz(kdtv2, 'Asia/Shanghai', 'Europe/Sofia') from fn_test order by kdtv2, kvchrs1, kvchrs1"
     qt_sql "select cos(kdbl) from fn_test order by kdbl"
     sql "select current_date() from fn_test"
     sql "select current_time() from fn_test"
