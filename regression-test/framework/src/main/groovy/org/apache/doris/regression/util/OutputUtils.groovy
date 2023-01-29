@@ -62,6 +62,10 @@ class OutputUtils {
 
             if (expectNull != actualNull) {
                 return "${info}, line ${line}, ${dataType} result mismatch.\nExpect cell: ${expectCell}\nBut real is: ${realCell}"
+            } else if (expectCell.contains("nan") || expectCell.contains("inf")) {
+                return expectCell == realCell
+                        ? null
+                        : "${info}, line ${line}, ${dataType} result mismatch.\nExpect cell: ${expectCell}\nBut real is: ${realCell}"
             } else if (!expectNull) {
                 // both are not null
                 double expectDouble = Double.parseDouble(expectCell)
