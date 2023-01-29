@@ -234,19 +234,15 @@ Status SchemaScanner::create_tuple_desc(ObjectPool* pool) {
 }
 
 Status SchemaScanner::fill_dest_column(vectorized::Block* block, void* data,
-                                       const SlotDescriptor* slot_desc) {
-    if (!block->has(slot_desc->col_name()) || !slot_desc->is_materialized()) {
+                                       const ColumnDesc& col_desc) {
+    if (!block->has(col_desc.name)) {
         return Status::OK();
     }
     vectorized::MutableColumnPtr column_ptr =
-            std::move(*block->get_by_name(slot_desc->col_name()).column).assume_mutable();
+            std::move(*block->get_by_name(col_desc.name).column).assume_mutable();
     vectorized::IColumn* col_ptr = column_ptr.get();
 
     if (data == nullptr) {
-        if (!slot_desc->is_nullable()) {
-            return Status::InternalError("nonnull column contains NULL. column={}",
-                                         slot_desc->col_name());
-        }
         auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);
         nullable_column->insert_data(nullptr, 0);
         return Status::OK();
@@ -254,7 +250,7 @@ Status SchemaScanner::fill_dest_column(vectorized::Block* block, void* data,
     auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(col_ptr);
     nullable_column->get_null_map_data().push_back(0);
     col_ptr = &nullable_column->get_nested_column();
-    switch (slot_desc->type().type) {
+    switch (col_desc.type) {
     case TYPE_HLL: {
         HyperLogLog* hll_slot = reinterpret_cast<HyperLogLog*>(data);
         reinterpret_cast<vectorized::ColumnHLL*>(col_ptr)->get_data().emplace_back(*hll_slot);
@@ -378,10 +374,10 @@ Status SchemaScanner::fill_dest_column(vectorized::Block* block, void* data,
     }
 
     default: {
-        DCHECK(false) << "bad slot type: " << slot_desc->type();
+        DCHECK(false) << "bad slot type: " << col_desc.type;
         std::stringstream ss;
-        ss << "Fail to convert schema type:'" << slot_desc->type() << " on column:`"
-           << slot_desc->col_name() + "`";
+        ss << "Fail to convert schema type:'" << col_desc.type << " on column:`"
+           << std::string(col_desc.name) + "`";
         return Status::InternalError(ss.str());
     }
     }

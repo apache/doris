@@ -61,23 +61,23 @@ Status SchemaCharsetsScanner::_fill_block_impl(vectorized::Block* block) {
     // variables names
     for (int i = 0; i < row_num; ++i) {
         StringRef str = StringRef(_s_charsets[i].charset, strlen(_s_charsets[i].charset));
-        fill_dest_column(block, &str, _tuple_desc->slots()[0]);
+        fill_dest_column(block, &str, _s_css_columns[0]);
     }
     // DEFAULT_COLLATE_NAME
     for (int i = 0; i < row_num; ++i) {
         StringRef str = StringRef(_s_charsets[i].default_collation,
                                   strlen(_s_charsets[i].default_collation));
-        fill_dest_column(block, &str, _tuple_desc->slots()[1]);
+        fill_dest_column(block, &str, _s_css_columns[1]);
     }
     // DESCRIPTION
     for (int i = 0; i < row_num; ++i) {
         StringRef str = StringRef(_s_charsets[i].description, strlen(_s_charsets[i].description));
-        fill_dest_column(block, &str, _tuple_desc->slots()[2]);
+        fill_dest_column(block, &str, _s_css_columns[2]);
     }
     // maxlen
     for (int i = 0; i < row_num; ++i) {
         int64_t src = _s_charsets[i].maxlen;
-        fill_dest_column(block, &src, _tuple_desc->slots()[3]);
+        fill_dest_column(block, &src, _s_css_columns[3]);
     }
     return Status::OK();
 }

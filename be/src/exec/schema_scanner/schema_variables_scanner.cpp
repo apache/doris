@@ -81,14 +81,14 @@ Status SchemaVariablesScanner::_fill_block_impl(vectorized::Block* block) {
     {
         for (auto& it : _var_result.variables) {
             StringRef str = StringRef(it.first.c_str(), it.first.size());
-            fill_dest_column(block, &str, _tuple_desc->slots()[0]);
+            fill_dest_column(block, &str, _s_vars_columns[0]);
         }
     }
     // value
     {
         for (auto& it : _var_result.variables) {
             StringRef str = StringRef(it.second.c_str(), it.second.size());
-            fill_dest_column(block, &str, _tuple_desc->slots()[1]);
+            fill_dest_column(block, &str, _s_vars_columns[1]);
         }
     }
     return Status::OK();

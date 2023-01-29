@@ -92,11 +92,11 @@ Status SchemaSchemataScanner::_fill_block_impl(vectorized::Block* block) {
     {
         for (int i = 0; i < dbs_num; ++i) {
             if (!_db_result.__isset.catalogs) {
-                fill_dest_column(block, nullptr, _tuple_desc->slots()[0]);
+                fill_dest_column(block, nullptr, _s_columns[0]);
             } else {
                 std::string catalog_name = _db_result.catalogs[i];
                 StringRef str = StringRef(catalog_name.c_str(), catalog_name.size());
-                fill_dest_column(block, &str, _tuple_desc->slots()[0]);
+                fill_dest_column(block, &str, _s_columns[0]);
             }
         }
     }
@@ -105,7 +105,7 @@ Status SchemaSchemataScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = 0; i < dbs_num; ++i) {
             std::string db_name = SchemaHelper::extract_db_name(_db_result.dbs[i]);
             StringRef str = StringRef(db_name.c_str(), db_name.size());
-            fill_dest_column(block, &str, _tuple_desc->slots()[1]);
+            fill_dest_column(block, &str, _s_columns[1]);
         }
     }
     // DEFAULT_CHARACTER_SET_NAME
@@ -113,7 +113,7 @@ Status SchemaSchemataScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = 0; i < dbs_num; ++i) {
             std::string src = "utf8";
             StringRef str = StringRef(src.c_str(), src.size());
-            fill_dest_column(block, &str, _tuple_desc->slots()[2]);
+            fill_dest_column(block, &str, _s_columns[2]);
         }
     }
     // DEFAULT_COLLATION_NAME
@@ -121,13 +121,13 @@ Status SchemaSchemataScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = 0; i < dbs_num; ++i) {
             std::string src = "utf8_general_ci";
             StringRef str = StringRef(src.c_str(), src.size());
-            fill_dest_column(block, &str, _tuple_desc->slots()[3]);
+            fill_dest_column(block, &str, _s_columns[3]);
         }
     }
     // SQL_PATH
     {
         for (int i = 0; i < dbs_num; ++i) {
-            fill_dest_column(block, nullptr, _tuple_desc->slots()[4]);
+            fill_dest_column(block, nullptr, _s_columns[4]);
         }
     }
     return Status::OK();

@@ -65,32 +65,32 @@ Status SchemaCollationsScanner::_fill_block_impl(vectorized::Block* block) {
     // COLLATION_NAME
     for (int i = 0; i < row_num; ++i) {
         StringRef str = StringRef(_s_collations[i].name, strlen(_s_collations[i].name));
-        fill_dest_column(block, &str, _tuple_desc->slots()[0]);
+        fill_dest_column(block, &str, _s_cols_columns[0]);
     }
     // charset
     for (int i = 0; i < row_num; ++i) {
         StringRef str = StringRef(_s_collations[i].charset, strlen(_s_collations[i].charset));
-        fill_dest_column(block, &str, _tuple_desc->slots()[1]);
+        fill_dest_column(block, &str, _s_cols_columns[1]);
     }
     // id
     for (int i = 0; i < row_num; ++i) {
         int64_t src = _s_collations[i].id;
-        fill_dest_column(block, &src, _tuple_desc->slots()[2]);
+        fill_dest_column(block, &src, _s_cols_columns[2]);
     }
     // is_default
     for (int i = 0; i < row_num; ++i) {
         StringRef str = StringRef(_s_collations[i].is_default, strlen(_s_collations[i].is_default));
-        fill_dest_column(block, &str, _tuple_desc->slots()[3]);
+        fill_dest_column(block, &str, _s_cols_columns[3]);
     }
     // IS_COMPILED
     for (int i = 0; i < row_num; ++i) {
         StringRef str = StringRef(_s_collations[i].is_compile, strlen(_s_collations[i].is_compile));
-        fill_dest_column(block, &str, _tuple_desc->slots()[4]);
+        fill_dest_column(block, &str, _s_cols_columns[4]);
     }
     // sortlen
     for (int i = 0; i < row_num; ++i) {
         int64_t src = _s_collations[i].sortlen;
-        fill_dest_column(block, &src, _tuple_desc->slots()[5]);
+        fill_dest_column(block, &src, _s_cols_columns[5]);
     }
     return Status::OK();
 }

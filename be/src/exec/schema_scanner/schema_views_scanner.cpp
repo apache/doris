@@ -126,7 +126,7 @@ Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
     // catalog
     {
         for (int i = 0; i < tables_num; ++i) {
-            fill_dest_column(block, nullptr, _tuple_desc->slots()[0]);
+            fill_dest_column(block, nullptr, _s_tbls_columns[0]);
         }
     }
     // schema
@@ -134,7 +134,7 @@ Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
         std::string db_name = SchemaHelper::extract_db_name(_db_result.dbs[_db_index - 1]);
         StringRef str = StringRef(db_name.c_str(), db_name.size());
         for (int i = 0; i < tables_num; ++i) {
-            fill_dest_column(block, &str, _tuple_desc->slots()[1]);
+            fill_dest_column(block, &str, _s_tbls_columns[1]);
         }
     }
     // name
@@ -143,7 +143,7 @@ Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
             const TTableStatus& tbl_status = _table_result.tables[i];
             const std::string* src = &tbl_status.name;
             StringRef str = StringRef(src->c_str(), src->size());
-            fill_dest_column(block, &str, _tuple_desc->slots()[2]);
+            fill_dest_column(block, &str, _s_tbls_columns[2]);
         }
     }
     // definition
@@ -152,7 +152,7 @@ Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
             const TTableStatus& tbl_status = _table_result.tables[i];
             const std::string* src = &tbl_status.ddl_sql;
             StringRef str = StringRef(src->c_str(), src->length());
-            fill_dest_column(block, &str, _tuple_desc->slots()[3]);
+            fill_dest_column(block, &str, _s_tbls_columns[3]);
         }
     }
     // check_option
@@ -160,7 +160,7 @@ Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
         const std::string check_option = "NONE";
         StringRef str = StringRef(check_option.c_str(), check_option.length());
         for (int i = 0; i < tables_num; ++i) {
-            fill_dest_column(block, &str, _tuple_desc->slots()[4]);
+            fill_dest_column(block, &str, _s_tbls_columns[4]);
         }
     }
     // is_updatable
@@ -169,7 +169,7 @@ Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
         const std::string is_updatable = "NO";
         StringRef str = StringRef(is_updatable.c_str(), is_updatable.length());
         for (int i = 0; i < tables_num; ++i) {
-            fill_dest_column(block, &str, _tuple_desc->slots()[5]);
+            fill_dest_column(block, &str, _s_tbls_columns[5]);
         }
     }
     // definer
@@ -178,7 +178,7 @@ Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
         const std::string definer = "root@%";
         StringRef str = StringRef(definer.c_str(), definer.length());
         for (int i = 0; i < tables_num; ++i) {
-            fill_dest_column(block, &str, _tuple_desc->slots()[6]);
+            fill_dest_column(block, &str, _s_tbls_columns[6]);
         }
     }
     // security_type
@@ -187,7 +187,7 @@ Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
         const std::string security_type = "DEFINER";
         StringRef str = StringRef(security_type.c_str(), security_type.length());
         for (int i = 0; i < tables_num; ++i) {
-            fill_dest_column(block, &str, _tuple_desc->slots()[7]);
+            fill_dest_column(block, &str, _s_tbls_columns[7]);
         }
     }
     // character_set_client
@@ -196,13 +196,13 @@ Status SchemaViewsScanner::_fill_block_impl(vectorized::Block* block) {
         const std::string encoding = "utf8";
         StringRef str = StringRef(encoding.c_str(), encoding.length());
         for (int i = 0; i < tables_num; ++i) {
-            fill_dest_column(block, &str, _tuple_desc->slots()[8]);
+            fill_dest_column(block, &str, _s_tbls_columns[8]);
         }
     }
     // collation_connection
     {
         for (int i = 0; i < tables_num; ++i) {
-            fill_dest_column(block, nullptr, _tuple_desc->slots()[9]);
+            fill_dest_column(block, nullptr, _s_tbls_columns[9]);
         }
     }
     return Status::OK();

@@ -95,7 +95,7 @@ Status SchemaSchemaPrivilegesScanner::_fill_block_impl(vectorized::Block* block)
         for (int i = 0; i < privileges_num; ++i) {
             const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
             StringRef str = StringRef(priv_status.grantee.c_str(), priv_status.grantee.size());
-            fill_dest_column(block, &str, _tuple_desc->slots()[0]);
+            fill_dest_column(block, &str, _s_tbls_columns[0]);
         }
     }
     // catalog
@@ -104,7 +104,7 @@ Status SchemaSchemaPrivilegesScanner::_fill_block_impl(vectorized::Block* block)
         std::string definer = "def";
         StringRef str = StringRef(definer.c_str(), definer.size());
         for (int i = 0; i < privileges_num; ++i) {
-            fill_dest_column(block, &str, _tuple_desc->slots()[1]);
+            fill_dest_column(block, &str, _s_tbls_columns[1]);
         }
     }
     // schema
@@ -112,7 +112,7 @@ Status SchemaSchemaPrivilegesScanner::_fill_block_impl(vectorized::Block* block)
         for (int i = 0; i < privileges_num; ++i) {
             const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
             StringRef str = StringRef(priv_status.schema.c_str(), priv_status.schema.size());
-            fill_dest_column(block, &str, _tuple_desc->slots()[2]);
+            fill_dest_column(block, &str, _s_tbls_columns[2]);
         }
     }
     // privilege type
@@ -121,7 +121,7 @@ Status SchemaSchemaPrivilegesScanner::_fill_block_impl(vectorized::Block* block)
             const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
             StringRef str = StringRef(priv_status.privilege_type.c_str(),
                                       priv_status.privilege_type.size());
-            fill_dest_column(block, &str, _tuple_desc->slots()[3]);
+            fill_dest_column(block, &str, _s_tbls_columns[3]);
         }
     }
     // is grantable
@@ -130,7 +130,7 @@ Status SchemaSchemaPrivilegesScanner::_fill_block_impl(vectorized::Block* block)
             const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
             StringRef str =
                     StringRef(priv_status.is_grantable.c_str(), priv_status.is_grantable.size());
-            fill_dest_column(block, &str, _tuple_desc->slots()[4]);
+            fill_dest_column(block, &str, _s_tbls_columns[4]);
         }
     }
     return Status::OK();

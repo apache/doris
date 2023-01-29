@@ -107,7 +107,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
     {
         int64_t src = backend_id_;
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
-            fill_dest_column(block, &src, _tuple_desc->slots()[0]);
+            fill_dest_column(block, &src, _s_tbls_columns[0]);
         }
     }
     // ROWSET_ID
@@ -116,7 +116,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
             RowsetSharedPtr rowset = rowsets_[i];
             std::string rowset_id = rowset->rowset_id().to_string();
             StringRef str = StringRef(rowset_id.c_str(), rowset_id.size());
-            fill_dest_column(block, &str, _tuple_desc->slots()[1]);
+            fill_dest_column(block, &str, _s_tbls_columns[1]);
         }
     }
     // TABLET_ID
@@ -124,7 +124,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             int64_t src = rowset->rowset_meta()->tablet_id();
-            fill_dest_column(block, &src, _tuple_desc->slots()[2]);
+            fill_dest_column(block, &src, _s_tbls_columns[2]);
         }
     }
     // ROWSET_NUM_ROWS
@@ -132,7 +132,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             int64_t src = rowset->num_rows();
-            fill_dest_column(block, &src, _tuple_desc->slots()[3]);
+            fill_dest_column(block, &src, _s_tbls_columns[3]);
         }
     }
     // TXN_ID
@@ -140,7 +140,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             int64_t src = rowset->txn_id();
-            fill_dest_column(block, &src, _tuple_desc->slots()[4]);
+            fill_dest_column(block, &src, _s_tbls_columns[4]);
         }
     }
     // NUM_SEGMENTS
@@ -148,7 +148,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             int64_t src = rowset->num_segments();
-            fill_dest_column(block, &src, _tuple_desc->slots()[5]);
+            fill_dest_column(block, &src, _s_tbls_columns[5]);
         }
     }
     // START_VERSION
@@ -156,7 +156,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             int64_t src = rowset->start_version();
-            fill_dest_column(block, &src, _tuple_desc->slots()[6]);
+            fill_dest_column(block, &src, _s_tbls_columns[6]);
         }
     }
     // END_VERSION
@@ -164,7 +164,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             int64_t src = rowset->end_version();
-            fill_dest_column(block, &src, _tuple_desc->slots()[7]);
+            fill_dest_column(block, &src, _s_tbls_columns[7]);
         }
     }
     // INDEX_DISK_SIZE
@@ -172,7 +172,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             size_t src = rowset->index_disk_size();
-            fill_dest_column(block, &src, _tuple_desc->slots()[8]);
+            fill_dest_column(block, &src, _s_tbls_columns[8]);
         }
     }
     // DATA_DISK_SIZE
@@ -180,7 +180,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             size_t src = rowset->data_disk_size();
-            fill_dest_column(block, &src, _tuple_desc->slots()[9]);
+            fill_dest_column(block, &src, _s_tbls_columns[9]);
         }
     }
     // CREATION_TIME
@@ -188,7 +188,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             size_t src = rowset->creation_time();
-            fill_dest_column(block, &src, _tuple_desc->slots()[10]);
+            fill_dest_column(block, &src, _s_tbls_columns[10]);
         }
     }
     // OLDEST_WRITE_TIMESTAMP
@@ -196,7 +196,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             size_t src = rowset->oldest_write_timestamp();
-            fill_dest_column(block, &src, _tuple_desc->slots()[11]);
+            fill_dest_column(block, &src, _s_tbls_columns[11]);
         }
     }
     // NEWEST_WRITE_TIMESTAMP
@@ -204,7 +204,7 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
             RowsetSharedPtr rowset = rowsets_[i];
             size_t src = rowset->newest_write_timestamp();
-            fill_dest_column(block, &src, _tuple_desc->slots()[12]);
+            fill_dest_column(block, &src, _s_tbls_columns[12]);
         }
     }
     _rowsets_idx += fill_rowsets_num;

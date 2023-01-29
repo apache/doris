@@ -33,6 +33,33 @@
 
 namespace doris {
 
+SchemaScanner::ColumnDesc SchemaBackendsScanner::_s_tbls_columns[] = {
+        //   name,       type,          size
+        {"BackendId", TYPE_BIGINT, sizeof(StringRef), false},
+        {"TabletNum", TYPE_BIGINT, sizeof(StringRef), false},
+        {"HeartbeatPort", TYPE_INT, sizeof(int), false},
+        {"BePort", TYPE_INT, sizeof(int), false},
+        {"HttpPort", TYPE_INT, sizeof(int), false},
+        {"BrpcPort", TYPE_INT, sizeof(int), false},
+        {"Cluster", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"IP", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"LastStartTime", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"LastHeartbeat", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"Alive", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"SystemDecommissioned", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"ClusterDecommissioned", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"DataUsedCapacity", TYPE_BIGINT, sizeof(int64_t), false},
+        {"AvailCapacity", TYPE_BIGINT, sizeof(int64_t), false},
+        {"TotalCapacity", TYPE_BIGINT, sizeof(int64_t), false},
+        {"UsedPct", TYPE_DOUBLE, sizeof(double), false},
+        {"MaxDiskUsedPct", TYPE_DOUBLE, sizeof(double), false},
+        {"RemoteUsedCapacity", TYPE_BIGINT, sizeof(int64_t), false},
+        {"Tag", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"ErrMsg", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"Version", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"Status", TYPE_VARCHAR, sizeof(StringRef), false},
+};
+
 SchemaBackendsScanner::SchemaBackendsScanner()
         : SchemaScanner(nullptr, 0, TSchemaTableType::SCH_BACKENDS) {}
 
@@ -63,7 +90,7 @@ Status SchemaBackendsScanner::_fill_block_impl(vectorized::Block* block) {
         if (it == _col_name_to_type.end()) {
             if (_columns[col_idx].is_null) {
                 for (int row_idx = 0; row_idx < row_num; ++row_idx) {
-                    fill_dest_column(block, nullptr, _tuple_desc->slots()[col_idx]);
+                    fill_dest_column(block, nullptr, _s_tbls_columns[col_idx]);
                 }
             } else {
                 return Status::InternalError(
@@ -73,22 +100,22 @@ Status SchemaBackendsScanner::_fill_block_impl(vectorized::Block* block) {
         } else if (it->second == TYPE_BIGINT) {
             for (int row_idx = 0; row_idx < row_num; ++row_idx) {
                 fill_dest_column(block, &_batch_data[row_idx].column_value[col_idx].longVal,
-                                 _tuple_desc->slots()[col_idx]);
+                                 _s_tbls_columns[col_idx]);
             }
         } else if (it->second == TYPE_INT) {
             for (int row_idx = 0; row_idx < row_num; ++row_idx) {
                 fill_dest_column(block, &_batch_data[row_idx].column_value[col_idx].intVal,
-                                 _tuple_desc->slots()[col_idx]);
+                                 _s_tbls_columns[col_idx]);
             }
         } else if (it->second == TYPE_VARCHAR) {
             for (int row_idx = 0; row_idx < row_num; ++row_idx) {
                 fill_dest_column(block, &_batch_data[row_idx].column_value[col_idx].stringVal,
-                                 _tuple_desc->slots()[col_idx]);
+                                 _s_tbls_columns[col_idx]);
             }
         } else if (it->second == TYPE_DOUBLE) {
             for (int row_idx = 0; row_idx < row_num; ++row_idx) {
                 fill_dest_column(block, &_batch_data[row_idx].column_value[col_idx].doubleVal,
-                                 _tuple_desc->slots()[col_idx]);
+                                 _s_tbls_columns[col_idx]);
             }
         } else {
             // other type

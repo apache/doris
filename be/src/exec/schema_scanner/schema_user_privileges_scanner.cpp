@@ -94,7 +94,7 @@ Status SchemaUserPrivilegesScanner::_fill_block_impl(vectorized::Block* block) {
         for (int i = 0; i < privileges_num; ++i) {
             const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
             StringRef str = StringRef(priv_status.grantee.c_str(), priv_status.grantee.size());
-            fill_dest_column(block, &str, _tuple_desc->slots()[0]);
+            fill_dest_column(block, &str, _s_tbls_columns[0]);
         }
     }
     // catalog
@@ -103,7 +103,7 @@ Status SchemaUserPrivilegesScanner::_fill_block_impl(vectorized::Block* block) {
         std::string definer = "def";
         StringRef str = StringRef(definer.c_str(), definer.size());
         for (int i = 0; i < privileges_num; ++i) {
-            fill_dest_column(block, &str, _tuple_desc->slots()[1]);
+            fill_dest_column(block, &str, _s_tbls_columns[1]);
         }
     }
     // privilege type
@@ -112,7 +112,7 @@ Status SchemaUserPrivilegesScanner::_fill_block_impl(vectorized::Block* block) {
             const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
             StringRef str = StringRef(priv_status.privilege_type.c_str(),
                                       priv_status.privilege_type.size());
-            fill_dest_column(block, &str, _tuple_desc->slots()[2]);
+            fill_dest_column(block, &str, _s_tbls_columns[2]);
         }
     }
     // is grantable
@@ -121,7 +121,7 @@ Status SchemaUserPrivilegesScanner::_fill_block_impl(vectorized::Block* block) {
             const TPrivilegeStatus& priv_status = _priv_result.privileges[i];
             StringRef str =
                     StringRef(priv_status.is_grantable.c_str(), priv_status.is_grantable.size());
-            fill_dest_column(block, &str, _tuple_desc->slots()[3]);
+            fill_dest_column(block, &str, _s_tbls_columns[3]);
         }
     }
     return Status::OK();

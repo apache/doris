@@ -126,11 +126,11 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
         std::string catalog_name = _db_result.catalogs[_db_index - 1];
         StringRef str_slot = StringRef(catalog_name.c_str(), catalog_name.size());
         for (int i = 0; i < table_num; ++i) {
-            fill_dest_column(block, &str_slot, _tuple_desc->slots()[0]);
+            fill_dest_column(block, &str_slot, _s_tbls_columns[0]);
         }
     } else {
         for (int i = 0; i < table_num; ++i) {
-            fill_dest_column(block, nullptr, _tuple_desc->slots()[0]);
+            fill_dest_column(block, nullptr, _s_tbls_columns[0]);
         }
     }
     // schema
@@ -138,20 +138,20 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
         std::string db_name = SchemaHelper::extract_db_name(_db_result.dbs[_db_index - 1]);
         StringRef str_slot = StringRef(db_name.c_str(), db_name.size());
         for (int i = 0; i < table_num; ++i) {
-            fill_dest_column(block, &str_slot, _tuple_desc->slots()[1]);
+            fill_dest_column(block, &str_slot, _s_tbls_columns[1]);
         }
     }
     // name
     for (int i = 0; i < table_num; ++i) {
         const std::string* src = &_table_result.tables[i].name;
         StringRef str_slot = StringRef(src->c_str(), src->size());
-        fill_dest_column(block, &str_slot, _tuple_desc->slots()[2]);
+        fill_dest_column(block, &str_slot, _s_tbls_columns[2]);
     }
     // type
     for (int i = 0; i < table_num; ++i) {
         const std::string* src = &_table_result.tables[i].type;
         StringRef str_slot = StringRef(src->c_str(), src->size());
-        fill_dest_column(block, &str_slot, _tuple_desc->slots()[3]);
+        fill_dest_column(block, &str_slot, _s_tbls_columns[3]);
     }
     // engine
     for (int i = 0; i < table_num; ++i) {
@@ -159,27 +159,27 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
         if (tbl_status.__isset.engine) {
             const std::string* src = &tbl_status.engine;
             StringRef str_slot = StringRef(src->c_str(), src->size());
-            fill_dest_column(block, &str_slot, _tuple_desc->slots()[4]);
+            fill_dest_column(block, &str_slot, _s_tbls_columns[4]);
         } else {
-            fill_dest_column(block, nullptr, _tuple_desc->slots()[4]);
+            fill_dest_column(block, nullptr, _s_tbls_columns[4]);
         }
     }
     // version
     for (int i = 0; i < table_num; ++i) {
-        fill_dest_column(block, nullptr, _tuple_desc->slots()[5]);
+        fill_dest_column(block, nullptr, _s_tbls_columns[5]);
     }
     // row_format
     for (int i = 0; i < table_num; ++i) {
-        fill_dest_column(block, nullptr, _tuple_desc->slots()[6]);
+        fill_dest_column(block, nullptr, _s_tbls_columns[6]);
     }
     // rows
     for (int i = 0; i < table_num; ++i) {
         const TTableStatus& tbl_status = _table_result.tables[i];
         if (tbl_status.__isset.rows) {
             int64_t src = tbl_status.rows;
-            fill_dest_column(block, &src, _tuple_desc->slots()[7]);
+            fill_dest_column(block, &src, _s_tbls_columns[7]);
         } else {
-            fill_dest_column(block, nullptr, _tuple_desc->slots()[7]);
+            fill_dest_column(block, nullptr, _s_tbls_columns[7]);
         }
     }
     // avg_row_length
@@ -187,9 +187,9 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
         const TTableStatus& tbl_status = _table_result.tables[i];
         if (tbl_status.__isset.avg_row_length) {
             int64_t src = tbl_status.avg_row_length;
-            fill_dest_column(block, &src, _tuple_desc->slots()[8]);
+            fill_dest_column(block, &src, _s_tbls_columns[8]);
         } else {
-            fill_dest_column(block, nullptr, _tuple_desc->slots()[8]);
+            fill_dest_column(block, nullptr, _s_tbls_columns[8]);
         }
     }
     // data_length
@@ -197,26 +197,26 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
         const TTableStatus& tbl_status = _table_result.tables[i];
         if (tbl_status.__isset.avg_row_length) {
             int64_t src = tbl_status.data_length;
-            fill_dest_column(block, &src, _tuple_desc->slots()[9]);
+            fill_dest_column(block, &src, _s_tbls_columns[9]);
         } else {
-            fill_dest_column(block, nullptr, _tuple_desc->slots()[9]);
+            fill_dest_column(block, nullptr, _s_tbls_columns[9]);
         }
     }
     // max_data_length
     for (int i = 0; i < table_num; ++i) {
-        fill_dest_column(block, nullptr, _tuple_desc->slots()[10]);
+        fill_dest_column(block, nullptr, _s_tbls_columns[10]);
     }
     // index_length
     for (int i = 0; i < table_num; ++i) {
-        fill_dest_column(block, nullptr, _tuple_desc->slots()[11]);
+        fill_dest_column(block, nullptr, _s_tbls_columns[11]);
     }
     // data_free
     for (int i = 0; i < table_num; ++i) {
-        fill_dest_column(block, nullptr, _tuple_desc->slots()[12]);
+        fill_dest_column(block, nullptr, _s_tbls_columns[12]);
     }
     // auto_increment
     for (int i = 0; i < table_num; ++i) {
-        fill_dest_column(block, nullptr, _tuple_desc->slots()[13]);
+        fill_dest_column(block, nullptr, _s_tbls_columns[13]);
     }
     // creation_time
     for (int i = 0; i < table_num; ++i) {
@@ -224,14 +224,14 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
         if (tbl_status.__isset.create_time) {
             int64_t create_time = tbl_status.create_time;
             if (create_time <= 0) {
-                fill_dest_column(block, nullptr, _tuple_desc->slots()[14]);
+                fill_dest_column(block, nullptr, _s_tbls_columns[14]);
             } else {
                 DateTimeValue time_slot;
                 time_slot.from_unixtime(create_time, TimezoneUtils::default_time_zone);
-                fill_dest_column(block, &time_slot, _tuple_desc->slots()[14]);
+                fill_dest_column(block, &time_slot, _s_tbls_columns[14]);
             }
         } else {
-            fill_dest_column(block, nullptr, _tuple_desc->slots()[14]);
+            fill_dest_column(block, nullptr, _s_tbls_columns[14]);
         }
     }
     // update_time
@@ -240,14 +240,14 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
         if (tbl_status.__isset.update_time) {
             int64_t update_time = tbl_status.update_time;
             if (update_time <= 0) {
-                fill_dest_column(block, nullptr, _tuple_desc->slots()[15]);
+                fill_dest_column(block, nullptr, _s_tbls_columns[15]);
             } else {
                 DateTimeValue time_slot;
                 time_slot.from_unixtime(update_time, TimezoneUtils::default_time_zone);
-                fill_dest_column(block, &time_slot, _tuple_desc->slots()[15]);
+                fill_dest_column(block, &time_slot, _s_tbls_columns[15]);
             }
         } else {
-            fill_dest_column(block, nullptr, _tuple_desc->slots()[15]);
+            fill_dest_column(block, nullptr, _s_tbls_columns[15]);
         }
     }
     // check_time
@@ -256,11 +256,11 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
         if (tbl_status.__isset.last_check_time) {
             int64_t check_time = tbl_status.last_check_time;
             if (check_time <= 0) {
-                fill_dest_column(block, nullptr, _tuple_desc->slots()[16]);
+                fill_dest_column(block, nullptr, _s_tbls_columns[16]);
             } else {
                 DateTimeValue time_slot;
                 time_slot.from_unixtime(check_time, TimezoneUtils::default_time_zone);
-                fill_dest_column(block, &time_slot, _tuple_desc->slots()[16]);
+                fill_dest_column(block, &time_slot, _s_tbls_columns[16]);
             }
         }
     }
@@ -270,25 +270,25 @@ Status SchemaTablesScanner::_fill_block_impl(vectorized::Block* block) {
         if (tbl_status.__isset.collation) {
             const std::string* src = &tbl_status.collation;
             StringRef str_slot = StringRef(src->c_str(), src->size());
-            fill_dest_column(block, &str_slot, _tuple_desc->slots()[17]);
+            fill_dest_column(block, &str_slot, _s_tbls_columns[17]);
 
         } else {
-            fill_dest_column(block, nullptr, _tuple_desc->slots()[17]);
+            fill_dest_column(block, nullptr, _s_tbls_columns[17]);
         }
     }
     // checksum
     for (int i = 0; i < table_num; ++i) {
-        fill_dest_column(block, nullptr, _tuple_desc->slots()[18]);
+        fill_dest_column(block, nullptr, _s_tbls_columns[18]);
     }
     // create_options
     for (int i = 0; i < table_num; ++i) {
-        fill_dest_column(block, nullptr, _tuple_desc->slots()[19]);
+        fill_dest_column(block, nullptr, _s_tbls_columns[19]);
     }
     // create_comment
     for (int i = 0; i < table_num; ++i) {
         const std::string* src = &_table_result.tables[i].comment;
         StringRef str_slot = StringRef(src->c_str(), src->size());
-        fill_dest_column(block, &str_slot, _tuple_desc->slots()[20]);
+        fill_dest_column(block, &str_slot, _s_tbls_columns[20]);
     }
     return Status::OK();
 }
