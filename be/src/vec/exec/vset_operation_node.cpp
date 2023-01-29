@@ -132,8 +132,7 @@ VSetOperationNode<is_intersect>::VSetOperationNode(ObjectPool* pool, const TPlan
           _valid_element_in_hash_tbl(0),
           _mem_used(0),
           _build_block_index(0),
-          _build_finished(false),
-          _mutable_block(row_desc().tuple_descriptors()) {
+          _build_finished(false) {
     _hash_table_variants = std::make_unique<HashTableVariants>();
     _arena = std::make_unique<Arena>();
 }
@@ -240,13 +239,21 @@ Status VSetOperationNode<is_intersect>::prepare(RuntimeState* state) {
     _pull_timer = ADD_TIMER(runtime_profile(), "PullTime");
 
     // Prepare result expr lists.
+    vector<bool> nullable_flags;
+    nullable_flags.resize(_child_expr_lists[0].size(), false);
     for (int i = 0; i < _child_expr_lists.size(); ++i) {
+        int j = 0;
+        for (auto ctx : _child_expr_lists[i]) {
+            nullable_flags[j] = nullable_flags[j] || ctx->root()->is_nullable();
+            ++j;
+        }
         RETURN_IF_ERROR(VExpr::prepare(_child_expr_lists[i], state, child(i)->row_desc()));
     }
-
-    for (auto data_type : _mutable_block.data_types()) {
-        _build_not_ignore_null.push_back(data_type->is_nullable());
-        _left_table_data_types.push_back(data_type);
+    int n = 0;
+    for (auto ctx : _child_expr_lists[0]) {
+        _build_not_ignore_null.push_back(ctx->root()->data_type()->is_nullable());
+        _left_table_data_types.push_back(nullable_flags[n] ? make_nullable(ctx->root()->data_type()) : ctx->root()->data_type());
+        ++n;
     }
     hash_table_init();
 
@@ -461,7 +468,14 @@ void VSetOperationNode<is_intersect>::add_result_columns(RowRefListWithFlags& va
     auto it = value.begin();
     for (auto idx = _build_col_idx.begin(); idx != _build_col_idx.end(); ++idx) {
         auto& column = *_build_blocks[it->block_offset].get_by_position(idx->first).column;
-        _mutable_cols[idx->second]->insert_from(column, it->row_num);
+        if (_mutable_cols[idx->second]->is_nullable() xor column.is_nullable()) {
+            DCHECK(_mutable_cols[idx->second]->is_nullable());
+            ((ColumnNullable*)(_mutable_cols[idx->second].get()))
+                    ->insert_from_not_nullable(column, it->row_num);
+
+        } else {
+            _mutable_cols[idx->second]->insert_from(column, it->row_num);
+        }
     }
     block_size++;
 }
