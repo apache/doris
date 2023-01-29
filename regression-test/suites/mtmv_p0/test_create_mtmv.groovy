@@ -80,5 +80,28 @@ suite("test_create_mtmv") {
 
     assertEquals 'SUCCESS', state, show_task_result.last().toString()
     order_qt_select "SELECT * FROM ${mvName}"
+
+    sql """
+        DROP MATERIALIZED VIEW ${mvName}
+    """
+
+    // test only one job created when build IMMEDIATE and start time is before now.
+    sql """
+        CREATE MATERIALIZED VIEW ${mvName}
+        BUILD IMMEDIATE REFRESH COMPLETE
+        start with "2022-11-03 00:00:00" next 1 MINUTE  
+        KEY(username)   
+        DISTRIBUTED BY HASH (username)  buckets 1
+        PROPERTIES ('replication_num' = '1') 
+        AS 
+        SELECT ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
+    """
+
+    def show_job_result = sql "SHOW MTMV JOB FROM ${dbName}"
+    assertEquals 1, show_job_result.size()
+
+    sql """
+        DROP MATERIALIZED VIEW ${mvName}
+    """
 }
 
