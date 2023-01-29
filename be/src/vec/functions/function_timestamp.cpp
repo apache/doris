@@ -640,7 +640,7 @@ public:
 
     String get_name() const override { return name; }
 
-    bool use_default_implementation_for_nulls() const override { return true; }
+    bool use_default_implementation_for_nulls() const override { return false; }
 
     bool use_default_implementation_for_constants() const override { return true; }
 
@@ -691,11 +691,11 @@ struct LastDayImpl {
                                const ColumnNumbers& arguments, size_t result,
                                size_t input_rows_count) {
         const auto is_nullable = block.get_by_position(result).type->is_nullable();
-        auto null_map = ColumnUInt8::create();
         ColumnPtr res_column;
-        ColumnPtr argument_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        ColumnPtr argument_column = remove_nullable(block.get_by_position(arguments[0]).column)
+                                            ->convert_to_full_column_if_const();
         if (is_nullable) {
+            auto null_map = ColumnUInt8::create();
             null_map->resize(input_rows_count);
             if constexpr (std::is_same_v<DateType, DataTypeDateTime> ||
                           std::is_same_v<DateType, DataTypeDate>) {
@@ -722,8 +722,16 @@ struct LastDayImpl {
                         static_cast<ColumnVector<UInt32>*>(res_column->assume_mutable().get())
                                 ->get_data());
             }
-            block.replace_by_position(
-                    result, ColumnNullable::create(res_column, std::move(null_map)));
+            if (const auto* nullable_col = check_and_get_column<ColumnNullable>(
+                        block.get_by_position(arguments[0]).column.get())) {
+                NullMap& result_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
+                const NullMap& src_null_map =
+                        assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
+                                .get_data();
+                VectorizedUtils::update_null_map(result_null_map, src_null_map);
+            }
+            block.replace_by_position(result,
+                                      ColumnNullable::create(res_column, std::move(null_map)));
         } else {
             if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
                 auto data_col = assert_cast<const ColumnVector<UInt32>*>(argument_column.get());
@@ -838,8 +846,8 @@ struct MondayImpl {
                                const ColumnNumbers& arguments, size_t result,
                                size_t input_rows_count) {
         const auto is_nullable = block.get_by_position(result).type->is_nullable();
-        ColumnPtr argument_column =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        ColumnPtr argument_column = remove_nullable(block.get_by_position(arguments[0]).column)
+                                            ->convert_to_full_column_if_const();
         ColumnPtr res_column;
         if (is_nullable) {
             auto null_map = ColumnUInt8::create(input_rows_count, 0);
@@ -868,10 +876,17 @@ struct MondayImpl {
                         static_cast<ColumnVector<UInt32>*>(res_column->assume_mutable().get())
                                 ->get_data());
             }
-            block.replace_by_position(
-                    result, ColumnNullable::create(res_column, std::move(null_map)));
+            if (const auto* nullable_col = check_and_get_column<ColumnNullable>(
+                        block.get_by_position(arguments[0]).column.get())) {
+                NullMap& result_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
+                const NullMap& src_null_map =
+                        assert_cast<const ColumnUInt8&>(nullable_col->get_null_map_column())
+                                .get_data();
+                VectorizedUtils::update_null_map(result_null_map, src_null_map);
+            }
+            block.replace_by_position(result,
+                                      ColumnNullable::create(res_column, std::move(null_map)));
         } else {
-            auto null_map = ColumnUInt8::create(input_rows_count, 0);
             if constexpr (std::is_same_v<DateType, DataTypeDateV2>) {
                 auto data_col = assert_cast<const ColumnVector<UInt32>*>(argument_column.get());
                 res_column = ColumnVector<UInt32>::create(input_rows_count);
