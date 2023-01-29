@@ -89,6 +89,8 @@ public class MetaReader {
                 }
                 // Should skip some bytes because ignore some meta, such as load job
                 if (metaIndex.name.equals("loadJob")) {
+                    LOG.info("This is {}, skip {} bytes", metaIndex.name, 
+                            metaFooter.metaIndices.get(i + 1).offset - metaIndex.offset);
                     if (i < metaFooter.metaIndices.size() - 1) {
                         IOUtils.skipFully(dis, metaFooter.metaIndices.get(i + 1).offset - metaIndex.offset);
                     }
