@@ -39,7 +39,8 @@ public class Dround extends ScalarFunction
         implements ExplicitlyCastableSignature, PropagateNullable, ComputePrecisionForRound {
 
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(BigIntType.INSTANCE).args(DoubleType.INSTANCE),
+            // TODO: decimal
+            FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE, IntegerType.INSTANCE)
     );
 
