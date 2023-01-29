@@ -62,7 +62,7 @@ class OutputUtils {
 
             if (expectNull != actualNull) {
                 return "${info}, line ${line}, ${dataType} result mismatch.\nExpect cell: ${expectCell}\nBut real is: ${realCell}"
-            } else if (expectCell.contains("nan") || expectCell.contains("inf")) {
+            } else if (expectCell.equals("nan") || expectCell.equals("inf") || expectCell.equals("-inf")) {
                 return expectCell == realCell
                         ? null
                         : "${info}, line ${line}, ${dataType} result mismatch.\nExpect cell: ${expectCell}\nBut real is: ${realCell}"
