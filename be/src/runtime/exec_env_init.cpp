@@ -46,7 +46,6 @@
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
-#include "runtime/thread_resource_mgr.h"
 #include "runtime/tmp_file_mgr.h"
 #include "util/bfd_parser.h"
 #include "util/brpc_client_cache.h"
@@ -95,7 +94,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _backend_client_cache = new BackendServiceClientCache(config::max_client_cache_size_per_host);
     _frontend_client_cache = new FrontendServiceClientCache(config::max_client_cache_size_per_host);
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
-    _thread_mgr = new ThreadResourceMgr();
 
     ThreadPoolBuilder("SendBatchThreadPool")
             .set_min_threads(config::send_batch_thread_pool_thread_num)
