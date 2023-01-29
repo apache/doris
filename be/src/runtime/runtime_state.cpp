@@ -341,8 +341,6 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
     return Status::OK();
 }
 
-const int64_t HUB_MAX_ERROR_NUM = 10;
-
 int64_t RuntimeState::get_load_mem_limit() {
     // TODO: the code is abandoned, it can be deleted after v1.3
     if (_query_options.__isset.load_mem_limit && _query_options.load_mem_limit > 0) {
