@@ -424,12 +424,13 @@ TEST_F(TestDeltaWriter, write) {
     DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     const std::vector<SlotDescriptor*>& slots = tuple_desc->slots();
+    OlapTableSchemaParam param;
 
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10004, 270068376, WriteType::LOAD, 20002,
-                              30002, load_id,   tuple_desc,      &(tuple_desc->slots())};
+    WriteRequest write_req = {10004,   270068376,  WriteType::LOAD,        20002, 30002,
+                              load_id, tuple_desc, &(tuple_desc->slots()), true,  &param};
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, &delta_writer);
     EXPECT_NE(delta_writer, nullptr);
@@ -693,12 +694,13 @@ TEST_F(TestDeltaWriter, sequence_col) {
     DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
     const std::vector<SlotDescriptor*>& slots = tuple_desc->slots();
+    OlapTableSchemaParam param;
 
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10005, 270068377, WriteType::LOAD, 20003,
-                              30003, load_id,   tuple_desc,      &(tuple_desc->slots())};
+    WriteRequest write_req = {10005,   270068377,  WriteType::LOAD,        20003, 30003,
+                              load_id, tuple_desc, &(tuple_desc->slots()), true,  &param};
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, &delta_writer);
     EXPECT_NE(delta_writer, nullptr);
