@@ -332,7 +332,7 @@ public class MTMVTaskManager {
                     return;
                 }
                 MTMVTaskExecutor taskExecutor = MTMVUtils.buildTask(job);
-                taskExecutor.initTask(task.getTaskId(), task.getCreateTime());
+                taskExecutor.setTask(task);
                 arrangeToPendingTask(taskExecutor);
                 break;
             case RUNNING:
