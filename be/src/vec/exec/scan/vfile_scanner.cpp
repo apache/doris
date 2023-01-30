@@ -25,6 +25,7 @@
 #include "common/logging.h"
 #include "common/utils.h"
 #include "exec/text_converter.hpp"
+#include "io/cache/block/block_file_cache_profile.h"
 #include "olap/iterators.h"
 #include "runtime/descriptors.h"
 #include "runtime/raw_value.h"
@@ -750,6 +751,11 @@ Status VFileScanner::close(RuntimeState* state) {
 
     if (_push_down_expr) {
         _push_down_expr->close(state);
+    }
+
+    if (config::enable_file_cache) {
+        io::FileCacheProfileReporter cache_profile(_profile);
+        cache_profile.update(_file_cache_statistics.get());
     }
 
     RETURN_IF_ERROR(VScanner::close(state));
