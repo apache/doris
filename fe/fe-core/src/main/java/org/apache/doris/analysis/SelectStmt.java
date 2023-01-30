@@ -1006,7 +1006,10 @@ public class SelectStmt extends QueryStmt {
              *     select id, floor(v1) v, sum(v2) vsum from table group by id,v having(v>1 AND vsum>1);
              */
             if (groupByClause != null) {
-                boolean aliasFirst = ConnectContext.get().getSessionVariable().isGroupByAndHavingUseAliasFirst();
+                boolean aliasFirst = false;
+                if (analyzer.getContext() != null) {
+                    aliasFirst = analyzer.getContext().getSessionVariable().isGroupByAndHavingUseAliasFirst();
+                }
                 if (!aliasFirst) {
                     ExprSubstitutionMap excludeAliasSMap = aliasSMap.clone();
                     List<Expr> havingSlots = Lists.newArrayList();
@@ -1145,7 +1148,10 @@ public class SelectStmt extends QueryStmt {
                 groupingInfo.buildRepeat(groupingExprs, groupByClause.getGroupingSetList());
             }
 
-            boolean aliasFirst = ConnectContext.get().getSessionVariable().isGroupByAndHavingUseAliasFirst();
+            boolean aliasFirst = false;
+            if (analyzer.getContext() != null) {
+                aliasFirst = analyzer.getContext().getSessionVariable().isGroupByAndHavingUseAliasFirst();
+            }
             substituteOrdinalsAliases(groupingExprs, "GROUP BY", analyzer, aliasFirst);
 
             if (!groupByClause.isGroupByExtension() && !groupingExprs.isEmpty()) {
@@ -2097,7 +2103,10 @@ public class SelectStmt extends QueryStmt {
         }
         // substitute group by
         if (groupByClause != null) {
-            boolean aliasFirst = ConnectContext.get().getSessionVariable().isGroupByAndHavingUseAliasFirst();
+            boolean aliasFirst = false;
+            if (analyzer.getContext() != null) {
+                aliasFirst = analyzer.getContext().getSessionVariable().isGroupByAndHavingUseAliasFirst();
+            }
             substituteOrdinalsAliases(groupByClause.getGroupingExprs(), "GROUP BY", analyzer, aliasFirst);
         }
         // substitute having
