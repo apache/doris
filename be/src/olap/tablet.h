@@ -40,7 +40,7 @@
 #include "olap/rowset/rowset_tree.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_meta.h"
-#include "olap/tuple.h"
+#include "olap/olap_tuple.h"
 #include "olap/utils.h"
 #include "olap/version_graph.h"
 #include "util/once.h"

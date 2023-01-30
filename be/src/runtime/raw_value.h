@@ -33,7 +33,6 @@ namespace doris {
 
 class MemPool;
 class SlotDescriptor;
-class Tuple;
 
 // Useful utility functions for runtime values (which are passed around as void*).
 class RawValue {

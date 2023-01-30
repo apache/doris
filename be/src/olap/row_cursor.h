@@ -25,7 +25,7 @@
 #include "olap/olap_define.h"
 #include "olap/row_cursor_cell.h"
 #include "olap/schema.h"
-#include "olap/tuple.h"
+#include "olap/olap_tuple.h"
 
 namespace doris {
 class Field;
