@@ -82,7 +82,7 @@ public class MysqlLoadManager {
                             .getAsJsonObject();
                     if (!result.get("Status").getAsString().equalsIgnoreCase("Success")) {
                         LOG.warn("Execute stream load for mysql data load failed with message: " + request);
-                        throw new LoadException(result.get("Message").toString());
+                        throw new LoadException(result.get("Message").getAsString());
                     }
                     loadResult.incRecords(result.get("NumberLoadedRows").getAsLong());
                     loadResult.incSkipped(result.get("NumberFilteredRows").getAsInt());
