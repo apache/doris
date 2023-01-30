@@ -381,6 +381,9 @@ private:
                                 RowsetIdUnorderedSet* to_add, RowsetIdUnorderedSet* to_del);
     Status _load_rowset_segments(const RowsetSharedPtr& rowset,
                                  std::vector<segment_v2::SegmentSharedPtr>* segments);
+    bool get_cooldown_delete_id(TUniqueId* cooldown_delete_id);
+    void enable_cooldown_flag(const TUniqueId& cooldown_delete_id);
+    Status _cooldown_delete_files(io::FileSystemSPtr fs);
     Status _cooldown_data();
     Status _follow_cooldowned_data();
     Status _read_remote_tablet_meta(io::FileSystemSPtr fs, TabletMetaPB* tablet_meta_pb);
@@ -462,6 +465,13 @@ private:
     int64_t _skip_base_compaction_ts;
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
+
+    // Used for cooldown delete operation
+    std::mutex _cooldown_delete_lock;
+    TUniqueId _cooldown_delete_id;
+    bool _cooldown_delete_flag = false;
+    std::vector<Path> _cooldown_delete_files;
+    time_t _last_cooldown_delete_time = 0;
 
 public:
     IntCounter* flush_bytes;

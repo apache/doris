@@ -721,10 +721,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_PUSH_COOLDOWN_CONF:
-                    if (Config.cooldown_single_remote_file) {
-                        CooldownJob cooldownJob = (CooldownJob) journal.getData();
-                        env.getCooldownHandler().replayCooldownJob(cooldownJob);
-                    }
+                    CooldownJob cooldownJob = (CooldownJob) journal.getData();
+                    env.getCooldownHandler().replayCooldownJob(cooldownJob);
                     break;
                 case OperationType.OP_BATCH_ADD_ROLLUP: {
                     BatchAlterJobPersistInfo batchAlterJobV2 = (BatchAlterJobPersistInfo) journal.getData();

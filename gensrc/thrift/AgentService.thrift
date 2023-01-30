@@ -360,6 +360,15 @@ struct TPushCooldownConfReq {
     1: required list<TCooldownConf> cooldown_confs
 }
 
+struct TCooldownDeleteFile {
+    1: optional Types.TTabletId tablet_id
+    2: optional Types.TUniqueId delete_id
+}
+
+struct TCooldownDeleteFileReq {
+    1: required list<TCooldownDeleteFile> cooldown_delete_files
+}
+
 struct TAgentTaskRequest {
     1: required TAgentServiceVersion protocol_version
     2: required Types.TTaskType task_type
@@ -392,6 +401,7 @@ struct TAgentTaskRequest {
     28: optional TStorageMigrationReqV2 storage_migration_req_v2
     29: optional TGetStoragePolicy update_policy
     30: optional TPushCooldownConfReq push_cooldown_conf
+    31: optional TCooldownDeleteFileReq cooldown_delete_file
 }
 
 struct TAgentResult {

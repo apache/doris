@@ -67,6 +67,7 @@
 #include "util/scoped_cleanup.h"
 #include "util/time.h"
 #include "util/trace.h"
+#include "util/uid_util.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/jsonb/serialize.h"
 namespace doris {
@@ -1393,6 +1394,10 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     tablet_info->__set_is_cooldown(!_tablet_meta->storage_policy().empty());
     if (tablet_info->is_cooldown) {
         tablet_info->__set_cooldown_replica_id(_tablet_meta->cooldown_replica_id());
+        TUniqueId cooldown_delete_id;
+        if (get_cooldown_delete_id(&cooldown_delete_id)) {
+            tablet_info->__set_cooldown_delete_id(cooldown_delete_id);
+        }
     }
 }
 
@@ -1650,12 +1655,81 @@ Status Tablet::cooldown() {
     return Status::OK();
 }
 
+bool Tablet::get_cooldown_delete_id(TUniqueId* cooldown_delete_id) {
+    std::unique_lock delete_lock(_cooldown_delete_lock, std::try_to_lock);
+    if (!delete_lock.owns_lock()) {
+        LOG(WARNING) << "Failed to own delete_lock. tablet=" << tablet_id();
+        return false;
+    }
+    if (!_cooldown_delete_flag && _cooldown_delete_files.size() > 0) {
+        *cooldown_delete_id = _cooldown_delete_id;
+        return true;
+    }
+    return false;
+}
+
+void Tablet::enable_cooldown_flag(const TUniqueId& cooldown_delete_id) {
+    std::unique_lock delete_lock(_cooldown_delete_lock, std::try_to_lock);
+    if (!delete_lock.owns_lock()) {
+        LOG(WARNING) << "Failed to own delete_lock. tablet=" << tablet_id();
+        return;
+    }
+    if (cooldown_delete_id == _cooldown_delete_id) {
+        _cooldown_delete_flag = true;
+    }
+}
+
+Status Tablet::_cooldown_delete_files(io::FileSystemSPtr fs) {
+    std::unique_lock delete_lock(_cooldown_delete_lock, std::try_to_lock);
+    if (!delete_lock.owns_lock()) {
+        LOG(WARNING) << "Failed to own delete_lock. tablet=" << tablet_id();
+        return Status::Error<TRY_LOCK_FAILED>();
+    }
+    if (_cooldown_delete_flag) {
+        for (auto& file_path : _cooldown_delete_files) {
+            RETURN_IF_ERROR(fs->delete_file(file_path));
+        }
+        _cooldown_delete_flag = false;
+        _cooldown_delete_files.clear();
+    } else {
+        if (time(NULL) - _last_cooldown_delete_time < config::cooldown_delete_interval_time_sec) {
+            return Status::OK();
+        }
+        _cooldown_delete_files.clear();
+        _cooldown_delete_id = generate_uuid();
+        Path remote_tablet_path = BetaRowset::remote_tablet_path(tablet_id());
+        std::vector<Path> segment_files;
+        RETURN_IF_ERROR(fs->list(remote_tablet_path, &segment_files));
+        TabletMetaPB remote_tablet_meta_pb;
+        RETURN_IF_ERROR(_read_remote_tablet_meta(fs, &remote_tablet_meta_pb));
+        std::map<std::string, bool> remote_segment_path_map;
+        for (auto& rowset_meta_pb : remote_tablet_meta_pb.rs_metas()) {
+            for (int i = 0; i < rowset_meta_pb.num_segments(); ++i) {
+                std::string segment_path = BetaRowset::remote_segment_path(
+                        tablet_id(), rowset_meta_pb.rowset_id_v2(), i);
+                remote_segment_path_map.emplace(segment_path, true);
+            }
+        }
+        for (auto& path : segment_files) {
+            if (remote_segment_path_map.find(path.native()) != remote_segment_path_map.end()) {
+                _cooldown_delete_files.emplace_back(path);
+            }
+        }
+        _last_cooldown_delete_time = time(NULL);
+    }
+    return Status::OK();
+}
+
 Status Tablet::_cooldown_data() {
     auto dest_fs = io::FileSystemMap::instance()->get(storage_policy());
     if (!dest_fs) {
         return Status::Error<UNINITIALIZED>();
     }
-    DCHECK(dest_fs->type() == io::FileSystemType::S3);
+    if (dest_fs->type() != io::FileSystemType::S3) {
+        return Status::Error<UNINITIALIZED>();
+    }
+
+    RETURN_IF_ERROR(_cooldown_delete_files(dest_fs));
 
     auto old_rowset = pick_cooldown_rowset();
     if (!old_rowset) {
@@ -1768,7 +1842,9 @@ Status Tablet::_follow_cooldowned_data() {
     if (!dest_fs) {
         return Status::InternalError("storage_policy doesn't exist: " + storage_policy());
     }
-    DCHECK(dest_fs->type() == io::FileSystemType::S3);
+    if (dest_fs->type() != io::FileSystemType::S3) {
+        return Status::Error<UNINITIALIZED>();
+    }
     TabletMetaPB remote_tablet_meta_pb;
     RETURN_IF_ERROR(_read_remote_tablet_meta(dest_fs, &remote_tablet_meta_pb));
     int64_t max_version = -1;
