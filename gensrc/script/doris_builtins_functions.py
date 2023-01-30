@@ -541,7 +541,6 @@ visible_functions = [
     [['reverse'], 'ARRAY_STRING',    ['ARRAY_STRING'], ''],
 
     # Timestamp functions
-<<<<<<< HEAD
     [['unix_timestamp'], 'INT', [], 'ALWAYS_NOT_NULLABLE'],
     [['unix_timestamp'], 'INT', ['DATETIME'], 'ALWAYS_NULLABLE'],
     [['unix_timestamp'], 'INT', ['DATE'], 'ALWAYS_NULLABLE'],
