@@ -19,8 +19,6 @@ package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.HMSResource;
 
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.hive.HiveCatalog;
@@ -43,8 +41,7 @@ public class IcebergHMSExternalCatalog extends IcebergExternalCatalog {
     @Override
     protected void initLocalObjectsImpl() {
         HiveCatalog hiveCatalog = new org.apache.iceberg.hive.HiveCatalog();
-        Configuration conf = getConfiguration();
-        hiveCatalog.setConf(conf);
+        hiveCatalog.setConf(getConfiguration());
         // initialize hive catalog
         Map<String, String> catalogProperties = new HashMap<>();
         String metastoreUris = catalogProperty.getOrDefault(HMSResource.HIVE_METASTORE_URIS, "");
@@ -53,15 +50,6 @@ public class IcebergHMSExternalCatalog extends IcebergExternalCatalog {
         catalogProperties.put(CatalogProperties.URI, metastoreUris);
         hiveCatalog.initialize(HMS_TAG, catalogProperties);
         catalog = hiveCatalog;
-    }
-
-    private Configuration getConfiguration() {
-        Configuration conf = new HdfsConfiguration();
-        Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
-        for (Map.Entry<String, String> entry : catalogProperties.entrySet()) {
-            conf.set(entry.getKey(), entry.getValue());
-        }
-        return conf;
     }
 
     @Override

@@ -25,6 +25,8 @@ import org.apache.doris.catalog.external.IcebergExternalDatabase;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -75,6 +77,15 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         dbNameToId = tmpDbNameToId;
         idToDb = tmpIdToDb;
         Env.getCurrentEnv().getEditLog().logInitCatalog(initCatalogLog);
+    }
+
+    protected Configuration getConfiguration() {
+        Configuration conf = new HdfsConfiguration();
+        Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
+        for (Map.Entry<String, String> entry : catalogProperties.entrySet()) {
+            conf.set(entry.getKey(), entry.getValue());
+        }
+        return conf;
     }
 
     protected Type icebergTypeToDorisTypeBeta(org.apache.iceberg.types.Type type) {

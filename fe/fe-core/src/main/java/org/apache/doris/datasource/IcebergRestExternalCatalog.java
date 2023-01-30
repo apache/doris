@@ -40,6 +40,7 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
         String restUri = catalogProperty.getProperties().getOrDefault(CatalogProperties.URI, "");
         restProperties.put(CatalogProperties.URI, restUri);
         RESTCatalog restCatalog = new RESTCatalog();
+        restCatalog.setConf(getConfiguration());
         restCatalog.initialize(icebergCatalogType, restProperties);
         catalog = restCatalog;
     }
