@@ -18,7 +18,6 @@
 #pragma once
 
 #include "common/status.h"
-#include "runtime/tuple.h"
 #include "util/runtime_profile.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"

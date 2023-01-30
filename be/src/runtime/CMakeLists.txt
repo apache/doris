@@ -46,7 +46,6 @@ set(RUNTIME_FILES
     decimalv2_value.cpp
     large_int_value.cpp
     collection_value.cpp
-    tuple.cpp
     fragment_mgr.cpp
     load_path_mgr.cpp
     types.cpp
