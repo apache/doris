@@ -86,7 +86,7 @@ CREATE CATALOG hive PROPERTIES (
     'hadoop.kerberos.keytab' = '/your-keytab-filepath/your.keytab',   
     'hadoop.kerberos.principal' = 'your-principal@YOUR.COM',
     'yarn.resourcemanager.address' = 'your-rm-address:your-rm-port',    
-    'yarn.resourcemanager.principal' = 'your-rm-principal/_HOST@YOUR.COM'
+    'yarn.resourcemanager.principal' = 'your-rm-principal/your-rm-address@YOUR.COM'
 );
 ```
 
