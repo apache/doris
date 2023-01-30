@@ -31,7 +31,6 @@
 
 namespace doris {
 
-class MemPool;
 class SlotDescriptor;
 class Tuple;
 

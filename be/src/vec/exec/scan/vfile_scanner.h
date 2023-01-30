@@ -104,9 +104,6 @@ protected:
     // row desc for default exprs
     std::unique_ptr<RowDescriptor> _default_val_row_desc;
 
-    // Mem pool used to allocate _src_tuple and _src_tuple_row
-    std::unique_ptr<MemPool> _mem_pool;
-
     KVCache<std::string>& _kv_cache;
 
     bool _scanner_eof = false;

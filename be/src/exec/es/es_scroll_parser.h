@@ -35,8 +35,8 @@ public:
 
     Status parse(const std::string& scroll_result, bool exactly_once = false);
     Status fill_columns(const TupleDescriptor* _tuple_desc,
-                        std::vector<vectorized::MutableColumnPtr>& columns, MemPool* mem_pool,
-                        bool* line_eof, const std::map<std::string, std::string>& docvalue_context);
+                        std::vector<vectorized::MutableColumnPtr>& columns, bool* line_eof,
+                        const std::map<std::string, std::string>& docvalue_context);
 
     const std::string& get_scroll_id();
     int get_size() const;
