@@ -425,6 +425,7 @@ void register_function_math(SimpleFunctionFactory& factory) {
     REGISTER_ROUND_FUNCTIONS(DecimalRoundTwoImpl)
     REGISTER_ROUND_FUNCTIONS(DoubleRoundOneImpl)
     REGISTER_ROUND_FUNCTIONS(DoubleRoundTwoImpl)
+    factory.register_alias("round", "dround");
     factory.register_function<FunctionAcos>();
     factory.register_function<FunctionAsin>();
     factory.register_function<FunctionAtan>();
