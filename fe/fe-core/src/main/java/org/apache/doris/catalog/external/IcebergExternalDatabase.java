@@ -20,8 +20,8 @@ package org.apache.doris.catalog.external;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.IcebergExternalCatalog;
 import org.apache.doris.datasource.InitDatabaseLog;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 
 import com.google.common.collect.Lists;

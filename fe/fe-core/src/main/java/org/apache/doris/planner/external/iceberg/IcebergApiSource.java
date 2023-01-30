@@ -25,7 +25,7 @@ import org.apache.doris.catalog.external.IcebergExternalTable;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.ExternalCatalog;
-import org.apache.doris.datasource.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.planner.ColumnRange;
 import org.apache.doris.planner.external.ExternalFileScanNode;
@@ -44,15 +44,15 @@ import java.util.stream.Collectors;
 /**
  * Get metadata from iceberg api (all iceberg table like hive, rest, glue...)
  */
-public class IcebergApiSourceProvider implements IcebergSourceProvider {
+public class IcebergApiSource implements IcebergSource {
 
-    private IcebergExternalTable icebergExtTable;
-    private Table originTable;
+    private final IcebergExternalTable icebergExtTable;
+    private final Table originTable;
 
-    private TupleDescriptor desc;
+    private final TupleDescriptor desc;
 
-    public IcebergApiSourceProvider(IcebergExternalTable table, TupleDescriptor desc,
-                                    Map<String, ColumnRange> columnNameToRange) {
+    public IcebergApiSource(IcebergExternalTable table, TupleDescriptor desc,
+                            Map<String, ColumnRange> columnNameToRange) {
         this.icebergExtTable = table;
         this.originTable = ((IcebergExternalCatalog) icebergExtTable.getCatalog())
                 .getIcebergTable(icebergExtTable.getDbName(), icebergExtTable.getName());

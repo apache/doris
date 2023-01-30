@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource;
+package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.CatalogIf;
 
 import java.util.Map;
 
@@ -27,7 +28,7 @@ public class IcebergExternalCatalogFactory {
             throws DdlException {
         String catalogType = props.get(IcebergExternalCatalog.ICEBERG_CATALOG_TYPE);
         if (catalogType == null) {
-            throw new DdlException("Missing iceberg.catalog.type property");
+            throw new DdlException("Missing " + IcebergExternalCatalog.ICEBERG_CATALOG_TYPE + " property");
         }
         switch (catalogType) {
             case "rest":
@@ -35,7 +36,8 @@ public class IcebergExternalCatalogFactory {
             case "hms":
                 return new IcebergHMSExternalCatalog(catalogId, name, resource, catalogType, props);
             default:
-                throw new DdlException("Unknown iceberg.catalog.type value: " + catalogType);
+                throw new DdlException("Unknown " + IcebergExternalCatalog.ICEBERG_CATALOG_TYPE
+                    + " value: " + catalogType);
         }
     }
 }

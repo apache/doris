@@ -15,39 +15,47 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource;
+package org.apache.doris.datasource.iceberg;
+
+import org.apache.doris.catalog.HMSResource;
+import org.apache.doris.datasource.CatalogProperty;
 
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.catalog.Namespace;
-import org.apache.iceberg.rest.RESTCatalog;
+import org.apache.iceberg.hive.HiveCatalog;
 
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
+public class IcebergHMSExternalCatalog extends IcebergExternalCatalog {
 
-    public  IcebergRestExternalCatalog(long catalogId, String name, String resource, String catalogType,
-                                       Map<String, String> props) {
+    private static final String HMS_TAG = "hms";
+
+    public IcebergHMSExternalCatalog(long catalogId, String name, String resource, String catalogType,
+                                     Map<String, String> props) {
         super(catalogId, name, catalogType);
         catalogProperty = new CatalogProperty(resource, props);
     }
 
     @Override
     protected void initLocalObjectsImpl() {
-        Map<String, String> restProperties = new HashMap<>();
-        String restUri = catalogProperty.getProperties().getOrDefault(CatalogProperties.URI, "");
-        restProperties.put(CatalogProperties.URI, restUri);
-        RESTCatalog restCatalog = new RESTCatalog();
-        restCatalog.setConf(getConfiguration());
-        restCatalog.initialize(icebergCatalogType, restProperties);
-        catalog = restCatalog;
+        HiveCatalog hiveCatalog = new org.apache.iceberg.hive.HiveCatalog();
+        hiveCatalog.setConf(getConfiguration());
+        // initialize hive catalog
+        Map<String, String> catalogProperties = new HashMap<>();
+        String metastoreUris = catalogProperty.getOrDefault(HMSResource.HIVE_METASTORE_URIS, "");
+
+        catalogProperties.put(HMSResource.HIVE_METASTORE_URIS, metastoreUris);
+        catalogProperties.put(CatalogProperties.URI, metastoreUris);
+        hiveCatalog.initialize(HMS_TAG, catalogProperties);
+        catalog = hiveCatalog;
     }
 
     @Override
     public List<String> listDatabaseNames() {
-        return ((RESTCatalog) catalog).listNamespaces().stream()
+        return ((HiveCatalog) catalog).listNamespaces().stream()
             .map(Namespace::toString).collect(Collectors.toList());
     }
 }

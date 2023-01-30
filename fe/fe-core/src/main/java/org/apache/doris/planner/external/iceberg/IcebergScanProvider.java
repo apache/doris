@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner.external;
+package org.apache.doris.planner.external.iceberg;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
@@ -27,7 +27,9 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.external.iceberg.util.IcebergUtils;
-import org.apache.doris.planner.external.iceberg.IcebergSourceProvider;
+import org.apache.doris.planner.external.ExternalFileScanNode;
+import org.apache.doris.planner.external.QueryScanProvider;
+import org.apache.doris.planner.external.TableFormatType;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
@@ -66,10 +68,10 @@ public class IcebergScanProvider extends QueryScanProvider {
 
     private static final int MIN_DELETE_FILE_SUPPORT_VERSION = 2;
     private final Analyzer analyzer;
-    private final IcebergSourceProvider delegate;
+    private final IcebergSource icebergSource;
 
-    public IcebergScanProvider(IcebergSourceProvider sourceProvider, Analyzer analyzer) {
-        this.delegate = sourceProvider;
+    public IcebergScanProvider(IcebergSource icebergSource, Analyzer analyzer) {
+        this.icebergSource = icebergSource;
         this.analyzer = analyzer;
     }
 
@@ -113,7 +115,7 @@ public class IcebergScanProvider extends QueryScanProvider {
 
     @Override
     public TFileType getLocationType() throws DdlException, MetaNotFoundException {
-        String location = delegate.getIcebergTable().location();
+        String location = icebergSource.getIcebergTable().location();
         if (location != null && !location.isEmpty()) {
             if (location.startsWith(FeConstants.FS_PREFIX_S3)
                     || location.startsWith(FeConstants.FS_PREFIX_S3A)
@@ -134,13 +136,13 @@ public class IcebergScanProvider extends QueryScanProvider {
             }
         }
         throw new DdlException("Unknown file location " + location
-            + " for hms table " + delegate.getIcebergTable().name());
+            + " for hms table " + icebergSource.getIcebergTable().name());
     }
 
     @Override
     public List<InputSplit> getSplits(List<Expr> exprs) throws UserException {
         List<Expression> expressions = new ArrayList<>();
-        org.apache.iceberg.Table table = delegate.getIcebergTable();
+        org.apache.iceberg.Table table = icebergSource.getIcebergTable();
         for (Expr conjunct : exprs) {
             Expression expression = IcebergUtils.convertToIcebergExpr(conjunct, table.schema());
             if (expression != null) {
@@ -148,7 +150,7 @@ public class IcebergScanProvider extends QueryScanProvider {
             }
         }
         TableScan scan = table.newScan();
-        TableSnapshot tableSnapshot = delegate.getDesc().getRef().getTableSnapshot();
+        TableSnapshot tableSnapshot = icebergSource.getDesc().getRef().getTableSnapshot();
         if (tableSnapshot != null) {
             TableSnapshot.VersionType type = tableSnapshot.getType();
             try {
@@ -230,14 +232,14 @@ public class IcebergScanProvider extends QueryScanProvider {
 
     @Override
     public List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
-        return delegate.getIcebergTable().spec().fields().stream().map(PartitionField::name)
+        return icebergSource.getIcebergTable().spec().fields().stream().map(PartitionField::name)
                 .collect(Collectors.toList());
     }
 
     @Override
     public TFileFormatType getFileFormatType() throws DdlException, MetaNotFoundException {
         TFileFormatType type;
-        String icebergFormat = delegate.getFileFormat();
+        String icebergFormat = icebergSource.getFileFormat();
         if (icebergFormat.equalsIgnoreCase("parquet")) {
             type = TFileFormatType.FORMAT_PARQUET;
         } else if (icebergFormat.equalsIgnoreCase("orc")) {
@@ -250,21 +252,21 @@ public class IcebergScanProvider extends QueryScanProvider {
 
     @Override
     public Map<String, String> getLocationProperties() throws MetaNotFoundException, DdlException {
-        return delegate.getCatalog().getProperties();
+        return icebergSource.getCatalog().getProperties();
     }
 
     @Override
     public ExternalFileScanNode.ParamCreateContext createContext(Analyzer analyzer) throws UserException {
-        return delegate.createContext();
+        return icebergSource.createContext();
     }
 
     @Override
     public TableIf getTargetTable() {
-        return delegate.getTargetTable();
+        return icebergSource.getTargetTable();
     }
 
     @Override
     public TFileAttributes getFileAttributes() throws UserException {
-        return delegate.getFileAttributes();
+        return icebergSource.getFileAttributes();
     }
 }

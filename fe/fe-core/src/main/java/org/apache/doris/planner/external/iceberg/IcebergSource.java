@@ -26,7 +26,7 @@ import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.planner.external.ExternalFileScanNode;
 import org.apache.doris.thrift.TFileAttributes;
 
-public interface IcebergSourceProvider {
+public interface IcebergSource {
 
     TupleDescriptor getDesc();
 

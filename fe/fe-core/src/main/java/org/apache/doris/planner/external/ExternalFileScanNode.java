@@ -44,9 +44,10 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.planner.PlanNodeId;
-import org.apache.doris.planner.external.iceberg.IcebergApiSourceProvider;
-import org.apache.doris.planner.external.iceberg.IcebergHMSSourceProvider;
-import org.apache.doris.planner.external.iceberg.IcebergSourceProvider;
+import org.apache.doris.planner.external.iceberg.IcebergApiSource;
+import org.apache.doris.planner.external.iceberg.IcebergHMSSource;
+import org.apache.doris.planner.external.iceberg.IcebergScanProvider;
+import org.apache.doris.planner.external.iceberg.IcebergSource;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
@@ -254,7 +255,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 scanProvider = new HudiScanProvider(hmsTable, desc, columnNameToRange);
                 break;
             case ICEBERG:
-                IcebergSourceProvider hmsSource = new IcebergHMSSourceProvider(hmsTable, desc, columnNameToRange);
+                IcebergSource hmsSource = new IcebergHMSSource(hmsTable, desc, columnNameToRange);
                 scanProvider = new IcebergScanProvider(hmsSource, analyzer);
                 break;
             case HIVE:
@@ -279,7 +280,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
         switch (catalogType) {
             case "hms":
             case "rest":
-                IcebergSourceProvider icebergSource = new IcebergApiSourceProvider(
+                IcebergSource icebergSource = new IcebergApiSource(
                         icebergTable, desc, columnNameToRange);
                 scanProvider = new IcebergScanProvider(icebergSource, analyzer);
                 break;

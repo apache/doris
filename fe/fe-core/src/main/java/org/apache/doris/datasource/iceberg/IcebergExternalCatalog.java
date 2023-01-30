@@ -15,13 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.datasource;
+package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.IcebergExternalDatabase;
+import org.apache.doris.datasource.ExternalCatalog;
+import org.apache.doris.datasource.InitCatalogLog;
+import org.apache.doris.datasource.SessionContext;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -88,8 +93,24 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         return conf;
     }
 
-    protected Type icebergTypeToDorisTypeBeta(org.apache.iceberg.types.Type type) {
+    protected Type icebergTypeToDorisType(org.apache.iceberg.types.Type type) {
+        if (type.isPrimitiveType()) {
+            return icebergPrimitiveTypeToDorisType((org.apache.iceberg.types.Type.PrimitiveType) type);
+        }
         switch (type.typeId()) {
+            case LIST:
+                Types.ListType list = (Types.ListType) type;
+                return ArrayType.create(icebergTypeToDorisType(list.elementType()), true);
+            case MAP:
+            case STRUCT:
+                return Type.UNSUPPORTED;
+            default:
+                throw new IllegalArgumentException("Cannot transform unknown type: " + type);
+        }
+    }
+
+    private Type icebergPrimitiveTypeToDorisType(org.apache.iceberg.types.Type.PrimitiveType primitive) {
+        switch (primitive.typeId()) {
             case BOOLEAN:
                 return Type.BOOLEAN;
             case INTEGER:
@@ -102,25 +123,22 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
                 return Type.DOUBLE;
             case STRING:
             case BINARY:
-            case FIXED:
             case UUID:
                 return Type.STRING;
-            case STRUCT:
-                return Type.STRUCT;
-            case LIST:
-                return Type.ARRAY;
-            case MAP:
-                return Type.MAP;
+            case FIXED:
+                Types.FixedType fixed = (Types.FixedType) primitive;
+                return ScalarType.createCharType(fixed.length());
             case DATE:
-                return Type.DATEV2;
+                return ScalarType.createDateV2Type();
             case TIME:
-                return Type.TIMEV2;
+                return Type.TIMEV2; //
             case TIMESTAMP:
-                return Type.DATETIMEV2;
+                return ScalarType.createDatetimeV2Type(0); //
             case DECIMAL:
-                return Type.DECIMALV2;
+                Types.DecimalType decimal = (Types.DecimalType) primitive;
+                return ScalarType.createDecimalType(decimal.precision(), decimal.scale());
             default:
-                throw new IllegalArgumentException("Cannot transform unknown type: " + type);
+                throw new IllegalArgumentException("Cannot transform unknown type: " + primitive);
         }
     }
 
@@ -143,7 +161,7 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
         for (Types.NestedField field : columns) {
             tmpSchema.add(new Column(field.name(),
-                    icebergTypeToDorisTypeBeta(field.type()), true, null,
+                    icebergTypeToDorisType(field.type()), true, null,
                     true, null, field.doc(), true, null, -1));
         }
         return tmpSchema;
