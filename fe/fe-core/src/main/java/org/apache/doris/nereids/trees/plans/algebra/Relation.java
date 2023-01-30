@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.analyzer;
+package org.apache.doris.nereids.trees.plans.algebra;
 
 import org.apache.doris.nereids.trees.expressions.Slot;
 
