@@ -26,7 +26,6 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
@@ -694,10 +693,6 @@ public class SelectStmt extends QueryStmt {
         // column_unique_id of each slot
         OlapTable olapTable = (OlapTable) tbl.getTable();
         if (!olapTable.getEnableLightSchemaChange()) {
-            return false;
-        }
-        // don't support agg table
-        if (olapTable.getKeysType() == KeysType.AGG_KEYS) {
             return false;
         }
         // Only TOPN query at present
