@@ -32,6 +32,7 @@ import java.util.Objects;
  * Slot has not been bound.
  */
 public class UnboundSlot extends Slot implements Unbound, PropagateNullable {
+
     private final List<String> nameParts;
 
     public UnboundSlot(String... nameParts) {
@@ -39,7 +40,7 @@ public class UnboundSlot extends Slot implements Unbound, PropagateNullable {
     }
 
     public UnboundSlot(List<String> nameParts) {
-        this.nameParts = Objects.requireNonNull(nameParts, "nameParts can not be null");
+        this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts, "nameParts can not be null"));
     }
 
     public List<String> getNameParts() {
