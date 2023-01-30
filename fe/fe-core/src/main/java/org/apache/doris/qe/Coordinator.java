@@ -940,6 +940,10 @@ public class Coordinator {
     // fragment,
     // if any, as well as all plan fragments on remote nodes.
     public void cancel() {
+        cancel(Types.PPlanFragmentCancelReason.USER_CANCEL);
+    }
+
+    public void cancel(Types.PPlanFragmentCancelReason cancelReason) {
         lock();
         try {
             if (!queryStatus.ok()) {
@@ -949,7 +953,7 @@ public class Coordinator {
                 queryStatus.setStatus(Status.CANCELLED);
             }
             LOG.warn("cancel execution of query, this is outside invoke");
-            cancelInternal(Types.PPlanFragmentCancelReason.USER_CANCEL);
+            cancelInternal(cancelReason);
         } finally {
             unlock();
         }

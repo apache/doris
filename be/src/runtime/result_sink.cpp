@@ -67,7 +67,7 @@ Status ResultSink::prepare(RuntimeState* state) {
 
     // create sender
     RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(state->fragment_instance_id(),
-                                                                   _buf_size, &_sender));
+                                                                   _buf_size, &_sender, state->query_timeout()));
 
     // create writer based on sink type
     switch (_sink_type) {
