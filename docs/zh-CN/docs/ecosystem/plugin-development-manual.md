@@ -273,7 +273,7 @@ mvn archetype: generate -DarchetypeCatalog = internal -DgroupId = org.apache -Da
 
 ## 安装和卸载插件
 
-通过如下命令安装和卸载插件。更多帮助请参阅 `HELP INSTALL PLUGIN;` `HELP IUNNSTALL PLUGIN;` `HELP SHOW PLUGINS;`
+通过如下命令安装和卸载插件。更多帮助请参阅 `HELP INSTALL PLUGIN;` `HELP UNINSTALL PLUGIN;` `HELP SHOW PLUGINS;`
 
 ```
 mysql> install plugin from "/home/users/doris/auditloader.zip";
