@@ -102,7 +102,8 @@ Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
                 rowid_column.set_has_default_value(true);
                 // fake unique id
                 rowid_column.set_unique_id(INT32_MAX);
-                rowid_column.set_aggregation_method(FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE);
+                rowid_column.set_aggregation_method(
+                        FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE);
                 rowid_column.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
                 _tablet_schema->append_column(rowid_column);
             }
