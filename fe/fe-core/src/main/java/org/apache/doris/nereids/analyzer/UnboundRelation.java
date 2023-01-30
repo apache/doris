@@ -42,6 +42,7 @@ import java.util.Optional;
  * Represent a relation plan node that has not been bound.
  */
 public class UnboundRelation extends LogicalRelation implements Unbound {
+
     private final List<String> nameParts;
     private final List<String> partNames;
     private final boolean isTempPart;
