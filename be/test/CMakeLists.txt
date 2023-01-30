@@ -199,7 +199,6 @@ set(UTIL_TEST_FILES
     util/rle_encoding_test.cpp
     util/tdigest_test.cpp
     util/block_compression_test.cpp
-    util/counter_cond_variable_test.cpp
     util/frame_of_reference_coding_test.cpp
     util/bit_stream_utils_test.cpp
     util/radix_sort_test.cpp
