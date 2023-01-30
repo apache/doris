@@ -45,7 +45,6 @@ class TBrokerRangeDesc;
 class TNetworkAddress;
 class RuntimeState;
 class SlotDescriptor;
-class MemPool;
 class FileReader;
 
 struct Statistics {

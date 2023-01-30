@@ -304,7 +304,7 @@ const std::string& ScrollParser::get_scroll_id() {
 
 Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                                   std::vector<vectorized::MutableColumnPtr>& columns,
-                                  MemPool* tuple_pool, bool* line_eof,
+                                  bool* line_eof,
                                   const std::map<std::string, std::string>& docvalue_context) {
     *line_eof = true;
 
