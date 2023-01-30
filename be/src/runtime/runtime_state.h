@@ -134,6 +134,9 @@ public:
     int codegen_level() const { return _query_options.codegen_level; }
     void set_is_cancelled(bool v) { _is_cancelled.store(v); }
 
+    bool reached_limit() const { return _reached_limit.load(); }
+    void set_reached_limit(bool v) { _reached_limit.store(v); }
+
     void set_backend_id(int64_t backend_id) { _backend_id = backend_id; }
     int64_t backend_id() const { return _backend_id; }
 
@@ -408,6 +411,8 @@ private:
 
     // if true, execution should stop with a CANCELLED status
     std::atomic<bool> _is_cancelled;
+    // set to true is reach the limit
+    std::atomic<bool> _reached_limit;
 
     int _per_fragment_instance_idx;
     int _num_per_fragment_instances = 0;

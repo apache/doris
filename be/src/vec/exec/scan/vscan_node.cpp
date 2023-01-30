@@ -160,6 +160,7 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
     if (*eos) {
         // reach limit, stop the scanners.
         _scanner_ctx->set_should_stop();
+        state->set_reached_limit(true);
     }
 
     return Status::OK();
