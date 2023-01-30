@@ -1,6 +1,6 @@
 ---
 {
-    "title": "STREAM-LOAD",
+    "title": "MYSQL-LOAD",
     "language": "zh-CN"
 }
 ---
@@ -30,14 +30,24 @@ under the License.
 
 ### Name
 
-STREAM LOAD
+MYSQL LOAD
 
 ### Description
 
-stream-load: load data to table in streaming
+mysql-load: 使用MySql客户端导入本地数据
 
 ```
-curl --location-trusted -u user:passwd [-H ""...] -T data.file -XPUT http://fe_host:http_port/api/{db}/{table}/_stream_load
+LOAD DATA
+[LOCAL]
+INFILE 'file_name'
+INTO TABLE tbl_name
+[PARTITION (partition_name [, partition_name] ...)]
+[COLUMNS TERMINATED BY 'string']
+[LINES TERMINATED BY 'string']
+[IGNORE number {LINES | ROWS}]
+[(col_name_or_user_var [, col_name_or_user_var] ...)]
+[SET (col_name={expr | DEFAULT} [, col_name={expr | DEFAULT}] ...)]
+[PROPERTIES (key1 = value1 [, key2=value2]) ]
 ```
 
 该语句用于向指定的 table 导入数据，与普通Load区别是，这种导入方式是同步导入。
