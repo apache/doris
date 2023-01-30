@@ -288,8 +288,8 @@ executionBuilder.setLabelPrefix("label-doris") //streamload label prefix
                 .setStreamLoadProp(properties); //streamload params
 
 //flink rowdata‘s schema
-String[] fields = {"city", "longitude", "latitude"};
-DataType[] types = {DataTypes.VARCHAR(256), DataTypes.DOUBLE(), DataTypes.DOUBLE()};
+String[] fields = {"city", "longitude", "latitude", "destroy_date"};
+DataType[] types = {DataTypes.VARCHAR(256), DataTypes.DOUBLE(), DataTypes.DOUBLE(), DataTypes.DATE()};
 
 builder.setDorisReadOptions(DorisReadOptions.builder().build())
         .setDorisExecutionOptions(executionBuilder.build())
@@ -304,10 +304,11 @@ DataStream<RowData> source = env.fromElements("")
     .map(new MapFunction<String, RowData>() {
         @Override
         public RowData map(String value) throws Exception {
-            GenericRowData genericRowData = new GenericRowData(3);
+            GenericRowData genericRowData = new GenericRowData(4);
             genericRowData.setField(0, StringData.fromString("beijing"));
             genericRowData.setField(1, 116.405419);
             genericRowData.setField(2, 39.916927);
+            genericRowData.setField(3, LocalDate.now().toEpochDay());
             return genericRowData;
         }
     });
