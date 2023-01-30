@@ -95,6 +95,7 @@ public:
     static FieldType get_field_type_by_string(const std::string& str);
     static FieldAggregationMethod get_aggregation_type_by_string(const std::string& str);
     static uint32_t get_field_length_by_type(TPrimitiveType::type type, uint32_t string_length);
+    bool is_row_store_column() const;
 
 private:
     int32_t _unique_id;
@@ -244,8 +245,6 @@ public:
     void merge_dropped_columns(std::shared_ptr<TabletSchema> src_schema);
 
     bool is_dropped_column(const TabletColumn& col) const;
-
-    static const TabletColumn& row_oriented_column();
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);

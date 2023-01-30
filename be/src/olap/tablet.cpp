@@ -1974,7 +1974,8 @@ Status Tablet::lookup_row_data(const RowLocation& row_location, const TupleDescr
     if (tablet_schema->store_row_column()) {
         // create _source column
         segment_v2::ColumnIterator* column_iterator = nullptr;
-        RETURN_IF_ERROR(segment->new_row_column_iterator(&column_iterator));
+        RETURN_IF_ERROR(segment->new_column_iterator(tablet_schema->column(BeConsts::ROW_STORE_COL),
+                                                     &column_iterator));
         std::unique_ptr<segment_v2::ColumnIterator> ptr_guard(column_iterator);
         segment_v2::ColumnIteratorOptions opt;
         OlapReaderStatistics stats;
@@ -1983,10 +1984,7 @@ Status Tablet::lookup_row_data(const RowLocation& row_location, const TupleDescr
         opt.use_page_cache = !config::disable_storage_page_cache;
         column_iterator->init(opt);
         // get and parse tuple row
-        vectorized::MutableColumnPtr column_ptr =
-                vectorized::DataTypeFactory::instance()
-                        .create_data_type(TabletSchema::row_oriented_column())
-                        ->create_column();
+        vectorized::MutableColumnPtr column_ptr = vectorized::ColumnString::create();
         std::vector<segment_v2::rowid_t> rowids {
                 static_cast<segment_v2::rowid_t>(row_location.row_id)};
         RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), 1, column_ptr));
