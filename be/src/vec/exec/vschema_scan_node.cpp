@@ -43,7 +43,6 @@ VSchemaScanNode::VSchemaScanNode(ObjectPool* pool, const TPlanNode& tnode,
           _dest_tuple_desc(nullptr),
           _tuple_idx(0),
           _slot_num(0),
-          _tuple_pool(nullptr),
           _schema_scanner(nullptr) {}
 
 VSchemaScanNode::~VSchemaScanNode() {}
@@ -137,13 +136,6 @@ Status VSchemaScanNode::prepare(RuntimeState* state) {
     }
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSchemaScanNode::prepare");
     RETURN_IF_ERROR(ScanNode::prepare(state));
-
-    // new one mem pool
-    _tuple_pool.reset(new (std::nothrow) MemPool());
-
-    if (nullptr == _tuple_pool) {
-        return Status::InternalError("Allocate MemPool failed.");
-    }
 
     // get dest tuple desc
     _dest_tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
@@ -284,8 +276,6 @@ Status VSchemaScanNode::close(RuntimeState* state) {
     }
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSchemaScanNode::close");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-
-    _tuple_pool.reset();
     return ExecNode::close(state);
 }
 

@@ -105,11 +105,6 @@ void _destruct_object(const void* obj, void*) {
     delete ((const T*)obj);
 }
 
-template <typename T>
-void _destruct_array(const void* array, void*) {
-    delete[]((const T*)array);
-}
-
 // 计算adler32的包装函数
 // 第一次使用的时候第一个参数传宏ADLER32_INIT, 之后的调用传上次计算的结果
 #define ADLER32_INIT adler32(0L, Z_NULL, 0)
