@@ -44,6 +44,7 @@ docs/.temp
 # output, thirdparty, extension
 output/
 rpc_data/
+metastore_db/
 thirdparty/src*
 thirdparty/installed*
 
