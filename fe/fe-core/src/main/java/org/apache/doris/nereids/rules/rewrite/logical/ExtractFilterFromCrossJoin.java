@@ -27,8 +27,9 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.util.Set;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -44,7 +45,7 @@ public class ExtractFilterFromCrossJoin extends OneRewriteRuleFactory {
                             join.left(), join.right());
                     Set<Expression> predicates = Stream.concat(join.getHashJoinConjuncts().stream(),
                                     join.getOtherJoinConjuncts().stream())
-                            .collect(Collectors.toSet());
+                            .collect(ImmutableSet.toImmutableSet());
                     return PlanUtils.filterOrSelf(predicates, newJoin);
                 }).toRule(RuleType.EXTRACT_FILTER_FROM_JOIN);
     }

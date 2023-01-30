@@ -126,6 +126,10 @@ struct TimeStampImpl {
     static constexpr auto name = "timestamp";
 
     static inline auto execute(const OpArgType& t) { return t; }
+
+    static DataTypes get_variadic_argument_types() {
+        return {std::make_shared<typename DateTraits<ArgType>::DateType>()};
+    }
 };
 
 template <typename ArgType>

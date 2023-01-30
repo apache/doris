@@ -24,6 +24,8 @@ import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 import java.util.Objects;
 
@@ -34,7 +36,7 @@ public class UnboundStar extends NamedExpression implements LeafExpression, Unbo
     private final List<String> qualifier;
 
     public UnboundStar(List<String> qualifier) {
-        this.qualifier = Objects.requireNonNull(qualifier, "qualifier can not be null");
+        this.qualifier = Objects.requireNonNull(ImmutableList.copyOf(qualifier), "qualifier can not be null");
     }
 
     @Override

@@ -26,18 +26,11 @@ import org.apache.doris.thrift.TRuntimeFilterType;
  */
 public class RuntimeFilter {
 
-    private final Slot srcSlot;
-
-    private Slot targetSlot;
-
     private final RuntimeFilterId id;
-
     private final TRuntimeFilterType type;
-
+    private final Slot srcSlot;
+    private Slot targetSlot;
     private final int exprOrder;
-
-    private boolean finalized = false;
-
     private PhysicalHashJoin builderNode;
 
     /**
@@ -75,9 +68,5 @@ public class RuntimeFilter {
 
     public PhysicalHashJoin getBuilderNode() {
         return builderNode;
-    }
-
-    public void setFinalized() {
-        this.finalized = true;
     }
 }

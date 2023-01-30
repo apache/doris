@@ -73,7 +73,7 @@ public class SlotReference extends Slot {
         this.exprId = exprId;
         this.name = name;
         this.dataType = dataType;
-        this.qualifier = qualifier;
+        this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
         this.nullable = nullable;
         this.column = column;
     }

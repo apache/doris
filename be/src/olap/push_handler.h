@@ -89,14 +89,12 @@ public:
         return Status::OK();
     }
     bool eof() const { return _eof; }
-    MemPool* mem_pool() { return _mem_pool.get(); }
 
 private:
     bool _ready;
     bool _eof;
     std::unique_ptr<RuntimeState> _runtime_state;
     RuntimeProfile* _runtime_profile;
-    std::unique_ptr<MemPool> _mem_pool;
     std::unique_ptr<MemPool> _tuple_buffer_pool;
     std::unique_ptr<ScannerCounter> _counter;
     std::unique_ptr<BaseScanner> _scanner;

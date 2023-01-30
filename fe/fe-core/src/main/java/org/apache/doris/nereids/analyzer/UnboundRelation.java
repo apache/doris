@@ -34,7 +34,6 @@ import org.apache.doris.nereids.util.Utils;
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -48,8 +47,7 @@ public class UnboundRelation extends LogicalRelation implements Unbound {
     private final boolean isTempPart;
 
     public UnboundRelation(RelationId id, List<String> nameParts) {
-        this(id, nameParts, Optional.empty(), Optional.empty(),
-                Collections.emptyList(), false);
+        this(id, nameParts, Optional.empty(), Optional.empty(), ImmutableList.of(), false);
     }
 
     public UnboundRelation(RelationId id, List<String> nameParts, List<String> partNames, boolean isTempPart) {
@@ -59,7 +57,7 @@ public class UnboundRelation extends LogicalRelation implements Unbound {
     public UnboundRelation(RelationId id, List<String> nameParts, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties, List<String> partNames, boolean isTempPart) {
         super(id, PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties);
-        this.nameParts = nameParts;
+        this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts, "nameParts should not null"));
         this.partNames = ImmutableList.copyOf(Objects.requireNonNull(partNames, "partNames should not null"));
         this.isTempPart = isTempPart;
     }
@@ -91,8 +89,7 @@ public class UnboundRelation extends LogicalRelation implements Unbound {
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new UnboundRelation(id, nameParts, Optional.empty(), logicalProperties, partNames,
-                isTempPart);
+        return new UnboundRelation(id, nameParts, Optional.empty(), logicalProperties, partNames, isTempPart);
     }
 
     @Override

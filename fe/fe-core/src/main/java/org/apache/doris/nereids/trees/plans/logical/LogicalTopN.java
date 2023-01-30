@@ -40,7 +40,7 @@ import java.util.Optional;
  */
 public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements TopN {
 
-    private final ImmutableList<OrderKey> orderKeys;
+    private final List<OrderKey> orderKeys;
     private final int limit;
     private final int offset;
 

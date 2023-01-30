@@ -27,20 +27,10 @@ namespace doris {
 SizeBasedCumulativeCompactionPolicy::SizeBasedCumulativeCompactionPolicy(
         int64_t promotion_size, double promotion_ratio, int64_t promotion_min_size,
         int64_t compaction_min_size)
-        : CumulativeCompactionPolicy(),
-          _promotion_size(promotion_size),
+        : _promotion_size(promotion_size),
           _promotion_ratio(promotion_ratio),
           _promotion_min_size(promotion_min_size),
-          _compaction_min_size(compaction_min_size) {
-    // init _levels by divide 2 between promotion_size and 1K
-    // cu compaction handle file size less then promotion_size
-    int64_t i_size = promotion_size / 2;
-
-    while (i_size >= 1024) {
-        _levels.push_back(i_size);
-        i_size /= 2;
-    }
-}
+          _compaction_min_size(compaction_min_size) {}
 
 void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
         Tablet* tablet, const std::vector<RowsetMetaSharedPtr>& all_metas,
@@ -334,13 +324,12 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
     return transient_size;
 }
 
-int SizeBasedCumulativeCompactionPolicy::_level_size(const int64_t size) {
-    for (auto& i : _levels) {
-        if (size >= i) {
-            return i;
-        }
-    }
-    return 0;
+int64_t SizeBasedCumulativeCompactionPolicy::_level_size(const int64_t size) {
+    if (size < 1024) return 0;
+    int64_t max_level = (int64_t)1
+                        << (sizeof(_promotion_size) * 8 - 1 - __builtin_clzl(_promotion_size / 2));
+    if (size >= max_level) return max_level;
+    return (int64_t)1 << (sizeof(size) * 8 - 1 - __builtin_clzl(size));
 }
 
 std::shared_ptr<CumulativeCompactionPolicy>
