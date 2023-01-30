@@ -21,6 +21,7 @@
 
 #include "vec/common/hash_table/hash_map.h"
 #include "vec/common/hash_table/partitioned_hash_table.h"
+#include "vec/common/hash_table/ph_hash_map.h"
 
 template <typename ImplTable>
 class PartitionedHashMapTable : public PartitionedHashTable<ImplTable> {
@@ -46,8 +47,46 @@ public:
 
         return *lookup_result_get_mapped(it);
     }
+
+    template <typename Func>
+    void for_each_mapped(Func&& func) {
+        for (auto& v : *this) {
+            func(v.get_second());
+        }
+    }
 };
 
 template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>>
 using PartitionedHashMap =
         PartitionedHashMapTable<HashMap<Key, Mapped, Hash, PartitionedHashTableGrower<>>>;
+
+template <typename Key, typename Mapped, typename Hash = DefaultHash<Key>>
+using PHPartitionedHashMap = PartitionedHashMapTable<PHHashMap<Key, Mapped, Hash, true>>;
+
+template <typename Key, typename Mapped, typename Hash>
+struct HashTableTraits<PartitionedHashMap<Key, Mapped, Hash>> {
+    static constexpr bool is_phmap = false;
+    static constexpr bool is_string_hash_table = false;
+    static constexpr bool is_partitioned_table = true;
+};
+
+template <template <typename> class Derived, typename Key, typename Mapped, typename Hash>
+struct HashTableTraits<Derived<PartitionedHashMap<Key, Mapped, Hash>>> {
+    static constexpr bool is_phmap = false;
+    static constexpr bool is_string_hash_table = false;
+    static constexpr bool is_partitioned_table = true;
+};
+
+template <typename Key, typename Mapped, typename Hash>
+struct HashTableTraits<PHPartitionedHashMap<Key, Mapped, Hash>> {
+    static constexpr bool is_phmap = true;
+    static constexpr bool is_string_hash_table = false;
+    static constexpr bool is_partitioned_table = true;
+};
+
+template <template <typename> class Derived, typename Key, typename Mapped, typename Hash>
+struct HashTableTraits<Derived<PHPartitionedHashMap<Key, Mapped, Hash>>> {
+    static constexpr bool is_phmap = true;
+    static constexpr bool is_string_hash_table = false;
+    static constexpr bool is_partitioned_table = true;
+};
