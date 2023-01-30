@@ -76,8 +76,6 @@ private:
     const TupleDescriptor* _tuple_desc;
     // Tuple index in tuple row.
     int _slot_num;
-    // Pool for allocating tuple data, including all varying-length slots.
-    std::unique_ptr<MemPool> _tuple_pool;
     // Jni helper for scanning an HBase table.
     std::unique_ptr<MysqlScanner> _mysql_scanner;
     // Helper class for converting text to other types;

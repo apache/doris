@@ -314,9 +314,13 @@ struct FixedStringFindOp : public StringFindOp {
 
 struct DateTimeFindOp : public CommonFindOp<DateTimeValue> {
     bool find_olap_engine(const BloomFilterAdaptor& bloom_filter, const void* data) const {
-        DateTimeValue value;
+        vectorized::VecDateTimeValue value;
         value.from_olap_datetime(*reinterpret_cast<const uint64_t*>(data));
-        return bloom_filter.test(Slice((char*)&value, sizeof(DateTimeValue)));
+        return bloom_filter.test(Slice((char*)&value, sizeof(vectorized::VecDateTimeValue)));
+    }
+
+    void insert(BloomFilterAdaptor& bloom_filter, const void* data) const {
+        bloom_filter.add_bytes((char*)data, sizeof(vectorized::VecDateTimeValue));
     }
 };
 
@@ -328,13 +332,14 @@ struct DateFindOp : public CommonFindOp<DateTimeValue> {
         uint24_t date = *static_cast<const uint24_t*>(data);
         uint64_t value = uint32_t(date);
 
-        DateTimeValue date_value;
+        vectorized::VecDateTimeValue date_value;
         date_value.from_olap_date(value);
-        date_value.to_datetime();
 
-        char data_bytes[sizeof(date_value)];
-        memcpy(&data_bytes, &date_value, sizeof(date_value));
-        return bloom_filter.test(Slice(data_bytes, sizeof(DateTimeValue)));
+        return bloom_filter.test(Slice((char*)&date_value, sizeof(vectorized::VecDateTimeValue)));
+    }
+
+    void insert(BloomFilterAdaptor& bloom_filter, const void* data) const {
+        bloom_filter.add_bytes((char*)data, sizeof(vectorized::VecDateTimeValue));
     }
 };
 

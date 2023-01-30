@@ -1203,7 +1203,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         // for other PlanNode, just set limit as limit+offset
         child.setLimit(physicalLimit.getLimit() + physicalLimit.getOffset());
-        return inputFragment;
+        PlanFragment planFragment = exchangeToMergeFragment(inputFragment, context);
+        planFragment.getPlanRoot().setLimit(physicalLimit.getLimit());
+        planFragment.getPlanRoot().setOffSetDirectly(physicalLimit.getOffset());
+        return planFragment;
     }
 
     @Override
@@ -1515,7 +1518,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
      * Requires that input fragment be partitioned.
      */
     private PlanFragment exchangeToMergeFragment(PlanFragment inputFragment, PlanTranslatorContext context) {
-        Preconditions.checkState(inputFragment.isPartitioned());
+        if (!inputFragment.isPartitioned()) {
+            return inputFragment;
+        }
 
         // exchange node clones the behavior of its input, aside from the conjuncts
         ExchangeNode mergePlan = new ExchangeNode(context.nextPlanNodeId(),
@@ -1638,7 +1643,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 // and the original exprId should be retained at this time.
                 groupSlotList.add((SlotReference) e);
             } else {
-                groupSlotList.add(new SlotReference(e.toSql(), e.getDataType(), e.nullable(), Collections.emptyList()));
+                groupSlotList.add(new SlotReference(e.toSql(), e.getDataType(), e.nullable(), ImmutableList.of()));
             }
         }
         return groupSlotList;

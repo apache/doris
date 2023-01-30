@@ -28,7 +28,6 @@
 #include "gen_cpp/PaloInternalService_types.h" // for TQueryOptions
 #include "gen_cpp/Types_types.h"               // for TUniqueId
 #include "runtime/query_fragments_ctx.h"
-#include "runtime/thread_resource_mgr.h"
 #include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
 
@@ -44,7 +43,6 @@ class DataStreamRecvr;
 class ResultBufferMgr;
 class TmpFileMgr;
 class BufferedBlockMgr;
-class BufferedBlockMgr2;
 class LoadErrorHub;
 class RowDescriptor;
 class RuntimeFilterMgr;
@@ -100,12 +98,10 @@ public:
     const std::string& timezone() const { return _timezone; }
     const cctz::time_zone& timezone_obj() const { return _timezone_obj; }
     const std::string& user() const { return _user; }
-    const std::vector<std::string>& error_log() const { return _error_log; }
     const TUniqueId& query_id() const { return _query_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
     ExecEnv* exec_env() { return _exec_env; }
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker() { return _query_mem_tracker; }
-    ThreadResourceMgr::ResourcePool* resource_pool() { return _resource_pool; }
 
     void set_fragment_root_id(PlanNodeId id) {
         DCHECK(_root_node_id == -1) << "Should not set this twice.";
@@ -138,11 +134,6 @@ public:
     // on first use.
     Status create_codegen();
 
-    BufferedBlockMgr2* block_mgr2() {
-        DCHECK(_block_mgr2.get() != nullptr);
-        return _block_mgr2.get();
-    }
-
     Status query_status() {
         std::lock_guard<std::mutex> l(_process_status_lock);
         return _process_status;
@@ -156,12 +147,6 @@ public:
         std::lock_guard<std::mutex> l(_error_log_lock);
         return _error_log.size() < _query_options.max_errors;
     }
-
-    // Return true if error log is empty.
-    bool error_log_is_empty();
-
-    // Returns the error log lines as a string joined with '\n'.
-    std::string error_log();
 
     // Append all _error_log[_unreported_error_idx+] to new_errors and set
     // _unreported_error_idx to _errors_log.size()
@@ -367,9 +352,6 @@ public:
 
     std::vector<TErrorTabletInfo>& error_tablet_infos() { return _error_tablet_infos; }
 
-    /// Helper to call QueryState::StartSpilling().
-    Status StartSpilling(MemTracker* mem_tracker);
-
     // get mem limit for load channel
     // if load mem limit is not set, or is zero, using query mem limit instead.
     int64_t get_load_mem_limit();
@@ -414,11 +396,6 @@ public:
     }
 
 private:
-    // Use a custom block manager for the query for testing purposes.
-    void set_block_mgr2(const std::shared_ptr<BufferedBlockMgr2>& block_mgr) {
-        _block_mgr2 = block_mgr;
-    }
-
     Status create_error_log_file();
 
     static const int DEFAULT_BATCH_SIZE = 2048;
@@ -468,10 +445,6 @@ private:
     TQueryOptions _query_options;
     ExecEnv* _exec_env = nullptr;
 
-    // Thread resource management object for this fragment's execution.  The runtime
-    // state is responsible for returning this pool to the thread mgr.
-    ThreadResourceMgr::ResourcePool* _resource_pool;
-
     // if true, execution should stop with a CANCELLED status
     std::atomic<bool> _is_cancelled;
 
@@ -489,12 +462,6 @@ private:
     // will not necessarily be set in all error cases.
     std::mutex _process_status_lock;
     Status _process_status;
-    //std::unique_ptr<MemPool> _udf_pool;
-
-    // BufferedBlockMgr object used to allocate and manage blocks of input data in memory
-    // with a fixed memory budget.
-    // The block mgr is shared by all fragments for this query.
-    std::shared_ptr<BufferedBlockMgr2> _block_mgr2;
 
     // This is the node id of the root node for this plan fragment. This is used as the
     // hash seed and has two useful properties:

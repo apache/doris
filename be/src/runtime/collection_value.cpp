@@ -29,13 +29,6 @@
 
 namespace doris {
 
-void CollectionValue::to_collection_val(CollectionVal* val) const {
-    val->length = _length;
-    val->data = _data;
-    val->null_signs = _null_signs;
-    val->has_null = _has_null;
-}
-
 void CollectionValue::shallow_copy(const CollectionValue* value) {
     _length = value->_length;
     _null_signs = value->_null_signs;

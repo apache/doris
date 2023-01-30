@@ -140,14 +140,14 @@ public class IcebergScanProvider extends QueryScanProvider {
     @Override
     public List<InputSplit> getSplits(List<Expr> exprs) throws UserException {
         List<Expression> expressions = new ArrayList<>();
+        org.apache.iceberg.Table table = delegate.getIcebergTable();
         for (Expr conjunct : exprs) {
-            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct);
+            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct, table.schema());
             if (expression != null) {
                 expressions.add(expression);
             }
         }
-
-        org.apache.iceberg.Table table = delegate.getIcebergTable();
+        
         TableScan scan = table.newScan();
         TableSnapshot tableSnapshot = delegate.getDesc().getRef().getTableSnapshot();
         if (tableSnapshot != null) {
@@ -231,7 +231,8 @@ public class IcebergScanProvider extends QueryScanProvider {
 
     @Override
     public List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
-        return delegate.getIcebergTable().spec().fields().stream().map(PartitionField::name)
+        return 
+        .getIcebergTable().spec().fields().stream().map(PartitionField::name)
                 .collect(Collectors.toList());
     }
 

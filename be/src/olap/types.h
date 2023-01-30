@@ -62,7 +62,6 @@ TypeInfoPtr create_dynamic_type_info_ptr(const TypeInfo* type_info);
 class TypeInfo {
 public:
     virtual ~TypeInfo() = default;
-    virtual bool equal(const void* left, const void* right) const = 0;
     virtual int cmp(const void* left, const void* right) const = 0;
 
     virtual void deep_copy(void* dest, const void* src, MemPool* mem_pool) const = 0;
@@ -87,8 +86,6 @@ public:
 
 class ScalarTypeInfo : public TypeInfo {
 public:
-    bool equal(const void* left, const void* right) const override { return _equal(left, right); }
-
     int cmp(const void* left, const void* right) const override { return _cmp(left, right); }
 
     void deep_copy(void* dest, const void* src, MemPool* mem_pool) const override {
@@ -116,8 +113,7 @@ public:
 
     template <typename TypeTraitsClass>
     ScalarTypeInfo(TypeTraitsClass t)
-            : _equal(TypeTraitsClass::equal),
-              _cmp(TypeTraitsClass::cmp),
+            : _cmp(TypeTraitsClass::cmp),
               _deep_copy(TypeTraitsClass::deep_copy),
               _direct_copy(TypeTraitsClass::direct_copy),
               _direct_copy_may_cut(TypeTraitsClass::direct_copy_may_cut),
@@ -129,7 +125,6 @@ public:
               _field_type(TypeTraitsClass::type) {}
 
 private:
-    bool (*_equal)(const void* left, const void* right);
     int (*_cmp)(const void* left, const void* right);
 
     void (*_shallow_copy)(void* dest, const void* src);
@@ -155,41 +150,6 @@ public:
     explicit ArrayTypeInfo(TypeInfoPtr item_type_info)
             : _item_type_info(std::move(item_type_info)), _item_size(_item_type_info->size()) {}
     ~ArrayTypeInfo() override = default;
-
-    inline bool equal(const void* left, const void* right) const override {
-        auto l_value = reinterpret_cast<const CollectionValue*>(left);
-        auto r_value = reinterpret_cast<const CollectionValue*>(right);
-        if (l_value->length() != r_value->length()) {
-            return false;
-        }
-        size_t len = l_value->length();
-
-        if (!l_value->has_null() && !r_value->has_null()) {
-            for (size_t i = 0; i < len; ++i) {
-                if (!_item_type_info->equal((uint8_t*)(l_value->data()) + i * _item_size,
-                                            (uint8_t*)(r_value->data()) + i * _item_size)) {
-                    return false;
-                }
-            }
-        } else {
-            for (size_t i = 0; i < len; ++i) {
-                if (l_value->is_null_at(i)) {
-                    if (r_value->is_null_at(i)) { // both are null
-                        continue;
-                    } else { // left is null & right is not null
-                        return false;
-                    }
-                } else if (r_value->is_null_at(i)) { // left is not null & right is null
-                    return false;
-                }
-                if (!_item_type_info->equal((uint8_t*)(l_value->data()) + i * _item_size,
-                                            (uint8_t*)(r_value->data()) + i * _item_size)) {
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
 
     int cmp(const void* left, const void* right) const override {
         auto l_value = reinterpret_cast<const CollectionValue*>(left);
@@ -520,10 +480,6 @@ struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
 
     static inline void set_cpp_type_value(void* address, const CppType& value) {
         memcpy(address, &value, sizeof(CppType));
-    }
-
-    static inline bool equal(const void* left, const void* right) {
-        return get_cpp_type_value(left) == get_cpp_type_value(right);
     }
 
     static inline int cmp(const void* left, const void* right) {
@@ -1014,11 +970,6 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_DATETIME>
 
 template <>
 struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_FIELD_TYPE_CHAR> {
-    static bool equal(const void* left, const void* right) {
-        auto l_slice = reinterpret_cast<const Slice*>(left);
-        auto r_slice = reinterpret_cast<const Slice*>(right);
-        return *l_slice == *r_slice;
-    }
     static int cmp(const void* left, const void* right) {
         auto l_slice = reinterpret_cast<const Slice*>(left);
         auto r_slice = reinterpret_cast<const Slice*>(right);

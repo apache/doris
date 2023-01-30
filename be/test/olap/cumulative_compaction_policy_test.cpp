@@ -647,7 +647,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, _level_size) {
     for (auto& rowset : rs_metas) {
         _tablet_meta->add_rs_meta(rowset);
     }
-
+    config::compaction_promotion_size_mbytes = 1024;
     TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
 
@@ -655,10 +655,10 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, _level_size) {
             dynamic_cast<SizeBasedCumulativeCompactionPolicy*>(
                     _tablet->_cumulative_compaction_policy.get());
 
-    EXPECT_EQ(536870912, policy->_levels[0]);
-    EXPECT_EQ(268435456, policy->_levels[1]);
-    EXPECT_EQ(134217728, policy->_levels[2]);
-    EXPECT_EQ(67108864, policy->_levels[3]);
+    EXPECT_EQ(1 << 29, policy->_level_size(1 << 30));
+    EXPECT_EQ(0, policy->_level_size(1000));
+    EXPECT_EQ(1 << 20, policy->_level_size((1 << 20) + 100));
+    EXPECT_EQ(1 << 19, policy->_level_size((1 << 20) - 100));
 }
 
 TEST_F(TestSizeBasedCumulativeCompactionPolicy, _pick_missing_version_cumulative_compaction) {

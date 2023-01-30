@@ -30,7 +30,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -84,7 +83,7 @@ public interface Project {
         return thisProjectExpressions.stream()
                 .map(e -> ExpressionReplacer.INSTANCE.replace(e, bottomAliasMap))
                 .map(NamedExpression.class::cast)
-                .collect(Collectors.toList());
+                .collect(ImmutableList.toImmutableList());
     }
 
     /**
@@ -130,7 +129,7 @@ public interface Project {
 
         public Expression replace(Expression expr, Map<Expression, Expression> substitutionMap) {
             if (expr instanceof SlotReference) {
-                Slot ref = ((SlotReference) expr).withQualifier(Collections.emptyList());
+                Slot ref = ((SlotReference) expr).withQualifier(ImmutableList.of());
                 return substitutionMap.getOrDefault(ref, expr);
             }
             return visit(expr, substitutionMap);
@@ -155,13 +154,13 @@ public interface Project {
                 // case 1:
                 Expression c = expr.child(0);
                 // Alias doesn't contain qualifier
-                Slot ref = ((SlotReference) c).withQualifier(Collections.emptyList());
+                Slot ref = ((SlotReference) c).withQualifier(ImmutableList.of());
                 if (substitutionMap.containsKey(ref)) {
                     return expr.withChildren(substitutionMap.get(ref).children());
                 }
             } else if (expr instanceof SlotReference) {
                 // case 2:
-                Slot ref = ((SlotReference) expr).withQualifier(Collections.emptyList());
+                Slot ref = ((SlotReference) expr).withQualifier(ImmutableList.of());
                 if (substitutionMap.containsKey(ref)) {
                     Alias res = (Alias) substitutionMap.get(ref);
                     return res.child();

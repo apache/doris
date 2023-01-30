@@ -28,7 +28,6 @@
 #include <sstream>
 
 #include "common/compiler_util.h"
-#include "exprs/anyval_util.h"
 #include "runtime/decimalv2_value.h"
 #include "runtime/large_int_value.h"
 #include "util/simd/vstring_function.h"
@@ -127,7 +126,9 @@ StringVal MathFunctions::decimal_to_base(FunctionContext* ctx, int64_t src_num, 
         buf[buf_index] = '-';
         ++result_len;
     }
-    return AnyValUtil::from_buffer_temp(ctx, buf + max_digits - result_len, result_len);
+    StringVal result = StringVal::create_temp_string_val(ctx, result_len);
+    memcpy(result.ptr, buf + max_digits - result_len, result_len);
+    return result;
 }
 
 bool MathFunctions::decimal_in_base_to_decimal(int64_t src_num, int8_t src_base, int64_t* result) {

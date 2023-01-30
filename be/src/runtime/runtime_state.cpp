@@ -147,7 +147,6 @@ RuntimeState::RuntimeState()
 }
 
 RuntimeState::~RuntimeState() {
-    _block_mgr2.reset();
     // close error log file
     if (_error_log_file != nullptr && _error_log_file->is_open()) {
         _error_log_file->close();
@@ -219,16 +218,6 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     return Status::OK();
 }
 
-bool RuntimeState::error_log_is_empty() {
-    std::lock_guard<std::mutex> l(_error_log_lock);
-    return (_error_log.size() > 0);
-}
-
-std::string RuntimeState::error_log() {
-    std::lock_guard<std::mutex> l(_error_log_lock);
-    return boost::algorithm::join(_error_log, "\n");
-}
-
 bool RuntimeState::log_error(const std::string& error) {
     std::lock_guard<std::mutex> l(_error_log_lock);
 
@@ -263,7 +252,8 @@ Status RuntimeState::set_mem_limit_exceeded(const std::string& msg) {
 Status RuntimeState::check_query_state(const std::string& msg) {
     // TODO: it would be nice if this also checked for cancellation, but doing so breaks
     // cases where we use Status::Cancelled("Cancelled") to indicate that the limit was reached.
-    if (thread_context()->thread_mem_tracker()->limit_exceeded()) {
+    if (thread_context()->thread_mem_tracker()->limit_exceeded() &&
+        !config::enable_query_memroy_overcommit) {
         RETURN_LIMIT_EXCEEDED(this, msg);
     }
     return query_status();
