@@ -1592,9 +1592,10 @@ private:
                 Block tmp_block;
                 size_t tmp_res_index = 0;
                 if (source_is_nullable) {
-                    tmp_block = create_block_with_nested_columns_only_args(block, arguments);
-                    tmp_res_index = tmp_block.columns();
-                    tmp_block.insert({nullptr, nested_type, ""});
+                    auto [t_block, tmp_args, tmp_res] =
+                            create_block_with_nested_columns(block, arguments, result);
+                    tmp_block = std::move(t_block);
+                    tmp_res_index = tmp_res;
 
                     /// Perform the requested conversion.
                     RETURN_IF_ERROR(
@@ -1624,7 +1625,8 @@ private:
             return [wrapper, skip_not_null_check](FunctionContext* context, Block& block,
                                                   const ColumnNumbers& arguments,
                                                   const size_t result, size_t input_rows_count) {
-                Block tmp_block = create_block_with_nested_columns(block, arguments, result);
+                auto [tmp_block, tmp_args, tmp_res] =
+                        create_block_with_nested_columns(block, arguments, result);
 
                 /// Check that all values are not-NULL.
                 /// Check can be skipped in case if LowCardinality dictionary is transformed.
@@ -1640,8 +1642,8 @@ private:
                     }
                 }
 
-                RETURN_IF_ERROR(wrapper(context, tmp_block, arguments, result, input_rows_count));
-                block.get_by_position(result).column = tmp_block.get_by_position(result).column;
+                RETURN_IF_ERROR(wrapper(context, tmp_block, tmp_args, tmp_res, input_rows_count));
+                block.get_by_position(result).column = tmp_block.get_by_position(tmp_res).column;
                 return Status::OK();
             };
         } else {
