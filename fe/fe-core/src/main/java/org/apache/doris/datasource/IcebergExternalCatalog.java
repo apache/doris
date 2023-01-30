@@ -54,7 +54,7 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         InitCatalogLog initCatalogLog = new InitCatalogLog();
         initCatalogLog.setCatalogId(id);
         initCatalogLog.setType(InitCatalogLog.Type.ICEBERG);
-        List<String> allDatabaseNames = getDbNames();
+        List<String> allDatabaseNames = listDatabaseNames();
         for (String dbName : allDatabaseNames) {
             long dbId;
             if (dbNameToId != null && dbNameToId.containsKey(dbName)) {
@@ -116,6 +116,8 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public String getIcebergCatalogType() {
         return icebergCatalogType;
     }
+
+    public abstract List<String> listDatabaseNames();
 
     @Override
     public List<String> listDatabaseNames(SessionContext ctx) {

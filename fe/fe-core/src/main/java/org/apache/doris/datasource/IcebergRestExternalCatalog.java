@@ -18,14 +18,15 @@
 package org.apache.doris.datasource;
 
 import org.apache.iceberg.CatalogProperties;
+import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.rest.RESTCatalog;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
-
-    private Map<String, String> restProperties;
 
     public  IcebergRestExternalCatalog(long catalogId, String name, String resource, String catalogType,
                                        Map<String, String> props) {
@@ -35,15 +36,17 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
 
     @Override
     protected void initLocalObjectsImpl() {
-        restProperties = new HashMap<>();
+        Map<String, String> restProperties = new HashMap<>();
         String restUri = catalogProperty.getProperties().getOrDefault(CatalogProperties.URI, "");
         restProperties.put(CatalogProperties.URI, restUri);
-    }
-
-    @Override
-    protected void init() {
         RESTCatalog restCatalog = new RESTCatalog();
         restCatalog.initialize(icebergCatalogType, restProperties);
         catalog = restCatalog;
+    }
+
+    @Override
+    public List<String> listDatabaseNames() {
+        return ((RESTCatalog) catalog).listNamespaces().stream()
+            .map(Namespace::toString).collect(Collectors.toList());
     }
 }
