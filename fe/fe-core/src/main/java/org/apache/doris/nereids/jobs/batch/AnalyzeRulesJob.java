@@ -32,9 +32,6 @@ import org.apache.doris.nereids.rules.analysis.RegisterCTE;
 import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.ResolveOrdinalInOrderByAndGroupBy;
 import org.apache.doris.nereids.rules.analysis.UserAuthentication;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.CharacterLiteralTypeCoercion;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
 import org.apache.doris.nereids.rules.rewrite.logical.HideOneRowRelationUnderUnion;
 
 import com.google.common.collect.ImmutableList;
@@ -73,9 +70,7 @@ public class AnalyzeRulesJob extends BatchRulesJob {
                     new AvgDistinctToSumDivCount(),
                     new ResolveOrdinalInOrderByAndGroupBy(),
                     new ReplaceExpressionByChildOutput(),
-                    new HideOneRowRelationUnderUnion(),
-                    new ExpressionNormalization(cascadesContext.getConnectContext(),
-                                ImmutableList.of(CharacterLiteralTypeCoercion.INSTANCE, TypeCoercion.INSTANCE))
+                    new HideOneRowRelationUnderUnion()
                 ),
                 topDownBatch(
                     new FillUpMissingSlots(),
