@@ -62,13 +62,6 @@ public abstract class AesCryptoFunction extends CryptoFunction {
         super(name, arguments);
     }
 
-    @Override
-    public void checkLegalityBeforeTypeCoercion() {
-        if (arity() == 4) {
-            CryptoFunction.checkBlockEncryptionMode(getArgument(3), AES_MODES, "aes");
-        }
-    }
-
     public static StringLiteral getDefaultBlockEncryptionMode() {
         return CryptoFunction.getDefaultBlockEncryptionMode("AES_128_ECB");
     }
