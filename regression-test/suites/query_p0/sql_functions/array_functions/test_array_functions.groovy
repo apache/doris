@@ -160,8 +160,8 @@ suite("test_array_functions") {
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName4} (
               `k1` int COMMENT "",
-              `k2` ARRAY<datetimev2(4)> COMMENT "",
-              `k3` ARRAY<datetimev2(4)> COMMENT "",
+              `k2` ARRAY<datetimev2(3)> COMMENT "",
+              `k3` ARRAY<datetimev2(3)> COMMENT "",
               `k4` ARRAY<datetimev2(6)> COMMENT ""
             ) ENGINE=OLAP
             DUPLICATE KEY(`k1`)
@@ -177,6 +177,7 @@ suite("test_array_functions") {
                                             ["2023-01-19 18:11:11.111111","2023-01-19 18:22:22.222222","2023-01-19 18:33:33.333333"]) """
 
     qt_select_array_datetimev2_1 "SELECT * FROM ${tableName4}"
+    // Todo(Yukang-Lian): will fix if function bugs in the future
     qt_select_array_datetimev2_2 "SELECT if(1,k2,k3) FROM ${tableName4}"
     qt_select_array_datetimev2_3 "SELECT if(0,k2,k3) FROM ${tableName4}"
     qt_select_array_datetimev2_4 "SELECT if(0,k2,k4) FROM ${tableName4}"

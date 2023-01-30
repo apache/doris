@@ -174,10 +174,10 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
                 } else {
                     if (WhichDataType(remove_nullable(nested_type_ptr)).is_string()) {
                         buf_ret = _buffer.push_string("'", 1);
-                        buf_ret = _add_one_cell(data, j, nested_type_ptr, _buffer);
+                        buf_ret = _add_one_cell(data, j, nested_type_ptr, _buffer, scale);
                         buf_ret = _buffer.push_string("'", 1);
                     } else {
-                        buf_ret = _add_one_cell(data, j, nested_type_ptr, _buffer);
+                        buf_ret = _add_one_cell(data, j, nested_type_ptr, _buffer, scale);
                     }
                 }
                 begin = false;
@@ -255,8 +255,7 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
             if constexpr (type == TYPE_DATETIME) {
                 char buf[64];
                 auto time_num = data[i];
-                VecDateTimeValue time_val;
-                memcpy(static_cast<void*>(&time_val), &time_num, sizeof(Int64));
+                VecDateTimeValue time_val = binary_cast<Int64, VecDateTimeValue>(time_num);
                 // TODO(zhaochun), this function has core risk
                 char* pos = time_val.to_string(buf);
                 buf_ret = _buffer.push_string(buf, pos - buf - 1);
@@ -264,16 +263,16 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
             if constexpr (type == TYPE_DATEV2) {
                 char buf[64];
                 auto time_num = data[i];
-                doris::vectorized::DateV2Value<DateV2ValueType> date_val;
-                memcpy(static_cast<void*>(&date_val), &time_num, sizeof(UInt32));
+                DateV2Value<DateV2ValueType> date_val =
+                        binary_cast<UInt32, DateV2Value<DateV2ValueType>>(time_num);
                 char* pos = date_val.to_string(buf);
                 buf_ret = _buffer.push_string(buf, pos - buf - 1);
             }
             if constexpr (type == TYPE_DATETIMEV2) {
-                char buf[64];
                 auto time_num = data[i];
-                doris::vectorized::DateV2Value<DateTimeV2ValueType> date_val;
-                memcpy(static_cast<void*>(&date_val), &time_num, sizeof(UInt64));
+                char buf[64];
+                DateV2Value<DateTimeV2ValueType> date_val =
+                        binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(time_num);
                 char* pos = date_val.to_string(buf, scale);
                 buf_ret = _buffer.push_string(buf, pos - buf - 1);
             }
@@ -294,7 +293,7 @@ Status VMysqlResultWriter::_add_one_column(const ColumnPtr& column_ptr,
 }
 
 int VMysqlResultWriter::_add_one_cell(const ColumnPtr& column_ptr, size_t row_idx,
-                                      const DataTypePtr& type, MysqlRowBuffer& buffer) {
+                                      const DataTypePtr& type, MysqlRowBuffer& buffer, int scale) {
     WhichDataType which(type->get_type_id());
     if (which.is_nullable() && column_ptr->is_null_at(row_idx)) {
         return buffer.push_null();
@@ -372,7 +371,7 @@ int VMysqlResultWriter::_add_one_cell(const ColumnPtr& column_ptr, size_t row_id
         DateV2Value<DateTimeV2ValueType> datetimev2 =
                 binary_cast<UInt64, DateV2Value<DateTimeV2ValueType>>(value);
         char buf[64];
-        char* pos = datetimev2.to_string(buf);
+        char* pos = datetimev2.to_string(buf, scale);
         return buffer.push_string(buf, pos - buf - 1);
     } else if (which.is_decimal32()) {
         DataTypePtr nested_type = type;
@@ -653,16 +652,19 @@ Status VMysqlResultWriter::append_block(Block& input_block) {
             break;
         }
         case TYPE_ARRAY: {
+            // Currently all functions only support single-level nested arrays，
+            // so we use Array's child scale to represent the scale of nested type.
+            scale = _output_vexpr_ctxs[i]->root()->type().children[0].scale;
             if (type_ptr->is_nullable()) {
                 auto& nested_type =
                         assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type();
                 auto& sub_type = assert_cast<const DataTypeArray&>(*nested_type).get_nested_type();
                 status = _add_one_column<PrimitiveType::TYPE_ARRAY, true>(column_ptr, result,
-                                                                          sub_type);
+                                                                          sub_type, scale);
             } else {
                 auto& sub_type = assert_cast<const DataTypeArray&>(*type_ptr).get_nested_type();
                 status = _add_one_column<PrimitiveType::TYPE_ARRAY, false>(column_ptr, result,
-                                                                           sub_type);
+                                                                           sub_type, scale);
             }
             break;
         }
