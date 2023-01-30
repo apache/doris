@@ -34,8 +34,6 @@
 
 namespace doris {
 
-class MemPool;
-
 struct OlapTableIndexSchema {
     int64_t index_id;
     std::vector<SlotDescriptor*> slots;

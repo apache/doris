@@ -14,24 +14,16 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
-// https://github.com/apache/impala/blob/branch-2.9.0/be/src/util/dummy-runtime-profile.h
-// and modified by Doris
 
-#pragma once
+package org.apache.doris.nereids.trees.plans.algebra;
 
-#include "common/object_pool.h"
-#include "util/runtime_profile.h"
+import org.apache.doris.nereids.trees.expressions.Slot;
 
-namespace doris {
-class DummyProfile {
-public:
-    DummyProfile() : _pool(), _profile(new RuntimeProfile("dummy", false)) {}
-    RuntimeProfile* profile() { return _profile; }
-    virtual ~DummyProfile() { delete _profile; }
+import java.util.List;
 
-private:
-    ObjectPool _pool;
-    RuntimeProfile* const _profile;
-};
-} // namespace doris
+/**
+ * Relation base interface
+ */
+public interface Relation {
+    List<Slot> getOutput();
+}

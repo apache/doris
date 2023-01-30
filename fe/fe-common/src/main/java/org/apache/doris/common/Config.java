@@ -1956,6 +1956,12 @@ public class Config extends ConfigBase {
     @ConfField(masterOnly = true)
     public static int hms_events_polling_interval_ms = 10000;
 
+    /**
+     * Maximum number of error tablets showed in broker load
+     */
+    @ConfField(masterOnly = true, mutable = true)
+    public static int max_error_tablet_of_broker_load = 3;
+
     @ConfField(mutable = false)
     public static int topn_two_phase_limit_threshold = 512;
 }
