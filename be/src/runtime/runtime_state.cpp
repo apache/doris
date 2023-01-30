@@ -147,7 +147,6 @@ RuntimeState::RuntimeState()
 }
 
 RuntimeState::~RuntimeState() {
-    _block_mgr2.reset();
     // close error log file
     if (_error_log_file != nullptr && _error_log_file->is_open()) {
         _error_log_file->close();
@@ -217,16 +216,6 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     _query_mem_tracker = std::make_shared<MemTrackerLimiter>(
             MemTrackerLimiter::Type::QUERY, fmt::format("TestQuery#Id={}", print_id(query_id)));
     return Status::OK();
-}
-
-bool RuntimeState::error_log_is_empty() {
-    std::lock_guard<std::mutex> l(_error_log_lock);
-    return (_error_log.size() > 0);
-}
-
-std::string RuntimeState::error_log() {
-    std::lock_guard<std::mutex> l(_error_log_lock);
-    return boost::algorithm::join(_error_log, "\n");
 }
 
 bool RuntimeState::log_error(const std::string& error) {

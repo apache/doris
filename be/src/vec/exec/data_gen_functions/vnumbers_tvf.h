@@ -27,7 +27,6 @@ namespace doris {
 class TextConverter;
 class TupleDescriptor;
 class RuntimeState;
-class MemPool;
 class Status;
 
 namespace vectorized {
