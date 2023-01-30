@@ -26,6 +26,7 @@
 #include "exprs/math_functions.h"
 #include "exprs/string_functions.h"
 #include "olap/options.h"
+#include "olap/storage_engine.h"
 #include "runtime/block_spill_manager.h"
 #include "runtime/exec_env.h"
 #include "runtime/fragment_mgr.h"
@@ -299,6 +300,11 @@ void Daemon::calculate_metrics_thread() {
                 DorisMetrics::instance()->system_metrics()->get_network_traffic(
                         &lst_net_send_bytes, &lst_net_receive_bytes);
             }
+
+            DorisMetrics::instance()->all_rowset_nums->set_value(
+                    StorageEngine::instance()->tablet_manager()->get_rowset_nums());
+            DorisMetrics::instance()->all_segment_nums->set_value(
+                    StorageEngine::instance()->tablet_manager()->get_segment_nums());
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(15)));
 }
