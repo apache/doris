@@ -30,6 +30,7 @@
 #include "runtime/query_fragments_ctx.h"
 #include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
+#include "util/stack_util.h"
 
 namespace doris {
 
@@ -132,7 +133,10 @@ public:
 
     bool is_cancelled() const { return _is_cancelled.load(); }
     int codegen_level() const { return _query_options.codegen_level; }
-    void set_is_cancelled(bool v) { _is_cancelled.store(v); }
+    void set_is_cancelled(bool v) { 
+        LOG(INFO) << "xx debug cacnel: " << get_stack_trace();
+        _is_cancelled.store(v);
+    }
 
     bool reached_limit() const { return _reached_limit.load(); }
     void set_reached_limit(bool v) { _reached_limit.store(v); }

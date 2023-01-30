@@ -75,12 +75,14 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     }
 
     if (state->is_cancelled()) {
+        LOG(INFO) << "xx debug: cancelled: " << print_id(state->query_id());
         return Status::Cancelled("cancelled");
     }
 
     // set eof to true if per scanner limit is reached
     // currently for query: ORDER BY key LIMIT n
     if ((_limit > 0 && _num_rows_return >= _limit) || state->reached_limit()) {
+        LOG(INFO) << "xx debug: _limit: " << _limit << ", _num_rows_return: " << _num_rows_return << ", reach: " << state->reached_limit() << ", " << print_id(state->query_id());
         *eof = true;
     }
 
