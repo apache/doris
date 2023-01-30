@@ -32,6 +32,8 @@ import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Joiner;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPut;
 import org.apache.http.entity.ContentType;
@@ -41,8 +43,6 @@ import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.json.simple.JSONObject;
-import org.json.simple.JSONValue;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -78,13 +78,14 @@ public class MysqlLoadManager {
                 InputStreamEntity entity = getInputStreamEntity(context, dataDesc.isClientLocal(), file);
                 HttpPut request = generateRequestForMySqlLoad(entity, dataDesc, database, table);
                 try (final CloseableHttpResponse response = httpclient.execute(request)) {
-                    JSONObject result = (JSONObject) JSONValue.parse(EntityUtils.toString(response.getEntity()));
-                    if (!result.get("Status").toString().equalsIgnoreCase("Success")) {
+                    JsonObject result = JsonParser.parseString(EntityUtils.toString(response.getEntity()))
+                            .getAsJsonObject();
+                    if (!result.get("Status").getAsString().equalsIgnoreCase("Success")) {
                         LOG.warn("Execute stream load for mysql data load failed with message: " + request);
                         throw new LoadException(result.get("Message").toString());
                     }
-                    loadResult.incRecords((long) result.get("NumberLoadedRows"));
-                    loadResult.incSkipped((int) result.get("NumberFilteredRows"));
+                    loadResult.incRecords(result.get("NumberLoadedRows").getAsLong());
+                    loadResult.incSkipped(result.get("NumberFilteredRows").getAsInt());
                 }
             }
         }
