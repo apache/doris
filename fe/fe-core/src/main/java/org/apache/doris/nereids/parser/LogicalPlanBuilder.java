@@ -444,7 +444,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     private LogicalPlan withCheckPolicy(LogicalPlan plan) {
-        return new LogicalCheckPolicy(plan);
+        return new LogicalCheckPolicy<>(plan);
     }
 
     @Override
@@ -1037,7 +1037,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Literal visitStringLiteral(StringLiteralContext ctx) {
         // TODO: add unescapeSQLString.
         String txt = ctx.STRING().getText();
-        String s = txt.substring(1, txt.length() - 1);
+        String s = escapeBackSlash(txt.substring(1, txt.length() - 1));
         return new VarcharLiteral(s);
     }
 
@@ -1334,6 +1334,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 joinType = JoinType.RIGHT_OUTER_JOIN;
             } else if (join.joinType().INNER() != null) {
                 joinType = JoinType.INNER_JOIN;
+            } else if (join.joinCriteria() != null) {
+                joinType = JoinType.INNER_JOIN;
             } else {
                 joinType = JoinType.CROSS_JOIN;
             }
@@ -1347,10 +1349,10 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     throw new ParseException("Invalid join hint: " + hint, hintCtx);
                 }
             }).orElse(JoinHint.NONE);
-            // TODO: natural join, lateral join, using join, union join
+            // TODO: natural join, lateral join, union join
             JoinCriteriaContext joinCriteria = join.joinCriteria();
             Optional<Expression> condition = Optional.empty();
-            List<UnboundSlot> ids = null;
+            List<Expression> ids = null;
             if (joinCriteria != null) {
                 if (join.joinType().CROSS() != null) {
                     throw new ParseException("Cross join can't be used with ON clause", joinCriteria);
@@ -1376,7 +1378,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         last,
                         plan(join.relationPrimary()));
             } else {
-                last = new UsingJoin(joinType, last, plan(join.relationPrimary()), ImmutableList.of(), ids, joinHint);
+                last = new UsingJoin<>(joinType, last,
+                        plan(join.relationPrimary()), ImmutableList.of(), ids, joinHint);
+
             }
         }
         return last;

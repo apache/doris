@@ -50,7 +50,7 @@ public abstract class SubqueryExpr extends Expression {
 
     @Override
     public DataType getDataType() throws UnboundException {
-        throw new UnboundException("not support");
+        throw new UnboundException("getDataType");
     }
 
     @Override

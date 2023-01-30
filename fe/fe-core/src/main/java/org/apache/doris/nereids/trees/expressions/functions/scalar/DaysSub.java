@@ -36,7 +36,7 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * ScalarFunction 'days_add'.
+ * ScalarFunction 'days_sub'.
  */
 public class DaysSub extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
     //When enable_date_conversion is true, we prefer to V2 signature.
