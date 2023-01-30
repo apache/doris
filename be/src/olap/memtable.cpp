@@ -56,8 +56,8 @@ MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* t
           _cur_max_version(cur_max_version) {
 #ifndef BE_TEST
     _insert_mem_tracker_use_hook = std::make_unique<MemTracker>(
-            fmt::format("MemTableHookInsert:TabletId={}", std::to_string(tablet_id())), nullptr,
-            ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker_set());
+            fmt::format("MemTableHookInsert:TabletId={}", std::to_string(tablet_id())),
+            ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker());
 #else
     _insert_mem_tracker_use_hook = std::make_unique<MemTracker>(
             fmt::format("MemTableHookInsert:TabletId={}", std::to_string(tablet_id())));

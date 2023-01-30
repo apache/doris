@@ -202,7 +202,9 @@ void Daemon::buffer_pool_gc_thread() {
 }
 
 void Daemon::memory_maintenance_thread() {
-    int64_t interval_milliseconds = config::memory_maintenance_sleep_time_ms;
+    int32_t interval_milliseconds = config::memory_maintenance_sleep_time_ms;
+    int32_t cache_gc_interval_ms = config::cache_gc_interval_s * 1000;
+    int64_t cache_gc_freed_mem = 0;
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(interval_milliseconds))) {
         if (!MemInfo::initialized()) {
@@ -217,29 +219,49 @@ void Daemon::memory_maintenance_thread() {
         doris::MemInfo::refresh_allocator_mem();
 #endif
         doris::MemInfo::refresh_proc_mem_no_allocator_cache();
-        LOG_EVERY_N(INFO, 10) << MemTrackerLimiter::process_mem_log_str();
 
         // Refresh mem tracker each type metrics.
         doris::MemTrackerLimiter::refresh_global_counter();
-        if (doris::config::memory_debug) {
-            doris::MemTrackerLimiter::print_log_process_usage("memory_debug", false);
-        }
-        doris::MemTrackerLimiter::enable_print_log_process_usage();
 
         // If system available memory is not enough, or the process memory exceeds the limit, reduce refresh interval.
         if (doris::MemInfo::sys_mem_available() <
                     doris::MemInfo::sys_mem_available_low_water_mark() ||
             doris::MemInfo::proc_mem_no_allocator_cache() >= doris::MemInfo::mem_limit()) {
-            interval_milliseconds = 100;
-            doris::MemInfo::process_full_gc();
+            doris::MemTrackerLimiter::print_log_process_usage("process full gc", false);
+            interval_milliseconds = std::min(100, config::memory_maintenance_sleep_time_ms);
+            if (doris::MemInfo::process_full_gc()) {
+                // If there is not enough memory to be gc, the process memory usage will not be printed in the next continuous gc.
+                doris::MemTrackerLimiter::enable_print_log_process_usage();
+            }
+            cache_gc_interval_ms = config::cache_gc_interval_s * 1000;
         } else if (doris::MemInfo::sys_mem_available() <
                            doris::MemInfo::sys_mem_available_warning_water_mark() ||
                    doris::MemInfo::proc_mem_no_allocator_cache() >=
                            doris::MemInfo::soft_mem_limit()) {
-            interval_milliseconds = 200;
-            doris::MemInfo::process_minor_gc();
+            doris::MemTrackerLimiter::print_log_process_usage("process minor gc", false);
+            interval_milliseconds = std::min(200, config::memory_maintenance_sleep_time_ms);
+            if (doris::MemInfo::process_minor_gc()) {
+                doris::MemTrackerLimiter::enable_print_log_process_usage();
+            }
+            cache_gc_interval_ms = config::cache_gc_interval_s * 1000;
         } else {
+            doris::MemTrackerLimiter::enable_print_log_process_usage();
             interval_milliseconds = config::memory_maintenance_sleep_time_ms;
+            if (doris::config::memory_debug) {
+                LOG_EVERY_N(WARNING, 20) << doris::MemTrackerLimiter::log_process_usage_str(
+                        "memory debug", false); // default 10s print once
+            } else {
+                LOG_EVERY_N(INFO, 10)
+                        << MemTrackerLimiter::process_mem_log_str(); // default 5s print once
+            }
+            cache_gc_interval_ms -= interval_milliseconds;
+            if (cache_gc_interval_ms < 0) {
+                cache_gc_freed_mem = 0;
+                doris::MemInfo::process_cache_gc(cache_gc_freed_mem);
+                LOG(INFO) << fmt::format("Process regular GC Cache, Free Memory {} Bytes",
+                                         cache_gc_freed_mem); // default 6s print once
+                cache_gc_interval_ms = config::cache_gc_interval_s * 1000;
+            }
         }
     }
 }

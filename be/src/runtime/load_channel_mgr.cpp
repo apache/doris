@@ -76,9 +76,8 @@ Status LoadChannelMgr::init(int64_t process_mem_limit) {
     // it's not quite helpfull to reduce memory pressure.
     // In this case we need to pick multiple load channels to reduce memory more effectively.
     _load_channel_min_mem_to_reduce = _load_hard_mem_limit * 0.1;
-    _mem_tracker = std::make_unique<MemTracker>("LoadChannelMgr");
-    _mem_tracker_set = std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::LOAD,
-                                                           "LoadChannelMgrTrackerSet");
+    _mem_tracker =
+            std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::LOAD, "LoadChannelMgr");
     REGISTER_HOOK_METRIC(load_channel_mem_consumption,
                          [this]() { return _mem_tracker->consumption(); });
     _last_success_channel = new_lru_cache("LastestSuccessChannelCache", 1024);
@@ -106,7 +105,7 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
             auto channel_mem_tracker = std::make_unique<MemTracker>(
                     fmt::format("LoadChannel#senderIp={}#loadID={}", params.sender_ip(),
                                 load_id.to_string()),
-                    nullptr, ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker_set());
+                    ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker());
 #else
             auto channel_mem_tracker = std::make_unique<MemTracker>(fmt::format(
                     "LoadChannel#senderIp={}#loadID={}", params.sender_ip(), load_id.to_string()));
@@ -345,6 +344,8 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
         if (_soft_reduce_mem_in_progress) {
             _soft_reduce_mem_in_progress = false;
         }
+        // refresh mem tacker to avoid duplicate reduce
+        _refresh_mem_tracker_without_lock();
     }
     return;
 }

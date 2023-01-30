@@ -292,11 +292,11 @@ void DeltaWriter::_reset_mem_table() {
     auto mem_table_insert_tracker = std::make_shared<MemTracker>(
             fmt::format("MemTableManualInsert:TabletId={}:MemTableNum={}#loadID={}",
                         std::to_string(tablet_id()), _mem_table_num, _load_id.to_string()),
-            nullptr, ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker_set());
+            ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker());
     auto mem_table_flush_tracker = std::make_shared<MemTracker>(
             fmt::format("MemTableHookFlush:TabletId={}:MemTableNum={}#loadID={}",
                         std::to_string(tablet_id()), _mem_table_num++, _load_id.to_string()),
-            nullptr, ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker_set());
+            ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker());
 #else
     auto mem_table_insert_tracker = std::make_shared<MemTracker>(
             fmt::format("MemTableManualInsert:TabletId={}:MemTableNum={}#loadID={}",

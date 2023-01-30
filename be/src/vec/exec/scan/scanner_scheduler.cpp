@@ -191,7 +191,6 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
 void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext* ctx,
                                      VScanner* scanner) {
     SCOPED_ATTACH_TASK(scanner->runtime_state());
-    SCOPED_CONSUME_MEM_TRACKER(scanner->runtime_state()->scanner_mem_tracker());
     Thread::set_self_name("_scanner_scan");
     scanner->update_wait_worker_timer();
     scanner->start_scan_cpu_timer();

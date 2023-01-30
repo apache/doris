@@ -69,7 +69,6 @@ Status UnionNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status UnionNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     DCHECK(_tuple_desc != nullptr);
     _materialize_exprs_evaluate_timer =
@@ -96,7 +95,6 @@ Status UnionNode::prepare(RuntimeState* state) {
 Status UnionNode::open(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     // open const expr lists.
     for (const std::vector<ExprContext*>& exprs : _const_expr_lists) {
         RETURN_IF_ERROR(Expr::open(exprs, state));
@@ -234,7 +232,6 @@ Status UnionNode::get_next_const(RuntimeState* state, RowBatch* row_batch) {
 
 Status UnionNode::get_next(RuntimeState* state, RowBatch* row_batch, bool* eos) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker());
     RETURN_IF_CANCELLED(state);
 
     if (_to_close_child_idx != -1) {

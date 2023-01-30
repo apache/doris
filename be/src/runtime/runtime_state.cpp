@@ -216,8 +216,6 @@ Status RuntimeState::init(const TUniqueId& fragment_instance_id, const TQueryOpt
 Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     _query_mem_tracker = std::make_shared<MemTrackerLimiter>(
             MemTrackerLimiter::Type::QUERY, fmt::format("TestQuery#Id={}", print_id(query_id)));
-    _scanner_mem_tracker =
-            std::make_shared<MemTracker>(fmt::format("TestScanner#QueryId={}", print_id(query_id)));
     return Status::OK();
 }
 
@@ -281,7 +279,8 @@ Status RuntimeState::set_mem_limit_exceeded(const std::string& msg) {
 Status RuntimeState::check_query_state(const std::string& msg) {
     // TODO: it would be nice if this also checked for cancellation, but doing so breaks
     // cases where we use Status::Cancelled("Cancelled") to indicate that the limit was reached.
-    if (thread_context()->thread_mem_tracker()->limit_exceeded()) {
+    if (thread_context()->thread_mem_tracker()->limit_exceeded() &&
+        !config::enable_query_memroy_overcommit) {
         RETURN_LIMIT_EXCEEDED(this, msg);
     }
     return query_status();
