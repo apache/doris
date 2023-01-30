@@ -106,6 +106,7 @@ public enum ExpressionFunctions {
                         } catch (AnalysisException e) {
                             return NullLiteral.create(dateLiteral.getType());
                         }
+                        return dateLiteral;
                     } else {
                         return invoker.invoke(constExpr.getChildrenWithoutCast());
                     }
