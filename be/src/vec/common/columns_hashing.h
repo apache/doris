@@ -64,6 +64,7 @@ struct HashMethodOneNumber : public columns_hashing_impl::HashMethodBase<
 
     /// Find key into HashTable or HashMap. If Data is HashMap and key was found, returns ptr to value, otherwise nullptr.
     using Base::find_key; /// (Data & data, size_t row, Arena & pool) -> FindResult
+    using Base::find_key_with_hash;
 
     /// Get hash value of row.
     using Base::get_hash; /// (const Data & data, size_t row, Arena & pool) -> size_t
