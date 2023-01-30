@@ -51,7 +51,7 @@ mysql> select elt(0, 'aaa', 'bbb');
 +----------------------+
 | NULL                 |
 +----------------------+
-mysql> select elt(2, 'aaa', 'bbb');
+mysql> select elt(3, 'aaa', 'bbb');
 +-----------------------+
 | elt(3, 'aaa', 'bbb')  |
 +-----------------------+
