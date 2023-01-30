@@ -40,15 +40,7 @@ public:
     bool use_default_implementation_for_nulls() const override { return false; }
 
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
-        bool is_nullable = false;
-        bool is_datev2 = false;
-        for (auto it : arguments) {
-            is_nullable = is_nullable || it.type->is_nullable();
-            is_datev2 = is_datev2 || WhichDataType(remove_nullable(it.type)).is_date_v2() ||
-                        WhichDataType(remove_nullable(it.type)).is_date_time_v2();
-        }
-        return is_nullable || !is_datev2 ? make_nullable(std::make_shared<DataTypeString>())
-                                         : std::make_shared<DataTypeString>();
+        RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(DataTypeString);
     }
 
     bool is_variadic() const override { return true; }

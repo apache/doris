@@ -643,16 +643,7 @@ public:
                         get_name());
             }
         }
-        bool is_nullable = false;
-        bool is_datev2 = false;
-        for (auto it : arguments) {
-            is_nullable = is_nullable || it.type->is_nullable();
-            is_datev2 = is_datev2 || WhichDataType(remove_nullable(it.type)).is_date_v2() ||
-                        WhichDataType(remove_nullable(it.type)).is_date_time_v2();
-        }
-        return is_nullable || !is_datev2
-                       ? make_nullable(std::make_shared<typename Transform::ReturnType>())
-                       : std::make_shared<typename Transform::ReturnType>();
+        RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(typename Transform::ReturnType);
     }
 
     bool use_default_implementation_for_constants() const override { return true; }
