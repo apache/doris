@@ -244,6 +244,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String INTERNAL_SESSION = "internal_session";
 
     public static final String PARTITIONED_HASH_JOIN_ROWS_THRESHOLD = "partitioned_hash_join_rows_threshold";
+    public static final String PARTITIONED_HASH_AGG_ROWS_THRESHOLD = "partitioned_hash_agg_rows_threshold";
 
     public static final String ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN
             = "enable_share_hash_table_for_broadcast_join";
@@ -647,6 +648,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = PARTITIONED_HASH_JOIN_ROWS_THRESHOLD)
     public int partitionedHashJoinRowsThreshold = 0;
 
+    // Use partitioned hash join if build side row count >= the threshold . 0 - the threshold is not set.
+    @VariableMgr.VarAttr(name = PARTITIONED_HASH_AGG_ROWS_THRESHOLD)
+    public int partitionedHashAggRowsThreshold = 0;
+
     @VariableMgr.VarAttr(name = ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN)
     public boolean enableShareHashTableForBroadcastJoin = true;
 
@@ -680,6 +685,7 @@ public class SessionVariable implements Serializable, Writable {
         // this.disableJoinReorder = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
         this.partitionedHashJoinRowsThreshold = random.nextBoolean() ? 8 : 1048576;
+        this.partitionedHashAggRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
         this.rewriteOrToInPredicateThreshold = random.nextInt(100) + 2;
         int randomInt = random.nextInt(4);
@@ -1415,6 +1421,7 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSkipDeletePredicate(skipDeletePredicate);
 
         tResult.setPartitionedHashJoinRowsThreshold(partitionedHashJoinRowsThreshold);
+        tResult.setPartitionedHashAggRowsThreshold(partitionedHashAggRowsThreshold);
 
         tResult.setRepeatMaxNum(repeatMaxNum);
 
