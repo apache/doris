@@ -1954,11 +1954,11 @@ public class Config extends ConfigBase {
      * HMS polling interval in milliseconds.
      */
     @ConfField(masterOnly = true)
-    public static int hms_events_polling_interval_ms = 10000
+    public static int hms_events_polling_interval_ms = 10000;
 
     /**
-     * Maximum number of error tablet showed in broker load
-     *
+     * Maximum number of error tablets showed in broker load
+     */
     @ConfField(masterOnly = true, mutable = true)
     public static int max_error_tablet_of_broker_load = 3;
 
