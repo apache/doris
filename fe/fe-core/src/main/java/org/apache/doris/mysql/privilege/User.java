@@ -18,6 +18,8 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.io.Writable;
 
@@ -96,16 +98,13 @@ public class User implements Comparable<User>, Writable {
 
     @Override
     public int compareTo(@NotNull User o) {
-        // TODO: 2023/1/28 implement
-        return 0;
+        return -userIdentity.getHost().compareTo(o.userIdentity.getHost());
     }
 
     @Override
     public void write(DataOutput out) throws IOException {
         userIdentity.write(out);
-        out.writeBoolean(isSetByDomainResolver);
-        //password
-        // TODO: 2023/1/28 userIdent only can generate by string?
+        password.write(out);
     }
 
     public static User read(DataInput in) throws IOException {
@@ -116,6 +115,13 @@ public class User implements Comparable<User>, Writable {
 
     public void readFields(DataInput in) throws IOException {
         userIdentity = UserIdentity.read(in);
-        isSetByDomainResolver = in.readBoolean();
+        password = Password.read(in);
+        try {
+            hostPattern = PatternMatcher
+                    .createMysqlPattern(userIdentity.getHost(), CaseSensibility.HOST.getCaseSensibility());
+        } catch (AnalysisException e) {
+            LOG.warn("readFields error,", e);
+        }
+        isAnyHost = userIdentity.getHost().equals(UserManager.ANY_HOST);
     }
 }

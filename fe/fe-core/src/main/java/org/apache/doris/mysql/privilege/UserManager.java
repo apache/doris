@@ -169,7 +169,6 @@ public class UserManager implements Writable {
 
     }
 
-    // TODO: 2023/1/25 err on exist
     public User createUser(UserIdentity userIdent, byte[] pwd, UserIdentity domainUserIdent, boolean setByResolver)
             throws AnalysisException {
         if (userIdentityExist(userIdent)) {
@@ -180,8 +179,6 @@ public class UserManager implements Writable {
 
         PatternMatcher hostPattern = PatternMatcher
                 .createMysqlPattern(userIdent.getHost(), CaseSensibility.HOST.getCaseSensibility());
-        //        PatternMatcher userPattern = PatternMatcher
-        //                .createFlatPattern(userIdent.getQualifiedUser(), CaseSensibility.USER.getCaseSensibility());
         User user = new User();
         user.setAnyHost(userIdent.getHost().equals(ANY_HOST));
         user.setUserIdentity(userIdent);
@@ -193,7 +190,6 @@ public class UserManager implements Writable {
             Preconditions.checkNotNull(domainUserIdent);
             user.setDomainUserIdentity(domainUserIdent);
         }
-        //        users.add(user);
         List<User> nameToLists = nameToUsers.get(userIdent.getQualifiedUser());
         if (CollectionUtils.isEmpty(nameToLists)) {
             nameToLists = Lists.newArrayList(user);

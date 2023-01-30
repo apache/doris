@@ -17,8 +17,20 @@
 
 package org.apache.doris.mysql.privilege;
 
-public class Password {
+import org.apache.doris.common.io.Writable;
+
+import java.io.DataInput;
+import java.io.DataOutput;
+import java.io.IOException;
+
+public class Password implements Writable {
     private byte[] password;
+
+    public static Password read(DataInput in) throws IOException {
+        Password pwd = new Password();
+        pwd.readFields(in);
+        return pwd;
+    }
 
     public byte[] getPassword() {
         return password;
@@ -26,5 +38,17 @@ public class Password {
 
     public void setPassword(byte[] password) {
         this.password = password;
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        out.writeInt(password.length);
+        out.write(password);
+    }
+
+    public void readFields(DataInput in) throws IOException {
+        int passwordLen = in.readInt();
+        password = new byte[passwordLen];
+        in.readFully(password);
     }
 }

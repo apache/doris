@@ -731,8 +731,7 @@ public class Auth implements Writable {
             }
             if (userIdent.isDomain()) {
                 // throw exception if this user already contains this domain
-                propertyMgr.setPasswordForDomain(userIdent, password,
-                        true /* err on exist */, errOnNonExist /* err on non exist */);
+                propertyMgr.setPasswordForDomain(userIdent, password, true, errOnNonExist);
             } else {
                 try {
                     userManager.createUser(userIdent, password, domainUserIdent, setByResolver);
@@ -1510,10 +1509,16 @@ public class Auth implements Writable {
             //create default role
             roleManager.createDefaultRole(user.getUserIdentity());
             //grant global auth
-            // TODO: 2023/1/29 how to judge table or resource ?
-            Role newRole = new Role(roleManager.getUserDefaultRoleName(user.getUserIdentity()),
-                    new TablePattern("*", "*", "*"), globalPrivEntry.privSet);
-            roleManager.addRole(newRole, false);
+            if (globalPrivEntry.privSet.containsResourcePriv()) {
+                roleManager.addRole(new Role(roleManager.getUserDefaultRoleName(user.getUserIdentity()),
+                        new ResourcePattern("*"), PrivBitSet.of(Privilege.USAGE_PRIV)), false);
+            }
+            PrivBitSet copy = globalPrivEntry.privSet.copy();
+            copy.unset(Privilege.USAGE_PRIV.getIdx());
+            if (!copy.isEmpty()) {
+                roleManager.addRole(new Role(roleManager.getUserDefaultRoleName(user.getUserIdentity()),
+                        new TablePattern("*", "*", "*"), copy), false);
+            }
             userRoleManager
                     .addUserRole(user.getUserIdentity(), roleManager.getUserDefaultRoleName(user.getUserIdentity()));
         }
