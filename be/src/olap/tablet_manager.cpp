@@ -598,6 +598,28 @@ std::vector<TabletSharedPtr> TabletManager::get_all_tablet() {
     return res;
 }
 
+uint64_t TabletManager::get_rowset_nums() {
+    uint64_t rowset_nums = 0;
+    for (const auto& tablets_shard : _tablets_shards) {
+        std::shared_lock rdlock(tablets_shard.lock);
+        for (const auto& tablet_map : tablets_shard.tablet_map) {
+            rowset_nums += tablet_map.second->version_count();
+        }
+    }
+    return rowset_nums;
+}
+
+uint64_t TabletManager::get_segment_nums() {
+    uint64_t segment_nums = 0;
+    for (const auto& tablets_shard : _tablets_shards) {
+        std::shared_lock rdlock(tablets_shard.lock);
+        for (const auto& tablet_map : tablets_shard.tablet_map) {
+            segment_nums += tablet_map.second->segment_count();
+        }
+    }
+    return segment_nums;
+}
+
 bool TabletManager::get_tablet_id_and_schema_hash_from_path(const string& path,
                                                             TTabletId* tablet_id,
                                                             TSchemaHash* schema_hash) {
