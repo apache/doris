@@ -33,7 +33,6 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
-import org.apache.doris.planner.PlannerContext;
 
 import com.google.common.collect.ImmutableList;
 
@@ -45,7 +44,7 @@ import java.util.Optional;
 /**
  * Use the visitor to iterate sub expression.
  */
-public class SubExprAnalyzer extends DefaultExpressionRewriter<PlannerContext> {
+class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
 
     private final Scope scope;
     private final CascadesContext cascadesContext;
@@ -56,7 +55,7 @@ public class SubExprAnalyzer extends DefaultExpressionRewriter<PlannerContext> {
     }
 
     @Override
-    public Expression visitNot(Not not, PlannerContext context) {
+    public Expression visitNot(Not not, CascadesContext context) {
         Expression child = not.child();
         if (child instanceof Exists) {
             return visitExistsSubquery(
@@ -69,7 +68,7 @@ public class SubExprAnalyzer extends DefaultExpressionRewriter<PlannerContext> {
     }
 
     @Override
-    public Expression visitExistsSubquery(Exists exists, PlannerContext context) {
+    public Expression visitExistsSubquery(Exists exists, CascadesContext context) {
         AnalyzedResult analyzedResult = analyzeSubquery(exists);
 
         return new Exists(analyzedResult.getLogicalPlan(),
@@ -77,7 +76,7 @@ public class SubExprAnalyzer extends DefaultExpressionRewriter<PlannerContext> {
     }
 
     @Override
-    public Expression visitInSubquery(InSubquery expr, PlannerContext context) {
+    public Expression visitInSubquery(InSubquery expr, CascadesContext context) {
         AnalyzedResult analyzedResult = analyzeSubquery(expr);
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
@@ -90,7 +89,7 @@ public class SubExprAnalyzer extends DefaultExpressionRewriter<PlannerContext> {
     }
 
     @Override
-    public Expression visitScalarSubquery(ScalarSubquery scalar, PlannerContext context) {
+    public Expression visitScalarSubquery(ScalarSubquery scalar, CascadesContext context) {
         AnalyzedResult analyzedResult = analyzeSubquery(scalar);
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
