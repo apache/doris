@@ -229,7 +229,6 @@ suite("join") {
         //analyze not finished
                     explainStr.contains("7:VAGGREGATE (update finalize)") && explainStr.contains("5:VAGGREGATE (update finalize)")
                     && explainStr.contains("4:VEXCHANGE") && explainStr.contains("3:VHASH JOIN")
-
     )
 
     test {
