@@ -21,7 +21,7 @@
 
 #include "common/logging.h"
 #include "gen_cpp/Opcodes_types.h"
-#include "olap/tuple.h"
+#include "olap/olap_tuple.h"
 #include "runtime/datetime_value.h"
 #include "runtime/primitive_type.h"
 
