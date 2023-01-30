@@ -90,6 +90,9 @@ CREATE CATALOG hive PROPERTIES (
 );
 ```
 
+Remember `krb5.conf` and `keytab` file should be placed at all `BE` nodes and `FE` nodes. The location of `keytab` file should be equal to the value of `hadoop.kerberos.keytab`.
+As default, `krb5.conf` should be placed at `/etc/krb5.conf`.
+
 To provide Hadoop KMS encrypted transmission information:
 
 ```sql
