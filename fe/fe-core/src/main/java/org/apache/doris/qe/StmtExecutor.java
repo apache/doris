@@ -1218,10 +1218,10 @@ public class StmtExecutor implements ProfileWriter {
             context.getState().setEof();
             plannerProfile.setQueryFetchResultFinishTime();
         } catch (Exception e) {
-            // notify all be cancel runing fragment 
+            // notify all be cancel runing fragment
             // in some case may block all fragment handle threads
             // details see issue https://github.com/apache/doris/issues/16203
-            LOG.warn("notify be to cancel fragment query_id:{} cause {}", DebugUtil.printId(context.queryId()), e.getMessage());
+            LOG.warn("cancel fragment query_id:{} cause {}", DebugUtil.printId(context.queryId()), e.getMessage());
             coord.cancel(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
             fetchResultSpan.recordException(e);
             throw e;
