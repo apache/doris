@@ -18,19 +18,13 @@
 package org.apache.doris.datasource;
 
 import org.apache.iceberg.CatalogProperties;
-import org.apache.iceberg.catalog.Namespace;
-import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.rest.RESTCatalog;
 
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
 
-    private RESTCatalog restCatalog;
     private Map<String, String> restProperties;
 
     public  IcebergRestExternalCatalog(long catalogId, String name, String resource, String catalogType,
@@ -40,42 +34,16 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
     }
 
     @Override
-    protected void init() {
-        restCatalog = new RESTCatalog();
-        restCatalog.initialize(icebergCatalogType, restProperties);
-    }
-
-    public org.apache.iceberg.Table getIcebergTable(String dbName, String tblName) {
-        makeSureInitialized();
-        return restCatalog.loadTable(TableIdentifier.of(dbName, tblName));
-    }
-
-    @Override
-    public List<String> listDatabaseNames(SessionContext ctx) {
-        makeSureInitialized();
-        return new ArrayList<>(dbNameToId.keySet());
-    }
-
-    @Override
-    public List<String> listTableNames(SessionContext ctx, String dbName) {
-        makeSureInitialized();
-        List<TableIdentifier> tableIdentifiers = restCatalog.listTables(Namespace.of(dbName));
-        return tableIdentifiers.stream().map(TableIdentifier::name).collect(Collectors.toList());
-    }
-
-    @Override
-    public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
-        makeSureInitialized();
-        return restCatalog.tableExists(TableIdentifier.of(dbName, tblName));
-    }
-
-    @Override
     protected void initLocalObjectsImpl() {
         restProperties = new HashMap<>();
-        String restUri = catalogProperty.getProperties().get(CatalogProperties.URI);
-        if (restUri == null) {
-            throw new IllegalArgumentException("Missing 'uri' property for rest catalog");
-        }
+        String restUri = catalogProperty.getProperties().getOrDefault(CatalogProperties.URI, "");
         restProperties.put(CatalogProperties.URI, restUri);
+    }
+
+    @Override
+    protected void init() {
+        RESTCatalog restCatalog = new RESTCatalog();
+        restCatalog.initialize(icebergCatalogType, restProperties);
+        catalog = restCatalog;
     }
 }

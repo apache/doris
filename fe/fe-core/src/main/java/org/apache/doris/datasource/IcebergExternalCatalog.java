@@ -25,15 +25,22 @@ import org.apache.doris.catalog.external.IcebergExternalDatabase;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.types.Types;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
     public static final String ICEBERG_CATALOG_TYPE = "iceberg.catalog.type";
     protected final String icebergCatalogType;
+
+    protected Catalog catalog;
 
     public IcebergExternalCatalog(long catalogId, String name, String type) {
         super(catalogId, name);
@@ -111,6 +118,12 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     }
 
     @Override
+    public List<String> listDatabaseNames(SessionContext ctx) {
+        makeSureInitialized();
+        return new ArrayList<>(dbNameToId.keySet());
+    }
+
+    @Override
     public List<Column> getSchema(String dbName, String tblName) {
         makeSureInitialized();
         List<Types.NestedField> columns = getIcebergTable(dbName, tblName).schema().columns();
@@ -123,5 +136,21 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         return tmpSchema;
     }
 
-    public abstract org.apache.iceberg.Table getIcebergTable(String dbName, String tblName);
+    @Override
+    public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
+        makeSureInitialized();
+        return catalog.tableExists(TableIdentifier.of(dbName, tblName));
+    }
+
+    @Override
+    public List<String> listTableNames(SessionContext ctx, String dbName) {
+        makeSureInitialized();
+        List<TableIdentifier> tableIdentifiers = catalog.listTables(Namespace.of(dbName));
+        return tableIdentifiers.stream().map(TableIdentifier::name).collect(Collectors.toList());
+    }
+
+    public org.apache.iceberg.Table getIcebergTable(String dbName, String tblName) {
+        makeSureInitialized();
+        return catalog.loadTable(TableIdentifier.of(dbName, tblName));
+    }
 }

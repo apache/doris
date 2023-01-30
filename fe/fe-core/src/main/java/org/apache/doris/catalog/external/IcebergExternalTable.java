@@ -20,6 +20,7 @@ package org.apache.doris.catalog.external;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.datasource.IcebergExternalCatalog;
 import org.apache.doris.thrift.THiveTable;
+import org.apache.doris.thrift.TIcebergTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
@@ -47,15 +48,19 @@ public class IcebergExternalTable extends ExternalTable {
 
     @Override
     public TTableDescriptor toThrift() {
+        List<Column> schema = getFullSchema();
         if (icebergCatalog.getIcebergCatalogType().equals("hms")) {
-            List<Column> schema = getFullSchema();
             THiveTable tHiveTable = new THiveTable(dbName, name, new HashMap<>());
             TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.HIVE_TABLE, schema.size(), 0,
                     getName(), dbName);
             tTableDescriptor.setHiveTable(tHiveTable);
             return tTableDescriptor;
         } else {
-            throw new RuntimeException("Unsupported iceberg catalog type");
+            TIcebergTable icebergTable = new TIcebergTable(dbName, name, new HashMap<>());
+            TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.ICEBERG_TABLE,
+                    schema.size(), 0, getName(), dbName);
+            tTableDescriptor.setIcebergTable(icebergTable);
+            return tTableDescriptor;
         }
     }
 }

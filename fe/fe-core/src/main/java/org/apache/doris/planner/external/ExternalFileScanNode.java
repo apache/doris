@@ -278,11 +278,11 @@ public class ExternalFileScanNode extends ExternalScanNode {
         String catalogType = icebergTable.getIcebergCatalogType();
         switch (catalogType) {
             case "hms":
+            case "rest":
                 IcebergSourceProvider icebergSource = new IcebergApiSourceProvider(
                         icebergTable, desc, columnNameToRange);
                 scanProvider = new IcebergScanProvider(icebergSource, analyzer);
                 break;
-            // TODO: support case "rest":
             default:
                 throw new UserException("Unknown iceberg catalog type: " + catalogType);
         }
