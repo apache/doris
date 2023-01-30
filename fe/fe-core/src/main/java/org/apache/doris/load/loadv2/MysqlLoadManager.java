@@ -31,8 +31,6 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONObject;
 import com.google.common.base.Joiner;
 import org.apache.http.client.methods.CloseableHttpResponse;
 import org.apache.http.client.methods.HttpPut;
@@ -43,6 +41,8 @@ import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.json.simple.JSONObject;
+import org.json.simple.JSONValue;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -78,13 +78,13 @@ public class MysqlLoadManager {
                 InputStreamEntity entity = getInputStreamEntity(context, dataDesc.isClientLocal(), file);
                 HttpPut request = generateRequestForMySqlLoad(entity, dataDesc, database, table);
                 try (final CloseableHttpResponse response = httpclient.execute(request)) {
-                    JSONObject result = JSON.parseObject(EntityUtils.toString(response.getEntity()));
-                    if (!result.getString("Status").equalsIgnoreCase("Success")) {
+                    JSONObject result = (JSONObject) JSONValue.parse(EntityUtils.toString(response.getEntity()));
+                    if (!result.get("Status").toString().equalsIgnoreCase("Success")) {
                         LOG.warn("Execute stream load for mysql data load failed with message: " + request);
-                        throw new LoadException(result.getString("Message"));
+                        throw new LoadException(result.get("Message").toString());
                     }
-                    loadResult.incRecords(result.getLong("NumberLoadedRows"));
-                    loadResult.incSkipped(result.getIntValue("NumberFilteredRows"));
+                    loadResult.incRecords((long) result.get("NumberLoadedRows"));
+                    loadResult.incSkipped((int) result.get("NumberFilteredRows"));
                 }
             }
         }

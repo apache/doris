@@ -23,9 +23,9 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.statistics.util.StatisticsUtil;
 
-import com.alibaba.fastjson2.JSON;
-import com.alibaba.fastjson2.JSONArray;
-import com.alibaba.fastjson2.JSONObject;
+import org.json.simple.JSONArray;
+import org.json.simple.JSONObject;
+import org.json.simple.JSONValue;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -95,18 +95,18 @@ class HistogramTest {
     @Test
     void testSerializeToJson() throws AnalysisException {
         String json = Histogram.serializeToJson(histogramUnderTest);
-        JSONObject histogramJson = JSON.parseObject(json);
+        JSONObject histogramJson = (JSONObject) JSONValue.parse(json);
 
-        int maxBucketSize = histogramJson.getIntValue("max_bucket_num");
+        int maxBucketSize = (int) histogramJson.get("max_bucket_num");
         Assertions.assertEquals(128, maxBucketSize);
 
-        int bucketSize = histogramJson.getIntValue("bucket_num");
+        int bucketSize = (int) histogramJson.get("bucket_num");
         Assertions.assertEquals(5, bucketSize);
 
-        float sampleRate = histogramJson.getFloat("sample_rate");
+        float sampleRate = (float) histogramJson.get("sample_rate");
         Assertions.assertEquals(1.0, sampleRate);
 
-        JSONArray jsonArray = histogramJson.getJSONArray("buckets");
+        JSONArray jsonArray = (JSONArray) histogramJson.get("buckets");
         Assertions.assertEquals(5, jsonArray.size());
 
         // test first bucket
@@ -118,13 +118,13 @@ class HistogramTest {
         boolean flag = false;
 
         for (int i = 0; i < jsonArray.size(); i++) {
-            JSONObject bucketJson = jsonArray.getJSONObject(i);
+            JSONObject bucketJson = (JSONObject) jsonArray.get(i);
             assert datatype != null;
             LiteralExpr lower = StatisticsUtil.readableValue(datatype, bucketJson.get("lower").toString());
             LiteralExpr upper = StatisticsUtil.readableValue(datatype, bucketJson.get("upper").toString());
-            int count = bucketJson.getIntValue("count");
-            int preSum = bucketJson.getIntValue("pre_sum");
-            int ndv = bucketJson.getIntValue("ndv");
+            int count = (int) bucketJson.get("count");
+            int preSum = (int) bucketJson.get("pre_sum");
+            int ndv = (int) bucketJson.get("ndv");
             if (expectedLower.equals(lower) && expectedUpper.equals(upper) && count == 9 && preSum == 0 && ndv == 1) {
                 flag = true;
                 break;
