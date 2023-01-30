@@ -34,15 +34,15 @@ import org.apache.iceberg.TableProperties;
 
 import java.util.Map;
 
-public class IcebergHiveSourceProvider implements IcebergSourceProvider {
+public class IcebergHMSSourceProvider implements IcebergSourceProvider {
 
     private HMSExternalTable hmsTable;
     private HiveScanProvider hiveScanProvider;
 
     private TupleDescriptor desc;
 
-    public IcebergHiveSourceProvider(HMSExternalTable hmsTable, TupleDescriptor desc,
-                                     Map<String, ColumnRange> columnNameToRange) {
+    public IcebergHMSSourceProvider(HMSExternalTable hmsTable, TupleDescriptor desc,
+                                    Map<String, ColumnRange> columnNameToRange) {
         this.hiveScanProvider = new HiveScanProvider(hmsTable, desc, columnNameToRange);
         this.hmsTable = hmsTable;
         this.desc = desc;

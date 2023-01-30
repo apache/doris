@@ -147,7 +147,6 @@ public class IcebergScanProvider extends QueryScanProvider {
                 expressions.add(expression);
             }
         }
-        
         TableScan scan = table.newScan();
         TableSnapshot tableSnapshot = delegate.getDesc().getRef().getTableSnapshot();
         if (tableSnapshot != null) {
@@ -231,8 +230,7 @@ public class IcebergScanProvider extends QueryScanProvider {
 
     @Override
     public List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
-        return 
-        .getIcebergTable().spec().fields().stream().map(PartitionField::name)
+        return delegate.getIcebergTable().spec().fields().stream().map(PartitionField::name)
                 .collect(Collectors.toList());
     }
 

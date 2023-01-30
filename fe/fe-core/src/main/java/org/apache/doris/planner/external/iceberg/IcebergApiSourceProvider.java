@@ -32,7 +32,6 @@ import org.apache.doris.planner.external.ExternalFileScanNode;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileScanRangeParams;
 import org.apache.doris.thrift.TFileScanSlotInfo;
-import org.apache.doris.thrift.TFileTextScanRangeParams;
 
 import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.Table;
@@ -43,7 +42,7 @@ import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
- * Get metadata from iceberg api
+ * Get metadata from iceberg api (all iceberg table like hive, rest, glue...)
  */
 public class IcebergApiSourceProvider implements IcebergSourceProvider {
 
@@ -109,13 +108,7 @@ public class IcebergApiSourceProvider implements IcebergSourceProvider {
 
     @Override
     public TFileAttributes getFileAttributes() throws UserException {
-        TFileTextScanRangeParams textParams = new TFileTextScanRangeParams();
-        // todo: for CSV or JSON
-        // textParams setLineDelimiter setColumnSeparator;
-        TFileAttributes fileAttributes = new TFileAttributes();
-        fileAttributes.setTextParams(textParams);
-        fileAttributes.setHeaderType("");
-        return fileAttributes;
+        return new TFileAttributes();
     }
 
     @Override

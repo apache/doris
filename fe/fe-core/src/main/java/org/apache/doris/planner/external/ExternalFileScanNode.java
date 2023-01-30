@@ -45,7 +45,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.iceberg.IcebergApiSourceProvider;
-import org.apache.doris.planner.external.iceberg.IcebergHiveSourceProvider;
+import org.apache.doris.planner.external.iceberg.IcebergHMSSourceProvider;
 import org.apache.doris.planner.external.iceberg.IcebergSourceProvider;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.statistics.StatisticalType;
@@ -254,7 +254,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 scanProvider = new HudiScanProvider(hmsTable, desc, columnNameToRange);
                 break;
             case ICEBERG:
-                IcebergSourceProvider hmsSource = new IcebergHiveSourceProvider(hmsTable, desc, columnNameToRange);
+                IcebergSourceProvider hmsSource = new IcebergHMSSourceProvider(hmsTable, desc, columnNameToRange);
                 scanProvider = new IcebergScanProvider(hmsSource, analyzer);
                 break;
             case HIVE:
