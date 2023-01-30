@@ -39,16 +39,13 @@ import java.util.Optional;
  * LogicalSchemaScan.
  */
 public class LogicalSchemaScan extends LogicalRelation implements Scan {
-    public LogicalSchemaScan(RelationId id,
-            TableIf table,
-            List<String> qualifier) {
+
+    public LogicalSchemaScan(RelationId id, TableIf table, List<String> qualifier) {
         super(id, PlanType.LOGICAL_SCHEMA_SCAN, table, qualifier);
     }
 
-    public LogicalSchemaScan(RelationId id,
-            TableIf table,
-            List<String> qualifier, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties) {
+    public LogicalSchemaScan(RelationId id, TableIf table, List<String> qualifier,
+            Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
         super(id, PlanType.LOGICAL_SCHEMA_SCAN, table, qualifier, groupExpression, logicalProperties);
     }
 

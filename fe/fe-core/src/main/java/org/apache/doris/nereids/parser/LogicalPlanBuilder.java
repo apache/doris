@@ -215,8 +215,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.trees.plans.logical.UsingJoin;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.IntegerType;
-import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
@@ -247,7 +245,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * Build a logical plan tree with unbounded nodes.
@@ -320,7 +317,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         String functionName = ctx.functionName.getText();
         List<Expression> arguments = ctx.expression().stream()
                 .<Expression>map(this::typedVisit)
-                .collect(Collectors.toList());
+                .collect(ImmutableList.toImmutableList());
         Function unboundFunction = new UnboundFunction(functionName, arguments);
         return new LogicalGenerate<>(ImmutableList.of(unboundFunction),
                 ImmutableList.of(new UnboundSlot(generateName, columnName)), plan);
@@ -516,7 +513,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         .map(RuleContext::getText)
                         .collect(ImmutableList.toImmutableList());
             } else {
-                target = Collections.emptyList();
+                target = ImmutableList.of();
             }
             return new UnboundStar(target);
         });
@@ -829,9 +826,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Expression visitDate_sub(Date_subContext ctx) {
         Expression timeStamp = (Expression) visit(ctx.timestamp);
         Expression amount = (Expression) visit(ctx.unitsAmount);
-        if (! (amount.getDataType() instanceof TinyIntType)) {
-            amount = new Cast(amount, IntegerType.INSTANCE);
-        }
         if (ctx.unit == null) {
             //use "DAY" as unit by default
             return new DaysSub(timeStamp, amount);
@@ -884,7 +878,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         Expression e = getExpression(context.value);
         List<WhenClause> whenClauses = context.whenClause().stream()
                 .map(w -> new WhenClause(new EqualTo(e, getExpression(w.condition)), getExpression(w.result)))
-                .collect(Collectors.toList());
+                .collect(ImmutableList.toImmutableList());
         if (context.elseExpression == null) {
             return new CaseWhen(whenClauses);
         }
@@ -907,7 +901,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public Expression visitSearchedCase(DorisParser.SearchedCaseContext context) {
         List<WhenClause> whenClauses = context.whenClause().stream()
                 .map(w -> new WhenClause(getExpression(w.condition), getExpression(w.result)))
-                .collect(Collectors.toList());
+                .collect(ImmutableList.toImmutableList());
         if (context.elseExpression == null) {
             return new CaseWhen(whenClauses);
         }
@@ -1296,11 +1290,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     if (!expressions.stream().allMatch(UnboundSlot.class::isInstance)) {
                         throw new ParseException("only column name is supported in except clause", selectColumnCtx);
                     }
-                    project = new LogicalProject<>(ImmutableList.of(new UnboundStar(Collections.emptyList())),
+                    project = new LogicalProject<>(ImmutableList.of(new UnboundStar(ImmutableList.of())),
                         expressions, aggregate, isDistinct);
                 } else {
                     List<NamedExpression> projects = getNamedExpressions(selectColumnCtx.namedExpressionSeq());
-                    project = new LogicalProject<>(projects, Collections.emptyList(), aggregate, isDistinct);
+                    project = new LogicalProject<>(projects, ImmutableList.of(), aggregate, isDistinct);
                 }
                 return new LogicalHaving<>(ExpressionUtils.extractConjunctionToSet(
                         getExpression((havingClause.get().booleanExpression()))), project);
@@ -1365,8 +1359,8 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     condition = Optional.ofNullable(getExpression(joinCriteria.booleanExpression()));
                 } else if (joinCriteria.USING() != null) {
                     ids = visitIdentifierList(joinCriteria.identifierList())
-                                    .stream().map(UnboundSlot::quoted).collect(
-                                            Collectors.toList());
+                            .stream().map(UnboundSlot::quoted)
+                            .collect(ImmutableList.toImmutableList());
                 }
             } else {
                 // keep same with original planner, allow cross/inner join
@@ -1382,8 +1376,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                         last,
                         plan(join.relationPrimary()));
             } else {
-                last = new UsingJoin(joinType, last,
-                        plan(join.relationPrimary()), Collections.emptyList(), ids, joinHint);
+                last = new UsingJoin(joinType, last, plan(join.relationPrimary()), ImmutableList.of(), ids, joinHint);
             }
         }
         return last;
@@ -1436,11 +1429,11 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     if (!expressions.stream().allMatch(UnboundSlot.class::isInstance)) {
                         throw new ParseException("only column name is supported in except clause", selectCtx);
                     }
-                    return new LogicalProject<>(ImmutableList.of(new UnboundStar(Collections.emptyList())),
+                    return new LogicalProject<>(ImmutableList.of(new UnboundStar(ImmutableList.of())),
                             expressions, input, isDistinct);
                 } else {
                     List<NamedExpression> projects = getNamedExpressions(selectCtx.namedExpressionSeq());
-                    return new LogicalProject<>(projects, Collections.emptyList(), input, isDistinct);
+                    return new LogicalProject<>(projects, ImmutableList.of(), input, isDistinct);
                 }
             }
         });

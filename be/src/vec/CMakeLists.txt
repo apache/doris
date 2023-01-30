@@ -253,7 +253,6 @@ set(VEC_FILES
   runtime/vdata_stream_recvr.cpp
   runtime/vdata_stream_mgr.cpp
   runtime/vfile_result_writer.cpp
-  runtime/vpartition_info.cpp
   runtime/vparquet_writer.cpp
   runtime/vorc_writer.cpp
   runtime/vsorted_run_merger.cpp

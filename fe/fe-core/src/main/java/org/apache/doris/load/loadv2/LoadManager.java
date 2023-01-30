@@ -30,6 +30,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherWrapper;
@@ -41,7 +42,9 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.Load;
+import org.apache.doris.load.LoadJobRowResult;
 import org.apache.doris.persist.CleanLabelOperationLog;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.DatabaseTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
@@ -86,9 +89,11 @@ public class LoadManager implements Writable {
     private LoadJobScheduler loadJobScheduler;
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    private MysqlLoadManager mysqlLoadManager;
 
     public LoadManager(LoadJobScheduler loadJobScheduler) {
         this.loadJobScheduler = loadJobScheduler;
+        this.mysqlLoadManager = new MysqlLoadManager();
     }
 
     /**
@@ -149,6 +154,11 @@ public class LoadManager implements Writable {
         } finally {
             writeUnlock();
         }
+    }
+
+    public LoadJobRowResult executeMySqlLoadJobFromStmt(ConnectContext context, LoadStmt stmt)
+            throws IOException, LoadException {
+        return mysqlLoadManager.executeMySqlLoadJobFromStmt(context, stmt);
     }
 
     public void replayCreateLoadJob(LoadJob loadJob) {

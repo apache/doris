@@ -21,6 +21,7 @@ import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.literal.StringLikeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.qe.ConnectContext;
 
@@ -70,10 +71,10 @@ public abstract class CryptoFunction extends ScalarFunction
 
     /** checkBlockEncryptionMode */
     static void checkBlockEncryptionMode(Expression blockEncryptionMode, Set<String> modes, String name) {
-        if (!(blockEncryptionMode instanceof StringLiteral)) {
+        if (!(blockEncryptionMode instanceof StringLikeLiteral)) {
             throw new AnalysisException("blockEncryptionMode should be string literal: " + blockEncryptionMode);
         }
-        String mode = ((StringLiteral) blockEncryptionMode).getValue();
+        String mode = ((StringLikeLiteral) blockEncryptionMode).getStringValue();
         if (!modes.contains(mode.toUpperCase())) {
             throw new AnalysisException("session variable block_encryption_mode is invalid with " + name);
         }

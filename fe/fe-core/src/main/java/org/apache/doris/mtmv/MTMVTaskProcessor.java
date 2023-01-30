@@ -65,14 +65,16 @@ public class MTMVTaskProcessor {
             String createStatement = generateCreateStatement(mv.clone(temporaryMVName));
             if (!executeSQL(context, createStatement)) {
                 throw new RuntimeException(
-                        "Failed to create the temporary materialized view, sql=" + createStatement + ".");
+                        "Failed to create the temporary materialized view, sql=" + createStatement + ", cause="
+                                + context.getCtx().getState().getErrorMessage() + ".");
             }
 
             // Step 2: insert data to the temporary materialized view.
             String insertSelectStatement = generateInsertSelectStmt(context, temporaryMVName);
             if (!executeSQL(context, insertSelectStatement)) {
                 throw new RuntimeException(
-                        "Failed to insert data to the temporary materialized view, sql=" + insertSelectStatement + ".");
+                        "Failed to insert data to the temporary materialized view, sql=" + insertSelectStatement
+                                + ", cause=" + context.getCtx().getState().getErrorMessage() + ".");
             }
             String insertInfoMessage = context.getCtx().getState().getInfoMessage();
 
@@ -81,7 +83,7 @@ public class MTMVTaskProcessor {
             if (!executeSQL(context, swapStatement)) {
                 throw new RuntimeException(
                         "Failed to swap the temporary materialized view with the original materialized view, sql="
-                                + swapStatement + ".");
+                                + swapStatement + ", cause=" + context.getCtx().getState().getErrorMessage() + ".");
             }
 
             context.getTask().setMessage(insertInfoMessage);

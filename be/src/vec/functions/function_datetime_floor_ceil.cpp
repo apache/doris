@@ -426,7 +426,6 @@ struct TimeRound {
         bool is_neg = step < 0;
         TimeInterval interval(Impl::Unit, is_neg ? -step : step, is_neg);
         is_null = !ts1.template date_add_interval<Impl::Unit>(interval);
-        return;
     }
 
     template <typename NativeType, typename DateValueType>

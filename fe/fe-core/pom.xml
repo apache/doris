@@ -77,7 +77,7 @@ under the License.
             <dependency>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-dependencies</artifactId>
-                <version>2.7.3</version>
+                <version>${spring.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -318,11 +318,7 @@ under the License.
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-annotations</artifactId>
         </dependency>
-        <!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.core/jackson-databind -->
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-        </dependency>
+
         <!-- https://mvnrepository.com/artifact/com.fasterxml.jackson.dataformat/jackson-dataformat-yaml -->
         <dependency>
             <groupId>com.fasterxml.jackson.dataformat</groupId>
@@ -496,6 +492,7 @@ under the License.
             <groupId>com.amazonaws</groupId>
             <artifactId>aws-java-sdk-dynamodb</artifactId>
         </dependency>
+
         <!-- https://mvnrepository.com/artifact/org.springframework.boot/spring-boot-starter-web -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
@@ -615,11 +612,6 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
-        <!-- https://mvnrepository.com/artifact/io.netty/netty-all -->
-        <dependency>
-            <groupId>io.netty</groupId>
-            <artifactId>netty-all</artifactId>
-        </dependency>
         <dependency>
             <groupId>org.apache.hive</groupId>
             <artifactId>hive-exec</artifactId>
@@ -677,11 +669,6 @@ under the License.
                     <groupId>com.fasterxml.jackson.core</groupId>
                 </exclusion>               
             </exclusions>
-        </dependency>
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-            <version>2.14.1</version>
         </dependency>
         <dependency>
             <groupId>org.apache.hadoop</groupId>
@@ -840,6 +827,7 @@ under the License.
                     <!--<outputDirectory>src/main/java</outputDirectory>-->
                 </configuration>
             </plugin>
+            
             <!--jflex-->
             <plugin>
                 <groupId>de.jflex</groupId>
