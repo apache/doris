@@ -40,6 +40,7 @@ import java.util.Optional;
 
 /** PhysicalStorageLayerAggregate */
 public class PhysicalStorageLayerAggregate extends PhysicalRelation {
+
     private final PhysicalRelation relation;
     private final PushDownAggOp aggOp;
 

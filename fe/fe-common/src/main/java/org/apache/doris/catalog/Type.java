@@ -283,6 +283,13 @@ public abstract class Type {
         return isScalarType(PrimitiveType.DATETIMEV2);
     }
 
+    public boolean isDateLike() {
+        return isScalarType(PrimitiveType.DATETIME)
+                || isScalarType(PrimitiveType.DATETIMEV2)
+                || isScalarType(PrimitiveType.DATE)
+                || isScalarType(PrimitiveType.DATEV2);
+    }
+
     public boolean isTimeV2() {
         return isScalarType(PrimitiveType.TIMEV2);
     }
@@ -1697,13 +1704,9 @@ public abstract class Type {
         }
     }
 
-    public int getStorageLayoutBytes() {
-        return 0;
-    }
-
     public int getIndexSize() {
         if (this.getPrimitiveType() == PrimitiveType.CHAR) {
-            return ((ScalarType) this).getLength();
+            return this.getLength();
         } else {
             return this.getPrimitiveType().getOlapColumnIndexSize();
         }

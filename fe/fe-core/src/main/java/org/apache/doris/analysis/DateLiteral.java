@@ -546,6 +546,7 @@ public class DateLiteral extends LiteralExpr {
         if (type.isDate() || type.isDateV2()) {
             return String.format("%04d-%02d-%02d", year, month, day);
         } else if (type.isDatetimeV2()) {
+            int scale = ((ScalarType) type).getScalarScale();
             long ms = Double.valueOf(microsecond / (int) (Math.pow(10, 6 - ((ScalarType) type).getScalarScale()))
                     * (Math.pow(10, 6 - ((ScalarType) type).getScalarScale()))).longValue();
             String tmp = String.format("%04d-%02d-%02d %02d:%02d:%02d",
@@ -553,7 +554,7 @@ public class DateLiteral extends LiteralExpr {
             if (ms == 0) {
                 return tmp;
             }
-            return tmp + String.format(".%06d", ms);
+            return tmp + String.format(".%06d", ms).substring(0, scale + 1);
         } else {
             return String.format("%04d-%02d-%02d %02d:%02d:%02d", year, month, day, hour, minute, second);
         }
@@ -1673,5 +1674,50 @@ public class DateLiteral extends LiteralExpr {
         minute = 0;
         second = 0;
         microsecond = 0;
+    }
+
+    @Override
+    public void setupParamFromBinary(ByteBuffer data) {
+        int len = getParmLen(data);
+        if (type.getPrimitiveType() == PrimitiveType.DATE) {
+            if (len >= 4) {
+                year = (int) data.getChar();
+                month = (int) data.get();
+                day = (int) data.get();
+                hour = 0;
+                minute = 0;
+                second = 0;
+                microsecond = 0;
+            } else {
+                copy(MIN_DATE);
+            }
+            return;
+        }
+        if (type.getPrimitiveType() == PrimitiveType.DATETIME) {
+            if (len >= 4) {
+                year = (int) data.getChar();
+                month = (int) data.get();
+                day = (int) data.get();
+                microsecond = 0;
+                if (len > 4) {
+                    hour = (int) data.get();
+                    minute = (int) data.get();
+                    second = (int) data.get();
+                } else {
+                    hour = 0;
+                    minute = 0;
+                    second = 0;
+                    microsecond = 0;
+                }
+                if (len > 7) {
+                    microsecond = data.getInt();
+                    // choose highest scale to keep microsecond value
+                    type = ScalarType.createDatetimeV2Type(6);
+                }
+            } else {
+                copy(MIN_DATETIME);
+            }
+            return;
+        }
     }
 }

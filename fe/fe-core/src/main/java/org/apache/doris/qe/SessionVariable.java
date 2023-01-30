@@ -254,6 +254,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String EXTERNAL_SORT_BYTES_THRESHOLD = "external_sort_bytes_threshold";
 
+    public static final String ENABLE_TWO_PHASE_READ_OPT = "enable_two_phase_read_opt";
+    public static final String TWO_PHASE_READ_OPT_LIMIT_THRESHOLD = "two_phase_read_opt_limit_threshold";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -658,6 +661,14 @@ public class SessionVariable implements Serializable, Writable {
     public static final long MIN_EXTERNAL_SORT_BYTES_THRESHOLD = 134217728;
     @VariableMgr.VarAttr(name = EXTERNAL_SORT_BYTES_THRESHOLD, checker = "checkExternalSortBytesThreshold")
     public long externalSortBytesThreshold = 0;
+
+    // Whether enable two phase read optimization
+    // 1. read related rowids along with necessary column data
+    // 2. spawn fetch RPC to other nodes to get related data by sorted rowids
+    @VariableMgr.VarAttr(name = ENABLE_TWO_PHASE_READ_OPT)
+    public boolean enableTwoPhaseReadOpt = true;
+    @VariableMgr.VarAttr(name = TWO_PHASE_READ_OPT_LIMIT_THRESHOLD)
+    public long twoPhaseReadLimitThreshold = 512;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -1144,7 +1155,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean enablePipelineEngine() {
-        return enablePipelineEngine && enableVectorizedEngine;
+        return enablePipelineEngine;
     }
 
     public void setEnablePipelineEngine(boolean enablePipelineEngine) {
@@ -1279,7 +1290,7 @@ public class SessionVariable implements Serializable, Writable {
      * @return true if both nereids and vectorized engine are enabled
      */
     public boolean isEnableNereidsPlanner() {
-        return enableNereidsPlanner && enableVectorizedEngine;
+        return enableNereidsPlanner;
     }
 
     public void setEnableNereidsPlanner(boolean enableNereidsPlanner) {
@@ -1365,7 +1376,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setQueryTimeout(queryTimeoutS);
         tResult.setIsReportSuccess(enableProfile);
         tResult.setCodegenLevel(codegenLevel);
-        tResult.setEnableVectorizedEngine(enableVectorizedEngine);
         tResult.setBeExecVersion(Config.be_exec_version);
         tResult.setEnablePipelineEngine(enablePipelineEngine);
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);

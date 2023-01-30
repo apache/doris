@@ -42,6 +42,9 @@ public class CheckPolicy implements AnalysisRuleFactory {
                 logicalCheckPolicy(logicalSubQueryAlias()).then(checkPolicy -> checkPolicy.child())
             ),
             RuleType.CHECK_ROW_POLICY.build(
+                    logicalCheckPolicy(logicalFilter()).then(checkPolicy -> checkPolicy.child())
+            ),
+            RuleType.CHECK_ROW_POLICY.build(
                 logicalCheckPolicy(logicalRelation()).thenApply(ctx -> {
                     LogicalCheckPolicy<LogicalRelation> checkPolicy = ctx.root;
                     LogicalRelation relation = checkPolicy.child();

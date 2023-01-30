@@ -20,7 +20,7 @@ package org.apache.doris.load;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.load.loadv2.dpp.DppResult;
+import org.apache.doris.sparkdpp.DppResult;
 import org.apache.doris.thrift.TEtlState;
 
 import com.google.common.base.Strings;

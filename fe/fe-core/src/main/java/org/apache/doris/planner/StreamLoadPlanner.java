@@ -172,30 +172,26 @@ public class StreamLoadPlanner {
         }
 
         // create scan node
-        if (Config.enable_new_load_scan_node && Config.enable_vectorized_load) {
-            ExternalFileScanNode fileScanNode = new ExternalFileScanNode(new PlanNodeId(0), scanTupleDesc);
-            // 1. create file group
-            DataDescription dataDescription = new DataDescription(destTable.getName(), taskInfo);
-            dataDescription.analyzeWithoutCheckPriv(db.getFullName());
-            BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription);
-            fileGroup.parse(db, dataDescription);
-            // 2. create dummy file status
-            TBrokerFileStatus fileStatus = new TBrokerFileStatus();
-            if (taskInfo.getFileType() == TFileType.FILE_LOCAL) {
-                fileStatus.setPath(taskInfo.getPath());
-                fileStatus.setIsDir(false);
-                fileStatus.setSize(taskInfo.getFileSize()); // must set to -1, means stream.
-            } else {
-                fileStatus.setPath("");
-                fileStatus.setIsDir(false);
-                fileStatus.setSize(-1); // must set to -1, means stream.
-            }
-            fileScanNode.setLoadInfo(loadId, taskInfo.getTxnId(), destTable, BrokerDesc.createForStreamLoad(),
-                    fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType());
-            scanNode = fileScanNode;
+        ExternalFileScanNode fileScanNode = new ExternalFileScanNode(new PlanNodeId(0), scanTupleDesc);
+        // 1. create file group
+        DataDescription dataDescription = new DataDescription(destTable.getName(), taskInfo);
+        dataDescription.analyzeWithoutCheckPriv(db.getFullName());
+        BrokerFileGroup fileGroup = new BrokerFileGroup(dataDescription);
+        fileGroup.parse(db, dataDescription);
+        // 2. create dummy file status
+        TBrokerFileStatus fileStatus = new TBrokerFileStatus();
+        if (taskInfo.getFileType() == TFileType.FILE_LOCAL) {
+            fileStatus.setPath(taskInfo.getPath());
+            fileStatus.setIsDir(false);
+            fileStatus.setSize(taskInfo.getFileSize()); // must set to -1, means stream.
         } else {
-            scanNode = new StreamLoadScanNode(loadId, new PlanNodeId(0), scanTupleDesc, destTable, taskInfo);
+            fileStatus.setPath("");
+            fileStatus.setIsDir(false);
+            fileStatus.setSize(-1); // must set to -1, means stream.
         }
+        fileScanNode.setLoadInfo(loadId, taskInfo.getTxnId(), destTable, BrokerDesc.createForStreamLoad(),
+                fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType());
+        scanNode = fileScanNode;
 
         scanNode.init(analyzer);
         scanNode.finalize(analyzer);

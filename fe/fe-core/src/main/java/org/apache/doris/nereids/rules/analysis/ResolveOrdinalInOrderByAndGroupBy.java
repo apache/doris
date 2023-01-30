@@ -60,7 +60,7 @@ public class ResolveOrdinalInOrderByAndGroupBy implements AnalysisRuleFactory {
                                     orderKeysWithoutOrd.add(k);
                                 }
                             }
-                            return sort.withOrderByKey(orderKeysWithoutOrd);
+                            return sort.withOrderKeys(orderKeysWithoutOrd);
                         })
                 ))
                 .add(RuleType.RESOLVE_ORDINAL_IN_GROUP_BY.build(

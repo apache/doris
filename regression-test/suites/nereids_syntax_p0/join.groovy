@@ -204,11 +204,6 @@ suite("join") {
         insert into outerjoin_D values( 1 );
     """
 
-    explain {
-        sql("select count(*) from outerjoin_A_join A left join outerjoin_B_join B on A.a = B.a where B.a in (select a from outerjoin_C_join);")
-        contains "INNER JOIN"
-    }
-
     def explainStr =
         sql(""" explain SELECT count(1)
                 FROM 
@@ -236,6 +231,13 @@ suite("join") {
         && explainStr.contains("5:VAGGREGATE (update finalize)") 
         && explainStr.contains("4:VEXCHANGE")
         && explainStr.contains("3:VHASH JOIN")
-    )    
-}
+    )
 
+    test {
+        sql"""select * from test_table_a a cross join test_table_b b on a.wtid > b.wtid"""
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
+    }
+}

@@ -31,7 +31,7 @@ namespace vectorized {
 class Block;
 }
 
-class POlapTableIndexSchema;
+struct OlapTableIndexSchema;
 
 class TabletColumn {
 public:
@@ -47,13 +47,16 @@ public:
     void to_schema_pb(ColumnPB* column) const;
 
     int32_t unique_id() const { return _unique_id; }
+    void set_unique_id(int32_t id) { _unique_id = id; }
     std::string name() const { return _col_name; }
     void set_name(std::string col_name) { _col_name = col_name; }
     FieldType type() const { return _type; }
+    void set_type(FieldType type) { _type = type; }
     bool is_key() const { return _is_key; }
     bool is_nullable() const { return _is_nullable; }
     bool is_bf_column() const { return _is_bf_column; }
     bool has_bitmap_index() const { return _has_bitmap_index; }
+    bool is_array_type() const { return _type == OLAP_FIELD_TYPE_ARRAY; }
     bool is_length_variable_type() const {
         return _type == OLAP_FIELD_TYPE_CHAR || _type == OLAP_FIELD_TYPE_VARCHAR ||
                _type == OLAP_FIELD_TYPE_STRING || _type == OLAP_FIELD_TYPE_HLL ||
@@ -64,6 +67,9 @@ public:
     size_t length() const { return _length; }
     size_t index_length() const { return _index_length; }
     void set_index_length(size_t index_length) { _index_length = index_length; }
+    void set_is_key(bool is_key) { _is_key = is_key; }
+    void set_is_nullable(bool is_nullable) { _is_nullable = is_nullable; }
+    void set_has_default_value(bool has) { _has_default_value = has; }
     FieldAggregationMethod aggregation() const { return _aggregation; }
     vectorized::AggregateFunctionPtr get_aggregate_function(vectorized::DataTypes argument_types,
                                                             std::string suffix) const;
@@ -164,6 +170,8 @@ public:
     void init_from_pb(const TabletSchemaPB& schema);
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     void append_column(TabletColumn column, bool is_dropped_column = false);
+    // Must make sure the row column is always the last column
+    void add_row_column();
     void copy_from(const TabletSchema& tablet_schema);
     std::string to_key() const;
     int64_t mem_size() const { return _mem_size; };
@@ -193,6 +201,8 @@ public:
         _disable_auto_compaction = disable_auto_compaction;
     }
     bool disable_auto_compaction() const { return _disable_auto_compaction; }
+    void set_store_row_column(bool store_row_column) { _store_row_column = store_row_column; }
+    bool store_row_column() const { return _store_row_column; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
     void set_delete_sign_idx(int32_t delete_sign_idx) { _delete_sign_idx = delete_sign_idx; }
     bool has_sequence_col() const { return _sequence_col_idx != -1; }
@@ -215,7 +225,7 @@ public:
     vectorized::Block create_block(bool ignore_dropped_col = true) const;
 
     void build_current_tablet_schema(int64_t index_id, int32_t version,
-                                     const POlapTableIndexSchema& index,
+                                     const OlapTableIndexSchema* index,
                                      const TabletSchema& out_tablet_schema);
 
     // Merge columns that not exit in current schema, these column is dropped in current schema
@@ -232,6 +242,8 @@ public:
     void merge_dropped_columns(std::shared_ptr<TabletSchema> src_schema);
 
     bool is_dropped_column(const TabletColumn& col) const;
+
+    static const TabletColumn& row_oriented_column();
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
@@ -262,6 +274,7 @@ private:
     int32_t _schema_version = -1;
     bool _disable_auto_compaction = false;
     int64_t _mem_size = 0;
+    bool _store_row_column = false;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

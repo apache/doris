@@ -128,7 +128,7 @@ static bool _eval_in_val(const ColumnMinMaxParams& params) {
     case TYPE_CHAR: {
         std::vector<std::string> in_values;
         for (auto val : params.in_pred_values) {
-            in_values.emplace_back(((StringValue*)val)->to_string());
+            in_values.emplace_back(((StringRef*)val)->to_string());
         }
         if (in_values.empty()) {
             return false;
@@ -216,7 +216,7 @@ static bool _eval_eq(const ColumnMinMaxParams& params) {
     case TYPE_STRING:
     case TYPE_VARCHAR:
     case TYPE_CHAR: {
-        std::string conjunct_value = ((StringValue*)params.value)->to_string();
+        std::string conjunct_value = ((StringRef*)params.value)->to_string();
         if (strcmp(conjunct_value.data(), params.min_bytes) < 0 ||
             strcmp(conjunct_value.data(), params.max_bytes) > 0) {
             return true;
@@ -292,7 +292,7 @@ static bool _eval_gt(const ColumnMinMaxParams& params, bool is_eq) {
     case TYPE_STRING:
     case TYPE_VARCHAR:
     case TYPE_CHAR: {
-        std::string conjunct_value = ((StringValue*)params.value)->to_string();
+        std::string conjunct_value = ((StringRef*)params.value)->to_string();
         if (!is_eq && strcmp(params.max_bytes, conjunct_value.data()) <= 0) {
             return true;
         } else if (strcmp(params.max_bytes, conjunct_value.data()) < 0) {
@@ -343,7 +343,7 @@ static bool _eval_lt(const ColumnMinMaxParams& params, bool is_eq) {
     case TYPE_STRING:
     case TYPE_VARCHAR:
     case TYPE_CHAR: {
-        std::string conjunct_value = ((StringValue*)params.value)->to_string();
+        std::string conjunct_value = ((StringRef*)params.value)->to_string();
         if (!is_eq && strcmp(params.min_bytes, conjunct_value.data()) >= 0) {
             return true;
         } else if (strcmp(params.min_bytes, conjunct_value.data()) > 0) {

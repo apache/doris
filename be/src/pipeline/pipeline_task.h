@@ -110,6 +110,9 @@ public:
 
     Status execute(bool* eos);
 
+    // Try to close this pipeline task. If there are still some resources need to be released after `try_close`,
+    // this task will enter the `PENDING_FINISH` state.
+    Status try_close();
     // if the pipeline create a bunch of pipeline task
     // must be call after all pipeline task is finish to release resource
     Status close();

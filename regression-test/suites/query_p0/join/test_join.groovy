@@ -1227,7 +1227,15 @@ suite("test_join", "query,p0") {
     sql"""drop table ${table_3}"""
     sql"""drop table ${table_4}"""
 
+    qt_sql """select k1 from baseall left semi join test on true order by k1;"""
+    qt_sql """select k1 from baseall left semi join test on false order by k1;"""
+    qt_sql """select k1 from baseall left anti join test on true order by k1;"""
+    qt_sql """select k1 from baseall left anti join test on false order by k1;"""
 
+    qt_sql """select k1 from test right semi join baseall on true order by k1;"""
+    qt_sql """select k1 from test right semi join baseall on false order by k1;"""
+    qt_sql """select k1 from test right anti join baseall on true order by k1;"""
+    qt_sql """select k1 from test right anti join baseall on false order by k1;"""
 
     // test bucket shuffle join, github issue #6171
     sql"""create database if not exists test_issue_6171"""

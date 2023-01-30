@@ -53,4 +53,15 @@ suite("nereids_explain") {
         sql("plan with s as (select * from supplier) select * from s as s1, s as s2")
         contains "*LogicalSubQueryAlias"
     }
+
+    explain {
+        sql """
+        verbose 
+        select case 
+            when 1=1 then cast(1 as int) 
+            when 1>1 then cast(1 as float)
+            else 0.0 end;
+            """
+        contains "SlotDescriptor{id=0, col=null, colUniqueId=null, type=FLOAT, nullable=false}"
+    }
 }

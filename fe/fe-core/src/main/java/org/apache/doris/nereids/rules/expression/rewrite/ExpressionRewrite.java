@@ -41,7 +41,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * expression of plan rewrite rule.
@@ -82,7 +81,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 List<Function> generators = generate.getGenerators();
                 List<Function> newGenerators = generators.stream()
                         .map(func -> (Function) rewriter.rewrite(func))
-                        .collect(Collectors.toList());
+                        .collect(ImmutableList.toImmutableList());
                 if (generators.equals(newGenerators)) {
                     return generate;
                 }
@@ -99,7 +98,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                 List<NamedExpression> newProjects = projects
                         .stream()
                         .map(expr -> (NamedExpression) rewriter.rewrite(expr))
-                        .collect(Collectors.toList());
+                        .collect(ImmutableList.toImmutableList());
                 if (projects.equals(newProjects)) {
                     return oneRowRelation;
                 }
@@ -114,8 +113,8 @@ public class ExpressionRewrite implements RewriteRuleFactory {
             return logicalProject().then(project -> {
                 List<NamedExpression> projects = project.getProjects();
                 List<NamedExpression> newProjects = projects.stream()
-                        .map(expr -> (NamedExpression) rewriter.rewrite(expr)).collect(Collectors.toList());
-                if (projects.containsAll(newProjects)) {
+                        .map(expr -> (NamedExpression) rewriter.rewrite(expr)).collect(ImmutableList.toImmutableList());
+                if (projects.equals(newProjects)) {
                     return project;
                 }
                 return new LogicalProject<>(newProjects, project.child());
@@ -146,8 +145,8 @@ public class ExpressionRewrite implements RewriteRuleFactory {
 
                 List<NamedExpression> outputExpressions = agg.getOutputExpressions();
                 List<NamedExpression> newOutputExpressions = outputExpressions.stream()
-                        .map(expr -> (NamedExpression) rewriter.rewrite(expr)).collect(Collectors.toList());
-                if (outputExpressions.containsAll(newOutputExpressions) && groupByExprs.containsAll(newGroupByExprs)) {
+                        .map(expr -> (NamedExpression) rewriter.rewrite(expr)).collect(ImmutableList.toImmutableList());
+                if (outputExpressions.equals(newOutputExpressions)) {
                     return agg;
                 }
                 return new LogicalAggregate<>(newGroupByExprs, newOutputExpressions,
@@ -201,7 +200,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                     Expression expression = rewriter.rewrite(k.getExpr());
                     rewrittenOrderKeys.add(new OrderKey(expression, k.isAsc(), k.isNullFirst()));
                 }
-                return sort.withOrderByKey(rewrittenOrderKeys);
+                return sort.withOrderKeys(rewrittenOrderKeys);
             }).toRule(RuleType.REWRITE_SORT_EXPRESSION);
         }
     }
@@ -215,7 +214,7 @@ public class ExpressionRewrite implements RewriteRuleFactory {
                     rewrittenExpr.add(rewriter.rewrite(e));
                 }
                 return having.withExpressions(rewrittenExpr);
-            }).toRule(RuleType.REWRITE_HAVING_EXPRESSSION);
+            }).toRule(RuleType.REWRITE_HAVING_EXPRESSION);
         }
     }
 
@@ -223,14 +222,17 @@ public class ExpressionRewrite implements RewriteRuleFactory {
         @Override
         public Rule build() {
             return logicalRepeat().then(r -> {
-                List<List<Expression>> groupingExprs = new ArrayList<>();
+                ImmutableList.Builder<List<Expression>> groupingExprs = ImmutableList.builder();
                 for (List<Expression> expressions : r.getGroupingSets()) {
-                    groupingExprs.add(expressions.stream().map(rewriter::rewrite).collect(Collectors.toList()));
+                    groupingExprs.add(expressions.stream().map(rewriter::rewrite)
+                            .collect(ImmutableList.toImmutableList()));
                 }
-                return r.withGroupSetsAndOutput(groupingExprs,
-                        r.getOutputExpressions().stream().map(rewriter::rewrite).map(e -> (NamedExpression) e)
-                                .collect(Collectors.toList()));
-            }).toRule(RuleType.REWRITE_REPEAT_EXPRESSSION);
+                return r.withGroupSetsAndOutput(groupingExprs.build(),
+                        r.getOutputExpressions().stream()
+                                .map(rewriter::rewrite)
+                                .map(e -> (NamedExpression) e)
+                                .collect(ImmutableList.toImmutableList()));
+            }).toRule(RuleType.REWRITE_REPEAT_EXPRESSION);
         }
     }
 }

@@ -26,6 +26,7 @@ import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -268,7 +269,7 @@ public class CooldownJob implements Writable {
                     replayCreateJob(replayedJob);
                     break;
                 case SEND_CONF:
-                    replayPengingJob();
+                    replayPendingJob();
                     break;
                 case FINISHED:
                     replayRunningJob(replayedJob);
@@ -291,8 +292,11 @@ public class CooldownJob implements Writable {
     }
 
     public static CooldownJob read(DataInput in) throws IOException {
-        String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, CooldownJob.class);
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_115) {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, CooldownJob.class);
+        }
+        return null;
     }
 
     /**
@@ -317,7 +321,7 @@ public class CooldownJob implements Writable {
     /**
      * Replay job in PENDING state. set cooldown type in Replica
      */
-    private void replayPengingJob() throws CooldownException {
+    private void replayPendingJob() throws CooldownException {
         for (CooldownConf cooldownConf : cooldownConfList) {
             setCooldownReplica(cooldownConf.getDbId(), cooldownConf.getTableId(), cooldownConf.getPartitionId(),
                     cooldownConf.getIndexId(), cooldownConf.getTabletId(), cooldownConf.getCooldownReplicaId(),

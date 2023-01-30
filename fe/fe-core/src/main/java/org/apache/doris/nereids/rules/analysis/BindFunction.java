@@ -53,11 +53,11 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * BindFunction.
@@ -163,7 +163,7 @@ public class BindFunction implements AnalysisRuleFactory {
         ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(ctx);
         return exprList.stream()
             .map(expr -> bindAndTypeCoercion(expr, ctx.getEnv(), rewriteContext))
-            .collect(Collectors.toList());
+            .collect(ImmutableList.toImmutableList());
     }
 
     private <E extends Expression> E bindAndTypeCoercion(E expr, Env env, ExpressionRewriteContext ctx) {
@@ -177,7 +177,7 @@ public class BindFunction implements AnalysisRuleFactory {
         ExpressionRewriteContext rewriteContext = new ExpressionRewriteContext(ctx);
         return exprSet.stream()
                 .map(expr -> bindAndTypeCoercion(expr, ctx.getEnv(), rewriteContext))
-                .collect(Collectors.toSet());
+                .collect(ImmutableSet.toImmutableSet());
     }
 
     /**
@@ -214,12 +214,14 @@ public class BindFunction implements AnalysisRuleFactory {
         public BoundFunction bindTableGeneratingFunction(UnboundFunction unboundFunction,
                 StatementContext statementContext) {
             Env env = statementContext.getConnectContext().getEnv();
+            List<Expression> boundArguments = unboundFunction.getArguments().stream()
+                    .map(e -> INSTANCE.bind(e, env))
+                    .collect(ImmutableList.toImmutableList());
             FunctionRegistry functionRegistry = env.getFunctionRegistry();
 
             String functionName = unboundFunction.getName();
-            FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder(
-                    functionName, unboundFunction.getArguments());
-            BoundFunction function = functionBuilder.build(functionName, unboundFunction.getArguments());
+            FunctionBuilder functionBuilder = functionRegistry.findFunctionBuilder(functionName, boundArguments);
+            BoundFunction function = functionBuilder.build(functionName, boundArguments);
             if (!(function instanceof TableGeneratingFunction)) {
                 throw new AnalysisException(function.toSql() + " is not a TableGeneratingFunction");
             }

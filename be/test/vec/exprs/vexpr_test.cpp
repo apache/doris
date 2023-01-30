@@ -32,7 +32,6 @@
 #include "runtime/primitive_type.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tuple.h"
-#include "runtime/tuple_row.h"
 #include "testutil/desc_tbl_builder.h"
 #include "vec/exprs/vliteral.h"
 #include "vec/runtime/vdatetime_value.h"
@@ -57,8 +56,11 @@ TEST(TEST_VEXPR, ABSTEST) {
                                      doris::TQueryGlobals(), nullptr);
     runtime_stat.init_mem_trackers();
     runtime_stat.set_desc_tbl(desc_tbl);
-    context->prepare(&runtime_stat, row_desc);
-    context->open(&runtime_stat);
+    auto state = doris::Status::OK();
+    state = context->prepare(&runtime_stat, row_desc);
+    ASSERT_TRUE(state.ok());
+    state = context->open(&runtime_stat);
+    ASSERT_TRUE(state.ok());
     context->close(&runtime_stat);
 }
 
@@ -84,8 +86,11 @@ TEST(TEST_VEXPR, ABSTEST2) {
     DescriptorTbl desc_tbl;
     desc_tbl._slot_desc_map[0] = tuple_desc->slots()[0];
     runtime_stat.set_desc_tbl(&desc_tbl);
-    context->prepare(&runtime_stat, row_desc);
-    context->open(&runtime_stat);
+    auto state = Status::OK();
+    state = context->prepare(&runtime_stat, row_desc);
+    ASSERT_TRUE(state.ok());
+    state = context->open(&runtime_stat);
+    ASSERT_TRUE(state.ok());
     context->close(&runtime_stat);
 }
 

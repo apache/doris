@@ -44,7 +44,6 @@
 
 namespace doris {
 
-class ColumnBlock;
 class TypeInfo;
 class BlockCompressionCodec;
 class WrapperField;
@@ -259,20 +258,10 @@ public:
     // then returns false.
     virtual Status seek_to_ordinal(ordinal_t ord) = 0;
 
-    Status next_batch(size_t* n, ColumnBlockView* dst) {
-        bool has_null;
-        return next_batch(n, dst, &has_null);
-    }
-
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
         bool has_null;
         return next_batch(n, dst, &has_null);
     }
-
-    // After one seek, we can call this function many times to read data
-    // into ColumnBlockView. when read string type data, memory will allocated
-    // from MemPool
-    virtual Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) = 0;
 
     virtual Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) {
         return Status::NotSupported("next_batch not implement");
@@ -320,8 +309,6 @@ public:
     Status seek_to_ordinal(ordinal_t ord) override;
 
     Status seek_to_page_start();
-
-    Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
 
@@ -386,10 +373,6 @@ class EmptyFileColumnIterator final : public ColumnIterator {
 public:
     Status seek_to_first() override { return Status::OK(); }
     Status seek_to_ordinal(ordinal_t ord) override { return Status::OK(); }
-    Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override {
-        *n = 0;
-        return Status::OK();
-    }
     ordinal_t get_current_ordinal() const override { return 0; }
 };
 
@@ -401,8 +384,6 @@ public:
     ~ArrayFileColumnIterator() override = default;
 
     Status init(const ColumnIteratorOptions& opts) override;
-
-    Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
 
@@ -429,7 +410,6 @@ private:
     std::unique_ptr<FileColumnIterator> _offset_iterator;
     std::unique_ptr<ColumnIterator> _null_iterator;
     std::unique_ptr<ColumnIterator> _item_iterator;
-    std::unique_ptr<ColumnVectorBatch> _length_batch;
 
     Status _peek_one_offset(ordinal_t* offset);
     Status _seek_by_offsets(ordinal_t ord);
@@ -437,22 +417,69 @@ private:
                               vectorized::ColumnArray::ColumnOffsets& column_offsets);
 };
 
+class RowIdColumnIterator : public ColumnIterator {
+public:
+    RowIdColumnIterator() = delete;
+    RowIdColumnIterator(int32_t tid, RowsetId rid, int32_t segid)
+            : _tablet_id(tid), _rowset_id(rid), _segment_id(segid) {}
+
+    Status seek_to_first() override {
+        _current_rowid = 0;
+        return Status::OK();
+    }
+
+    Status seek_to_ordinal(ordinal_t ord_idx) override {
+        _current_rowid = ord_idx;
+        return Status::OK();
+    }
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) {
+        bool has_null;
+        return next_batch(n, dst, &has_null);
+    }
+
+    Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override {
+        for (size_t i = 0; i < *n; ++i) {
+            rowid_t row_id = _current_rowid + i;
+            GlobalRowLoacation location(_tablet_id, _rowset_id, _segment_id, row_id);
+            dst->insert_data(reinterpret_cast<const char*>(&location), sizeof(GlobalRowLoacation));
+        }
+        _current_rowid += *n;
+        return Status::OK();
+    }
+
+    Status read_by_rowids(const rowid_t* rowids, const size_t count,
+                          vectorized::MutableColumnPtr& dst) override {
+        for (size_t i = 0; i < count; ++i) {
+            rowid_t row_id = rowids[i];
+            GlobalRowLoacation location(_tablet_id, _rowset_id, _segment_id, row_id);
+            dst->insert_data(reinterpret_cast<const char*>(&location), sizeof(GlobalRowLoacation));
+        }
+        return Status::OK();
+    }
+
+    ordinal_t get_current_ordinal() const override { return _current_rowid; }
+
+private:
+    rowid_t _current_rowid = 0;
+    int32_t _tablet_id = 0;
+    RowsetId _rowset_id;
+    int32_t _segment_id = 0;
+};
+
 // This iterator is used to read default value column
 class DefaultValueColumnIterator : public ColumnIterator {
 public:
     DefaultValueColumnIterator(bool has_default_value, const std::string& default_value,
-                               bool is_nullable, TypeInfoPtr type_info, size_t schema_length,
-                               int precision, int scale)
+                               bool is_nullable, TypeInfoPtr type_info, int precision, int scale)
             : _has_default_value(has_default_value),
               _default_value(default_value),
               _is_nullable(is_nullable),
               _type_info(std::move(type_info)),
-              _schema_length(schema_length),
               _is_default_value_null(false),
               _type_size(0),
               _precision(precision),
-              _scale(scale),
-              _pool(new MemPool()) {}
+              _scale(scale) {}
 
     Status init(const ColumnIteratorOptions& opts) override;
 
@@ -470,8 +497,6 @@ public:
         bool has_null;
         return next_batch(n, dst, &has_null);
     }
-
-    Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
 
@@ -494,13 +519,11 @@ private:
     std::string _default_value;
     bool _is_nullable;
     TypeInfoPtr _type_info;
-    size_t _schema_length;
     bool _is_default_value_null;
     size_t _type_size;
     int _precision;
     int _scale;
-    void* _mem_value = nullptr;
-    std::unique_ptr<MemPool> _pool;
+    std::vector<char> _mem_value;
 
     // current rowid
     ordinal_t _current_rowid = 0;

@@ -20,24 +20,24 @@
 #include "exec/schema_scanner/schema_helper.h"
 #include "runtime/datetime_value.h"
 #include "runtime/primitive_type.h"
-#include "runtime/string_value.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
 SchemaScanner::ColumnDesc SchemaPartitionsScanner::_s_tbls_columns[] = {
         //   name,       type,          size,     is_null
-        {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"TABLE_SCHEMA", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"TABLE_NAME", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"PARTITION_NAME", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"SUBPARTITION_NAME", TYPE_VARCHAR, sizeof(StringValue), true},
+        {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"TABLE_SCHEMA", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"TABLE_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"PARTITION_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"SUBPARTITION_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
         {"PARTITION_ORDINAL_POSITION", TYPE_INT, sizeof(int32_t), true},
         {"SUBPARTITION_ORDINAL_POSITION", TYPE_INT, sizeof(int32_t), true},
-        {"PARTITION_METHOD", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"SUBPARTITION_METHOD", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"PARTITION_EXPRESSION", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"SUBPARTITION_EXPRESSION", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"PARTITION_DESCRIPTION", TYPE_STRING, sizeof(StringValue), true},
+        {"PARTITION_METHOD", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"SUBPARTITION_METHOD", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"PARTITION_EXPRESSION", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"SUBPARTITION_EXPRESSION", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"PARTITION_DESCRIPTION", TYPE_STRING, sizeof(StringRef), true},
         {"TABLE_ROWS", TYPE_BIGINT, sizeof(int64_t), true},
         {"AVG_ROW_LENGTH", TYPE_BIGINT, sizeof(int64_t), true},
         {"DATA_LENGTH", TYPE_BIGINT, sizeof(int64_t), true},
@@ -48,9 +48,9 @@ SchemaScanner::ColumnDesc SchemaPartitionsScanner::_s_tbls_columns[] = {
         {"UPDATE_TIME", TYPE_DATETIME, sizeof(DateTimeValue), true},
         {"CHECK_TIME", TYPE_DATETIME, sizeof(DateTimeValue), true},
         {"CHECKSUM", TYPE_BIGINT, sizeof(int64_t), true},
-        {"PARTITION_COMMENT", TYPE_STRING, sizeof(StringValue), false},
-        {"NODEGROUP", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"TABLESPACE_NAME", TYPE_VARCHAR, sizeof(StringValue), true},
+        {"PARTITION_COMMENT", TYPE_STRING, sizeof(StringRef), false},
+        {"NODEGROUP", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"TABLESPACE_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
 };
 
 SchemaPartitionsScanner::SchemaPartitionsScanner()

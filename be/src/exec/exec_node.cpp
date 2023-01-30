@@ -27,9 +27,7 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "exprs/expr_context.h"
 #include "runtime/descriptors.h"
-#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
@@ -46,7 +44,6 @@
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vanalytic_eval_node.h"
 #include "vec/exec/vassert_num_rows_node.h"
-#include "vec/exec/vbroker_scan_node.h"
 #include "vec/exec/vdata_gen_scan_node.h"
 #include "vec/exec/vempty_set_node.h"
 #include "vec/exec/vexchange_node.h"
@@ -85,31 +82,6 @@ ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl
 
 ExecNode::~ExecNode() = default;
 
-void ExecNode::push_down_predicate(RuntimeState* state, std::list<ExprContext*>* expr_ctxs) {
-    if (_type != TPlanNodeType::AGGREGATION_NODE) {
-        for (int i = 0; i < _children.size(); ++i) {
-            _children[i]->push_down_predicate(state, expr_ctxs);
-            if (expr_ctxs->size() == 0) {
-                return;
-            }
-        }
-    }
-
-    std::list<ExprContext*>::iterator iter = expr_ctxs->begin();
-    while (iter != expr_ctxs->end()) {
-        if ((*iter)->root()->is_bound(&_tuple_ids)) {
-            // LOG(INFO) << "push down success expr is " << (*iter)->debug_string()
-            //          << " and node is " << debug_string();
-            (*iter)->prepare(state, row_desc());
-            (*iter)->open(state);
-            _conjunct_ctxs.push_back(*iter);
-            iter = expr_ctxs->erase(iter);
-        } else {
-            ++iter;
-        }
-    }
-}
-
 Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
     init_runtime_profile(get_name());
 
@@ -117,10 +89,6 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _vconjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
         RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_tree(_pool, tnode.vconjunct,
                                                                    _vconjunct_ctx_ptr.get()));
-    }
-    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode) &&
-        typeid(*this) != typeid(doris::vectorized::NewFileScanNode)) {
-        RETURN_IF_ERROR(Expr::create_expr_trees(_pool, tnode.conjuncts, &_conjunct_ctxs));
     }
 
     // create the projections expr
@@ -149,13 +117,6 @@ Status ExecNode::prepare(RuntimeState* state) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, intermediate_row_desc()));
     }
 
-    // For vectorized olap scan node, the conjuncts is prepared in _vconjunct_ctx_ptr.
-    // And _conjunct_ctxs is useless.
-    // TODO: Should be removed when non-vec engine is removed.
-    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode) &&
-        typeid(*this) != typeid(doris::vectorized::NewFileScanNode)) {
-        RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, _row_descriptor));
-    }
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, intermediate_row_desc()));
 
     for (int i = 0; i < _children.size(); ++i) {
@@ -170,12 +131,7 @@ Status ExecNode::alloc_resource(doris::RuntimeState* state) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->open(state));
     }
     RETURN_IF_ERROR(vectorized::VExpr::open(_projections, state));
-    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode) &&
-        typeid(*this) != typeid(doris::vectorized::NewFileScanNode)) {
-        return Expr::open(_conjunct_ctxs, state);
-    } else {
-        return Status::OK();
-    }
+    return Status::OK();
 }
 
 Status ExecNode::open(RuntimeState* state) {
@@ -206,10 +162,6 @@ void ExecNode::release_resource(doris::RuntimeState* state) {
 
         if (_vconjunct_ctx_ptr) {
             (*_vconjunct_ctx_ptr)->close(state);
-        }
-        if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode) &&
-            typeid(*this) != typeid(doris::vectorized::NewFileScanNode)) {
-            Expr::close(_conjunct_ctxs, state);
         }
         vectorized::VExpr::close(_projections, state);
 
@@ -340,7 +292,6 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
     case TPlanNodeType::SELECT_NODE:
     case TPlanNodeType::REPEAT_NODE:
     case TPlanNodeType::TABLE_FUNCTION_NODE:
-    case TPlanNodeType::BROKER_SCAN_NODE:
     case TPlanNodeType::DATA_GEN_SCAN_NODE:
     case TPlanNodeType::FILE_SCAN_NODE:
     case TPlanNodeType::JDBC_SCAN_NODE:
@@ -403,13 +354,6 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::HASH_JOIN_NODE:
-        if (!tnode.hash_join_node.__isset.vintermediate_tuple_id_list) {
-            // in progress of upgrading from 1.1-lts to 1.2-lts
-            error_msg << "In progress of upgrading from 1.1-lts to 1.2-lts, vectorized hash "
-                         "join cannot be executed, you can switch to non-vectorized engine by "
-                         "'set global enable_vectorized_engine = false'";
-            return Status::InternalError(error_msg.str());
-        }
         *node = pool->add(new vectorized::HashJoinNode(pool, tnode, descs));
         return Status::OK();
 
@@ -450,10 +394,6 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::EXCEPT_NODE:
         *node = pool->add(new vectorized::VExceptNode(pool, tnode, descs));
-        return Status::OK();
-
-    case TPlanNodeType::BROKER_SCAN_NODE:
-        *node = pool->add(new vectorized::VBrokerScanNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::FILE_SCAN_NODE:
@@ -499,7 +439,6 @@ std::string ExecNode::debug_string() const {
 }
 
 void ExecNode::debug_string(int indentation_level, std::stringstream* out) const {
-    *out << " conjuncts=" << Expr::debug_string(_conjuncts);
     *out << " id=" << _id;
     *out << " type=" << print_plan_node_type(_type);
     *out << " tuple_ids=[";
@@ -514,16 +453,6 @@ void ExecNode::debug_string(int indentation_level, std::stringstream* out) const
     }
 }
 
-bool ExecNode::eval_conjuncts(ExprContext* const* ctxs, int num_ctxs, TupleRow* row) {
-    for (int i = 0; i < num_ctxs; ++i) {
-        BooleanVal v = ctxs[i]->get_boolean_val(row);
-        if (v.is_null || !v.val) {
-            return false;
-        }
-    }
-    return true;
-}
-
 void ExecNode::collect_nodes(TPlanNodeType::type node_type, std::vector<ExecNode*>* nodes) {
     if (_type == node_type) {
         nodes->push_back(this);
@@ -536,7 +465,6 @@ void ExecNode::collect_nodes(TPlanNodeType::type node_type, std::vector<ExecNode
 
 void ExecNode::collect_scan_nodes(vector<ExecNode*>* nodes) {
     collect_nodes(TPlanNodeType::OLAP_SCAN_NODE, nodes);
-    collect_nodes(TPlanNodeType::BROKER_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::ES_HTTP_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::DATA_GEN_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::FILE_SCAN_NODE, nodes);

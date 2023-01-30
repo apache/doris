@@ -83,7 +83,6 @@ public class RuntimeFilterTranslator {
                 ImmutableMap.of(target.getDesc().getParent().getId(), ImmutableList.of(target.getSlotId())),
                 filter.getType(), context.getLimits());
         origFilter.setIsBroadcast(node.getDistributionMode() == DistributionMode.BROADCAST);
-        filter.setFinalized();
         OlapScanNode scanNode = context.getScanNodeOfLegacyRuntimeFilterTarget().get(filter.getTargetExpr());
         origFilter.addTarget(new RuntimeFilterTarget(
                 scanNode,

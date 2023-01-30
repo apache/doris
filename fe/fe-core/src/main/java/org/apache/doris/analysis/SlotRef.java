@@ -122,6 +122,14 @@ public class SlotRef extends Expr {
         return desc.getId();
     }
 
+    public void setInvalid() {
+        this.desc.setInvalid();
+    }
+
+    public boolean isInvalid() {
+        return this.desc.isInvalid();
+    }
+
     public Column getColumn() {
         if (desc == null) {
             return null;
@@ -289,6 +297,7 @@ public class SlotRef extends Expr {
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.SLOT_REF;
         msg.slot_ref = new TSlotRef(desc.getId().asInt(), desc.getParent().getId().asInt());
+        msg.slot_ref.setColUniqueId(desc.getUniqueId());
         msg.setOutputColumn(outputColumn);
     }
 
@@ -437,6 +446,10 @@ public class SlotRef extends Expr {
         this.label = label;
     }
 
+    public boolean hasCol() {
+        return this.col != null;
+    }
+
     public String getColumnName() {
         return col;
     }
@@ -485,5 +498,17 @@ public class SlotRef extends Expr {
     @Override
     public void finalizeImplForNereids() throws AnalysisException {
 
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder builder = new StringBuilder();
+        if (tblName != null) {
+            builder.append(tblName).append(".");
+        }
+        if (label != null) {
+            builder.append(label);
+        }
+        return builder.toString();
     }
 }

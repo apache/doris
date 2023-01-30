@@ -29,6 +29,7 @@ import org.apache.doris.nereids.rules.expression.rewrite.ExpressionOptimization;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewrite;
 import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithAggregate;
 import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithoutAggregate;
+import org.apache.doris.nereids.rules.rewrite.logical.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.logical.BuildAggForUnion;
 import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.logical.CountDistinctRewrite;
@@ -101,6 +102,7 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .add(topDownBatch(RuleSet.PUSH_DOWN_FILTERS, false))
                 .add(topDownBatch(ImmutableList.of(PushFilterInsideJoin.INSTANCE)))
                 .add(topDownBatch(ImmutableList.of(new FindHashConditionForJoin())))
+                .add(topDownBatch(RuleSet.PUSH_DOWN_FILTERS, false))
                 .add(topDownBatch(ImmutableList.of(new InnerToCrossJoin())))
                 .add(topDownBatch(ImmutableList.of(new EliminateLimit())))
                 .add(topDownBatch(ImmutableList.of(new EliminateFilter())))
@@ -119,6 +121,7 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .add(topDownBatch(ImmutableList.of(new BuildAggForUnion())))
                 // this rule batch must keep at the end of rewrite to do some plan check
                 .add(bottomUpBatch(ImmutableList.of(
+                        new AdjustNullable(),
                         new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),
                         new CheckAfterRewrite()))
                 )

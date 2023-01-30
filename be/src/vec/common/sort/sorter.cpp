@@ -247,6 +247,9 @@ Status Sorter::partial_sort(Block& src_block, Block& dest_block) {
         int i = 0;
         const auto& convert_nullable_flags = _vsort_exec_exprs.get_convert_nullable_flags();
         for (auto column_id : valid_column_ids) {
+            if (column_id < 0) {
+                continue;
+            }
             if (convert_nullable_flags[i]) {
                 auto column_ptr = make_nullable(src_block.get_by_position(column_id).column);
                 new_block.insert(

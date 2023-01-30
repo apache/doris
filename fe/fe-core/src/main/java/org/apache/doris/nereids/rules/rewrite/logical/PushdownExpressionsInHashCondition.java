@@ -40,7 +40,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * push down expression which is not slot reference
@@ -82,18 +81,18 @@ public class PushdownExpressionsInHashCondition extends OneRewriteRuleFactory {
                                 exprMap.put(expr, new Alias(expr, "expr_" + expr.toSql())));
                     });
                     Iterator<List<Expression>> iter = exprsOfHashConjuncts.iterator();
-                    return join.withhashJoinConjunctsAndChildren(
+                    return join.withHashJoinConjunctsAndChildren(
                             join.getHashJoinConjuncts().stream()
                                     .map(equalTo -> equalTo.withChildren(equalTo.children()
                                             .stream().map(expr -> exprMap.get(expr).toSlot())
-                                            .collect(Collectors.toList())))
-                                    .collect(Collectors.toList()),
+                                            .collect(ImmutableList.toImmutableList())))
+                                    .collect(ImmutableList.toImmutableList()),
                             join.children().stream().map(
                                     plan -> new LogicalProject<>(new ImmutableList.Builder<NamedExpression>()
-                                            .addAll(iter.next().stream().map(expr -> exprMap.get(expr))
-                                                    .collect(Collectors.toList()))
+                                            .addAll(iter.next().stream().map(exprMap::get)
+                                                    .collect(ImmutableList.toImmutableList()))
                                             .addAll(getOutput(plan, join)).build(), plan))
-                                    .collect(Collectors.toList()));
+                                    .collect(ImmutableList.toImmutableList()));
                 }).toRule(RuleType.PUSHDOWN_EXPRESSIONS_IN_HASH_CONDITIONS);
     }
 

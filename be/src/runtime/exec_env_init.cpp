@@ -22,6 +22,7 @@
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/TPaloBrokerService.h"
 #include "olap/page_cache.h"
+#include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/storage_policy_mgr.h"
@@ -45,7 +46,6 @@
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
-#include "runtime/thread_resource_mgr.h"
 #include "runtime/tmp_file_mgr.h"
 #include "util/bfd_parser.h"
 #include "util/brpc_client_cache.h"
@@ -94,7 +94,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _backend_client_cache = new BackendServiceClientCache(config::max_client_cache_size_per_host);
     _frontend_client_cache = new FrontendServiceClientCache(config::max_client_cache_size_per_host);
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
-    _thread_mgr = new ThreadResourceMgr();
 
     ThreadPoolBuilder("SendBatchThreadPool")
             .set_min_threads(config::send_batch_thread_pool_thread_num)
@@ -211,6 +210,19 @@ Status ExecEnv::_init_mem_env() {
               << " segment_cache_capacity: " << segment_cache_capacity;
     SegmentLoader::create_global_instance(segment_cache_capacity);
 
+    // use memory limit
+    int64_t inverted_index_cache_limit =
+            ParseUtil::parse_mem_spec(config::inverted_index_searcher_cache_limit,
+                                      MemInfo::mem_limit(), MemInfo::physical_mem(), &is_percent);
+    while (!is_percent && inverted_index_cache_limit > MemInfo::mem_limit() / 2) {
+        // Reason same as buffer_pool_limit
+        inverted_index_cache_limit = inverted_index_cache_limit / 2;
+    }
+    InvertedIndexSearcherCache::create_global_instance(inverted_index_cache_limit);
+    LOG(INFO) << "Inverted index searcher cache memory limit: "
+              << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
+              << ", origin config value: " << config::inverted_index_searcher_cache_limit;
+
     // 4. init other managers
     RETURN_IF_ERROR(_tmp_file_mgr->init());
     RETURN_IF_ERROR(_block_spill_mgr->init());
@@ -299,7 +311,6 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_fragment_mgr);
     SAFE_DELETE(_pipeline_task_scheduler);
     SAFE_DELETE(_cgroups_mgr);
-    SAFE_DELETE(_thread_mgr);
     SAFE_DELETE(_broker_client_cache);
     SAFE_DELETE(_frontend_client_cache);
     SAFE_DELETE(_backend_client_cache);

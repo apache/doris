@@ -190,10 +190,6 @@ public:
     // 3 will be saved in "version", and 7 will be saved in "max_version", if max_version != nullptr
     void max_continuous_version_from_beginning(Version* version, Version* max_version = nullptr);
 
-    // operation for query
-    Status split_range(const OlapTuple& start_key_strings, const OlapTuple& end_key_strings,
-                       uint64_t request_block_row_count, std::vector<OlapTuple>* ranges);
-
     void set_bad(bool is_bad) { _is_bad = is_bad; }
 
     int64_t last_cumu_compaction_failure_time() { return _last_cumu_compaction_failure_millis; }
@@ -309,6 +305,10 @@ public:
     Status lookup_row_key(const Slice& encoded_key, const RowsetIdUnorderedSet* rowset_ids,
                           RowLocation* row_location, uint32_t version);
 
+    // Lookup a row with TupleDescriptor and fill Block
+    Status lookup_row_data(const RowLocation& row_location, const TupleDescriptor* desc,
+                           vectorized::Block* block);
+
     // calc delete bitmap when flush memtable, use a fake version to calc
     // For example, cur max version is 5, and we use version 6 to calc but
     // finally this rowset publish version with 8, we should make up data
@@ -343,6 +343,8 @@ public:
                              CompactionType compaction_type = CompactionType::CUMULATIVE_COMPACTION,
                              int64_t start = -1);
     bool should_skip_compaction(CompactionType compaction_type, int64_t now);
+
+    RowsetSharedPtr get_rowset(const RowsetId& rowset_id);
 
 private:
     Status _init_once_action();

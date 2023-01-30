@@ -28,7 +28,6 @@
 #include "gen_cpp/PaloInternalService_types.h" // for TQueryOptions
 #include "gen_cpp/Types_types.h"               // for TUniqueId
 #include "runtime/query_fragments_ctx.h"
-#include "runtime/thread_resource_mgr.h"
 #include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
 
@@ -38,7 +37,6 @@ class DescriptorTbl;
 class ObjectPool;
 class Status;
 class ExecEnv;
-class Expr;
 class DateTimeValue;
 class MemTracker;
 class DataStreamRecvr;
@@ -106,7 +104,6 @@ public:
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
     ExecEnv* exec_env() { return _exec_env; }
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker() { return _query_mem_tracker; }
-    ThreadResourceMgr::ResourcePool* resource_pool() { return _resource_pool; }
 
     void set_fragment_root_id(PlanNodeId id) {
         DCHECK(_root_node_id == -1) << "Should not set this twice.";
@@ -468,10 +465,6 @@ private:
     TUniqueId _fragment_instance_id;
     TQueryOptions _query_options;
     ExecEnv* _exec_env = nullptr;
-
-    // Thread resource management object for this fragment's execution.  The runtime
-    // state is responsible for returning this pool to the thread mgr.
-    ThreadResourceMgr::ResourcePool* _resource_pool;
 
     // if true, execution should stop with a CANCELLED status
     std::atomic<bool> _is_cancelled;

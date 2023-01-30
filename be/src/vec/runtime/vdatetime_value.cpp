@@ -1749,7 +1749,7 @@ void VecDateTimeValue::create_from_date_v2(DateV2Value<T>& value, TimeType type)
 }
 
 void VecDateTimeValue::convert_vec_dt_to_dt(
-        doris::DateTimeValue* dt) { //use convert VecDateTimeValue to DateTimeValue
+        doris::DateTimeValue* dt) const { //use convert VecDateTimeValue to DateTimeValue
     dt->_neg = this->_neg;
     dt->_type = this->_type;
     dt->_hour = this->_hour;

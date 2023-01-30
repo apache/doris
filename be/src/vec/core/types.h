@@ -144,8 +144,8 @@ struct TypeName<uint24_t> {
     static const char* get() { return "uint24_t"; }
 };
 template <>
-struct TypeName<StringValue> {
-    static const char* get() { return "StringValue"; }
+struct TypeName<StringRef> {
+    static const char* get() { return "StringRef"; }
 };
 
 template <>

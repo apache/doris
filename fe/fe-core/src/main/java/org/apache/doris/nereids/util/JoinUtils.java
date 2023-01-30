@@ -293,17 +293,17 @@ public class JoinUtils {
      * replace JoinConjuncts by using slots map.
      */
     public static List<Expression> replaceJoinConjuncts(List<Expression> joinConjuncts,
-            Map<Slot, Slot> replaceMaps) {
+            Map<ExprId, Slot> replaceMaps) {
         return joinConjuncts.stream()
                 .map(expr ->
                         expr.rewriteUp(e -> {
-                            if (e instanceof Slot && replaceMaps.containsKey(e)) {
-                                return replaceMaps.get(e);
+                            if (e instanceof Slot && replaceMaps.containsKey(((Slot) e).getExprId())) {
+                                return replaceMaps.get(((Slot) e).getExprId());
                             } else {
                                 return e;
                             }
                         })
-                ).collect(Collectors.toList());
+                ).collect(ImmutableList.toImmutableList());
     }
 
     /**
@@ -323,10 +323,10 @@ public class JoinUtils {
         });
     }
 
-    public static Set<Slot> getJoinOutputSet(Plan left, Plan right) {
-        HashSet<Slot> joinOutput = new HashSet<>();
-        joinOutput.addAll(left.getOutput());
-        joinOutput.addAll(right.getOutput());
-        return joinOutput;
+    public static Set<ExprId> getJoinOutputExprIdSet(Plan left, Plan right) {
+        Set<ExprId> joinOutputExprIdSet = new HashSet<>();
+        joinOutputExprIdSet.addAll(left.getOutputExprIdSet());
+        joinOutputExprIdSet.addAll(right.getOutputExprIdSet());
+        return joinOutputExprIdSet;
     }
 }

@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.LargeIntType;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -169,6 +170,47 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         } else {
             throw new RuntimeException(String.format("Literal {} is not supported!", type.toString()));
         }
+    }
+
+    /**
+     * literal expr compare.
+     */
+    @Override
+    public Expression checkedCastTo(DataType targetType) throws AnalysisException {
+        if (getDataType().isNumericType()) {
+            String desc = getStringValue();
+            BigDecimal val = new BigDecimal(desc);
+            BigDecimal maxVal = val;
+            BigDecimal minVal = val;
+            if (targetType.isTinyIntType()) {
+                maxVal = new BigDecimal(Byte.MAX_VALUE);
+                minVal = new BigDecimal(Byte.MIN_VALUE);
+            } else if (targetType.isSmallIntType()) {
+                maxVal = new BigDecimal(Short.MAX_VALUE);
+                minVal = new BigDecimal(Short.MIN_VALUE);
+            } else if (targetType.isIntegerType()) {
+                maxVal = new BigDecimal(Integer.MAX_VALUE);
+                minVal = new BigDecimal(Integer.MIN_VALUE);
+            } else if (targetType.isBigIntType()) {
+                maxVal = new BigDecimal(Long.MAX_VALUE);
+                minVal = new BigDecimal(Long.MIN_VALUE);
+            } else if (targetType.isLargeIntType()) {
+                maxVal = new BigDecimal(LargeIntType.MAX_VALUE);
+                minVal = new BigDecimal(LargeIntType.MIN_VALUE);
+            } else if (targetType.isFloatType()) {
+                maxVal = new BigDecimal(Float.MAX_VALUE);
+                minVal = new BigDecimal(-Float.MAX_VALUE);
+            } else if (targetType.isDoubleType()) {
+                maxVal = new BigDecimal(Double.MAX_VALUE);
+                minVal = new BigDecimal(-Double.MAX_VALUE);
+            }
+
+            if (val.compareTo(maxVal) > 0 || val.compareTo(minVal) < 0) {
+                throw new AnalysisException(
+                        String.format("{} can't cast to {}", desc, targetType));
+            }
+        }
+        return uncheckedCastTo(targetType);
     }
 
     @Override

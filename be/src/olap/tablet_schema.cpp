@@ -19,6 +19,7 @@
 
 #include <gen_cpp/olap_file.pb.h>
 
+#include "exec/tablet_info.h"
 #include "gen_cpp/descriptors.pb.h"
 #include "olap/utils.h"
 #include "tablet_meta.h"
@@ -589,6 +590,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     }
     _is_in_memory = schema.is_in_memory();
     _disable_auto_compaction = schema.disable_auto_compaction();
+    _store_row_column = schema.store_row_column();
     _delete_sign_idx = schema.delete_sign_idx();
     _sequence_col_idx = schema.sequence_col_idx();
     _sort_type = schema.sort_type();
@@ -610,7 +612,7 @@ std::string TabletSchema::to_key() const {
 }
 
 void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version,
-                                               const POlapTableIndexSchema& index,
+                                               const OlapTableIndexSchema* index,
                                                const TabletSchema& ori_tablet_schema) {
     // copy from ori_tablet_schema
     _keys_type = ori_tablet_schema.keys_type();
@@ -622,6 +624,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _next_column_unique_id = ori_tablet_schema.next_column_unique_id();
     _is_in_memory = ori_tablet_schema.is_in_memory();
     _disable_auto_compaction = ori_tablet_schema.disable_auto_compaction();
+    _store_row_column = ori_tablet_schema.store_row_column();
     _sort_type = ori_tablet_schema.sort_type();
     _sort_col_num = ori_tablet_schema.sort_col_num();
 
@@ -635,26 +638,24 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _field_name_to_index.clear();
     _field_id_to_index.clear();
 
-    for (auto& pcolumn : index.columns_desc()) {
-        TabletColumn column;
-        column.init_from_pb(pcolumn);
-        if (column.is_key()) {
+    for (auto& column : index->columns) {
+        if (column->is_key()) {
             _num_key_columns++;
         }
-        if (column.is_nullable()) {
+        if (column->is_nullable()) {
             _num_null_columns++;
         }
-        if (column.is_bf_column()) {
+        if (column->is_bf_column()) {
             has_bf_columns = true;
         }
-        if (UNLIKELY(column.name() == DELETE_SIGN)) {
+        if (UNLIKELY(column->name() == DELETE_SIGN)) {
             _delete_sign_idx = _num_columns;
-        } else if (UNLIKELY(column.name() == SEQUENCE_COL)) {
+        } else if (UNLIKELY(column->name() == SEQUENCE_COL)) {
             _sequence_col_idx = _num_columns;
         }
-        _field_name_to_index[column.name()] = _num_columns;
-        _field_id_to_index[column.unique_id()] = _num_columns;
-        _cols.emplace_back(std::move(column));
+        _field_name_to_index[column->name()] = _num_columns;
+        _field_id_to_index[column->unique_id()] = _num_columns;
+        _cols.emplace_back(*column);
         _num_columns++;
     }
 
@@ -714,6 +715,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_next_column_unique_id(_next_column_unique_id);
     tablet_schema_pb->set_is_in_memory(_is_in_memory);
     tablet_schema_pb->set_disable_auto_compaction(_disable_auto_compaction);
+    tablet_schema_pb->set_store_row_column(_store_row_column);
     tablet_schema_pb->set_delete_sign_idx(_delete_sign_idx);
     tablet_schema_pb->set_sequence_col_idx(_sequence_col_idx);
     tablet_schema_pb->set_sort_type(_sort_type);
@@ -920,11 +922,25 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
     if (a._is_in_memory != b._is_in_memory) return false;
     if (a._delete_sign_idx != b._delete_sign_idx) return false;
     if (a._disable_auto_compaction != b._disable_auto_compaction) return false;
+    if (a._store_row_column != b._store_row_column) return false;
     return true;
 }
 
 bool operator!=(const TabletSchema& a, const TabletSchema& b) {
     return !(a == b);
+}
+
+const TabletColumn& TabletSchema::row_oriented_column() {
+    static TabletColumn source_column(OLAP_FIELD_AGGREGATION_NONE,
+                                      FieldType::OLAP_FIELD_TYPE_STRING, false,
+                                      BeConsts::SOURCE_COL_UNIQUE_ID, 0);
+    source_column.set_name(BeConsts::SOURCE_COL);
+    return source_column;
+}
+
+void TabletSchema::add_row_column() {
+    // create row column
+    append_column(row_oriented_column());
 }
 
 } // namespace doris

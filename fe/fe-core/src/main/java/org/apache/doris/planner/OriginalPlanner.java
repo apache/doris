@@ -32,8 +32,10 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.TupleDescriptor;
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.qe.ConnectContext;
@@ -49,6 +51,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
  * The planner is responsible for turning parse trees into plan fragments that can be shipped off to backends for
@@ -140,11 +143,9 @@ public class OriginalPlanner extends Planner {
         } else {
             queryStmt = (QueryStmt) statement;
         }
-
         plannerContext = new PlannerContext(analyzer, queryStmt, queryOptions, statement);
         singleNodePlanner = new SingleNodePlanner(plannerContext);
         PlanNode singleNodePlan = singleNodePlanner.createSingleNodePlan();
-
         // TODO change to vec should happen after distributed planner
         if (VectorizedUtil.isVectorized()) {
             singleNodePlan.convertToVectorized();
@@ -198,7 +199,7 @@ public class OriginalPlanner extends Planner {
             checkTopnOpt(singleNodePlan);
         }
 
-        if (queryOptions.num_nodes == 1) {
+        if (queryOptions.num_nodes == 1 || queryStmt.isPointQuery()) {
             // single-node execution; we're almost done
             singleNodePlan = addUnassignedConjuncts(analyzer, singleNodePlan);
             fragments.add(new PlanFragment(plannerContext.getNextFragmentId(), singleNodePlan,
@@ -239,6 +240,8 @@ public class OriginalPlanner extends Planner {
         } else {
             List<Expr> resExprs = Expr.substituteList(queryStmt.getResultExprs(),
                     rootFragment.getPlanRoot().getOutputSmap(), analyzer, false);
+            LOG.debug("result Exprs {}", queryStmt.getResultExprs());
+            LOG.debug("substitute result Exprs {}", resExprs);
             rootFragment.setOutputExprs(resExprs);
         }
         LOG.debug("finalize plan fragments");
@@ -258,6 +261,24 @@ public class OriginalPlanner extends Planner {
             } else {
                 isBlockQuery = false;
                 LOG.debug("this isn't block query");
+            }
+            // Check SelectStatement if optimization condition satisfied
+            if (selectStmt.checkAndSetPointQuery()) {
+                // Optimize for point query like: SELECT * FROM t1 WHERE pk1 = 1 and pk2 = 2
+                // such query will use direct RPC to do point query
+                LOG.debug("it's a point query");
+                Map<SlotRef, Expr> eqConjuncts = ((SelectStmt) selectStmt).getPointQueryEQPredicates();
+                OlapScanNode olapScanNode = (OlapScanNode) singleNodePlan;
+                olapScanNode.setDescTable(analyzer.getDescTbl());
+                olapScanNode.setPointQueryEqualPredicates(eqConjuncts);
+                if (analyzer.getPrepareStmt() != null) {
+                    // Cache them for later request better performance
+                    analyzer.getPrepareStmt().cacheSerializedDescriptorTable(olapScanNode.getDescTable());
+                    analyzer.getPrepareStmt().cacheSerializedOutputExprs(rootFragment.getOutputExprs());
+                }
+            } else if (selectStmt.checkEnableTwoPhaseRead(analyzer)) {
+                // Optimize query like `SELECT ... FROM <tbl> WHERE ... ORDER BY ... LIMIT ...`
+                injectRowIdColumnSlot();
             }
         }
     }
@@ -334,6 +355,52 @@ public class OriginalPlanner extends Planner {
         topPlanFragment.getPlanRoot().resetTupleIds(Lists.newArrayList(fileStatusDesc.getId()));
     }
 
+
+    private SlotDescriptor injectRowIdColumnSlot(Analyzer analyzer, TupleDescriptor tupleDesc) {
+        SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(tupleDesc);
+        LOG.debug("inject slot {}", slotDesc);
+        String name = Column.ROWID_COL;
+        Column col = new Column(name, Type.STRING, false, null, false, "",
+                                        "rowid column");
+        slotDesc.setType(Type.STRING);
+        slotDesc.setColumn(col);
+        slotDesc.setIsNullable(false);
+        slotDesc.setIsMaterialized(true);
+        // Non-nullable slots will have 0 for the byte offset and -1 for the bit mask
+        slotDesc.setNullIndicatorBit(-1);
+        slotDesc.setNullIndicatorByte(0);
+        return slotDesc;
+    }
+
+    // We use two phase read to optimize sql like: select * from tbl [where xxx = ???] order by column1 limit n
+    // in the first phase, we add an extra column `RowId` to Block, and sort blocks in TopN nodes
+    // in the second phase, we have n rows, we do a fetch rpc to get all rowids date for the n rows
+    // and reconconstruct the final block
+    private void injectRowIdColumnSlot() {
+        for (PlanFragment fragment : fragments) {
+            PlanNode node = fragment.getPlanRoot();
+            PlanNode parent = null;
+            // OlapScanNode is the last node.
+            // So, just get the last two node and check if they are SortNode and OlapScan.
+            while (node.getChildren().size() != 0) {
+                parent = node;
+                node = node.getChildren().get(0);
+            }
+
+            if (!(node instanceof OlapScanNode) || !(parent instanceof SortNode)) {
+                continue;
+            }
+            SortNode sortNode = (SortNode) parent;
+            OlapScanNode scanNode = (OlapScanNode) node;
+            SlotDescriptor slot = injectRowIdColumnSlot(analyzer, scanNode.getTupleDesc());
+            injectRowIdColumnSlot(analyzer, sortNode.getSortInfo().getSortTupleDescriptor());
+            SlotRef extSlot = new SlotRef(slot);
+            sortNode.getResolvedTupleExprs().add(extSlot);
+            sortNode.getSortInfo().setUseTwoPhaseRead();
+            break;
+        }
+    }
+
     /**
      * Push sort down to olap scan.
      */
@@ -354,6 +421,7 @@ public class OriginalPlanner extends Planner {
             }
             SortNode sortNode = (SortNode) parent;
             OlapScanNode scanNode = (OlapScanNode) node;
+
             if (!scanNode.checkPushSort(sortNode)) {
                 continue;
             }

@@ -29,12 +29,13 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.collect.ImmutableSet;
+
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Convert the expression in the filter into the output column corresponding to the child node and push it down.
@@ -59,7 +60,7 @@ public class PushdownFilterThroughSetOperation extends OneRewriteRuleFactory {
                 }
 
                 Set<Expression> newFilterPredicates = filter.getConjuncts().stream().map(conjunct ->
-                        ExpressionUtils.replace(conjunct, replaceMap)).collect(Collectors.toSet());
+                        ExpressionUtils.replace(conjunct, replaceMap)).collect(ImmutableSet.toImmutableSet());
                 newChildren.add(new LogicalFilter<>(newFilterPredicates, child));
             }
             if (setOperation instanceof LogicalUnion && setOperation.getQualifier() == Qualifier.DISTINCT) {

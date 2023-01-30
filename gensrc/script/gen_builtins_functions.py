@@ -79,21 +79,14 @@ meta_data_entries = []
 def add_function(fn_meta_data, user_visible):
     """add function
     """
-    assert len(fn_meta_data) == 8, \
+    assert len(fn_meta_data) == 4, \
             "Invalid function entry in doris_builtins_functions.py:\n\t" + repr(fn_meta_data)
     entry = {}
     entry["sql_names"] = fn_meta_data[0]
     entry["ret_type"] = fn_meta_data[1]
     entry["args"] = fn_meta_data[2]
-    entry["symbol"] = fn_meta_data[3]
-    if fn_meta_data[4] != '':
-        entry["prepare"] = fn_meta_data[4]
-    if fn_meta_data[5] != '':
-        entry["close"] = fn_meta_data[5]
-    if fn_meta_data[6] != '':
-        entry['vec'] = True
-    if fn_meta_data[7] != '':
-        entry['nullable_mode'] = fn_meta_data[7]
+    if fn_meta_data[3] != '':
+        entry['nullable_mode'] = fn_meta_data[3]
     else:
         entry['nullable_mode'] = 'DEPEND_ON_ARGUMENT'
 
@@ -132,20 +125,10 @@ def generate_fe_entry(entry, name):
     """
     java_output = ""
     java_output += "\"" + name + "\""
-    java_output += ", \"" + entry["symbol"] + "\""
     if entry["user_visible"]:
         java_output += ", true"
     else:
         java_output += ", false"
-    if 'prepare' in entry:
-        java_output += ', "%s"' % entry["prepare"]
-    else:
-        java_output += ', null'
-    if 'close' in entry:
-        java_output += ', "%s"' % entry["close"]
-    else:
-        java_output += ', null'
-
     java_output += ", Function.NullableMode." + entry["nullable_mode"]
     java_output += ", " + generate_fe_datatype(entry["ret_type"])
 
@@ -169,11 +152,7 @@ def generate_fe_registry_init(filename):
     for entry in meta_data_entries:
         for name in entry["sql_names"]:
             java_output = generate_fe_entry(entry, name)
-            if ("vec" not in entry):
-                java_registry_file.write("        functionSet.addScalarBuiltin(%s);\n" % java_output)
-            else:
-                java_registry_file.write("        functionSet.addScalarAndVectorizedBuiltin(%s);\n" % java_output)
-
+            java_registry_file.write("        functionSet.addScalarAndVectorizedBuiltin(%s);\n" % java_output)
 
     java_registry_file.write("\n")
 

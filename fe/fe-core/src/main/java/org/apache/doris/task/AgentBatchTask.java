@@ -39,7 +39,6 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPublishVersionRequest;
 import org.apache.doris.thrift.TPushCooldownConfReq;
 import org.apache.doris.thrift.TPushReq;
-import org.apache.doris.thrift.TPushType;
 import org.apache.doris.thrift.TReleaseSnapshotRequest;
 import org.apache.doris.thrift.TSnapshotRequest;
 import org.apache.doris.thrift.TStorageMediumMigrateReq;
@@ -219,9 +218,6 @@ public class AgentBatchTask implements Runnable {
                     LOG.debug(request.toString());
                 }
                 tAgentTaskRequest.setPushReq(request);
-                if (pushTask.getPushType() == TPushType.LOAD) {
-                    tAgentTaskRequest.setResourceInfo(pushTask.getResourceInfo());
-                }
                 tAgentTaskRequest.setPriority(pushTask.getPriority());
                 return tAgentTaskRequest;
             }

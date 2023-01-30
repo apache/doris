@@ -31,7 +31,9 @@ import org.apache.doris.statistics.StatsDeriveResult;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.Lists;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -43,14 +45,15 @@ public abstract class AbstractPhysicalJoin<
         LEFT_CHILD_TYPE extends Plan,
         RIGHT_CHILD_TYPE extends Plan>
         extends PhysicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> implements Join {
+
     protected final JoinType joinType;
-
-    protected final ImmutableList<Expression> hashJoinConjuncts;
-
-    protected final ImmutableList<Expression> otherJoinConjuncts;
-
-    protected boolean shouldTranslateOutput = true;
+    protected final List<Expression> hashJoinConjuncts;
+    protected final List<Expression> otherJoinConjuncts;
     protected final JoinHint hint;
+
+    // use for translate only
+    protected final List<Expression> filterConjuncts = Lists.newArrayList();
+    protected boolean shouldTranslateOutput = true;
 
     /**
      * Constructor of PhysicalJoin.
@@ -156,5 +159,13 @@ public abstract class AbstractPhysicalJoin<
     @Override
     public JoinHint getHint() {
         return hint;
+    }
+
+    public List<Expression> getFilterConjuncts() {
+        return filterConjuncts;
+    }
+
+    public void addFilterConjuncts(Collection<Expression> conjuncts) {
+        filterConjuncts.addAll(conjuncts);
     }
 }

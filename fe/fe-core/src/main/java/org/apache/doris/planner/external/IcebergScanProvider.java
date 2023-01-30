@@ -21,7 +21,7 @@ import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TableSnapshot;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.HMSResource;
+import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -35,7 +35,6 @@ import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
 
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.mapred.InputSplit;
 import org.apache.iceberg.BaseTable;
@@ -46,7 +45,6 @@ import org.apache.iceberg.HistoryEntry;
 import org.apache.iceberg.MetadataColumns;
 import org.apache.iceberg.TableProperties;
 import org.apache.iceberg.TableScan;
-import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.expressions.Expression;
 import org.apache.iceberg.types.Conversions;
@@ -55,7 +53,6 @@ import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -132,14 +129,14 @@ public class IcebergScanProvider extends HiveScanProvider {
     @Override
     public List<InputSplit> getSplits(List<Expr> exprs) throws UserException {
         List<Expression> expressions = new ArrayList<>();
+        org.apache.iceberg.Table table = HiveMetaStoreClientHelper.getIcebergTable(hmsTable);
         for (Expr conjunct : exprs) {
-            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct);
+            Expression expression = IcebergUtils.convertToIcebergExpr(conjunct, table.schema());
             if (expression != null) {
                 expressions.add(expression);
             }
         }
 
-        org.apache.iceberg.Table table = getIcebergTable();
         TableScan scan = table.newScan();
         TableSnapshot tableSnapshot = desc.getRef().getTableSnapshot();
         if (tableSnapshot != null) {
@@ -219,19 +216,6 @@ public class IcebergScanProvider extends HiveScanProvider {
             }
         }
         return filters;
-    }
-
-    private org.apache.iceberg.Table getIcebergTable() throws MetaNotFoundException {
-        org.apache.iceberg.hive.HiveCatalog hiveCatalog = new org.apache.iceberg.hive.HiveCatalog();
-        Configuration conf = getConfiguration();
-        hiveCatalog.setConf(conf);
-        // initialize hive catalog
-        Map<String, String> catalogProperties = new HashMap<>();
-        catalogProperties.put(HMSResource.HIVE_METASTORE_URIS, getMetaStoreUrl());
-        catalogProperties.put("uri", getMetaStoreUrl());
-        hiveCatalog.initialize("hive", catalogProperties);
-
-        return hiveCatalog.loadTable(TableIdentifier.of(hmsTable.getDbName(), hmsTable.getName()));
     }
 
     @Override

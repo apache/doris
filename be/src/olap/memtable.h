@@ -24,19 +24,16 @@
 #include "olap/skiplist.h"
 #include "olap/tablet.h"
 #include "runtime/memory/mem_tracker.h"
-#include "util/tuple_row_zorder_compare.h"
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 
 namespace doris {
 
-struct ContiguousRow;
 class RowsetWriter;
 class Schema;
 class SlotDescriptor;
 class TabletSchema;
-class Tuple;
 class TupleDescriptor;
 
 class MemTable {
@@ -118,9 +115,6 @@ private:
     const KeysType _keys_type;
     Schema* _schema;
     const TabletSchema* _tablet_schema;
-
-    // TODO: change to unique_ptr of comparator
-    std::shared_ptr<RowComparator> _row_comparator;
 
     std::shared_ptr<RowInBlockComparator> _vec_row_comparator;
 

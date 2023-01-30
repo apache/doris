@@ -832,8 +832,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             job = new SparkLoadJob();
         } else if (type == EtlJobType.INSERT) {
             job = new InsertLoadJob();
-        } else if (type == EtlJobType.MINI) {
-            job = new MiniLoadJob();
         } else {
             throw new IOException("Unknown load type: " + type.name());
         }

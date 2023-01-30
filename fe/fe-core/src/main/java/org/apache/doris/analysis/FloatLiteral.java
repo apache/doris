@@ -245,4 +245,15 @@ public class FloatLiteral extends LiteralExpr {
         return "'" + timeStr + String.format("%02d:%02d:%02d", hour, minute, second) + "'";
     }
 
+    @Override
+    public void setupParamFromBinary(ByteBuffer data) {
+        if (type.getPrimitiveType() == PrimitiveType.FLOAT) {
+            value = data.getFloat();
+            return;
+        }
+        if (type.getPrimitiveType() == PrimitiveType.DOUBLE) {
+            value = data.getDouble();
+            return;
+        }
+    }
 }

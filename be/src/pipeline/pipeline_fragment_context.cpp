@@ -29,7 +29,6 @@
 #include "pipeline/exec/analytic_sink_operator.h"
 #include "pipeline/exec/analytic_source_operator.h"
 #include "pipeline/exec/assert_num_rows_operator.h"
-#include "pipeline/exec/broker_scan_operator.h"
 #include "pipeline/exec/const_value_operator.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/datagen_operator.h"
@@ -165,12 +164,6 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
             .tag("instance_id", params.fragment_instance_id)
             .tag("backend_num", request.backend_num)
             .tag("pthread_id", (uintptr_t)pthread_self());
-
-    // Must be vec exec engine
-    if (!request.query_options.__isset.enable_vectorized_engine ||
-        !request.query_options.enable_vectorized_engine) {
-        return Status::InternalError("should set enable_vectorized_engine to true");
-    }
 
     // 1. init _runtime_state
     _runtime_state = std::make_unique<RuntimeState>(params, request.query_options,
@@ -312,12 +305,6 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
     auto node_type = node->type();
     switch (node_type) {
     // for source
-    case TPlanNodeType::BROKER_SCAN_NODE: {
-        OperatorBuilderPtr operator_t =
-                std::make_shared<BrokerScanOperatorBuilder>(next_operator_builder_id(), node);
-        RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
-        break;
-    }
     case TPlanNodeType::OLAP_SCAN_NODE:
     case TPlanNodeType::JDBC_SCAN_NODE:
     case TPlanNodeType::ODBC_SCAN_NODE:
