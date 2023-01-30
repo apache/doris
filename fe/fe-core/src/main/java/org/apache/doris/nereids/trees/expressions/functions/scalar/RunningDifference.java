@@ -54,7 +54,7 @@ public class RunningDifference extends ScalarFunction
             FunctionSignature.ret(SmallIntType.INSTANCE).args(TinyIntType.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE).args(SmallIntType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(IntegerType.INSTANCE),
-            FunctionSignature.ret(LargeIntType.INSTANCE).args(BigIntType.INSTANCE),
+            FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE),
             FunctionSignature.ret(LargeIntType.INSTANCE).args(LargeIntType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(FloatType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
