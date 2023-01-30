@@ -145,12 +145,6 @@ private:
     // seek to the first value at the given restart point
     Status _seek_to_restart_point(size_t restart_point_index);
 
-    // like _read_next_value, but directly copy next value to output, not _current_value
-    Status _read_next_value_to_output(Slice prev, MemPool* mem_pool, Slice* output);
-
-    // copy `_current_value` into `output`.
-    Status _copy_current_to_output(MemPool* mem_pool, Slice* output);
-
     Slice _data;
     bool _parsed = false;
     size_t _num_values = 0;

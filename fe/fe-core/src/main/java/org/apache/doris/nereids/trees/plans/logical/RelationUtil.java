@@ -27,6 +27,7 @@ import com.google.common.annotations.VisibleForTesting;
  * relation util
  */
 public class RelationUtil {
+
     // for test only
     private static StatementContext statementContext = new StatementContext();
 

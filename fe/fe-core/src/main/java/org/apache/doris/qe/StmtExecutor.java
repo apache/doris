@@ -32,6 +32,7 @@ import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.LockTablesStmt;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.OutFileClause;
@@ -89,6 +90,8 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.EtlJobType;
+import org.apache.doris.load.LoadJobRowResult;
+import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlEofPacket;
@@ -104,6 +107,7 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.Types;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
@@ -582,6 +586,8 @@ public class StmtExecutor implements ProfileWriter {
                     // the transaction of this insert may already begin, we will abort it at outer finally block.
                     throw t;
                 }
+            } else if (parsedStmt instanceof LoadStmt) {
+                handleLoadStmt();
             } else if (parsedStmt instanceof DdlStmt) {
                 handleDdlStmt();
             } else if (parsedStmt instanceof ShowStmt) {
@@ -655,9 +661,13 @@ public class StmtExecutor implements ProfileWriter {
      * @throws DdlException
      */
     private void analyzeVariablesInStmt() throws DdlException {
+        analyzeVariablesInStmt(parsedStmt);
+    }
+
+    private void analyzeVariablesInStmt(StatementBase statement) throws DdlException {
         SessionVariable sessionVariable = context.getSessionVariable();
-        if (parsedStmt != null && parsedStmt instanceof SelectStmt) {
-            SelectStmt selectStmt = (SelectStmt) parsedStmt;
+        if (statement instanceof SelectStmt) {
+            SelectStmt selectStmt = (SelectStmt) statement;
             Map<String, String> optHints = selectStmt.getSelectList().getOptHints();
             if (optHints != null) {
                 sessionVariable.setIsSingleSetVar(true);
@@ -1277,6 +1287,11 @@ public class StmtExecutor implements ProfileWriter {
             context.getState().setEof();
             plannerProfile.setQueryFetchResultFinishTime();
         } catch (Exception e) {
+            // notify all be cancel runing fragment
+            // in some case may block all fragment handle threads
+            // details see issue https://github.com/apache/doris/issues/16203
+            LOG.warn("cancel fragment query_id:{} cause {}", DebugUtil.printId(context.queryId()), e.getMessage());
+            coord.cancel(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
             fetchResultSpan.recordException(e);
             throw e;
         } finally {
@@ -1506,6 +1521,8 @@ public class StmtExecutor implements ProfileWriter {
             handleExplainStmt(explainString);
             return;
         }
+
+        analyzeVariablesInStmt(insertStmt.getQueryStmt());
 
         long createTime = System.currentTimeMillis();
         Throwable throwable = null;
@@ -1834,6 +1851,42 @@ public class StmtExecutor implements ProfileWriter {
             context.getMysqlChannel().sendOnePacket(serializer.toByteBuffer());
         }
         context.getState().setEof();
+    }
+
+    private void handleLoadStmt() {
+        try {
+            LoadStmt loadStmt = (LoadStmt) parsedStmt;
+            EtlJobType jobType = loadStmt.getEtlJobType();
+            if (jobType == EtlJobType.UNKNOWN) {
+                throw new DdlException("Unknown load job type");
+            }
+            if (jobType == EtlJobType.HADOOP) {
+                throw new DdlException("Load job by hadoop cluster is disabled."
+                        + " Try using broker load. See 'help broker load;'");
+            }
+            LoadManager loadManager = context.getEnv().getLoadManager();
+            if (jobType == EtlJobType.LOCAL_FILE) {
+                if (!context.getCapability().supportClientLocalFile()) {
+                    context.getState().setError(ErrorCode.ERR_NOT_ALLOWED_COMMAND, "This client is not support"
+                            + " to load client local file.");
+                    return;
+                }
+                LoadJobRowResult submitResult = loadManager.executeMySqlLoadJobFromStmt(context, loadStmt);
+                context.getState().setOk(submitResult.getRecords(), submitResult.getWarnings(),
+                        submitResult.toString());
+            } else {
+                loadManager.createLoadJobFromStmt(loadStmt);
+                context.getState().setOk();
+            }
+        } catch (UserException e) {
+            // Return message to info client what happened.
+            LOG.debug("DDL statement({}) process failed.", originStmt.originStmt, e);
+            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+        } catch (Exception e) {
+            // Maybe our bug
+            LOG.warn("DDL statement(" + originStmt.originStmt + ") process failed.", e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+        }
     }
 
     private void handleDdlStmt() {

@@ -62,7 +62,7 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
 
     private static final String ANALYZE_TABLE_SQL_TEMPLATE = "INSERT INTO "
             + "${internalDB}.${columnStatTbl}"
-            + " values ('${id}','${catalogId}', '${dbId}', '${tblId}', NULL, '${colId}', NULL, "
+            + " values ('${id}','${catalogId}', '${dbId}', '${tblId}', '-1', '${colId}', NULL, "
             + "${numRows}, ${ndv}, ${nulls}, '${min}', '${max}', ${dataSize}, '${update_time}')";
 
     @Override

@@ -58,7 +58,7 @@ public class CountDistinctToBitmapOrHLLRule implements ExprRewriteRule {
             return expr;
         }
         // rewrite expr
-        FunctionParams newParams = new FunctionParams(false, fnExpr.getParams().exprs());
+        FunctionParams newParams = new FunctionParams(false, fnExpr.getChildren());
         if (fnExpr.getChild(0).getType().isBitmapType()) {
             FunctionCallExpr bitmapExpr = new FunctionCallExpr(FunctionSet.BITMAP_UNION_COUNT, newParams);
             bitmapExpr.analyzeNoThrow(analyzer);

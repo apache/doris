@@ -42,12 +42,10 @@ set(RUNTIME_FILES
     runtime_predicate.cpp
     jsonb_value.cpp
     thread_context.cpp
-    thread_resource_mgr.cpp
     threadlocal.cc
     decimalv2_value.cpp
     large_int_value.cpp
     collection_value.cpp
-    tuple.cpp
     fragment_mgr.cpp
     load_path_mgr.cpp
     types.cpp

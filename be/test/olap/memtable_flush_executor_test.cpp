@@ -36,7 +36,6 @@
 #include "olap/utils.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
-#include "runtime/tuple.h"
 #include "util/file_utils.h"
 
 namespace doris {

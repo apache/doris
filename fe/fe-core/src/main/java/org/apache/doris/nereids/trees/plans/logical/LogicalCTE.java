@@ -27,8 +27,8 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -47,7 +47,7 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
     public LogicalCTE(List<LogicalSubQueryAlias<Plan>> aliasQueries, Optional<GroupExpression> groupExpression,
                                 Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
         super(PlanType.LOGICAL_CTE, groupExpression, logicalProperties, child);
-        this.aliasQueries = aliasQueries;
+        this.aliasQueries = ImmutableList.copyOf(Objects.requireNonNull(aliasQueries, "aliasQueries can not be null"));
     }
 
     public List<LogicalSubQueryAlias<Plan>> getAliasQueries() {
@@ -111,7 +111,7 @@ public class LogicalCTE<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE
 
     @Override
     public List<Expression> getExpressions() {
-        return Collections.emptyList();
+        return ImmutableList.of();
     }
 
     @Override

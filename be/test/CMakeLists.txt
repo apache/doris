@@ -139,10 +139,8 @@ set(RUNTIME_TEST_FILES
     # runtime/datetime_value_test.cpp
     # runtime/dpp_sink_test.cpp
     # runtime/tmp_file_mgr_test.cpp
-    # runtime/thread_resource_mgr_test.cpp
     # runtime/export_task_mgr_test.cpp
     runtime/mem_pool_test.cpp
-    runtime/string_buffer_test.cpp
     runtime/decimalv2_value_test.cpp
     runtime/large_int_value_test.cpp
     runtime/string_value_test.cpp
@@ -201,7 +199,6 @@ set(UTIL_TEST_FILES
     util/rle_encoding_test.cpp
     util/tdigest_test.cpp
     util/block_compression_test.cpp
-    util/counter_cond_variable_test.cpp
     util/frame_of_reference_coding_test.cpp
     util/bit_stream_utils_test.cpp
     util/radix_sort_test.cpp

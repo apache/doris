@@ -22,7 +22,6 @@
 #include "runtime/decimalv2_value.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
-#include "runtime/tuple.h"
 #include "util/string_parser.hpp"
 #include "util/types.h"
 #include "vec/columns/column_complex.h"
@@ -186,35 +185,6 @@ bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
         return false;
     }
     return true;
-}
-
-void TextConverter::unescape_string(StringRef* value, MemPool* pool) {
-    char* new_data = reinterpret_cast<char*>(pool->allocate(value->size));
-    unescape_string(value->data, new_data, &value->size);
-    value->data = new_data;
-}
-
-void TextConverter::unescape_string(const char* src, char* dest, size_t* len) {
-    char* dest_ptr = dest;
-    const char* end = src + *len;
-    bool escape_next_char = false;
-
-    while (src < end) {
-        if (*src == _escape_char) {
-            escape_next_char = !escape_next_char;
-        } else {
-            escape_next_char = false;
-        }
-
-        if (escape_next_char) {
-            ++src;
-        } else {
-            *dest_ptr++ = *src++;
-        }
-    }
-
-    char* dest_start = reinterpret_cast<char*>(dest);
-    *len = dest_ptr - dest_start;
 }
 
 void TextConverter::unescape_string_on_spot(const char* src, size_t* len) {

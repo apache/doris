@@ -28,7 +28,6 @@
 #include "gen_cpp/PaloInternalService_types.h" // for TQueryOptions
 #include "gen_cpp/Types_types.h"               // for TUniqueId
 #include "runtime/query_fragments_ctx.h"
-#include "runtime/thread_resource_mgr.h"
 #include "util/runtime_profile.h"
 #include "util/telemetry/telemetry.h"
 
@@ -44,8 +43,6 @@ class DataStreamRecvr;
 class ResultBufferMgr;
 class TmpFileMgr;
 class BufferedBlockMgr;
-class BufferedBlockMgr2;
-class LoadErrorHub;
 class RowDescriptor;
 class RuntimeFilterMgr;
 
@@ -92,6 +89,7 @@ public:
         return _query_options.abort_on_default_limit_exceeded;
     }
     int max_errors() const { return _query_options.max_errors; }
+    int query_timeout() const { return _query_options.query_timeout; }
     int max_io_buffers() const { return _query_options.max_io_buffers; }
     int num_scanner_threads() const { return _query_options.num_scanner_threads; }
     TQueryType::type query_type() const { return _query_options.query_type; }
@@ -100,12 +98,10 @@ public:
     const std::string& timezone() const { return _timezone; }
     const cctz::time_zone& timezone_obj() const { return _timezone_obj; }
     const std::string& user() const { return _user; }
-    const std::vector<std::string>& error_log() const { return _error_log; }
     const TUniqueId& query_id() const { return _query_id; }
     const TUniqueId& fragment_instance_id() const { return _fragment_instance_id; }
     ExecEnv* exec_env() { return _exec_env; }
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker() { return _query_mem_tracker; }
-    ThreadResourceMgr::ResourcePool* resource_pool() { return _resource_pool; }
 
     void set_fragment_root_id(PlanNodeId id) {
         DCHECK(_root_node_id == -1) << "Should not set this twice.";
@@ -138,11 +134,6 @@ public:
     // on first use.
     Status create_codegen();
 
-    BufferedBlockMgr2* block_mgr2() {
-        DCHECK(_block_mgr2.get() != nullptr);
-        return _block_mgr2.get();
-    }
-
     Status query_status() {
         std::lock_guard<std::mutex> l(_process_status_lock);
         return _process_status;
@@ -156,12 +147,6 @@ public:
         std::lock_guard<std::mutex> l(_error_log_lock);
         return _error_log.size() < _query_options.max_errors;
     }
-
-    // Return true if error log is empty.
-    bool error_log_is_empty();
-
-    // Returns the error log lines as a string joined with '\n'.
-    std::string error_log();
 
     // Append all _error_log[_unreported_error_idx+] to new_errors and set
     // _unreported_error_idx to _errors_log.size()
@@ -228,18 +213,6 @@ public:
 
     const int64_t load_job_id() const { return _load_job_id; }
 
-    // we only initialize object for load jobs
-    void set_load_error_hub_info(const TLoadErrorHubInfo& hub_info) {
-        TLoadErrorHubInfo* info = new TLoadErrorHubInfo(hub_info);
-        _load_error_hub_info.reset(info);
-    }
-
-    // only can be invoded after set its value
-    const TLoadErrorHubInfo* load_error_hub_info() {
-        // DCHECK(_load_error_hub_info != nullptr);
-        return _load_error_hub_info.get();
-    }
-
     const int64_t get_normal_row_number() const { return _normal_row_number; }
 
     const void set_normal_row_number(int64_t number) { _normal_row_number = number; }
@@ -284,8 +257,6 @@ public:
     void update_num_rows_load_unselected(int64_t num_rows) {
         _num_rows_load_unselected.fetch_add(num_rows);
     }
-
-    void export_load_error(const std::string& error_msg);
 
     void set_per_fragment_instance_idx(int idx) { _per_fragment_instance_idx = idx; }
 
@@ -357,6 +328,13 @@ public:
         return _query_options.partitioned_hash_join_rows_threshold;
     }
 
+    int partitioned_hash_agg_rows_threshold() const {
+        if (!_query_options.__isset.partitioned_hash_agg_rows_threshold) {
+            return 0;
+        }
+        return _query_options.partitioned_hash_agg_rows_threshold;
+    }
+
     const std::vector<TTabletCommitInfo>& tablet_commit_infos() const {
         return _tablet_commit_infos;
     }
@@ -366,9 +344,6 @@ public:
     const std::vector<TErrorTabletInfo>& error_tablet_infos() const { return _error_tablet_infos; }
 
     std::vector<TErrorTabletInfo>& error_tablet_infos() { return _error_tablet_infos; }
-
-    /// Helper to call QueryState::StartSpilling().
-    Status StartSpilling(MemTracker* mem_tracker);
 
     // get mem limit for load channel
     // if load mem limit is not set, or is zero, using query mem limit instead.
@@ -414,11 +389,6 @@ public:
     }
 
 private:
-    // Use a custom block manager for the query for testing purposes.
-    void set_block_mgr2(const std::shared_ptr<BufferedBlockMgr2>& block_mgr) {
-        _block_mgr2 = block_mgr;
-    }
-
     Status create_error_log_file();
 
     static const int DEFAULT_BATCH_SIZE = 2048;
@@ -468,10 +438,6 @@ private:
     TQueryOptions _query_options;
     ExecEnv* _exec_env = nullptr;
 
-    // Thread resource management object for this fragment's execution.  The runtime
-    // state is responsible for returning this pool to the thread mgr.
-    ThreadResourceMgr::ResourcePool* _resource_pool;
-
     // if true, execution should stop with a CANCELLED status
     std::atomic<bool> _is_cancelled;
 
@@ -489,12 +455,6 @@ private:
     // will not necessarily be set in all error cases.
     std::mutex _process_status_lock;
     Status _process_status;
-    //std::unique_ptr<MemPool> _udf_pool;
-
-    // BufferedBlockMgr object used to allocate and manage blocks of input data in memory
-    // with a fixed memory budget.
-    // The block mgr is shared by all fragments for this query.
-    std::shared_ptr<BufferedBlockMgr2> _block_mgr2;
 
     // This is the node id of the root node for this plan fragment. This is used as the
     // hash seed and has two useful properties:
@@ -520,15 +480,12 @@ private:
     std::string _db_name;
     std::string _load_dir;
     int64_t _load_job_id;
-    std::unique_ptr<TLoadErrorHubInfo> _load_error_hub_info;
 
     // mini load
     int64_t _normal_row_number;
     int64_t _error_row_number;
     std::string _error_log_file_path;
     std::ofstream* _error_log_file = nullptr; // error file path, absolute path
-    std::unique_ptr<LoadErrorHub> _error_hub;
-    std::mutex _create_error_hub_lock;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
 
