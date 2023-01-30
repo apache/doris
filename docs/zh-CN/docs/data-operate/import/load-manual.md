@@ -53,6 +53,7 @@ Doris 提供多种数据导入方案，可以针对不同的数据源进行选�
 | Binlog Load  | [采集Mysql Binlog 导入数据](./import-way/binlog-load-manual.md) |
 | Insert Into  | [外部表通过INSERT方式导入数据](./import-way/insert-into-manual.md) |
 | S3 Load      | [S3协议的对象存储数据导入](./import-way/s3-load-manual.md) |
+| MySQL Load   | [MySQL客户端导入本地数据](./import-way/mysql-load-manual.md) |
 
 ## 支持的数据格式
 
@@ -63,6 +64,7 @@ Doris 提供多种数据导入方案，可以针对不同的数据源进行选�
 | Broker Load  | parquet、orc、csv、gzip |
 | Stream Load  | csv、json、parquet、orc |
 | Routine Load | csv、json               |
+| MySQL Load   | csv                    |
 
 ## 导入说明
 
