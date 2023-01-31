@@ -490,6 +490,7 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
     _update_cumulative_compaction_policy();
     std::vector<TabletSharedPtr> tablets_compaction;
     uint32_t max_compaction_score = 0;
+    int64_t max_score_tablet_id = 0;
 
     std::random_device rd;
     std::mt19937 g(rd());
@@ -548,6 +549,10 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
                         tablets_compaction.emplace_back(tablet);
                     }
                     max_compaction_score = std::max(max_compaction_score, disk_max_score);
+                    if (disk_max_score > max_compaction_score) {
+                        max_compaction_score = disk_max_score;
+                        max_score_tablet_id = tablet->tablet_id();
+                    }
                 } else {
                     LOG_EVERY_N(INFO, 500)
                             << "Tablet " << tablet->full_name()
@@ -565,6 +570,10 @@ std::vector<TabletSharedPtr> StorageEngine::_generate_compaction_tasks(
         } else {
             DorisMetrics::instance()->tablet_cumulative_max_compaction_score->set_value(
                     max_compaction_score);
+        }
+        if (max_compaction_score > config::max_tablet_version_num / 2) {
+            VLOG_NOTICE << "Tablet: " << max_score_tablet_id
+                        << " compaction score: " << max_compaction_score;
         }
     }
     return tablets_compaction;
