@@ -67,9 +67,9 @@ public:
             return_type = std::make_shared<DataTypeInt16>();
         } else if (which.is_uint16() || which.is_int16()) {
             return_type = std::make_shared<DataTypeInt32>();
-        } else if (which.is_uint32() || which.is_uint64() || which.is_int32()) {
+        } else if (which.is_uint32() || which.is_uint64() || which.is_int32() || which.is_int64()) {
             return_type = std::make_shared<DataTypeInt64>();
-        } else if (which.is_int64() || which.is_int128()) {
+        } else if (which.is_int128()) {
             return_type = std::make_shared<DataTypeInt128>();
         } else if (which.is_float32() || which.is_float64()) {
             return_type = std::make_shared<DataTypeFloat64>();

@@ -37,7 +37,7 @@ public:
     VSchemaScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs);
     ~VSchemaScanNode();
     Status prepare(RuntimeState* state) override;
-    virtual Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
+    Status get_next(RuntimeState* state, vectorized::Block* block, bool* eos) override;
 
     // Prepare conjuncts, create Schema columns to slots mapping
     // initialize schema_scanner
@@ -60,28 +60,14 @@ private:
     // Tuple id resolved in prepare() to set _tuple_desc;
     TupleId _tuple_id;
 
-    // Descriptor of tuples read from schema table.
-    const TupleDescriptor* _src_tuple_desc;
     // Descriptor of dest tuples
     const TupleDescriptor* _dest_tuple_desc;
     // Tuple index in tuple row.
     int _tuple_idx;
     // slot num need to fill in and return
     int _slot_num;
-    // Pool for allocating tuple data, including all varying-length slots.
-    std::unique_ptr<MemPool> _tuple_pool;
     // Jni helper for scanning an schema table.
     std::unique_ptr<SchemaScanner> _schema_scanner;
-    // Current tuple.
-    doris::Tuple* _src_tuple;
-    // Map from index in slots to column of schema table.
-    std::vector<int> _index_map;
-
-    Status write_slot_to_vectorized_column(void* slot, SlotDescriptor* slot_desc,
-                                           vectorized::MutableColumnPtr* col_ptr);
-    void project_tuple();
-    doris::Tuple* _src_single_tuple;
-    doris::Tuple* _dest_single_tuple;
 };
 } // namespace vectorized
 } // namespace doris

@@ -190,6 +190,8 @@ struct TQueryOptions {
   57: optional bool check_overflow_for_decimal = false
 
   58: optional i64 external_sort_bytes_threshold = 0
+
+  59: optional i32 partitioned_hash_agg_rows_threshold = 0
 }
     
 

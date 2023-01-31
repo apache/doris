@@ -95,7 +95,6 @@ private:
     bool _eof;
     std::unique_ptr<RuntimeState> _runtime_state;
     RuntimeProfile* _runtime_profile;
-    std::unique_ptr<MemPool> _tuple_buffer_pool;
     std::unique_ptr<ScannerCounter> _counter;
     std::unique_ptr<BaseScanner> _scanner;
     // Not used, just for placeholding
