@@ -82,12 +82,12 @@ private:
     public:
         LevelIterator(TabletReader* reader)
                 : _schema(reader->tablet_schema()),
-                  _compare_columns(reader->_reader_context.read_orderby_key_columns) {};
+                  _compare_columns(reader->_reader_context.read_orderby_key_columns) {}
 
         virtual Status init(bool get_data_by_ref = false) = 0;
         virtual Status init_for_union(bool is_first_child, bool get_data_by_ref = false) {
             return Status::OK();
-        };
+        }
 
         virtual int64_t version() const = 0;
 
@@ -103,9 +103,9 @@ private:
 
         virtual ~LevelIterator() = default;
 
-        const TabletSchema& tablet_schema() const { return _schema; };
+        const TabletSchema& tablet_schema() const { return _schema; }
 
-        const inline std::vector<uint32_t>* compare_columns() const { return _compare_columns; };
+        const inline std::vector<uint32_t>* compare_columns() const { return _compare_columns; }
 
         virtual RowLocation current_row_location() = 0;
 

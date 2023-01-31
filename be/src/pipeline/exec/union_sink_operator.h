@@ -35,7 +35,7 @@ public:
 
     OperatorPtr build_operator() override;
 
-    bool is_sink() const override { return true; };
+    bool is_sink() const override { return true; }
 
 private:
     int _cur_child_id;
@@ -47,7 +47,7 @@ public:
     UnionSinkOperator(OperatorBuilderBase* operator_builder, int child_id, ExecNode* node,
                       std::shared_ptr<DataQueue> queue);
 
-    bool can_write() override { return true; };
+    bool can_write() override { return true; }
 
     Status sink(RuntimeState* state, vectorized::Block* in_block,
                 SourceState source_state) override;

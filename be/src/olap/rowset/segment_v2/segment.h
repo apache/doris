@@ -106,11 +106,11 @@ public:
     std::string min_key() {
         DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _footer.has_primary_key_index_meta());
         return _footer.primary_key_index_meta().min_key();
-    };
+    }
     std::string max_key() {
         DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _footer.has_primary_key_index_meta());
         return _footer.primary_key_index_meta().max_key();
-    };
+    }
 
     io::FileReaderSPtr file_reader() { return _file_reader; }
 

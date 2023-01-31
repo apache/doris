@@ -29,7 +29,7 @@ class VersionAction : public HttpHandler {
 public:
     VersionAction();
 
-    virtual ~VersionAction() {};
+    virtual ~VersionAction() {}
 
     void handle(HttpRequest* req) override;
 };

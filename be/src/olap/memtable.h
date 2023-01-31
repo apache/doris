@@ -75,7 +75,7 @@ private:
         char* _agg_mem;
         size_t* _agg_state_offset;
 
-        RowInBlock(size_t row) : _row_pos(row) {};
+        RowInBlock(size_t row) : _row_pos(row) {}
 
         void init_agg_places(char* agg_mem, size_t* agg_state_offset) {
             _agg_mem = agg_mem;
@@ -87,7 +87,7 @@ private:
 
     class RowInBlockComparator {
     public:
-        RowInBlockComparator(const Schema* schema) : _schema(schema) {};
+        RowInBlockComparator(const Schema* schema) : _schema(schema) {}
         // call set_block before operator().
         // only first time insert block to create _input_mutable_block,
         // so can not Comparator of construct to set pblock

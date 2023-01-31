@@ -137,7 +137,7 @@ public:
     Status query_status() {
         std::lock_guard<std::mutex> l(_process_status_lock);
         return _process_status;
-    };
+    }
 
     // Appends error to the _error_log if there is space
     bool log_error(const std::string& error);

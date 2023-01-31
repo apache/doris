@@ -49,7 +49,7 @@ public:
     bool inited() {
         std::unique_lock<std::shared_mutex> wlock(_rwlock);
         return _inited;
-    };
+    }
 
     void set_tablet_schema(TabletSchemaSPtr tablet_schema) {
         std::unique_lock<std::shared_mutex> wlock(_rwlock);

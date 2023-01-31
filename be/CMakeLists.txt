@@ -118,8 +118,8 @@ option(WITH_MYSQL "Support access MySQL" ON)
 
 # Check gcc
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "11.0")
-        message(FATAL_ERROR "Need GCC version at least 11.0")
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "11.1")
+        message(FATAL_ERROR "Need GCC version at least 11.1")
     endif()
 endif()
 
@@ -457,7 +457,7 @@ check_function_exists(sched_getcpu HAVE_SCHED_GETCPU)
 #  -pthread: enable multithreaded malloc
 #  -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG: enable nanosecond precision for boost
 #  -fno-omit-frame-pointers: Keep frame pointer for functions in register
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -g -Wall -Wextra -pthread -Werror")
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -g -Wall -Wextra -pthread -Werror -Wextra-semi")
 # TODO: resolve and remove those wno
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-unused-parameter -Wno-implicit-fallthrough -Wno-sign-compare")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fstrict-aliasing -fno-omit-frame-pointer")
@@ -499,11 +499,7 @@ if (USE_LIBCPP AND COMPILER_CLANG)
 endif()
 
 if (COMPILER_GCC)
-    # Avoid GCC 11 false alarm
-    # https://stackoverflow.com/questions/67584073/gcc-11-false-array-subscript-is-partly-outside-array-bounds-warning
-    # https://stackoverflow.com/questions/69426070/gcc-11-order-of-arguments-triggers-false-positive-wstringop-overflow-is-this-bu
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-array-bounds -Wno-stringop-overread")
-    add_compile_options(-Wno-stringop-overflow -fdiagnostics-color=always)
+    add_compile_options(-fdiagnostics-color=always)
 endif ()
 
 if (COMPILER_CLANG)
