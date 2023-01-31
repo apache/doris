@@ -174,7 +174,7 @@ distribution_desc
 
     `ENGINE=olap`
 
-* `key_desc`
+* `keys_type`
 
     Data model.
 
