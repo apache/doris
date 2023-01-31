@@ -205,14 +205,6 @@ FunctionContext* FunctionContextImpl::clone(MemPool* pool) {
 namespace doris_udf {
 static const int MAX_WARNINGS = 1000;
 
-FunctionContext* FunctionContext::create_test_context(doris::MemPool* mem_pool = nullptr) {
-    FunctionContext* context = new FunctionContext();
-    context->impl()->_debug = true;
-    context->impl()->_state = nullptr;
-    context->impl()->_pool = new doris::FreePool(mem_pool);
-    return context;
-}
-
 FunctionContext::FunctionContext() : _impl(new doris::FunctionContextImpl(this)) {}
 
 FunctionContext::~FunctionContext() {

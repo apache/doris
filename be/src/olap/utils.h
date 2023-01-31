@@ -105,19 +105,6 @@ void _destruct_object(const void* obj, void*) {
     delete ((const T*)obj);
 }
 
-template <typename T>
-void _destruct_array(const void* array, void*) {
-    delete[] ((const T*)array);
-}
-
-// 根据压缩类型的不同，执行压缩。dest_buf_len是dest_buf的最大长度，
-// 通过指针返回的written_len是实际写入的长度。
-Status olap_compress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
-                     size_t* written_len, OLAPCompressionType compression_type);
-
-Status olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
-                       size_t* written_len, OLAPCompressionType compression_type);
-
 // 计算adler32的包装函数
 // 第一次使用的时候第一个参数传宏ADLER32_INIT, 之后的调用传上次计算的结果
 #define ADLER32_INIT adler32(0L, Z_NULL, 0)

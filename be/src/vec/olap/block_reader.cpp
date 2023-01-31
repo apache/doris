@@ -20,7 +20,6 @@
 #include "common/status.h"
 #include "olap/like_column_predicate.h"
 #include "olap/olap_common.h"
-#include "runtime/mem_pool.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/olap/vcollect_iterator.h"
 
@@ -189,8 +188,7 @@ Status BlockReader::init(const ReaderParams& read_params) {
     return Status::OK();
 }
 
-Status BlockReader::_direct_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                       bool* eof) {
+Status BlockReader::_direct_next_block(Block* block, bool* eof) {
     auto res = _vcollect_iter.next(block);
     if (UNLIKELY(!res.ok() && !res.is<END_OF_FILE>())) {
         return res;
@@ -207,13 +205,11 @@ Status BlockReader::_direct_next_block(Block* block, MemPool* mem_pool, ObjectPo
     return Status::OK();
 }
 
-Status BlockReader::_direct_agg_key_next_block(Block* block, MemPool* mem_pool,
-                                               ObjectPool* agg_pool, bool* eof) {
+Status BlockReader::_direct_agg_key_next_block(Block* block, bool* eof) {
     return Status::OK();
 }
 
-Status BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                        bool* eof) {
+Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
     if (UNLIKELY(_eof)) {
         *eof = true;
         return Status::OK();
@@ -263,8 +259,7 @@ Status BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectP
     return Status::OK();
 }
 
-Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                           bool* eof) {
+Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
     if (UNLIKELY(_eof)) {
         *eof = true;
         return Status::OK();

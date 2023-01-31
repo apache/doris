@@ -21,7 +21,6 @@
 #include "exec/text_converter.h"
 #include "exprs/function_filter.h"
 #include "io/file_factory.h"
-#include "runtime/tuple.h"
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/scan/vscanner.h"
@@ -103,9 +102,6 @@ protected:
     std::unique_ptr<RowDescriptor> _src_row_desc;
     // row desc for default exprs
     std::unique_ptr<RowDescriptor> _default_val_row_desc;
-
-    // Mem pool used to allocate _src_tuple and _src_tuple_row
-    std::unique_ptr<MemPool> _mem_pool;
 
     KVCache<std::string>& _kv_cache;
 

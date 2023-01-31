@@ -120,7 +120,7 @@ public class SubgraphEnumerator {
                 if (edges.isEmpty()) {
                     continue;
                 }
-                if (!receiver.emitCsgCmp(csg, newCmp, edges, hyperGraph.getComplexProject())) {
+                if (!receiver.emitCsgCmp(csg, newCmp, edges)) {
                     return false;
                 }
             }
@@ -150,7 +150,7 @@ public class SubgraphEnumerator {
             List<Edge> edges = edgeCalculator.connectCsgCmp(csg, cmp);
 
             if (!edges.isEmpty()) {
-                if (!receiver.emitCsgCmp(csg, cmp, edges, hyperGraph.getComplexProject())) {
+                if (!receiver.emitCsgCmp(csg, cmp, edges)) {
                     return false;
                 }
             }

@@ -466,11 +466,11 @@ class Suite implements GroovyInterceptable {
                     { row ->  OutputUtils.toCsvString(row) },
                     "Check tag '${tag}' failed", meta)
             } catch (Throwable t) {
-                throw new IllegalStateException("Check tag '${tag}' failed, sql:\n${sql}", t)
+                throw new IllegalStateException("Check tag '${tag}' failed, sql:\n${arg}", t)
             }
             if (errorMsg != null) {
                 logger.warn("expect results: " + expectCsvResults + "\nrealResults: " + realResults)
-                throw new IllegalStateException("Check tag '${tag}' failed:\n${errorMsg}\n\nsql:\n${sql}")
+                throw new IllegalStateException("Check tag '${tag}' failed:\n${errorMsg}\n\nsql:\n${arg}")
             }
         }
     }

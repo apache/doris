@@ -528,8 +528,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_SET_LOAD_ERROR_HUB: {
-                    final LoadErrorHub.Param param = (LoadErrorHub.Param) journal.getData();
-                    env.getLoadInstance().setLoadErrorHubInfo(param);
+                    // final LoadErrorHub.Param param = (LoadErrorHub.Param) journal.getData();
+                    // ignore load error hub
                     break;
                 }
                 case OperationType.OP_UPDATE_CLUSTER_AND_BACKENDS: {

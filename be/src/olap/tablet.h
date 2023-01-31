@@ -35,12 +35,12 @@
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/olap_tuple.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_tree.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_meta.h"
-#include "olap/tuple.h"
 #include "olap/utils.h"
 #include "olap/version_graph.h"
 #include "util/once.h"
@@ -333,7 +333,7 @@ public:
     // REQUIRES: held _meta_lock
     void update_self_owned_remote_rowsets(const std::vector<RowsetSharedPtr>& rowsets_in_snapshot);
 
-    void record_unused_remote_rowset(const RowsetId& rowset_id, const io::ResourceId& resource,
+    void record_unused_remote_rowset(const RowsetId& rowset_id, const std::string& resource,
                                      int64_t num_segments);
 
     bool check_all_rowset_segment();

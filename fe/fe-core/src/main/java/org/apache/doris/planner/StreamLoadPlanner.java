@@ -43,7 +43,6 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.load.BrokerFileGroup;
-import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.loadv2.LoadTask;
 import org.apache.doris.load.routineload.RoutineLoadJob;
 import org.apache.doris.planner.external.ExternalFileScanNode;
@@ -53,7 +52,6 @@ import org.apache.doris.thrift.PaloInternalServiceVersion;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TFileType;
-import org.apache.doris.thrift.TLoadErrorHubInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPlanFragmentExecParams;
 import org.apache.doris.thrift.TQueryGlobals;
@@ -265,15 +263,6 @@ public class StreamLoadPlanner {
         queryGlobals.setNanoSeconds(LocalDateTime.now().getNano());
 
         params.setQueryGlobals(queryGlobals);
-
-        // set load error hub if exist
-        LoadErrorHub.Param param = Env.getCurrentEnv().getLoadInstance().getLoadErrorHubInfo();
-        if (param != null) {
-            TLoadErrorHubInfo info = param.toThrift();
-            if (info != null) {
-                params.setLoadErrorHubInfo(info);
-            }
-        }
 
         // LOG.debug("stream load txn id: {}, plan: {}", streamLoadTask.getTxnId(), params);
         return params;

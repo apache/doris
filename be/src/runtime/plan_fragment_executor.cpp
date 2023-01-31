@@ -114,9 +114,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     if (request.__isset.load_job_id) {
         _runtime_state->set_load_job_id(request.load_job_id);
     }
-    if (request.__isset.load_error_hub_info) {
-        _runtime_state->set_load_error_hub_info(request.load_error_hub_info);
-    }
 
     if (request.query_options.__isset.is_report_success) {
         _is_report_success = request.query_options.is_report_success;

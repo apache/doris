@@ -66,8 +66,6 @@ private:
     int _tuple_idx;
     // slot num need to fill in and return
     int _slot_num;
-    // Pool for allocating tuple data, including all varying-length slots.
-    std::unique_ptr<MemPool> _tuple_pool;
     // Jni helper for scanning an schema table.
     std::unique_ptr<SchemaScanner> _schema_scanner;
 };
