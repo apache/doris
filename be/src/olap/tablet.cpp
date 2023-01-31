@@ -1393,7 +1393,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     tablet_info->__set_remote_data_size(_tablet_meta->tablet_remote_size());
     tablet_info->__set_is_cooldown(_tablet_meta->storage_policy_id() > 0);
     if (tablet_info->is_cooldown) {
-        tablet_info->__set_cooldown_replica_id(_tablet_meta->cooldown_replica_id());
+        tablet_info->__set_cooldown_replica_id(_cooldown_replica_id);
     }
 }
 
@@ -1738,7 +1738,7 @@ Status Tablet::_write_cooldown_meta(io::RemoteFileSystem* fs, RowsetMeta* new_rs
     std::vector<RowsetMetaSharedPtr> cooldowned_rs_metas;
     {
         std::shared_lock meta_rlock(_meta_lock);
-        for (auto rs_meta : _tablet_meta->all_rs_metas()) {
+        for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
             if (!rs_meta->is_local()) {
                 cooldowned_rs_metas.push_back(rs_meta);
             }
@@ -1812,6 +1812,7 @@ Status Tablet::_follow_cooldowned_data(io::RemoteFileSystem* fs, int64_t cooldow
         _rs_version_map.erase((*rs_it)->version());
         to_delete.push_back((*rs_it)->rowset_meta());
         _timestamped_version_tracker.delete_version((*rs_it)->version());
+        StorageEngine::instance()->add_unused_rowset(*rs_it);
     }
 
     std::vector<RowsetMetaSharedPtr> to_add;

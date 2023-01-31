@@ -1637,8 +1637,6 @@ void TaskWorkerPool::_push_storage_policy_worker_thread_callback() {
             agent_task_req = _tasks.front();
             _tasks.pop_front();
         }
-        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
-
         TPushStoragePolicyReq& push_storage_policy_req = agent_task_req.push_storage_policy_req;
         // refresh resource
         for (auto& resource : push_storage_policy_req.resource) {
