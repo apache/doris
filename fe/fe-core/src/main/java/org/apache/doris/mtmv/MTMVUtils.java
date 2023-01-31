@@ -85,7 +85,6 @@ public class MTMVUtils {
         return getDelaySeconds(job, LocalDateTime.now());
     }
 
-    // this method only for test
     public static long getDelaySeconds(MTMVJob job, LocalDateTime now) {
         long lastModifyTime = job.getLastModifyTime();
         long nextTime = 0;
