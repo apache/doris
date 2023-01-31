@@ -2583,7 +2583,7 @@ MasterOnly：false
 
 The default dir to put jdbc drivers.
 
-#### max_error_tablet_of_broker_load
+#### `max_error_tablet_of_broker_load`
 
 Default: 3;
 
