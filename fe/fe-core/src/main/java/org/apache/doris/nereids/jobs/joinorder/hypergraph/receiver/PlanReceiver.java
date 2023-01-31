@@ -154,6 +154,11 @@ public class PlanReceiver implements AbstractReceiver {
                 outputSlots.addAll(edge.getExpression().getInputSlots());
             }
         }
+        hyperGraph.getComplexProject()
+                .values()
+                .stream()
+                .flatMap(l -> l.stream())
+                .forEach(expr -> outputSlots.addAll(expr.getInputSlots()));
         return outputSlots;
     }
 
@@ -288,11 +293,7 @@ public class PlanReceiver implements AbstractReceiver {
         List<Slot> outputs = allChild.get(0).getOutput();
         Set<Slot> outputSet = allChild.get(0).getOutputSet();
         if (!projectsOnSubgraph.containsKey(fullKey)) {
-            // calculate required columns
-            Set<Slot> requireSlots = calculateRequiredSlots(left, right, edges);
-            List<NamedExpression> projects = outputs.stream().filter(e -> requireSlots.contains(e)).collect(
-                    Collectors.toList());
-
+            List<NamedExpression> projects = new ArrayList<>();
             // Calculate complex expression
             Map<Long, List<NamedExpression>> complexExpressionMap = hyperGraph.getComplexProject();
             List<Long> bitmaps = complexExpressionMap.keySet().stream()
@@ -303,21 +304,43 @@ public class PlanReceiver implements AbstractReceiver {
                 complexExpressionMap.remove(bitmap);
             }
 
+            // calculate required columns
+            Set<Slot> requireSlots = calculateRequiredSlots(left, right, edges);
+            outputs.stream()
+                    .filter(e -> requireSlots.contains(e))
+                    .forEach(e -> projects.add(e));
+
             // propose physical project
             if (projects.isEmpty()) {
                 projects.add(ExpressionUtils.selectMinimumColumn(outputs));
             }
             projectsOnSubgraph.put(fullKey, projects);
         }
-        List<NamedExpression> projects = projectsOnSubgraph.get(fullKey);
-        if (outputSet.equals(new HashSet<>(projects))) {
+        List<NamedExpression> allProjects = projectsOnSubgraph.get(fullKey);
+        if (outputSet.equals(new HashSet<>(allProjects))) {
             return allChild;
         }
-        LogicalProperties projectProperties = new LogicalProperties(
-                () -> projects.stream().map(p -> p.toSlot()).collect(Collectors.toList()));
-        return allChild.stream()
-                .map(c -> new PhysicalProject<>(projects, projectProperties, c))
-                .collect(Collectors.toList());
+        while (true) {
+            Set<Slot> childOutputSet = allChild.get(0).getOutputSet();
+            List<NamedExpression> projects = allProjects.stream()
+                    .filter(expr ->
+                            childOutputSet.containsAll(expr.getInputSlots()) || childOutputSet.contains(expr.toSlot()))
+                    .collect(Collectors.toList());
+            if (!outputSet.equals(new HashSet<>(projects))) {
+                LogicalProperties projectProperties = new LogicalProperties(
+                        () -> projects.stream().map(p -> p.toSlot()).collect(Collectors.toList()));
+                allChild = allChild.stream()
+                        .map(c -> new PhysicalProject<>(projects, projectProperties, c))
+                        .collect(Collectors.toList());
+            }
+            if (projects.size() == 0) {
+                throw new RuntimeException("dphyer fail process project");
+            }
+            if (projects.size() == allProjects.size()) {
+                break;
+            }
+        }
+        return allChild;
     }
 }
 
