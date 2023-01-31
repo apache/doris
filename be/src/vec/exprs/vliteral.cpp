@@ -93,28 +93,36 @@ void VLiteral::init(const TExprNode& node) {
         }
         case TYPE_DATE: {
             VecDateTimeValue value;
-            value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size());
-            value.cast_to_date();
-            field = Int64(*reinterpret_cast<__int64_t*>(&value));
+            if (value.from_date_str(node.date_literal.value.c_str(),
+                                    node.date_literal.value.size())) {
+                value.cast_to_date();
+                field = Int64(*reinterpret_cast<__int64_t*>(&value));
+            }
             break;
         }
         case TYPE_DATEV2: {
             DateV2Value<DateV2ValueType> value;
-            value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size());
-            field = value.to_date_int_val();
+            if (value.from_date_str(node.date_literal.value.c_str(),
+                                    node.date_literal.value.size())) {
+                field = value.to_date_int_val();
+            }
             break;
         }
         case TYPE_DATETIMEV2: {
             DateV2Value<DateTimeV2ValueType> value;
-            value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size());
-            field = value.to_date_int_val();
+            if (value.from_date_str(node.date_literal.value.c_str(),
+                                    node.date_literal.value.size())) {
+                field = value.to_date_int_val();
+            }
             break;
         }
         case TYPE_DATETIME: {
             VecDateTimeValue value;
-            value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size());
-            value.to_datetime();
-            field = Int64(*reinterpret_cast<__int64_t*>(&value));
+            if (value.from_date_str(node.date_literal.value.c_str(),
+                                    node.date_literal.value.size())) {
+                value.to_datetime();
+                field = Int64(*reinterpret_cast<__int64_t*>(&value));
+            }
             break;
         }
         case TYPE_STRING:
