@@ -78,7 +78,7 @@ Status EngineChecksumTask::_compute_checksum() {
     SipHash block_hash;
     uint64_t rows = 0;
     while (!eof) {
-        RETURN_IF_ERROR(reader.next_block_with_aggregation(&block, nullptr, nullptr, &eof));
+        RETURN_IF_ERROR(reader.next_block_with_aggregation(&block, &eof));
         rows += block.rows();
 
         block.update_hash(block_hash);

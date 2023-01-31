@@ -2583,4 +2583,13 @@ MasterOnly：false
 
 The default dir to put jdbc drivers.
 
+#### `max_error_tablet_of_broker_load`
+
+Default: 3;
+
+IsMutable：true
+
+MasterOnly：true
+
+Maximum number of error tablet showed in broker load.
 

@@ -35,7 +35,6 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "util/file_utils.h"
-#include "util/load_error_hub.h"
 #include "util/pretty_printer.h"
 #include "util/timezone_utils.h"
 #include "util/uid_util.h"
@@ -147,16 +146,11 @@ RuntimeState::RuntimeState()
 }
 
 RuntimeState::~RuntimeState() {
-    _block_mgr2.reset();
     // close error log file
     if (_error_log_file != nullptr && _error_log_file->is_open()) {
         _error_log_file->close();
         delete _error_log_file;
         _error_log_file = nullptr;
-    }
-
-    if (_error_hub != nullptr) {
-        _error_hub->close();
     }
 
     _obj_pool->clear();
@@ -217,16 +211,6 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     _query_mem_tracker = std::make_shared<MemTrackerLimiter>(
             MemTrackerLimiter::Type::QUERY, fmt::format("TestQuery#Id={}", print_id(query_id)));
     return Status::OK();
-}
-
-bool RuntimeState::error_log_is_empty() {
-    std::lock_guard<std::mutex> l(_error_log_lock);
-    return (_error_log.size() > 0);
-}
-
-std::string RuntimeState::error_log() {
-    std::lock_guard<std::mutex> l(_error_log_lock);
-    return boost::algorithm::join(_error_log, "\n");
 }
 
 bool RuntimeState::log_error(const std::string& error) {
@@ -353,35 +337,8 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
 
     if (out.size() > 0) {
         (*_error_log_file) << fmt::to_string(out) << std::endl;
-        export_load_error(fmt::to_string(out));
     }
     return Status::OK();
-}
-
-const int64_t HUB_MAX_ERROR_NUM = 10;
-
-void RuntimeState::export_load_error(const std::string& err_msg) {
-    if (_error_hub == nullptr) {
-        std::lock_guard<std::mutex> lock(_create_error_hub_lock);
-        if (_error_hub == nullptr) {
-            if (_load_error_hub_info == nullptr) {
-                return;
-            }
-
-            Status st = LoadErrorHub::create_hub(_exec_env, _load_error_hub_info.get(),
-                                                 _error_log_file_path, &_error_hub);
-            if (!st.ok()) {
-                LOG(WARNING) << "failed to create load error hub: " << st;
-                return;
-            }
-        }
-    }
-
-    if (_error_row_number <= HUB_MAX_ERROR_NUM) {
-        LoadErrorHub::ErrorMsg err(_load_job_id, err_msg);
-        // TODO(lingbin): think if should check return value?
-        _error_hub->export_error(err);
-    }
 }
 
 int64_t RuntimeState::get_load_mem_limit() {

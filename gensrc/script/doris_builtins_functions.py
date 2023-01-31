@@ -1236,7 +1236,7 @@ visible_functions = [
     [['running_difference'], 'SMALLINT', ['TINYINT'], ''],
     [['running_difference'], 'INT', ['SMALLINT'], ''],
     [['running_difference'], 'BIGINT', ['INT'], ''],
-    [['running_difference'], 'LARGEINT', ['BIGINT'], ''],
+    [['running_difference'], 'BIGINT', ['BIGINT'], ''],
     [['running_difference'], 'LARGEINT', ['LARGEINT'], ''],
     [['running_difference'], 'DOUBLE', ['FLOAT'], ''],
     [['running_difference'], 'DOUBLE', ['DOUBLE'], ''],
