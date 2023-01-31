@@ -29,7 +29,6 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "runtime/descriptor_helper.h"
-#include "runtime/tuple.h"
 #include "util/file_utils.h"
 #include "util/s3_util.h"
 

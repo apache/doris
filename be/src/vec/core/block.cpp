@@ -26,7 +26,6 @@
 #include "agent/be_exec_version_manager.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
-#include "runtime/tuple.h"
 #include "udf/udf.h"
 #include "util/block_compression.h"
 #include "util/exception.h"

@@ -43,7 +43,6 @@ class DataStreamRecvr;
 class ResultBufferMgr;
 class TmpFileMgr;
 class BufferedBlockMgr;
-class LoadErrorHub;
 class RowDescriptor;
 class RuntimeFilterMgr;
 
@@ -90,6 +89,7 @@ public:
         return _query_options.abort_on_default_limit_exceeded;
     }
     int max_errors() const { return _query_options.max_errors; }
+    int query_timeout() const { return _query_options.query_timeout; }
     int max_io_buffers() const { return _query_options.max_io_buffers; }
     int num_scanner_threads() const { return _query_options.num_scanner_threads; }
     TQueryType::type query_type() const { return _query_options.query_type; }
@@ -213,18 +213,6 @@ public:
 
     const int64_t load_job_id() const { return _load_job_id; }
 
-    // we only initialize object for load jobs
-    void set_load_error_hub_info(const TLoadErrorHubInfo& hub_info) {
-        TLoadErrorHubInfo* info = new TLoadErrorHubInfo(hub_info);
-        _load_error_hub_info.reset(info);
-    }
-
-    // only can be invoded after set its value
-    const TLoadErrorHubInfo* load_error_hub_info() {
-        // DCHECK(_load_error_hub_info != nullptr);
-        return _load_error_hub_info.get();
-    }
-
     const int64_t get_normal_row_number() const { return _normal_row_number; }
 
     const void set_normal_row_number(int64_t number) { _normal_row_number = number; }
@@ -269,8 +257,6 @@ public:
     void update_num_rows_load_unselected(int64_t num_rows) {
         _num_rows_load_unselected.fetch_add(num_rows);
     }
-
-    void export_load_error(const std::string& error_msg);
 
     void set_per_fragment_instance_idx(int idx) { _per_fragment_instance_idx = idx; }
 
@@ -340,6 +326,13 @@ public:
             return 0;
         }
         return _query_options.partitioned_hash_join_rows_threshold;
+    }
+
+    int partitioned_hash_agg_rows_threshold() const {
+        if (!_query_options.__isset.partitioned_hash_agg_rows_threshold) {
+            return 0;
+        }
+        return _query_options.partitioned_hash_agg_rows_threshold;
     }
 
     const std::vector<TTabletCommitInfo>& tablet_commit_infos() const {
@@ -487,15 +480,12 @@ private:
     std::string _db_name;
     std::string _load_dir;
     int64_t _load_job_id;
-    std::unique_ptr<TLoadErrorHubInfo> _load_error_hub_info;
 
     // mini load
     int64_t _normal_row_number;
     int64_t _error_row_number;
     std::string _error_log_file_path;
     std::ofstream* _error_log_file = nullptr; // error file path, absolute path
-    std::unique_ptr<LoadErrorHub> _error_hub;
-    std::mutex _create_error_hub_lock;
     std::vector<TTabletCommitInfo> _tablet_commit_infos;
     std::vector<TErrorTabletInfo> _error_tablet_infos;
 
