@@ -7057,6 +7057,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_LINES:id
     {: RESULT = id; :}
+    | KW_HISTOGRAM:id
+    {: RESULT = id; :}
     ;
 
 // Identifier that contain keyword
