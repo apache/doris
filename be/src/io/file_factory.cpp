@@ -27,6 +27,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "io/hdfs_file_reader.h"
 #include "io/hdfs_writer.h"
@@ -153,12 +154,11 @@ Status FileFactory::create_file_reader(RuntimeProfile* /*profile*/,
                                        std::shared_ptr<io::FileSystem>* file_system,
                                        io::FileReaderSPtr* file_reader, IOContext* io_ctx) {
     TFileType::type type = system_properties.system_type;
-    std::string cache_policy = "no_cache";
+    auto cache_policy = io::FileCachePolicy::NO_CACHE;
     if (config::enable_file_cache) {
-        cache_policy = "file_block_cache";
+        cache_policy = io::FileCachePolicy::FILE_BLOCK_CACHE;
     }
-    io::FileReaderOptions reader_options(io::cache_type_from_string(cache_policy),
-                                         io::FileBlockCachePathPolicy());
+    io::FileReaderOptions reader_options(cache_policy, io::FileBlockCachePathPolicy());
     switch (type) {
     case TFileType::FILE_LOCAL: {
         RETURN_IF_ERROR(io::global_local_filesystem()->open_file(
@@ -235,9 +235,10 @@ Status FileFactory::create_s3_reader(const std::map<std::string, std::string>& p
     }
     S3Conf s3_conf;
     RETURN_IF_ERROR(ClientFactory::convert_properties_to_s3_conf(prop, s3_uri, &s3_conf));
-    *s3_file_system = io::S3FileSystem::create(s3_conf, "");
-    RETURN_IF_ERROR((std::static_pointer_cast<io::S3FileSystem>(*s3_file_system))->connect());
-    RETURN_IF_ERROR((*s3_file_system)->open_file(s3_uri.get_key(), reader_options, reader, io_ctx));
+    std::shared_ptr<io::RemoteFileSystem> tmp_fs = io::S3FileSystem::create(std::move(s3_conf), "");
+    RETURN_IF_ERROR(tmp_fs->connect());
+    RETURN_IF_ERROR(tmp_fs->open_file(s3_uri.get_key(), reader_options, reader, io_ctx));
+    *s3_file_system = std::move(tmp_fs);
     return Status::OK();
 }
 
