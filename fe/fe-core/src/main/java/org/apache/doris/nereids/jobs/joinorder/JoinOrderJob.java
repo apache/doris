@@ -113,13 +113,8 @@ public class JoinOrderJob extends Job {
      */
     public void buildGraph(Group group, HyperGraph hyperGraph) {
         if (group.isProjectGroup()) {
-            Group childGroup = group.getLogicalExpression().child(0);
-            if (childGroup.isJoinGroup()) {
-                buildGraph(group.getLogicalExpression().child(0), hyperGraph);
-                processProjectPlan(hyperGraph, group);
-            } else {
-                hyperGraph.addNode(optimizePlan(group));
-            }
+            buildGraph(group.getLogicalExpression().child(0), hyperGraph);
+            processProjectPlan(hyperGraph, group);
             return;
         }
         if (!group.isJoinGroup()) {

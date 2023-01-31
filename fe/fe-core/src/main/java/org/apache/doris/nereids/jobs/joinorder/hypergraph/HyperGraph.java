@@ -74,21 +74,12 @@ public class HyperGraph {
 
     /**
      * Store the relation between Alias Slot and Original Slot and its expression
-<<<<<<< HEAD
-     * e.g. a = b
-     *        |--- project((c + d) as b)
-     * Note if the alias only associated with one endNode,
-     * e.g. a = b
-     *        |--- project((c + 1) as b)
-     * we need to replace the group of that node with this project group.
-=======
      * e.g.,
      * a = b
      * |--- project((c + d) as b)
      * <p>
      * a = b
      * |--- project((c + 1) as b)
->>>>>>> 55737966b (generate phyiscal plan in DPhyp)
      *
      * @param alias The alias Expression in project Operator
      */
@@ -102,18 +93,8 @@ public class HyperGraph {
             bitmap = LongBitmap.or(bitmap, slotToNodeMap.get(slot));
         }
         slotToNodeMap.put(aliasSlot, bitmap);
-<<<<<<< HEAD
-        if (LongBitmap.getCardinality(bitmap) == 1) {
-            // This means the alias only associate with one endNode
-            int index = LongBitmap.lowestOneIndex(bitmap);
-            nodeSet.remove(nodes.get(index).getGroup());
-            nodeSet.add(group);
-            nodes.get(index).replaceGroupWith(group);
-            return false;
-=======
         if (!complexProject.containsKey(bitmap)) {
             complexProject.put(bitmap, new ArrayList<>());
->>>>>>> 55737966b (generate phyiscal plan in DPhyp)
         }
         complexProject.get(bitmap).add(alias);
         return true;
@@ -154,18 +135,9 @@ public class HyperGraph {
             LogicalJoin singleJoin = new LogicalJoin<>(join.getJoinType(), ImmutableList.of(expression), join.left(),
                     join.right());
             Edge edge = new Edge(singleJoin, edges.size());
-<<<<<<< HEAD
-            Preconditions.checkArgument(expression.children().size() == 2);
-            // TODO: use connected property to calculate edge
-            long left = calNodeMap(expression.child(0).getInputSlots());
-            edge.setLeft(left);
-            long right = calNodeMap(expression.child(1).getInputSlots());
-            edge.setRight(right);
-=======
             Pair<Long, Long> ends = findEnds(expression);
             edge.setLeft(ends.first);
             edge.setRight(ends.second);
->>>>>>> 55737966b (generate phyiscal plan in DPhyp)
             for (int nodeIndex : LongBitmap.getIterator(edge.getReferenceNodes())) {
                 nodes.get(nodeIndex).attachEdge(edge);
             }
