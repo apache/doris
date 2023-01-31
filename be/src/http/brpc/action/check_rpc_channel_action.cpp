@@ -16,27 +16,36 @@
 // under the License.
 #include "check_rpc_channel_action.h"
 
+#include <brpc/http_method.h>
 #include <gen_cpp/internal_service.pb.h>
+#include <glog/logging.h>
 
 #include <string>
+#include <vector>
 
 #include "service/brpc.h"
 #include "util/brpc_client_cache.h"
 #include "util/md5.h"
 
 namespace doris {
-CheckRPCChannelAction::CheckRPCChannelAction(ExecEnv* exec_env)
+CheckRpcChannelHandler::CheckRpcChannelHandler(ExecEnv* exec_env)
         : BaseHttpHandler("check_rpc_channel", exec_env) {}
 
-void CheckRPCChannelAction::handle_sync(brpc::Controller* cntl) {
-    const std::string req_ip = *get_param(cntl, "ip");
-    const std::string* req_port_ptr = get_param(cntl, "port");
-    const std::string* req_payload_size_ptr = get_param(cntl, "payload_size");
+void CheckRpcChannelHandler::handle_sync(brpc::Controller* cntl) {
+    std::vector<std::string> path_array;
+    get_path_array(cntl, path_array);
+    if (path_array.size() != 5) {
+        on_not_found(cntl, "path variable invalid");
+        return;
+    }
+    const std::string& req_ip = path_array[2];
+    const std::string& req_port = path_array[3];
+    const std::string& req_payload_size = path_array[4];
     uint64_t port = 0;
     uint64_t payload_size = 0;
     try {
-        port = std::stoull(*req_port_ptr);
-        payload_size = std::stoull(*req_payload_size_ptr);
+        port = std::stoull(req_port);
+        payload_size = std::stoull(req_payload_size);
         if (port > 65535) {
             on_error(cntl,
                      fmt::format("invalid argument port, should between 0-65535, actrual is {0}",
@@ -84,5 +93,9 @@ void CheckRPCChannelAction::handle_sync(brpc::Controller* cntl) {
         LOG(WARNING) << err;
         on_succ(cntl, err);
     }
+}
+
+bool CheckRpcChannelHandler::support_method(brpc::HttpMethod method) const {
+    return method == brpc::HTTP_METHOD_GET;
 }
 } // namespace doris

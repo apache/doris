@@ -21,13 +21,15 @@
 
 namespace doris {
 
-class HealthAction : public BaseHttpHandler {
+class HealthHandler : public BaseHttpHandler {
 public:
-    HealthAction();
-    ~HealthAction() override = default;
+    HealthHandler();
+    ~HealthHandler() override = default;
 
 protected:
     void handle_sync(brpc::Controller* cntl) override;
+
+    bool support_method(brpc::HttpMethod method) const override;
 };
 
 } // namespace doris

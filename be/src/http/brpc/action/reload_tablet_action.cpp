@@ -27,10 +27,10 @@ const std::string PATH = "path";
 const std::string TABLET_ID = "tablet_id";
 const std::string SCHEMA_HASH = "schema_hash";
 
-ReloadTabletAction::ReloadTabletAction(ExecEnv* exev_env)
+ReloadTabletHandler::ReloadTabletHandler(ExecEnv* exev_env)
         : BaseHttpHandler("reload_tablet", exev_env) {}
 
-void ReloadTabletAction::handle_sync(brpc::Controller* cntl) {
+void ReloadTabletHandler::handle_sync(brpc::Controller* cntl) {
     // add tid to cgroup in order to limit read bandwidth
     CgroupsMgr::apply_system_cgroup();
 
@@ -77,8 +77,8 @@ void ReloadTabletAction::handle_sync(brpc::Controller* cntl) {
     LOG(INFO) << "deal with reload tablet request finished! tablet id: " << tablet_id;
 }
 
-void ReloadTabletAction::reload(brpc::Controller* cntl, const std::string& path, int64_t tablet_id,
-                                int32_t schema_hash) {
+void ReloadTabletHandler::reload(brpc::Controller* cntl, const std::string& path, int64_t tablet_id,
+                                 int32_t schema_hash) {
     TCloneReq clone_req;
     clone_req.__set_tablet_id(tablet_id);
     clone_req.__set_schema_hash(schema_hash);

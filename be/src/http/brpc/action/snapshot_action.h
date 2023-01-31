@@ -19,10 +19,10 @@
 
 namespace doris {
 
-class SnapshotAction : BaseHttpHandler {
+class SnapshotHandler : BaseHttpHandler {
 public:
-    explicit SnapshotAction();
-    ~SnapshotAction() override = default;
+    explicit SnapshotHandler();
+    ~SnapshotHandler() override = default;
 
 protected:
     void handle_sync(brpc::Controller* cntl) override;

@@ -21,10 +21,10 @@
 
 namespace doris {
 
-class TabletsInfoAction : BaseHttpHandler {
+class TabletsInfoHandler : BaseHttpHandler {
 public:
-    TabletsInfoAction();
-    ~TabletsInfoAction() override = default;
+    TabletsInfoHandler();
+    ~TabletsInfoHandler() override = default;
 
     EasyJson get_tablets_info(brpc::Controller* cntl, const std::string& tablet_num_to_return);
 

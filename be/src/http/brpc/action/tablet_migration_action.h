@@ -20,10 +20,10 @@
 
 namespace doris {
 
-class TabletMigrationAction : BaseHttpHandler {
+class TabletMigrationHandler : BaseHttpHandler {
 public:
-    TabletMigrationAction();
-    ~TabletMigrationAction() override = default;
+    TabletMigrationHandler();
+    ~TabletMigrationHandler() override = default;
     void _init_migration_action();
     Status _execute_tablet_migration(TabletSharedPtr tablet, DataDir* dest_store);
     Status _check_param(brpc::Controller* cntl, int64_t& tablet_id, int32_t& schema_hash,

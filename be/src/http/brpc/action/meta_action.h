@@ -25,10 +25,10 @@ enum META_TYPE {
     HEADER = 1,
 };
 
-class MetaAction : public BaseHttpHandler {
+class MetaHandler : public BaseHttpHandler {
 public:
-    MetaAction(META_TYPE meta_type);
-    ~MetaAction() override = default;
+    MetaHandler(META_TYPE meta_type);
+    ~MetaHandler() override = default;
 
 protected:
     void handle_sync(brpc::Controller* cntl) override;

@@ -21,11 +21,11 @@
 #include "olap/task/engine_storage_migration_task.h"
 
 namespace doris {
-TabletMigrationAction::TabletMigrationAction() : BaseHttpHandler("tablet_migration") {
+TabletMigrationHandler::TabletMigrationHandler() : BaseHttpHandler("tablet_migration") {
     _init_migration_action();
 }
 
-void TabletMigrationAction::_init_migration_action() {
+void TabletMigrationHandler::_init_migration_action() {
     int32_t max_thread_num = config::max_tablet_migration_threads;
     int32_t min_thread_num = config::min_tablet_migration_threads;
     ThreadPoolBuilder("MigrationTaskThreadPool")
@@ -34,8 +34,8 @@ void TabletMigrationAction::_init_migration_action() {
             .build(&_migration_thread_pool);
 }
 
-Status TabletMigrationAction::_execute_tablet_migration(TabletSharedPtr tablet,
-                                                        DataDir* dest_store) {
+Status TabletMigrationHandler::_execute_tablet_migration(TabletSharedPtr tablet,
+                                                         DataDir* dest_store) {
     int64_t tablet_id = tablet->tablet_id();
     int32_t schema_hash = tablet->schema_hash();
     string dest_disk = dest_store->path();
@@ -52,8 +52,8 @@ Status TabletMigrationAction::_execute_tablet_migration(TabletSharedPtr tablet,
     return res;
 }
 
-Status TabletMigrationAction::_check_param(brpc::Controller* cntl, int64_t& tablet_id,
-                                           int32_t& schema_hash, string& dest_disk, string& goal) {
+Status TabletMigrationHandler::_check_param(brpc::Controller* cntl, int64_t& tablet_id,
+                                            int32_t& schema_hash, string& dest_disk, string& goal) {
     const std::string& req_tablet_id = *get_param(cntl, "tablet_id");
     const std::string& req_schema_hash = *get_param(cntl, "schema_hash");
     try {

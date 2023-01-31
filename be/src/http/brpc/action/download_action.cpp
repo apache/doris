@@ -35,7 +35,7 @@ const std::string DB_PARAMETER = "db";
 const std::string LABEL_PARAMETER = "label";
 const std::string TOKEN_PARAMETER = "token";
 
-DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>& allow_dirs)
+DownloadHandler::DownloadHandler(ExecEnv* exec_env, const std::vector<std::string>& allow_dirs)
         : BaseHttpHandler("download", exec_env), _download_type(NORMAL) {
     for (auto& dir : allow_dirs) {
         std::string p;
@@ -44,13 +44,13 @@ DownloadAction::DownloadAction(ExecEnv* exec_env, const std::vector<std::string>
     }
 }
 
-DownloadAction::DownloadAction(ExecEnv* exec_env, const std::string& error_log_root_dir)
+DownloadHandler::DownloadHandler(ExecEnv* exec_env, const std::string& error_log_root_dir)
         : BaseHttpHandler("download", exec_env), _download_type(ERROR_LOG) {
     WARN_IF_ERROR(FileUtils::canonicalize(error_log_root_dir, &_error_log_root_dir),
                   "canonicalize path " + error_log_root_dir + " failed");
 }
 
-void DownloadAction::handle_sync(brpc::Controller* cntl) {
+void DownloadHandler::handle_sync(brpc::Controller* cntl) {
     // add tid to cgroup in order to limit read bandwidth
     CgroupsMgr::apply_system_cgroup();
 
@@ -72,7 +72,11 @@ void DownloadAction::handle_sync(brpc::Controller* cntl) {
     VLOG_CRITICAL << "deal with download request finished! ";
 }
 
-void DownloadAction::handle_normal(brpc::Controller* cntl, const std::string& file_param) {
+bool DownloadHandler::support_method(brpc::HttpMethod method) const {
+    return method == brpc::HTTP_METHOD_HEAD || method == brpc::HTTP_METHOD_GET;
+}
+
+void DownloadHandler::handle_normal(brpc::Controller* cntl, const std::string& file_param) {
     // check token
     Status status;
     if (config::enable_token_check) {
@@ -96,7 +100,7 @@ void DownloadAction::handle_normal(brpc::Controller* cntl, const std::string& fi
     }
 }
 
-void DownloadAction::handle_error_log(brpc::Controller* cntl, const std::string& file_param) {
+void DownloadHandler::handle_error_log(brpc::Controller* cntl, const std::string& file_param) {
     const std::string absolute_path = _error_log_root_dir + "/" + file_param;
 
     Status status = check_log_path_is_allowed(absolute_path);
@@ -115,7 +119,7 @@ void DownloadAction::handle_error_log(brpc::Controller* cntl, const std::string&
     _do_file_response(absolute_path, cntl);
 }
 
-void DownloadAction::_do_file_response(const std::string& file_path, brpc::Controller* cntl) {
+void DownloadHandler::_do_file_response(const std::string& file_path, brpc::Controller* cntl) {
     if (file_path.find("..") != std::string::npos) {
         std::stringstream ss;
         ss << "Not allowed to read relative path: " << file_path;
@@ -167,7 +171,7 @@ void DownloadAction::_do_file_response(const std::string& file_path, brpc::Contr
     bthread_start_background(&th, nullptr, send_file, args.release());
 }
 
-void DownloadAction::_do_dir_response(const std::string& dir_path, brpc::Controller* cntl) {
+void DownloadHandler::_do_dir_response(const std::string& dir_path, brpc::Controller* cntl) {
     std::vector<std::string> files;
     Status status = FileUtils::list_files(Env::Default(), dir_path, &files);
     if (!status.ok()) {
@@ -188,7 +192,7 @@ void DownloadAction::_do_dir_response(const std::string& dir_path, brpc::Control
     on_succ(cntl, result_str);
 }
 
-void* DownloadAction::send_file(void* raw_args) {
+void* DownloadHandler::send_file(void* raw_args) {
     std::unique_ptr<FileArgs> args(static_cast<FileArgs*>(raw_args));
     if (!args->pa) {
         LOG(WARNING) << "ProgressiveAttachment is NULL";
@@ -213,7 +217,7 @@ void* DownloadAction::send_file(void* raw_args) {
     return nullptr;
 }
 
-Status DownloadAction::check_token(brpc::Controller* cntl) {
+Status DownloadHandler::check_token(brpc::Controller* cntl) {
     const std::string& token_str = *get_param(cntl, TOKEN_PARAMETER);
     if (token_str.empty()) {
         return Status::InternalError("token is not specified.");
@@ -225,7 +229,7 @@ Status DownloadAction::check_token(brpc::Controller* cntl) {
     return Status::OK();
 }
 
-Status DownloadAction::check_path_is_allowed(const std::string& file_path) {
+Status DownloadHandler::check_path_is_allowed(const std::string& file_path) {
     DCHECK_EQ(_download_type, NORMAL);
 
     std::string canonical_file_path;
@@ -242,7 +246,7 @@ Status DownloadAction::check_path_is_allowed(const std::string& file_path) {
     return Status::InternalError("file path is not allowed: {}", canonical_file_path);
 }
 
-Status DownloadAction::check_log_path_is_allowed(const std::string& file_path) {
+Status DownloadHandler::check_log_path_is_allowed(const std::string& file_path) {
     DCHECK_EQ(_download_type, ERROR_LOG);
 
     std::string canonical_file_path;

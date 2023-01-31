@@ -23,10 +23,10 @@ namespace doris {
 
 class MetricRegistry;
 
-class MetricsAction : public BaseHttpHandler {
+class MetricsHandler : public BaseHttpHandler {
 public:
-    MetricsAction(MetricRegistry* metric_registry);
-    ~MetricsAction() override = default;
+    MetricsHandler(MetricRegistry* metric_registry);
+    ~MetricsHandler() override = default;
 
 protected:
     void handle_sync(brpc::Controller* cntl) override;

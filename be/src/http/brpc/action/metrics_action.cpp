@@ -25,10 +25,10 @@
 #include "util/metrics.h"
 
 namespace doris {
-MetricsAction::MetricsAction(MetricRegistry* metric_registry)
+MetricsHandler::MetricsHandler(MetricRegistry* metric_registry)
         : BaseHttpHandler("metrics"), _metric_registry(metric_registry) {}
 
-void MetricsAction::handle_sync(brpc::Controller* cntl) {
+void MetricsHandler::handle_sync(brpc::Controller* cntl) {
     const std::string& type = *get_param(cntl, "type");
     const std::string& with_tablet = *get_param(cntl, "with_tablet");
     std::string str;

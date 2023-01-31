@@ -19,10 +19,10 @@
 
 namespace doris {
 
-class RestoreTabletAction : BaseHttpHandler {
+class RestoreTabletHandler : BaseHttpHandler {
 public:
-    RestoreTabletAction();
-    ~RestoreTabletAction() override = default;
+    RestoreTabletHandler();
+    ~RestoreTabletHandler() override = default;
 
 protected:
     void handle_sync(brpc::Controller* cntl) override;

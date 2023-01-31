@@ -18,12 +18,14 @@
 #include "http/brpc/brpc_http_handler.h"
 
 namespace doris {
-class CheckTabletSegmentAction : public BaseHttpHandler {
+class CheckTabletSegmentHandler : public BaseHttpHandler {
 public:
-    CheckTabletSegmentAction();
-    ~CheckTabletSegmentAction() override = default;
+    CheckTabletSegmentHandler();
+    ~CheckTabletSegmentHandler() override = default;
 
 protected:
     void handle_sync(brpc::Controller* cntl) override;
+
+    bool support_method(brpc::HttpMethod method) const override;
 };
 } // namespace doris

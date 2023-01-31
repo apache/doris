@@ -18,10 +18,10 @@
 #include "http/brpc/brpc_http_handler.h"
 
 namespace doris {
-class ResetRpcChannelAction : public BaseHttpHandler {
+class ResetRpcChannelHandler : public BaseHttpHandler {
 public:
-    ResetRpcChannelAction(ExecEnv* exec_env);
-    ~ResetRpcChannelAction() override = default;
+    ResetRpcChannelHandler(ExecEnv* exec_env);
+    ~ResetRpcChannelHandler() override = default;
 
 protected:
     void handle_sync(brpc::Controller* cntl) override;

@@ -18,23 +18,19 @@
 #include "http/brpc/brpc_http_handler.h"
 
 namespace doris {
-enum ConfigActionType {
-    UPDATE_CONFIG = 1,
-    SHOW_CONFIG = 2,
-};
 
 // Update BE config.
-class ConfigAction : public BaseHttpHandler {
+class ConfigHandler : public BaseHttpHandler {
 public:
-    ConfigAction(ConfigActionType type);
-    ~ConfigAction() override = default;
+    ConfigHandler();
+    ~ConfigHandler() override = default;
 
 protected:
     void handle_sync(brpc::Controller* cntl) override;
 
-private:
-    ConfigActionType _type;
+    bool support_method(brpc::HttpMethod method) const override;
 
+private:
     void handle_update_config(brpc::Controller* cntl);
 
     void handle_show_config(brpc::Controller* cntl);

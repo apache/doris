@@ -27,9 +27,9 @@ namespace doris {
 const std::string TABLET_ID = "tablet_id";
 const std::string SCHEMA_HASH = "schema_hash";
 
-SnapshotAction::SnapshotAction() : BaseHttpHandler("snapshot") {}
+SnapshotHandler::SnapshotHandler() : BaseHttpHandler("snapshot") {}
 
-void SnapshotAction::handle_sync(brpc::Controller* cntl) {
+void SnapshotHandler::handle_sync(brpc::Controller* cntl) {
     // add tid to cgroup in order to limit read bandwidth
     CgroupsMgr::apply_system_cgroup();
     // Get tablet id
@@ -79,8 +79,8 @@ void SnapshotAction::handle_sync(brpc::Controller* cntl) {
     LOG(INFO) << "deal with snapshot request finished! tablet id: " << tablet_id;
 }
 
-int64_t SnapshotAction::_make_snapshot(int64_t tablet_id, int schema_hash,
-                                       std::string* snapshot_path) {
+int64_t SnapshotHandler::_make_snapshot(int64_t tablet_id, int schema_hash,
+                                        std::string* snapshot_path) {
     TSnapshotRequest request;
     request.tablet_id = tablet_id;
     request.schema_hash = schema_hash;

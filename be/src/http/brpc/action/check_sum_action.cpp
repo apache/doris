@@ -16,6 +16,11 @@
 // under the License.
 #include "check_sum_action.h"
 
+#include <brpc/http_method.h>
+
+#include <cstddef>
+#include <string>
+
 #include "agent/cgroups_mgr.h"
 #include "boost/lexical_cast.hpp"
 #include "olap/task/engine_checksum_task.h"
@@ -27,22 +32,22 @@ const std::string TABLET_ID = "tablet_id";
 const std::string TABLET_VERSION = "version";
 const std::string SCHEMA_HASH = "schema_hash";
 
-CheckSumAction::CheckSumAction() : BaseHttpHandler("check_sum") {}
+CheckSumHandler::CheckSumHandler() : BaseHttpHandler("check_sum") {}
 
-void CheckSumAction::handle_sync(brpc::Controller* cntl) {
+void CheckSumHandler::handle_sync(brpc::Controller* cntl) {
     // add tid to cgroup in order to limit read bandwidth
     CgroupsMgr::apply_system_cgroup();
     // Get tablet id
-    const std::string& tablet_id_str = *get_param(cntl, TABLET_ID);
-    if (tablet_id_str.empty()) {
+    const std::string* tablet_id_ptr = get_param(cntl, TABLET_ID);
+    if (tablet_id_ptr == nullptr || tablet_id_ptr->empty()) {
         std::string error_msg = std::string("parameter " + TABLET_ID + " not specified in url.");
         on_bad_req(cntl, error_msg);
         return;
     }
 
     // Get version
-    const std::string& version_str = *get_param(cntl, TABLET_VERSION);
-    if (version_str.empty()) {
+    const std::string* version_ptr = get_param(cntl, TABLET_VERSION);
+    if (version_ptr == nullptr || version_ptr->empty()) {
         std::string error_msg =
                 std::string("parameter " + TABLET_VERSION + " not specified in url.");
         on_bad_req(cntl, error_msg);
@@ -50,21 +55,20 @@ void CheckSumAction::handle_sync(brpc::Controller* cntl) {
     }
 
     // Get schema hash
-    const std::string& schema_hash_str = *get_param(cntl, SCHEMA_HASH);
-    if (schema_hash_str.empty()) {
+    const std::string* schema_hash_ptr = get_param(cntl, SCHEMA_HASH);
+    if (schema_hash_ptr == nullptr || schema_hash_ptr->empty()) {
         std::string error_msg = std::string("parameter " + SCHEMA_HASH + " not specified in url.");
         on_bad_req(cntl, error_msg);
         return;
     }
-
     // valid str format
     int64_t tablet_id;
     int64_t version;
     int32_t schema_hash;
     try {
-        tablet_id = boost::lexical_cast<int64_t>(tablet_id_str);
-        version = boost::lexical_cast<int64_t>(version_str);
-        schema_hash = boost::lexical_cast<int64_t>(schema_hash_str);
+        tablet_id = boost::lexical_cast<int64_t>(*tablet_id_ptr);
+        version = boost::lexical_cast<int64_t>(*version_ptr);
+        schema_hash = boost::lexical_cast<int64_t>(*schema_hash_ptr);
     } catch (boost::bad_lexical_cast& e) {
         std::string error_msg = std::string("param format is invalid: ") + std::string(e.what());
         on_bad_req(cntl, error_msg);
@@ -88,7 +92,11 @@ void CheckSumAction::handle_sync(brpc::Controller* cntl) {
     LOG(INFO) << "deal with checksum request finished! tablet id: " << tablet_id;
 }
 
-int64_t CheckSumAction::_do_check_sum(int64_t tablet_id, int64_t version, int32_t schema_hash) {
+bool CheckSumHandler::support_method(brpc::HttpMethod method) const {
+    return method == brpc::HTTP_METHOD_GET;
+}
+
+int64_t CheckSumHandler::_do_check_sum(int64_t tablet_id, int64_t version, int32_t schema_hash) {
     Status res = Status::OK();
     uint32_t checksum;
     EngineChecksumTask engine_task(tablet_id, schema_hash, version, &checksum);

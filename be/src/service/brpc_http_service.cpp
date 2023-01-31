@@ -19,6 +19,14 @@
 
 #include <string>
 
+#include "http/brpc/action/check_rpc_channel_action.h"
+#include "http/brpc/action/check_sum_action.h"
+#include "http/brpc/action/check_tablet_segment_action.h"
+#include "http/brpc/action/compaction_action.h"
+#include "http/brpc/action/config_action.h"
+#include "http/brpc/action/download_action.h"
+#include "http/brpc/action/health_action.h"
+
 namespace doris {
 
 #define DEFINE_ENDPOINT(__SIGNATURE__)                                                           \
@@ -55,11 +63,28 @@ DEFINE_ENDPOINT(stream_load_2pc)
 #undef DEFINE_ENDPOINT
 
 BrpcHttpService::BrpcHttpService(ExecEnv* exec_env) : _dispatcher(new HandlerDispatcher()) {
-    _dispatcher->register_handlers(exec_env);
+    _dispatcher->add_handler(new CheckRpcChannelHandler(exec_env))
+            ->add_handler(new CheckSumHandler())
+            ->add_handler(new CheckTabletSegmentHandler())
+            ->add_handler(new CompactionHandler())
+            ->add_handler(new ConfigHandler())
+            ->add_handler(new HealthHandler());
+
+    std::vector<std::string> allow_paths;
+    for (auto& path : exec_env->store_paths()) {
+        allow_paths.emplace_back(path.path);
+    }
+    _dispatcher->add_handler(new DownloadHandler(exec_env, allow_paths));
 }
 
 void add_brpc_http_service(brpc::Server* server, ExecEnv* env) {
-    const int stat = server->AddService(new BrpcHttpService(env), brpc::SERVER_OWNS_SERVICE);
+    const int stat = server->AddService(new BrpcHttpService(env), brpc::SERVER_OWNS_SERVICE,
+                                        "/api/check_rpc_channel/* => check_rpc_channel,"
+                                        "/api/checksum => check_sum,"
+                                        "/api/check_tablet_segment_lost => check_tablet_segement,"
+                                        "/api/compaction/* => compaction,"
+                                        "/api/*_config => config,"
+                                        "/api/_download_load");
     if (stat != 0) {
         LOG(WARNING) << "fail to add brpc http service";
     }

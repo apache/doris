@@ -15,11 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#pragma once
+
+#include <brpc/http_method.h>
 #include <brpc/restful.h>
 #include <brpc/server.h>
 #include <brpc/uri.h>
 
 #include <string>
+#include <vector>
 
 #include "runtime/exec_env.h"
 
@@ -28,6 +32,8 @@ class Controller;
 }
 
 namespace doris {
+
+/// Handler for brpc based http request
 class BaseHttpHandler {
     using RpcController = ::google::protobuf::RpcController;
     using Closure = ::google::protobuf::Closure;
@@ -37,6 +43,7 @@ public:
 
     virtual ~BaseHttpHandler() = default;
 
+    ///! Keep the handler name consistent with the http endpoint name
     virtual const std::string& get_name() const;
 
     virtual bool is_async() const;
@@ -54,27 +61,32 @@ protected:
     BaseHttpHandler(const std::string& name, ExecEnv* exec_env);
     BaseHttpHandler(const std::string& name, bool is_async, ExecEnv* exec_env);
 
+    ///! biz logic of sync handler
     virtual void handle_sync(brpc::Controller* cntl);
 
+    ///! biz logic of async handler
     virtual void handle_async(brpc::Controller* cntl, Closure* done);
 
-    void on_succ(brpc::Controller* cntl, const std::string& msg);
+    ///! check if the handler supports the corresponding method
+    virtual bool support_method(brpc::HttpMethod method) const;
 
-    void on_succ_json(brpc::Controller* cntl, const std::string& json_text);
+    void on_succ(brpc::Controller* cntl, const std::string& msg) const;
 
-    void on_error(brpc::Controller* cntl, const std::string& err_msg);
+    void on_succ_json(brpc::Controller* cntl, const std::string& json_text) const;
 
-    void on_error_json(brpc::Controller* cntl, const std::string& json_text);
+    void on_error(brpc::Controller* cntl, const std::string& err_msg) const;
 
-    void on_error(brpc::Controller* cntl, const std::string& err_msg, int status);
+    void on_error_json(brpc::Controller* cntl, const std::string& json_text) const;
 
-    void on_error_json(brpc::Controller* cntl, const std::string& json_text, int status);
+    void on_error(brpc::Controller* cntl, const std::string& err_msg, int status) const;
 
-    void on_bad_req(brpc::Controller* cntl, const std::string& err_msg);
+    void on_error_json(brpc::Controller* cntl, const std::string& json_text, int status) const;
 
-    void on_fobidden(brpc::Controller* cntl, const std::string& err_msg);
+    void on_bad_req(brpc::Controller* cntl, const std::string& err_msg) const;
 
-    void on_not_found(brpc::Controller* cntl, const std::string& err_msg);
+    void on_fobidden(brpc::Controller* cntl, const std::string& err_msg) const;
+
+    void on_not_found(brpc::Controller* cntl, const std::string& err_msg) const;
 
     const std::string* get_param(brpc::Controller* cntl, const std::string& key) const;
 
@@ -82,12 +94,16 @@ protected:
 
     brpc::URI get_uri(brpc::Controller* cntl) const;
 
-    butil::EndPointStr get_localhost(brpc::Controller* cntl);
+    butil::EndPointStr get_localhost(brpc::Controller* cntl) const;
 
-    butil::EndPointStr get_remote_host(brpc::Controller* cntl);
+    butil::EndPointStr get_remote_host(brpc::Controller* cntl) const;
+
+    void get_path_array(brpc::Controller* cntl, std::vector<std::string>& path_array) const;
 
 private:
     bool _is_async;
     ExecEnv* _exec_env;
+
+    void _decompress_req(brpc::Controller* cntl);
 };
 } // namespace doris

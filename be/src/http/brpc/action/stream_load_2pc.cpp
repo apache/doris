@@ -27,11 +27,11 @@
 #include "util/url_coding.h"
 
 namespace doris {
-StreamLoad2PCAction::StreamLoad2PCAction(ExecEnv* exec_env)
+StreamLoad2PCHandler::StreamLoad2PCHandler(ExecEnv* exec_env)
         : BaseHttpHandler("stream_load_2pc", exec_env) {}
 
-std::string StreamLoad2PCAction::get_success_info(const std::string txn_id,
-                                                  const std::string txn_operation) {
+std::string StreamLoad2PCHandler::get_success_info(const std::string txn_id,
+                                                   const std::string txn_operation) {
     rapidjson::StringBuffer s;
     rapidjson::PrettyWriter<rapidjson::StringBuffer> writer(s);
 
@@ -47,7 +47,7 @@ std::string StreamLoad2PCAction::get_success_info(const std::string txn_id,
     return s.GetString();
 }
 
-void StreamLoad2PCAction::handle_sync(brpc::Controller* cntl) {
+void StreamLoad2PCHandler::handle_sync(brpc::Controller* cntl) {
     Status status = Status::OK();
     std::string status_result;
 
@@ -87,7 +87,7 @@ void StreamLoad2PCAction::handle_sync(brpc::Controller* cntl) {
     on_succ_json(cntl, status_result);
 }
 
-bool StreamLoad2PCAction::_parse_basic_auth(brpc::Controller* cntl, AuthInfo* auth) {
+bool StreamLoad2PCHandler::_parse_basic_auth(brpc::Controller* cntl, AuthInfo* auth) {
     std::string full_user;
     if (!_parse_basic_auth(cntl, &full_user, &auth->passwd)) {
         return false;
@@ -104,8 +104,8 @@ bool StreamLoad2PCAction::_parse_basic_auth(brpc::Controller* cntl, AuthInfo* au
     return true;
 }
 
-bool StreamLoad2PCAction::_parse_basic_auth(brpc::Controller* cntl, std::string* user,
-                                            std::string* passwd) {
+bool StreamLoad2PCHandler::_parse_basic_auth(brpc::Controller* cntl, std::string* user,
+                                             std::string* passwd) {
     const char k_basic[] = "Basic ";
     auto& auth = *get_header(cntl, HttpHeaders::AUTHORIZATION);
     if (auth.compare(0, sizeof(k_basic) - 1, k_basic, sizeof(k_basic) - 1) != 0) {

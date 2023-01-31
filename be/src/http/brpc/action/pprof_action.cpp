@@ -25,9 +25,9 @@ namespace doris {
 static const std::string SECOND_KEY = "seconds";
 static const int kPprofDefaultSampleSecs = 30;
 
-PProfAction::PProfAction(ExecEnv* exec_env) : BaseHttpHandler("pprof", exec_env) {}
+PProfHandler::PProfHandler(ExecEnv* exec_env) : BaseHttpHandler("pprof", exec_env) {}
 
-void PProfAction::handle_sync(brpc::Controller* cntl) {
+void PProfHandler::handle_sync(brpc::Controller* cntl) {
     const std::string& path = cntl->http_request().unresolved_path();
     const brpc::HttpMethod method = cntl->http_request().method();
     const brpc::HttpMethod GET = brpc::HttpMethod::HTTP_METHOD_GET;
@@ -49,10 +49,10 @@ void PProfAction::handle_sync(brpc::Controller* cntl) {
 }
 
 // Protect, only one thread can work
-static std::mutex kPprofActionMutex;
+static std::mutex kPprofHandlerMutex;
 
-void PProfAction::_do_heap_action(brpc::Controller* cntl) {
-    std::lock_guard<std::mutex> lock(kPprofActionMutex);
+void PProfHandler::_do_heap_action(brpc::Controller* cntl) {
+    std::lock_guard<std::mutex> lock(kPprofHandlerMutex);
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER) || \
         defined(USE_JEMALLOC)
     (void)kPprofDefaultSampleSecs; // Avoid unused variable warning.
@@ -95,14 +95,14 @@ void PProfAction::_do_heap_action(brpc::Controller* cntl) {
 #endif
 }
 
-void PProfAction::_do_growth_action(brpc::Controller* cntl) {
+void PProfHandler::_do_growth_action(brpc::Controller* cntl) {
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER) || \
         defined(USE_JEMALLOC)
     std::string str =
             "Growth profiling is not available with address sanitizer or jemalloc builds.";
     on_succ(cntl, str);
 #else
-    std::lock_guard<std::mutex> lock(kPprofActionMutex);
+    std::lock_guard<std::mutex> lock(kPprofHandlerMutex);
 
     std::string heap_growth_stack;
     MallocExtension::instance()->GetHeapGrowthStacks(&heap_growth_stack);
@@ -111,13 +111,13 @@ void PProfAction::_do_growth_action(brpc::Controller* cntl) {
 #endif
 }
 
-void PProfAction::_do_profile_action(brpc::Controller* cntl) {
+void PProfHandler::_do_profile_action(brpc::Controller* cntl) {
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER) || \
         defined(USE_JEMALLOC)
     std::string str = "CPU profiling is not available with address sanitizer or jemalloc builds.";
     on_succ(cntl, str);
 #else
-    std::lock_guard<std::mutex> lock(kPprofActionMutex);
+    std::lock_guard<std::mutex> lock(kPprofHandlerMutex);
 
     int seconds = kPprofDefaultSampleSecs;
     const std::string& seconds_str = req->param(SECOND_KEY);
@@ -175,11 +175,11 @@ void PProfAction::_do_profile_action(brpc::Controller* cntl) {
 #endif
 }
 
-void PProfAction::_do_pmu_profile_action(brpc::Controller* cntl) {}
+void PProfHandler::_do_pmu_profile_action(brpc::Controller* cntl) {}
 
-void PProfAction::_do_content_action(brpc::Controller* cntl) {}
+void PProfHandler::_do_content_action(brpc::Controller* cntl) {}
 
-void PProfAction::_do_cmd_line_action(brpc::Controller* cntl) {
+void PProfHandler::_do_cmd_line_action(brpc::Controller* cntl) {
     FILE* fp = fopen("/proc/self/cmdline", "r");
     if (fp == nullptr) {
         std::string str = "Unable to open file: /proc/self/cmdline";
@@ -200,7 +200,7 @@ void PProfAction::_do_cmd_line_action(brpc::Controller* cntl) {
     on_succ(cntl, str);
 }
 
-void PProfAction::_do_symbol_action(brpc::Controller* cntl, brpc::HttpMethod method) {
+void PProfHandler::_do_symbol_action(brpc::Controller* cntl, brpc::HttpMethod method) {
     // TODO: Implement symbol resolution. Without this, the binary needs to be passed
     // to pprof to resolve all symbols.
     if (method == brpc::HttpMethod::HTTP_METHOD_GET) {

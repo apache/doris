@@ -26,10 +26,10 @@
 
 namespace doris {
 
-MetaAction::MetaAction(META_TYPE meta_type)
+MetaHandler::MetaHandler(META_TYPE meta_type)
         : doris::BaseHttpHandler("meta"), _meta_type(meta_type) {}
 
-void MetaAction::handle_sync(brpc::Controller* cntl) {
+void MetaHandler::handle_sync(brpc::Controller* cntl) {
     if (_meta_type == META_TYPE::HEADER) {
         std::string json_meta;
         Status status = _handle_header(cntl, &json_meta);
@@ -43,7 +43,7 @@ void MetaAction::handle_sync(brpc::Controller* cntl) {
     }
 }
 
-Status MetaAction::_handle_header(brpc::Controller* cntl, std::string* json_meta) {
+Status MetaHandler::_handle_header(brpc::Controller* cntl, std::string* json_meta) {
     std::string req_tablet_id = *get_param(cntl, TABLET_ID_KEY);
     std::string req_enable_base64 = *get_param(cntl, ENABLE_BYTE_TO_BASE64);
     uint64_t tablet_id = 0;

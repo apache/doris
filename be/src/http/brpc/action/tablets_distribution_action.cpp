@@ -21,9 +21,10 @@
 #include "olap/storage_engine.h"
 
 namespace doris {
-TabletsDistributionAction::TabletsDistributionAction() : BaseHttpHandler("tablets_distribution") {}
+TabletsDistributionHandler::TabletsDistributionHandler()
+        : BaseHttpHandler("tablets_distribution") {}
 
-EasyJson TabletsDistributionAction::get_tablets_distribution_group_by_partition(
+EasyJson TabletsDistributionHandler::get_tablets_distribution_group_by_partition(
         brpc::Controller* cntl, uint64_t partition_id) {
     std::map<int64_t, std::map<DataDir*, int64_t>> tablets_num_on_disk;
     std::map<int64_t, std::map<DataDir*, std::vector<TabletSize>>> tablets_info_on_disk;
@@ -76,7 +77,7 @@ EasyJson TabletsDistributionAction::get_tablets_distribution_group_by_partition(
     return tablets_distribution_ej;
 }
 
-void TabletsDistributionAction::handle_sync(brpc::Controller* cntl) {
+void TabletsDistributionHandler::handle_sync(brpc::Controller* cntl) {
     std::string req_group_method = *get_param(cntl, "group_by");
     if (req_group_method == "partition") {
         std::string req_partition_id = *get_param(cntl, "partition_id");

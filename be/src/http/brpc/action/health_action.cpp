@@ -18,9 +18,9 @@
 #include "health_action.h"
 
 namespace doris {
-HealthAction::HealthAction() : BaseHttpHandler("health") {}
+HealthHandler::HealthHandler() : BaseHttpHandler("health") {}
 
-void HealthAction::handle_sync(brpc::Controller* cntl) {
+void HealthHandler::handle_sync(brpc::Controller* cntl) {
     std::stringstream ss;
     ss << "{";
     ss << "\"status\": \"OK\",";
@@ -29,6 +29,10 @@ void HealthAction::handle_sync(brpc::Controller* cntl) {
     std::string result = ss.str();
 
     on_succ_json(cntl, result);
+}
+
+bool HealthHandler::support_method(brpc::HttpMethod method) const {
+    return method == brpc::HTTP_METHOD_GET;
 }
 
 } // namespace doris

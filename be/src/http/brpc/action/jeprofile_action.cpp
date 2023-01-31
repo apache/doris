@@ -20,9 +20,9 @@
 #include <jemalloc/jemalloc.h>
 
 namespace doris {
-JeProfileActions::JeProfileActions() : BaseHttpHandler("jeprofile") {}
+JeProfileHandlers::JeProfileHandlers() : BaseHttpHandler("jeprofile") {}
 
-void JeProfileActions::handle_sync(brpc::Controller* cntl) {
+void JeProfileHandlers::handle_sync(brpc::Controller* cntl) {
     std::lock_guard<std::mutex> lock(_mutex);
 #ifndef USE_JEMALLOC
     std::string str = "jemalloc heap dump is not available without setting USE_JEMALLOC";

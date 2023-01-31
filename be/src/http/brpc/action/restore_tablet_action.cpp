@@ -29,9 +29,9 @@ using std::filesystem::path;
 const std::string TABLET_ID = "tablet_id";
 const std::string SCHEMA_HASH = "schema_hash";
 
-RestoreTabletAction::RestoreTabletAction() : BaseHttpHandler("restore_tablet") {}
+RestoreTabletHandler::RestoreTabletHandler() : BaseHttpHandler("restore_tablet") {}
 
-void RestoreTabletAction::handle_sync(brpc::Controller* cntl) {
+void RestoreTabletHandler::handle_sync(brpc::Controller* cntl) {
     // add tid to cgroup in order to limit read bandwidth
     CgroupsMgr::apply_system_cgroup();
     Status status = _handle(cntl);
@@ -44,7 +44,7 @@ void RestoreTabletAction::handle_sync(brpc::Controller* cntl) {
     }
 }
 
-Status RestoreTabletAction::_handle(brpc::Controller* cntl) {
+Status RestoreTabletHandler::_handle(brpc::Controller* cntl) {
     // Get tablet id
     const std::string& tablet_id_str = *get_param(cntl, TABLET_ID);
     if (tablet_id_str.empty()) {
@@ -91,8 +91,8 @@ Status RestoreTabletAction::_handle(brpc::Controller* cntl) {
     return status;
 }
 
-Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id,
-                                     int32_t schema_hash) {
+Status RestoreTabletHandler::_restore(const std::string& key, int64_t tablet_id,
+                                      int32_t schema_hash) {
     // get latest tablet path in trash
     std::string latest_tablet_path;
     bool ret = _get_latest_tablet_path_from_trash(tablet_id, schema_hash, &latest_tablet_path);
@@ -137,8 +137,8 @@ Status RestoreTabletAction::_restore(const std::string& key, int64_t tablet_id,
     return status;
 }
 
-Status RestoreTabletAction::_reload_tablet(const std::string& key, const std::string& shard_path,
-                                           int64_t tablet_id, int32_t schema_hash) {
+Status RestoreTabletHandler::_reload_tablet(const std::string& key, const std::string& shard_path,
+                                            int64_t tablet_id, int32_t schema_hash) {
     TCloneReq clone_req;
     clone_req.__set_tablet_id(tablet_id);
     clone_req.__set_schema_hash(schema_hash);
@@ -171,8 +171,9 @@ Status RestoreTabletAction::_reload_tablet(const std::string& key, const std::st
     }
 }
 
-bool RestoreTabletAction::_get_latest_tablet_path_from_trash(int64_t tablet_id, int32_t schema_hash,
-                                                             std::string* path) {
+bool RestoreTabletHandler::_get_latest_tablet_path_from_trash(int64_t tablet_id,
+                                                              int32_t schema_hash,
+                                                              std::string* path) {
     std::vector<std::string> tablet_paths;
     std::vector<DataDir*> stores = StorageEngine::instance()->get_stores();
     for (auto& store : stores) {
@@ -231,7 +232,7 @@ bool RestoreTabletAction::_get_latest_tablet_path_from_trash(int64_t tablet_id, 
     }
 }
 
-bool RestoreTabletAction::_get_timestamp_and_count_from_schema_hash_path(
+bool RestoreTabletHandler::_get_timestamp_and_count_from_schema_hash_path(
         const std::string& schema_hash_dir, uint64_t* timestamp, uint64_t* counter) {
     path schema_hash_path(schema_hash_dir);
     path time_label_path = schema_hash_path.parent_path().parent_path();
@@ -247,13 +248,13 @@ bool RestoreTabletAction::_get_timestamp_and_count_from_schema_hash_path(
     return true;
 }
 
-void RestoreTabletAction::_clear_key(const std::string& key) {
+void RestoreTabletHandler::_clear_key(const std::string& key) {
     std::lock_guard<std::mutex> l(_tablet_restore_lock);
     _tablet_path_map.erase(key);
 }
 
-Status RestoreTabletAction::_create_hard_link_recursive(const std::string& src,
-                                                        const std::string& dst) {
+Status RestoreTabletHandler::_create_hard_link_recursive(const std::string& src,
+                                                         const std::string& dst) {
     std::vector<std::string> files;
     RETURN_IF_ERROR(FileUtils::list_files(Env::Default(), src, &files));
     for (auto& file : files) {

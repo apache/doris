@@ -18,12 +18,14 @@
 #include "http/brpc/brpc_http_handler.h"
 
 namespace doris {
-class CheckRPCChannelAction : public BaseHttpHandler {
+class CheckRpcChannelHandler : public BaseHttpHandler {
 public:
-    CheckRPCChannelAction(ExecEnv* exec_env);
-    ~CheckRPCChannelAction() override = default;
+    CheckRpcChannelHandler(ExecEnv* exec_env);
+    ~CheckRpcChannelHandler() override = default;
 
 protected:
     void handle_sync(brpc::Controller* cntl) override;
+
+    bool support_method(brpc::HttpMethod method) const override;
 };
 } // namespace doris

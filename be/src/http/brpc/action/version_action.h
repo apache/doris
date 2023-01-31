@@ -19,10 +19,10 @@
 #include "http/brpc/brpc_http_handler.h"
 
 namespace doris {
-class VersionAction : public BaseHttpHandler {
+class VersionHandler : public BaseHttpHandler {
 public:
-    VersionAction();
-    ~VersionAction() override = default;
+    VersionHandler();
+    ~VersionHandler() override = default;
 
 protected:
     void handle_sync(brpc::Controller* cntl) override;

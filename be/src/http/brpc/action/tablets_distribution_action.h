@@ -21,10 +21,10 @@
 
 namespace doris {
 
-class TabletsDistributionAction : BaseHttpHandler {
+class TabletsDistributionHandler : BaseHttpHandler {
 public:
-    TabletsDistributionAction();
-    ~TabletsDistributionAction() override = default;
+    TabletsDistributionHandler();
+    ~TabletsDistributionHandler() override = default;
     EasyJson get_tablets_distribution_group_by_partition(brpc::Controller* cntl,
                                                          uint64_t partition_id);
 

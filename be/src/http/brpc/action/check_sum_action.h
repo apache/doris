@@ -18,13 +18,15 @@
 #include "http/brpc/brpc_http_handler.h"
 
 namespace doris {
-class CheckSumAction : public BaseHttpHandler {
+class CheckSumHandler : public BaseHttpHandler {
 public:
-    CheckSumAction();
-    ~CheckSumAction() override = default;
+    CheckSumHandler();
+    ~CheckSumHandler() override = default;
 
 protected:
     void handle_sync(brpc::Controller* cntl) override;
+
+    bool support_method(brpc::HttpMethod method) const override;
 
 private:
     int64_t _do_check_sum(int64_t tablet_id, int64_t version, int32_t schema_hash);

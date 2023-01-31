@@ -16,28 +16,44 @@
 // under the License.
 #include "config_action.h"
 
+#include <brpc/http_method.h>
+#include <glog/logging.h>
 #include <rapidjson/document.h>
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
 #include <string>
+#include <vector>
 
 #include "gutil/strings/substitute.h"
 namespace doris {
-ConfigAction::ConfigAction(ConfigActionType type) : BaseHttpHandler("config"), _type(type) {}
+ConfigHandler::ConfigHandler() : BaseHttpHandler("config") {}
 
-const static std::string PERSIST_PARAM = "persist";
+const static std::string& SHOW_TYPE = "show_config";
+const static std::string& UPDATE_TYEP = "update_config";
+const static std::string& PERSIST_PARAM = "persist";
 
-void ConfigAction::handle_sync(brpc::Controller* cntl) {
-    if (_type == ConfigActionType::UPDATE_CONFIG) {
+void ConfigHandler::handle_sync(brpc::Controller* cntl) {
+    vector<std::string> path_array;
+    get_path_array(cntl, path_array);
+    if (path_array.size() != 2) {
+        on_bad_req(cntl, "inproper path variable");
+        return;
+    }
+    const std::string& type = path_array[1];
+    if (type == UPDATE_TYEP) {
         handle_update_config(cntl);
-    } else if (_type == ConfigActionType::SHOW_CONFIG) {
+    } else if (type == SHOW_TYPE) {
         handle_show_config(cntl);
     }
 }
 
-void ConfigAction::handle_update_config(brpc::Controller* cntl) {
+bool ConfigHandler::support_method(brpc::HttpMethod method) const {
+    return method == brpc::HTTP_METHOD_GET || method == brpc::HTTP_METHOD_POST;
+}
+
+void ConfigHandler::handle_update_config(brpc::Controller* cntl) {
     Status s;
     std::string msg;
     // We only support set one config at a time, and along with a optional param "persist".
@@ -60,14 +76,17 @@ void ConfigAction::handle_update_config(brpc::Controller* cntl) {
                                           s.to_string());
             }
         } else if (req_params == 2) {
-            std::string persist_param = *get_param(cntl, PERSIST_PARAM);
-            if (persist_param == get_uri(cntl).QueryEnd()->second) {
+            const std::string* persist_param = get_param(cntl, PERSIST_PARAM);
+            if (persist_param == nullptr) {
+                return;
+            }
+            if (*persist_param == get_uri(cntl).QueryEnd()->second) {
                 s = Status::InvalidArgument("");
                 msg = "Now only support to set a single config once, via 'config_name=new_value', "
                       "and with an optional parameter 'persist'.";
             } else {
                 bool need_persist = false;
-                if (persist_param == "true") {
+                if (*persist_param == "true") {
                     need_persist = true;
                 }
                 for (auto iter = get_uri(cntl).QueryBegin(); iter != get_uri(cntl).QueryEnd();
@@ -102,7 +121,7 @@ void ConfigAction::handle_update_config(brpc::Controller* cntl) {
     on_succ_json(cntl, strbuf.GetString());
 }
 
-void ConfigAction::handle_show_config(brpc::Controller* cntl) {
+void ConfigHandler::handle_show_config(brpc::Controller* cntl) {
     std::vector<std::vector<std::string>> config_info = config::get_config_info();
 
     rapidjson::StringBuffer str_buf;

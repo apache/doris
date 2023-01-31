@@ -28,19 +28,21 @@ namespace doris {
 // TODO(lingbin): implements two useful header ('If-Modified-Since' and 'RANGE') to reduce
 // transmission consumption.
 // We use parameter named 'file' to specify the static resource path, it is an absolute path.
-class DownloadAction : public BaseHttpHandler {
+class DownloadHandler : public BaseHttpHandler {
 public:
-    DownloadAction(ExecEnv* exec_env, const std::vector<std::string>& allow_dirs);
+    DownloadHandler(ExecEnv* exec_env, const std::vector<std::string>& allow_dirs);
 
     // for load error
-    DownloadAction(ExecEnv* exec_env, const std::string& error_log_root_dir);
+    DownloadHandler(ExecEnv* exec_env, const std::string& error_log_root_dir);
 
-    ~DownloadAction() override = default;
+    ~DownloadHandler() override = default;
 
     static void* send_file(void* raw_args);
 
 protected:
     void handle_sync(brpc::Controller* cntl) override;
+
+    bool support_method(brpc::HttpMethod method) const override;
 
 private:
     enum DOWNLOAD_TYPE {

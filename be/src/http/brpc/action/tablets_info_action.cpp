@@ -20,15 +20,15 @@
 #include "olap/tablet_manager.h"
 
 namespace doris {
-TabletsInfoAction::TabletsInfoAction() : BaseHttpHandler("tablets_info") {}
+TabletsInfoHandler::TabletsInfoHandler() : BaseHttpHandler("tablets_info") {}
 
-void TabletsInfoAction::handle_sync(brpc::Controller* cntl) {
+void TabletsInfoHandler::handle_sync(brpc::Controller* cntl) {
     const std::string& tablet_num_to_return = *get_param(cntl, "limit");
     on_succ_json(cntl, get_tablets_info(cntl, tablet_num_to_return).ToString());
 }
 
-EasyJson TabletsInfoAction::get_tablets_info(brpc::Controller* cntl,
-                                             const std::string& tablet_num_to_return) {
+EasyJson TabletsInfoHandler::get_tablets_info(brpc::Controller* cntl,
+                                              const std::string& tablet_num_to_return) {
     int64_t number;
     std::string msg;
     if (tablet_num_to_return == "") {

@@ -34,9 +34,9 @@ Status check_one_param(const std::string& param_val, const std::string& param_na
     return Status::OK();
 }
 
-PadRowsetAction::PadRowsetAction() : BaseHttpHandler("pad_rowset") {}
+PadRowsetHandler::PadRowsetHandler() : BaseHttpHandler("pad_rowset") {}
 
-void PadRowsetAction::handle_sync(brpc::Controller* cntl) {
+void PadRowsetHandler::handle_sync(brpc::Controller* cntl) {
     Status status = _handle(cntl);
     std::string result = status.to_json();
     LOG(INFO) << "handle request result:" << result;
@@ -47,7 +47,7 @@ void PadRowsetAction::handle_sync(brpc::Controller* cntl) {
     }
 }
 
-Status PadRowsetAction::_handle(brpc::Controller* cntl) {
+Status PadRowsetHandler::_handle(brpc::Controller* cntl) {
     RETURN_IF_ERROR(check_param(cntl));
 
     const std::string& tablet_id_str = *get_param(cntl, TABLET_ID);
@@ -69,14 +69,14 @@ Status PadRowsetAction::_handle(brpc::Controller* cntl) {
     return _pad_rowset(tablet, Version(start_version, end_version));
 }
 
-Status PadRowsetAction::check_param(brpc::Controller* cntl) {
+Status PadRowsetHandler::check_param(brpc::Controller* cntl) {
     RETURN_IF_ERROR(check_one_param(*get_param(cntl, TABLET_ID), TABLET_ID));
     RETURN_IF_ERROR(check_one_param(*get_param(cntl, START_VERSION), START_VERSION));
     RETURN_IF_ERROR(check_one_param(*get_param(cntl, END_VERSION), END_VERSION));
     return Status::OK();
 }
 
-Status PadRowsetAction::_pad_rowset(TabletSharedPtr tablet, const Version& version) {
+Status PadRowsetHandler::_pad_rowset(TabletSharedPtr tablet, const Version& version) {
     if (tablet->check_version_exist(version)) {
         return Status::InternalError("Input version {} exists", version.to_string());
     }

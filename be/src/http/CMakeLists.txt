@@ -70,6 +70,7 @@ add_library(Webserver STATIC
   brpc/action/metrics_action.cpp
   brpc/action/monitor_action.cpp
   brpc/action/pad_rowset_action.cpp
+  brpc/action/pprof_action.cpp
   brpc/action/reload_tablet_action.cpp
   brpc/action/reset_rpc_channel_action.cpp
   brpc/action/restore_tablet_action.cpp

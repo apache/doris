@@ -21,10 +21,10 @@
 
 namespace doris {
 
-class JeProfileActions : public BaseHttpHandler {
+class JeProfileHandlers : public BaseHttpHandler {
 public:
-    JeProfileActions();
-    ~JeProfileActions() override = default;
+    JeProfileHandlers();
+    ~JeProfileHandlers() override = default;
 
 protected:
     void handle_sync(brpc::Controller* cntl) override;

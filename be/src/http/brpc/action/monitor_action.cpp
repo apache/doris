@@ -20,15 +20,15 @@
 #include "http/rest_monitor_iface.h"
 
 namespace doris {
-MonitorAction::MonitorAction() : BaseHttpHandler("monitor") {}
+MonitorHandler::MonitorHandler() : BaseHttpHandler("monitor") {}
 
 const std::string MODULE_KEY = "module";
 
-void MonitorAction::register_module(const std::string& name, RestMonitorIface* module) {
+void MonitorHandler::register_module(const std::string& name, RestMonitorIface* module) {
     _module_by_name.insert(std::make_pair(name, module));
 }
 
-void MonitorAction::handle_sync(brpc::Controller* cntl) {
+void MonitorHandler::handle_sync(brpc::Controller* cntl) {
     const std::string& module = *get_param(cntl, MODULE_KEY);
     if (module.empty()) {
         std::string err_msg = "No module params\n";

@@ -24,10 +24,10 @@
 
 namespace doris {
 
-ResetRpcChannelAction::ResetRpcChannelAction(ExecEnv* exec_env)
+ResetRpcChannelHandler::ResetRpcChannelHandler(ExecEnv* exec_env)
         : BaseHttpHandler("reset_rpc_channel", exec_env) {}
 
-void ResetRpcChannelAction::handle_sync(brpc::Controller* cntl) {
+void ResetRpcChannelHandler::handle_sync(brpc::Controller* cntl) {
     std::string endpoints = *get_param(cntl, "endpoints");
     if (iequal(endpoints, "all")) {
         int size = get_exec_env()->brpc_internal_client_cache()->size();

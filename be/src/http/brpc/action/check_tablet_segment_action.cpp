@@ -17,24 +17,26 @@
 
 #include "http/brpc/action/check_tablet_segment_action.h"
 
+#include <brpc/http_method.h>
+
 #include "olap/storage_engine.h"
 #include "util/easy_json.h"
 namespace doris {
-CheckTabletSegmentAction::CheckTabletSegmentAction() : BaseHttpHandler("check_tablet_segment") {}
+CheckTabletSegmentHandler::CheckTabletSegmentHandler() : BaseHttpHandler("check_tablet_segement") {}
 
-void CheckTabletSegmentAction::handle_sync(brpc::Controller* cntl) {
+void CheckTabletSegmentHandler::handle_sync(brpc::Controller* cntl) {
     bool repaired = false;
     const std::string* repaired_ptr = get_param(cntl, "repair");
-    if (*repaired_ptr == "true") {
-        repaired = true;
-    } else if (*repaired_ptr != "" && *repaired_ptr != "false") {
+    if (repaired_ptr == nullptr || repaired_ptr->empty()) {
         EasyJson result_ej;
         result_ej["status"] = "Fail";
         result_ej["msg"] = "Parameter 'repair' must be set to 'true' or 'false'";
         on_succ(cntl, result_ej.ToString());
         return;
     }
-
+    if (*repaired_ptr == "true") {
+        repaired = true;
+    }
     LOG(INFO) << "start to check tablet segment.";
     std::set<int64_t> bad_tablets =
             StorageEngine::instance()->tablet_manager()->check_all_tablet_segment(repaired);
@@ -52,4 +54,9 @@ void CheckTabletSegmentAction::handle_sync(brpc::Controller* cntl) {
     result_ej["host"] = get_localhost(cntl).c_str();
     on_succ(cntl, result_ej.ToString());
 }
+
+bool CheckTabletSegmentHandler::support_method(brpc::HttpMethod method) const {
+    return method == brpc::HTTP_METHOD_POST;
+}
+
 } // namespace doris

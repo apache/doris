@@ -23,10 +23,10 @@ namespace doris {
 
 class RestMonitorIface;
 
-class MonitorAction : public BaseHttpHandler {
+class MonitorHandler : public BaseHttpHandler {
 public:
-    MonitorAction();
-    ~MonitorAction() override = default;
+    MonitorHandler();
+    ~MonitorHandler() override = default;
 
     void register_module(const std::string& name, RestMonitorIface* module);
 

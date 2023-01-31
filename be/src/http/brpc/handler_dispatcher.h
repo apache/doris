@@ -14,6 +14,9 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
+
+#pragma once
+
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -24,22 +27,18 @@
 namespace doris {
 using Closure = ::google::protobuf::Closure;
 using RpcController = ::google::protobuf::RpcController;
-using HttpHandlerPtr = std::shared_ptr<BaseHttpHandler>;
+using HttpHandlerPtr = BaseHttpHandler*;
 using HandlerRegistry = std::unordered_map<std::string, HttpHandlerPtr>;
 using RegistryPtr = std::unique_ptr<HandlerRegistry>;
 class HandlerDispatcher {
 public:
-    void register_handlers(ExecEnv* exec_env);
+    HandlerDispatcher();
 
     void dispatch(const std::string& handler_name, RpcController* cntl, Closure* done);
 
+    HandlerDispatcher* add_handler(BaseHttpHandler* handler);
+
 private:
-    std::mutex _mutex;
     RegistryPtr _registry;
-    bool _registered;
-
-    void _do_regsiter(ExecEnv* exec_env);
-
-    HandlerDispatcher* _add_handler(BaseHttpHandler* handler);
 };
 } // namespace doris

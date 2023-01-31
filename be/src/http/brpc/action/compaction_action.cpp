@@ -17,6 +17,8 @@
 
 #include "compaction_action.h"
 
+#include <brpc/http_method.h>
+
 #include <future>
 
 #include "olap/base_compaction.h"
@@ -26,11 +28,19 @@
 namespace doris {
 using namespace ErrorCode;
 
-CompactionAction::CompactionAction(CompactionActionType type)
-        : BaseHttpHandler("compaction"), _type(type) {}
+const static std::string& SHOW_INFO_TYPE = "show";
+const static std::string& RUN_COMPACTION_TYPE = "run";
+const static std::string& RUN_STATUS_TYPE = "run_status";
 
-void CompactionAction::handle_sync(brpc::Controller* cntl) {
-    if (_type == CompactionActionType::SHOW_INFO) {
+const static std::string& PARAM_COMPACTION_TYPE = "compact_type";
+const static std::string& PARAM_COMPACTION_BASE = "base";
+const static std::string& PARAM_COMPACTION_CUMULATIVE = "cumulative";
+
+CompactionHandler::CompactionHandler() : BaseHttpHandler("compaction") {}
+
+void CompactionHandler::handle_sync(brpc::Controller* cntl) {
+    const std::string& type = cntl->http_request().unresolved_path();
+    if (type == SHOW_INFO_TYPE) {
         std::string json_result;
         Status st = _handle_show_compaction(cntl, &json_result);
         if (!st.ok()) {
@@ -38,7 +48,7 @@ void CompactionAction::handle_sync(brpc::Controller* cntl) {
         } else {
             on_succ_json(cntl, json_result);
         }
-    } else if (_type == CompactionActionType::RUN_COMPACTION) {
+    } else if (type == RUN_STATUS_TYPE) {
         std::string json_result;
         Status st = _handle_run_compaction(cntl, &json_result);
         if (!st.ok()) {
@@ -46,7 +56,7 @@ void CompactionAction::handle_sync(brpc::Controller* cntl) {
         } else {
             on_succ_json(cntl, json_result);
         }
-    } else {
+    } else if (type == RUN_STATUS_TYPE) {
         std::string json_result;
         Status st = _handle_run_status_compaction(cntl, &json_result);
         if (!st.ok()) {
@@ -54,10 +64,17 @@ void CompactionAction::handle_sync(brpc::Controller* cntl) {
         } else {
             on_succ_json(cntl, json_result);
         }
+    } else {
+        on_bad_req(cntl, "unknown type");
     }
 }
 
-Status CompactionAction::_handle_show_compaction(brpc::Controller* cntl, std::string* json_result) {
+bool CompactionHandler::support_method(brpc::HttpMethod method) const {
+    return method == brpc::HTTP_METHOD_GET || method == brpc::HTTP_METHOD_POST;
+}
+
+Status CompactionHandler::_handle_show_compaction(brpc::Controller* cntl,
+                                                  std::string* json_result) {
     uint64_t tablet_id = 0;
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(cntl, &tablet_id), "check param failed");
 
@@ -70,27 +87,31 @@ Status CompactionAction::_handle_show_compaction(brpc::Controller* cntl, std::st
     return Status::OK();
 }
 
-Status CompactionAction::_check_param(brpc::Controller* cntl, uint64_t* tablet_id) {
-    const std::string req_tablet_id = *get_param(cntl, TABLET_ID_KEY);
-    if (req_tablet_id == "") {
+Status CompactionHandler::_check_param(brpc::Controller* cntl, uint64_t* tablet_id) {
+    const std::string* req_tablet_id = get_param(cntl, TABLET_ID_KEY);
+    if (req_tablet_id == nullptr || req_tablet_id->empty()) {
         return Status::OK();
     }
     try {
-        *tablet_id = std::stoull(req_tablet_id);
+        *tablet_id = std::stoull(*req_tablet_id);
     } catch (const std::exception& e) {
         return Status::InternalError("convert tablet_id failed, {}", e.what());
     }
     return Status::OK();
 }
 
-Status CompactionAction::_handle_run_compaction(brpc::Controller* cntl, std::string* json_result) {
+Status CompactionHandler::_handle_run_compaction(brpc::Controller* cntl, std::string* json_result) {
     // 1. param check
     // check req_tablet_id is not empty
     uint64_t tablet_id = 0;
     RETURN_NOT_OK_STATUS_WITH_WARN(_check_param(cntl, &tablet_id), "check param failed");
 
     // check compaction_type equals 'base' or 'cumulative'
-    const std::string compaction_type = *get_param(cntl, PARAM_COMPACTION_TYPE);
+    const std::string* compaction_type_ptr = get_param(cntl, PARAM_COMPACTION_TYPE);
+    if (compaction_type_ptr == nullptr) {
+        return Status::NotSupported("compact type is not specified");
+    }
+    const std::string compaction_type = *compaction_type_ptr;
     if (compaction_type != PARAM_COMPACTION_BASE &&
         compaction_type != PARAM_COMPACTION_CUMULATIVE) {
         return Status::NotSupported("The compaction type '{}' is not supported", compaction_type);
@@ -129,8 +150,8 @@ Status CompactionAction::_handle_run_compaction(brpc::Controller* cntl, std::str
     return Status::OK();
 }
 
-Status CompactionAction::_handle_run_status_compaction(brpc::Controller* cntl,
-                                                       std::string* json_result) {
+Status CompactionHandler::_handle_run_status_compaction(brpc::Controller* cntl,
+                                                        std::string* json_result) {
     uint64_t tablet_id = 0;
 
     // check req_tablet_id is not empty
@@ -194,8 +215,8 @@ Status CompactionAction::_handle_run_status_compaction(brpc::Controller* cntl,
     }
 }
 
-Status CompactionAction::_execute_compaction_callback(TabletSharedPtr tablet,
-                                                      const std::string& compaction_type) {
+Status CompactionHandler::_execute_compaction_callback(TabletSharedPtr tablet,
+                                                       const std::string& compaction_type) {
     MonotonicStopWatch timer;
     timer.start();
 

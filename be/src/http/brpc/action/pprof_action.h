@@ -21,10 +21,10 @@
 
 namespace doris {
 
-class PProfAction : BaseHttpHandler {
+class PProfHandler : BaseHttpHandler {
 public:
-    PProfAction(ExecEnv* exec_env);
-    ~PProfAction() override = default;
+    PProfHandler(ExecEnv* exec_env);
+    ~PProfHandler() override = default;
 
 protected:
     void handle_sync(brpc::Controller* cntl) override;

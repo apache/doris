@@ -16,29 +16,23 @@
 // under the License.
 #include "handler_dispatcher.h"
 
+#include <glog/logging.h>
+
 #include <memory>
 
+#include "http/brpc/action/check_rpc_channel_action.h"
+
 namespace doris {
-void HandlerDispatcher::register_handlers(ExecEnv* exec_env) {
-    if (_registered) {
-        return;
-    }
-    std::lock_guard<std::mutex> lock(_mutex);
-    if (!_registered) {
-        _do_regsiter(exec_env);
-    }
-}
+HandlerDispatcher::HandlerDispatcher() : _registry(new HandlerRegistry()), _registered(false) {}
 
 void HandlerDispatcher::dispatch(const std::string& handler_name, RpcController* cntl,
                                  Closure* done) {
     _registry->at(handler_name)->handle(cntl, done);
 }
 
-void HandlerDispatcher::_do_regsiter(ExecEnv* exec_env) {}
-
-HandlerDispatcher* HandlerDispatcher::_add_handler(BaseHttpHandler* handler) {
-    HttpHandlerPtr handler_ptr = std::make_unique<BaseHttpHandler>(*handler);
-    _registry->insert({handler_ptr->get_name(), handler_ptr});
+HandlerDispatcher* HandlerDispatcher::add_handler(BaseHttpHandler* handler) {
+    LOG(INFO) << handler->get_name();
+    _registry->insert({handler->get_name(), handler});
     return this;
 }
 

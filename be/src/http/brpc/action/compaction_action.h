@@ -21,25 +21,19 @@
 
 namespace doris {
 
-enum class CompactionActionType {
-    SHOW_INFO = 1,
-    RUN_COMPACTION = 2,
-    RUN_COMPACTION_STATUS = 3,
-};
 
-const std::string PARAM_COMPACTION_TYPE = "compact_type";
-const std::string PARAM_COMPACTION_BASE = "base";
-const std::string PARAM_COMPACTION_CUMULATIVE = "cumulative";
 
 /// This action is used for viewing the compaction status.
 /// See compaction-action.md for details.
-class CompactionAction : public BaseHttpHandler {
+class CompactionHandler : public BaseHttpHandler {
 public:
-    CompactionAction(CompactionActionType type);
-    ~CompactionAction() override = default;
+    CompactionHandler();
+    ~CompactionHandler() override = default;
 
 protected:
     void handle_sync(brpc::Controller* cntl) override;
+
+    bool support_method(brpc::HttpMethod method) const override;
 
 private:
     Status _handle_show_compaction(brpc::Controller* cntl, std::string* json_result);
@@ -56,7 +50,5 @@ private:
 
     /// check param and fetch tablet_id from req
     Status _check_param(brpc::Controller* cntl, uint64_t* tablet_id);
-
-    CompactionActionType _type;
 };
 } // namespace doris

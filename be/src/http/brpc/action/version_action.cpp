@@ -21,9 +21,9 @@
 #include "util/easy_json.h"
 
 namespace doris {
-VersionAction::VersionAction() : BaseHttpHandler("version") {}
+VersionHandler::VersionHandler() : BaseHttpHandler("version") {}
 
-void VersionAction::handle_sync(brpc::Controller* cntl) {
+void VersionHandler::handle_sync(brpc::Controller* cntl) {
     EasyJson be_version_info;
     be_version_info["msg"] = "success";
     be_version_info["code"] = 0;

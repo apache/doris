@@ -19,10 +19,10 @@
 
 namespace doris {
 
-class ReloadTabletAction : BaseHttpHandler {
+class ReloadTabletHandler : BaseHttpHandler {
 public:
-    ReloadTabletAction(ExecEnv* exev_env);
-    ~ReloadTabletAction() override = default;
+    ReloadTabletHandler(ExecEnv* exev_env);
+    ~ReloadTabletHandler() override = default;
 
 protected:
     void handle_sync(brpc::Controller* cntl) override;

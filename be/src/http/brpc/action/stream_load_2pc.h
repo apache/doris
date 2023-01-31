@@ -20,10 +20,10 @@
 #include "http/brpc/brpc_http_handler.h"
 
 namespace doris {
-class StreamLoad2PCAction : BaseHttpHandler {
+class StreamLoad2PCHandler : BaseHttpHandler {
 public:
-    StreamLoad2PCAction(ExecEnv* exec_env);
-    ~StreamLoad2PCAction() override = default;
+    StreamLoad2PCHandler(ExecEnv* exec_env);
+    ~StreamLoad2PCHandler() override = default;
 
     std::string get_success_info(const std::string txn_id, const std::string txn_operation);
 
