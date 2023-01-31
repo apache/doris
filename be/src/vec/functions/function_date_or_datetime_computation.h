@@ -456,7 +456,7 @@ struct DateTimeAddIntervalImpl {
                     *remove_nullable(block.get_by_position(arguments[1]).column);
 
             if (is_nullable) {
-                auto null_map = ColumnUInt8::create(input_rows_count);
+                auto null_map = ColumnUInt8::create(input_rows_count, 0);
                 if (const auto* delta_const_column =
                             typeid_cast<const ColumnConst*>(&delta_column)) {
                     if (delta_const_column->get_field().get_type() == Field::Types::Int128) {
@@ -544,7 +544,7 @@ struct DateTimeAddIntervalImpl {
                            check_and_get_column_const<ColumnVector<FromType1>>(source_col.get())) {
             auto col_to = ColumnVector<ToType>::create();
             if (is_nullable) {
-                auto null_map = ColumnUInt8::create(input_rows_count);
+                auto null_map = ColumnUInt8::create(input_rows_count, 0);
                 if (const auto* delta_vec_column = check_and_get_column<ColumnVector<FromType2>>(
                             *remove_nullable(block.get_by_position(arguments[1]).column))) {
                     Op::constant_vector(sources_const->template get_value<FromType1>(),

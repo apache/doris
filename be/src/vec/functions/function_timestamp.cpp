@@ -687,8 +687,7 @@ struct LastDayImpl {
         ColumnPtr argument_column = remove_nullable(block.get_by_position(arguments[0]).column)
                                             ->convert_to_full_column_if_const();
         if (is_nullable) {
-            auto null_map = ColumnUInt8::create();
-            null_map->resize(input_rows_count);
+            auto null_map = ColumnUInt8::create(input_rows_count, 0);
             if constexpr (std::is_same_v<DateType, DataTypeDateTime> ||
                           std::is_same_v<DateType, DataTypeDate>) {
                 auto data_col = assert_cast<const ColumnVector<Int64>*>(argument_column.get());
