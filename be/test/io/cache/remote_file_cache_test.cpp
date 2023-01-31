@@ -62,7 +62,7 @@ static StorageEngine* k_engine = nullptr;
 static std::string kSegmentDir = "./ut_dir/remote_file_cache_test";
 static int64_t tablet_id = 0;
 static RowsetId rowset_id;
-static io::ResourceId resource_id = "test_resourse_id";
+static std::string resource_id = "10000";
 
 class RemoteFileCacheTest : public ::testing::Test {
 protected:
@@ -164,8 +164,7 @@ protected:
 
         // just use to create s3 filesystem, otherwise won't use cache
         S3Conf s3_conf;
-        std::shared_ptr<io::S3FileSystem> fs =
-                io::S3FileSystem::create(std::move(s3_conf), resource_id);
+        auto fs = io::S3FileSystem::create(std::move(s3_conf), resource_id);
         rowset.rowset_meta()->set_resource_id(resource_id);
         rowset.rowset_meta()->set_num_segments(1);
         rowset.rowset_meta()->set_fs(fs);
