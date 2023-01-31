@@ -175,9 +175,9 @@ public abstract class PrivTable {
         try {
             Class<? extends PrivTable> derivedClass = (Class<? extends PrivTable>) Class.forName(className);
             privTable = derivedClass.newInstance();
-            Class[] paramTypes = { DataInput.class };
+            Class[] paramTypes = {DataInput.class};
             Method readMethod = derivedClass.getMethod("readFields", paramTypes);
-            Object[] params = { in };
+            Object[] params = {in};
             readMethod.invoke(privTable, params);
 
             return privTable;
@@ -206,8 +206,14 @@ public abstract class PrivTable {
         Collections.sort(entries);
     }
 
-    public void merge(PrivTable globalPrivTable) {
-        // TODO: 2023/1/26 implement
-        return;
+    public void merge(PrivTable privTable) {
+        for (PrivEntry entry : privTable.entries) {
+            try {
+                addEntry(entry, false, false);
+            } catch (DdlException e) {
+                //will no exception
+                LOG.debug(e.getMessage());
+            }
+        }
     }
 }

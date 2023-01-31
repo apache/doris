@@ -92,6 +92,7 @@ public class ResourcePrivEntry extends PrivEntry {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
+        sb.append("origResource:").append(origResource).append("priv:").append(privSet);
         return sb.toString();
     }
 

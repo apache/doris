@@ -24,6 +24,13 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 public class Password implements Writable {
+    public Password() {
+    }
+
+    public Password(byte[] password) {
+        this.password = password;
+    }
+
     private byte[] password;
 
     public static Password read(DataInput in) throws IOException {

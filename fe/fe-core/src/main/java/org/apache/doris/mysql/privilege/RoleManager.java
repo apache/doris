@@ -183,13 +183,17 @@ public class RoleManager implements Writable {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder("Roles: ");
-        //        for (Role role : roles.values()) {
-        //            sb.append(role).append("\n");
-        //        }
+        for (Role role : roles.values()) {
+            sb.append(role).append("\n");
+        }
         return sb.toString();
     }
 
     public Role createDefaultRole(UserIdentity userIdent) throws DdlException {
+        String userDefaultRoleName = getUserDefaultRoleName(userIdent);
+        if (roles.containsKey(userDefaultRoleName)) {
+            return roles.get(userDefaultRoleName);
+        }
         // grant read privs to database information_schema
         TablePattern tblPattern = new TablePattern(Auth.DEFAULT_CATALOG, InfoSchemaDb.DATABASE_NAME, "*");
         try {
@@ -197,7 +201,7 @@ public class RoleManager implements Writable {
         } catch (AnalysisException e) {
             LOG.warn("should not happen", e);
         }
-        Role role = new Role(getUserDefaultRoleName(userIdent), tblPattern,
+        Role role = new Role(userDefaultRoleName, tblPattern,
                 PrivBitSet.of(Privilege.SELECT_PRIV));
         roles.put(role.getRoleName(), role);
         return role;

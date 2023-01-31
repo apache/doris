@@ -72,6 +72,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
@@ -244,7 +245,7 @@ public class Auth implements Writable {
                     currentUser, ctl);
             return false;
         }
-        //todo ldap （todo before change to rbac）
+        //ldap（before change to rbac）
         readLock();
         try {
             Set<String> roles = userRoleManager.getRolesByUser(currentUser);
@@ -453,7 +454,7 @@ public class Auth implements Writable {
             boolean ignoreIfExists, PasswordOptions passwordOptions, boolean isReplay) throws DdlException {
         writeLock();
         try {
-            // 1. check if role exist
+            // check if role exist
             Role role = null;
             if (roleName != null) {
                 role = roleManager.getRole(roleName);
@@ -462,7 +463,7 @@ public class Auth implements Writable {
                 }
             }
 
-            // 2. check if user already exist
+            // check if user already exist
             if (doesUserExist(userIdent)) {
                 if (ignoreIfExists) {
                     LOG.info("user exists, ignored to create user: {}, is replay: {}", userIdent, isReplay);
@@ -470,9 +471,18 @@ public class Auth implements Writable {
                 }
                 throw new DdlException("User " + userIdent + " already exist");
             }
-            // 3. set password and create user
-            setPasswordInternal(userIdent, password, null, false /* err on non exist */, false /* set by resolver */,
-                    true /* is replay */);
+
+            // create user
+            try {
+                //we should not throw AnalysisException at here,so transfer it
+                userManager.createUser(userIdent, password, null, false);
+            } catch (AnalysisException e) {
+                throw new DdlException("create user failed,", e);
+            }
+            if (password != null) {
+                // save password to password history
+                passwdPolicyManager.updatePassword(userIdent, password);
+            }
             //4.create defaultRole
             Role defaultRole = roleManager.createDefaultRole(userIdent);
             // 5.create user role
@@ -481,7 +491,7 @@ public class Auth implements Writable {
                 userRoleManager.addUserRole(userIdent, roleName);
             }
             // other user properties
-            propertyMgr.addUserResource(userIdent.getQualifiedUser(), false /* not system user */);
+            propertyMgr.addUserResource(userIdent.getQualifiedUser(), false);
 
             // 5. update password policy
             passwdPolicyManager.updatePolicy(userIdent, password, passwordOptions);
@@ -524,13 +534,12 @@ public class Auth implements Writable {
             roleManager.removeDefaultRole(userIdent);
             //drop user role
             userRoleManager.dropUser(userIdent);
-            if (userManager.getUserByName(userIdent.getQualifiedUser()).size() == 0) {
-                propertyMgr.dropUser(userIdent);
-            } else if (userIdent.isDomain()) {
-                propertyMgr.removeDomainFromUser(userIdent);
-            }
             passwdPolicyManager.dropUser(userIdent);
             userManager.removeUser(userIdent);
+            if (userManager.getUserByName(userIdent.getQualifiedUser()).size() == 0) {
+                propertyMgr.dropUser(userIdent);
+            }
+
             if (!isReplay) {
                 Env.getCurrentEnv().getEditLog().logNewDropUser(userIdent);
             }
@@ -616,11 +625,11 @@ public class Auth implements Writable {
 
     // return true if user ident exist
     private boolean doesUserExist(UserIdentity userIdent) {
-        if (userIdent.isDomain()) {
-            return propertyMgr.doesUserExist(userIdent);
-        } else {
-            return userManager.userIdentityExist(userIdent);
-        }
+        //        if (userIdent.isDomain()) {
+        //            return propertyMgr.doesUserExist(userIdent);
+        //        } else {
+        return userManager.userIdentityExist(userIdent);
+        //        }
     }
 
     // Check whether the user exists. If the user exists, return UserIdentity, otherwise return null.
@@ -729,16 +738,7 @@ public class Auth implements Writable {
                             userIdent.getQualifiedUser(), userIdent.getHost());
                 }
             }
-            if (userIdent.isDomain()) {
-                // throw exception if this user already contains this domain
-                propertyMgr.setPasswordForDomain(userIdent, password, true, errOnNonExist);
-            } else {
-                try {
-                    userManager.createUser(userIdent, password, domainUserIdent, setByResolver);
-                } catch (AnalysisException e) {
-                    throw new DdlException(e.getMessage());
-                }
-            }
+            userManager.setPassword(userIdent, password, errOnNonExist);
             if (password != null) {
                 // save password to password history
                 passwdPolicyManager.updatePassword(userIdent, password);
@@ -924,22 +924,20 @@ public class Auth implements Writable {
     public void getAllDomains(Set<String> allDomains) {
         readLock();
         try {
-            propertyMgr.getAllDomains(allDomains);
+            userManager.getAllDomains(allDomains);
         } finally {
             readUnlock();
         }
     }
 
-    // refresh all priv entries set by domain resolver.
-    // 1. delete all priv entries in user priv table which are set by domain resolver previously.
-    // 2. add priv entries by new resolving IPs
+    // refresh all user set by domain resolver.
     public void refreshUserPrivEntriesByResovledIPs(Map<String, Set<String>> resolvedIPsMap) {
         writeLock();
         try {
-            // 1. delete all previously set entries
+            // 1. delete all user
             userManager.clearEntriesSetByResolver();
-            // 2. add new entries
-            propertyMgr.addUserPrivEntriesByResolvedIPs(resolvedIPsMap);
+            // 2. add new user
+            userManager.addUserPrivEntriesByResolvedIPs(resolvedIPsMap);
         } finally {
             writeUnlock();
         }
@@ -955,7 +953,6 @@ public class Auth implements Writable {
         try {
             if (specifiedUserIdent == null) {
                 // get all users' auth info
-                // TODO: 2023/1/26 why not get domain user
                 Map<String, List<User>> nameToUsers = userManager.getNameToUsers();
                 for (List<User> users : nameToUsers.values()) {
                     for (User user : users) {
@@ -983,14 +980,7 @@ public class Auth implements Writable {
 
             GlobalPrivEntry gEntry = (GlobalPrivEntry) entry;
             userAuthInfo.add(userIdent.toString());
-            if (userIdent.isDomain()) {
-                // for domain user ident, password is saved in property manager
-                userAuthInfo.add(propertyMgr.doesUserHasPassword(userIdent) ? "No" : "Yes");
-            } else {
-                userAuthInfo
-                        .add((user.getPassword().getPassword() == null || user.getPassword().getPassword().length == 0)
-                                ? "No" : "Yes");
-            }
+            userAuthInfo.add(user.hasPassword() ? "Yes" : "No");
             PrivBitSet savedPrivs = gEntry.getPrivSet().copy();
             savedPrivs.or(ldapGlobalPrivs);
             userAuthInfo.add(savedPrivs.toString() + " (" + user.isSetByDomainResolver() + ")");
@@ -1012,7 +1002,7 @@ public class Auth implements Writable {
             } else {
                 // this is a domain user identity and fall in here, which means this user identity does not
                 // have global priv, we need to check user property to see if it has password.
-                userAuthInfo.add(propertyMgr.doesUserHasPassword(userIdent) ? "No" : "Yes");
+                userAuthInfo.add(user.hasPassword() ? "Yes" : "No");
                 userAuthInfo.add(FeConstants.null_string);
             }
         }
@@ -1184,7 +1174,6 @@ public class Auth implements Writable {
     public void dropUserOfCluster(String clusterName, boolean isReplay) throws DdlException {
         writeLock();
         try {
-            // TODO: 2023/1/26 lock?
             Map<String, List<User>> nameToUsers = userManager.getNameToUsers();
             for (List<User> users : nameToUsers.values()) {
                 for (User user : users) {
@@ -1460,6 +1449,7 @@ public class Auth implements Writable {
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_116) {
             userManager = UserManager.read(in);
             userRoleManager = UserRoleManager.read(in);
+            propertyMgr = UserPropertyMgr.read(in);
         } else {
             UserPrivTable userPrivTable = (UserPrivTable) PrivTable.read(in);
             CatalogPrivTable catalogPrivTable;
@@ -1473,6 +1463,7 @@ public class Auth implements Writable {
             DbPrivTable dbPrivTable = (DbPrivTable) PrivTable.read(in);
             TablePrivTable tablePrivTable = (TablePrivTable) PrivTable.read(in);
             ResourcePrivTable resourcePrivTable = (ResourcePrivTable) PrivTable.read(in);
+            propertyMgr = UserPropertyMgr.read(in);
             try {
                 upgradeToVersion116(userPrivTable, catalogPrivTable, dbPrivTable, tablePrivTable, resourcePrivTable);
             } catch (Exception e) {
@@ -1480,7 +1471,6 @@ public class Auth implements Writable {
                 LOG.warn("upgrade failed,", e);
             }
         }
-        propertyMgr = UserPropertyMgr.read(in);
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_106) {
             ldapInfo = LdapInfo.read(in);
         }
@@ -1499,15 +1489,32 @@ public class Auth implements Writable {
     private void upgradeToVersion116(UserPrivTable userPrivTable, CatalogPrivTable catalogPrivTable,
             DbPrivTable dbPrivTable, TablePrivTable tablePrivTable, ResourcePrivTable resourcePrivTable)
             throws AnalysisException, DdlException {
+        for (Entry<String, UserProperty> entry : propertyMgr.propertyMap.entrySet()) {
+            for (Entry<String, byte[]> userEntry : entry.getValue().getWhiteList().getPasswordMap().entrySet()) {
+                //create user
+                User user = userManager
+                        .createUser(UserIdentity.createAnalyzedUserIdentWithDomain(entry.getKey(), userEntry.getKey()),
+                                userEntry.getValue(), null, false);
+                //create default role
+                Role defaultRole = roleManager.createDefaultRole(user.getUserIdentity());
+                userRoleManager
+                        .addUserRole(user.getUserIdentity(), defaultRole.getRoleName());
+            }
+        }
         List<PrivEntry> userPrivTableEntries = userPrivTable.getEntries();
         for (PrivEntry privEntry : userPrivTableEntries) {
             GlobalPrivEntry globalPrivEntry = (GlobalPrivEntry) privEntry;
-            //create user
+            //may repeat with created user from propertyMgr,but no influence
             User user = userManager
                     .createUser(globalPrivEntry.userIdentity, globalPrivEntry.password, globalPrivEntry.domainUserIdent,
                             globalPrivEntry.isSetByDomainResolver);
             //create default role
-            roleManager.createDefaultRole(user.getUserIdentity());
+            Role defaultRole = roleManager.createDefaultRole(user.getUserIdentity());
+            userRoleManager
+                    .addUserRole(user.getUserIdentity(), defaultRole.getRoleName());
+            if (globalPrivEntry.privSet.isEmpty()) {
+                continue;
+            }
             //grant global auth
             if (globalPrivEntry.privSet.containsResourcePriv()) {
                 roleManager.addRole(new Role(roleManager.getUserDefaultRoleName(user.getUserIdentity()),
@@ -1519,8 +1526,6 @@ public class Auth implements Writable {
                 roleManager.addRole(new Role(roleManager.getUserDefaultRoleName(user.getUserIdentity()),
                         new TablePattern("*", "*", "*"), copy), false);
             }
-            userRoleManager
-                    .addUserRole(user.getUserIdentity(), roleManager.getUserDefaultRoleName(user.getUserIdentity()));
         }
 
         Map<String, Role> roles = roleManager.getRoles();

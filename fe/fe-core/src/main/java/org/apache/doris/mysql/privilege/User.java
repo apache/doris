@@ -51,6 +51,10 @@ public class User implements Comparable<User>, Writable {
         this.password = password;
     }
 
+    public void setPassword(byte[] password) {
+        this.password = new Password(password);
+    }
+
     public UserIdentity getUserIdentity() {
         return userIdentity;
     }
@@ -96,6 +100,10 @@ public class User implements Comparable<User>, Writable {
         isAnyHost = anyHost;
     }
 
+    public boolean hasPassword() {
+        return password != null && password.getPassword() != null && password.getPassword().length != 0;
+    }
+
     @Override
     public int compareTo(@NotNull User o) {
         return -userIdentity.getHost().compareTo(o.userIdentity.getHost());
@@ -123,5 +131,13 @@ public class User implements Comparable<User>, Writable {
             LOG.warn("readFields error,", e);
         }
         isAnyHost = userIdentity.getHost().equals(UserManager.ANY_HOST);
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("userIdentity: ").append(userIdentity).append(", isSetByDomainResolver: ")
+                .append(isSetByDomainResolver).append(", domainUserIdentity: ").append(domainUserIdentity);
+        return sb.toString();
     }
 }

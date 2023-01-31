@@ -63,9 +63,7 @@ public class GlobalPrivEntry extends PrivEntry {
 
     @Override
     public String toString() {
-        StringBuilder sb = new StringBuilder();
-        // TODO: 2023/1/17 implement
-        return sb.toString();
+        return privSet.toString();
     }
 
     public void readFields(DataInput in) throws IOException {

@@ -87,6 +87,7 @@ public abstract class PrivEntry implements Comparable<PrivEntry> {
     public void setSetByDomainResolver(boolean isSetByDomainResolver) {
         this.isSetByDomainResolver = isSetByDomainResolver;
     }
+
     public abstract boolean keyMatch(PrivEntry other);
 
     @Deprecated

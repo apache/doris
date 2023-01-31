@@ -121,4 +121,9 @@ public class UserRoleManager implements Writable {
             userToRoles.put(userIdentity, roles);
         }
     }
+
+    @Override
+    public String toString() {
+        return userToRoles.toString();
+    }
 }

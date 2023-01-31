@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.CaseSensibility;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.io.Text;
@@ -44,6 +45,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.Set;
 
 public class UserManager implements Writable {
     public static final String ANY_HOST = "%";
@@ -268,5 +270,66 @@ public class UserManager implements Writable {
             }
             nameToUsers.put(name, users);
         }
+    }
+
+    public void setPassword(UserIdentity userIdentity, byte[] password, boolean errOnNonExist) throws DdlException {
+        User user = getUserByUserIdentity(userIdentity);
+        if (user == null) {
+            if (errOnNonExist) {
+                throw new DdlException("user " + userIdentity + " does not exist");
+            }
+            return;
+        }
+        user.setPassword(password);
+    }
+
+    public void getAllDomains(Set<String> allDomains) {
+        for (Entry<String, List<User>> entry : nameToUsers.entrySet()) {
+            for (User user : entry.getValue()) {
+                if (user.getUserIdentity().isDomain()) {
+                    allDomains.add(user.getUserIdentity().getHost());
+                }
+            }
+        }
+    }
+
+    // handle new resolved IPs.
+    // it will only modify password entry of these resolved IPs. All other privileges are binded
+    // to the domain, so no need to modify.
+    public void addUserPrivEntriesByResolvedIPs(Map<String, Set<String>> resolvedIPsMap) {
+        for (Entry<String, List<User>> userEntry : nameToUsers.entrySet()) {
+            for (Map.Entry<String, Set<String>> entry : resolvedIPsMap.entrySet()) {
+                User domainUser = getDomainUser(userEntry.getValue(), entry.getKey());
+                if (domainUser == null) {
+                    continue;
+                }
+                // this user ident will be saved along with each resolved "IP" user ident, so that when checking
+                // password, this "domain" user ident will be returned as "current user".
+                for (String newIP : entry.getValue()) {
+                    UserIdentity userIdent = UserIdentity.createAnalyzedUserIdentWithIp(userEntry.getKey(), newIP);
+                    byte[] password = domainUser.getPassword().getPassword();
+                    Preconditions.checkNotNull(password, entry.getKey());
+                    try {
+                        createUser(userIdent, password, domainUser.getUserIdentity(), true);
+                    } catch (AnalysisException e) {
+                        LOG.info("failed to create user for user ident: {}, {}", userIdent, e.getMessage());
+                    }
+                }
+            }
+        }
+    }
+
+    private User getDomainUser(List<User> users, String domain) {
+        for (User user : users) {
+            if (user.getUserIdentity().isDomain() && user.getUserIdentity().getHost().equals(domain)) {
+                return user;
+            }
+        }
+        return null;
+    }
+
+    @Override
+    public String toString() {
+        return nameToUsers.toString();
     }
 }
