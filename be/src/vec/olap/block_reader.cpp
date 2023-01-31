@@ -79,7 +79,8 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
     _reader_context.is_vec = true;
     _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
     for (auto& rs_reader : rs_readers) {
-        if (read_params.read_orderby_key_limit == 0) {
+        // _vcollect_iter.topn_next() will init rs_reader by itself
+        if (!_vcollect_iter.use_topn_next()) {
             RETURN_NOT_OK(rs_reader->init(&_reader_context));
         }
         Status res = _vcollect_iter.add_child(rs_reader);
@@ -93,7 +94,8 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
     }
 
     RETURN_IF_ERROR(_vcollect_iter.build_heap(*valid_rs_readers));
-    if (_vcollect_iter.is_merge() && read_params.read_orderby_key_limit == 0) {
+    // _vcollect_iter.topn_next() can not use current_row
+    if (!_vcollect_iter.use_topn_next()) {
         auto status = _vcollect_iter.current_row(&_next_row);
         _eof = status.is<END_OF_FILE>();
     }

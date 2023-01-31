@@ -71,6 +71,8 @@ public:
         return false;
     }
 
+    const inline bool use_topn_next() { return _topn_limit > 0; }
+
 private:
     // next for topn query
     Status topn_next(Block* block);

@@ -57,11 +57,19 @@ void VCollectIterator::init(TabletReader* reader, bool ori_data_overlapping, boo
         _merge = true;
     }
     _is_reverse = is_reverse;
-    _topn_limit = reader->_reader_context.read_orderby_key_limit;
+    // use topn_next opt only for DUP_KEYS and UNIQUE_KEYS with MOW
+    if (_reader->_reader_context.read_orderby_key_limit > 0 &&
+        (_reader->_tablet->keys_type() == KeysType::DUP_KEYS ||
+         (_reader->_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+          _reader->_tablet->enable_unique_key_merge_on_write()))) {
+        _topn_limit = _reader->_reader_context.read_orderby_key_limit;
+    } else {
+        _topn_limit = 0;
+    }
 }
 
 Status VCollectIterator::add_child(RowsetReaderSharedPtr rs_reader) {
-    if (_topn_limit > 0) {
+    if (use_topn_next()) {
         _rs_readers.push_back(rs_reader);
         return Status::OK();
     }
@@ -75,7 +83,7 @@ Status VCollectIterator::add_child(RowsetReaderSharedPtr rs_reader) {
 // status will be used as the base rowset, and the other rowsets will be merged first and
 // then merged with the base rowset.
 Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_readers) {
-    if (_topn_limit > 0) {
+    if (use_topn_next()) {
         return Status::OK();
     }
 
@@ -214,7 +222,7 @@ Status VCollectIterator::next(IteratorRowRef* ref) {
 }
 
 Status VCollectIterator::next(Block* block) {
-    if (_topn_limit > 0) {
+    if (use_topn_next()) {
         return topn_next(block);
     }
 
@@ -350,7 +358,8 @@ Status VCollectIterator::topn_next(Block* block) {
             }
 
             // update runtime_predicate
-            if (changed && sorted_row_pos.size() >= _topn_limit) {
+            if (_reader->_reader_context.use_topn_opt &&
+                changed && sorted_row_pos.size() >= _topn_limit) {
                 // get field value from column
                 size_t last_sorted_row = *sorted_row_pos.rbegin();
                 auto col_ptr = mutable_block.get_column_by_position(first_sort_column_idx).get();
