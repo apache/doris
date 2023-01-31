@@ -202,7 +202,7 @@ distribution_desc
     COMMENT "This is my first DORIS table"
     ```
 
-* `partition_desc`
+* `partition_info`
 
     Partition information supports three writing methods:
 
