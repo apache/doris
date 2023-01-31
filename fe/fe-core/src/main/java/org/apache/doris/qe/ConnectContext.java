@@ -218,7 +218,7 @@ public class ConnectContext {
         }
         queryDetail = null;
         if (Config.use_fuzzy_session_variable) {
-            sessionVariable.initFuzzyModeVariables();
+            sessionVariable.initFuzzyModeVariables(Config.pull_request_id);
         }
     }
 
