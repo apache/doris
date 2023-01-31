@@ -1898,7 +1898,7 @@ public class SelectStmt extends QueryStmt {
                 if (i != 0) {
                     strBuilder.append(", ");
                 }
-                if (needToSql) {
+                if (needToSql && CollectionUtils.isNotEmpty(originalExpr)) {
                     strBuilder.append(originalExpr.get(i).toSql());
                 } else {
                     strBuilder.append(resultExprs.get(i).toSql());
@@ -2072,6 +2072,9 @@ public class SelectStmt extends QueryStmt {
             // Resolve and replace non-InlineViewRef table refs with a BaseTableRef or ViewRef.
             TableRef tblRef = fromClause.get(i);
             tblRef = analyzer.resolveTableRef(tblRef);
+            if (tblRef instanceof InlineViewRef) {
+                ((InlineViewRef) tblRef).setNeedToSql(needToSql);
+            }
             Preconditions.checkNotNull(tblRef);
             fromClause.set(i, tblRef);
             tblRef.setLeftTblRef(leftTblRef);
@@ -2100,6 +2103,9 @@ public class SelectStmt extends QueryStmt {
                 }
                 resultExprs.add(item.getExpr());
             }
+        }
+        if (needToSql) {
+            originalExpr = Expr.cloneList(resultExprs);
         }
         // substitute group by
         if (groupByClause != null) {
