@@ -75,8 +75,6 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
     _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
                         read_params.read_orderby_key_reverse);
 
-    _vcollect_iter.init(this, read_params.read_orderby_key, read_params.read_orderby_key_reverse);
-
     _reader_context.batch_size = _batch_size;
     _reader_context.is_vec = true;
     _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
