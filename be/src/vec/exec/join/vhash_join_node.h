@@ -48,7 +48,6 @@ struct SerializedHashTableContext {
 
     HashTable hash_table;
     Iter iter;
-    ForwardIterator<RowRefListType> probe_row_match_iter;
     bool inited = false;
     std::vector<StringRef> keys;
     size_t keys_memory_usage = 0;
@@ -89,7 +88,6 @@ struct PrimaryTypeHashTableContext {
 
     HashTable hash_table;
     Iter iter;
-    ForwardIterator<RowRefListType> probe_row_match_iter;
     bool inited = false;
 
     void init_once() {
@@ -124,7 +122,6 @@ struct FixedKeyHashTableContext {
 
     HashTable hash_table;
     Iter iter;
-    ForwardIterator<RowRefListType> probe_row_match_iter;
     bool inited = false;
 
     void init_once() {
@@ -189,6 +186,10 @@ using HashTableCtxVariants =
                      ProcessHashTableProbe<TJoinOp::RIGHT_SEMI_JOIN>,
                      ProcessHashTableProbe<TJoinOp::RIGHT_ANTI_JOIN>,
                      ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>>;
+
+using HashTableIteratorVariants =
+        std::variant<std::monostate, ForwardIterator<RowRefList>,
+                     ForwardIterator<RowRefListWithFlag>, ForwardIterator<RowRefListWithFlags>>;
 
 class HashJoinNode final : public VJoinNodeBase {
 public:
@@ -280,6 +281,8 @@ private:
 
     // for full/right outer join
     ForwardIterator<RowRefListWithFlag> _outer_join_pull_visited_iter;
+
+    HashTableIteratorVariants _probe_row_match_iter;
 
     std::shared_ptr<std::vector<Block>> _build_blocks;
     Block _probe_block;

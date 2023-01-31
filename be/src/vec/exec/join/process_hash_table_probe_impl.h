@@ -209,7 +209,8 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
     bool all_match_one = true;
     int last_probe_index = probe_index;
     size_t probe_size = 0;
-    auto& probe_row_match_iter = hash_table_ctx.probe_row_match_iter;
+    auto& probe_row_match_iter =
+            std::get<ForwardIterator<Mapped>>(_join_node->_probe_row_match_iter);
     {
         SCOPED_TIMER(_search_hashtable_timer);
         if constexpr (!is_right_semi_anti_join) {
