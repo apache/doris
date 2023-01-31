@@ -28,6 +28,7 @@ import org.apache.doris.nereids.jobs.batch.NereidsRewriteJobExecutor;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
+import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
@@ -173,7 +174,33 @@ public class PlanChecker {
     }
 
     public PlanChecker optimize() {
+        double now = System.currentTimeMillis();
         new OptimizeRulesJob(cascadesContext).execute();
+        System.out.println("cascades:" + (System.currentTimeMillis() - now));
+        return this;
+    }
+
+    public PlanChecker dpHypOptimize() {
+        double now = System.currentTimeMillis();
+        Group root = cascadesContext.getMemo().getRoot();
+        boolean changeRoot = false;
+        if (root.isJoinGroup()) {
+            // If the root group is join group, DPHyp can change the root group.
+            // To keep the root group is not changed, we add a dummy project operator above join
+            List<Slot> outputs = root.getLogicalExpression().getPlan().getOutput();
+            LogicalPlan plan = new LogicalProject(outputs, root.getLogicalExpression().getPlan());
+            CopyInResult copyInResult = cascadesContext.getMemo().copyIn(plan, null, false);
+            root = copyInResult.correspondingExpression.getOwnerGroup();
+            changeRoot = true;
+        }
+        cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        if (changeRoot) {
+            cascadesContext.getMemo().setRoot(root.getLogicalExpression().child(0));
+        }
+        // if the root is not join, we need to optimize again.
+        optimize();
+        System.out.println("DPhyp:" + (System.currentTimeMillis() - now));
         return this;
     }
 
