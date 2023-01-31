@@ -18,7 +18,6 @@
 #include "olap/rowset/segment_v2/indexed_column_reader.h"
 
 #include "gutil/strings/substitute.h" // for Substitute
-#include "io/fs/file_system_map.h"
 #include "io/fs/local_file_system.h"
 #include "olap/key_coder.h"
 #include "olap/rowset/segment_v2/encoding_info.h" // for EncodingInfo

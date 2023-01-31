@@ -18,14 +18,13 @@
 #pragma once
 
 #include "io/fs/file_system.h"
-#include "util/file_cache.h"
 
 namespace doris {
 namespace io {
 
 class LocalFileSystem final : public FileSystem {
 public:
-    static std::shared_ptr<LocalFileSystem> create(Path path, ResourceId resource_id = "");
+    static std::shared_ptr<LocalFileSystem> create(Path path, std::string id = "");
 
     ~LocalFileSystem() override;
 
@@ -53,7 +52,7 @@ public:
     Status list(const Path& path, std::vector<Path>* files) override;
 
 private:
-    LocalFileSystem(Path root_path, ResourceId resource_id = ResourceId());
+    LocalFileSystem(Path&& root_path, std::string&& id = "");
 
     Path absolute_path(const Path& path) const;
 };
