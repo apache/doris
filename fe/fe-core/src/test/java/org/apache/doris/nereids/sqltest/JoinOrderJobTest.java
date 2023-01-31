@@ -33,8 +33,7 @@ public class JoinOrderJobTest extends SqlTestBase {
                 .analyze(sql)
                 .rewrite()
                 .deriveStats()
-                .orderJoin()
-                .printlnTree();
+                .dpHypOptimize();
     }
 
     @Test
@@ -48,8 +47,7 @@ public class JoinOrderJobTest extends SqlTestBase {
                 .analyze(sql)
                 .rewrite()
                 .deriveStats()
-                .orderJoin()
-                .printlnTree();
+                .dpHypOptimize();
     }
 
     @Test
@@ -70,12 +68,11 @@ public class JoinOrderJobTest extends SqlTestBase {
                 .analyze(sql)
                 .rewrite()
                 .deriveStats()
-                .orderJoin()
-                .printlnTree();
+                .dpHypOptimize();
     }
 
     @Test
-    protected void test() {
+    protected void testConstantComplex() {
         String sql = "select count(*) \n"
                 + "from \n"
                 + "T1 \n"
@@ -85,7 +82,6 @@ public class JoinOrderJobTest extends SqlTestBase {
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
-                .deriveStats()
-                .printlnTree();
+                .dpHypOptimize();
     }
 }

@@ -34,7 +34,6 @@ set(IO_FILES
     s3_reader.cpp
     s3_writer.cpp
     fs/file_reader_options.cpp
-    fs/file_system_map.cpp
     fs/local_file_reader.cpp
     fs/local_file_system.cpp
     fs/local_file_writer.cpp
