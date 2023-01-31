@@ -91,13 +91,14 @@ public class S3Resource extends Resource {
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
-    public S3Resource(String name) {
-        this(name, Maps.newHashMap());
-    }
+    // for Gson fromJson
+    // TODO(plat1ko): other Resource subclass also MUST define default ctor, otherwise when reloading object from json
+    //  some not serialized field (i.e. `lock`) will be `null`.
+    public S3Resource() {}
 
-    public S3Resource(String name, Map<String, String> properties) {
+    public S3Resource(String name) {
         super(name, ResourceType.S3);
-        this.properties = properties;
+        properties = Maps.newHashMap();
     }
 
     public String getProperty(String propertyKey) {
@@ -186,9 +187,12 @@ public class S3Resource extends Resource {
             }
         }
         // modify properties
+        writeLock();
         for (Map.Entry<String, String> kv : properties.entrySet()) {
             replaceIfEffectiveValue(this.properties, kv.getKey(), kv.getValue());
         }
+        ++version;
+        writeUnlock();
         super.modifyProperties(properties);
     }
 
@@ -200,6 +204,9 @@ public class S3Resource extends Resource {
     @Override
     protected void getProcNodeData(BaseProcResult result) {
         String lowerCaseType = type.name().toLowerCase();
+        result.addRow(Lists.newArrayList(name, lowerCaseType, "id", String.valueOf(id)));
+        readLock();
+        result.addRow(Lists.newArrayList(name, lowerCaseType, "version", String.valueOf(version)));
         for (Map.Entry<String, String> entry : properties.entrySet()) {
             // it's dangerous to show password in show odbc resource,
             // so we use empty string to replace the real password
@@ -209,6 +216,7 @@ public class S3Resource extends Resource {
                 result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), entry.getValue()));
             }
         }
+        readUnlock();
     }
 
     public static Map<String, String> getS3HadoopProperties(Map<String, String> properties) {

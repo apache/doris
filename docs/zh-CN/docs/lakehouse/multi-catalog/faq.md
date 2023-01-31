@@ -46,3 +46,6 @@ under the License.
 3. 访问 HDFS 3.x 时报错：`java.lang.VerifyError: xxx`
 
 	1.2.1 之前的版本中，Doris 依赖的 Hadoop 版本为 2.8。需更新至 2.10.2。或更新 Doris 至 1.2.2 之后的版本。
+4. 使用 KMS 访问 HDFS 时报错：`java.security.InvalidKeyException: Illegal key size`
+
+        升级 JDK 版本到 >= Java 8 u162 的版本。或者下载安装 JDK 相应的 JCE Unlimited Strength Jurisdiction Policy Files。
