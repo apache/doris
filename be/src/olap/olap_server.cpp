@@ -696,12 +696,12 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
         std::vector<TabletSharedPtr> tablets;
         // TODO(luwei) : a more efficient way to get cooldown tablets
         // we should skip all the tablets pending to do cooldown
-        auto cooldown_pending_predicate = [this](const TabletSharedPtr& tablet) -> bool {
+        auto skip_tablet = [this](const TabletSharedPtr& tablet) -> bool {
             std::lock_guard<std::mutex> lock(_running_cooldown_mutex);
             return _running_cooldown_tablets.find(tablet->tablet_id()) ==
                    _running_cooldown_tablets.end();
         };
-        _tablet_manager->get_cooldown_tablets(&tablets, std::move(cooldown_pending_predicate));
+        _tablet_manager->get_cooldown_tablets(&tablets, std::move(skip_tablet));
         LOG(INFO) << "cooldown producer get tablet num: " << tablets.size();
         int max_priority = tablets.size();
         for (const auto& tablet : tablets) {
