@@ -627,6 +627,13 @@ public class DateLiteral extends LiteralExpr {
         }
         msg.node_type = TExprNodeType.DATE_LITERAL;
         msg.date_literal = new TDateLiteral(getStringValue());
+        try {
+            checkValueValid();
+        } catch (AnalysisException e) {
+            // If date value is invalid, set this to null
+            msg.node_type = TExprNodeType.NULL_LITERAL;
+            msg.setIsNullable(true);
+        }
     }
 
     @Override
@@ -775,6 +782,11 @@ public class DateLiteral extends LiteralExpr {
         }
     }
 
+    private boolean isLeapYear() {
+        return ((year % 4) == 0) && ((year % 100 != 0) || ((year % 400) == 0 && year > 0));
+    }
+
+    // Validation check should be same as DateV2Value<T>::is_invalid in BE
     @Override
     public void checkValueValid() throws AnalysisException {
         if (year < 0 || year > 9999) {
@@ -783,8 +795,10 @@ public class DateLiteral extends LiteralExpr {
         if (month < 1 || month > 12) {
             throw new AnalysisException("DateLiteral has invalid month value: " + month);
         }
-        if (day < 1 || day > 31) {
-            throw new AnalysisException("DateLiteral has invalid day value: " + day);
+        if (day < 1 || day > DAYS_IN_MONTH[(int) month]) {
+            if (!(month == 2 && day == 29 && isLeapYear())) {
+                throw new AnalysisException("DateLiteral has invalid day value: " + day);
+            }
         }
         if (type.isDatetimeV2() || type.isDatetime()) {
             if (hour < 0 || hour > 24) {
