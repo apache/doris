@@ -36,6 +36,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -125,10 +126,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         project.getProjects().stream().filter(Alias.class::isInstance)
                 .map(Alias.class::cast)
                 .filter(alias -> {
-                    Expression expr = alias.child();
-                    if (expr instanceof Cast) {
-                        expr = ((Cast) expr).child();
-                    }
+                    Expression expr = ExpressionUtils.getExpressionCoveredByCast(alias.child());
                     return expr instanceof NamedExpression
                             && aliasTransferMap.containsKey((NamedExpression) expr);
                 })

@@ -123,10 +123,11 @@ public class RuntimeFilterTest extends SSBTestBase {
     @Test
     public void testDoNotPushDownThroughAggFunction() {
         String sql = "select profit"
-                + " from (select lo_custkey, sum(lo_revenue - lo_supplycost) as profit from lineorder inner join dates"
-                + " on lo_orderdate = d_datekey group by lo_custkey) a"
-                + " inner join (select sum(c_custkey) c_custkey from customer inner join supplier on c_custkey = s_suppkey group by s_suppkey) b"
-                + " on b.c_custkey = a.lo_custkey";
+                + " from (select sum(c_custkey) c_custkey from customer inner join supplier"
+                + " on c_custkey = s_suppkey group by s_suppkey) a"
+                + " inner join (select lo_custkey, sum(lo_revenue - lo_supplycost) as profit from lineorder"
+                + " inner join dates on lo_orderdate = d_datekey group by lo_custkey) b"
+                + " on a.c_custkey = b.lo_custkey";
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
         Assertions.assertEquals(2, filters.size());
         checkRuntimeFilterExprs(filters, ImmutableList.of(
