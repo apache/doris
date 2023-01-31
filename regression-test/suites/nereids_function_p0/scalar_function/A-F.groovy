@@ -76,7 +76,6 @@ suite("nereids_scalar_fn_1") {
     qt_sql "select coalesce(kdtmv2s1) from fn_test order by kdtmv2s1"
     qt_sql "select coalesce(kdtv2) from fn_test order by kdtv2"
     qt_sql "select coalesce(kdcmls1) from fn_test order by kdcmls1"
-    // function coalesce(bitmap) is unsupported for the test suite.
     qt_sql "select coalesce(kvchrs1) from fn_test order by kvchrs1"
     qt_sql "select coalesce(kstr) from fn_test order by kstr"
     qt_sql "select concat(kvchrs1) from fn_test order by kvchrs1"
@@ -93,8 +92,7 @@ suite("nereids_scalar_fn_1") {
     sql "select current_date() from fn_test"
     sql "select current_time() from fn_test"
     sql "select current_timestamp() from fn_test"
-    // core
-    // qt_sql "select current_timestamp(kint) from fn_test order by kint"
+    sql "select current_timestamp(coalesce(kint, 0)) from fn_test"
     sql "select current_user() from fn_test"
     sql "select curtime() from fn_test"
     sql "select database() from fn_test"
@@ -180,8 +178,8 @@ suite("nereids_scalar_fn_1") {
     qt_sql "select domain(kstr) from fn_test order by kstr"
     qt_sql "select domain_without_www(kstr) from fn_test order by kstr"
     qt_sql "select dpow(kdbl, kdbl) from fn_test order by kdbl, kdbl"
-    // qt_sql "select dround(kdbl) from fn_test order by kdbl"
-    // qt_sql "select dround(kdbl, kint) from fn_test order by kdbl, kint"
+    qt_sql "select dround(kdbl) from fn_test order by kdbl"
+    qt_sql "select dround(kdbl, 2) from fn_test order by kdbl, kint"
     qt_sql "select dsqrt(kdbl) from fn_test order by kdbl"
     qt_sql "select e() from fn_test"
     // result error
