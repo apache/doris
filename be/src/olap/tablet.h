@@ -315,12 +315,6 @@ public:
 
     Status remove_all_remote_rowsets();
 
-    void remove_self_owned_remote_rowsets();
-
-    // Erase entries in `_self_owned_remote_rowsets` iff they are in `rowsets_in_snapshot`.
-    // REQUIRES: held _meta_lock
-    void update_self_owned_remote_rowsets(const std::vector<RowsetSharedPtr>& rowsets_in_snapshot);
-
     void record_unused_remote_rowset(const RowsetId& rowset_id, const std::string& resource,
                                      int64_t num_segments);
     ////////////////////////////////////////////////////////////////////////////
@@ -475,9 +469,6 @@ private:
 
     int64_t _last_missed_version;
     int64_t _last_missed_time_s;
-
-    // Remote rowsets not shared by other BE. We can delete them when drop tablet.
-    std::unordered_set<RowsetSharedPtr> _self_owned_remote_rowsets; // guarded by _meta_lock
 
     // Max schema_version schema from Rowset or FE
     TabletSchemaSPtr _max_version_schema;

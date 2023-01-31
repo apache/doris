@@ -1708,7 +1708,7 @@ Status Tablet::_cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_
 
     {
         std::unique_lock meta_wlock(_meta_lock);
-        if (tablet_state() != TABLET_SHUTDOWN) {
+        if (tablet_state() == TABLET_RUNNING) {
             modify_rowsets(to_add, to_delete);
             save_meta();
         }
@@ -1774,7 +1774,12 @@ Status Tablet::_follow_cooldowned_data(io::RemoteFileSystem* fs, int64_t cooldow
 
     std::vector<RowsetSharedPtr> overlap_rowsets;
     bool version_aligned = false;
+
     std::lock_guard wlock(_meta_lock);
+    if (tablet_state() != TABLET_RUNNING) {
+        return Status::InternalError("tablet not running");
+    }
+
     for (auto& [v, rs] : _rs_version_map) {
         if (v.second == cooldowned_version) {
             version_aligned = true;
@@ -2281,30 +2286,6 @@ RowsetIdUnorderedSet Tablet::all_rs_id(int64_t max_version) const {
         }
     }
     return rowset_ids;
-}
-
-void Tablet::remove_self_owned_remote_rowsets() {
-    DCHECK(_state == TABLET_SHUTDOWN);
-    for (const auto& rs : _self_owned_remote_rowsets) {
-        DCHECK(!rs->is_local());
-        record_unused_remote_rowset(rs->rowset_id(), rs->rowset_meta()->resource_id(),
-                                    rs->num_segments());
-    }
-}
-
-void Tablet::update_self_owned_remote_rowsets(
-        const std::vector<RowsetSharedPtr>& rowsets_in_snapshot) {
-    if (_self_owned_remote_rowsets.empty()) {
-        return;
-    }
-    for (const auto& rs : rowsets_in_snapshot) {
-        if (!rs->is_local()) {
-            auto it = _self_owned_remote_rowsets.find(rs);
-            if (it != _self_owned_remote_rowsets.end()) {
-                _self_owned_remote_rowsets.erase(it);
-            }
-        }
-    }
 }
 
 bool Tablet::check_all_rowset_segment() {

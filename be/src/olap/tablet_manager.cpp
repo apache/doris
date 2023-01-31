@@ -484,8 +484,6 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
         // otherwise if BE shutdown after saving tablet state, these remote rowsets path info will lost.
         if (is_drop_table_or_partition) {
             RETURN_IF_ERROR(to_drop_tablet->remove_all_remote_rowsets());
-        } else {
-            to_drop_tablet->remove_self_owned_remote_rowsets();
         }
         to_drop_tablet->save_meta();
         {
