@@ -18,7 +18,10 @@
 package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.datasource.CatalogProperty;
+import org.apache.doris.datasource.credentials.DataLakeAWSCredentialsProvider;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.s3a.Constants;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.rest.RESTCatalog;
 
@@ -39,7 +42,11 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
         String restUri = catalogProperty.getProperties().getOrDefault(CatalogProperties.URI, "");
         restProperties.put(CatalogProperties.URI, restUri);
         RESTCatalog restCatalog = new RESTCatalog();
-        restCatalog.setConf(getConfiguration());
+        String credentials = catalogProperty.getProperties()
+                .getOrDefault(Constants.AWS_CREDENTIALS_PROVIDER, DataLakeAWSCredentialsProvider.class.getName());
+        Configuration conf = getConfiguration();
+        conf.set(Constants.AWS_CREDENTIALS_PROVIDER, credentials);
+        restCatalog.setConf(conf);
         restCatalog.initialize(icebergCatalogType, restProperties);
         catalog = restCatalog;
     }
