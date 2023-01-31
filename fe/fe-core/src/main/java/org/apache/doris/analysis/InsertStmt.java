@@ -203,7 +203,7 @@ public class InsertStmt extends DdlStmt {
         String dbName = tblName.getDb();
         String tableName = tblName.getTbl();
         // check exist
-        DatabaseIf db = analyzer.getEnv().getCurrentCatalog().getDbOrAnalysisException(dbName);
+        DatabaseIf db = analyzer.getEnv().getCatalogMgr().getCatalog(tblName.getCtl()).getDbOrAnalysisException(dbName);
         TableIf table = db.getTableOrAnalysisException(tblName.getTbl());
 
         // check access
@@ -302,7 +302,7 @@ public class InsertStmt extends DdlStmt {
         // create data sink
         createDataSink();
 
-        db = analyzer.getEnv().getCurrentCatalog().getDbOrAnalysisException(tblName.getDb());
+        db = analyzer.getEnv().getCatalogMgr().getCatalog(tblName.getCtl()).getDbOrAnalysisException(tblName.getDb());
         // create label and begin transaction
         long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
         if (Strings.isNullOrEmpty(label)) {
@@ -331,14 +331,15 @@ public class InsertStmt extends DdlStmt {
     private void analyzeTargetTable(Analyzer analyzer) throws AnalysisException {
         // Get table
         if (targetTable == null) {
-            DatabaseIf db = analyzer.getEnv().getCurrentCatalog().getDbOrAnalysisException(tblName.getDb());
+            DatabaseIf db = analyzer.getEnv().getCatalogMgr()
+                            .getCatalog(tblName.getCtl()).getDbOrAnalysisException(tblName.getDb());
             if (db instanceof Database) {
                 targetTable = (Table) db.getTableOrAnalysisException(tblName.getTbl());
             } else if (db instanceof JdbcExternalDatabase) {
                 JdbcExternalTable jdbcTable = (JdbcExternalTable) db.getTableOrAnalysisException(tblName.getTbl());
                 targetTable = jdbcTable.getJdbcTable();
             } else {
-                throw new AnalysisException("Un support insert target table");
+                throw new AnalysisException("Not support insert target table.");
             }
         }
 
