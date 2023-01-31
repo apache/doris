@@ -106,6 +106,10 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         this.isReplay = isReplay;
     }
 
+    public boolean isReplay() {
+        return isReplay;
+    }
+
     public String getMVName() {
         return mvName;
     }

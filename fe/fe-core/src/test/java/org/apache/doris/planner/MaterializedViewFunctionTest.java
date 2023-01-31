@@ -609,7 +609,7 @@ public class MaterializedViewFunctionTest {
         String aggregateTable = "create table agg_table (k1 int, k2 int, v1 bigint sum) aggregate key (k1, k2) "
                 + "distributed by hash(k1) buckets 3 properties('replication_num' = '1');";
         dorisAssert.withTable(aggregateTable);
-        String createRollupSQL = "alter table agg_table add rollup old_key (k1, k2) "
+        String createRollupSQL = "alter table agg_table add rollup old_key (k2, k1) "
                 + "properties ('replication_num' = '1');";
         String query = "select k1, k2 from agg_table;";
         dorisAssert.withRollup(createRollupSQL).query(query).explainContains("OFF", "old_key");
@@ -659,11 +659,11 @@ public class MaterializedViewFunctionTest {
 
     @Test
     public void testUniqueTableInQuery() throws Exception {
-        String uniqueTable = "CREATE TABLE " + TEST_TABLE_NAME + " (k1 int, v1 int) UNIQUE KEY (k1) "
+        String uniqueTable = "CREATE TABLE " + TEST_TABLE_NAME + " (k1 int, k2 int, v1 int) UNIQUE KEY (k1, k2) "
                 + "DISTRIBUTED BY HASH(k1) BUCKETS 3 PROPERTIES ('replication_num' = '1');";
         dorisAssert.withTable(uniqueTable);
-        String createK1K2MV = "create materialized view only_k1 as select k1 from " + TEST_TABLE_NAME + " group by "
-                + "k1;";
+        String createK1K2MV = "create materialized view only_k1 as select k2, k1 from " + TEST_TABLE_NAME + " group by "
+                + "k2, k1;";
         String query = "select * from " + TEST_TABLE_NAME + ";";
         dorisAssert.withMaterializedView(createK1K2MV).query(query).explainContains(TEST_TABLE_NAME);
         dorisAssert.dropTable(TEST_TABLE_NAME, true);

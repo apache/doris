@@ -78,7 +78,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements P
                 + ");");
         addRollup("alter table t1 add rollup r1(k1)");
         addRollup("alter table t1 add rollup r2(k2, v1)");
-        addRollup("alter table t1 add rollup r3(k1, k2)");
+        addRollup("alter table t1 add rollup r3(k2, k1)");
 
         createTable("CREATE TABLE `duplicate_tbl` (\n"
                 + "  `k1` int(11) NULL,\n"
@@ -342,7 +342,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements P
                 + "\"storage_format\" = \"V2\",\n"
                 + "\"disable_auto_compaction\" = \"false\"\n"
                 + ");");
-        addRollup("alter table t4 add rollup r1(k1, k2, v1)");
+        addRollup("alter table t4 add rollup r1(k2, k1, v1)");
 
         singleTableTest("select k1, k2, v1 from t4", "r1", false);
         singleTableTest("select k1, k2, sum(v1) from t4 group by k1, k2", "r1", true);
