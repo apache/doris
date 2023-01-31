@@ -122,6 +122,7 @@ import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.consistency.ConsistencyChecker;
+import org.apache.doris.cooldown.CooldownDeleteHandler;
 import org.apache.doris.cooldown.CooldownHandler;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
@@ -316,6 +317,7 @@ public class Env {
     private DbUsedDataQuotaInfoCollector dbUsedDataQuotaInfoCollector;
     private PartitionInMemoryInfoCollector partitionInMemoryInfoCollector;
     private CooldownHandler cooldownHandler;
+    private CooldownDeleteHandler cooldownDeleteHandler;
     private MetastoreEventsProcessor metastoreEventsProcessor;
 
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
@@ -553,6 +555,7 @@ public class Env {
         this.dbUsedDataQuotaInfoCollector = new DbUsedDataQuotaInfoCollector();
         this.partitionInMemoryInfoCollector = new PartitionInMemoryInfoCollector();
         this.cooldownHandler = new CooldownHandler();
+        this.cooldownDeleteHandler = new CooldownDeleteHandler();
         this.metastoreEventsProcessor = new MetastoreEventsProcessor();
 
         this.replayedJournalId = new AtomicLong(0L);
@@ -1403,6 +1406,7 @@ public class Env {
         partitionInMemoryInfoCollector.start();
         if (Config.cooldown_single_remote_file) {
             cooldownHandler.start();
+            cooldownDeleteHandler.start();
         }
         streamLoadRecordMgr.start();
         getInternalCatalog().getIcebergTableCreationRecordMgr().start();
@@ -3444,6 +3448,10 @@ public class Env {
 
     public CooldownHandler getCooldownHandler() {
         return cooldownHandler;
+    }
+
+    public CooldownDeleteHandler getCooldownDeleteHandler() {
+        return cooldownDeleteHandler;
     }
 
     public SystemHandler getClusterHandler() {

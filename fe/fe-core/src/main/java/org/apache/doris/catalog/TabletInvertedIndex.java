@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.common.Config;
+import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TTablet;
@@ -126,7 +127,8 @@ public class TabletInvertedIndex {
                              ListMultimap<Long, Long> transactionsToClear,
                              ListMultimap<Long, Long> tabletRecoveryMap,
                              List<Triple<Long, Integer, Boolean>> tabletToInMemory,
-                             Map<Long, TabletMeta> syncCooldownTabletMap) {
+                             Map<Long, TabletMeta> syncCooldownTabletMap,
+                             Map<Long, List<CooldownDelete>> deleteCooldownTabletMap) {
         long stamp = readLock();
         long start = System.currentTimeMillis();
         try {
@@ -191,6 +193,20 @@ public class TabletInvertedIndex {
                             if (Config.cooldown_single_remote_file
                                     && needChangeCooldownConf(tabletMeta, backendTabletInfo)) {
                                 syncCooldownTabletMap.put(backendTabletInfo.getTabletId(), tabletMeta);
+                            }
+
+                            if (backendTabletInfo.isIsCooldown()) {
+                                replica.setCooldownMetaId(backendTabletInfo.getCooldownMetaId());
+                                replica.setCooldownedVersion(backendTabletInfo.getCooldownMetaId());
+                            }
+
+                            if (hasCooldownDeleteId(tabletMeta, backendTabletInfo)) {
+                                CooldownDelete cooldownDelete = new CooldownDelete(backendId, tabletId,
+                                        backendTabletInfo.getCooldownDeleteId());
+                                if (!deleteCooldownTabletMap.containsKey(backendId)) {
+                                    deleteCooldownTabletMap.put(backendId, new LinkedList<>());
+                                }
+                                deleteCooldownTabletMap.get(backendId).add(cooldownDelete);
                             }
 
                             long partitionId = tabletMeta.getPartitionId();
@@ -333,6 +349,23 @@ public class TabletInvertedIndex {
         }
 
         return false;
+    }
+
+    private boolean hasCooldownDeleteId(TabletMeta tabletMeta, TTabletInfo beTabletInfo) {
+        if (!beTabletInfo.isIsCooldown()
+                || tabletMeta.getCooldownReplicaId() != beTabletInfo.getCooldownReplicaId()
+                || tabletMeta.getCooldownReplicaId() != beTabletInfo.getReplicaId()
+                || !beTabletInfo.isSetCooldownDeleteId()) {
+            return false;
+        }
+        Map<Long, Replica> replicaMap = replicaMetaTable.row(beTabletInfo.getTabletId());
+        for (Map.Entry<Long, Replica> entry : replicaMap.entrySet()) {
+            if (entry.getValue().getCooldownedVersion() <= beTabletInfo.getCooldownedVersion()
+                    && entry.getValue().getCooldownMetaId() != beTabletInfo.getCooldownMetaId()) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private boolean needChangeCooldownConf(TabletMeta tabletMeta, TTabletInfo beTabletInfo) {

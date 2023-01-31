@@ -1398,6 +1398,8 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
         if (get_cooldown_delete_id(&cooldown_delete_id)) {
             tablet_info->__set_cooldown_delete_id(cooldown_delete_id);
         }
+        tablet_info->__set_cooldown_meta_id(_tablet_meta->cooldown_meta_id());
+        tablet_info->__set_cooldowned_version(_tablet_meta->cooldowned_version());
     }
 }
 
@@ -1679,7 +1681,7 @@ void Tablet::enable_cooldown_flag(const TUniqueId& cooldown_delete_id) {
     }
 }
 
-Status Tablet::_cooldown_delete_files(io::FileSystemSPtr fs) {
+Status Tablet::_deal_cooldown_delete_files(io::FileSystemSPtr fs) {
     std::unique_lock delete_lock(_cooldown_delete_lock, std::try_to_lock);
     if (!delete_lock.owns_lock()) {
         LOG(WARNING) << "Failed to own delete_lock. tablet=" << tablet_id();
@@ -1697,8 +1699,8 @@ Status Tablet::_cooldown_delete_files(io::FileSystemSPtr fs) {
         }
         _cooldown_delete_files.clear();
         _cooldown_delete_id = generate_uuid();
-        Path remote_tablet_path = BetaRowset::remote_tablet_path(tablet_id());
-        std::vector<Path> segment_files;
+        io::Path remote_tablet_path = BetaRowset::remote_tablet_path(tablet_id());
+        std::vector<io::Path> segment_files;
         RETURN_IF_ERROR(fs->list(remote_tablet_path, &segment_files));
         TabletMetaPB remote_tablet_meta_pb;
         RETURN_IF_ERROR(_read_remote_tablet_meta(fs, &remote_tablet_meta_pb));
@@ -1729,7 +1731,7 @@ Status Tablet::_cooldown_data() {
         return Status::Error<UNINITIALIZED>();
     }
 
-    RETURN_IF_ERROR(_cooldown_delete_files(dest_fs));
+    RETURN_IF_ERROR(_deal_cooldown_delete_files(dest_fs));
 
     auto old_rowset = pick_cooldown_rowset();
     if (!old_rowset) {
@@ -1765,6 +1767,8 @@ Status Tablet::_cooldown_data() {
     TabletMetaPB remote_tablet_meta_pb;
     _tablet_meta->to_meta_pb(true, &remote_tablet_meta_pb);
     new_rowset_meta->to_rowset_pb(remote_tablet_meta_pb.add_rs_metas());
+    // reset tablet_meta_id
+    remote_tablet_meta_pb.set_tablet_meta_id(UniqueId::gen_uid().to_proto());
     // upload rowset_meta to remote fs.
     RETURN_IF_ERROR(_write_remote_tablet_meta(dest_fs, remote_tablet_meta_pb));
 

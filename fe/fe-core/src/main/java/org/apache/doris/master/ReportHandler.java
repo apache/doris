@@ -39,6 +39,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.metric.MetricRepo;
@@ -261,6 +262,8 @@ public class ReportHandler extends Daemon {
         ListMultimap<TStorageMedium, Long> tabletMigrationMap = LinkedListMultimap.create();
         // the cooldown type of replicas which need to be sync. tabletId -> TabletMeta
         Map<Long, TabletMeta> syncCooldownTabletMap = new HashMap<>();
+        // the cooldown delete id will be sent to be beId -> CooldownDelete
+        Map<Long, List<CooldownDelete>> deleteCooldownTabletMap = new HashMap<>();
 
         // dbid -> txn id -> [partition info]
         Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish = Maps.newHashMap();
@@ -281,7 +284,8 @@ public class ReportHandler extends Daemon {
                 transactionsToClear,
                 tabletRecoveryMap,
                 tabletToInMemory,
-                syncCooldownTabletMap);
+                syncCooldownTabletMap,
+                deleteCooldownTabletMap);
 
         // 2. sync
         if (!tabletSyncMap.isEmpty()) {
@@ -328,6 +332,12 @@ public class ReportHandler extends Daemon {
         if (!syncCooldownTabletMap.isEmpty()) {
             Env.getCurrentEnv().getCooldownHandler().handleCooldownConf(syncCooldownTabletMap);
         }
+
+        // 11. send cooldown delete id to CooldownDeleteHandler
+        if (!deleteCooldownTabletMap.isEmpty()) {
+            Env.getCurrentEnv().getCooldownDeleteHandler().handleCooldownDelete(deleteCooldownTabletMap);
+        }
+
 
         final SystemInfoService currentSystemInfo = Env.getCurrentSystemInfo();
         Backend reportBackend = currentSystemInfo.getBackend(backendId);

@@ -503,11 +503,17 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     // init _schema
     _schema->init_from_pb(tablet_meta_pb.schema());
 
+    _cooldowned_version = -1;
     // init _rs_metas
     for (auto& it : tablet_meta_pb.rs_metas()) {
         RowsetMetaSharedPtr rs_meta(new RowsetMeta());
         rs_meta->init_from_pb(it);
         _rs_metas.push_back(std::move(rs_meta));
+        if (tablet_meta_pb.storage_policy() != "" &&
+                it.has_resource_id() && it.resource_id() != "" &&
+                it.end_version() > _cooldowned_version) {
+            _cooldowned_version = it.end_version();
+        }
     }
 
     for (auto& it : tablet_meta_pb.stale_rs_metas()) {
@@ -527,6 +533,8 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     _storage_policy = tablet_meta_pb.storage_policy();
     _cooldown_replica_id = -1;
     _cooldown_term = -1;
+    _cooldown_meta_id.__set_hi(tablet_meta_pb.cooldown_meta_id().hi());
+    _cooldown_meta_id.__set_lo(tablet_meta_pb.cooldown_meta_id().lo());
     if (tablet_meta_pb.has_enable_unique_key_merge_on_write()) {
         _enable_unique_key_merge_on_write = tablet_meta_pb.enable_unique_key_merge_on_write();
     }
@@ -621,6 +629,8 @@ void TabletMeta::to_meta_pb(bool only_include_remote_rowset, TabletMetaPB* table
             *(delete_bitmap_pb->add_segment_delete_bitmaps()) = std::move(bitmap_data);
         }
     }
+    tablet_meta_pb->mutable_cooldown_meta_id()->set_hi(_cooldown_meta_id.hi);
+    tablet_meta_pb->mutable_cooldown_meta_id()->set_lo(_cooldown_meta_id.lo);
 }
 
 uint32_t TabletMeta::mem_size() const {
@@ -673,6 +683,9 @@ Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
         }
     }
     _rs_metas.push_back(rs_meta);
+    if (!rs_meta->is_local() && rs_meta->end_version() > _cooldowned_version) {
+        _cooldowned_version = it.end_version();
+    }
     return Status::OK();
 }
 
@@ -714,6 +727,12 @@ void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
     }
     // put to_add rowsets in _rs_metas.
     _rs_metas.insert(_rs_metas.end(), to_add.begin(), to_add.end());
+    for (auto& rs_meta : to_add) {
+        if (!rs_meta->is_local() && rs_meta->end_version() > _cooldowned_version) {
+            _cooldowned_version = it.end_version();
+        }
+    }
+    _cooldown_meta_id = generate_uuid();
 }
 
 // Use the passing "rs_metas" to replace the rs meta in this tablet meta
@@ -882,6 +901,12 @@ bool operator==(const TabletMeta& a, const TabletMeta& b) {
         return false;
     }
     if (a._cooldown_term != b._cooldown_term) {
+        return false;
+    }
+    if (a._cooldown_meta_id != b._cooldown_meta_id) {
+        return false;
+    }
+    if (a._cooldowned_version != b._cooldowned_version) {
         return false;
     }
     return true;

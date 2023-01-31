@@ -203,6 +203,10 @@ public:
 
     const int64_t cooldown_replica_id() const { return _cooldown_replica_id; }
 
+    const TUniqueId cooldown_meta_id() const { return _cooldown_meta_id; }
+
+    const int64_t cooldowned_version() const { return _cooldowned_version; }
+
     void set_cooldown_replica_id_and_term(int64_t cooldown_replica_id, int64_t cooldown_term) {
         VLOG_NOTICE << "set tablet_id : " << _table_id << " cooldown_replica_id from "
                     << _cooldown_replica_id << " to " << cooldown_replica_id
@@ -258,6 +262,8 @@ private:
     std::string _storage_policy;
     int64_t _cooldown_replica_id = -1;
     int64_t _cooldown_term = -1;
+    TUniqueId _cooldown_meta_id;
+    int64_t _cooldowned_version = -1;
 
     // For unique key data model, the feature Merge-on-Write will leverage a primary
     // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,

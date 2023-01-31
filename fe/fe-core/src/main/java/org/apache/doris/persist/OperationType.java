@@ -267,6 +267,9 @@ public class OperationType {
 
     public static final short OP_ALTER_USER = 400;
 
+    // send delete_id of cooldown to be
+    public static final short OP_SEND_COOLDOWN_DELETE = 501;
+
     /**
      * Get opcode name by op code.
      **/
