@@ -282,4 +282,8 @@ public abstract class AbstractSelectMaterializedIndexRule {
         }
         return matchCount;
     }
+
+    protected boolean preAggEnabledByHint(LogicalOlapScan olapScan) {
+        return olapScan.getHints().stream().anyMatch("PREAGGOPEN"::equalsIgnoreCase);
+    }
 }

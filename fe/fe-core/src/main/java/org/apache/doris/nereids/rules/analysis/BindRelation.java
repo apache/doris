@@ -161,10 +161,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
         List<Long> partIds = getPartitionIds(table, unboundRelation);
         if (!CollectionUtils.isEmpty(partIds)) {
             scan = new LogicalOlapScan(RelationUtil.newRelationId(),
-                    (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), partIds);
+                    (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), partIds, unboundRelation.getHints());
         } else {
             scan = new LogicalOlapScan(RelationUtil.newRelationId(),
-                    (OlapTable) table, ImmutableList.of(tableQualifier.get(1)));
+                    (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), unboundRelation.getHints());
         }
         if (!Util.showHiddenColumns() && scan.getTable().hasDeleteSign()
                 && !ConnectContext.get().getSessionVariable()
