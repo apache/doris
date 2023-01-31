@@ -401,7 +401,9 @@ public:
     }
 
 private:
-    enum { MAX_ARGS = 8 };
+    // The array length is fixed in the implementation of some aggregate functions.
+    // Therefore we choose 256 as the appropriate maximum length limit.
+    static const size_t MAX_ARGS = 256;
     size_t number_of_arguments = 0;
     std::array<char, MAX_ARGS>
             is_nullable; /// Plain array is better than std::vector due to one indirection less.
