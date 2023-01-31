@@ -180,7 +180,7 @@ ERRORS:
 
 25. trim_double_quotes: 布尔类型，默认值为 false，为 true 时表示裁剪掉 csv 文件每个字段最外层的双引号。
 
-26. skip_lines: <version since="1.2" type="inline"> 整数类型, 默认值为0, 含义为跳过csv文件的前几行. 当设置format设置为csv_with_names或、csv_with_names_and_types时, 该参数会失效. </version>
+26. skip_lines: <version since="dev" type="inline"> 整数类型, 默认值为0, 含义为跳过csv文件的前几行. 当设置format设置为 `csv_with_names` 或、`csv_with_names_and_types` 时, 该参数会失效. </version>
 
 ### Example
 
