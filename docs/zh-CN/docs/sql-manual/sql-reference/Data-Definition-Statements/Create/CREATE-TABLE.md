@@ -175,7 +175,7 @@ distribution_desc
     
     `ENGINE=olap`
     
-* `key_desc`
+* `keys_type`
 
     数据模型。
     
@@ -203,7 +203,7 @@ distribution_desc
     COMMENT "This is my first DORIS table"
     ```
 
-* `partition_desc`
+* `partition_info`
 
     分区信息，支持三种写法：
     
