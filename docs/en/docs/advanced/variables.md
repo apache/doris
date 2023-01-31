@@ -558,3 +558,6 @@ Translated with www.DeepL.com/Translator (free version)
 
     For compatible purpose. This variable has no effect, just enable some BI tools can query or set this session variable sucessfully.
 
+*   `group_by_and_having_use_alias_first`
+
+    Specifies whether group by and having clauses use column aliases rather than searching for column name in From clause. The default value is false.
