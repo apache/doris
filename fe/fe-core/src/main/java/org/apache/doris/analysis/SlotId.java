@@ -34,11 +34,6 @@ public class SlotId extends Id<SlotId> {
             public SlotId getNextId() {
                 return new SlotId(nextId++);
             }
-
-            @Override
-            public SlotId getMaxId() {
-                return new SlotId(nextId - 1);
-            }
         };
     }
 }

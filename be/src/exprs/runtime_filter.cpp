@@ -21,12 +21,9 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "exprs/binary_predicate.h"
 #include "exprs/bitmapfilter_predicate.h"
-#include "exprs/bloomfilter_predicate.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
-#include "exprs/literal.h"
 #include "exprs/minmax_predicate.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/define_primitive_type.h"
@@ -316,25 +313,6 @@ Status create_literal(ObjectPool* pool, const TypeDescriptor& type, const void* 
     return Status::OK();
 }
 
-BinaryPredicate* create_bin_predicate(ObjectPool* pool, PrimitiveType prim_type,
-                                      TExprOpcode::type opcode) {
-    TExprNode node;
-    TScalarType tscalar_type;
-    tscalar_type.__set_type(TPrimitiveType::BOOLEAN);
-    TTypeNode ttype_node;
-    ttype_node.__set_type(TTypeNodeType::SCALAR);
-    ttype_node.__set_scalar_type(tscalar_type);
-    TTypeDesc t_type_desc;
-    t_type_desc.types.push_back(ttype_node);
-    node.__set_type(t_type_desc);
-    node.__set_opcode(opcode);
-    node.__set_child_type(to_thrift(prim_type));
-    node.__set_num_children(2);
-    node.__set_output_scale(-1);
-    node.__set_node_type(TExprNodeType::BINARY_PRED);
-    return (BinaryPredicate*)pool->add(BinaryPredicate::from_thrift(node));
-}
-
 Status create_vbin_predicate(ObjectPool* pool, const TypeDescriptor& type, TExprOpcode::type opcode,
                              vectorized::VExpr** expr, TExprNode* tnode) {
     TExprNode node;
@@ -558,8 +536,8 @@ public:
         case TYPE_VARCHAR:
         case TYPE_HLL:
         case TYPE_STRING: {
-            // StringRef->StringValue
-            StringValue data = StringValue(const_cast<char*>(value.data), value.size);
+            // StringRef->StringRef
+            StringRef data = StringRef(value.data, value.size);
             insert(reinterpret_cast<const void*>(&data));
             break;
         }
@@ -861,7 +839,7 @@ public:
                                        ObjectPool* pool) {
                 auto& string_val_ref = column.stringval();
                 auto val_ptr = pool->add(new std::string(string_val_ref));
-                StringValue string_val(const_cast<char*>(val_ptr->c_str()), val_ptr->length());
+                StringRef string_val(val_ptr->c_str(), val_ptr->length());
                 set->insert(&string_val);
             });
             break;
@@ -994,8 +972,8 @@ public:
             auto& max_val_ref = minmax_filter->max_val().stringval();
             auto min_val_ptr = _pool->add(new std::string(min_val_ref));
             auto max_val_ptr = _pool->add(new std::string(max_val_ref));
-            StringValue min_val(const_cast<char*>(min_val_ptr->c_str()), min_val_ptr->length());
-            StringValue max_val(const_cast<char*>(max_val_ptr->c_str()), max_val_ptr->length());
+            StringRef min_val(min_val_ptr->c_str(), min_val_ptr->length());
+            StringRef max_val(max_val_ptr->c_str(), max_val_ptr->length());
             return _context.minmax_func->assign(&min_val, &max_val);
         }
         default:
@@ -1028,12 +1006,12 @@ public:
             case TYPE_VARCHAR:
             case TYPE_CHAR:
             case TYPE_STRING: {
-                StringValue* min_value = static_cast<StringValue*>(_context.minmax_func->get_min());
-                StringValue* max_value = static_cast<StringValue*>(_context.minmax_func->get_max());
-                auto min_val_ptr = _pool->add(new std::string(min_value->ptr));
-                auto max_val_ptr = _pool->add(new std::string(max_value->ptr));
-                StringValue min_val(const_cast<char*>(min_val_ptr->c_str()), min_val_ptr->length());
-                StringValue max_val(const_cast<char*>(max_val_ptr->c_str()), max_val_ptr->length());
+                StringRef* min_value = static_cast<StringRef*>(_context.minmax_func->get_min());
+                StringRef* max_value = static_cast<StringRef*>(_context.minmax_func->get_max());
+                auto min_val_ptr = _pool->add(new std::string(min_value->data));
+                auto max_val_ptr = _pool->add(new std::string(max_value->data));
+                StringRef min_val(min_val_ptr->c_str(), min_val_ptr->length());
+                StringRef max_val(max_val_ptr->c_str(), max_val_ptr->length());
                 _context.minmax_func->assign(&min_val, &max_val);
             }
             default:
@@ -1307,7 +1285,6 @@ Status IRuntimeFilter::init_with_desc(const TRuntimeFilterDesc* desc, const TQue
     _has_remote_target = desc->has_remote_targets;
     _expr_order = desc->expr_order;
     _filter_id = desc->filter_id;
-
     vectorized::VExprContext* build_ctx = nullptr;
     RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(_pool, desc->src_expr, &build_ctx));
 
@@ -1616,8 +1593,8 @@ void IRuntimeFilter::to_protobuf(PInFilter* filter) {
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING: {
-        batch_copy<StringValue>(filter, it, [](PColumnValue* column, const StringValue* value) {
-            column->set_stringval(std::string(value->ptr, value->len));
+        batch_copy<StringRef>(filter, it, [](PColumnValue* column, const StringRef* value) {
+            column->set_stringval(std::string(value->data, value->size));
         });
         return;
     }
@@ -1725,12 +1702,12 @@ void IRuntimeFilter::to_protobuf(PMinMaxFilter* filter) {
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_STRING: {
-        const StringValue* min_string_value = reinterpret_cast<const StringValue*>(min_data);
+        const StringRef* min_string_value = reinterpret_cast<const StringRef*>(min_data);
         filter->mutable_min_val()->set_stringval(
-                std::string(min_string_value->ptr, min_string_value->len));
-        const StringValue* max_string_value = reinterpret_cast<const StringValue*>(max_data);
+                std::string(min_string_value->data, min_string_value->size));
+        const StringRef* max_string_value = reinterpret_cast<const StringRef*>(max_data);
         filter->mutable_max_val()->set_stringval(
-                std::string(max_string_value->ptr, max_string_value->len));
+                std::string(max_string_value->data, max_string_value->size));
         break;
     }
     default: {

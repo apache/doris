@@ -80,6 +80,9 @@ public:
 
     std::vector<TabletSharedPtr> get_all_tablet();
 
+    uint64_t get_rowset_nums();
+    uint64_t get_segment_nums();
+
     // Extract tablet_id and schema_hash from given path.
     //
     // The normal path pattern is like "/data/{shard_id}/{tablet_id}/{schema_hash}/xxx.data".

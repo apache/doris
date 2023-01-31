@@ -20,7 +20,6 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include "exprs/bitmapfilter_predicate.h"
-#include "exprs/bloomfilter_predicate.h"
 #include "exprs/function_filter.h"
 #include "exprs/hybrid_set.h"
 #include "olap/delete_handler.h"
@@ -145,8 +144,7 @@ public:
     // Return OK and set `*eof` to true when no more rows can be read.
     // Return others when unexpected error happens.
     // TODO: Rethink here we still need mem_pool and agg_pool?
-    virtual Status next_block_with_aggregation(vectorized::Block* block, MemPool* mem_pool,
-                                               ObjectPool* agg_pool, bool* eof) {
+    virtual Status next_block_with_aggregation(vectorized::Block* block, bool* eof) {
         return Status::Error<ErrorCode::READER_INITIALIZE_ERROR>();
     }
 

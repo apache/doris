@@ -35,9 +35,6 @@
 #include <vector>
 
 #include "common/logging.h"
-#if defined(__i386) || defined(__x86_64__)
-#include "olap/bhp_lib.h"
-#endif
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
 
@@ -108,43 +105,13 @@ void _destruct_object(const void* obj, void*) {
     delete ((const T*)obj);
 }
 
-template <typename T>
-void _destruct_array(const void* array, void*) {
-    delete[] ((const T*)array);
-}
-
-// 根据压缩类型的不同，执行压缩。dest_buf_len是dest_buf的最大长度，
-// 通过指针返回的written_len是实际写入的长度。
-Status olap_compress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
-                     size_t* written_len, OLAPCompressionType compression_type);
-
-Status olap_decompress(const char* src_buf, size_t src_len, char* dest_buf, size_t dest_len,
-                       size_t* written_len, OLAPCompressionType compression_type);
-
 // 计算adler32的包装函数
 // 第一次使用的时候第一个参数传宏ADLER32_INIT, 之后的调用传上次计算的结果
 #define ADLER32_INIT adler32(0L, Z_NULL, 0)
 uint32_t olap_adler32(uint32_t adler, const char* buf, size_t len);
 
-// CRC32仅仅用在RowBlock的校验，性能优异
-#define CRC32_INIT 0xFFFFFFFF
-uint32_t olap_crc32(uint32_t crc32, const char* buf, size_t len);
-
 // 获取系统当前时间，并将时间转换为字符串
 Status gen_timestamp_string(std::string* out_string);
-
-enum ComparatorEnum {
-    COMPARATOR_LESS = 0,
-    COMPARATOR_LARGER = 1,
-};
-
-// 处理comparator functor处理过程中出现的错误
-class ComparatorException : public std::exception {
-public:
-    virtual const char* what() const throw() {
-        return "exception happens when doing binary search.";
-    }
-};
 
 // iterator offset，用于二分查找
 using iterator_offset_t = size_t;

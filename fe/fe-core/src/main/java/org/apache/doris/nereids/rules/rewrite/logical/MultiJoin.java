@@ -34,7 +34,6 @@ import com.google.common.collect.ImmutableList.Builder;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * A MultiJoin represents a join of N inputs (NAry-Join).
@@ -113,7 +112,7 @@ public class MultiJoin extends AbstractLogicalPlan {
             for (Plan child : children) {
                 builder.addAll(child.getOutput().stream()
                         .map(o -> o.withNullable(true))
-                        .collect(Collectors.toList()));
+                        .collect(ImmutableList.toImmutableList()));
             }
             return builder.build();
         }
@@ -124,7 +123,7 @@ public class MultiJoin extends AbstractLogicalPlan {
             if (joinType.isRightOuterJoin()) {
                 builder.addAll(children.get(0).getOutput().stream()
                         .map(o -> o.withNullable(true))
-                        .collect(Collectors.toList()));
+                        .collect(ImmutableList.toImmutableList()));
             }
             for (int i = 1; i < children.size(); i++) {
                 builder.addAll(children.get(i).getOutput());
@@ -142,7 +141,7 @@ public class MultiJoin extends AbstractLogicalPlan {
             if (joinType.isLeftOuterJoin()) {
                 builder.addAll(children.get(arity() - 1).getOutput().stream()
                         .map(o -> o.withNullable(true))
-                        .collect(Collectors.toList()));
+                        .collect(ImmutableList.toImmutableList()));
             }
 
             return builder.build();

@@ -29,6 +29,7 @@
 #include "service/backend_options.h"
 #include "util/ref_count_closure.h"
 #include "util/uid_util.h"
+#include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"
@@ -38,9 +39,7 @@ class ObjectPool;
 class RuntimeState;
 class RuntimeProfile;
 class BufferControlBlock;
-class ExprContext;
 class MemTracker;
-class PartRangeKey;
 
 namespace pipeline {
 class ExchangeSinkOperator;
@@ -48,7 +47,6 @@ class ExchangeSinkOperator;
 
 namespace vectorized {
 class VExprContext;
-class VPartitionInfo;
 class Channel;
 
 class VDataStreamSender : public DataSink {
@@ -139,10 +137,6 @@ protected:
     std::vector<Channel*> _channels;
     std::vector<std::shared_ptr<Channel>> _channel_shared_ptrs;
 
-    // map from range value to partition_id
-    // sorted in ascending orderi by range for binary search
-    std::vector<VPartitionInfo*> _partition_infos;
-
     RuntimeProfile* _profile; // Allocated from _pool
     RuntimeProfile::Counter* _serialize_batch_timer;
     RuntimeProfile::Counter* _compress_timer;
@@ -218,11 +212,6 @@ public:
     // Initialize channel.
     // Returns OK if successful, error indication otherwise.
     Status init(RuntimeState* state);
-
-    // Copies a single row into this channel's output buffer and flushes buffer
-    // if it reaches capacity.
-    // Returns error status if any of the preceding rpcs failed, OK otherwise.
-    //Status add_row(TupleRow* row);
 
     // Asynchronously sends a row batch.
     // Returns the status of the most recently finished transmit_data

@@ -27,7 +27,6 @@
 #include "olap/tablet_meta.h"
 #include "olap/utils.h"
 #include "rowset/rowset_id_generator.h"
-#include "util/semaphore.hpp"
 
 namespace doris {
 

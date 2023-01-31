@@ -2583,4 +2583,12 @@ SmallFileMgr 中存储的最大文件数
 
 用于存放默认的 jdbc drivers
 
+#### `max_error_tablet_of_broker_load`
 
+默认值：3;
+
+是否可以动态配置: true
+
+是否为 Master FE 节点独有的配置项：true
+
+broker load job 保存的失败tablet 信息的最大数量

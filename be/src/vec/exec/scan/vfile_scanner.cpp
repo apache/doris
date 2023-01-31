@@ -24,9 +24,8 @@
 
 #include "common/logging.h"
 #include "common/utils.h"
-#include "exec/arrow/orc_reader.h"
 #include "exec/text_converter.hpp"
-#include "exprs/expr_context.h"
+#include "io/cache/block/block_file_cache_profile.h"
 #include "olap/iterators.h"
 #include "runtime/descriptors.h"
 #include "runtime/raw_value.h"
@@ -51,7 +50,6 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
           _next_range(0),
           _cur_reader(nullptr),
           _cur_reader_eof(false),
-          _mem_pool(std::make_unique<MemPool>()),
           _kv_cache(kv_cache),
           _strict_mode(false) {
     if (scan_range.params.__isset.strict_mode) {
@@ -752,6 +750,11 @@ Status VFileScanner::close(RuntimeState* state) {
 
     if (_push_down_expr) {
         _push_down_expr->close(state);
+    }
+
+    if (config::enable_file_cache) {
+        io::FileCacheProfileReporter cache_profile(_profile);
+        cache_profile.update(_file_cache_statistics.get());
     }
 
     RETURN_IF_ERROR(VScanner::close(state));

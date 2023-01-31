@@ -439,6 +439,11 @@ Status SegmentWriter::finalize_footer(uint64_t* segment_file_size) {
     return Status::OK();
 }
 
+Status SegmentWriter::finalize_footer() {
+    RETURN_IF_ERROR(_write_footer());
+    return Status::OK();
+}
+
 Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size) {
     // check disk capacity
     if (_data_dir != nullptr && _data_dir->reach_capacity_limit((int64_t)estimate_segment_size())) {
@@ -449,7 +454,7 @@ Status SegmentWriter::finalize(uint64_t* segment_file_size, uint64_t* index_size
     // write index
     RETURN_IF_ERROR(finalize_columns_index(index_size));
     // write footer
-    RETURN_IF_ERROR(finalize_footer(segment_file_size));
+    RETURN_IF_ERROR(finalize_footer());
     // finish
     RETURN_IF_ERROR(_file_writer->finalize());
     *segment_file_size = _file_writer->bytes_appended();

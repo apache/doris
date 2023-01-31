@@ -332,3 +332,12 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
     ```
 
     可在创建 Catalog 的 `jdbc_url` 把JDBC连接串最后增加 `?useSSL=false` ,如 `"jdbc_url" = "jdbc:mysql://127.0.0.1:3306/test?useSSL=false"`
+
+6. 查询MYSQL的数据库报OutOfMemoryError的错误
+
+    为减少内存的使用，在获取结果集时，每次仅获取batchSize的大小，这样一批一批的获取结果。而MYSQL默认是一次将结果全部加载到内存，
+    设置的按批获取无法生效，需要主动显示的在URL中指定:"jdbc_url"="jdbc:mysql://IP:PORT/doris_test?useCursorFetch=true"
+
+ 7. 在使用JDBC查询过程中时，如果出现"CAUSED BY: SQLException OutOfMemoryError" 类似的错误
+
+    如果MYSQL已经主动设置useCursorFetch，可以在be.conf中修改jvm_max_heap_size的值，尝试增大JVM的内存，目前默认值为1024M。

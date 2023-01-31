@@ -528,8 +528,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_SET_LOAD_ERROR_HUB: {
-                    final LoadErrorHub.Param param = (LoadErrorHub.Param) journal.getData();
-                    env.getLoadInstance().setLoadErrorHubInfo(param);
+                    // final LoadErrorHub.Param param = (LoadErrorHub.Param) journal.getData();
+                    // ignore load error hub
                     break;
                 }
                 case OperationType.OP_UPDATE_CLUSTER_AND_BACKENDS: {
@@ -721,8 +721,10 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_PUSH_COOLDOWN_CONF:
-                    CooldownJob cooldownJob = (CooldownJob) journal.getData();
-                    env.getCooldownHandler().replayCooldownJob(cooldownJob);
+                    if (Config.cooldown_single_remote_file) {
+                        CooldownJob cooldownJob = (CooldownJob) journal.getData();
+                        env.getCooldownHandler().replayCooldownJob(cooldownJob);
+                    }
                     break;
                 case OperationType.OP_BATCH_ADD_ROLLUP: {
                     BatchAlterJobPersistInfo batchAlterJobV2 = (BatchAlterJobPersistInfo) journal.getData();

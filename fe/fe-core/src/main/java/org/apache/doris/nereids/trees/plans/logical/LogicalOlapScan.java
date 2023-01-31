@@ -42,7 +42,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -81,7 +80,7 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
     /**
      * Selected tablet ids to read data from.
      */
-    private final ImmutableList<Long> selectedTabletIds;
+    private final List<Long> selectedTabletIds;
 
     /**
      * Status to indicate tablets are pruned or not.
@@ -98,7 +97,7 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
     private final boolean partitionPruned;
     private final List<Long> manuallySpecifiedPartitions;
 
-    private final ImmutableList<Long> selectedPartitionIds;
+    private final List<Long> selectedPartitionIds;
 
     public LogicalOlapScan(RelationId id, OlapTable table) {
         this(id, table, ImmutableList.of());
@@ -108,7 +107,7 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
         this(id, table, qualifier, Optional.empty(), Optional.empty(),
                 table.getPartitionIds(), false,
                 ImmutableList.of(), false,
-                -1, false, PreAggStatus.on(), Collections.emptyList());
+                -1, false, PreAggStatus.on(), ImmutableList.of());
     }
 
     public LogicalOlapScan(RelationId id, OlapTable table, List<String> qualifier, List<Long> specifiedPartitions) {

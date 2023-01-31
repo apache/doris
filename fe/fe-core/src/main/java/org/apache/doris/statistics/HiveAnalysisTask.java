@@ -28,6 +28,7 @@ import org.apache.commons.text.StringSubstitutor;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsData;
 import org.apache.hadoop.hive.metastore.api.ColumnStatisticsObj;
 import org.apache.hadoop.hive.metastore.api.DateColumnStatsData;
+import org.apache.hadoop.hive.metastore.api.Decimal;
 import org.apache.hadoop.hive.metastore.api.DecimalColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.DoubleColumnStatsData;
 import org.apache.hadoop.hive.metastore.api.LongColumnStatsData;
@@ -36,7 +37,10 @@ import org.apache.hadoop.hive.metastore.api.StringColumnStatsData;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.text.SimpleDateFormat;
+import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.HashMap;
@@ -62,7 +66,7 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
 
     private static final String ANALYZE_TABLE_SQL_TEMPLATE = "INSERT INTO "
             + "${internalDB}.${columnStatTbl}"
-            + " values ('${id}','${catalogId}', '${dbId}', '${tblId}', NULL, '${colId}', NULL, "
+            + " values ('${id}','${catalogId}', '${dbId}', '${tblId}', '-1', '${colId}', NULL, "
             + "${numRows}, ${ndv}, ${nulls}, '${min}', '${max}', ${dataSize}, '${update_time}')";
 
     @Override
@@ -139,8 +143,8 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
     private void getStatData(ColumnStatisticsData data, Map<String, String> params) {
         long ndv = 0;
         long nulls = 0;
-        String min;
-        String max;
+        String min = "";
+        String max = "";
         // Collect ndv, nulls, min and max for different data type.
         if (data.isSetLongStats()) {
             LongColumnStatsData longStats = data.getLongStats();
@@ -152,15 +156,25 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
             StringColumnStatsData stringStats = data.getStringStats();
             ndv = stringStats.getNumDVs();
             nulls = stringStats.getNumNulls();
-            min = "No value";
-            max = String.valueOf(stringStats.getMaxColLen());
         } else if (data.isSetDecimalStats()) {
-            // TODO: Need a more accurate way to collect decimal values.
             DecimalColumnStatsData decimalStats = data.getDecimalStats();
             ndv = decimalStats.getNumDVs();
             nulls = decimalStats.getNumNulls();
-            min = decimalStats.getLowValue().toString();
-            max = decimalStats.getHighValue().toString();
+            if (decimalStats.isSetLowValue()) {
+                Decimal lowValue = decimalStats.getLowValue();
+                if (lowValue != null) {
+                    BigDecimal lowDecimal = new BigDecimal(new BigInteger(lowValue.getUnscaled()), lowValue.getScale());
+                    min = lowDecimal.toString();
+                }
+            }
+            if (decimalStats.isSetHighValue()) {
+                Decimal highValue = decimalStats.getHighValue();
+                if (highValue != null) {
+                    BigDecimal highDecimal = new BigDecimal(
+                            new BigInteger(highValue.getUnscaled()), highValue.getScale());
+                    max = highDecimal.toString();
+                }
+            }
         } else if (data.isSetDoubleStats()) {
             DoubleColumnStatsData doubleStats = data.getDoubleStats();
             ndv = doubleStats.getNumDVs();
@@ -168,12 +182,23 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
             min = String.valueOf(doubleStats.getLowValue());
             max = String.valueOf(doubleStats.getHighValue());
         } else if (data.isSetDateStats()) {
-            // TODO: Need a more accurate way to collect date values.
             DateColumnStatsData dateStats = data.getDateStats();
             ndv = dateStats.getNumDVs();
             nulls = dateStats.getNumNulls();
-            min = dateStats.getLowValue().toString();
-            max = dateStats.getHighValue().toString();
+            if (dateStats.isSetLowValue()) {
+                org.apache.hadoop.hive.metastore.api.Date lowValue = dateStats.getLowValue();
+                if (lowValue != null) {
+                    LocalDate lowDate = LocalDate.ofEpochDay(lowValue.getDaysSinceEpoch());
+                    min = lowDate.toString();
+                }
+            }
+            if (dateStats.isSetHighValue()) {
+                org.apache.hadoop.hive.metastore.api.Date highValue = dateStats.getHighValue();
+                if (highValue != null) {
+                    LocalDate highDate = LocalDate.ofEpochDay(highValue.getDaysSinceEpoch());
+                    max = highDate.toString();
+                }
+            }
         } else {
             throw new RuntimeException("Not supported data type.");
         }

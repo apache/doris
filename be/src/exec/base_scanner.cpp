@@ -21,11 +21,9 @@
 
 #include "common/utils.h"
 #include "exec/exec_node.h"
-#include "exprs/expr_context.h"
 #include "runtime/descriptors.h"
 #include "runtime/raw_value.h"
 #include "runtime/runtime_state.h"
-#include "runtime/tuple.h"
 #include "vec/data_types/data_type_factory.hpp"
 
 namespace doris {
@@ -41,9 +39,6 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
           _broker_addresses(broker_addresses),
           _next_range(0),
           _counter(counter),
-          _src_tuple(nullptr),
-          _src_tuple_row(nullptr),
-          _mem_pool(std::make_unique<MemPool>()),
           _dest_tuple_desc(nullptr),
           _pre_filter_texprs(pre_filter_texprs),
           _strict_mode(false),
@@ -85,12 +80,6 @@ Status BaseScanner::open() {
     return Status::OK();
 }
 
-void BaseScanner::reg_conjunct_ctxs(const TupleId& tupleId,
-                                    const std::vector<ExprContext*>& conjunct_ctxs) {
-    _conjunct_ctxs = conjunct_ctxs;
-    _tupleId = tupleId;
-}
-
 Status BaseScanner::init_expr_ctxes() {
     // Construct _src_slot_descs
     const TupleDescriptor* src_tuple_desc =
@@ -114,10 +103,6 @@ Status BaseScanner::init_expr_ctxes() {
         }
         _src_slot_descs.emplace_back(it->second);
     }
-    // Construct source tuple and tuple row
-    _src_tuple = (Tuple*)_mem_pool->allocate(src_tuple_desc->byte_size());
-    _src_tuple_row = (TupleRow*)_mem_pool->allocate(sizeof(Tuple*));
-    _src_tuple_row->set_tuple(0, _src_tuple);
     _row_desc.reset(new RowDescriptor(_state->desc_tbl(),
                                       std::vector<TupleId>({_params.src_tuple_id}),
                                       std::vector<bool>({false})));
@@ -171,109 +156,6 @@ Status BaseScanner::init_expr_ctxes() {
             }
         }
     }
-    return Status::OK();
-}
-
-Status BaseScanner::fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool, bool* fill_tuple) {
-    RETURN_IF_ERROR(_fill_dest_tuple(dest_tuple, mem_pool));
-    if (_success) {
-        free_expr_local_allocations();
-        *fill_tuple = true;
-    } else {
-        *fill_tuple = false;
-    }
-    return Status::OK();
-}
-
-Status BaseScanner::_fill_dest_tuple(Tuple* dest_tuple, MemPool* mem_pool) {
-    // filter src tuple by preceding filter first
-    if (!ExecNode::eval_conjuncts(&_pre_filter_ctxs[0], _pre_filter_ctxs.size(), _src_tuple_row)) {
-        _counter->num_rows_unselected++;
-        _success = false;
-        return Status::OK();
-    }
-
-    // convert and fill dest tuple
-    int ctx_idx = 0;
-    for (auto slot_desc : _dest_tuple_desc->slots()) {
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
-
-        int dest_index = ctx_idx++;
-        ExprContext* ctx = _dest_expr_ctx[dest_index];
-        void* value = ctx->get_value(_src_tuple_row);
-        if (value == nullptr) {
-            // Only when the expr return value is null, we will check the error message.
-            std::string expr_error = ctx->get_error_msg();
-            if (!expr_error.empty()) {
-                RETURN_IF_ERROR(_state->append_error_msg_to_file(
-                        [&]() -> std::string {
-                            return _src_tuple_row->to_string(*(_row_desc.get()));
-                        },
-                        [&]() -> std::string { return expr_error; }, &_scanner_eof));
-                _counter->num_rows_filtered++;
-                // The ctx is reused, so must clear the error state and message.
-                ctx->clear_error_msg();
-                _success = false;
-                return Status::OK();
-            }
-            // If _strict_mode is false, _src_slot_descs_order_by_dest size could be zero
-            if (_strict_mode && (_src_slot_descs_order_by_dest[dest_index] != nullptr) &&
-                !_src_tuple->is_null(
-                        _src_slot_descs_order_by_dest[dest_index]->null_indicator_offset())) {
-                RETURN_IF_ERROR(_state->append_error_msg_to_file(
-                        [&]() -> std::string {
-                            return _src_tuple_row->to_string(*(_row_desc.get()));
-                        },
-                        [&]() -> std::string {
-                            // Type of the slot is must be Varchar in _src_tuple.
-                            StringValue* raw_value = _src_tuple->get_string_slot(
-                                    _src_slot_descs_order_by_dest[dest_index]->tuple_offset());
-                            std::string raw_string;
-                            if (raw_value != nullptr) { //is not null then get raw value
-                                raw_string = raw_value->to_string();
-                            }
-                            fmt::memory_buffer error_msg;
-                            fmt::format_to(error_msg,
-                                           "column({}) value is incorrect while strict mode is {}, "
-                                           "src value is {}",
-                                           slot_desc->col_name(), _strict_mode, raw_string);
-                            return fmt::to_string(error_msg);
-                        },
-                        &_scanner_eof));
-                _counter->num_rows_filtered++;
-                _success = false;
-                return Status::OK();
-            }
-            if (!slot_desc->is_nullable()) {
-                RETURN_IF_ERROR(_state->append_error_msg_to_file(
-                        [&]() -> std::string {
-                            return _src_tuple_row->to_string(*(_row_desc.get()));
-                        },
-                        [&]() -> std::string {
-                            fmt::memory_buffer error_msg;
-                            fmt::format_to(
-                                    error_msg,
-                                    "column({}) values is null while columns is not nullable",
-                                    slot_desc->col_name());
-                            return fmt::to_string(error_msg);
-                        },
-                        &_scanner_eof));
-                _counter->num_rows_filtered++;
-                _success = false;
-                return Status::OK();
-            }
-            dest_tuple->set_null(slot_desc->null_indicator_offset());
-            continue;
-        }
-        if (slot_desc->is_nullable()) {
-            dest_tuple->set_not_null(slot_desc->null_indicator_offset());
-        }
-        void* slot = dest_tuple->get_slot(slot_desc->tuple_offset());
-        RawValue::write(value, slot, slot_desc->type(), mem_pool);
-    }
-    _success = true;
     return Status::OK();
 }
 
@@ -417,31 +299,7 @@ Status BaseScanner::_fill_dest_block(vectorized::Block* dest_block, bool* eof) {
     return Status::OK();
 }
 
-void BaseScanner::fill_slots_of_columns_from_path(
-        int start, const std::vector<std::string>& columns_from_path) {
-    // values of columns from path can not be null
-    for (int i = 0; i < columns_from_path.size(); ++i) {
-        auto slot_desc = _src_slot_descs.at(i + start);
-        _src_tuple->set_not_null(slot_desc->null_indicator_offset());
-        void* slot = _src_tuple->get_slot(slot_desc->tuple_offset());
-        auto* str_slot = reinterpret_cast<StringValue*>(slot);
-        const std::string& column_from_path = columns_from_path[i];
-        str_slot->ptr = const_cast<char*>(column_from_path.c_str());
-        str_slot->len = column_from_path.size();
-    }
-}
-
-void BaseScanner::free_expr_local_allocations() {
-    if (++_line_counter % RELEASE_CONTEXT_COUNTER == 0) {
-        ExprContext::free_local_allocations(_dest_expr_ctx);
-    }
-}
-
 void BaseScanner::close() {
-    if (!_pre_filter_ctxs.empty()) {
-        Expr::close(_pre_filter_ctxs, _state);
-    }
-
     if (_vpre_filter_ctx_ptr) {
         (*_vpre_filter_ctx_ptr)->close(_state);
     }

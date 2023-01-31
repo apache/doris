@@ -627,12 +627,9 @@ bool SegmentIterator::_is_handle_predicate_by_fulltext(ColumnPredicate* predicat
     auto column_id = predicate->column_id();
     int32_t unique_id = _schema.unique_id(column_id);
     bool handle_by_fulltext =
-            (_inverted_index_iterators[unique_id] != nullptr) &&
-            (is_string_type(_schema.column(column_id)->type())) &&
-            ((_inverted_index_iterators[unique_id]->get_inverted_index_analyser_type() ==
-              InvertedIndexParserType::PARSER_ENGLISH) ||
-             (_inverted_index_iterators[unique_id]->get_inverted_index_analyser_type() ==
-              InvertedIndexParserType::PARSER_STANDARD));
+            _inverted_index_iterators[unique_id] != nullptr &&
+            _inverted_index_iterators[unique_id]->get_inverted_index_reader_type() ==
+                    InvertedIndexReaderType::FULLTEXT;
 
     return handle_by_fulltext;
 }
@@ -647,9 +644,13 @@ Status SegmentIterator::_apply_inverted_index() {
         int32_t unique_id = _schema.unique_id(pred->column_id());
         if (_inverted_index_iterators.count(unique_id) < 1 ||
             _inverted_index_iterators[unique_id] == nullptr ||
-            (pred->type() != PredicateType::MATCH && handle_by_fulltext)) {
+            (pred->type() != PredicateType::MATCH && handle_by_fulltext) ||
+            pred->type() == PredicateType::IS_NULL || pred->type() == PredicateType::IS_NOT_NULL ||
+            pred->type() == PredicateType::BF) {
             // 1. this column no inverted index
             // 2. equal or range for fulltext index
+            // 3. is_null or is_not_null predicate
+            // 4. bloom filter predicate
             remaining_predicates.push_back(pred);
         } else {
             roaring::Roaring bitmap = _row_bitmap;

@@ -78,7 +78,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapXorCoun
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cbrt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceil;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceiling;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CharacterLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
@@ -91,16 +90,13 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountEqual;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Curtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateV2;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Day;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayName;
@@ -186,8 +182,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.LocalTime;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.LocalTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Locate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log10;
@@ -400,8 +394,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(BitmapXorCount.class, "bitmap_xor_count"),
             scalar(Cardinality.class, "cardinality"),
             scalar(Cbrt.class, "cbrt"),
-            scalar(Ceil.class, "ceil"),
-            scalar(Ceiling.class, "ceiling"),
+            scalar(Ceil.class, "ceil", "ceiling"),
             scalar(CharacterLength.class, "char_length", "character_length"),
             scalar(Coalesce.class, "coalesce"),
             scalar(Concat.class, "concat"),
@@ -413,26 +406,23 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Cos.class, "cos"),
             scalar(CountEqual.class, "countequal"),
             scalar(CurrentDate.class, "curdate", "current_date"),
-            scalar(CurrentTime.class, "current_time"),
-            scalar(CurrentTimestamp.class, "current_timestamp"),
+            scalar(CurrentTime.class, "curtime", "current_time"),
             scalar(CurrentUser.class, "current_user"),
-            scalar(Curtime.class, "curtime"),
             scalar(Database.class, "database"),
             scalar(Date.class, "date"),
             scalar(DateDiff.class, "datediff"),
             scalar(DateFormat.class, "date_format"),
             scalar(DateTrunc.class, "date_trunc"),
             scalar(DateV2.class, "datev2"),
-            scalar(Day.class, "day"),
             scalar(DayCeil.class, "day_ceil"),
             scalar(DayFloor.class, "day_floor"),
             scalar(DayName.class, "dayname"),
-            scalar(DayOfMonth.class, "dayofmonth"),
+            scalar(DayOfMonth.class, "day", "dayofmonth"),
             scalar(DayOfWeek.class, "dayofweek"),
             scalar(DayOfYear.class, "dayofyear"),
-            scalar(DaysAdd.class, "days_add"),
+            scalar(DaysAdd.class, "days_add", "date_add", "adddate"),
             scalar(DaysDiff.class, "days_diff"),
-            scalar(DaysSub.class, "days_sub"),
+            scalar(DaysSub.class, "days_sub", "date_sub", "subdate"),
             scalar(Dceil.class, "dceil"),
             scalar(Degrees.class, "degrees"),
             scalar(Dexp.class, "dexp"),
@@ -509,8 +499,6 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Left.class, "left"),
             scalar(Length.class, "length"),
             scalar(Ln.class, "ln"),
-            scalar(LocalTime.class, "localtime"),
-            scalar(LocalTimestamp.class, "localtimestamp"),
             scalar(Locate.class, "locate"),
             scalar(Log.class, "log"),
             scalar(Log10.class, "log10"),
@@ -544,7 +532,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(MurmurHash364.class, "murmur_hash3_64"),
             scalar(Negative.class, "negative"),
             scalar(NotNullOrEmpty.class, "not_null_or_empty"),
-            scalar(Now.class, "now"),
+            scalar(Now.class, "now", "current_timestamp", "localtime", "localtimestamp"),
             scalar(NullIf.class, "nullif"),
             scalar(NullOrEmpty.class, "null_or_empty"),
             scalar(Nvl.class, "ifnull", "nvl"),

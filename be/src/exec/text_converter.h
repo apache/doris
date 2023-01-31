@@ -20,11 +20,9 @@
 #include "vec/columns/column.h"
 namespace doris {
 
-class MemPool;
 class SlotDescriptor;
 class Status;
-struct StringValue;
-class Tuple;
+struct StringRef;
 class TupleDescriptor;
 
 // Helper class for dealing with text data, e.g., converting text data to
@@ -32,19 +30,6 @@ class TupleDescriptor;
 class TextConverter {
 public:
     TextConverter(char escape_char);
-
-    // Converts slot data, of length 'len',  into type of slot_desc,
-    // and writes the result into the tuples's slot.
-    // copy_string indicates whether we need to make a separate copy of the string data:
-    // For regular unescaped strings, we point to the original data in the _file_buf.
-    // For regular escaped strings, we copy an its unescaped string into a separate buffer
-    // and point to it.
-    // If the string needs to be copied, the memory is allocated from 'pool', otherwise
-    // 'pool' is unused.
-    // Unsuccessful conversions are turned into NULLs.
-    // Returns true if the value was written successfully.
-    bool write_slot(const SlotDescriptor* slot_desc, Tuple* tuple, const char* data, int len,
-                    bool copy_string, bool need_escape, MemPool* pool);
 
     void write_string_column(const SlotDescriptor* slot_desc,
                              vectorized::MutableColumnPtr* column_ptr, const char* data,
@@ -60,15 +45,7 @@ public:
     bool write_vec_column(const SlotDescriptor* slot_desc, vectorized::IColumn* nullable_col_ptr,
                           const char* data, size_t len, bool copy_string, bool need_escape,
                           size_t rows);
-
-    // Removes escape characters from len characters of the null-terminated string src,
-    // and copies the unescaped string into dest, changing *len to the unescaped length.
-    // No null-terminator is added to dest.
-    void unescape_string(const char* src, char* dest, size_t* len);
     void unescape_string_on_spot(const char* src, size_t* len);
-    // Removes escape characters from 'str', allocating a new string from pool.
-    // 'str' is updated with the new ptr and length.
-    void unescape_string(StringValue* str, MemPool* pool);
 
 private:
     char _escape_char;

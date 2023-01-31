@@ -22,8 +22,6 @@
 #include "common/status.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_state.h"
-#include "runtime/string_value.h"
-#include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
 #include "vec/exec/data_gen_functions/vnumbers_tvf.h"
 

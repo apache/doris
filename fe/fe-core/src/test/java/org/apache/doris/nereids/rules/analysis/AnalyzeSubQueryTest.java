@@ -131,7 +131,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
                 .applyTopDown(new LogicalSubQueryAliasToLogicalProject())
                 .matchesFromRoot(
                     logicalProject(
-                        crossLogicalJoin(
+                        innerLogicalJoin(
                             logicalProject(
                                 logicalOlapScan()
                             ),
@@ -167,7 +167,7 @@ public class AnalyzeSubQueryTest extends TestWithFeService implements PatternMat
                 .applyTopDown(new LogicalSubQueryAliasToLogicalProject())
                 .matchesFromRoot(
                     logicalProject(
-                        crossLogicalJoin(
+                        innerLogicalJoin(
                             logicalOlapScan(),
                             logicalProject(
                                 logicalOlapScan()

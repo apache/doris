@@ -21,6 +21,7 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "exec/tablet_info.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "io/fs/file_system_map.h"
 #include "io/fs/s3_file_system.h"
@@ -29,7 +30,6 @@
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "runtime/descriptor_helper.h"
-#include "runtime/tuple.h"
 #include "util/file_utils.h"
 #include "util/s3_util.h"
 
@@ -150,12 +150,13 @@ TEST_F(RemoteRowsetGcTest, normal) {
     DescriptorTbl* desc_tbl = nullptr;
     DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
+    OlapTableSchemaParam param;
 
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10005, 270068377, WriteType::LOAD, 20003,
-                              30003, load_id,   tuple_desc,      &(tuple_desc->slots())};
+    WriteRequest write_req = {10005,   270068377,  WriteType::LOAD,        20003, 30003,
+                              load_id, tuple_desc, &(tuple_desc->slots()), false, &param};
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);

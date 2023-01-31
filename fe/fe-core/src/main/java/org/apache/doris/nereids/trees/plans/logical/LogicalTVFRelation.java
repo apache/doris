@@ -33,6 +33,7 @@ import java.util.Optional;
 
 /** LogicalTableValuedFunctionRelation */
 public class LogicalTVFRelation extends LogicalRelation implements TVFRelation {
+
     private final TableValuedFunction function;
 
     public LogicalTVFRelation(RelationId id, TableValuedFunction function) {

@@ -52,24 +52,10 @@ set(EXPRS_TEST_FILES
     # exprs/hybrid_set_test.cpp
     # exprs/in-predicate-test.cpp
     exprs/json_function_test.cpp
-    exprs/string_functions_test.cpp
-    exprs/timestamp_functions_test.cpp
-    exprs/percentile_approx_test.cpp
-    exprs/percentile_test.cpp
-    exprs/bitmap_function_test.cpp
-    exprs/hll_function_test.cpp
-    exprs/encryption_functions_test.cpp
-    exprs/math_functions_test.cpp
-    exprs/topn_function_test.cpp
     exprs/bloom_filter_predicate_test.cpp
-    exprs/array_functions_test.cpp
-    exprs/quantile_function_test.cpp
-    exprs/window_funnel_test.cpp
-    exprs/hash_function_test.cpp
 )
 set(GEO_TEST_FILES
     geo/wkt_parse_test.cpp
-    geo/geo_functions_test.cpp
     geo/geo_types_test.cpp
 )
 set(GUTIL_TEST_FILES
@@ -93,7 +79,6 @@ set(OLAP_TEST_FILES
     olap/tablet_schema_helper.cpp
     olap/delta_writer_test.cpp
     olap/delete_handler_test.cpp
-    olap/byte_buffer_test.cpp
     olap/lru_cache_test.cpp
     olap/bloom_filter_test.cpp
     olap/itoken_extractor_test.cpp
@@ -105,7 +90,6 @@ set(OLAP_TEST_FILES
     olap/olap_meta_test.cpp
     olap/decimal12_test.cpp
     olap/storage_types_test.cpp
-    olap/aggregate_func_test.cpp
     #olap/rowset/segment_v2/bitshuffle_page_test.cpp
     #olap/rowset/segment_v2/plain_page_test.cpp
     olap/rowset/segment_v2/bitmap_index_test.cpp
@@ -153,14 +137,10 @@ set(RUNTIME_TEST_FILES
     # runtime/result_buffer_mgr_test.cpp
     # runtime/parallel_executor_test.cpp
     # runtime/datetime_value_test.cpp
-    # runtime/dpp_sink_internal_test.cpp
     # runtime/dpp_sink_test.cpp
-    # runtime/data_spliter_test.cpp
     # runtime/tmp_file_mgr_test.cpp
-    # runtime/thread_resource_mgr_test.cpp
     # runtime/export_task_mgr_test.cpp
     runtime/mem_pool_test.cpp
-    runtime/string_buffer_test.cpp
     runtime/decimalv2_value_test.cpp
     runtime/large_int_value_test.cpp
     runtime/string_value_test.cpp
@@ -179,13 +159,11 @@ set(RUNTIME_TEST_FILES
     runtime/memory/chunk_allocator_test.cpp
     runtime/memory/system_allocator_test.cpp
     runtime/cache/partition_cache_test.cpp
-    runtime/collection_value_test.cpp
     runtime/free_pool_test.cpp
     #runtime/array_test.cpp
 )
 set(TESTUTIL_TEST_FILES
     testutil/test_util.cpp
-    testutil/array_utils.cpp
     testutil/desc_tbl_builder.cc
     testutil/function_utils.cpp
     testutil/run_all_tests.cpp
@@ -221,11 +199,9 @@ set(UTIL_TEST_FILES
     util/rle_encoding_test.cpp
     util/tdigest_test.cpp
     util/block_compression_test.cpp
-    util/counter_cond_variable_test.cpp
     util/frame_of_reference_coding_test.cpp
     util/bit_stream_utils_test.cpp
     util/radix_sort_test.cpp
-    util/zip_util_test.cpp
     util/utf8_check_test.cpp
     util/cgroup_util_test.cpp
     util/path_util_test.cpp
@@ -246,7 +222,6 @@ set(UTIL_TEST_FILES
     util/sort_heap_test.cpp
     util/counts_test.cpp
     util/date_func_test.cpp
-    util/array_parser_test.cpp
     util/quantile_state_test.cpp
     util/hdfs_storage_backend_test.cpp
     util/interval_tree_test.cpp
@@ -273,12 +248,7 @@ set(VEC_TEST_FILES
     vec/core/column_nullable_test.cpp
     vec/core/column_vector_test.cpp
     vec/exec/vgeneric_iterators_test.cpp
-    vec/exec/vbroker_scan_node_test.cpp
-    vec/exec/vbroker_scanner_test.cpp
-    vec/exec/vjson_scanner_test.cpp
     vec/exec/vtablet_sink_test.cpp
-    vec/exec/vorc_scanner_test.cpp
-    vec/exec/vparquet_scanner_test.cpp
     vec/exprs/vexpr_test.cpp
     vec/function/function_array_aggregation_test.cpp
     vec/function/function_array_element_test.cpp
