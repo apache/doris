@@ -136,7 +136,7 @@ public class AutoBucketUtilsTest {
 
     @After
     public void tearDown() {
-        // Env.getCurrentEnv().clear();
+        Env.getCurrentEnv().clear();
         UtFrameUtils.cleanDorisFeDir(runningDirBase);
     }
 
