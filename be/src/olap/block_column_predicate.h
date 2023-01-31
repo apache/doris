@@ -51,8 +51,8 @@ public:
     virtual void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel,
                              uint16_t selected_size, bool* flags) const {}
 
-    virtual void evaluate_vec(vectorized::MutableColumns& block, uint16_t size,
-                              bool* flags) const {}
+    virtual void evaluate_vec(vectorized::MutableColumns& block, uint16_t size, bool* flags) const {
+    }
 
     virtual bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const {
         LOG(FATAL) << "should not reach here";
