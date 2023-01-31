@@ -31,9 +31,9 @@ public class IcebergExternalCatalogFactory {
             throw new DdlException("Missing " + IcebergExternalCatalog.ICEBERG_CATALOG_TYPE + " property");
         }
         switch (catalogType) {
-            case "rest":
+            case IcebergExternalCatalog.ICEBERG_REST:
                 return new IcebergRestExternalCatalog(catalogId, name, resource, catalogType, props);
-            case "hms":
+            case IcebergExternalCatalog.ICEBERG_HMS:
                 return new IcebergHMSExternalCatalog(catalogId, name, resource, catalogType, props);
             default:
                 throw new DdlException("Unknown " + IcebergExternalCatalog.ICEBERG_CATALOG_TYPE

@@ -24,6 +24,9 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.IcebergExternalDatabase;
+import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.FeNameFormat;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
@@ -34,8 +37,11 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
+import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.types.Types;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -44,10 +50,13 @@ import java.util.stream.Collectors;
 
 public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
+    private static final Logger LOG = LogManager.getLogger(IcebergExternalCatalog.class);
     public static final String ICEBERG_CATALOG_TYPE = "iceberg.catalog.type";
+    public static final String ICEBERG_REST = "rest";
+    public static final String ICEBERG_HMS = "hms";
     protected final String icebergCatalogType;
-
     protected Catalog catalog;
+    protected SupportsNamespaces nsCatalog;
 
     public IcebergExternalCatalog(long catalogId, String name, String type) {
         super(catalogId, name);
@@ -56,6 +65,7 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
 
     @Override
     protected void init() {
+        nsCatalog = (SupportsNamespaces) catalog;
         Map<String, Long> tmpDbNameToId = Maps.newConcurrentMap();
         Map<Long, ExternalDatabase> tmpIdToDb = Maps.newConcurrentMap();
         InitCatalogLog initCatalogLog = new InitCatalogLog();
@@ -128,15 +138,15 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
             case FIXED:
                 Types.FixedType fixed = (Types.FixedType) primitive;
                 return ScalarType.createCharType(fixed.length());
-            case DATE:
-                return ScalarType.createDateV2Type();
-            case TIME:
-                return Type.TIMEV2; //
-            case TIMESTAMP:
-                return ScalarType.createDatetimeV2Type(0); //
             case DECIMAL:
                 Types.DecimalType decimal = (Types.DecimalType) primitive;
                 return ScalarType.createDecimalType(decimal.precision(), decimal.scale());
+            case DATE:
+                return ScalarType.createDateV2Type();
+            case TIMESTAMP:
+                return ScalarType.createDatetimeV2Type(0);
+            case TIME:
+                return Type.UNSUPPORTED;
             default:
                 throw new IllegalArgumentException("Cannot transform unknown type: " + primitive);
         }
@@ -146,7 +156,20 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         return icebergCatalogType;
     }
 
-    public abstract List<String> listDatabaseNames();
+    protected List<String> listDatabaseNames() {
+        return nsCatalog.listNamespaces().stream()
+            .map(e -> {
+                String dbName = e.toString();
+                try {
+                    FeNameFormat.checkDbName(dbName);
+                } catch (AnalysisException ex) {
+                    Util.logAndThrowRuntimeException(LOG,
+                            String.format("Not a supported namespace name format: %s", dbName), ex);
+                }
+                return dbName;
+            })
+            .collect(Collectors.toList());
+    }
 
     @Override
     public List<String> listDatabaseNames(SessionContext ctx) {

@@ -21,17 +21,12 @@ import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.datasource.CatalogProperty;
 
 import org.apache.iceberg.CatalogProperties;
-import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.hive.HiveCatalog;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 public class IcebergHMSExternalCatalog extends IcebergExternalCatalog {
-
-    private static final String HMS_TAG = "hms";
 
     public IcebergHMSExternalCatalog(long catalogId, String name, String resource, String catalogType,
                                      Map<String, String> props) {
@@ -49,13 +44,7 @@ public class IcebergHMSExternalCatalog extends IcebergExternalCatalog {
 
         catalogProperties.put(HMSResource.HIVE_METASTORE_URIS, metastoreUris);
         catalogProperties.put(CatalogProperties.URI, metastoreUris);
-        hiveCatalog.initialize(HMS_TAG, catalogProperties);
+        hiveCatalog.initialize(icebergCatalogType, catalogProperties);
         catalog = hiveCatalog;
-    }
-
-    @Override
-    public List<String> listDatabaseNames() {
-        return ((HiveCatalog) catalog).listNamespaces().stream()
-            .map(Namespace::toString).collect(Collectors.toList());
     }
 }

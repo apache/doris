@@ -42,6 +42,7 @@ import org.apache.doris.catalog.external.IcebergExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.iceberg.IcebergApiSource;
@@ -278,8 +279,8 @@ public class ExternalFileScanNode extends ExternalScanNode {
         FileScanProviderIf scanProvider;
         String catalogType = icebergTable.getIcebergCatalogType();
         switch (catalogType) {
-            case "hms":
-            case "rest":
+            case IcebergExternalCatalog.ICEBERG_HMS:
+            case IcebergExternalCatalog.ICEBERG_REST:
                 IcebergSource icebergSource = new IcebergApiSource(
                         icebergTable, desc, columnNameToRange);
                 scanProvider = new IcebergScanProvider(icebergSource, analyzer);

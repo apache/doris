@@ -20,13 +20,10 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.doris.datasource.CatalogProperty;
 
 import org.apache.iceberg.CatalogProperties;
-import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.rest.RESTCatalog;
 
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
 
@@ -45,11 +42,5 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
         restCatalog.setConf(getConfiguration());
         restCatalog.initialize(icebergCatalogType, restProperties);
         catalog = restCatalog;
-    }
-
-    @Override
-    public List<String> listDatabaseNames() {
-        return ((RESTCatalog) catalog).listNamespaces().stream()
-            .map(Namespace::toString).collect(Collectors.toList());
     }
 }
