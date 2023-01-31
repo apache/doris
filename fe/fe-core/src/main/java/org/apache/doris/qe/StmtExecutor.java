@@ -1973,14 +1973,15 @@ public class StmtExecutor implements ProfileWriter {
     }
 
     private void handleCtasRollback(TableName table) {
-        // insert error drop table
-        DropTableStmt dropTableStmt = new DropTableStmt(true, table, true);
-        try {
-            DdlExecutor.execute(context.getEnv(), dropTableStmt);
-        } catch (Exception ex) {
-            LOG.warn("CTAS drop table error, stmt={}", parsedStmt.toSql(), ex);
-            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
-                    "Unexpected exception: " + ex.getMessage());
+        if (context.getSessionVariable().isEnableCtasErrorDropTable()) {
+            // insert error drop table
+            DropTableStmt dropTableStmt = new DropTableStmt(true, table, true);
+            try {
+                DdlExecutor.execute(context.getEnv(), dropTableStmt);
+            } catch (Exception ex) {
+                LOG.warn("CTAS drop table error, stmt={}", parsedStmt.toSql(), ex);
+                context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + ex.getMessage());
+            }
         }
     }
 
