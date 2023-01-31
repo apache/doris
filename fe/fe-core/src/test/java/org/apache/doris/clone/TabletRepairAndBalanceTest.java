@@ -586,7 +586,7 @@ public class TabletRepairAndBalanceTest {
                 tbl.checkReplicaAllocation();
                 break;
             } catch (UserException | NoSuchElementException e) {
-                // why use add no such element exception because hash map is not a thread safe struct.
+                // Why do we add no such element exception because hash map is not a thread safe struct.
                 // In this ut using a big loop to iterate the hash map,
                 // it will increase the probability of map to throw NoSuchElementException exception.
                 System.out.println(e.getMessage());
