@@ -23,17 +23,11 @@
 #include <set>
 #include <vector>
 
-#include "common/configbase.h"
 #include "common/status.h"
 #include "env/env.h"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 #include "olap/file_helper.h"
-#include "olap/olap_define.h"
-
-#ifndef BE_TEST
-#define BE_TEST
-#endif
 
 using ::testing::_;
 using ::testing::Return;
