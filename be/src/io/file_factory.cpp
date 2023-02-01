@@ -35,6 +35,7 @@
 #include "io/local_file_writer.h"
 #include "io/s3_reader.h"
 #include "io/s3_writer.h"
+#include "olap/iterators.h"
 #include "runtime/exec_env.h"
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
@@ -155,7 +156,7 @@ Status FileFactory::create_file_reader(RuntimeProfile* /*profile*/,
                                        io::FileReaderSPtr* file_reader, IOContext* io_ctx) {
     TFileType::type type = system_properties.system_type;
     auto cache_policy = io::FileCachePolicy::NO_CACHE;
-    if (config::enable_file_cache) {
+    if (config::enable_file_cache && io_ctx->enable_file_cache) {
         cache_policy = io::FileCachePolicy::FILE_BLOCK_CACHE;
     }
     io::FileReaderOptions reader_options(cache_policy, io::FileBlockCachePathPolicy());
