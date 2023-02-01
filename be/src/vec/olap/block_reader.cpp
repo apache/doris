@@ -92,7 +92,7 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
 
     RETURN_IF_ERROR(_vcollect_iter.build_heap(*valid_rs_readers));
     auto status = _vcollect_iter.current_row(&_next_row);
-    _eof = status.is_end_of_file();
+    _eof = (status.precise_code() == OLAP_ERR_DATA_EOF);
 
     return Status::OK();
 }

@@ -242,7 +242,6 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         std::vector<RowsetSharedPtr>* input_rowsets, Version* last_delete_version,
         size_t* compaction_score) {
     size_t promotion_size = tablet->cumulative_promotion_size();
-    ;
     int transient_size = 0;
     *compaction_score = 0;
     int64_t total_size = 0;
