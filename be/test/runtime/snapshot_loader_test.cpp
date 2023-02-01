@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "runtime/snapshot_loader.h"
+
 #include <gtest/gtest.h>
 
 #include <filesystem>
 
 #include "runtime/exec_env.h"
-
-#include "runtime/snapshot_loader.h"
 
 namespace doris {
 
