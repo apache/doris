@@ -130,7 +130,8 @@ public interface TableIf {
      */
     enum TableType {
         MYSQL, ODBC, OLAP, SCHEMA, INLINE_VIEW, VIEW, BROKER, ELASTICSEARCH, HIVE, ICEBERG, HUDI, JDBC,
-        TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE, MATERIALIZED_VIEW, JDBC_EXTERNAL_TABLE;
+        TABLE_VALUED_FUNCTION, HMS_EXTERNAL_TABLE, ES_EXTERNAL_TABLE, MATERIALIZED_VIEW, JDBC_EXTERNAL_TABLE,
+        ICEBERG_EXTERNAL_TABLE;
 
         public String toEngineName() {
             switch (this) {
@@ -163,6 +164,8 @@ public interface TableIf {
                     return "hms";
                 case ES_EXTERNAL_TABLE:
                     return "es";
+                case ICEBERG_EXTERNAL_TABLE:
+                    return "iceberg";
                 default:
                     return null;
             }
@@ -188,6 +191,7 @@ public interface TableIf {
                 case TABLE_VALUED_FUNCTION:
                 case HMS_EXTERNAL_TABLE:
                 case ES_EXTERNAL_TABLE:
+                case ICEBERG_EXTERNAL_TABLE:
                     return "EXTERNAL TABLE";
                 default:
                     return null;

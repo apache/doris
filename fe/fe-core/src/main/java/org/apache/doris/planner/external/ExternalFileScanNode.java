@@ -38,11 +38,17 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.catalog.external.IcebergExternalTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.planner.PlanNodeId;
+import org.apache.doris.planner.external.iceberg.IcebergApiSource;
+import org.apache.doris.planner.external.iceberg.IcebergHMSSource;
+import org.apache.doris.planner.external.iceberg.IcebergScanProvider;
+import org.apache.doris.planner.external.iceberg.IcebergSource;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.statistics.StatisticalType;
 import org.apache.doris.tablefunction.ExternalFileTableValuedFunction;
@@ -175,6 +181,9 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 } else if (this.desc.getTable() instanceof FunctionGenTable) {
                     FunctionGenTable table = (FunctionGenTable) this.desc.getTable();
                     initFunctionGenTable(table, (ExternalFileTableValuedFunction) table.getTvf());
+                } else if (this.desc.getTable() instanceof IcebergExternalTable) {
+                    IcebergExternalTable table = (IcebergExternalTable) this.desc.getTable();
+                    initIcebergExternalTable(table);
                 }
                 break;
             case LOAD:
@@ -207,13 +216,37 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 scanProvider = new HudiScanProvider(hmsTable, desc, columnNameToRange);
                 break;
             case ICEBERG:
-                scanProvider = new IcebergScanProvider(hmsTable, analyzer, desc, columnNameToRange);
+                IcebergSource hmsSource = new IcebergHMSSource(hmsTable, desc, columnNameToRange);
+                scanProvider = new IcebergScanProvider(hmsSource, analyzer);
                 break;
             case HIVE:
                 scanProvider = new HiveScanProvider(hmsTable, desc, columnNameToRange);
                 break;
             default:
                 throw new UserException("Unknown table type: " + hmsTable.getDlaType());
+        }
+        this.scanProviders.add(scanProvider);
+    }
+
+    private void initIcebergExternalTable(IcebergExternalTable icebergTable) throws UserException {
+        Preconditions.checkNotNull(icebergTable);
+        if (icebergTable.isView()) {
+            throw new AnalysisException(
+                String.format("Querying external view '%s.%s' is not supported", icebergTable.getDbName(),
+                        icebergTable.getName()));
+        }
+
+        FileScanProviderIf scanProvider;
+        String catalogType = icebergTable.getIcebergCatalogType();
+        switch (catalogType) {
+            case IcebergExternalCatalog.ICEBERG_HMS:
+            case IcebergExternalCatalog.ICEBERG_REST:
+                IcebergSource icebergSource = new IcebergApiSource(
+                        icebergTable, desc, columnNameToRange);
+                scanProvider = new IcebergScanProvider(icebergSource, analyzer);
+                break;
+            default:
+                throw new UserException("Unknown iceberg catalog type: " + catalogType);
         }
         this.scanProviders.add(scanProvider);
     }
