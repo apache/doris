@@ -174,6 +174,8 @@ struct TBrokerRangeDesc {
     18: optional bool read_by_column_def;
     // csv with header type
     19: optional string header_type;
+    // csv skip line num, only used when csv header_type is not set.
+    20: optional i32 skip_lines;
 }
 
 struct TBrokerScanRangeParams {
@@ -259,6 +261,8 @@ struct TFileAttributes {
     9: optional string header_type;
     // trim double quotes for csv
     10: optional bool trim_double_quotes;
+    // csv skip line num, only used when csv header_type is not set.
+    11: optional i32 skip_lines;
 }
 
 struct TIcebergDeleteFileDesc {

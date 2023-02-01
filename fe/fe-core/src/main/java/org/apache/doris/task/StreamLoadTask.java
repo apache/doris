@@ -84,6 +84,8 @@ public class StreamLoadTask implements LoadTaskInfo {
     private List<String> hiddenColumns;
     private boolean trimDoubleQuotes = false;
 
+    private int skipLines = 0;
+
     public StreamLoadTask(TUniqueId id, long txnId, TFileType fileType, TFileFormatType formatType,
             TFileCompressType compressType) {
         this.id = id;
@@ -257,6 +259,10 @@ public class StreamLoadTask implements LoadTaskInfo {
         return trimDoubleQuotes;
     }
 
+    public int getSkipLines() {
+        return skipLines;
+    }
+
     public static StreamLoadTask fromTStreamLoadPutRequest(TStreamLoadPutRequest request) throws UserException {
         StreamLoadTask streamLoadTask = new StreamLoadTask(request.getLoadId(), request.getTxnId(),
                 request.getFileType(), request.getFormatType(),
@@ -358,6 +364,9 @@ public class StreamLoadTask implements LoadTaskInfo {
         }
         if (request.isSetTrimDoubleQuotes()) {
             trimDoubleQuotes = request.isTrimDoubleQuotes();
+        }
+        if (request.isSetSkipLines()) {
+            skipLines = request.getSkipLines();
         }
     }
 
