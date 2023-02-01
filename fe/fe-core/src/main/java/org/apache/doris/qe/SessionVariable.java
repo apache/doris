@@ -295,7 +295,7 @@ public class SessionVariable implements Serializable, Writable {
     public int queryTimeoutS = 300;
 
     @VariableMgr.VarAttr(name = INSERT_TIMEOUT)
-    public int insertTimeoutS = 3000;
+    public int insertTimeoutS = 14400;
 
     // if true, need report to coordinator when plan fragment execute successfully.
     @VariableMgr.VarAttr(name = ENABLE_PROFILE, needForward = true)
@@ -1685,6 +1685,9 @@ public class SessionVariable implements Serializable, Writable {
         }
         if (queryOptions.isSetQueryTimeout()) {
             setQueryTimeoutS(queryOptions.getQueryTimeout());
+        }
+        if (queryOptions.isSetInsertTimeout()) {
+            setInsertTimeoutS(queryOptions.getInsertTimeout());
         }
     }
 
