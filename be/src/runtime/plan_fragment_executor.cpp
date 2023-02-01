@@ -105,9 +105,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     if (request.__isset.backend_id) {
         _runtime_state->set_backend_id(request.backend_id);
     }
-    if (request.__isset.import_label) {
-        _runtime_state->set_import_label(request.import_label);
-    }
     if (request.__isset.db_name) {
         _runtime_state->set_db_name(request.db_name);
     }
@@ -133,7 +130,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     DCHECK(request.__isset.fragment);
     RETURN_IF_ERROR(ExecNode::create_tree(_runtime_state.get(), obj_pool(), request.fragment.plan,
                                           *desc_tbl, &_plan));
-    _runtime_state->set_fragment_root_id(_plan->id());
 
     // set #senders of exchange nodes before calling Prepare()
     std::vector<ExecNode*> exch_nodes;
