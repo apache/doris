@@ -71,15 +71,15 @@ public:
         return false;
     }
 
-    const inline bool use_topn_next() { return _topn_limit > 0; }
+    inline bool use_topn_next() const { return _topn_limit > 0; }
 
 private:
     // next for topn query
-    Status topn_next(Block* block);
+    Status _topn_next(Block* block);
 
-    class BlockRowposComparator {
+    class BlockRowPosComparator {
     public:
-        BlockRowposComparator(MutableBlock* mutable_block,
+        BlockRowPosComparator(MutableBlock* mutable_block,
                               const std::vector<uint32_t>* compare_columns, bool is_reverse)
                 : _mutable_block(mutable_block),
                   _compare_columns(compare_columns),

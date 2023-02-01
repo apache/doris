@@ -147,6 +147,8 @@ Status RuntimePredicate::update(const Field& value, const String& col_name, bool
     // get value string from _orderby_extrem and push back to condition_values
     condition.condition_values.push_back(_get_value_fn(_orderby_extrem));
 
+    VLOG_DEBUG << "update runtime predicate condition " << condition;
+
     // update _predictate
     _predictate.reset(
             parse_to_predicate(_tablet_schema, condition, _predicate_mem_pool.get(), false));
