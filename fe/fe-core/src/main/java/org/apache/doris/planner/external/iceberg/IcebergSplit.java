@@ -15,9 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner.external;
+package org.apache.doris.planner.external.iceberg;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.planner.external.HiveSplit;
 
 import lombok.Data;
 import org.apache.hadoop.fs.Path;

@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner.external;
+package org.apache.doris.planner.external.iceberg;
 
 import lombok.Data;
 
@@ -64,12 +64,19 @@ public class IcebergDeleteFileFilter {
         }
     }
 
-    @Data
     static class EqualityDelete extends IcebergDeleteFileFilter {
         private List<Integer> fieldIds;
 
         public EqualityDelete(String deleteFilePath, List<Integer> fieldIds) {
             super(deleteFilePath);
+            this.fieldIds = fieldIds;
+        }
+
+        public List<Integer> getFieldIds() {
+            return fieldIds;
+        }
+
+        public void setFieldIds(List<Integer> fieldIds) {
             this.fieldIds = fieldIds;
         }
     }
