@@ -137,7 +137,7 @@ Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_reade
             if (!s.ok()) {
                 delete (*iter);
                 iter = _children.erase(iter);
-                if (!s.is_end_of_file()) {
+                if (s.precise_code() != OLAP_ERR_DATA_EOF) {
                     return s;
                 }
             } else {
