@@ -466,4 +466,11 @@ public class ExpressionUtils {
                 .flatMap(expr -> expr.getInputSlots().stream())
                 .collect(ImmutableSet.toImmutableSet());
     }
+
+    public static boolean checkTypeSkipCast(Expression expression, Class<? extends Expression> cls) {
+        while (expression instanceof Cast) {
+            expression = ((Cast) expression).child();
+        }
+        return cls.isInstance(expression);
+    }
 }

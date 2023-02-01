@@ -190,6 +190,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY
             = "trim_tailing_spaces_for_external_table_query";
 
+    public static final String ENABLE_DPHYP_OPTIMIZER = "enable_dphyp_optimizer";
+
     public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
     public static final String DISABLE_NEREIDS_RULES = "disable_nereids_rules";
 
@@ -257,6 +259,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_TWO_PHASE_READ_OPT = "enable_two_phase_read_opt";
     public static final String TWO_PHASE_READ_OPT_LIMIT_THRESHOLD = "two_phase_read_opt_limit_threshold";
+
+    public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -546,6 +550,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = CHECK_OVERFLOW_FOR_DECIMAL)
     private boolean checkOverflowForDecimal = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_DPHYP_OPTIMIZER)
+    private boolean enableDPHypOptimizer = false;
     /**
      * as the new optimizer is not mature yet, use this var
      * to control whether to use new optimizer, remove it when
@@ -674,6 +680,11 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableTwoPhaseReadOpt = true;
     @VariableMgr.VarAttr(name = TWO_PHASE_READ_OPT_LIMIT_THRESHOLD)
     public long twoPhaseReadLimitThreshold = 512;
+
+    // Default value is false, which means the group by and having clause
+    // should first use column name not alias. According to mysql.
+    @VariableMgr.VarAttr(name = GROUP_BY_AND_HAVING_USE_ALIAS_FIRST)
+    public boolean groupByAndHavingUseAliasFirst = false;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -1242,6 +1253,10 @@ public class SessionVariable implements Serializable, Writable {
         return extractWideRangeExpr;
     }
 
+    public boolean isGroupByAndHavingUseAliasFirst() {
+        return groupByAndHavingUseAliasFirst;
+    }
+
     public int getCpuResourceLimit() {
         return cpuResourceLimit;
     }
@@ -1309,6 +1324,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableNereidsPlanner(boolean enableNereidsPlanner) {
         this.enableNereidsPlanner = enableNereidsPlanner;
+    }
+
+    public boolean isEnableDPHypOptimizer() {
+        return isEnableNereidsPlanner() && enableDPHypOptimizer;
+    }
+
+    public void setEnableDphypOptimizer(boolean enableDPHypOptimizer) {
+        this.enableDPHypOptimizer = enableDPHypOptimizer;
     }
 
     public Set<String> getDisableNereidsRules() {

@@ -20,10 +20,13 @@ package org.apache.doris.task;
 import org.apache.doris.alter.SchemaChangeHandler;
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.Status;
+import org.apache.doris.policy.Policy;
+import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TCreateTabletReq;
@@ -42,6 +45,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 
 public class CreateReplicaTask extends AgentTask {
@@ -88,7 +92,7 @@ public class CreateReplicaTask extends AgentTask {
     private boolean isRecoverTask = false;
 
     private DataSortInfo dataSortInfo;
-    private String storagePolicy;
+    private long storagePolicyId = 0; // <= 0 means no storage policy
 
     private boolean enableUniqueKeyMergeOnWrite;
 
@@ -134,7 +138,13 @@ public class CreateReplicaTask extends AgentTask {
         this.tabletType = tabletType;
         this.dataSortInfo = dataSortInfo;
         this.enableUniqueKeyMergeOnWrite = (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite);
-        this.storagePolicy = storagePolicy;
+        if (storagePolicy != null && !storagePolicy.isEmpty()) {
+            Optional<Policy> policy = Env.getCurrentEnv().getPolicyMgr()
+                    .findPolicy(storagePolicy, PolicyTypeEnum.STORAGE);
+            if (policy.isPresent()) {
+                this.storagePolicyId = policy.get().getId();
+            }
+        }
         this.disableAutoCompaction = disableAutoCompaction;
         this.storeRowColumn = storeRowColumn;
     }
@@ -242,7 +252,9 @@ public class CreateReplicaTask extends AgentTask {
         createTabletReq.setVersion(version);
 
         createTabletReq.setStorageMedium(storageMedium);
-        createTabletReq.setStoragePolicy(storagePolicy);
+        if (storagePolicyId > 0) {
+            createTabletReq.setStoragePolicyId(storagePolicyId);
+        }
         if (inRestoreMode) {
             createTabletReq.setInRestoreMode(true);
         }

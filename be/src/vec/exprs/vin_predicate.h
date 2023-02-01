@@ -42,7 +42,7 @@ public:
 
     const FunctionBasePtr function() { return _function; };
 
-    const bool is_not_in() const { return _is_not_in; };
+    bool is_not_in() const { return _is_not_in; };
 
 private:
     FunctionBasePtr _function;
