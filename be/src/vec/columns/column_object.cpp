@@ -39,8 +39,9 @@ namespace doris::vectorized {
 namespace {
 
 DataTypePtr create_array_of_type(DataTypePtr type, size_t num_dimensions) {
-    for (size_t i = 0; i < num_dimensions; ++i)
+    for (size_t i = 0; i < num_dimensions; ++i) {
         type = std::make_shared<DataTypeArray>(std::move(type));
+    }
     return type;
 }
 

@@ -67,9 +67,13 @@ public:
     /// Add a leaf without any data in other nodes.
     bool add(const PathInData& path, const NodeData& leaf_data) {
         return add(path, [&](NodeKind kind, bool exists) -> NodePtr {
-            if (exists) return nullptr;
+            if (exists) {
+                return nullptr;
+            }
 
-            if (kind == Node::SCALAR) return std::make_shared<Node>(kind, leaf_data, path);
+            if (kind == Node::SCALAR) {
+                return std::make_shared<Node>(kind, leaf_data, path);
+            }
 
             return std::make_shared<Node>(kind);
         });
@@ -82,9 +86,13 @@ public:
     bool add(const PathInData& path, const NodeCreator& node_creator) {
         const auto& parts = path.get_parts();
 
-        if (parts.empty()) return false;
+        if (parts.empty()) {
+            return false;
+        }
 
-        if (!root) root = std::make_shared<Node>(Node::TUPLE);
+        if (!root) {
+            root = std::make_shared<Node>(Node::TUPLE);
+        }
 
         Node* current_node = root.get();
         for (size_t i = 0; i < parts.size() - 1; ++i) {
@@ -96,7 +104,9 @@ public:
                 current_node = it->get_second().get();
                 node_creator(current_node->kind, true);
 
-                if (current_node->is_nested() != parts[i].is_nested) return false;
+                if (current_node->is_nested() != parts[i].is_nested) {
+                    return false;
+                }
             } else {
                 auto next_kind = parts[i].is_nested ? Node::NESTED : Node::TUPLE;
                 auto next_node = node_creator(next_kind, false);
@@ -107,7 +117,9 @@ public:
 
         auto it = current_node->children.find(
                 StringRef {parts.back().key.data(), parts.back().key.size()});
-        if (it != current_node->children.end()) return false;
+        if (it != current_node->children.end()) {
+            return false;
+        }
 
         auto next_node = node_creator(Node::SCALAR, false);
         current_node->add_child(String(parts.back().key), next_node);
@@ -125,7 +137,9 @@ public:
     /// Find leaf by path.
     const Node* find_leaf(const PathInData& path) const {
         const auto* candidate = find_exact(path);
-        if (!candidate || !candidate->is_scalar()) return nullptr;
+        if (!candidate || !candidate->is_scalar()) {
+            return nullptr;
+        }
         return candidate;
     }
 
@@ -137,20 +151,28 @@ public:
     }
 
     static const Node* find_leaf(const Node* node, const NodePredicate& predicate) {
-        if (!node) return nullptr;
+        if (!node) {
+            return nullptr;
+        }
 
-        if (node->is_scalar()) return predicate(*node) ? node : nullptr;
+        if (node->is_scalar()) {
+            return predicate(*node) ? node : nullptr;
+        }
 
         for (auto it = node->children.begin(); it != node->children.end(); ++it) {
             auto child = it->get_second();
-            if (const auto* leaf = find_leaf(child.get(), predicate)) return leaf;
+            if (const auto* leaf = find_leaf(child.get(), predicate)) {
+                return leaf;
+            }
         }
         return nullptr;
     }
 
     /// Find first parent node that satisfies the predicate.
     static const Node* find_parent(const Node* node, const NodePredicate& predicate) {
-        while (node && !predicate(*node)) node = node->parent;
+        while (node && !predicate(*node)) {
+            node = node->parent;
+        }
         return node;
     }
 
@@ -173,14 +195,18 @@ public:
 
 private:
     const Node* find_impl(const PathInData& path, bool find_exact) const {
-        if (!root) return nullptr;
+        if (!root) {
+            return nullptr;
+        }
 
         const auto& parts = path.get_parts();
         const Node* current_node = root.get();
 
         for (const auto& part : parts) {
             auto it = current_node->children.find(StringRef {part.key.data(), part.key.size()});
-            if (it == current_node->children.end()) return find_exact ? nullptr : current_node;
+            if (it == current_node->children.end()) {
+                return find_exact ? nullptr : current_node;
+            }
 
             current_node = it->get_second().get();
         }

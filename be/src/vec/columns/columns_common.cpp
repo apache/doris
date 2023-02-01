@@ -283,7 +283,9 @@ namespace detail {
 template <typename T>
 const PaddedPODArray<T>* get_indexes_data(const IColumn& indexes) {
     auto* column = typeid_cast<const ColumnVector<T>*>(&indexes);
-    if (column) return &column->get_data();
+    if (column) {
+        return &column->get_data();
+    }
 
     return nullptr;
 }

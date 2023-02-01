@@ -36,13 +36,15 @@
 namespace doris::vectorized::schema_util {
 
 size_t get_number_of_dimensions(const IDataType& type) {
-    if (const auto* type_array = typeid_cast<const DataTypeArray*>(&type))
+    if (const auto* type_array = typeid_cast<const DataTypeArray*>(&type)) {
         return type_array->get_number_of_dimensions();
+    }
     return 0;
 }
 size_t get_number_of_dimensions(const IColumn& column) {
-    if (const auto* column_array = check_and_get_column<ColumnArray>(column))
+    if (const auto* column_array = check_and_get_column<ColumnArray>(column)) {
         return column_array->get_number_of_dimensions();
+    }
     return 0;
 }
 
@@ -300,7 +302,6 @@ static void get_column_def(const vectorized::DataTypePtr& data_type, const std::
         column->columnDesc.__set_columnLength(data_type->get_size_of_value_in_memory());
         return;
     }
-    return;
 }
 
 // send an empty add columns rpc, the rpc response will fill with base schema info

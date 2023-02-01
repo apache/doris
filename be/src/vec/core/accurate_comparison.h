@@ -179,8 +179,9 @@ constexpr doris::vectorized::Int64 MAX_INT64_WITH_EXACT_FLOAT64_REPR = 900719925
 template <>
 inline bool greaterOp<doris::vectorized::Float64, doris::vectorized::Int64>(
         doris::vectorized::Float64 f, doris::vectorized::Int64 i) {
-    if (-MAX_INT64_WITH_EXACT_FLOAT64_REPR <= i && i <= MAX_INT64_WITH_EXACT_FLOAT64_REPR)
+    if (-MAX_INT64_WITH_EXACT_FLOAT64_REPR <= i && i <= MAX_INT64_WITH_EXACT_FLOAT64_REPR) {
         return f > static_cast<doris::vectorized::Float64>(i);
+    }
 
     return (f >= static_cast<doris::vectorized::Float64>(
                          std::numeric_limits<
@@ -193,8 +194,9 @@ inline bool greaterOp<doris::vectorized::Float64, doris::vectorized::Int64>(
 template <>
 inline bool greaterOp<doris::vectorized::Int64, doris::vectorized::Float64>(
         doris::vectorized::Int64 i, doris::vectorized::Float64 f) {
-    if (-MAX_INT64_WITH_EXACT_FLOAT64_REPR <= i && i <= MAX_INT64_WITH_EXACT_FLOAT64_REPR)
+    if (-MAX_INT64_WITH_EXACT_FLOAT64_REPR <= i && i <= MAX_INT64_WITH_EXACT_FLOAT64_REPR) {
         return f < static_cast<doris::vectorized::Float64>(i);
+    }
 
     return (f < static_cast<doris::vectorized::Float64>(
                         std::numeric_limits<doris::vectorized::Int64>::min())) ||
@@ -206,8 +208,9 @@ inline bool greaterOp<doris::vectorized::Int64, doris::vectorized::Float64>(
 template <>
 inline bool greaterOp<doris::vectorized::Float64, doris::vectorized::UInt64>(
         doris::vectorized::Float64 f, doris::vectorized::UInt64 u) {
-    if (u <= static_cast<doris::vectorized::UInt64>(MAX_INT64_WITH_EXACT_FLOAT64_REPR))
+    if (u <= static_cast<doris::vectorized::UInt64>(MAX_INT64_WITH_EXACT_FLOAT64_REPR)) {
         return f > static_cast<doris::vectorized::Float64>(u);
+    }
 
     return (f >= static_cast<doris::vectorized::Float64>(
                          std::numeric_limits<doris::vectorized::UInt64>::max())) ||
@@ -217,8 +220,9 @@ inline bool greaterOp<doris::vectorized::Float64, doris::vectorized::UInt64>(
 template <>
 inline bool greaterOp<doris::vectorized::UInt64, doris::vectorized::Float64>(
         doris::vectorized::UInt64 u, doris::vectorized::Float64 f) {
-    if (u <= static_cast<doris::vectorized::UInt64>(MAX_INT64_WITH_EXACT_FLOAT64_REPR))
+    if (u <= static_cast<doris::vectorized::UInt64>(MAX_INT64_WITH_EXACT_FLOAT64_REPR)) {
         return static_cast<doris::vectorized::Float64>(u) > f;
+    }
 
     return (f < 0) || (f < static_cast<doris::vectorized::Float64>(
                                    std::numeric_limits<doris::vectorized::UInt64>::max()) &&
@@ -370,8 +374,9 @@ inline bool greaterOp(doris::vectorized::Int128 i, doris::vectorized::Float64 f)
     static constexpr __int128 max_int128 =
             (__int128(0x7fffffffffffffffll) << 64) + 0xffffffffffffffffll;
 
-    if (-MAX_INT64_WITH_EXACT_FLOAT64_REPR <= i && i <= MAX_INT64_WITH_EXACT_FLOAT64_REPR)
+    if (-MAX_INT64_WITH_EXACT_FLOAT64_REPR <= i && i <= MAX_INT64_WITH_EXACT_FLOAT64_REPR) {
         return static_cast<doris::vectorized::Float64>(i) > f;
+    }
 
     return (f < static_cast<doris::vectorized::Float64>(min_int128)) ||
            (f < static_cast<doris::vectorized::Float64>(max_int128) &&
@@ -383,8 +388,9 @@ inline bool greaterOp(doris::vectorized::Float64 f, doris::vectorized::Int128 i)
     static constexpr __int128 max_int128 =
             (__int128(0x7fffffffffffffffll) << 64) + 0xffffffffffffffffll;
 
-    if (-MAX_INT64_WITH_EXACT_FLOAT64_REPR <= i && i <= MAX_INT64_WITH_EXACT_FLOAT64_REPR)
+    if (-MAX_INT64_WITH_EXACT_FLOAT64_REPR <= i && i <= MAX_INT64_WITH_EXACT_FLOAT64_REPR) {
         return f > static_cast<doris::vectorized::Float64>(i);
+    }
 
     return (f >= static_cast<doris::vectorized::Float64>(max_int128)) ||
            (f > static_cast<doris::vectorized::Float64>(min_int128) &&
@@ -435,7 +441,9 @@ inline bool_if_safe_conversion<A, B> lessOp(A a, B b) {
 
 template <typename A, typename B>
 inline bool_if_not_safe_conversion<A, B> lessOrEqualsOp(A a, B b) {
-    if (is_nan(a) || is_nan(b)) return false;
+    if (is_nan(a) || is_nan(b)) {
+        return false;
+    }
     return !greaterOp(a, b);
 }
 
@@ -446,7 +454,9 @@ inline bool_if_safe_conversion<A, B> lessOrEqualsOp(A a, B b) {
 
 template <typename A, typename B>
 inline bool_if_not_safe_conversion<A, B> greaterOrEqualsOp(A a, B b) {
-    if (is_nan(a) || is_nan(b)) return false;
+    if (is_nan(a) || is_nan(b)) {
+        return false;
+    }
     return !greaterOp(b, a);
 }
 
@@ -484,7 +494,9 @@ inline bool convertNumeric(From value, To& result) {
         return false;
     }
     result = static_cast<To>(value);
-    if constexpr (strict) return equalsOp(value, result);
+    if constexpr (strict) {
+        return equalsOp(value, result);
+    }
     return true;
 }
 
