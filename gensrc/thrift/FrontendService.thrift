@@ -770,7 +770,6 @@ service FrontendService {
 
     TAddColumnsResult addColumns(1: TAddColumnsRequest request)
 
-    AgentService.TGetStoragePolicyResult refreshStoragePolicy()
     TInitExternalCtlMetaResult initExternalCtlMeta(1: TInitExternalCtlMetaRequest request)
 
     TFetchSchemaTableDataResult fetchSchemaTableData(1: TFetchSchemaTableDataRequest request)
