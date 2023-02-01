@@ -18,7 +18,7 @@
 package org.apache.doris.mysql;
 
 public class MysqlSslExchange {
-    public static final boolean SslExchange() {
+    public static final boolean sslExchange() {
         // TODO: TLS protocol
         return true;
     }

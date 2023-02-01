@@ -1970,6 +1970,12 @@ public class Config extends ConfigBase {
     public static int max_error_tablet_of_broker_load = 3;
 
     /**
+     * If set to ture, doris will establish an encrypted channel based on the SSL protocol with mysql.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static boolean enable_ssl = true;
+
+    /**
      * Used to set session variables randomly to check more issues in github workflow
      */
     @ConfField(mutable = true)

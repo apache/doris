@@ -45,7 +45,7 @@ import java.util.List;
 // MySQL protocol util
 public class MysqlProto {
     private static final Logger LOG = LogManager.getLogger(MysqlProto.class);
-    public static final boolean USE_SSL = true;
+    public static final boolean USE_SSL = Config.enable_ssl;
 
     // scramble: data receive from server.
     // randomString: data send by server in plug-in data field
@@ -172,12 +172,19 @@ public class MysqlProto {
             return false;
         }
 
-        // During development, we set SSL mode to true by default
-        if (USE_SSL) {
-            // Server receive SSL connection request packet from client.
-            ByteBuffer sslConnectionRequest = channel.fetchOnePacket();
-            MysqlCapability capability = new MysqlCapability(MysqlProto.readLowestInt4(sslConnectionRequest));
-            if (capability.isSsl()) {
+        // Server receive request packet from client, we need to determine which request type it is.
+        ByteBuffer clientRequestPacket = channel.fetchOnePacket();
+        MysqlCapability capability = new MysqlCapability(MysqlProto.readLowestInt4(clientRequestPacket));
+
+        // Server receive SSL connection request packet from client.
+        ByteBuffer sslConnectionRequest;
+        // Server receive authenticate packet from client.
+        ByteBuffer handshakeResponse;
+
+        if (capability.isSsl()) {
+            // During development, we set SSL mode to true by default
+            if (USE_SSL) {
+                sslConnectionRequest = clientRequestPacket;
                 if (sslConnectionRequest == null) {
                     // receive response failed.
                     return false;
@@ -189,16 +196,19 @@ public class MysqlProto {
                     return false;
                 }
 
-                if(!MysqlSslExchange.SslExchange()){
+                if (!MysqlSslExchange.sslExchange()) {
                     ErrorReport.report(ErrorCode.ERR_NOT_SUPPORTED_AUTH_MODE);
                     sendResponsePacket(context);
                     return false;
                 }
+                handshakeResponse = channel.fetchOnePacket();
+            } else {
+                handshakeResponse = clientRequestPacket;
             }
+        } else {
+            handshakeResponse = clientRequestPacket;
         }
 
-        // Server receive authenticate packet from client.
-        ByteBuffer handshakeResponse = channel.fetchOnePacket();
         if (handshakeResponse == null) {
             // receive response failed.
             return false;
@@ -351,7 +361,7 @@ public class MysqlProto {
         return buffer.get();
     }
 
-    public static byte readByteAt(ByteBuffer buffer, int index){
+    public static byte readByteAt(ByteBuffer buffer, int index) {
         return buffer.get(index);
     }
 
