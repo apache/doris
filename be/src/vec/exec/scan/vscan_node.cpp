@@ -43,7 +43,11 @@ namespace doris::vectorized {
     }
 
 static bool ignore_cast(SlotDescriptor* slot, VExpr* expr) {
-    if (slot->type().is_date_type() && expr->type().is_date_type()) {
+    if (slot->type().is_datetime_type() && expr->type().is_datetime_type()) {
+        return true;
+    }
+    if (slot->type().is_date_type() && expr->type().is_date_type() &&
+        (slot->type() == expr->type())) {
         return true;
     }
     if (slot->type().is_string_type() && expr->type().is_string_type()) {

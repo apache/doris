@@ -1656,8 +1656,10 @@ public abstract class Type {
             return t2;
         } else if (t2.isDateV2() || t1.isDateV2()) {
             return Type.DATETIMEV2;
-        } else {
+        } else if (t1.isDatetime() || t2.isDatetime()) {
             return ScalarType.getDefaultDateType(Type.DATETIME);
+        } else {
+            return ScalarType.getDefaultDateType(Type.DATE);
         }
     }
 

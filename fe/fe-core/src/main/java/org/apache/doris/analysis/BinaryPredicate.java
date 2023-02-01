@@ -315,6 +315,14 @@ public class BinaryPredicate extends Predicate implements Writable {
         }
     }
 
+    private Type dateComparisonResultType(PrimitiveType t1, PrimitiveType t2) {
+        if (t1 != PrimitiveType.DATETIME && t2 != PrimitiveType.DATETIME) {
+            return Type.DATE;
+        } else {
+            return Type.DATETIME;
+        }
+    }
+
     private Type dateV2ComparisonResultType(ScalarType t1, ScalarType t2) {
         if (!t1.isDatetimeV2() && !t2.isDatetimeV2()) {
             return Type.DATEV2;
@@ -351,7 +359,8 @@ public class BinaryPredicate extends Predicate implements Writable {
         if (canCompareDate(getChild(0).getType().getPrimitiveType(), getChild(1).getType().getPrimitiveType())) {
             if (!(getChild(0).getType().isDateV2() || getChild(0).getType().isDatetimeV2()
                     || getChild(1).getType().isDateV2() || getChild(1).getType().isDatetimeV2())) {
-                return Type.DATETIME;
+                return dateComparisonResultType(getChild(0).getType().getPrimitiveType(),
+                            getChild(1).getType().getPrimitiveType());
             } else {
                 Preconditions.checkArgument(getChild(0).getType() instanceof ScalarType
                         && getChild(1).getType() instanceof ScalarType);
