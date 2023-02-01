@@ -410,6 +410,7 @@ protected:
                         continue;
                     }
                     size_t rowid_in_output_data = dst.row_id;
+                    EXPECT_GT(segment_num_rows[dst.segment_id], dst.row_id);
                     for (auto n = 1; n <= dst.segment_id; n++) {
                         rowid_in_output_data += segment_num_rows[n - 1];
                     }
