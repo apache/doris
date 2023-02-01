@@ -74,8 +74,6 @@ public:
     // for ut and non-query.
     Status init_mem_trackers(const TUniqueId& query_id = TUniqueId());
 
-    Status create_load_dir();
-
     const TQueryOptions& query_options() const { return _query_options; }
     ObjectPool* obj_pool() const { return _obj_pool.get(); }
 
@@ -174,6 +172,8 @@ public:
     Status check_query_state(const std::string& msg);
 
     std::vector<std::string>& output_files() { return _output_files; }
+
+    void set_import_label(const std::string& import_label) { _import_label = import_label; }
 
     const std::vector<std::string>& export_output_files() const { return _export_output_files; }
 
@@ -434,7 +434,7 @@ private:
     std::atomic<int64_t> _num_bytes_load_total; // total bytes read from source
 
     std::vector<std::string> _export_output_files;
-
+    std::string _import_label;
     std::string _db_name;
     std::string _load_dir;
     int64_t _load_job_id;

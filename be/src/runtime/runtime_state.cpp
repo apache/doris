@@ -255,19 +255,7 @@ Status RuntimeState::check_query_state(const std::string& msg) {
 const std::string ERROR_FILE_NAME = "error_log";
 const int64_t MAX_ERROR_NUM = 50;
 
-Status RuntimeState::create_load_dir() {
-    if (!_load_dir.empty()) {
-        return Status::OK();
-    }
-    RETURN_IF_ERROR(_exec_env->load_path_mgr()->allocate_dir(_db_name, _import_label, &_load_dir));
-    _load_dir += "/output";
-    return FileUtils::create_dir(_load_dir);
-}
-
 Status RuntimeState::create_error_log_file() {
-    // Make sure that load dir exists.
-    // create_load_dir();
-
     _exec_env->load_path_mgr()->get_load_error_file_name(
             _db_name, _import_label, _fragment_instance_id, &_error_log_file_path);
     // std::stringstream ss;

@@ -180,6 +180,9 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
     if (request.__isset.backend_id) {
         _runtime_state->set_backend_id(request.backend_id);
     }
+    if (request.__isset.import_label) {
+        _runtime_state->set_import_label(request.import_label);
+    }
     if (request.__isset.db_name) {
         _runtime_state->set_db_name(request.db_name);
     }
