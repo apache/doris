@@ -780,14 +780,6 @@ visible_functions = [
 
     [['convert_tz'], 'DATETIMEV2', ['DATETIMEV2', 'VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
 
-    [['years_diff'], 'BIGINT', ['DATETIMEV2', 'DATETIMEV2'], 'ALWAYS_NULLABLE'],
-    [['months_diff'], 'BIGINT', ['DATETIMEV2', 'DATETIMEV2'], 'ALWAYS_NULLABLE'],
-    [['weeks_diff'], 'BIGINT', ['DATETIMEV2', 'DATETIMEV2'], 'ALWAYS_NULLABLE'],
-    [['days_diff'], 'BIGINT', ['DATETIMEV2', 'DATETIMEV2'], 'ALWAYS_NULLABLE'],
-    [['hours_diff'], 'BIGINT', ['DATETIMEV2', 'DATETIMEV2'], 'ALWAYS_NULLABLE'],
-    [['minutes_diff'], 'BIGINT', ['DATETIMEV2', 'DATETIMEV2'], 'ALWAYS_NULLABLE'],
-    [['seconds_diff'], 'BIGINT', ['DATETIMEV2', 'DATETIMEV2'], 'ALWAYS_NULLABLE'],
-
     [['years_diff'], 'BIGINT', ['DATETIMEV2', 'DATETIMEV2'], ''],
     [['months_diff'], 'BIGINT', ['DATETIMEV2', 'DATETIMEV2'], ''],
     [['weeks_diff'], 'BIGINT', ['DATETIMEV2', 'DATETIMEV2'], ''],
