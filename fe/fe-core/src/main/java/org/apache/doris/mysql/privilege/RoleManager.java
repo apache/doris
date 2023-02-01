@@ -21,7 +21,6 @@ import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.InfoSchemaDb;
-import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
@@ -197,7 +196,7 @@ public class RoleManager implements Writable {
         // grant read privs to database information_schema
         TablePattern tblPattern = new TablePattern(Auth.DEFAULT_CATALOG, InfoSchemaDb.DATABASE_NAME, "*");
         try {
-            tblPattern.analyze(ClusterNamespace.getClusterNameFromFullName(userIdent.getQualifiedUser()));
+            tblPattern.analyze("default_cluster");
         } catch (AnalysisException e) {
             LOG.warn("should not happen", e);
         }

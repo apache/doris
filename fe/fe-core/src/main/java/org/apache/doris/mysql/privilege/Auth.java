@@ -1451,6 +1451,10 @@ public class Auth implements Writable {
             userRoleManager = UserRoleManager.read(in);
             propertyMgr = UserPropertyMgr.read(in);
         } else {
+            // new Auth will fill userManager,roleManager,and userRoleManager,roleManager will be reset when read,
+            // so we need reset userManager and userRoleManager to avoid data inconsistency
+            userManager = new UserManager();
+            userRoleManager = new UserRoleManager();
             UserPrivTable userPrivTable = (UserPrivTable) PrivTable.read(in);
             CatalogPrivTable catalogPrivTable;
             if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_111) {
@@ -1489,6 +1493,8 @@ public class Auth implements Writable {
     private void upgradeToVersion116(UserPrivTable userPrivTable, CatalogPrivTable catalogPrivTable,
             DbPrivTable dbPrivTable, TablePrivTable tablePrivTable, ResourcePrivTable resourcePrivTable)
             throws AnalysisException, DdlException {
+        //OPERATOR and Admin role not save users,if not inituser,root will do not have admin role
+        initUser();
         for (Entry<String, UserProperty> entry : propertyMgr.propertyMap.entrySet()) {
             for (Entry<String, byte[]> userEntry : entry.getValue().getWhiteList().getPasswordMap().entrySet()) {
                 //create user
@@ -1518,13 +1524,13 @@ public class Auth implements Writable {
             //grant global auth
             if (globalPrivEntry.privSet.containsResourcePriv()) {
                 roleManager.addRole(new Role(roleManager.getUserDefaultRoleName(user.getUserIdentity()),
-                        new ResourcePattern("*"), PrivBitSet.of(Privilege.USAGE_PRIV)), false);
+                        ResourcePattern.ALL, PrivBitSet.of(Privilege.USAGE_PRIV)), false);
             }
             PrivBitSet copy = globalPrivEntry.privSet.copy();
             copy.unset(Privilege.USAGE_PRIV.getIdx());
             if (!copy.isEmpty()) {
                 roleManager.addRole(new Role(roleManager.getUserDefaultRoleName(user.getUserIdentity()),
-                        new TablePattern("*", "*", "*"), copy), false);
+                        TablePattern.ALL, copy), false);
             }
         }
 
@@ -1539,33 +1545,45 @@ public class Auth implements Writable {
         List<PrivEntry> catalogPrivTableEntries = catalogPrivTable.getEntries();
         for (PrivEntry privEntry : catalogPrivTableEntries) {
             CatalogPrivEntry catalogPrivEntry = (CatalogPrivEntry) privEntry;
+            TablePattern tablePattern = new TablePattern(ClusterNamespace.getNameFromFullName(catalogPrivEntry.origCtl),
+                    "*", "*");
+            tablePattern.analyze("default_cluster");
             Role newRole = new Role(roleManager.getUserDefaultRoleName(catalogPrivEntry.userIdentity),
-                    new TablePattern(catalogPrivEntry.origCtl, "*", "*"), catalogPrivEntry.privSet);
+                    tablePattern, catalogPrivEntry.privSet);
             roleManager.addRole(newRole, false);
         }
 
         List<PrivEntry> dbPrivTableEntries = dbPrivTable.getEntries();
         for (PrivEntry privEntry : dbPrivTableEntries) {
             DbPrivEntry dbPrivEntry = (DbPrivEntry) privEntry;
+            TablePattern tablePattern = new TablePattern(ClusterNamespace.getNameFromFullName(dbPrivEntry.origCtl),
+                    ClusterNamespace.getNameFromFullName(dbPrivEntry.origDb), "*");
+            tablePattern.analyze("default_cluster");
             Role newRole = new Role(roleManager.getUserDefaultRoleName(dbPrivEntry.userIdentity),
-                    new TablePattern(dbPrivEntry.origCtl, dbPrivEntry.origDb, "*"), dbPrivEntry.privSet);
+                    tablePattern, dbPrivEntry.privSet);
             roleManager.addRole(newRole, false);
         }
 
         List<PrivEntry> tblPrivTableEntries = tablePrivTable.getEntries();
         for (PrivEntry privEntry : tblPrivTableEntries) {
             TablePrivEntry tblPrivEntry = (TablePrivEntry) privEntry;
+            TablePattern tablePattern = new TablePattern(ClusterNamespace.getNameFromFullName(tblPrivEntry.origCtl),
+                    ClusterNamespace.getNameFromFullName(tblPrivEntry.origDb),
+                    ClusterNamespace.getNameFromFullName(tblPrivEntry.getOrigTbl()));
+            tablePattern.analyze("default_cluster");
             Role newRole = new Role(roleManager.getUserDefaultRoleName(tblPrivEntry.userIdentity),
-                    new TablePattern(tblPrivEntry.origCtl, tblPrivEntry.origDb, tblPrivEntry.getOrigTbl()),
-                    tblPrivEntry.privSet);
+                    tablePattern, tblPrivEntry.privSet);
             roleManager.addRole(newRole, false);
         }
 
         List<PrivEntry> resourcePrivTableEntries = resourcePrivTable.getEntries();
         for (PrivEntry privEntry : resourcePrivTableEntries) {
             ResourcePrivEntry resourcePrivEntry = (ResourcePrivEntry) privEntry;
+            ResourcePattern resourcePattern = new ResourcePattern(
+                    ClusterNamespace.getNameFromFullName(resourcePrivEntry.origResource));
+            resourcePattern.analyze();
             Role newRole = new Role(roleManager.getUserDefaultRoleName(resourcePrivEntry.userIdentity),
-                    new ResourcePattern(resourcePrivEntry.origResource), resourcePrivEntry.privSet);
+                    resourcePattern, resourcePrivEntry.privSet);
             roleManager.addRole(newRole, false);
         }
 
@@ -1574,6 +1592,11 @@ public class Auth implements Writable {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
+        sb.append(userManager).append("\n");
+        sb.append(userRoleManager).append("\n");
+        sb.append(roleManager).append("\n");
+        sb.append(propertyMgr).append("\n");
+        sb.append(ldapInfo).append("\n");
         return sb.toString();
     }
 }
