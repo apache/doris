@@ -38,18 +38,20 @@ struct IOContext {
     IOContext() = default;
 
     IOContext(const TUniqueId* query_id_, FileCacheStatistics* stats_, bool is_presistent_,
-              bool use_disposable_cache_, bool read_segment_index_)
+              bool use_disposable_cache_, bool read_segment_index_, bool enable_file_cache)
             : query_id(query_id_),
               is_persistent(is_presistent_),
               use_disposable_cache(use_disposable_cache_),
               read_segment_index(read_segment_index_),
-              file_cache_stats(stats_) {}
+              file_cache_stats(stats_),
+              enable_file_cache(enable_file_cache) {}
     ReaderType reader_type;
     const TUniqueId* query_id = nullptr;
     bool is_persistent = false;
     bool use_disposable_cache = false;
     bool read_segment_index = false;
     FileCacheStatistics* file_cache_stats = nullptr;
+    bool enable_file_cache = true;
 };
 namespace vectorized {
 struct IteratorRowRef;
