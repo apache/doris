@@ -119,36 +119,38 @@ suite("test_join5", "nereids_p0") {
     sql " insert into c (name, a) values ('A', 'p');"
     sql " insert into c (name, a) values ('B', 'q');"
     sql " insert into c (name, a) values ('C', null);"
+    
+    sql """set parallel_fragment_exec_instance_num=8"""
+        
+    qt_join5 """
+        select c.name, ss.code, ss.b_cnt, ss.const
+        from c left join
+          (select a.code, coalesce(b_grp.cnt, 0) as b_cnt, -1 as const
+           from a left join
+             (select count(1) as cnt, b.a from b group by b.a) as b_grp
+             on a.code = b_grp.a
+          ) as ss
+          on (c.a = ss.code)
+        order by c.name;
+        """
 
-    // qt_join5 """
-    //     select c.name, ss.code, ss.b_cnt, ss.const
-    //     from c left join
-    //       (select a.code, coalesce(b_grp.cnt, 0) as b_cnt, -1 as const
-    //        from a left join
-    //          (select count(1) as cnt, b.a from b group by b.a) as b_grp
-    //          on a.code = b_grp.a
-    //       ) as ss
-    //       on (c.a = ss.code)
-    //     order by c.name;
-    //     """
-
-    // qt_join5 """
-    //     SELECT * FROM
-    //         ( SELECT 1 as key1 ) sub1
-    //         LEFT JOIN
-    //         ( SELECT sub3.key3, sub4.value2, COALESCE(sub4.value2, 66) as value3 FROM
-    //             ( SELECT 1 as key3 ) sub3
-    //             LEFT JOIN
-    //             ( SELECT sub5.key5, COALESCE(sub6.value1, 1) as value2 FROM
-    //                 ( SELECT 1 as key5 ) sub5
-    //                 LEFT JOIN
-    //                 ( SELECT 2 as key6, 42 as value1 ) sub6
-    //                 ON sub5.key5 = sub6.key6
-    //             ) sub4
-    //             ON sub4.key5 = sub3.key3
-    //         ) sub2
-    //         ON sub1.key1 = sub2.key3;
-    //         """
+    qt_join5 """
+        SELECT * FROM
+            ( SELECT 1 as key1 ) sub1
+            LEFT JOIN
+            ( SELECT sub3.key3, sub4.value2, COALESCE(sub4.value2, 66) as value3 FROM
+                ( SELECT 1 as key3 ) sub3
+                LEFT JOIN
+                ( SELECT sub5.key5, COALESCE(sub6.value1, 1) as value2 FROM
+                    ( SELECT 1 as key5 ) sub5
+                    LEFT JOIN
+                    ( SELECT 2 as key6, 42 as value1 ) sub6
+                    ON sub5.key5 = sub6.key6
+                ) sub4
+                ON sub4.key5 = sub3.key3
+            ) sub2
+            ON sub1.key1 = sub2.key3;
+            """
 
     qt_join6 """
             SELECT * FROM
