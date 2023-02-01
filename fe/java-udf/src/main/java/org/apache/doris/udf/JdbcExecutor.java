@@ -598,38 +598,6 @@ public class JdbcExecutor {
         UdfUtils.copyMemory(columnData, UdfUtils.LONG_ARRAY_OFFSET, null, columnAddr, numRows * 8L);
     }
 
-    public void copyBatchStringResult2(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
-            long offsetsAddr, long charsAddr) {
-        String[] column = (String[]) columnObj;
-        byte[] nullMap = new byte[numRows];
-        int[] offsets = new int[numRows];
-        byte[][] byteRes = new byte[numRows][];
-        int offset = 0;
-        for (int i = 0; i < numRows; i++) {
-            if (column[i] == null) {
-                byteRes[i] = emptyBytes;
-                nullMap[i] = 1;
-            } else {
-                byteRes[i] = column[i].getBytes(StandardCharsets.UTF_8);
-            }
-            offset += byteRes[i].length;
-            offsets[i] = offset;
-        }
-        byte[] bytes = new byte[offsets[numRows - 1]];
-        long bytesAddr = JNINativeMethod.resizeColumn(charsAddr, offsets[numRows - 1]);
-        int dst = 0;
-        for (int i = 0; i < numRows; i++) {
-            for (int j = 0; j < byteRes[i].length; j++) {
-                bytes[dst++] = byteRes[i][j];
-            }
-        }
-        if (isNullable) {
-            UdfUtils.copyMemory(nullMap, UdfUtils.BYTE_ARRAY_OFFSET, null, nullMapAddr, numRows);
-        }
-        UdfUtils.copyMemory(offsets, UdfUtils.INT_ARRAY_OFFSET, null, offsetsAddr, numRows * 4L);
-        UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null, bytesAddr, offsets[numRows - 1]);
-    }
-
     public void copyBatchStringResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long offsetsAddr, long charsAddr) {
         String[] column = (String[]) columnObj;
