@@ -45,6 +45,7 @@ import java.util.List;
 // MySQL protocol util
 public class MysqlProto {
     private static final Logger LOG = LogManager.getLogger(MysqlProto.class);
+    public static final boolean USE_SSL = true;
 
     // scramble: data receive from server.
     // randomString: data send by server in plug-in data field
@@ -170,6 +171,29 @@ public class MysqlProto {
             LOG.debug("Send and flush channel exception, ignore.", e);
             return false;
         }
+
+        // During development, we set SSL mode to true by default
+        if (USE_SSL) {
+            // Server receive SSL connection request packet from client.
+            ByteBuffer sslConnectionRequest = channel.fetchOnePacket();
+            if (sslConnectionRequest == null) {
+                // receive response failed.
+                return false;
+            }
+            MysqlSslPacket sslPacket = new MysqlSslPacket();
+            if (!sslPacket.readFrom(sslConnectionRequest)) {
+                ErrorReport.report(ErrorCode.ERR_NOT_SUPPORTED_AUTH_MODE);
+                sendResponsePacket(context);
+                return false;
+            }
+
+            if(!MysqlSslExchange.SslExchange()){
+                ErrorReport.report(ErrorCode.ERR_NOT_SUPPORTED_AUTH_MODE);
+                sendResponsePacket(context);
+                return false;
+            }
+        }
+
         // Server receive authenticate packet from client.
         ByteBuffer handshakeResponse = channel.fetchOnePacket();
         if (handshakeResponse == null) {
