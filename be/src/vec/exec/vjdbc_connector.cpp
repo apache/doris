@@ -48,6 +48,7 @@ const char* JDBC_EXECUTOR_CLOSE_SIGNATURE = "()V";
 const char* JDBC_EXECUTOR_CONVERT_DATE_SIGNATURE = "(Ljava/lang/Object;Z)J";
 const char* JDBC_EXECUTOR_CONVERT_DATETIME_SIGNATURE = "(Ljava/lang/Object;Z)J";
 const char* JDBC_EXECUTOR_TRANSACTION_SIGNATURE = "()V";
+const char* JDBC_EXECUTOR_COPY_BATCH_SIGNATURE = "(Ljava/lang/Object;ZIJJ)V";
 
 JdbcConnector::JdbcConnector(const JdbcConnectorParam& param)
         : TableConnector(param.tuple_desc, param.query_string),
@@ -571,35 +572,37 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
     RETURN_IF_ERROR(
             register_id(_executor_clazz, "getCurBlockRows", "()I", _executor_block_rows_id));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchBooleanResult",
-                                "(Ljava/lang/Object;ZIJJ)V", _executor_get_boolean_result));
+                                JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_boolean_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchTinyIntResult",
-                                "(Ljava/lang/Object;ZIJJ)V", _executor_get_tinyint_result));
+                                JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_tinyint_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchSmallIntResult",
-                                "(Ljava/lang/Object;ZIJJ)V", _executor_get_smallint_result));
-    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchIntResult", "(Ljava/lang/Object;ZIJJ)V",
-                                _executor_get_int_result));
+                                JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_smallint_result));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchIntResult",
+                                JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_int_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchBigIntResult",
-                                "(Ljava/lang/Object;ZIJJ)V", _executor_get_bigint_result));
+                                JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_bigint_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchLargeIntResult",
                                 "(Ljava/lang/Object;ZIJJI)V", _executor_get_largeint_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchFloatResult",
-                                "(Ljava/lang/Object;ZIJJ)V", _executor_get_float_result));
+                                JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_float_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchDoubleResult",
-                                "(Ljava/lang/Object;ZIJJ)V", _executor_get_double_result));
+                                JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_double_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchStringResult",
                                 "(Ljava/lang/Object;ZIJJJ)V", _executor_get_string_result));
 
-    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchDateResult", "(Ljava/lang/Object;ZIJJ)V",
-                                _executor_get_date_result));
+    RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchDateResult",
+                                JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_date_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchDateV2Result",
-                                "(Ljava/lang/Object;ZIJJ)V", _executor_get_datev2_result));
+                                JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_datev2_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchDateTimeResult",
-                                "(Ljava/lang/Object;ZIJJ)V", _executor_get_datetime_result));
+                                JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_datetime_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchDateTimeV2Result",
-                                "(Ljava/lang/Object;ZIJJ)V", _executor_get_datetimev2_result));
+                                JDBC_EXECUTOR_COPY_BATCH_SIGNATURE,
+                                _executor_get_datetimev2_result));
 
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchDecimalV2Result",
-                                "(Ljava/lang/Object;ZIJJ)V", _executor_get_decimalv2_result));
+                                JDBC_EXECUTOR_COPY_BATCH_SIGNATURE,
+                                _executor_get_decimalv2_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchDecimal32Result",
                                 "(Ljava/lang/Object;ZIJJI)V", _executor_get_decimal32_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchDecimal64Result",
