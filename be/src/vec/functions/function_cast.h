@@ -1767,7 +1767,7 @@ protected:
                 check_and_get_column_const<ColumnString>(arguments.back().column.get());
         DataTypePtr type;
         if (!type_col) {
-            // only used in object_util::cast_column
+            // only used in schema_util::cast_column
             // use second arg as type arg
             // since not all types are in the DatatypeFactory
             type = arguments[1].type;

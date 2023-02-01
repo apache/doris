@@ -35,7 +35,7 @@
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-#include "vec/common/object_util.h" // LocalSchemaChangeRecorder
+#include "vec/common/schema_util.h" // LocalSchemaChangeRecorder
 #include "vec/jsonb/serialize.h"
 
 namespace doris {
@@ -101,7 +101,7 @@ Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) 
     _rowset_meta->set_tablet_uid(_context.tablet_uid);
     _rowset_meta->set_tablet_schema(_context.tablet_schema);
     _context.schema_change_recorder =
-            std::make_shared<vectorized::object_util::LocalSchemaChangeRecorder>();
+            std::make_shared<vectorized::schema_util::LocalSchemaChangeRecorder>();
 
     return Status::OK();
 }

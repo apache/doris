@@ -32,7 +32,7 @@ class FileWriter;
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
-namespace vectorized::object_util {
+namespace vectorized::schema_util {
 class LocalSchemaChangeRecorder;
 }
 
@@ -84,7 +84,7 @@ public:
     int32_t get_atomic_num_segment() const override { return _num_segment.load(); }
 
     // Maybe modified by local schema change
-    vectorized::object_util::LocalSchemaChangeRecorder* mutable_schema_change_recorder() {
+    vectorized::schema_util::LocalSchemaChangeRecorder* mutable_schema_change_recorder() {
         return _context.schema_change_recorder.get();
     }
 

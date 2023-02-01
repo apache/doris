@@ -52,7 +52,7 @@ BaseScanner::BaseScanner(RuntimeState* state, RuntimeProfile* profile,
           _scanner_eof(false) {}
 
 Status BaseScanner::open() {
-    _full_base_schema_view.reset(new vectorized::object_util::FullBaseSchemaView);
+    _full_base_schema_view.reset(new vectorized::schema_util::FullBaseSchemaView);
     RETURN_IF_ERROR(init_expr_ctxes());
     if (_params.__isset.strict_mode) {
         _strict_mode = _params.strict_mode;
@@ -276,7 +276,7 @@ Status BaseScanner::_materialize_dest_block(vectorized::Block* dest_block) {
             // type conflict free path, always cast to original type
             if (!column_type_name.type->equals(*original_type)) {
                 vectorized::ColumnPtr column_ptr;
-                RETURN_IF_ERROR(vectorized::object_util::cast_column(column_type_name,
+                RETURN_IF_ERROR(vectorized::schema_util::cast_column(column_type_name,
                                                                      original_type, &column_ptr));
                 column_type_name.column = column_ptr;
                 column_type_name.type = original_type;

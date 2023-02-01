@@ -19,7 +19,7 @@
 
 #include "common/status.h"
 #include "util/runtime_profile.h"
-#include "vec/common/object_util.h"
+#include "vec/common/schema_util.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
@@ -129,7 +129,7 @@ protected:
 
     bool _is_dynamic_schema = false;
     // for tracing dynamic schema
-    std::unique_ptr<vectorized::object_util::FullBaseSchemaView> _full_base_schema_view;
+    std::unique_ptr<vectorized::schema_util::FullBaseSchemaView> _full_base_schema_view;
 
 private:
     Status _filter_src_block();
