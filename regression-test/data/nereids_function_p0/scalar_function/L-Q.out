@@ -525,6 +525,39 @@ xxxxxxn
 xxxxxxn
 
 -- !sql --
+\N
+xarchar11
+xarchar11
+xxxchar11
+xxxxxxxnn
+xarchar12
+xarchar12
+xxxchar12
+xxxchar12
+xxxchar13
+xxxxxxr13
+xxxchar13
+xxxxxxxnn
+
+-- !sql --
+\N
+xtring1
+xtring1
+xxxing1
+xxxxxxn
+xtring2
+xtring2
+xxxing2
+xxxing2
+xxxing3
+xxxxxx3
+xxxing3
+xxxxxxn
+
+-- !sql_mask_const --
+xxxnnn
+
+-- !sql --
 xxxx
 xxxxxxxnn
 xxxxxxxnn
@@ -552,6 +585,36 @@ xxxxxxn
 xxxxxxn
 xxxxxxn
 xxxxxxn
+xxxxxxn
+
+-- !sql --
+\N
+varchar1n
+varchar1n
+varchaxnn
+xxxxxxxnn
+varchar1n
+varchar1n
+varchaxnn
+varchaxnn
+varchaxnn
+varxxxxnn
+varchaxnn
+xxxxxxxnn
+
+-- !sql --
+\N
+stringn
+stringn
+strixxn
+xxxxxxn
+stringn
+stringn
+strixxn
+strixxn
+strixxn
+sxxxxxn
+strixxn
 xxxxxxn
 
 -- !sql --
