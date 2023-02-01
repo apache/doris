@@ -933,6 +933,8 @@ void HashJoinNode::_hash_table_init(RuntimeState* state) {
                                                    JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN ||
                                                    JoinOpType::value == TJoinOp::FULL_OUTER_JOIN,
                                            RowRefListWithFlag, RowRefList>>;
+                _probe_row_match_iter.emplace<ForwardIterator<RowRefListType>>();
+
                 if (_build_expr_ctxs.size() == 1 && !_store_null_in_hash_table[0]) {
                     // Single column optimization
                     switch (_build_expr_ctxs[0]->root()->result_type()) {
