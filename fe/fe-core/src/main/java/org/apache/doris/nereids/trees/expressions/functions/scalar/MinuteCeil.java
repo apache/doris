@@ -24,7 +24,6 @@ import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSi
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.base.Preconditions;
@@ -41,19 +40,14 @@ public class MinuteCeil extends ScalarFunction
     public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
             FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE),
             FunctionSignature.ret(DateTimeV2Type.INSTANCE).args(DateTimeV2Type.INSTANCE),
-            FunctionSignature.ret(DateTimeV2Type.INSTANCE).args(DateV2Type.INSTANCE),
             FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE, DateTimeType.INSTANCE),
             FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(DateTimeV2Type.INSTANCE).args(DateTimeV2Type.INSTANCE, DateTimeV2Type.INSTANCE),
             FunctionSignature.ret(DateTimeV2Type.INSTANCE).args(DateTimeV2Type.INSTANCE, IntegerType.INSTANCE),
-            FunctionSignature.ret(DateTimeV2Type.INSTANCE).args(DateV2Type.INSTANCE, DateV2Type.INSTANCE),
-            FunctionSignature.ret(DateTimeV2Type.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(DateTimeType.INSTANCE)
                     .args(DateTimeType.INSTANCE, IntegerType.INSTANCE, DateTimeType.INSTANCE),
             FunctionSignature.ret(DateTimeV2Type.INSTANCE)
-                    .args(DateTimeV2Type.INSTANCE, IntegerType.INSTANCE, DateTimeV2Type.INSTANCE),
-            FunctionSignature.ret(DateTimeV2Type.INSTANCE)
-                    .args(DateV2Type.INSTANCE, IntegerType.INSTANCE, DateV2Type.INSTANCE)
+                    .args(DateTimeV2Type.INSTANCE, IntegerType.INSTANCE, DateTimeV2Type.INSTANCE)
     );
 
     /**
