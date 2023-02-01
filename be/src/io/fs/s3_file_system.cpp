@@ -49,21 +49,20 @@ namespace io {
     }
 #endif
 
-std::shared_ptr<S3FileSystem> S3FileSystem::create(S3Conf s3_conf, ResourceId resource_id) {
-    return std::shared_ptr<S3FileSystem>(
-            new S3FileSystem(std::move(s3_conf), std::move(resource_id)));
+std::shared_ptr<S3FileSystem> S3FileSystem::create(S3Conf s3_conf, std::string id) {
+    return std::shared_ptr<S3FileSystem>(new S3FileSystem(std::move(s3_conf), std::move(id)));
 }
 
-S3FileSystem::S3FileSystem(S3Conf s3_conf, ResourceId resource_id)
+S3FileSystem::S3FileSystem(S3Conf&& s3_conf, std::string&& id)
         : RemoteFileSystem(
                   fmt::format("{}/{}/{}", s3_conf.endpoint, s3_conf.bucket, s3_conf.prefix),
-                  std::move(resource_id), FileSystemType::S3),
+                  std::move(id), FileSystemType::S3),
           _s3_conf(std::move(s3_conf)) {
     if (_s3_conf.prefix.size() > 0 && _s3_conf.prefix[0] == '/') {
         _s3_conf.prefix = _s3_conf.prefix.substr(1);
     }
     _executor = Aws::MakeShared<Aws::Utils::Threading::PooledThreadExecutor>(
-            resource_id.c_str(), config::s3_transfer_executor_pool_size);
+            id.c_str(), config::s3_transfer_executor_pool_size);
 }
 
 S3FileSystem::~S3FileSystem() = default;

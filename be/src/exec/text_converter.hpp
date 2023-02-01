@@ -25,7 +25,6 @@
 #include "runtime/decimalv2_value.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
-#include "runtime/tuple.h"
 #include "text_converter.h"
 #include "util/binary_cast.hpp"
 #include "util/string_parser.hpp"

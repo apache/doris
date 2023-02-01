@@ -434,13 +434,20 @@ struct TimeRound {
         res = origin_date;
         auto ts2 = binary_cast<NativeType, DateValueType>(date);
         auto& ts1 = (DateValueType&)(res);
-
+        if (!ts2.is_valid_date() || !ts1.is_valid_date()) {
+            is_null = true;
+            return;
+        }
         TimeRound<Impl>::template time_round<NativeType, DateValueType>(ts2, period, ts1, is_null);
     }
 
     template <typename NativeType, typename DateValueType>
     static void time_round(NativeType date, Int32 period, NativeType& res, UInt8& is_null) {
         auto ts2 = binary_cast<NativeType, DateValueType>(date);
+        if (!ts2.is_valid_date()) {
+            is_null = true;
+            return;
+        }
         auto& ts1 = (DateValueType&)(res);
         if constexpr (Impl::Unit != WEEK) {
             ts1.from_olap_datetime(FIRST_DAY);

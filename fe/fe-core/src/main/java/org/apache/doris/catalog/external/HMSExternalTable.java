@@ -255,6 +255,7 @@ public class HMSExternalTable extends ExternalTable {
      * get the dla type for scan node to get right information.
      */
     public DLAType getDlaType() {
+        makeSureInitialized();
         return dlaType;
     }
 
