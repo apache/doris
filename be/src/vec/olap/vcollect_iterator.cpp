@@ -242,8 +242,7 @@ Status VCollectIterator::_topn_next(Block* block) {
     MutableBlock mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
 
     size_t first_sort_column_idx = (*_reader->_reader_context.read_orderby_key_columns)[0];
-    const std::vector<uint32_t>* sort_columns =
-        _reader->_reader_context.read_orderby_key_columns;
+    const std::vector<uint32_t>* sort_columns = _reader->_reader_context.read_orderby_key_columns;
 
     BlockRowPosComparator row_pos_comparator(&mutable_block, sort_columns,
                                              _reader->_reader_context.read_orderby_key_reverse);
@@ -309,12 +308,10 @@ Status VCollectIterator::_topn_next(Block* block) {
 
                     int res = 0;
                     for (auto j : *sort_columns) {
-                        DCHECK(block->get_by_position(j)
-                                    .type->equals(*mutable_block.get_datatype_by_position(j)));
-                        res = block->get_by_position(j)
-                                    .column->compare_at(i, last_row_pos,
-                                                        *(mutable_block.get_column_by_position(j)),
-                                                        0);
+                        DCHECK(block->get_by_position(j).type->equals(
+                                *mutable_block.get_datatype_by_position(j)));
+                        res = block->get_by_position(j).column->compare_at(
+                                i, last_row_pos, *(mutable_block.get_column_by_position(j)), 0);
                         if (res) {
                             break;
                         }
@@ -361,8 +358,8 @@ Status VCollectIterator::_topn_next(Block* block) {
             }
 
             // update runtime_predicate
-            if (_reader->_reader_context.use_topn_opt &&
-                changed && sorted_row_pos.size() >= _topn_limit) {
+            if (_reader->_reader_context.use_topn_opt && changed &&
+                sorted_row_pos.size() >= _topn_limit) {
                 // get field value from column
                 size_t last_sorted_row = *sorted_row_pos.rbegin();
                 auto col_ptr = mutable_block.get_column_by_position(first_sort_column_idx).get();
