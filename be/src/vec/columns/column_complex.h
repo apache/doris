@@ -126,7 +126,7 @@ public:
         LOG(FATAL) << "ColumnComplexType get_data_type not implemeted";
     }
 
-    void get_indices_of_non_default_rows(IColumn::Offsets& indices, size_t from,
+    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
                                          size_t limit) const override {
         LOG(FATAL) << "get_indices_of_non_default_rows not implemented";
     }

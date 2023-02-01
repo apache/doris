@@ -27,7 +27,7 @@ suite("test_dynamic_table", "dynamic_table"){
                     ... 
                 )
                 DISTRIBUTED BY HASH(`name`) BUCKETS 10
-                PROPERTIES("replication_num" = "3")
+                PROPERTIES("replication_num" = "1")
             """
         create_none_dynamic_table_result = "success"
     } catch(Exception ex) {
@@ -44,7 +44,7 @@ suite("test_dynamic_table", "dynamic_table"){
                     ... 
                 )
                 DISTRIBUTED BY HASH(`id`) BUCKETS 10
-                PROPERTIES("replication_num" = "3")
+                PROPERTIES("replication_num" = "1")
             """
         create_dynamic_table_assign_not_exist_key_result = "success"
     } catch(Exception ex) {
@@ -62,7 +62,7 @@ suite("test_dynamic_table", "dynamic_table"){
                 )
                 DUPLICATE KEY(`name`)
                 DISTRIBUTED BY HASH(`name`) BUCKETS 10
-                PROPERTIES("replication_num" = "3")
+                PROPERTIES("replication_num" = "1")
         """
 
     def TbName2 = "test_ceate_dymanic_table_2"
@@ -80,7 +80,7 @@ suite("test_dynamic_table", "dynamic_table"){
                 )
                 DUPLICATE KEY(`id`)
                 DISTRIBUTED BY HASH(`id`) BUCKETS 10
-                PROPERTIES("replication_num" = "3")
+                PROPERTIES("replication_num" = "1")
         """
 
     def TbName3 = "test_ceate_dymanic_table_3"
@@ -130,7 +130,7 @@ suite("test_dynamic_table", "dynamic_table"){
             )
             DUPLICATE KEY(`date`)
             DISTRIBUTED BY HASH(`date`) BUCKETS 10
-            PROPERTIES("replication_num" = "3");
+            PROPERTIES("replication_num" = "1");
             """
     }catch(Exception ex) {
         logger.info("create array table, result: " + ex)

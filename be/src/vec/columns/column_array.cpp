@@ -55,7 +55,7 @@ ColumnPtr ColumnArray::index_impl(const PaddedPODArray<T>& indexes, size_t limit
     PaddedPODArray<UInt64>& nested_indexes = nested_indexes_column->get_data();
     nested_indexes.reserve(get_offsets().back());
     auto res = ColumnArray::create(data->clone_empty());
-    Offsets& res_offsets = res->get_offsets();
+    Offsets64& res_offsets = res->get_offsets();
     res_offsets.resize(limit);
     size_t current_offset = 0;
     for (size_t i = 0; i < limit; ++i) {

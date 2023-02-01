@@ -98,7 +98,7 @@ private:
                                      bool is_segcompaction, int64_t begin, int64_t end,
                                      const vectorized::Block* block = nullptr);
     Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
-                                const vectorized::Block* block = nullptr);
+                                  const vectorized::Block* block = nullptr);
     Status _create_segment_writer_for_segcompaction(
             std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t begin, uint64_t end);
 

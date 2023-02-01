@@ -179,8 +179,6 @@ public:
 
     virtual bool is_object() const { return false; }
 
-    bool is_simple() const { return is_int() || is_uint() || is_float() || is_string(); }
-
     /** Unsigned Integers, Date, DateTime. Not nullable.
       */
     virtual bool is_value_represented_by_unsigned_integer() const { return false; }
@@ -326,6 +324,7 @@ struct WhichDataType {
     bool is_function() const { return idx == TypeIndex::Function; }
     bool is_aggregate_function() const { return idx == TypeIndex::AggregateFunction; }
     bool is_variant() const { return idx == TypeIndex::VARIANT; }
+    bool is_simple() const { return is_int() || is_uint() || is_float() || is_string(); }
 };
 
 /// IDataType helpers (alternative for IDataType virtual methods with single point of truth)

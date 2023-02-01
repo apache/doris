@@ -35,7 +35,8 @@ bool DataTypeObject::equals(const IDataType& rhs) const {
     return false;
 }
 
-int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column) const {
+int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column,
+                                                          int be_exec_version) const {
     const auto& column_object = assert_cast<const ColumnObject&>(column);
     assert(column_object.is_finalized());
 
@@ -44,7 +45,7 @@ int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column)
 
     size += sizeof(uint32_t);
     for (const auto& entry : subcolumns) {
-        auto type = entry->data.getLeastCommonType();
+        auto type = entry->data.get_least_common_type();
 
         PColumnMeta column_meta_pb;
         column_meta_pb.set_name(entry->path.get_path());
@@ -54,13 +55,14 @@ int64_t DataTypeObject::get_uncompressed_serialized_bytes(const IColumn& column)
         size += sizeof(uint32_t);
         size += meta_binary.size();
 
-        size += type->get_uncompressed_serialized_bytes(entry->data.get_finalized_column());
+        size += type->get_uncompressed_serialized_bytes(entry->data.get_finalized_column(),
+                                                        be_exec_version);
     }
 
     return size;
 }
 
-char* DataTypeObject::serialize(const IColumn& column, char* buf) const {
+char* DataTypeObject::serialize(const IColumn& column, char* buf, int be_exec_version) const {
     const auto& column_object = assert_cast<const ColumnObject&>(column);
     assert(column_object.is_finalized());
 
@@ -73,7 +75,7 @@ char* DataTypeObject::serialize(const IColumn& column, char* buf) const {
     // 2. serialize each subcolumn in a loop
     for (const auto& entry : subcolumns) {
         // 2.1 serialize subcolumn column meta pb (path and type)
-        auto type = entry->data.getLeastCommonType();
+        auto type = entry->data.get_least_common_type();
 
         PColumnMeta column_meta_pb;
         column_meta_pb.set_name(entry->path.get_path());
@@ -86,13 +88,14 @@ char* DataTypeObject::serialize(const IColumn& column, char* buf) const {
         buf += meta_binary.size();
 
         // 2.2 serialize subcolumn
-        buf = type->serialize(entry->data.get_finalized_column(), buf);
+        buf = type->serialize(entry->data.get_finalized_column(), buf, be_exec_version);
     }
 
     return buf;
 }
 
-const char* DataTypeObject::deserialize(const char* buf, IColumn* column) const {
+const char* DataTypeObject::deserialize(const char* buf, IColumn* column,
+                                        int be_exec_version) const {
     auto column_object = assert_cast<ColumnObject*>(column);
 
     // 1. deserialize num of subcolumns
@@ -112,7 +115,7 @@ const char* DataTypeObject::deserialize(const char* buf, IColumn* column) const 
         // 2.2 deserialize subcolumn
         auto type = DataTypeFactory::instance().create_data_type(column_meta_pb);
         MutableColumnPtr sub_column = type->create_column();
-        buf = type->deserialize(buf, sub_column.get());
+        buf = type->deserialize(buf, sub_column.get(), be_exec_version);
 
         // add subcolumn to column_object
         PathInData key {column_meta_pb.name()};

@@ -71,10 +71,10 @@ public enum PrimitiveType {
     // Aligning to 16 bytes total.
     STRUCT("STRUCT", 16, TPrimitiveType.STRUCT),
     STRING("STRING", 16, TPrimitiveType.STRING),
+    VARIANT("VARIANT", 24, TPrimitiveType.VARIANT),
     // Unsupported scalar types.
     BINARY("BINARY", -1, TPrimitiveType.BINARY),
     ALL("ALL", -1, TPrimitiveType.INVALID_TYPE);
-    VARIANT("VARIANT", 24, TPrimitiveType.VARIANT),
 
 
     private static final int DATE_INDEX_LEN = 3;
@@ -1116,7 +1116,7 @@ public enum PrimitiveType {
         return this == HLL || this == BITMAP;
     }
 
-    public boolean isVariantType(){
+    public boolean isVariantType() {
         return this == VARIANT;
     }
 

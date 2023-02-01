@@ -87,7 +87,7 @@ public:
     const char* get_family_name() const override { return "Array"; }
     bool is_column_array() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }
-    TypeIndex get_data_type() const { return TypeIndex::Array; }
+    TypeIndex get_data_type() const override { return TypeIndex::Array; }
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override;
     Field operator[](size_t n) const override;
@@ -186,7 +186,8 @@ public:
                        ->get_number_of_dimensions(); /// Every modern C++ compiler optimizes tail recursion.
     }
 
-    void get_indices_of_non_default_rows(Offsets& indices, size_t from, size_t limit) const {
+    void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
+                                         size_t limit) const override {
         return get_indices_of_non_default_rows_impl<ColumnArray>(indices, from, limit);
     }
 

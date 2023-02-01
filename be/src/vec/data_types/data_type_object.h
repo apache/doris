@@ -39,13 +39,14 @@ public:
     bool get_is_parametric() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }
     bool have_subtypes() const override { return true; };
-    int64_t get_uncompressed_serialized_bytes(const IColumn& column) const override;
+    int64_t get_uncompressed_serialized_bytes(const IColumn& column,
+                                              int be_exec_version) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override {
         const auto& column_object = assert_cast<const ColumnObject&>(column);
         return "Variant: " + column_object.get_keys_str();
     }
-    char* serialize(const IColumn& column, char* buf) const override;
-    const char* deserialize(const char* buf, IColumn* column) const override;
+    char* serialize(const IColumn& column, char* buf, int be_exec_version) const override;
+    const char* deserialize(const char* buf, IColumn* column, int be_exec_version) const override;
     [[noreturn]] Field get_default() const override {
         LOG(FATAL) << "Method getDefault() is not implemented for data type " << get_name();
     }

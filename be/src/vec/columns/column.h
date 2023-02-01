@@ -454,18 +454,19 @@ public:
         for (size_t i = 0; i < length; ++i) insert(field);
     }
     /// Returns indices of values in column, that not equal to default value of column.
-    virtual void get_indices_of_non_default_rows(Offsets& indices, size_t from,
+    virtual void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
                                                  size_t limit) const = 0;
 
     template <typename Derived>
-    void get_indices_of_non_default_rows_impl(Offsets& indices, size_t from, size_t limit) const;
+    void get_indices_of_non_default_rows_impl(IColumn::Offsets64& indices, size_t from,
+                                              size_t limit) const;
 
     /// Returns column with @total_size elements.
     /// In result column values from current column are at positions from @offsets.
     /// Other values are filled by @default_value.
     /// @shift means how much rows to skip from the beginning of current column.
     /// Used to create full column from sparse.
-    virtual Ptr create_with_offsets(const Offsets& offsets, const Field& default_field,
+    virtual Ptr create_with_offsets(const Offsets64& offsets, const Field& default_field,
                                     size_t total_rows, size_t shift) const;
 
     /** Split column to smaller columns. Each value goes to column index, selected by corresponding element of 'selector'.

@@ -682,8 +682,7 @@ Block Block::copy_block(const std::vector<int>& column_offset) const {
     return columns_with_type_and_name;
 }
 
-void Block::append_block_by_selector(MutableBlock* dst,
-                                     const IColumn::Selector& selector) const {
+void Block::append_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const {
     if (dst->get_block_type() == BlockType::DYNAMIC) {
         object_util::align_append_block_by_selector(dst, this, selector);
         return;

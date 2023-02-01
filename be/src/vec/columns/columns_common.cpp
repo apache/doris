@@ -279,4 +279,19 @@ INSTANTIATE(Float64, ColumnArray::Offset64)
 
 #undef INSTANTIATE
 
+namespace detail {
+template <typename T>
+const PaddedPODArray<T>* get_indexes_data(const IColumn& indexes) {
+    auto* column = typeid_cast<const ColumnVector<T>*>(&indexes);
+    if (column) return &column->get_data();
+
+    return nullptr;
+}
+
+template const PaddedPODArray<UInt8>* get_indexes_data<UInt8>(const IColumn& indexes);
+template const PaddedPODArray<UInt16>* get_indexes_data<UInt16>(const IColumn& indexes);
+template const PaddedPODArray<UInt32>* get_indexes_data<UInt32>(const IColumn& indexes);
+template const PaddedPODArray<UInt64>* get_indexes_data<UInt64>(const IColumn& indexes);
+} // namespace detail
+
 } // namespace doris::vectorized

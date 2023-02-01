@@ -22,7 +22,6 @@
 #include <vec/columns/column_array.h>
 #include <vec/columns/column_nullable.h>
 #include <vec/columns/column_object.h>
-#include <vec/columns/column_sparse.h>
 #include <vec/columns/columns_number.h>
 #include <vec/common/field_visitors.h>
 #include <vec/common/hash_table/hash_set.h>
@@ -208,6 +207,7 @@ public:
         have_nulls = true;
         return 0;
     }
+    size_t operator()(const Int128I& x) { LOG(FATAL) << "not implemented"; }
     template <typename T>
     size_t operator()(const T&) {
         Field::EnumToType<Field::Types::Array>::Type a;
@@ -215,11 +215,11 @@ public:
         type_indexes.insert(TypeId<NearestFieldType<T>>::value);
         return 0;
     }
-    Status getScalarType(DataTypePtr* type) const {
+    Status get_scalar_type(DataTypePtr* type) const {
         return get_least_supertype(type_indexes, type, true /*compatible with string type*/);
     }
-    bool haveNulls() const { return have_nulls; }
-    bool needConvertField() const { return field_types.size() > 1; }
+    bool contain_nulls() const { return have_nulls; }
+    bool need_convert_field() const { return field_types.size() > 1; }
 
 private:
     phmap::flat_hash_set<TypeIndex> type_indexes;
@@ -232,13 +232,13 @@ Status get_field_info(const Field& field, FieldInfo* info) {
     FieldVisitorToScalarType to_scalar_type_visitor;
     apply_visitor(to_scalar_type_visitor, field);
     DataTypePtr type = nullptr;
-    RETURN_IF_ERROR(to_scalar_type_visitor.getScalarType(&type));
+    RETURN_IF_ERROR(to_scalar_type_visitor.get_scalar_type(&type));
     // array item's dimension may missmatch, eg. [1, 2, [1, 2, 3]]
     Status num_to_dimensions_status;
     *info = {
             type,
-            to_scalar_type_visitor.haveNulls(),
-            to_scalar_type_visitor.needConvertField(),
+            to_scalar_type_visitor.contain_nulls(),
+            to_scalar_type_visitor.need_convert_field(),
             apply_visitor(FieldVisitorToNumberOfDimensions(&num_to_dimensions_status), field),
     };
     RETURN_IF_ERROR(num_to_dimensions_status);
@@ -286,7 +286,7 @@ Status ColumnObject::Subcolumn::insert(Field field) {
 }
 
 void ColumnObject::Subcolumn::add_new_column_part(DataTypePtr type) {
-    data.push_back(ColumnSparse::create(type->create_column()));
+    data.push_back(type->create_column());
     least_common_type = LeastCommonType {std::move(type)};
 }
 
@@ -296,7 +296,7 @@ Status ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
         insertDefault();
         return Status::OK();
     }
-    auto column_dim = least_common_type.getDimensions();
+    auto column_dim = least_common_type.get_dimensions();
     auto value_dim = info.num_dimensions;
     if (is_nothing(least_common_type.getBase())) {
         column_dim = value_dim;
@@ -375,8 +375,7 @@ Status ColumnObject::Subcolumn::insertRangeFrom(const Subcolumn& src, size_t sta
 }
 
 bool ColumnObject::Subcolumn::is_finalized() const {
-    return data.empty() ||
-           (data.size() == 1 && !data[0]->is_sparse() && num_of_defaults_in_prefix == 0);
+    return data.empty() || (data.size() == 1 && num_of_defaults_in_prefix == 0);
 }
 
 template <typename Func>
@@ -401,7 +400,7 @@ void ColumnObject::Subcolumn::finalize() {
         return;
     }
     if (data.size() == 1 && num_of_defaults_in_prefix == 0) {
-        data[0] = data[0]->convert_to_full_column_if_sparse();
+        data[0] = data[0]->convert_to_full_column_if_const();
         return;
     }
     const auto& to_type = least_common_type.get();
@@ -410,7 +409,7 @@ void ColumnObject::Subcolumn::finalize() {
         result_column->insert_many_defaults(num_of_defaults_in_prefix);
     }
     for (auto& part : data) {
-        part = part->convert_to_full_column_if_sparse();
+        part = part->convert_to_full_column_if_const();
         auto from_type = get_data_type_by_column(*part);
         size_t part_size = part->size();
         if (!from_type->equals(*to_type)) {
@@ -478,7 +477,7 @@ Field ColumnObject::Subcolumn::getLastField() const {
     return (*last_part)[last_part->size() - 1];
 }
 
-ColumnObject::Subcolumn ColumnObject::Subcolumn::recreateWithDefaultValues(
+ColumnObject::Subcolumn ColumnObject::Subcolumn::recreate_with_default_values(
         const FieldInfo& field_info) const {
     auto scalar_type = field_info.scalar_type;
     if (is_nullable) {
@@ -594,7 +593,7 @@ Status ColumnObject::try_insert(const Field& field) {
         auto* subcolumn = get_subcolumn(key);
         if (!subcolumn) {
             return Status::InvalidArgument(
-                        fmt::format("Failed to find sub column {}", key.get_path()));
+                    fmt::format("Failed to find sub column {}", key.get_path()));
         }
         RETURN_IF_ERROR(subcolumn->insert(value));
     }
@@ -655,7 +654,7 @@ Status ColumnObject::try_insert_range_from(const IColumn& src, size_t start, siz
             auto* subcolumn = src_object.get_subcolumn(entry->path);
             if (!subcolumn) {
                 return Status::InvalidArgument(
-                            fmt::format("Failed to find sub column {}", entry->path.get_path())); 
+                        fmt::format("Failed to find sub column {}", entry->path.get_path()));
             }
             RETURN_IF_ERROR(entry->data.insertRangeFrom(*subcolumn, start, length));
         } else {
@@ -666,25 +665,25 @@ Status ColumnObject::try_insert_range_from(const IColumn& src, size_t start, siz
         if (!has_subcolumn(entry->path)) {
             bool succ = false;
             if (entry->path.has_nested_part()) {
-                const auto& base_type = entry->data.getLeastCommonTypeBase();
+                const auto& base_type = entry->data.get_least_common_typeBase();
                 FieldInfo field_info {
                         .scalar_type = base_type,
                         .have_nulls = base_type->is_nullable(),
                         .need_convert = false,
-                        .num_dimensions = entry->data.getDimensions(),
+                        .num_dimensions = entry->data.get_dimensions(),
                 };
                 succ = add_nested_subcolumn(entry->path, field_info, num_rows);
             } else {
                 succ = add_sub_column(entry->path, num_rows);
             }
             if (!succ) {
-                return Status::InvalidArgument(fmt::format(
-                                "Failed to add column {}", entry->path.get_path()));
+                return Status::InvalidArgument(
+                        fmt::format("Failed to add column {}", entry->path.get_path()));
             }
             auto* subcolumn = get_subcolumn(entry->path);
             if (!subcolumn) {
                 return Status::InvalidArgument(
-                            fmt::format("Failed to find sub column {}", entry->path.get_path())); 
+                        fmt::format("Failed to find sub column {}", entry->path.get_path()));
             }
             RETURN_IF_ERROR(subcolumn->insertRangeFrom(entry->data, start, length));
         }
@@ -763,7 +762,7 @@ bool ColumnObject::add_nested_subcolumn(const PathInData& key, const FieldInfo& 
         const auto* leaf = subcolumns.find_leaf(nested_node, [&](const auto&) { return true; });
         assert(leaf);
         /// Recreate subcolumn with default values and the same sizes of arrays.
-        auto new_subcolumn = leaf->data.recreateWithDefaultValues(field_info);
+        auto new_subcolumn = leaf->data.recreate_with_default_values(field_info);
         /// It's possible that we have already inserted value from current row
         /// to this subcolumn. So, adjust size to expected.
         if (new_subcolumn.size() > new_size)
@@ -810,7 +809,7 @@ void ColumnObject::finalize() {
     size_t old_size = size();
     Subcolumns new_subcolumns;
     for (auto&& entry : subcolumns) {
-        const auto& least_common_type = entry->data.getLeastCommonType();
+        const auto& least_common_type = entry->data.get_least_common_type();
         /// Do not add subcolumns, which consists only from NULLs.
         if (is_nothing(getBaseTypeOfArray(least_common_type))) continue;
         entry->data.finalize();

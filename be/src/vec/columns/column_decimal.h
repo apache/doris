@@ -189,7 +189,7 @@ public:
     template <typename Type>
     ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
 
-    void get_indices_of_non_default_rows(IColumn::Offsets& indices, size_t from,
+    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
                                          size_t limit) const override {
         return this->template get_indices_of_non_default_rows_impl<Self>(indices, from, limit);
     }

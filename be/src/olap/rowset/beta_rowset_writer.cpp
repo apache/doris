@@ -35,8 +35,8 @@
 #include "olap/storage_engine.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker_limiter.h"
-
 #include "vec/common/object_util.h" // LocalSchemaChangeRecorder
+#include "vec/jsonb/serialize.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -100,7 +100,8 @@ Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) 
     }
     _rowset_meta->set_tablet_uid(_context.tablet_uid);
     _rowset_meta->set_tablet_schema(_context.tablet_schema);
-    _context.schema_change_recorder = std::make_shared<vectorized::object_util::LocalSchemaChangeRecorder>();
+    _context.schema_change_recorder =
+            std::make_shared<vectorized::object_util::LocalSchemaChangeRecorder>();
 
     return Status::OK();
 }
@@ -713,7 +714,8 @@ RowsetSharedPtr BetaRowsetWriter::build() {
             new_schema->append_column(col);
         }
         new_schema->set_schema_version(_context.schema_change_recorder->schema_version());
-        if (_context.schema_change_recorder->schema_version() > _context.tablet_schema->schema_version()) {
+        if (_context.schema_change_recorder->schema_version() >
+            _context.tablet_schema->schema_version()) {
             _context.tablet->update_max_version_schema(new_schema);
         }
         _rowset_meta->set_tablet_schema(new_schema);
@@ -875,9 +877,8 @@ Status BetaRowsetWriter::_do_create_segment_writer(
     return Status::OK();
 }
 
-Status BetaRowsetWriter::_create_segment_writer(
-        std::unique_ptr<segment_v2::SegmentWriter>* writer,
-        const vectorized::Block* block) {
+Status BetaRowsetWriter::_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
+                                                const vectorized::Block* block) {
     size_t total_segment_num = _num_segment - _segcompacted_point + 1 + _num_segcompacted;
     if (UNLIKELY(total_segment_num > config::max_segment_num_per_rowset)) {
         LOG(WARNING) << "too many segments in rowset."

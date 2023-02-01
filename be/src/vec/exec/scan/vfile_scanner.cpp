@@ -426,7 +426,7 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
             if (slot_desc->type().is_variant()) {
                 continue;
             }
-             // cast column
+            // cast column
             auto& column_type_name = _src_block.get_by_position(dest_index);
             auto dest_type = vectorized::DataTypeFactory::instance().create_data_type(
                     slot_desc->type(), slot_desc->is_nullable());
@@ -442,10 +442,10 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
             // PT1 => dest primitive type
             RETURN_IF_ERROR(ctx->execute(&_src_block, &result_column_id));
             bool is_origin_column = result_column_id < origin_column_num;
-            column_ptr =
-                    is_origin_column && _src_block_mem_reuse
-                            ? _src_block.get_by_position(result_column_id).column->clone_resized(rows)
-                            : _src_block.get_by_position(result_column_id).column;
+            column_ptr = is_origin_column && _src_block_mem_reuse
+                                 ? _src_block.get_by_position(result_column_id)
+                                           .column->clone_resized(rows)
+                                 : _src_block.get_by_position(result_column_id).column;
         }
         // column_ptr maybe a ColumnConst, convert it to a normal column
         column_ptr = column_ptr->convert_to_full_column_if_const();
@@ -531,8 +531,8 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
             }
             DCHECK(column_type_name.column != nullptr);
             block->insert(vectorized::ColumnWithTypeAndName(std::move(column_type_name.column),
-                                                                 std::move(column_type_name.type),
-                                                                 column_type_name.name));
+                                                            std::move(column_type_name.type),
+                                                            column_type_name.name));
         }
     }
 
@@ -810,8 +810,8 @@ Status VFileScanner::_init_expr_ctxes() {
         }
     }
     // If last slot is_variant from stream plan which indicate table is dynamic schema
-    _is_dynamic_schema = _output_tuple_desc &&
-                _output_tuple_desc->slots().back()->type().is_variant();
+    _is_dynamic_schema =
+            _output_tuple_desc && _output_tuple_desc->slots().back()->type().is_variant();
     if (_is_dynamic_schema) {
         // should not resuse Block since Block is variable
         _src_block_mem_reuse = false;

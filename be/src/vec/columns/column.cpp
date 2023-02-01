@@ -81,7 +81,7 @@ bool is_column_const(const IColumn& column) {
     return check_column<ColumnConst>(column);
 }
 
-ColumnPtr IColumn::create_with_offsets(const Offsets& offsets, const Field& default_field,
+ColumnPtr IColumn::create_with_offsets(const Offsets64& offsets, const Field& default_field,
                                        size_t total_rows, size_t shift) const {
     if (offsets.size() + shift != size()) {
         LOG(FATAL) << fmt::format(

@@ -92,7 +92,7 @@ Array create_empty_array_field(size_t num_dimensions) {
 //         Columns tuple_columns;
 //         for (const auto& entry : subcolumns) {
 //             tuple_paths.emplace_back(entry->path);
-//             tuple_types.emplace_back(entry->data.getLeastCommonType());
+//             tuple_types.emplace_back(entry->data.get_least_common_type());
 //             tuple_columns.emplace_back(entry->data.get_finalized_column_ptr());
 //         }
 //         std::tie(column.column, column.type) =
@@ -100,7 +100,7 @@ Array create_empty_array_field(size_t num_dimensions) {
 //     }
 //     return Status::OK();
 // }
-// 
+//
 // DataTypePtr unflatten_tuple(const PathsInData& paths, const DataTypes& tuple_types) {
 //     assert(paths.size() == tuple_types.size());
 //     Columns tuple_columns;
@@ -442,7 +442,7 @@ void flatten_object(Block& block, size_t pos, bool replace_if_duplicated) {
     Names names;
     for (auto& subcolumn : column_object_ptr->get_subcolumns()) {
         subcolumns.push_back(subcolumn->data.get_finalized_column().get_ptr());
-        types.push_back(subcolumn->data.getLeastCommonType());
+        types.push_back(subcolumn->data.get_least_common_type());
         names.push_back(subcolumn->path.get_path());
     }
     block.erase(pos);
@@ -647,8 +647,6 @@ Status send_add_columns_rpc(ColumnsWithTypeAndName column_type_names,
     return Status::OK();
 }
 
-
-
 template <typename ColumnInserterFn>
 void align_block_by_name_and_type(MutableBlock* mblock, const Block* block, size_t row_cnt,
                                   ColumnInserterFn inserter) {
@@ -682,7 +680,7 @@ void align_block_by_name_and_type(MutableBlock* mblock, const Block* block, size
     // Check all columns rows matched
     num_rows = mblock->rows();
     for (size_t i = 0; i < mblock->columns(); ++i) {
-        DCHECK_EQ(mblock->mutable_columns()[i]->size(), num_rows); 
+        DCHECK_EQ(mblock->mutable_columns()[i]->size(), num_rows);
     }
 #endif
 }
@@ -702,18 +700,18 @@ void align_block_by_name_and_type(MutableBlock* mblock, const Block* block, size
                                  });
 }
 
-void align_append_block_by_selector(MutableBlock* mblock,
-                const Block* block, const IColumn::Selector& selector) {
+void align_append_block_by_selector(MutableBlock* mblock, const Block* block,
+                                    const IColumn::Selector& selector) {
     // append by selector with alignment
     assert(!mblock->get_names().empty());
-    align_block_by_name_and_type(mblock, block, selector.size(), 
-                                [&selector](const IColumn& src, MutableColumnPtr& dst) {
-                                    src.append_data_by_selector(dst, selector);
-                                });
+    align_block_by_name_and_type(mblock, block, selector.size(),
+                                 [&selector](const IColumn& src, MutableColumnPtr& dst) {
+                                     src.append_data_by_selector(dst, selector);
+                                 });
 }
 
 void LocalSchemaChangeRecorder::add_extended_columns(const TabletColumn& new_column,
-                                                          int32_t schema_version) {
+                                                     int32_t schema_version) {
     std::lock_guard<std::mutex> lock(_lock);
     _schema_version = std::max(_schema_version, schema_version);
     auto it = _extended_columns.find(new_column.name());

@@ -123,7 +123,7 @@ bool try_insert_default_from_nested(const std::shared_ptr<Node>& entry,
     auto last_field = leaf->data.getLastField();
     if (last_field.is_null()) return false;
 
-    const auto& least_common_type = entry->data.getLeastCommonType();
+    const auto& least_common_type = entry->data.get_least_common_type();
     size_t num_dimensions = object_util::get_number_of_dimensions(*least_common_type);
     assert(num_skipped_nested < num_dimensions);
 
@@ -172,7 +172,8 @@ Status parse_json_to_variant(IColumn& column, const char* src, size_t length,
         }
         if (is_nothing(field_info.scalar_type)) continue;
         if (!paths_set.insert(paths[i].get_path()).second) {
-            return Status::DataQualityError(fmt::format("Object has ambiguous path {}, {}", paths[i].get_path()));
+            return Status::DataQualityError(
+                    fmt::format("Object has ambiguous path {}, {}", paths[i].get_path()));
         }
 
         if (!column_object.has_subcolumn(paths[i])) {
@@ -185,12 +186,13 @@ Status parse_json_to_variant(IColumn& column, const char* src, size_t length,
         auto* subcolumn = column_object.get_subcolumn(paths[i]);
         if (!subcolumn) {
             return Status::DataQualityError(
-                        fmt::format("Failed to find sub column {}", paths[i].get_path()));
+                    fmt::format("Failed to find sub column {}", paths[i].get_path()));
         }
         assert(subcolumn->size() == num_rows);
         Status st = subcolumn->insert(std::move(values[i]), std::move(field_info));
         if (st.is_invalid_argument()) {
-            return Status::DataQualityError(fmt::format("Failed to insert field {}", st.get_error_msg()));
+            return Status::DataQualityError(
+                    fmt::format("Failed to insert field {}", st.to_string()));
         }
         RETURN_IF_ERROR(st);
     }
