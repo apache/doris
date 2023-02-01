@@ -76,7 +76,6 @@ suite("test_create_mtmv") {
 
     assertEquals 'SUCCESS', state, show_task_result.last().toString()
     order_qt_select "SELECT * FROM ${mvName}"
-<<<<<<< HEAD
 
     sql """
         DROP MATERIALIZED VIEW ${mvName}
