@@ -45,7 +45,7 @@ std::string cast_to_string(T value, int scale) {
         std::stringstream ss;
         vectorized::write_text<int64_t>((int64_t)value, scale, ss);
         return ss.str();
-    } else if constexpr (primitive_type == TYPE_DECIMAL128I) {
+    } else if constexpr (primitive_type == TYPE_DECIMAL128I || primitive_type == TYPE_DECIMALV2) {
         std::stringstream ss;
         vectorized::write_text<int128_t>((int128_t)value, scale, ss);
         return ss.str();
