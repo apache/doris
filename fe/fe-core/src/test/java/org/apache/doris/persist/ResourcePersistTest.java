@@ -17,7 +17,8 @@
 
 package org.apache.doris.persist;
 
-import org.apache.doris.policy.StoragePolicy;
+import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.S3Resource;
 
 import org.junit.Assert;
 import org.junit.Test;
@@ -29,30 +30,26 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 
-public class StoragePolicyPersistTest {
+public class ResourcePersistTest {
     @Test
     public void test() throws IOException {
-        long cooldownTime = System.currentTimeMillis();
-        StoragePolicy storagePolicy = new StoragePolicy(1, "test_policy", "resource1", cooldownTime, "-1", -1);
-
-        // 1. Write objects to file
-        File file = new File("./StoregaPolicyPersistTest");
+        Resource resource = new S3Resource("s3_resource");
+        File file = new File("./ResourcePersistTest");
         try {
+            // 1. Write objects to file
             file.createNewFile();
             DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
-            storagePolicy.write(dos);
+            resource.write(dos);
             dos.flush();
             dos.close();
 
             // 2. Read objects from file
             DataInputStream dis = new DataInputStream(new FileInputStream(file));
-            StoragePolicy storagePolicy1 = (StoragePolicy) StoragePolicy.read(dis);
+            S3Resource resource1 = (S3Resource) Resource.read(dis);
             dis.close();
-            Assert.assertEquals(cooldownTime, storagePolicy1.getCooldownTimestampMs());
-            Assert.assertTrue(storagePolicy1.getLock() != null);
-
-            StoragePolicy clonePolicy = storagePolicy1.clone();
-            Assert.assertEquals(cooldownTime, clonePolicy.getCooldownTimestampMs());
+            Assert.assertEquals(resource1.toString(), resource.toString());
+            resource1.readLock();
+            resource1.readUnlock();
         } finally {
             file.delete();
         }

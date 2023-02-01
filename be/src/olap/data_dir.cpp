@@ -17,6 +17,8 @@
 
 #include "olap/data_dir.h"
 
+#include "olap/storage_policy.h"
+
 #ifndef __APPLE__
 #include <mntent.h>
 #include <sys/statfs.h>
@@ -836,7 +838,7 @@ void DataDir::perform_remote_rowset_gc() {
         auto rowset_id = key.substr(REMOTE_ROWSET_GC_PREFIX.size());
         RemoteRowsetGcPB gc_pb;
         gc_pb.ParseFromString(val);
-        auto fs = io::FileSystemMap::instance()->get(gc_pb.resource_id());
+        auto fs = get_filesystem(gc_pb.resource_id());
         if (!fs) {
             LOG(WARNING) << "Cannot get file system: " << gc_pb.resource_id();
             continue;
@@ -847,8 +849,7 @@ void DataDir::perform_remote_rowset_gc() {
             auto seg_path = BetaRowset::remote_segment_path(gc_pb.tablet_id(), rowset_id, i);
             st = fs->delete_file(seg_path);
             if (!st.ok()) {
-                LOG(WARNING) << st.to_string();
-                break;
+                LOG(WARNING) << "failed to perform remote rowset gc, err=" << st;
             }
         }
         if (st.ok()) {
@@ -871,12 +872,13 @@ void DataDir::perform_remote_tablet_gc() {
     std::vector<std::string> deleted_keys;
     for (auto& [key, resource] : tablet_gc_kvs) {
         auto tablet_id = key.substr(REMOTE_TABLET_GC_PREFIX.size());
-        auto fs = io::FileSystemMap::instance()->get(resource);
+        auto fs = get_filesystem(resource);
         if (!fs) {
             LOG(WARNING) << "could not get file system. resource_id=" << resource;
             continue;
         }
         auto st = fs->delete_directory(DATA_PREFIX + '/' + tablet_id);
+        LOG(INFO) << "perform remote tablet gc. tablet_id=" << tablet_id;
         if (st.ok()) {
             deleted_keys.push_back(std::move(key));
         } else {

@@ -15,31 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "io/fs/file_system_map.h"
+package org.apache.doris.common.util;
 
-#include <mutex>
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
-namespace doris {
-namespace io {
+/*
+ * This Lock is for exposing the getOwner() method,
+ * which is a protected method of ReentrantLock
+ */
+public class QueryableReentrantReadWriteLock extends ReentrantReadWriteLock {
+    private static final long serialVersionUID = 1L;
 
-FileSystemMap* FileSystemMap::instance() {
-    static FileSystemMap map;
-    return &map;
-}
-
-void FileSystemMap::insert(ResourceId id, FileSystemSPtr fs) {
-    std::unique_lock wlock(_mu);
-    _map.try_emplace(std::move(id), std::move(fs));
-}
-
-FileSystemSPtr FileSystemMap::get(const ResourceId& id) {
-    std::shared_lock rlock(_mu);
-    auto it = _map.find(id);
-    if (it != _map.end()) {
-        return it->second;
+    public QueryableReentrantReadWriteLock() {
+        super();
     }
-    return nullptr;
-}
 
-} // namespace io
-} // namespace doris
+    public QueryableReentrantReadWriteLock(boolean fair) {
+        super(fair);
+    }
+
+    @Override
+    public Thread getOwner() {
+        return super.getOwner();
+    }
+}

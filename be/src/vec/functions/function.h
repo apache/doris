@@ -532,7 +532,14 @@ public:
     bool can_fast_execute() const override {
         return function->get_name() == "eq" || function->get_name() == "ne" ||
                function->get_name() == "lt" || function->get_name() == "gt" ||
-               function->get_name() == "le" || function->get_name() == "ge";
+               function->get_name() == "le" || function->get_name() == "ge" ||
+               function->get_name() == "match_any" || function->get_name() == "match_all" ||
+               function->get_name() == "match_phrase" ||
+               function->get_name() == "match_element_eq" ||
+               function->get_name() == "match_element_lt" ||
+               function->get_name() == "match_element_gt" ||
+               function->get_name() == "match_element_le" ||
+               function->get_name() == "match_element_ge";
     }
 
     bool is_deterministic_in_scope_of_query() const override {
