@@ -114,9 +114,9 @@ public:
         _ctx_finish_cv.notify_one();
     }
 
-    const int get_num_running_scanners() const { return _num_running_scanners; }
+    int get_num_running_scanners() const { return _num_running_scanners; }
 
-    const int get_num_scheduling_ctx() const { return _num_scheduling_ctx; }
+    int get_num_scheduling_ctx() const { return _num_scheduling_ctx; }
 
     void get_next_batch_of_scanners(std::list<VScanner*>* current_run);
 

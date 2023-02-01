@@ -81,9 +81,9 @@ CloudFileCachePtr FileCacheFactory::get_disposable_cache(const IFileCache::Key& 
     return _disposable_cache[KeyHash()(key) % _caches.size()].get();
 }
 
-std::vector<IFileCache::QueryContextHolderPtr> FileCacheFactory::get_query_context_holders(
+std::vector<IFileCache::QueryFileCacheContextHolderPtr> FileCacheFactory::get_query_context_holders(
         const TUniqueId& query_id) {
-    std::vector<IFileCache::QueryContextHolderPtr> holders;
+    std::vector<IFileCache::QueryFileCacheContextHolderPtr> holders;
     for (const auto& cache : _caches) {
         holders.push_back(cache->get_query_context_holder(query_id));
     }
