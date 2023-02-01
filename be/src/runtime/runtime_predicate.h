@@ -147,11 +147,13 @@ private:
     }
 
     static std::string get_decimalv2_value(const Field& field) {
-        // can NOT use PrimitiveTypeTraits<TYPE_DECIMAL128I>::CppType since
+        // can NOT use PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType since
         //   it is DecimalV2Value and Decimal128 can not convert to it implicitly
         using ValueType = Decimal128::NativeType;
         auto v = field.get<DecimalField<Decimal128>>();
-        return cast_to_string<TYPE_DECIMALV2, ValueType>(v.get_value(), v.get_scale());
+        // use TYPE_DECIMAL128I instead of TYPE_DECIMALV2 since v.get_scale()
+        //   is always 9 for DECIMALV2
+        return cast_to_string<TYPE_DECIMAL128I, ValueType>(v.get_value(), v.get_scale());
     }
 
     static std::string get_decimal32_value(const Field& field) {
