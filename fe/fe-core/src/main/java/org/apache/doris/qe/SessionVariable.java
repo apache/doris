@@ -688,7 +688,7 @@ public class SessionVariable implements Serializable, Writable {
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
-    public void initFuzzyModeVariables(int pullRequestId) {
+    public void initFuzzyModeVariables() {
         Random random = new Random(System.currentTimeMillis());
         this.parallelExecInstanceNum = random.nextInt(8) + 1;
         this.enableLocalExchange = random.nextBoolean();
@@ -715,12 +715,14 @@ public class SessionVariable implements Serializable, Writable {
                 break;
         }
         // pull_request_id default value is 0
-        if (pullRequestId % 2 == 1) {
+        if (Config.pull_request_id % 2 == 1) {
             this.enablePipelineEngine = true;
             this.enableFoldConstantByBe = true;
+            this.enableTwoPhaseReadOpt = false;
         } else {
             this.enablePipelineEngine = false;
             this.enableFoldConstantByBe = false;
+            this.enableTwoPhaseReadOpt = true;
         }
     }
 
