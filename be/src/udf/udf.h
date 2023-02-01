@@ -913,28 +913,6 @@ struct CollectionVal : public AnyVal {
     }
 };
 
-struct MapVal : public AnyVal {
-    void* key;
-    void* value;
-    uint64_t length;
-    // item has no null value if has_null is false.
-    // item ```may``` has null value if has_null is true.
-    //    bool has_null;
-    // null bitmap
-    bool* key_null_signs;
-    bool* value_null_signs;
-
-    MapVal() = default;
-
-    MapVal(void* k, void* v, uint64_t length) : key(k), value(v), length(length) {};
-
-    static MapVal null() {
-        MapVal val;
-        val.is_null = true;
-        return val;
-    }
-};
-
 typedef uint8_t* BufferVal;
 } // namespace doris_udf
 
@@ -952,7 +930,6 @@ using doris_udf::DateTimeVal;
 using doris_udf::HllVal;
 using doris_udf::FunctionContext;
 using doris_udf::CollectionVal;
-using doris_udf::MapVal;
 using doris_udf::Decimal32Val;
 using doris_udf::Decimal64Val;
 using doris_udf::Decimal128Val;

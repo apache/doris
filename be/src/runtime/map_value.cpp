@@ -20,20 +20,10 @@
 namespace doris {
 
 ///====================== map-value funcs ======================///
-void MapValue::to_map_val(MapVal* val) const {
-    val->length = _length;
-    val->key = _key_data;
-    val->value = _value_data;
-}
-
 void MapValue::shallow_copy(const MapValue* value) {
     _length = value->_length;
     _key_data = value->_key_data;
     _value_data = value->_value_data;
-}
-
-MapValue MapValue::from_map_val(const MapVal& val) {
-    return MapValue(val.key, val.value, val.length);
 }
 
 } // namespace doris

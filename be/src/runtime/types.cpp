@@ -98,6 +98,7 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
     case TTypeNodeType::MAP: {
         DCHECK(!node.__isset.scalar_type);
         DCHECK_LT(*idx, types.size() - 2);
+	DCHECK(!node.__isset.contains_null);
         type = TYPE_MAP;
         ++(*idx);
         children.push_back(TypeDescriptor(types, idx));
@@ -229,9 +230,6 @@ TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNod
     }
     case TTypeNodeType::MAP: {
         type = TYPE_MAP;
-        if (node.has_contains_null()) {
-            contains_null = node.contains_null();
-        }
         ++(*idx);
         children.push_back(TypeDescriptor(types, idx));
         ++(*idx);

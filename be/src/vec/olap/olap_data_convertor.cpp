@@ -808,7 +808,9 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap() {
 }
 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
-        const ColumnMap* column_map, const DataTypeMap* data_type_map) {
+         const ColumnMap* column_map,
+        const DataTypeMap* data_type_map) {
+
     ColumnPtr key_data = column_map->get_keys_ptr();
     ColumnPtr value_data = column_map->get_values_ptr();
     if (column_map->get_keys().is_nullable()) {
@@ -823,10 +825,8 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
         value_data = val_nullable_column.get_nested_column_ptr();
     }
 
-    const auto& offsets = column_map->get_offsets(); // use keys offsets
-
-    ColumnWithTypeAndName key_typed_column = {key_data, remove_nullable(data_type_map->get_keys()),
-                                              "map.key"};
+    ColumnWithTypeAndName key_typed_column = {
+            key_data, remove_nullable(data_type_map->get_keys()),"map.key"};
     _key_convertor->set_source_column(key_typed_column, _row_pos, _num_rows);
     _key_convertor->convert_to_olap();
 
@@ -835,23 +835,8 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
     _value_convertor->set_source_column(value_typed_column, _row_pos, _num_rows);
     _value_convertor->convert_to_olap();
 
-    MapValue* map_value = _values.data();
-    for (size_t i = 0; i < _num_rows; ++i, ++map_value) {
-        int64_t cur_pos = _row_pos + i;
-        int64_t prev_pos = cur_pos - 1;
-        if (_nullmap && _nullmap[cur_pos]) {
-            continue;
-        }
-        auto single_map_size = offsets[cur_pos] - offsets[prev_pos];
-        new (map_value) MapValue(single_map_size);
-
-        if (single_map_size == 0) {
-            continue;
-        }
-
-        map_value->set_key(const_cast<void*>(_key_convertor->get_data_at(i)));
-        map_value->set_value(const_cast<void*>(_value_convertor->get_data_at(i)));
-    }
+    _results[0] = _key_convertor->get_data();
+    _results[1] = _value_convertor->get_data();
 
     return Status::OK();
 }

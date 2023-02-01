@@ -36,10 +36,11 @@ Status VMapLiteral::prepare(RuntimeState* state, const RowDescriptor& row_desc,
         RETURN_IF_ERROR(_children[idx]->get_const_col(context, &const_col_wrapper));
         const_col_wrapper->column_ptr->get(0, item);
 
-        if ((idx & 1) == 0)
+        if ((idx & 1) == 0) {
             keys.get<Array>().push_back(item);
-        else
+	} else {
             values.get<Array>().push_back(item);
+	}
     }
     map.get<Map>().push_back(keys);
     map.get<Map>().push_back(values);

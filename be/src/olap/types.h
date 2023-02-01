@@ -508,7 +508,7 @@ public:
     }
 
     // todo . is here only to need return 16 for two ptr?
-    const size_t size() const override { return 16; }
+    const size_t size() const override { return sizeof(MapValue); }
 
     FieldType type() const override { return OLAP_FIELD_TYPE_MAP; }
 

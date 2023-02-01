@@ -573,8 +573,8 @@ Status MapFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr
     size_t num_read = *n;
     auto column_key_ptr = column_map->get_keys().assume_mutable();
     auto column_val_ptr = column_map->get_values().assume_mutable();
-    RETURN_IF_ERROR(_key_iterator->next_batch(num_read, column_key_ptr, has_null));
-    RETURN_IF_ERROR(_val_iterator->next_batch(num_read, column_val_ptr, has_null));
+    RETURN_IF_ERROR(_key_iterator->next_batch(&num_read, column_key_ptr, has_null));
+    RETURN_IF_ERROR(_val_iterator->next_batch(&num_read, column_val_ptr, has_null));
 
     if (dst->is_nullable()) {
         auto null_map_ptr =

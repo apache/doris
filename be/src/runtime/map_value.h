@@ -18,18 +18,9 @@
 #pragma once
 
 #include <type_traits>
-
 #include "runtime/primitive_type.h"
 
-namespace doris_udf {
-class FunctionContext;
-struct AnyVal;
-} // namespace doris_udf
-
 namespace doris {
-
-using doris_udf::FunctionContext;
-using doris_udf::AnyVal;
 
 /**
  * MapValue is for map type in memory
@@ -43,15 +34,12 @@ public:
     MapValue(void* k_data, void* v_data, int32_t length)
             : _key_data(k_data), _value_data(v_data), _length(length) {}
 
-    void to_map_val(MapVal* val) const;
-
     int32_t size() const { return _length; }
 
     int32_t length() const { return _length; }
 
     void shallow_copy(const MapValue* other);
 
-    static MapValue from_map_val(const MapVal& val);
 
     const void* key_data() const { return _key_data; }
     void* mutable_key_data() const { return _key_data; }

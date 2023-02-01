@@ -460,36 +460,6 @@ public class Column implements Writable, GsonPostProcessable {
         }
     }
 
-    //private void toChildrenThrift(Column column, TColumn tColumn) {
-    //    if (column.type.isArrayType()) {
-    //        Column children = column.getChildren().get(0);
-
-    //        TColumn childrenTColumn = new TColumn();
-    //        childrenTColumn.setColumnName(children.name);
-
-    //        TColumnType childrenTColumnType = new TColumnType();
-    //        childrenTColumnType.setType(children.getDataType().toThrift());
-    //        childrenTColumnType.setType(children.getDataType().toThrift());
-    //        childrenTColumnType.setLen(children.getStrLen());
-    //        childrenTColumnType.setPrecision(children.getPrecision());
-    //        childrenTColumnType.setScale(children.getScale());
-
-    //        childrenTColumnType.setIndexLen(children.getOlapColumnIndexSize());
-    //        childrenTColumn.setColumnType(childrenTColumnType);
-    //        childrenTColumn.setIsAllowNull(children.isAllowNull());
-    //        // TODO: If we don't set the aggregate type for children, the type will be
-    //        //  considered as TAggregationType::SUM after deserializing in BE.
-    //        //  For now, we make children inherit the aggregate type from their parent.
-    //        if (tColumn.getAggregationType() != null) {
-    //            childrenTColumn.setAggregationType(tColumn.getAggregationType());
-    //        }
-
-    //        tColumn.setChildrenColumn(new ArrayList<>());
-    //        tColumn.children_column.add(childrenTColumn);
-
-    //        toChildrenThrift(children, childrenTColumn);
-    //    }
-    //}
 
     public void checkSchemaChangeAllowed(Column other) throws DdlException {
         if (Strings.isNullOrEmpty(other.name)) {
