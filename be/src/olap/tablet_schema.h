@@ -133,9 +133,9 @@ public:
     void init_from_pb(const TabletIndexPB& index);
     void to_schema_pb(TabletIndexPB* index) const;
 
-    const int64_t index_id() const { return _index_id; }
+    int64_t index_id() const { return _index_id; }
     const std::string& index_name() const { return _index_name; }
-    const IndexType index_type() const { return _index_type; }
+    IndexType index_type() const { return _index_type; }
     const vector<int32_t>& col_unique_ids() const { return _col_unique_ids; }
     const std::map<string, string>& properties() const { return _properties; }
     int32_t get_gram_size() const {

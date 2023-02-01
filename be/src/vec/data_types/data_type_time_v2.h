@@ -77,7 +77,7 @@ public:
 
     MutableColumnPtr create_column() const override;
 
-    const UInt32 get_scale() const { return _scale; }
+    UInt32 get_scale() const { return _scale; }
 
     static void cast_to_date(const UInt64 from, Int64& to);
     static void cast_to_date_time(const UInt64 from, Int64& to);
