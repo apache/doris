@@ -80,7 +80,9 @@ void IColumn::get_indices_of_non_default_rows_impl(IColumn::Offsets64& indices, 
     size_t to = limit && from + limit < size() ? from + limit : size();
     indices.reserve(indices.size() + to - from);
     for (size_t i = from; i < to; ++i) {
-        if (!static_cast<const Derived&>(*this).is_default_at(i)) indices.push_back(i);
+        if (!static_cast<const Derived&>(*this).is_default_at(i)) {
+            indices.push_back(i);
+        }
     }
 }
 

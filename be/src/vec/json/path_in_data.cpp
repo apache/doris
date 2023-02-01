@@ -65,7 +65,9 @@ UInt128 PathInData::get_parts_hash(const Parts& parts_) {
 }
 
 void PathInData::build_path(const Parts& other_parts) {
-    if (other_parts.empty()) return;
+    if (other_parts.empty()) {
+        return;
+    }
     path.clear();
     auto it = other_parts.begin();
     path += it->key;
@@ -76,7 +78,9 @@ void PathInData::build_path(const Parts& other_parts) {
     }
 }
 void PathInData::build_parts(const Parts& other_parts) {
-    if (other_parts.empty()) return;
+    if (other_parts.empty()) {
+        return;
+    }
     parts.clear();
     parts.reserve(other_parts.size());
     const char* begin = path.data();
@@ -92,7 +96,9 @@ size_t PathInData::Hash::operator()(const PathInData& value) const {
     return hash.low ^ hash.high;
 }
 PathInDataBuilder& PathInDataBuilder::append(std::string_view key, bool is_array) {
-    if (parts.empty()) current_anonymous_array_level += is_array;
+    if (parts.empty()) {
+        current_anonymous_array_level += is_array;
+    }
     if (!key.empty()) {
         if (!parts.empty()) {
             parts.back().is_nested = is_array;
@@ -103,7 +109,9 @@ PathInDataBuilder& PathInDataBuilder::append(std::string_view key, bool is_array
     return *this;
 }
 PathInDataBuilder& PathInDataBuilder::append(const PathInData::Parts& path, bool is_array) {
-    if (parts.empty()) current_anonymous_array_level += is_array;
+    if (parts.empty()) {
+        current_anonymous_array_level += is_array;
+    }
     if (!path.empty()) {
         if (!parts.empty()) {
             parts.back().is_nested = is_array;

@@ -14,7 +14,6 @@
 // KIND, either express or implied.  See the License for the
 // specific language governing permissions and limitations
 // under the License.
-// This file is copied from
 
 #include <vec/columns/column_array.h>
 #include <vec/columns/column_object.h>

@@ -25,8 +25,8 @@
 #include <vec/columns/columns_number.h>
 #include <vec/common/field_visitors.h>
 #include <vec/common/hash_table/hash_set.h>
-#include <vec/common/schema_util.h>
 #include <vec/common/pod_array_fwd.h>
+#include <vec/common/schema_util.h>
 #include <vec/core/field.h>
 #include <vec/data_types/convert_field_to_type.h>
 #include <vec/data_types/data_type_array.h>
@@ -146,7 +146,9 @@ public:
         for (size_t i = 0; i < size; ++i) {
             /// Do not count Nulls, because they will be replaced by default
             /// values with proper number of dimensions.
-            if (x[i].is_null()) continue;
+            if (x[i].is_null()) {
+                continue;
+            }
             size_t current_dimensions = apply_visitor(*this, x[i]);
             if (!dimensions) {
                 dimensions = current_dimensions;
@@ -175,7 +177,9 @@ public:
     using FieldType = Field::Types::Which;
     size_t operator()(const Array& x) {
         size_t size = x.size();
-        for (size_t i = 0; i < size; ++i) apply_visitor(*this, x[i]);
+        for (size_t i = 0; i < size; ++i) {
+            apply_visitor(*this, x[i]);
+        }
         return 0;
     }
     // TODO doris not support unsigned integers for now
@@ -367,8 +371,9 @@ Status ColumnObject::Subcolumn::insertRangeFrom(const Subcolumn& src, size_t sta
         ColumnPtr casted_column;
         RETURN_IF_ERROR(schema_util::cast_column({src_column, src_type, ""}, new_least_common_type,
                                                  &casted_column));
-        if (!least_common_type.get()->equals(*new_least_common_type))
+        if (!least_common_type.get()->equals(*new_least_common_type)) {
             add_new_column_part(std::move(new_least_common_type));
+        }
         data.back()->insert_range_from(*casted_column, start, length);
     }
     return Status::OK();
@@ -456,7 +461,9 @@ void ColumnObject::Subcolumn::pop_back(size_t n) {
     assert(n <= size());
     size_t num_removed = 0;
     for (auto it = data.rbegin(); it != data.rend(); ++it) {
-        if (n == 0) break;
+        if (n == 0) {
+            break;
+        }
         auto& column = *it;
         if (n < column->size()) {
             column->pop_back(n);
@@ -470,8 +477,10 @@ void ColumnObject::Subcolumn::pop_back(size_t n) {
     num_of_defaults_in_prefix -= n;
 }
 
-Field ColumnObject::Subcolumn::getLastField() const {
-    if (data.empty()) return Field();
+Field ColumnObject::Subcolumn::get_last_field() const {
+    if (data.empty()) {
+        return Field();
+    }
     const auto& last_part = data.back();
     assert(!last_part->empty());
     return (*last_part)[last_part->size() - 1];
@@ -526,7 +535,9 @@ ColumnObject::ColumnObject(Subcolumns&& subcolumns_, bool is_nullable_)
 }
 
 void ColumnObject::check_consistency() const {
-    if (subcolumns.empty()) return;
+    if (subcolumns.empty()) {
+        return;
+    }
     for (const auto& leaf : subcolumns) {
         if (num_rows != leaf->data.size()) {
             assert(false);
@@ -566,7 +577,9 @@ size_t ColumnObject::allocated_bytes() const {
 }
 
 void ColumnObject::for_each_subcolumn(ColumnCallback callback) {
-    if (!is_finalized()) assert(false);
+    if (!is_finalized()) {
+        assert(false);
+    }
     for (auto& entry : subcolumns) {
         callback(entry->data.data.back());
     }
@@ -614,7 +627,9 @@ void ColumnObject::insert_default() {
 }
 
 Field ColumnObject::operator[](size_t n) const {
-    if (!is_finalized()) assert(false);
+    if (!is_finalized()) {
+        assert(false);
+    }
     Object object;
     for (const auto& entry : subcolumns) {
         object[entry->path.get_path()] = (*entry->data.data.back())[n];
@@ -623,7 +638,9 @@ Field ColumnObject::operator[](size_t n) const {
 }
 
 void ColumnObject::get(size_t n, Field& res) const {
-    if (!is_finalized()) assert(false);
+    if (!is_finalized()) {
+        assert(false);
+    }
     auto& object = res.get<Object&>();
     for (const auto& entry : subcolumns) {
         auto it = object.try_emplace(entry->path.get_path()).first;
@@ -694,7 +711,9 @@ Status ColumnObject::try_insert_range_from(const IColumn& src, size_t start, siz
 }
 
 void ColumnObject::pop_back(size_t length) {
-    for (auto& entry : subcolumns) entry->data.pop_back(length);
+    for (auto& entry : subcolumns) {
+        entry->data.pop_back(length);
+    }
     num_rows -= length;
 }
 
@@ -759,14 +778,16 @@ bool ColumnObject::add_nested_subcolumn(const PathInData& key, const FieldInfo& 
     const auto* nested_node = subcolumns.find_best_match(key);
     if (nested_node) {
         /// Find any leaf of Nested subcolumn.
-        const auto* leaf = subcolumns.find_leaf(nested_node, [&](const auto&) { return true; });
+        const auto* leaf = doris::vectorized::ColumnObject::Subcolumns::find_leaf(
+                nested_node, [&](const auto&) { return true; });
         assert(leaf);
         /// Recreate subcolumn with default values and the same sizes of arrays.
         auto new_subcolumn = leaf->data.recreate_with_default_values(field_info);
         /// It's possible that we have already inserted value from current row
         /// to this subcolumn. So, adjust size to expected.
-        if (new_subcolumn.size() > new_size)
+        if (new_subcolumn.size() > new_size) {
             new_subcolumn.pop_back(new_subcolumn.size() - new_size);
+        }
         assert(new_subcolumn.size() == new_size);
         inserted = subcolumns.add(key, new_subcolumn);
     } else {
@@ -777,7 +798,9 @@ bool ColumnObject::add_nested_subcolumn(const PathInData& key, const FieldInfo& 
         VLOG_DEBUG << "Subcolumn already exists";
         return false;
     }
-    if (num_rows == 0) num_rows = new_size;
+    if (num_rows == 0) {
+        num_rows = new_size;
+    }
     return true;
 }
 
@@ -811,7 +834,9 @@ void ColumnObject::finalize() {
     for (auto&& entry : subcolumns) {
         const auto& least_common_type = entry->data.get_least_common_type();
         /// Do not add subcolumns, which consists only from NULLs.
-        if (is_nothing(getBaseTypeOfArray(least_common_type))) continue;
+        if (is_nothing(getBaseTypeOfArray(least_common_type))) {
+            continue;
+        }
         entry->data.finalize();
         new_subcolumns.add(entry->path, entry->data);
     }

@@ -49,7 +49,9 @@ static constexpr size_t max_array_size_as_field = 1000000;
 template <typename T>
 ColumnPtr ColumnArray::index_impl(const PaddedPODArray<T>& indexes, size_t limit) const {
     assert(limit <= indexes.size());
-    if (limit == 0) return ColumnArray::create(data->clone_empty());
+    if (limit == 0) {
+        return ColumnArray::create(data->clone_empty());
+    }
     /// Convert indexes to UInt64 in case of overflow.
     auto nested_indexes_column = ColumnUInt64::create();
     PaddedPODArray<UInt64>& nested_indexes = nested_indexes_column->get_data();
@@ -59,12 +61,15 @@ ColumnPtr ColumnArray::index_impl(const PaddedPODArray<T>& indexes, size_t limit
     res_offsets.resize(limit);
     size_t current_offset = 0;
     for (size_t i = 0; i < limit; ++i) {
-        for (size_t j = 0; j < size_at(indexes[i]); ++j)
+        for (size_t j = 0; j < size_at(indexes[i]); ++j) {
             nested_indexes.push_back(offset_at(indexes[i]) + j);
+        }
         current_offset += size_at(indexes[i]);
         res_offsets[i] = current_offset;
     }
-    if (current_offset != 0) res->data = data->index(*nested_indexes_column, current_offset);
+    if (current_offset != 0) {
+        res->data = data->index(*nested_indexes_column, current_offset);
+    }
     return res;
 }
 
