@@ -88,7 +88,7 @@ Status convert_numric_type(const Field& from, const IDataType& type, Field* to) 
     } else if (from.get_type() == Field::Types::Float64) {
         *to = convert_numeric_type_impl<Float64, To>(from);
     } else if (from.get_type() == Field::Types::UInt128) {
-        *to = convert_numeric_type_impl<UInt128, To>(from);
+        // *to = convert_numeric_type_impl<UInt128, To>(from);
     } else if (from.get_type() == Field::Types::Int128) {
         *to = convert_numeric_type_impl<Int128, To>(from);
     } else {
@@ -121,7 +121,7 @@ Status convert_field_to_typeImpl(const Field& src, const IDataType& type,
             return convert_numric_type<UInt64>(src, type, to);
         }
         if (which_type.is_uint128()) {
-            return convert_numric_type<UInt128>(src, type, to);
+            // return convert_numric_type<UInt128>(src, type, to);
         }
         if (which_type.is_int8()) {
             return convert_numric_type<Int8>(src, type, to);
