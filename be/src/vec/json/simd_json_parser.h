@@ -175,7 +175,9 @@ public:
         }
         bool find(const std::string_view& key, Element& result) const {
             auto x = object.at_key(key);
-            if (x.error()) return false;
+            if (x.error()) {
+                return false;
+            }
             result = x.value_unsafe();
             return true;
         }
@@ -183,7 +185,9 @@ public:
         KeyValuePair operator[](size_t index) const {
             assert(index < size());
             auto it = object.begin();
-            while (index--) ++it;
+            while (index--) {
+                ++it;
+            }
             const auto& res = *it;
             return {res.key, res.value};
         }
@@ -194,7 +198,9 @@ public:
     /// Parses a JSON document, returns the reference to its root element if succeeded.
     bool parse(const std::string_view& json, Element& result) {
         auto document = parser.parse(json.data(), json.size());
-        if (document.error()) return false;
+        if (document.error()) {
+            return false;
+        }
         result = document.value_unsafe();
         return true;
     }

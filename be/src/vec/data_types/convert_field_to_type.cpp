@@ -74,25 +74,28 @@ namespace {
 template <typename From, typename To>
 Field convert_numeric_type_impl(const Field& from) {
     To result;
-    if (!accurate::convertNumeric(from.get<From>(), result)) return {};
+    if (!accurate::convertNumeric(from.get<From>(), result)) {
+        return {};
+    }
     return result;
 }
 template <typename To>
 Status convert_numric_type(const Field& from, const IDataType& type, Field* to) {
-    if (from.get_type() == Field::Types::UInt64)
+    if (from.get_type() == Field::Types::UInt64) {
         *to = convert_numeric_type_impl<UInt64, To>(from);
-    else if (from.get_type() == Field::Types::Int64)
+    } else if (from.get_type() == Field::Types::Int64) {
         *to = convert_numeric_type_impl<Int64, To>(from);
-    else if (from.get_type() == Field::Types::Float64)
+    } else if (from.get_type() == Field::Types::Float64) {
         *to = convert_numeric_type_impl<Float64, To>(from);
-    else if (from.get_type() == Field::Types::UInt128)
+    } else if (from.get_type() == Field::Types::UInt128) {
         *to = convert_numeric_type_impl<UInt128, To>(from);
-    else if (from.get_type() == Field::Types::Int128)
+    } else if (from.get_type() == Field::Types::Int128) {
         *to = convert_numeric_type_impl<Int128, To>(from);
-    else
+    } else {
         return Status::InvalidArgument(
                 fmt::format("Type mismatch in IN or VALUES section. Expected: {}. Got: {}",
                             type.get_name(), from.get_type()));
+    }
     return Status::OK();
 }
 
@@ -105,18 +108,42 @@ Status convert_field_to_typeImpl(const Field& src, const IDataType& type,
     WhichDataType which_type(type);
     // TODO add more types
     if (type.is_value_represented_by_number() && src.get_type() != Field::Types::String) {
-        if (which_type.is_uint8()) return convert_numric_type<UInt8>(src, type, to);
-        if (which_type.is_uint16()) return convert_numric_type<UInt16>(src, type, to);
-        if (which_type.is_uint32()) return convert_numric_type<UInt32>(src, type, to);
-        if (which_type.is_uint64()) return convert_numric_type<UInt64>(src, type, to);
-        if (which_type.is_uint128()) return convert_numric_type<UInt128>(src, type, to);
-        if (which_type.is_int8()) return convert_numric_type<Int8>(src, type, to);
-        if (which_type.is_int16()) return convert_numric_type<Int16>(src, type, to);
-        if (which_type.is_int32()) return convert_numric_type<Int32>(src, type, to);
-        if (which_type.is_int64()) return convert_numric_type<Int64>(src, type, to);
-        if (which_type.is_int128()) return convert_numric_type<Int128>(src, type, to);
-        if (which_type.is_float32()) return convert_numric_type<Float32>(src, type, to);
-        if (which_type.is_float64()) return convert_numric_type<Float64>(src, type, to);
+        if (which_type.is_uint8()) {
+            return convert_numric_type<UInt8>(src, type, to);
+        }
+        if (which_type.is_uint16()) {
+            return convert_numric_type<UInt16>(src, type, to);
+        }
+        if (which_type.is_uint32()) {
+            return convert_numric_type<UInt32>(src, type, to);
+        }
+        if (which_type.is_uint64()) {
+            return convert_numric_type<UInt64>(src, type, to);
+        }
+        if (which_type.is_uint128()) {
+            return convert_numric_type<UInt128>(src, type, to);
+        }
+        if (which_type.is_int8()) {
+            return convert_numric_type<Int8>(src, type, to);
+        }
+        if (which_type.is_int16()) {
+            return convert_numric_type<Int16>(src, type, to);
+        }
+        if (which_type.is_int32()) {
+            return convert_numric_type<Int32>(src, type, to);
+        }
+        if (which_type.is_int64()) {
+            return convert_numric_type<Int64>(src, type, to);
+        }
+        if (which_type.is_int128()) {
+            return convert_numric_type<Int128>(src, type, to);
+        }
+        if (which_type.is_float32()) {
+            return convert_numric_type<Float32>(src, type, to);
+        }
+        if (which_type.is_float64()) {
+            return convert_numric_type<Float64>(src, type, to);
+        }
         if ((which_type.is_date() || which_type.is_date_time()) &&
             src.get_type() == Field::Types::UInt64) {
             /// We don't need any conversion UInt64 is under type of Date and DateTime
@@ -214,7 +241,8 @@ Status convert_field_to_type(const Field& from_value, const IDataType& to_type, 
             return Status::OK();
         }
         return convert_field_to_typeImpl(from_value, nested_type, from_type_hint, to);
-    } else
+    } else {
         return convert_field_to_typeImpl(from_value, to_type, from_type_hint, to);
+    }
 }
 } // namespace doris::vectorized

@@ -197,7 +197,7 @@ public:
         LOG(FATAL) << "append_data_by_selector is not supported in ColumnDictionary!";
     }
 
-    ColumnPtr index(const IColumn& indexes, size_t limit) const override {
+    [[noreturn]] ColumnPtr index(const IColumn& indexes, size_t limit) const override {
         LOG(FATAL) << "index not implemented";
     }
 

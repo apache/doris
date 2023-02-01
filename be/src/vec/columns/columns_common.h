@@ -59,21 +59,23 @@ const PaddedPODArray<T>* get_indexes_data(const IColumn& indexes);
 /// Check limit <= indexes->size() and call column.index_impl(const PaddedPodArray<Type> & indexes, UInt64 limit).
 template <typename Column>
 ColumnPtr select_index_impl(const Column& column, const IColumn& indexes, size_t limit) {
-    if (limit == 0) limit = indexes.size();
+    if (limit == 0) {
+        limit = indexes.size();
+    }
 
     if (indexes.size() < limit) {
         LOG(FATAL) << "Size of indexes is less than required.";
     }
 
-    if (auto* data_uint8 = detail::get_indexes_data<UInt8>(indexes))
+    if (auto* data_uint8 = detail::get_indexes_data<UInt8>(indexes)) {
         return column.template index_impl<UInt8>(*data_uint8, limit);
-    else if (auto* data_uint16 = detail::get_indexes_data<UInt16>(indexes))
+    } else if (auto* data_uint16 = detail::get_indexes_data<UInt16>(indexes)) {
         return column.template index_impl<UInt16>(*data_uint16, limit);
-    else if (auto* data_uint32 = detail::get_indexes_data<UInt32>(indexes))
+    } else if (auto* data_uint32 = detail::get_indexes_data<UInt32>(indexes)) {
         return column.template index_impl<UInt32>(*data_uint32, limit);
-    else if (auto* data_uint64 = detail::get_indexes_data<UInt64>(indexes))
+    } else if (auto* data_uint64 = detail::get_indexes_data<UInt64>(indexes)) {
         return column.template index_impl<UInt64>(*data_uint64, limit);
-    else {
+    } else {
         LOG(FATAL) << "Indexes column for IColumn::select must be ColumnUInt, got"
                    << indexes.get_name();
         return nullptr;

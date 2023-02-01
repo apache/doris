@@ -168,7 +168,9 @@ void ColumnConst::get_indices_of_non_default_rows(Offsets64& indices, size_t fro
     if (!data->is_default_at(0)) {
         size_t to = limit && from + limit < size() ? from + limit : size();
         indices.reserve(indices.size() + to - from);
-        for (size_t i = from; i < to; ++i) indices.push_back(i);
+        for (size_t i = from; i < to; ++i) {
+            indices.push_back(i);
+        }
     }
 }
 

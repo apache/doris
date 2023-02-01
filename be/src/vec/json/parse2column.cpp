@@ -71,7 +71,9 @@ public:
     template <typename T>
     Field operator()(const T& x) const {
         if constexpr (std::is_same_v<T, Array>) {
-            if (num_dimensions_to_keep == 0) return replacement;
+            if (num_dimensions_to_keep == 0) {
+                return replacement;
+            }
             const size_t size = x.size();
             Array res(size);
             for (size_t i = 0; i < size; ++i) {
@@ -93,7 +95,9 @@ private:
 /// an array with default values with consistent sizes as in Nested type.
 bool try_insert_default_from_nested(const std::shared_ptr<Node>& entry,
                                     const ColumnObject::Subcolumns& subcolumns) {
-    if (!entry->path.has_nested_part()) return false;
+    if (!entry->path.has_nested_part()) {
+        return false;
+    }
 
     const Node* current_node = subcolumns.find_leaf(entry->path);
     const Node* leaf = nullptr;
@@ -101,27 +105,35 @@ bool try_insert_default_from_nested(const std::shared_ptr<Node>& entry,
 
     while (current_node) {
         /// Try to find the first Nested up to the current node.
-        const auto* node_nested = subcolumns.find_parent(
+        const auto* node_nested = ColumnObject::Subcolumns::find_parent(
                 current_node, [](const auto& candidate) { return candidate.is_nested(); });
 
-        if (!node_nested) break;
+        if (!node_nested) {
+            break;
+        }
 
         /// If there are no leaves, skip current node and find
         /// the next node up to the current.
-        leaf = subcolumns.find_leaf(node_nested, [&](const auto& candidate) {
+        leaf = ColumnObject::Subcolumns::find_leaf(node_nested, [&](const auto& candidate) {
             return candidate.data.size() == entry->data.size() + 1;
         });
 
-        if (leaf) break;
+        if (leaf) {
+            break;
+        }
 
         current_node = node_nested->parent;
         ++num_skipped_nested;
     }
 
-    if (!leaf) return false;
+    if (!leaf) {
+        return false;
+    }
 
-    auto last_field = leaf->data.getLastField();
-    if (last_field.is_null()) return false;
+    auto last_field = leaf->data.get_last_field();
+    if (last_field.is_null()) {
+        return false;
+    }
 
     const auto& least_common_type = entry->data.get_least_common_type();
     size_t num_dimensions = schema_util::get_number_of_dimensions(*least_common_type);
@@ -170,7 +182,9 @@ Status parse_json_to_variant(IColumn& column, const char* src, size_t length,
             return Status::DataQualityError(
                     "Sorry multi dimensions array is not supported now, we are working on it");
         }
-        if (is_nothing(field_info.scalar_type)) continue;
+        if (is_nothing(field_info.scalar_type)) {
+            continue;
+        }
         if (!paths_set.insert(paths[i].get_path()).second) {
             return Status::DataQualityError(
                     fmt::format("Object has ambiguous path {}, {}", paths[i].get_path()));
@@ -201,7 +215,9 @@ Status parse_json_to_variant(IColumn& column, const char* src, size_t length,
     for (const auto& entry : subcolumns) {
         if (!paths_set.contains(entry->path.get_path())) {
             bool inserted = try_insert_default_from_nested(entry, subcolumns);
-            if (!inserted) entry->data.insertDefault();
+            if (!inserted) {
+                entry->data.insertDefault();
+            }
         }
     }
     column_object.incr_num_rows();

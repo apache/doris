@@ -451,7 +451,9 @@ public:
 
     /// Appends one field multiple times. Can be optimized in inherited classes.
     virtual void insert_many(const Field& field, size_t length) {
-        for (size_t i = 0; i < length; ++i) insert(field);
+        for (size_t i = 0; i < length; ++i) {
+            insert(field);
+        }
     }
     /// Returns indices of values in column, that not equal to default value of column.
     virtual void get_indices_of_non_default_rows(Offsets64& indices, size_t from,

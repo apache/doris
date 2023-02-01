@@ -106,7 +106,7 @@ public:
         void finalize();
 
         /// Returns last inserted field.
-        Field getLastField() const;
+        Field get_last_field() const;
 
         /// Recreates subcolumn with default scalar values and keeps sizes of arrays.
         /// Used to create columns of type Nested with consistent array sizes.
@@ -171,7 +171,7 @@ public:
 
     ColumnObject(Subcolumns&& subcolumns_, bool is_nullable_);
 
-    ~ColumnObject() = default;
+    ~ColumnObject() override = default;
 
     bool can_be_inside_nullable() const override { return true; }
 
@@ -244,13 +244,17 @@ public:
     // Do nothing, call try_insert instead
     void insert(const Field& field) override {
         Status st = try_insert(field);
-        if (!st.ok()) LOG(FATAL) << "insert return ERROR status: " << st;
+        if (!st.ok()) {
+            LOG(FATAL) << "insert return ERROR status: " << st;
+        }
     }
 
     // Do nothing, call try_insert_range_from instead
     void insert_range_from(const IColumn& src, size_t start, size_t length) override {
         Status st = try_insert_range_from(src, start, length);
-        if (!st.ok()) LOG(FATAL) << "insert_range_from return ERROR status: " << st;
+        if (!st.ok()) {
+            LOG(FATAL) << "insert_range_from return ERROR status: " << st;
+        }
     }
 
     // Only called in Block::add_row
@@ -339,7 +343,7 @@ public:
         LOG(FATAL) << "should not call the method in column object";
     }
 
-    virtual void get_extremes(Field& min, Field& max) const override {
+    void get_extremes(Field& min, Field& max) const override {
         LOG(FATAL) << "should not call the method in column object";
     }
 
