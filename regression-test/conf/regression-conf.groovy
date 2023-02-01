@@ -96,6 +96,7 @@ es_8_port=39200
 enableExternalHiveTest = false
 extHiveHmsHost = "***.**.**.**"
 extHiveHmsPort = 7004
+extHdfsPort = 4007
 extHiveHmsUser = "****"
 extHiveHmsPassword= "***********"
 
