@@ -19,7 +19,6 @@
 #include "gen_cpp/descriptors.pb.h"
 #include "vec/core/block.h"
 #include "vec/core/types.h"
-#define private public
 #include "olap/tablet_schema.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_decimal.h"

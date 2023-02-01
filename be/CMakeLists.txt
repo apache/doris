@@ -496,7 +496,7 @@ endif ()
 
 if (COMPILER_CLANG)
     add_compile_options(-fcolor-diagnostics -fno-limit-debug-info -Wpedantic)
-    add_compile_options(-Wno-zero-length-array -Wno-variadic-macros -Wno-gnu-zero-variadic-macro-arguments -Wno-vla-extension -Wno-c++20-designator -Wno-gnu-label-as-value -Wno-embedded-directive)
+    add_compile_options(-Wno-zero-length-array -Wno-variadic-macros -Wno-gnu-zero-variadic-macro-arguments -Wno-vla-extension -Wno-c++20-designator -Wno-gnu-label-as-value -Wno-embedded-directive -Wno-array-bounds)
     if(MAKE_TEST STREQUAL "OFF")
         add_compile_options(-Qunused-arguments)
     endif()

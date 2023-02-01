@@ -21,7 +21,6 @@
 #include <string>
 
 #include "util/coding.h"
-#define private public
 #include "util/bitmap_value.h"
 
 namespace doris {
