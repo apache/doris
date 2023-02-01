@@ -211,15 +211,15 @@ public:
 
     void set_load_job_id(int64_t job_id) { _load_job_id = job_id; }
 
-    const int64_t load_job_id() const { return _load_job_id; }
+    int64_t load_job_id() const { return _load_job_id; }
 
-    const int64_t get_normal_row_number() const { return _normal_row_number; }
+    int64_t get_normal_row_number() const { return _normal_row_number; }
 
-    const void set_normal_row_number(int64_t number) { _normal_row_number = number; }
+    void set_normal_row_number(int64_t number) { _normal_row_number = number; }
 
-    const int64_t get_error_row_number() const { return _error_row_number; }
+    int64_t get_error_row_number() const { return _error_row_number; }
 
-    const void set_error_row_number(int64_t number) { _error_row_number = number; }
+    void set_error_row_number(int64_t number) { _error_row_number = number; }
 
     const std::string get_error_log_file_path() const { return _error_log_file_path; }
 
