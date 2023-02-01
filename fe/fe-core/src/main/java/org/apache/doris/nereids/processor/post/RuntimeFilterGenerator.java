@@ -125,18 +125,12 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         // change key when encounter alias.
         project.getProjects().stream().filter(Alias.class::isInstance)
                 .map(Alias.class::cast)
-                .filter(alias -> {
-                    Expression expr = ExpressionUtils.getExpressionCoveredByCast(alias.child());
-                    return expr instanceof NamedExpression
-                            && aliasTransferMap.containsKey((NamedExpression) expr);
-                })
                 .forEach(alias -> {
-                    Expression child = alias.child();
-                    if (child instanceof Cast) {
-                        child = ((Cast) child).child();
+                    Expression expr = ExpressionUtils.getExpressionCoveredByCast(alias.child());
+                    if (expr instanceof NamedExpression
+                            && aliasTransferMap.containsKey((NamedExpression) expr)) {
+                        aliasTransferMap.put(alias.toSlot(), aliasTransferMap.remove(expr));
                     }
-                    Preconditions.checkArgument(child instanceof NamedExpression);
-                    aliasTransferMap.put(alias.toSlot(), aliasTransferMap.remove(child));
                 });
         return project;
     }
