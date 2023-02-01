@@ -50,7 +50,13 @@ public class UdfUtils {
     private static final Logger LOG = Logger.getLogger(UdfUtils.class);
     public static final Unsafe UNSAFE;
     private static final long UNSAFE_COPY_THRESHOLD = 1024L * 1024L;
+    public static final long BOOLEAN_ARRAY_OFFSET;
     public static final long BYTE_ARRAY_OFFSET;
+    public static final long SHORT_ARRAY_OFFSET;
+    public static final long INT_ARRAY_OFFSET;
+    public static final long LONG_ARRAY_OFFSET;
+    public static final long FLOAT_ARRAY_OFFSET;
+    public static final long DOUBLE_ARRAY_OFFSET;
 
     static {
         UNSAFE = (Unsafe) AccessController.doPrivileged(
@@ -63,7 +69,13 @@ public class UdfUtils {
                         throw new Error();
                     }
                 });
+        BOOLEAN_ARRAY_OFFSET = UNSAFE.arrayBaseOffset(boolean[].class);
         BYTE_ARRAY_OFFSET = UNSAFE.arrayBaseOffset(byte[].class);
+        SHORT_ARRAY_OFFSET = UNSAFE.arrayBaseOffset(short[].class);
+        INT_ARRAY_OFFSET = UNSAFE.arrayBaseOffset(int[].class);
+        LONG_ARRAY_OFFSET = UNSAFE.arrayBaseOffset(long[].class);
+        FLOAT_ARRAY_OFFSET = UNSAFE.arrayBaseOffset(float[].class);
+        DOUBLE_ARRAY_OFFSET = UNSAFE.arrayBaseOffset(double[].class);
     }
 
     // Data types that are supported as return or argument types in Java UDFs.
