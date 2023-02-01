@@ -44,9 +44,28 @@ public class DebugUtilTest {
     }
 
     @Test
-    public void testGetPrettyStringMs() {
+    public void testConvertPrettyStringToMs() {
         // 6hour1min
-        Assert.assertEquals(DebugUtil.getPrettyStringMs(21660222), "6h1m");
+        Assert.assertTrue(DebugUtil.convertPrettyStringToMs("6h1m") == 21660000L);
+
+        // 1min222ms
+        Assert.assertTrue(DebugUtil.convertPrettyStringToMs("1m222ms") == 60222L);
+
+        // 2s222ms
+        Assert.assertTrue(DebugUtil.convertPrettyStringToMs("2s222ms") == 2222L);
+
+        // 22ms
+        Assert.assertTrue(DebugUtil.convertPrettyStringToMs("22ms") == 22L);
+
+        // 22ml
+        Assert.assertThrows("Not valid prettyString: 22ml", IllegalArgumentException.class,
+                () -> DebugUtil.convertPrettyStringToMs("22ml"));
+    }
+
+    @Test
+    public void testGetPrettyStringMs() {
+        // 6hour1min222ms
+        Assert.assertEquals(DebugUtil.getPrettyStringMs(21660222), "6h1m222ms");
 
         // 1min222ms
         Assert.assertEquals(DebugUtil.getPrettyStringMs(60222), "1m");
