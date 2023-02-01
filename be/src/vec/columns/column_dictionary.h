@@ -24,8 +24,8 @@
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/predicate_column.h"
-#include "vec/common/string_ref.h"
 #include "vec/common/pod_array.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 
 namespace doris::vectorized {
@@ -117,7 +117,7 @@ public:
     [[noreturn]] TypeIndex get_data_type() const override {
         LOG(FATAL) << "ColumnDictionary get_data_type not implemeted";
     }
-    
+
     const char* get_family_name() const override { return "ColumnDictionary"; }
 
     [[noreturn]] MutableColumnPtr clone_resized(size_t size) const override {
@@ -159,7 +159,7 @@ public:
 
     bool is_fixed_and_contiguous() const override { return true; }
 
-    void get_indices_of_non_default_rows(IColumn::Offsets& indices, size_t from,
+    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
                                          size_t limit) const override {
         LOG(FATAL) << "get_indices_of_non_default_rows not supported in ColumnDictionary";
     }
@@ -192,16 +192,12 @@ public:
         LOG(FATAL) << "scatter not supported in ColumnDictionary";
     }
 
-<<<<<<< HEAD
     void append_data_by_selector(MutableColumnPtr& res,
                                  const IColumn::Selector& selector) const override {
         LOG(FATAL) << "append_data_by_selector is not supported in ColumnDictionary!";
     }
 
-    [[noreturn]] ColumnPtr index(const IColumn & indexes, size_t limit) const override {
-=======
-    [[noreturn]] ColumnPtr index(const IColumn& indexes, size_t limit) const override {
->>>>>>> 2d251009b8 ([feature-dynamic-table](syntax) support dynamic table syntax)
+    ColumnPtr index(const IColumn& indexes, size_t limit) const override {
         LOG(FATAL) << "index not implemented";
     }
 

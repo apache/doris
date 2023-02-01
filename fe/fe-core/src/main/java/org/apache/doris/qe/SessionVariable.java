@@ -678,7 +678,7 @@ public class SessionVariable implements Serializable, Writable {
     // 1. read related rowids along with necessary column data
     // 2. spawn fetch RPC to other nodes to get related data by sorted rowids
     @VariableMgr.VarAttr(name = ENABLE_TWO_PHASE_READ_OPT)
-    public boolean enableTwoPhaseReadOpt = true;
+    public boolean enableTwoPhaseReadOpt = false;
     @VariableMgr.VarAttr(name = TWO_PHASE_READ_OPT_LIMIT_THRESHOLD)
     public long twoPhaseReadLimitThreshold = 512;
 

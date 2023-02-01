@@ -57,10 +57,7 @@ namespace vectorized {
 // A(int) | B(double) | C(float) | D(string) | E(date) | F(int)
 // Both E & F are added to BlockA with same rows, and missing columns are
 // filled with default values
-enum class BlockType {
-    NORMAL,
-    DYNAMIC
-};
+enum class BlockType { NORMAL, DYNAMIC };
 
 /** Container for set of columns for bunch of rows in memory.
   * This is unit of data processing.
@@ -277,8 +274,7 @@ public:
     // copy a new block by the offset column
     Block copy_block(const std::vector<int>& column_offset) const;
 
-    void append_block_by_selector(MutableBlock* dst,
-                    const IColumn::Selector& selector) const;
+    void append_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const;
 
     static void filter_block_internal(Block* block, const std::vector<uint32_t>& columns_to_filter,
                                       const IColumn::Filter& filter);
@@ -409,7 +405,7 @@ private:
 
 public:
     void set_block_type(BlockType type) { _type = type; }
-    BlockType get_block_type() { return _type; } 
+    BlockType get_block_type() { return _type; }
 
     static MutableBlock build_mutable_block(Block* block) {
         return block == nullptr ? MutableBlock() : MutableBlock(block);

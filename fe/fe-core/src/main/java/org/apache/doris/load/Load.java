@@ -754,7 +754,7 @@ public class Load {
             // alaways nullable
             slotDesc.setIsNullable(true);
             slotDesc.setIsMaterialized(true);
-            params.addToSrcSlotIds(slotDesc.getId().asInt());
+            srcSlotIds.add(slotDesc.getId().asInt());
             slotDescByName.put(name, slotDesc);
             LOG.debug("add dynamic column to srcTupleDesc with name:{} id:{}", name, slotDesc.getId().asInt());
         }

@@ -138,8 +138,8 @@ void align_block_by_name_and_type(MutableBlock* mblock, const Block* block, cons
 void align_block_by_name_and_type(MutableBlock* mblock, const Block* block, size_t row_begin,
                                   size_t length);
 
-void align_append_block_by_selector(MutableBlock* mblock,
-                const Block* block, const IColumn::Selector& selector);
+void align_append_block_by_selector(MutableBlock* mblock, const Block* block,
+                                    const IColumn::Selector& selector);
 
 // For tracking local schema change during load procedure
 class LocalSchemaChangeRecorder {

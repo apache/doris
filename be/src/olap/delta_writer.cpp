@@ -446,7 +446,7 @@ void DeltaWriter::_build_current_tablet_schema(int64_t index_id,
         _tablet->update_max_version_schema(_tablet_schema);
     }
 
-    _tablet_schema->set_table_id(ptable_schema_param.table_id());
+    _tablet_schema->set_table_id(table_schema_param->table_id());
 }
 
 void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {

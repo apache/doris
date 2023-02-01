@@ -171,17 +171,20 @@ public class StreamLoadPlanner {
         }
 
         if (destTable.isDynamicSchema()) {
+            if (!Config.enable_vectorized_load) {
+                throw new UserException("Only support vectorized load for dyanmic table: " + destTable.getName());
+            }
             descTable.addReferencedTable(destTable);
-            tupleDesc.setTable(destTable);
+            scanTupleDesc.setTable(destTable);
             // add a implict container column "__dynamic__" for dynamic columns
-            SlotDescriptor slotDesc = descTable.addSlotDescriptor(tupleDesc);
+            SlotDescriptor slotDesc = descTable.addSlotDescriptor(scanTupleDesc);
             Column col = new Column(Column.DYNAMIC_COLUMN_NAME, Type.VARIANT, false, null, false, "",
                                     "stream load auto dynamic column");
             slotDesc.setIsMaterialized(true);
             slotDesc.setColumn(col);
             // alaways nullable
             slotDesc.setIsNullable(true);
-            LOG.debug("plan tupleDesc {}", tupleDesc.toString());
+            LOG.debug("plan tupleDesc {}", scanTupleDesc.toString());
         }
 
         // create scan node

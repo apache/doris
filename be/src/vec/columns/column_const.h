@@ -66,10 +66,6 @@ public:
 
     StringRef get_data_at(size_t) const override { return data->get_data_at(0); }
 
-    StringRef get_data_at_with_terminating_zero(size_t) const override {
-        return data->get_data_at_with_terminating_zero(0);
-    }
-
     TypeIndex get_data_type() const override { return data->get_data_type(); }
 
     UInt64 get64(size_t) const override { return data->get64(0); }
@@ -105,7 +101,7 @@ public:
 
     void pop_back(size_t n) override { s -= n; }
 
-    void get_indices_of_non_default_rows(Offsets& indices, size_t from,
+    void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
                                          size_t limit) const override;
 
     ColumnPtr index(const IColumn& indexes, size_t limit) const override;

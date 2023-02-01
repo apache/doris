@@ -1500,7 +1500,7 @@ public abstract class Type {
                         || t1 == PrimitiveType.MAP || t2 == PrimitiveType.MAP
                         || t1 == PrimitiveType.STRUCT || t2 == PrimitiveType.STRUCT
                         || t1 == PrimitiveType.UNSUPPORTED || t2 == PrimitiveType.UNSUPPORTED
-                        || t1 == PrimitiveType.VARIANT|| t2 == PrimitiveType.VARIANT) {
+                        || t1 == PrimitiveType.VARIANT || t2 == PrimitiveType.VARIANT) {
                     continue;
                 }
                 Preconditions.checkNotNull(compatibilityMatrix[i][j]);

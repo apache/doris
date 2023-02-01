@@ -21,10 +21,11 @@
 #include "exec/text_converter.h"
 #include "exprs/function_filter.h"
 #include "io/file_factory.h"
+#include "runtime/tuple.h"
+#include "vec/common/object_util.h"
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/scan/vscanner.h"
-#include "vec/common/object_util.h"
 
 namespace doris::vectorized {
 

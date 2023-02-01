@@ -77,11 +77,11 @@ public:
 
         bool is_finalized() const;
 
-        const DataTypePtr& getLeastCommonType() const { return least_common_type.get(); }
+        const DataTypePtr& get_least_common_type() const { return least_common_type.get(); }
 
-        const DataTypePtr& getLeastCommonTypeBase() const { return least_common_type.getBase(); }
+        const DataTypePtr& get_least_common_typeBase() const { return least_common_type.getBase(); }
 
-        size_t getDimensions() const { return least_common_type.getDimensions(); }
+        size_t get_dimensions() const { return least_common_type.get_dimensions(); }
 
         /// Checks the consistency of column's parts stored in @data.
         void checkTypes() const;
@@ -110,7 +110,7 @@ public:
 
         /// Recreates subcolumn with default scalar values and keeps sizes of arrays.
         /// Used to create columns of type Nested with consistent array sizes.
-        Subcolumn recreateWithDefaultValues(const FieldInfo& field_info) const;
+        Subcolumn recreate_with_default_values(const FieldInfo& field_info) const;
 
         /// Returns single column if subcolumn in finalizes.
         /// Otherwise -- undefined behaviour.
@@ -133,7 +133,7 @@ public:
 
             const DataTypePtr& getBase() const { return base_type; }
 
-            size_t getDimensions() const { return num_dimensions; }
+            size_t get_dimensions() const { return num_dimensions; }
 
         private:
             DataTypePtr type;
@@ -343,7 +343,12 @@ public:
         LOG(FATAL) << "should not call the method in column object";
     }
 
-    void get_indices_of_non_default_rows(Offsets&, size_t, size_t) const override {
+    void get_indices_of_non_default_rows(Offsets64&, size_t, size_t) const override {
+        LOG(FATAL) << "should not call the method in column object";
+    }
+
+    void append_data_by_selector(MutableColumnPtr& res,
+                                 const IColumn::Selector& selector) const override {
         LOG(FATAL) << "should not call the method in column object";
     }
 

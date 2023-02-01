@@ -38,8 +38,6 @@
 #include "vec/common/sip_hash.h"
 #include "vec/common/unaligned.h"
 #include "vec/core/sort_block.h"
-#include "vec/columns/column_impl.h"
-#include "vec/columns/columns_common.h"
 
 namespace doris::vectorized {
 

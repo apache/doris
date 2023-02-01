@@ -273,7 +273,7 @@ public class ColumnDef {
                 throw new AnalysisException("Array can only be used in the non-key column of"
                         + " the duplicate table at present.");
             }
-            if (defaultValue.isSet && defaultValue != DefaultValue.null_default_value
+            if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE
                             && !defaultValue.value.equals(DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE.value)) {
                 throw new AnalysisException("Array type column default value only support null or "
                                 + DefaultValue.ARRAY_EMPTY_DEFAULT_VALUE.value);

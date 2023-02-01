@@ -125,15 +125,14 @@ Status SegmentWriter::append_row_column_writer() {
 }
 
 Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
-                            const vectorized::Block* block) {
+                           const vectorized::Block* block) {
     DCHECK(_column_writers.empty());
     DCHECK(_column_ids.empty());
     _has_key = has_key;
     _column_writers.reserve(_tablet_schema->columns().size());
     _column_ids.insert(_column_ids.end(), col_ids.begin(), col_ids.end());
-    _olap_data_convertor =
-            std::make_unique<vectorized::OlapBlockDataConvertor>();
-    auto create_column_writer = [&](uint32_t cid, const auto& column) -> auto {
+    _olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
+    auto create_column_writer = [&](uint32_t cid, const auto& column) -> auto{
         ColumnWriterOptions opts;
         opts.meta = _footer.add_columns();
 
@@ -190,7 +189,7 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
         RETURN_IF_ERROR(writer->init());
         _column_writers.push_back(std::move(writer));
 
-        _olap_data_convertor.add_column_data_convertor(column);
+        _olap_data_convertor->add_column_data_convertor(column);
         return Status::OK();
     };
 

@@ -16,7 +16,6 @@
 // under the License.
 
 #include "vec/exec/format/json/new_json_reader.h"
-#include "vec/json/simd_json_parser.h"
 
 #include "common/compiler_util.h"
 #include "exprs/json_functions.h"
@@ -28,12 +27,13 @@
 #include "vec/core/block.h"
 #include "vec/exec/format/file_reader/new_plain_text_line_reader.h"
 #include "vec/exec/scan/vscanner.h"
+#include "vec/json/simd_json_parser.h"
 
 // dynamic table
+#include "vec/columns/column_object.h"
 #include "vec/common/object_util.h"
 #include "vec/json/json_parser.h"
 #include "vec/json/parse2column.h"
-#include "vec/columns/column_object.h"
 
 namespace doris::vectorized {
 using namespace ErrorCode;
@@ -60,14 +60,9 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
           _parse_allocator(_parse_buffer, sizeof(_parse_buffer)),
           _origin_json_doc(&_value_allocator, sizeof(_parse_buffer), &_parse_allocator),
           _scanner_eof(scanner_eof),
-<<<<<<< HEAD
           _current_offset(0),
-          _io_ctx(io_ctx) {
-=======
-          _file_format_type(params.format_type),
-          _file_compress_type(params.compress_type),
+          _io_ctx(io_ctx),
           _is_dynamic_schema(is_dynamic_schema) {
->>>>>>> 402e5abafb ((improvement)[dynamic-table] support load in new_load_scan_node (#1331))
     _bytes_read_counter = ADD_COUNTER(_profile, "BytesRead", TUnit::BYTES);
     _read_timer = ADD_TIMER(_profile, "ReadTime");
     _file_read_timer = ADD_TIMER(_profile, "FileReadTime");
@@ -106,7 +101,7 @@ Status NewJsonReader::init_reader() {
     //improve performance
     if (_parsed_jsonpaths.empty()) { // input is a simple json-string
         _vhandle_json_callback = _is_dynamic_schema ? &NewJsonReader::_vhandle_dynamic_json
-                                                   : &NewJsonReader::_vhandle_simple_json;
+                                                    : &NewJsonReader::_vhandle_simple_json;
     } else { // input is a complex json-string and a json-path
         if (_strip_outer_array) {
             _vhandle_json_callback = &NewJsonReader::_vhandle_flat_array_complex_json;
@@ -384,7 +379,7 @@ Status NewJsonReader::_read_json_column(std::vector<MutableColumnPtr>& columns,
 }
 
 Status NewJsonReader::_parse_dynamic_json(bool* is_empty_row, bool* eof,
-                        MutableColumnPtr& dynamic_column) {
+                                          MutableColumnPtr& dynamic_column) {
     size_t size = 0;
     // read a whole message
     SCOPED_TIMER(_file_read_timer);
@@ -393,8 +388,8 @@ Status NewJsonReader::_parse_dynamic_json(bool* is_empty_row, bool* eof,
     if (_line_reader != nullptr) {
         RETURN_IF_ERROR(_line_reader->read_line(&json_str, &size, eof));
     } else {
-        int64_t length = 0;
-        RETURN_IF_ERROR(_real_file_reader->read_one_message(&json_str_ptr, &length));
+        size_t length = 0;
+        RETURN_IF_ERROR(_read_one_message(&json_str_ptr, &length));
         json_str = json_str_ptr.get();
         size = length;
         if (length == 0) {
@@ -413,12 +408,12 @@ Status NewJsonReader::_parse_dynamic_json(bool* is_empty_row, bool* eof,
     }
 
     auto& column_object = assert_cast<vectorized::ColumnObject&>(*(dynamic_column.get()));
-    Status st = doris::vectorized::parse_json_to_variant(
-            column_object, StringRef {json_str, size}, _json_parser.get());
-    if (st.is_data_quality_error()) {
+    Status st = doris::vectorized::parse_json_to_variant(column_object, StringRef {json_str, size},
+                                                         _json_parser.get());
+    if (st.is<DATA_QUALITY_ERROR>()) {
         fmt::memory_buffer error_msg;
         fmt::format_to(error_msg, "Parse json data for JsonDoc failed. error info: {}",
-                       st.get_error_msg());
+                       st.to_string());
         RETURN_IF_ERROR(_state->append_error_msg_to_file(
                 [&]() -> std::string { return std::string((char*)json_str, size); },
                 [&]() -> std::string { return fmt::to_string(error_msg); }, _scanner_eof));
@@ -442,13 +437,13 @@ Status NewJsonReader::_parse_dynamic_json(bool* is_empty_row, bool* eof,
 }
 
 Status NewJsonReader::_vhandle_dynamic_json(std::vector<MutableColumnPtr>& columns,
-                                          const std::vector<SlotDescriptor*>& slot_descs,
-                                          bool* is_empty_row, bool* eof) {
+                                            const std::vector<SlotDescriptor*>& slot_descs,
+                                            bool* is_empty_row, bool* eof) {
     MutableColumnPtr& dynamic_column = columns.back();
     bool valid = false;
     do {
         Status st = _parse_dynamic_json(is_empty_row, eof, dynamic_column);
-        if (st.is_data_quality_error()) {
+        if (st.is<DATA_QUALITY_ERROR>()) {
             continue; // continue to read next
         }
         RETURN_IF_ERROR(st);
@@ -459,8 +454,6 @@ Status NewJsonReader::_vhandle_dynamic_json(std::vector<MutableColumnPtr>& colum
         valid = true;
     } while (!valid);
     return Status::OK();
-
-    
 }
 
 Status NewJsonReader::_vhandle_simple_json(std::vector<MutableColumnPtr>& columns,

@@ -136,7 +136,7 @@ suite("test_dynamic_table", "dynamic_table"){
             )
             DUPLICATE KEY(`name`)
             DISTRIBUTED BY HASH(`name`) BUCKETS 10
-            properties("replication_num" = "3");
+            properties("replication_num" = "1");
         """
 
         //stream load src_json

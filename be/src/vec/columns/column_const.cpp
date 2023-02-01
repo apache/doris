@@ -163,7 +163,7 @@ void ColumnConst::get_permutation(bool /*reverse*/, size_t /*limit*/, int /*nan_
     }
 }
 
-void ColumnConst::get_indices_of_non_default_rows(Offsets& indices, size_t from,
+void ColumnConst::get_indices_of_non_default_rows(Offsets64& indices, size_t from,
                                                   size_t limit) const {
     if (!data->is_default_at(0)) {
         size_t to = limit && from + limit < size() ? from + limit : size();

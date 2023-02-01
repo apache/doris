@@ -73,7 +73,6 @@ private:
                                 const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,
                                 bool* eof);
 
-
     Status _parse_dynamic_json(bool* is_empty_row, bool* eof, MutableColumnPtr& dynamic_column);
     Status _vhandle_dynamic_json(std::vector<MutableColumnPtr>& columns,
                                  const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row,

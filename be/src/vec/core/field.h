@@ -816,6 +816,10 @@ struct TypeId<DecimalField<Decimal128>> {
     static constexpr const TypeIndex value = TypeIndex::Decimal128;
 };
 template <>
+struct TypeId<DecimalField<Decimal128I>> {
+    static constexpr const TypeIndex value = TypeIndex::Decimal128I;
+};
+template <>
 struct Field::TypeToEnum<Null> {
     static constexpr Types::Which value = Types::Null;
 };
@@ -869,11 +873,15 @@ struct Field::TypeToEnum<DecimalField<Decimal128>> {
 };
 template <>
 struct Field::TypeToEnum<DecimalField<Decimal128I>> {
-    static const Types::Which value = Types::Decimal128I;
+    static constexpr Types::Which value = Types::Decimal128I;
 };
 template <>
 struct Field::TypeToEnum<AggregateFunctionStateData> {
     static constexpr Types::Which value = Types::AggregateFunctionState;
+};
+template <>
+struct Field::TypeToEnum<Object> {
+    static constexpr Types::Which value = Types::Object;
 };
 
 template <>

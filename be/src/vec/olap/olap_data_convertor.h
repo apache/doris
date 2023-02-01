@@ -54,7 +54,6 @@ public:
     std::pair<Status, IOlapColumnDataAccessor*> convert_column_data(size_t cid);
     void add_column_data_convertor(const TabletColumn& column);
 
-    void add_column_data_convertor(const TabletColumn& column);
     bool empty() const { return _convertors.empty(); }
     void reserve(size_t size) { _convertors.reserve(size); }
 
