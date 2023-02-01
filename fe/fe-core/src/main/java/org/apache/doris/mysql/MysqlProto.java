@@ -176,21 +176,24 @@ public class MysqlProto {
         if (USE_SSL) {
             // Server receive SSL connection request packet from client.
             ByteBuffer sslConnectionRequest = channel.fetchOnePacket();
-            if (sslConnectionRequest == null) {
-                // receive response failed.
-                return false;
-            }
-            MysqlSslPacket sslPacket = new MysqlSslPacket();
-            if (!sslPacket.readFrom(sslConnectionRequest)) {
-                ErrorReport.report(ErrorCode.ERR_NOT_SUPPORTED_AUTH_MODE);
-                sendResponsePacket(context);
-                return false;
-            }
+            MysqlCapability capability = new MysqlCapability(MysqlProto.readLowestInt4(sslConnectionRequest));
+            if (capability.isSsl()) {
+                if (sslConnectionRequest == null) {
+                    // receive response failed.
+                    return false;
+                }
+                MysqlSslPacket sslPacket = new MysqlSslPacket();
+                if (!sslPacket.readFrom(sslConnectionRequest)) {
+                    ErrorReport.report(ErrorCode.ERR_NOT_SUPPORTED_AUTH_MODE);
+                    sendResponsePacket(context);
+                    return false;
+                }
 
-            if(!MysqlSslExchange.SslExchange()){
-                ErrorReport.report(ErrorCode.ERR_NOT_SUPPORTED_AUTH_MODE);
-                sendResponsePacket(context);
-                return false;
+                if(!MysqlSslExchange.SslExchange()){
+                    ErrorReport.report(ErrorCode.ERR_NOT_SUPPORTED_AUTH_MODE);
+                    sendResponsePacket(context);
+                    return false;
+                }
             }
         }
 
@@ -348,6 +351,10 @@ public class MysqlProto {
         return buffer.get();
     }
 
+    public static byte readByteAt(ByteBuffer buffer, int index){
+        return buffer.get(index);
+    }
+
     public static int readInt1(ByteBuffer buffer) {
         return readByte(buffer) & 0XFF;
     }
@@ -359,6 +366,11 @@ public class MysqlProto {
     public static int readInt3(ByteBuffer buffer) {
         return (readByte(buffer) & 0xFF) | ((readByte(buffer) & 0xFF) << 8) | ((readByte(
                 buffer) & 0xFF) << 16);
+    }
+
+    public static int readLowestInt4(ByteBuffer buffer) {
+        return (readByteAt(buffer, 0) & 0xFF) | ((readByteAt(buffer, 1) & 0xFF) << 8) | ((readByteAt(
+                buffer, 2) & 0xFF) << 16) | ((readByteAt(buffer, 3) & 0XFF) << 24);
     }
 
     public static int readInt4(ByteBuffer buffer) {
