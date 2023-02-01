@@ -120,7 +120,7 @@ Status VFileScanner::_handle_dynamic_block(Block* block) {
 
     // flatten object columns for the purpose of extracting static columns and
     // fill default values missing in static columns
-    RETURN_IF_ERROR(object_util::flatten_object(*block, true /*replace static columns*/));
+    RETURN_IF_ERROR(schema_util::flatten_object(*block, true /*replace static columns*/));
 
     bool need_issue_rpc = false;
     for (const auto& name : block->get_names()) {
@@ -131,7 +131,7 @@ Status VFileScanner::_handle_dynamic_block(Block* block) {
     }
     if (need_issue_rpc) {
         // duplicated columns in _full_base_schema_view will be idempotent
-        RETURN_IF_ERROR(vectorized::object_util::send_add_columns_rpc(
+        RETURN_IF_ERROR(vectorized::schema_util::send_add_columns_rpc(
                 block->get_columns_with_type_and_name(), _full_base_schema_view.get()));
     }
     return Status::OK();
@@ -431,7 +431,7 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
             auto dest_type = vectorized::DataTypeFactory::instance().create_data_type(
                     slot_desc->type(), slot_desc->is_nullable());
             if (!column_type_name.type->equals(*dest_type)) {
-                RETURN_IF_ERROR(vectorized::object_util::cast_column(column_type_name, dest_type,
+                RETURN_IF_ERROR(vectorized::schema_util::cast_column(column_type_name, dest_type,
                                                                      &column_ptr));
             } else {
                 column_ptr = std::move(column_type_name.column);
@@ -524,7 +524,7 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
             // TODO need to add type conflict abort feature
             if (!column_type_name.type->equals(*original_type)) {
                 vectorized::ColumnPtr column_ptr;
-                RETURN_IF_ERROR(vectorized::object_util::cast_column(column_type_name,
+                RETURN_IF_ERROR(vectorized::schema_util::cast_column(column_type_name,
                                                                      original_type, &column_ptr));
                 column_type_name.column = column_ptr;
                 column_type_name.type = original_type;
@@ -815,7 +815,7 @@ Status VFileScanner::_init_expr_ctxes() {
     if (_is_dynamic_schema) {
         // should not resuse Block since Block is variable
         _src_block_mem_reuse = false;
-        _full_base_schema_view.reset(new vectorized::object_util::FullBaseSchemaView);
+        _full_base_schema_view.reset(new vectorized::schema_util::FullBaseSchemaView);
         _full_base_schema_view->db_name = _output_tuple_desc->table_desc()->database();
         _full_base_schema_view->table_name = _output_tuple_desc->table_desc()->name();
         _full_base_schema_view->table_id = _output_tuple_desc->table_desc()->table_id();

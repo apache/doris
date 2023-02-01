@@ -59,7 +59,7 @@ set(VEC_FILES
   json/json_parser.cpp
   json/parse2column.cpp
   json/path_in_data.cpp
-  common/object_util.cpp
+  common/schema_util.cpp
   common/demangle.cpp
   common/exception.cpp
   common/mremap.cpp

@@ -33,7 +33,7 @@
 #include "util/crc32c.h"
 #include "util/faststring.h"
 #include "util/key_util.h"
-#include "vec/common/object_util.h"
+#include "vec/common/schema_util.h"
 
 namespace doris {
 namespace segment_v2 {
@@ -233,11 +233,11 @@ Status SegmentWriter::_create_writers_with_block(
     // generate writers from schema and extended schema info
     _olap_data_convertor->reserve(block->columns());
     // new columns added, query column info from Master
-    vectorized::object_util::FullBaseSchemaView schema_view;
+    vectorized::schema_util::FullBaseSchemaView schema_view;
     if (block->columns() > _tablet_schema->num_columns()) {
         schema_view.table_id = _tablet_schema->table_id();
         RETURN_IF_ERROR(
-                vectorized::object_util::send_fetch_full_base_schema_view_rpc(&schema_view));
+                vectorized::schema_util::send_fetch_full_base_schema_view_rpc(&schema_view));
     }
     for (size_t i = 0; i < block->columns(); ++i) {
         const auto& column_type_name = block->get_by_position(i);

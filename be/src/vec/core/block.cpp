@@ -39,7 +39,7 @@
 #include "vec/columns/columns_number.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/exception.h"
-#include "vec/common/object_util.h"
+#include "vec/common/schema_util.h"
 #include "vec/common/string_ref.h"
 #include "vec/common/typeid_cast.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -684,7 +684,7 @@ Block Block::copy_block(const std::vector<int>& column_offset) const {
 
 void Block::append_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const {
     if (dst->get_block_type() == BlockType::DYNAMIC) {
-        object_util::align_append_block_by_selector(dst, this, selector);
+        schema_util::align_append_block_by_selector(dst, this, selector);
         return;
     }
     DCHECK(data.size() == dst->mutable_columns().size());
@@ -877,7 +877,7 @@ void MutableBlock::add_row(const Block* block, int row) {
 
 void MutableBlock::add_rows(const Block* block, const int* row_begin, const int* row_end) {
     if (_type == BlockType::DYNAMIC) {
-        object_util::align_block_by_name_and_type(this, block, row_begin, row_end);
+        schema_util::align_block_by_name_and_type(this, block, row_begin, row_end);
         return;
     }
     auto& block_data = block->get_columns_with_type_and_name();
@@ -890,7 +890,7 @@ void MutableBlock::add_rows(const Block* block, const int* row_begin, const int*
 
 void MutableBlock::add_rows(const Block* block, size_t row_begin, size_t length) {
     if (_type == BlockType::DYNAMIC) {
-        object_util::align_block_by_name_and_type(this, block, row_begin, length);
+        schema_util::align_block_by_name_and_type(this, block, row_begin, length);
         return;
     }
     auto& block_data = block->get_columns_with_type_and_name();

@@ -2,7 +2,7 @@
 #include <vec/columns/column_object.h>
 #include <vec/common/field_visitors.h>
 #include <vec/common/hash_table/hash_set.h>
-#include <vec/common/object_util.h>
+#include <vec/common/schema_util.h>
 #include <vec/common/string_ref.h>
 #include <vec/json/json_parser.h>
 #include <vec/json/parse2column.h>
@@ -124,15 +124,15 @@ bool try_insert_default_from_nested(const std::shared_ptr<Node>& entry,
     if (last_field.is_null()) return false;
 
     const auto& least_common_type = entry->data.get_least_common_type();
-    size_t num_dimensions = object_util::get_number_of_dimensions(*least_common_type);
+    size_t num_dimensions = schema_util::get_number_of_dimensions(*least_common_type);
     assert(num_skipped_nested < num_dimensions);
 
     /// Replace scalars to default values with consistent array sizes.
     size_t num_dimensions_to_keep = num_dimensions - num_skipped_nested;
     auto default_scalar =
             num_skipped_nested
-                    ? object_util::create_empty_array_field(num_skipped_nested)
-                    : object_util::get_base_type_of_array(least_common_type)->get_default();
+                    ? schema_util::create_empty_array_field(num_skipped_nested)
+                    : schema_util::get_base_type_of_array(least_common_type)->get_default();
 
     auto default_field = apply_visitor(
             FieldVisitorReplaceScalars(default_scalar, num_dimensions_to_keep), last_field);

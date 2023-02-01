@@ -22,7 +22,7 @@
 #include "exprs/function_filter.h"
 #include "io/file_factory.h"
 #include "runtime/tuple.h"
-#include "vec/common/object_util.h"
+#include "vec/common/schema_util.h"
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/scan/vscanner.h"
@@ -121,7 +121,7 @@ protected:
     VExprContext* _push_down_expr = nullptr;
     bool _is_dynamic_schema = false;
     // for tracing dynamic schema
-    std::unique_ptr<vectorized::object_util::FullBaseSchemaView> _full_base_schema_view;
+    std::unique_ptr<vectorized::schema_util::FullBaseSchemaView> _full_base_schema_view;
 
     std::unique_ptr<FileCacheStatistics> _file_cache_statistics;
     std::unique_ptr<IOContext> _io_ctx;

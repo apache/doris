@@ -27,7 +27,7 @@ class RowsetWriterContextBuilder;
 using RowsetWriterContextBuilderSharedPtr = std::shared_ptr<RowsetWriterContextBuilder>;
 class DataDir;
 class Tablet;
-namespace vectorized::object_util {
+namespace vectorized::schema_util {
 class LocalSchemaChangeRecorder;
 }
 
@@ -85,7 +85,7 @@ struct RowsetWriterContext {
     std::shared_ptr<Tablet> tablet = nullptr;
 
     // for tracing local schema change record
-    std::shared_ptr<vectorized::object_util::LocalSchemaChangeRecorder> schema_change_recorder =
+    std::shared_ptr<vectorized::schema_util::LocalSchemaChangeRecorder> schema_change_recorder =
             nullptr;
 };
 

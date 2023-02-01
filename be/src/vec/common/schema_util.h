@@ -32,7 +32,7 @@ namespace doris {
 class LocalSchemaChangeRecorder;
 }
 
-namespace doris::vectorized::object_util {
+namespace doris::vectorized::schema_util {
 /// Returns number of dimensions in Array type. 0 if type is not array.
 size_t get_number_of_dimensions(const IDataType& type);
 
@@ -44,35 +44,6 @@ DataTypePtr get_base_type_of_array(const DataTypePtr& type);
 
 /// Returns Array with requested number of dimensions and no scalars.
 Array create_empty_array_field(size_t num_dimensions);
-
-/// Converts Object types and columns to Tuples in @columns_list and @block
-/// and checks that types are consistent with types in @extended_storage_columns.
-Status convert_objects_to_tuples(Block& block);
-
-/// Receives several Tuple types and deduces the least common type among them.
-DataTypePtr get_least_common_type_for_object(const DataTypes& types,
-                                             bool check_ambiguos_paths = false);
-
-/// Flattens nested Tuple to plain Tuple. I.e extracts all paths and types from tuple.
-/// E.g. Tuple(t Tuple(c1 UInt32, c2 String), c3 UInt64) -> Tuple(t.c1 UInt32, t.c2 String, c3 UInt32)
-std::pair<PathsInData, DataTypes> flatten_tuple(const DataTypePtr& type);
-
-/// Flattens nested Tuple column to plain columns.
-Columns flatten_tuple(const ColumnPtr& column);
-
-void flatten_tuple(Block& block);
-
-/// The reverse operation to 'flattenTuple'.
-/// Creates nested Tuple from all paths and types.
-/// E.g. Tuple(t.c1 UInt32, t.c2 String, c3 UInt32) -> Tuple(t Tuple(c1 UInt32, c2 String), c3 UInt64)
-DataTypePtr unflatten_tuple(const PathsInData& paths, const DataTypes& tuple_types);
-
-std::pair<ColumnPtr, DataTypePtr> unflatten_tuple(const PathsInData& paths,
-                                                  const DataTypes& tuple_types,
-                                                  const Columns& tuple_columns);
-
-// None nested type
-FieldType get_field_type(const IDataType* data_type);
 
 // NOTICE: the last column must be dynamic column
 // 1. The dynamic column will be parsed to ColumnObject and the parsed column will
@@ -156,4 +127,4 @@ private:
     std::map<std::string, TabletColumn> _extended_columns;
 };
 
-} // namespace  doris::vectorized::object_util
+} // namespace  doris::vectorized::schema_util

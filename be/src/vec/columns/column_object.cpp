@@ -25,7 +25,7 @@
 #include <vec/columns/columns_number.h>
 #include <vec/common/field_visitors.h>
 #include <vec/common/hash_table/hash_set.h>
-#include <vec/common/object_util.h>
+#include <vec/common/schema_util.h>
 #include <vec/common/pod_array_fwd.h>
 #include <vec/core/field.h>
 #include <vec/data_types/convert_field_to_type.h>
@@ -328,7 +328,7 @@ Status ColumnObject::Subcolumn::insert(Field field, FieldInfo info) {
     if (data.empty()) {
         add_new_column_part(create_array_of_type(std::move(base_type), value_dim));
     } else if (!least_common_base_type->equals(*base_type) && !is_nothing(base_type)) {
-        if (!object_util::is_conversion_required_between_integers(*base_type,
+        if (!schema_util::is_conversion_required_between_integers(*base_type,
                                                                   *least_common_base_type)) {
             RETURN_IF_ERROR(
                     get_least_supertype(DataTypes {std::move(base_type), least_common_base_type},
@@ -365,7 +365,7 @@ Status ColumnObject::Subcolumn::insertRangeFrom(const Subcolumn& src, size_t sta
                                             &new_least_common_type,
                                             true /*compatible with string type*/));
         ColumnPtr casted_column;
-        RETURN_IF_ERROR(object_util::cast_column({src_column, src_type, ""}, new_least_common_type,
+        RETURN_IF_ERROR(schema_util::cast_column({src_column, src_type, ""}, new_least_common_type,
                                                  &casted_column));
         if (!least_common_type.get()->equals(*new_least_common_type))
             add_new_column_part(std::move(new_least_common_type));
@@ -421,11 +421,11 @@ void ColumnObject::Subcolumn::finalize() {
             part->get_indices_of_non_default_rows(offsets_data, 0, part_size);
             if (offsets->size() == part_size) {
                 ColumnPtr ptr;
-                object_util::cast_column({part, from_type, ""}, to_type, &ptr);
+                schema_util::cast_column({part, from_type, ""}, to_type, &ptr);
                 part = ptr;
             } else {
                 auto values = part->index(*offsets, offsets->size());
-                object_util::cast_column({values, from_type, ""}, to_type, &values);
+                schema_util::cast_column({values, from_type, ""}, to_type, &values);
                 part = values->create_with_offsets(offsets_data, to_type->get_default(), part_size,
                                                    /*shift=*/0);
             }
