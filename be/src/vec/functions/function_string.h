@@ -420,8 +420,8 @@ public:
         int n = -1;
 
         auto res = ColumnString::create();
-        const ColumnString& source_column =
-                assert_cast<const ColumnString&>(*block.get_by_position(arguments[0]).column);
+        auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const ColumnString& source_column = assert_cast<const ColumnString&>(*col);
 
         if (arguments.size() == 2) {
             auto& col = *block.get_by_position(arguments[1]).column;
