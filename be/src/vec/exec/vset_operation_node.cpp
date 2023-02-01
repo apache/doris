@@ -242,19 +242,16 @@ Status VSetOperationNode<is_intersect>::prepare(RuntimeState* state) {
     vector<bool> nullable_flags;
     nullable_flags.resize(_child_expr_lists[0].size(), false);
     for (int i = 0; i < _child_expr_lists.size(); ++i) {
-        int j = 0;
-        for (auto ctx : _child_expr_lists[i]) {
-            nullable_flags[j] = nullable_flags[j] || ctx->root()->is_nullable();
-            ++j;
+        for (int j = 0; j < _child_expr_lists[i].size(); ++j) {
+            nullable_flags[j] = nullable_flags[j] || _child_expr_lists[i][j]->root()->is_nullable();
         }
         RETURN_IF_ERROR(VExpr::prepare(_child_expr_lists[i], state, child(i)->row_desc()));
     }
-    int n = 0;
-    for (auto ctx : _child_expr_lists[0]) {
-        _build_not_ignore_null.push_back(ctx->root()->data_type()->is_nullable());
-        _left_table_data_types.push_back(nullable_flags[n] ? make_nullable(ctx->root()->data_type())
+    for (int i = 0; i < _child_expr_lists[0].size(); ++i) {
+        const auto& ctx = _child_expr_lists[0][i];
+        _build_not_ignore_null.push_back(ctx->root()->is_nullable());
+        _left_table_data_types.push_back(nullable_flags[i] ? make_nullable(ctx->root()->data_type())
                                                            : ctx->root()->data_type());
-        ++n;
     }
     hash_table_init();
 
