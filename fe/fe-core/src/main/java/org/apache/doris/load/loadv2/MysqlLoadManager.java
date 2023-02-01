@@ -173,6 +173,11 @@ public class MysqlLoadManager {
             }
         }
 
+        // skip_lines
+        if (desc.getSkipLines() != 0) {
+            httpPut.addHeader(LoadStmt.KEY_SKIP_LINES, Integer.toString(desc.getSkipLines()));
+        }
+
         // column_separator
         if (desc.getColumnSeparator() != null) {
             httpPut.addHeader(LoadStmt.KEY_IN_PARAM_COLUMN_SEPARATOR, desc.getColumnSeparator());
