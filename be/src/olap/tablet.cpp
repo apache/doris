@@ -847,7 +847,7 @@ uint32_t Tablet::calc_compaction_score(
     }
 }
 
-const uint32_t Tablet::_calc_cumulative_compaction_score(
+uint32_t Tablet::_calc_cumulative_compaction_score(
         std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
 #ifndef BE_TEST
     if (_cumulative_compaction_policy == nullptr ||
@@ -861,7 +861,7 @@ const uint32_t Tablet::_calc_cumulative_compaction_score(
     return score;
 }
 
-const uint32_t Tablet::_calc_base_compaction_score() const {
+uint32_t Tablet::_calc_base_compaction_score() const {
     uint32_t score = 0;
     const int64_t point = cumulative_layer_point();
     bool base_rowset_exist = false;

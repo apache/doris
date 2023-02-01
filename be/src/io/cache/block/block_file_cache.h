@@ -178,13 +178,13 @@ protected:
 
     /// Used to track and control the cache access of each query.
     /// Through it, we can realize the processing of different queries by the cache layer.
-    struct QueryContext {
+    struct QueryFileCacheContext {
         LRUQueue lru_queue;
         AccessRecord records;
 
         size_t max_cache_size = 0;
 
-        QueryContext(size_t max_cache_size) : max_cache_size(max_cache_size) {}
+        QueryFileCacheContext(size_t max_cache_size) : max_cache_size(max_cache_size) {}
 
         void remove(const Key& key, size_t offset, bool is_presistent, size_t size,
                     std::lock_guard<std::mutex>& cache_lock);
@@ -201,31 +201,33 @@ protected:
         LRUQueue& queue() { return lru_queue; }
     };
 
-    using QueryContextPtr = std::shared_ptr<QueryContext>;
-    using QueryContextMap = std::unordered_map<TUniqueId, QueryContextPtr>;
+    using QueryFileCacheContextPtr = std::shared_ptr<QueryFileCacheContext>;
+    using QueryFileCacheContextMap = std::unordered_map<TUniqueId, QueryFileCacheContextPtr>;
 
-    QueryContextMap _query_map;
+    QueryFileCacheContextMap _query_map;
 
     bool _enable_file_cache_query_limit = config::enable_file_cache_query_limit;
 
-    QueryContextPtr get_query_context(const TUniqueId& query_id, std::lock_guard<std::mutex>&);
+    QueryFileCacheContextPtr get_query_context(const TUniqueId& query_id,
+                                               std::lock_guard<std::mutex>&);
 
     void remove_query_context(const TUniqueId& query_id);
 
-    QueryContextPtr get_or_set_query_context(const TUniqueId& query_id,
-                                             std::lock_guard<std::mutex>&);
+    QueryFileCacheContextPtr get_or_set_query_context(const TUniqueId& query_id,
+                                                      std::lock_guard<std::mutex>&);
 
 public:
     /// Save a query context information, and adopt different cache policies
     /// for different queries through the context cache layer.
-    struct QueryContextHolder {
-        QueryContextHolder(const TUniqueId& query_id, IFileCache* cache, QueryContextPtr context)
+    struct QueryFileCacheContextHolder {
+        QueryFileCacheContextHolder(const TUniqueId& query_id, IFileCache* cache,
+                                    QueryFileCacheContextPtr context)
                 : query_id(query_id), cache(cache), context(context) {}
 
-        QueryContextHolder& operator=(const QueryContextHolder&) = delete;
-        QueryContextHolder(const QueryContextHolder&) = delete;
+        QueryFileCacheContextHolder& operator=(const QueryFileCacheContextHolder&) = delete;
+        QueryFileCacheContextHolder(const QueryFileCacheContextHolder&) = delete;
 
-        ~QueryContextHolder() {
+        ~QueryFileCacheContextHolder() {
             /// If only the query_map and the current holder hold the context_query,
             /// the query has been completed and the query_context is released.
             if (context) {
@@ -236,10 +238,10 @@ public:
 
         const TUniqueId& query_id;
         IFileCache* cache = nullptr;
-        QueryContextPtr context;
+        QueryFileCacheContextPtr context;
     };
-    using QueryContextHolderPtr = std::unique_ptr<QueryContextHolder>;
-    QueryContextHolderPtr get_query_context_holder(const TUniqueId& query_id);
+    using QueryFileCacheContextHolderPtr = std::unique_ptr<QueryFileCacheContextHolder>;
+    QueryFileCacheContextHolderPtr get_query_context_holder(const TUniqueId& query_id);
 };
 
 using CloudFileCachePtr = IFileCache*;

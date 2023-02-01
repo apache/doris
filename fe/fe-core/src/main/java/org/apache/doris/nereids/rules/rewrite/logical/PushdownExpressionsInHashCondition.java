@@ -28,10 +28,12 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -64,7 +66,7 @@ public class PushdownExpressionsInHashCondition extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalJoin()
                 .when(join -> join.getHashJoinConjuncts().stream().anyMatch(equalTo ->
-                        equalTo.children().stream().anyMatch(e -> !(e instanceof Slot))))
+                        equalTo.children().stream().anyMatch(e -> !ExpressionUtils.checkTypeSkipCast(e, Slot.class))))
                 .then(join -> {
                     List<List<Expression>> exprsOfHashConjuncts =
                             Lists.newArrayList(Lists.newArrayList(), Lists.newArrayList());
@@ -88,7 +90,7 @@ public class PushdownExpressionsInHashCondition extends OneRewriteRuleFactory {
                                             .collect(ImmutableList.toImmutableList())))
                                     .collect(ImmutableList.toImmutableList()),
                             join.children().stream().map(
-                                    plan -> new LogicalProject<>(new ImmutableList.Builder<NamedExpression>()
+                                    plan -> new LogicalProject<>(new Builder<NamedExpression>()
                                             .addAll(iter.next().stream().map(exprMap::get)
                                                     .collect(ImmutableList.toImmutableList()))
                                             .addAll(getOutput(plan, join)).build(), plan))

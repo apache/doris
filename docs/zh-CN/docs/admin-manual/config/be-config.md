@@ -686,12 +686,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * 描述: load错误日志将在此时间后删除
 * 默认值: 48（h）
 
-#### `load_process_max_memory_limit_bytes`
-
-* 描述: 单节点上所有的导入线程占据的内存上限。
-  - 将这些默认值设置得很大，因为我们不想在用户升级 Doris 时影响负载性能。 如有必要，用户应正确设置这些配置。
-* 默认值: 107374182400 （100G）
-
 #### `load_process_max_memory_limit_percent`
 
 * 描述: 单节点上所有的导入线程占据的内存上限比例

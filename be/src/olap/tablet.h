@@ -81,9 +81,9 @@ public:
     Status revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
                               const std::vector<Version>& versions_to_delete);
 
-    const int64_t cumulative_layer_point() const;
+    int64_t cumulative_layer_point() const;
     void set_cumulative_layer_point(int64_t new_point);
-    inline const int64_t cumulative_promotion_size() const;
+    inline int64_t cumulative_promotion_size() const;
     inline void set_cumulative_promotion_size(int64_t new_size);
 
     // Disk space occupied by tablet, contain local and remote.
@@ -365,9 +365,9 @@ private:
     Status _capture_consistent_rowsets_unlocked(const std::vector<Version>& version_path,
                                                 std::vector<RowsetSharedPtr>* rowsets) const;
 
-    const uint32_t _calc_cumulative_compaction_score(
+    uint32_t _calc_cumulative_compaction_score(
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
-    const uint32_t _calc_base_compaction_score() const;
+    uint32_t _calc_base_compaction_score() const;
 
     // When the proportion of empty edges in the adjacency matrix used to represent the version graph
     // in the version tracker is greater than the threshold, rebuild the version tracker
@@ -490,7 +490,7 @@ inline void Tablet::deregister_tablet_from_dir() {
     _data_dir->deregister_tablet(this);
 }
 
-inline const int64_t Tablet::cumulative_layer_point() const {
+inline int64_t Tablet::cumulative_layer_point() const {
     return _cumulative_point;
 }
 
@@ -502,7 +502,7 @@ inline void Tablet::set_cumulative_layer_point(int64_t new_point) {
     _cumulative_point = new_point;
 }
 
-inline const int64_t Tablet::cumulative_promotion_size() const {
+inline int64_t Tablet::cumulative_promotion_size() const {
     return _cumulative_promotion_size;
 }
 
