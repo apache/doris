@@ -21,7 +21,6 @@
 #include "exec/text_converter.h"
 #include "exprs/function_filter.h"
 #include "io/file_factory.h"
-#include "runtime/tuple.h"
 #include "vec/common/schema_util.h"
 #include "vec/exec/format/format_common.h"
 #include "vec/exec/format/generic_reader.h"
