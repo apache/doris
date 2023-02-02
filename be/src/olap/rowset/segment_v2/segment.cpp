@@ -263,19 +263,6 @@ Status Segment::_create_column_readers() {
     return Status::OK();
 }
 
-Status Segment::new_row_column_iterator(ColumnIterator** iter) {
-    const auto& row_column = TabletSchema::row_oriented_column();
-    if (_column_readers.count(row_column.unique_id()) < 1) {
-        ColumnReaderOptions opts;
-        opts.kept_in_memory = _tablet_schema->is_in_memory();
-        std::unique_ptr<ColumnReader> reader;
-        RETURN_IF_ERROR(ColumnReader::create(opts, _footer.columns(_footer.columns_size() - 1),
-                                             _footer.num_rows(), _file_reader, &reader));
-        _column_readers.emplace(row_column.unique_id(), std::move(reader));
-    }
-    return _column_readers.at(row_column.unique_id())->new_iterator(iter);
-}
-
 // Not use cid anymore, for example original table schema is colA int, then user do following actions
 // 1.add column b
 // 2. drop column b

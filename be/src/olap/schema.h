@@ -40,7 +40,7 @@ public:
     Schema(TabletSchemaSPtr tablet_schema) {
         size_t num_columns = tablet_schema->num_columns();
         // ignore this column
-        if (tablet_schema->columns().back().name() == BeConsts::SOURCE_COL) {
+        if (tablet_schema->columns().back().name() == BeConsts::ROW_STORE_COL) {
             --num_columns;
         }
         std::vector<ColumnId> col_ids(num_columns);
