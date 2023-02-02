@@ -390,13 +390,19 @@ public class Auth implements Writable {
         if (isLdapAuthEnabled() && checkHasPrivLdap(ctx.getCurrentUserIdentity(), priv, levels)) {
             return true;
         }
-        Set<String> roles = userRoleManager.getRolesByUser(ctx.getCurrentUserIdentity());
-        for (String roleName : roles) {
-            if (roleManager.getRole(roleName).checkHasPriv(priv, levels)) {
-                return true;
+        readLock();
+        try {
+            Set<String> roles = userRoleManager.getRolesByUser(ctx.getCurrentUserIdentity());
+            for (String roleName : roles) {
+                if (roleManager.getRole(roleName).checkHasPriv(priv, levels)) {
+                    return true;
+                }
             }
+            return false;
+        } finally {
+            readUnlock();
         }
-        return false;
+
     }
 
     public boolean checkHasPrivLdap(UserIdentity currentUser, PrivPredicate priv, PrivLevel... levels) {
@@ -428,11 +434,6 @@ public class Auth implements Writable {
     // Check if LDAP authentication is enabled.
     private boolean isLdapAuthEnabled() {
         return LdapConfig.ldap_authentication_enabled;
-    }
-
-    // for test only
-    public void clear() {
-
     }
 
     // create user
@@ -625,11 +626,7 @@ public class Auth implements Writable {
 
     // return true if user ident exist
     private boolean doesUserExist(UserIdentity userIdent) {
-        //        if (userIdent.isDomain()) {
-        //            return propertyMgr.doesUserExist(userIdent);
-        //        } else {
         return userManager.userIdentityExist(userIdent);
-        //        }
     }
 
     // Check whether the user exists. If the user exists, return UserIdentity, otherwise return null.
