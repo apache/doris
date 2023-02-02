@@ -240,21 +240,21 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
     }
 
     bool has_next_block() override {
-        auto status = _block_supplier(_block_ptr);
+        auto status = _block_supplier(_block_ptr.get());
         if (status.ok() && _block_ptr != nullptr) {
             if (_ordering_expr.size() > 0) {
                 for (int i = 0; status.ok() && i < desc.size(); ++i) {
-                    status = _ordering_expr[i]->execute(_block_ptr, &desc[i].column_number);
+                    status = _ordering_expr[i]->execute(_block_ptr.get(), &desc[i].column_number);
                 }
             }
-            MergeSortCursorImpl::reset(*_block_ptr);
+            MergeSortCursorImpl::reset(_block_ptr);
             return status.ok();
         }
         _block_ptr = nullptr;
         return false;
     }
 
-    Block* block_ptr() override { return _block_ptr; }
+    Block* block_ptr() override { return _block_ptr.get(); }
 
     size_t columns_num() const { return all_columns.size(); }
 
@@ -268,7 +268,7 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
     }
 
     std::vector<VExprContext*> _ordering_expr;
-    Block* _block_ptr = nullptr;
+    BlockUPtr _block_ptr = nullptr;
     BlockSupplier _block_supplier {};
     bool _is_eof = false;
 };
