@@ -77,6 +77,8 @@ public:
     int frac() const { return _frac; }
     inline bool visible() const { return _visible; }
 
+    void set_aggregation_method(FieldAggregationMethod agg) { _aggregation = agg; }
+
     /**
      * Add a sub column.
      */

@@ -151,6 +151,7 @@ public class DataDescription {
     private final Map<String, String> properties;
     private boolean trimDoubleQuotes = false;
     private boolean isMysqlLoad = false;
+    private int skipLines = 0;
 
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
@@ -232,6 +233,7 @@ public class DataDescription {
                            List<String> columns,
                            Separator columnSeparator,
                            Separator lineDelimiter,
+                           int skipLines,
                            List<Expr> columnMappingList,
                            Map<String, String> properties) {
         this.tableName = tableName.getTbl();
@@ -242,6 +244,7 @@ public class DataDescription {
         this.fileFieldNames = columns;
         this.columnSeparator = columnSeparator;
         this.lineDelimiter = lineDelimiter;
+        this.skipLines = skipLines;
         this.fileFormat = null;
         this.columnsFromPath = null;
         this.isNegative = false;
@@ -288,6 +291,7 @@ public class DataDescription {
         this.numAsString = taskInfo.isNumAsString();
         this.properties = Maps.newHashMap();
         this.trimDoubleQuotes = taskInfo.getTrimDoubleQuotes();
+        this.skipLines = taskInfo.getSkipLines();
     }
 
     private void getFileFormatAndCompressType(LoadTaskInfo taskInfo) {
@@ -700,6 +704,10 @@ public class DataDescription {
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    public int getSkipLines() {
+        return skipLines;
     }
 
     /*

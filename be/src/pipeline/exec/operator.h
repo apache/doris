@@ -89,8 +89,6 @@ public:
 
     std::string get_name() const { return _name; }
 
-    RuntimeState* runtime_state() { return _state; }
-
     virtual const RowDescriptor& row_desc() = 0;
 
     int32_t id() const { return _id; }
