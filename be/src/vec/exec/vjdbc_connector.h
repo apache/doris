@@ -107,7 +107,7 @@ private:
             {-7, TYPE_BOOLEAN}, {-6, TYPE_TINYINT},  {5, TYPE_SMALLINT}, {4, TYPE_INT},
             {-5, TYPE_BIGINT},  {12, TYPE_STRING},   {7, TYPE_FLOAT},    {8, TYPE_DOUBLE},
             {91, TYPE_DATE},    {93, TYPE_DATETIME}, {2, TYPE_DECIMALV2}};
-    bool _closed;
+    bool _closed = false;
     jclass _executor_clazz;
     jclass _executor_list_clazz;
     jclass _executor_object_clazz;
@@ -150,7 +150,7 @@ private:
     jmethodID _executor_begin_trans_id;
     jmethodID _executor_finish_trans_id;
     jmethodID _executor_abort_trans_id;
-    bool _need_cast_array_type;
+    bool _need_cast_array_type = false;
     std::map<int, int> _map_column_idx_to_cast_idx;
     std::vector<DataTypePtr> _input_array_string_types;
     std::vector<MutableColumnPtr>

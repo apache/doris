@@ -20,26 +20,22 @@ package org.apache.doris.udf;
 import org.apache.doris.thrift.TJdbcExecutorCtorParams;
 import org.apache.doris.thrift.TJdbcOperation;
 
+import com.alibaba.druid.pool.DruidDataSource;
 import com.google.common.base.Preconditions;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
 import org.apache.thrift.protocol.TBinaryProtocol;
 
-import java.io.File;
+import java.io.FileNotFoundException;
 import java.lang.reflect.Array;
-import java.lang.reflect.InvocationTargetException;
 import java.math.BigDecimal;
 import java.math.BigInteger;
 import java.math.RoundingMode;
 import java.net.MalformedURLException;
-import java.net.URL;
-import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
 import java.sql.Date;
-import java.sql.Driver;
-import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.ResultSetMetaData;
@@ -60,11 +56,11 @@ public class JdbcExecutor {
     private ResultSetMetaData resultSetMetaData = null;
     private List<String> resultColumnTypeNames = null;
     private int baseTypeInt = 0;
-    private URLClassLoader classLoader = null;
     private List<Object[]> block = null;
     private int bacthSizeNum = 0;
     private int curBlockRows = 0;
     private static final byte[] emptyBytes = new byte[0];
+    private DruidDataSource druidDataSource = null;
 
     public JdbcExecutor(byte[] thriftParams) throws Exception {
         TJdbcExecutorCtorParams request = new TJdbcExecutorCtorParams();
@@ -86,17 +82,11 @@ public class JdbcExecutor {
             stmt.close();
         }
         if (conn != null) {
-            conn.clearWarnings();
             conn.close();
-        }
-        if (classLoader != null) {
-            classLoader.clearAssertionStatus();
-            classLoader.close();
         }
         resultSet = null;
         stmt = null;
         conn = null;
-        classLoader = null;
     }
 
     public int read() throws UdfRuntimeException {
@@ -284,17 +274,23 @@ public class JdbcExecutor {
     private void init(String driverUrl, String sql, int batchSize, String driverClass, String jdbcUrl, String jdbcUser,
             String jdbcPassword, TJdbcOperation op) throws UdfRuntimeException {
         try {
-            File file = new File(driverUrl);
-            URL url = file.toURI().toURL();
-            classLoader = new URLClassLoader(new URL[] {url});
-            Driver driver = (Driver) Class.forName(driverClass, true, classLoader).getDeclaredConstructor()
-                    .newInstance();
-            // in jdk11 cann't call addURL function by reflect to load class. so use this way
-            // But DriverManager can't find the driverClass correctly, so add a faker driver
-            // https://www.kfu.com/~nsayer/Java/dyn-jdbc.html
-            DriverManager.registerDriver(new FakeDriver(driver));
-            conn = DriverManager.getConnection(jdbcUrl, jdbcUser, jdbcPassword);
-
+            ClassLoader parent = getClass().getClassLoader();
+            ClassLoader classLoader = UdfUtils.getClassLoader(driverUrl, parent);
+            druidDataSource = JdbcDataSource.getDataSource().getSource(jdbcUrl);
+            if (druidDataSource == null) {
+                DruidDataSource ds = new DruidDataSource();
+                ds.setDriverClassLoader(classLoader);
+                ds.setDriverClassName(driverClass);
+                ds.setUrl(jdbcUrl);
+                ds.setUsername(jdbcUser);
+                ds.setPassword(jdbcPassword);
+                ds.setMinIdle(1);
+                ds.setInitialSize(2);
+                ds.setMaxActive(5);
+                druidDataSource = ds;
+                JdbcDataSource.getDataSource().putSource(jdbcUrl, ds);
+            }
+            conn = druidDataSource.getConnection();
             if (op == TJdbcOperation.READ) {
                 conn.setAutoCommit(false);
                 Preconditions.checkArgument(sql != null);
@@ -305,20 +301,12 @@ public class JdbcExecutor {
             } else {
                 stmt = conn.createStatement();
             }
-        } catch (ClassNotFoundException e) {
-            throw new UdfRuntimeException("ClassNotFoundException:  " + driverClass, e);
         } catch (MalformedURLException e) {
             throw new UdfRuntimeException("MalformedURLException to load class about " + driverUrl, e);
         } catch (SQLException e) {
             throw new UdfRuntimeException("Initialize datasource failed: ", e);
-        } catch (InstantiationException e) {
-            throw new UdfRuntimeException("InstantiationException failed: ", e);
-        } catch (IllegalAccessException e) {
-            throw new UdfRuntimeException("IllegalAccessException failed: ", e);
-        } catch (InvocationTargetException e) {
-            throw new UdfRuntimeException("InvocationTargetException new instance failed: ", e);
-        } catch (NoSuchMethodException e) {
-            throw new UdfRuntimeException("NoSuchMethodException Load class failed: ", e);
+        } catch (FileNotFoundException e) {
+            throw new UdfRuntimeException("FileNotFoundException failed: ", e);
         }
     }
 
