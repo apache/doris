@@ -812,8 +812,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
             }
             _shared_hashtable_controller->signal(id());
         }
-    } else if (!_should_build_hash_table &&
-               ((state->enable_pipeline_exec() && eos) || !state->enable_pipeline_exec())) {
+    } else if (!_should_build_hash_table && (eos || !state->enable_pipeline_exec())) {
         DCHECK(_shared_hashtable_controller != nullptr);
         DCHECK(_shared_hash_table_context != nullptr);
         auto wait_timer = ADD_TIMER(_build_phase_profile, "WaitForSharedHashTableTime");
@@ -1178,7 +1177,8 @@ std::vector<uint16_t> HashJoinNode::_convert_block_to_null(Block& block) {
 
 HashJoinNode::~HashJoinNode() {
     if (_shared_hashtable_controller && _should_build_hash_table) {
-        _shared_hashtable_controller->signal(id());
+        // signal at here is abnormal
+        _shared_hashtable_controller->signal(id(), Status::Cancelled("signaled in destructor"));
     }
 }
 

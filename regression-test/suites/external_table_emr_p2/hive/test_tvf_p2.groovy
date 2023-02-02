@@ -15,27 +15,16 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner.external;
+suite("test_tvf_p2", "p2") {
+    String enabled = context.config.otherConfigs.get("enableExternalHiveTest")
+    if (enabled != null && enabled.equalsIgnoreCase("true")) {
+        String nameNodeHost = context.config.otherConfigs.get("extHiveHmsHost")
+        String hdfsPort = context.config.otherConfigs.get("extHdfsPort")
 
-import org.apache.doris.analysis.Analyzer;
-
-import lombok.Data;
-import org.apache.hadoop.fs.Path;
-
-import java.util.List;
-
-@Data
-public class IcebergSplit extends HiveSplit {
-    public IcebergSplit(Path file, long start, long length, String[] hosts) {
-        super(file, start, length, hosts);
+        qt_eof_check """select * from hdfs(
+            "uri" = "hdfs://${nameNodeHost}:${hdfsPort}/user/data/tvf/bad_store_sales.parquet",
+            "fs.defaultFS" = "hdfs://${nameNodeHost}:${hdfsPort}",
+            "format" = "parquet")
+            where ss_store_sk = 4 and ss_addr_sk is null order by ss_item_sk"""
     }
-
-    private Analyzer analyzer;
-    private String dataFilePath;
-    private Integer formatVersion;
-    private List<IcebergDeleteFileFilter> deleteFileFilters;
 }
-
-
-
-

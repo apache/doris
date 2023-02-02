@@ -311,13 +311,13 @@ struct DateTimeOp {
         size_t size = vec_from0.size();
         vec_to.resize(size);
 
-        bool valid = true;
+        bool invalid = true;
         for (size_t i = 0; i < size; ++i) {
             // here reinterpret_cast is used to convert uint8& to bool&,
             // otherwise it will be implicitly converted to bool, causing the rvalue to fail to match the lvalue.
             // the same goes for the following.
-            vec_to[i] = Transform::execute(vec_from0[i], vec_from1[i], valid);
-            DCHECK(valid);
+            vec_to[i] = Transform::execute(vec_from0[i], vec_from1[i], invalid);
+            DCHECK(!invalid);
         }
     }
 
@@ -339,10 +339,10 @@ struct DateTimeOp {
         size_t size = vec_from0.size();
         vec_to.resize(size);
 
-        bool valid = true;
+        bool invalid = true;
         for (size_t i = 0; i < size; ++i) {
-            vec_to[i] = Transform::execute(vec_from0[i], vec_from1[i], valid);
-            DCHECK(valid);
+            vec_to[i] = Transform::execute(vec_from0[i], vec_from1[i], invalid);
+            DCHECK(!invalid);
         }
     }
 
@@ -363,10 +363,10 @@ struct DateTimeOp {
         size_t size = vec_from.size();
         vec_to.resize(size);
 
-        bool valid = true;
+        bool invalid = true;
         for (size_t i = 0; i < size; ++i) {
-            vec_to[i] = Transform::execute(vec_from[i], delta, valid);
-            DCHECK(valid);
+            vec_to[i] = Transform::execute(vec_from[i], delta, invalid);
+            DCHECK(!invalid);
         }
     }
 
@@ -386,11 +386,11 @@ struct DateTimeOp {
                                 PaddedPODArray<ToType>& vec_to, Int64 delta) {
         size_t size = vec_from.size();
         vec_to.resize(size);
-        bool valid = true;
+        bool invalid = true;
 
         for (size_t i = 0; i < size; ++i) {
-            vec_to[i] = Transform::execute(vec_from[i], delta, valid);
-            DCHECK(valid);
+            vec_to[i] = Transform::execute(vec_from[i], delta, invalid);
+            DCHECK(!invalid);
         }
     }
 
@@ -410,11 +410,11 @@ struct DateTimeOp {
                                 const IColumn& delta) {
         size_t size = delta.size();
         vec_to.resize(size);
-        bool valid = true;
+        bool invalid = true;
 
         for (size_t i = 0; i < size; ++i) {
-            vec_to[i] = Transform::execute(from, delta.get_int(i), valid);
-            DCHECK(valid);
+            vec_to[i] = Transform::execute(from, delta.get_int(i), invalid);
+            DCHECK(!invalid);
         }
     }
 
@@ -432,11 +432,11 @@ struct DateTimeOp {
                                 const PaddedPODArray<FromType2>& delta) {
         size_t size = delta.size();
         vec_to.resize(size);
-        bool valid = true;
+        bool invalid = true;
 
         for (size_t i = 0; i < size; ++i) {
-            vec_to[i] = Transform::execute(from, delta[i], valid);
-            DCHECK(valid);
+            vec_to[i] = Transform::execute(from, delta[i], invalid);
+            DCHECK(!invalid);
         }
     }
 };

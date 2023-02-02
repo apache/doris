@@ -157,6 +157,7 @@
                         "advanced/join-optimization/doris-join-optimization"
                     ]
                 },
+                "advanced/pipeline-execution-engine",
                 "advanced/materialized-view",
                 "advanced/broker",
                 {

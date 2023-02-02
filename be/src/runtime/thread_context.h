@@ -344,8 +344,6 @@ private:
     do {                                                                    \
         if (doris::thread_context_ptr.init) {                               \
             doris::thread_context()->thread_mem_tracker_mgr->consume(size); \
-        } else {                                                            \
-            doris::ThreadMemTrackerMgr::consume_no_attach(size);            \
         }                                                                   \
     } while (0)
 // NOTE, The LOG cannot be printed in the mem hook. If the LOG statement triggers the mem hook LOG,
@@ -360,16 +358,12 @@ private:
             } else {                                                                       \
                 doris::thread_context()->thread_mem_tracker_mgr->consume(size);            \
             }                                                                              \
-        } else {                                                                           \
-            doris::ThreadMemTrackerMgr::consume_no_attach(size);                           \
         }                                                                                  \
     } while (0)
 #define RELEASE_MEM_TRACKER(size)                                            \
     do {                                                                     \
         if (doris::thread_context_ptr.init) {                                \
             doris::thread_context()->thread_mem_tracker_mgr->consume(-size); \
-        } else {                                                             \
-            doris::ThreadMemTrackerMgr::consume_no_attach(-size);            \
         }                                                                    \
     } while (0)
 #else
