@@ -21,11 +21,13 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Exp;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -120,16 +122,21 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         project.child().accept(this, context);
         Map<NamedExpression, Pair<RelationId, NamedExpression>> aliasTransferMap
                 = context.getRuntimeFilterContext().getAliasTransferMap();
+        Map<NamedExpression, Cast> castMap = context.getRuntimeFilterContext().getCastMap();
         // change key when encounter alias.
-        project.getProjects().stream().filter(Alias.class::isInstance)
-                .map(Alias.class::cast)
-                .forEach(alias -> {
-                    Expression expr = ExpressionUtils.getExpressionCoveredByCast(alias.child());
-                    if (expr instanceof NamedExpression
-                            && aliasTransferMap.containsKey((NamedExpression) expr)) {
-                        aliasTransferMap.put(alias.toSlot(), aliasTransferMap.remove(expr));
-                    }
-                });
+        for (Expression expression : project.getProjects()) {
+            if (expression instanceof Alias) {
+                Alias alias = ((Alias) expression);
+                Expression expr = ExpressionUtils.getExpressionCoveredByCast(alias.child());
+                if (expr instanceof NamedExpression
+                        && aliasTransferMap.containsKey((NamedExpression) expr)) {
+                    aliasTransferMap.put(alias.toSlot(), aliasTransferMap.remove(expr));
+                }
+            } else if (expression instanceof Cast) {
+                Cast cast = ((Cast) expression);
+                Expression expr = ExpressionUtils.getExpressionCoveredByCast()
+            }
+        }
         return project;
     }
 
