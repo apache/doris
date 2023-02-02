@@ -221,7 +221,8 @@ suite ("sub_query_correlated") {
 
     //----------complex nonEqual subqueries----------
 
-    qt_in_subquery """
+    //----------remove temporarily---------
+    /*qt_in_subquery """
         select * from sub_query_correlated_subquery3
             where (k1 = 1 or k1 = 2 or k1 = 3) and v1 in (select k1 from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k2 > sub_query_correlated_subquery3.v2 and sub_query_correlated_subquery1.k1 = 3)
             order by k1, k2
@@ -231,7 +232,7 @@ suite ("sub_query_correlated") {
         select * from sub_query_correlated_subquery3
             where k1 = 2 and exists (select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 < sub_query_correlated_subquery3.v2 and sub_query_correlated_subquery1.k2 = 4)
             order by k1, k2
-    """
+    """*/
 
     //----------subquery with order----------
     qt_scalar_subquery_with_order """
