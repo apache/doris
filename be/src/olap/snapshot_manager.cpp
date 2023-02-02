@@ -482,13 +482,6 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                         ref_tablet->tablet_meta()->delete_bitmap().snapshot(version);
             }
         }
-        {
-            std::unique_lock wlock(ref_tablet->get_header_lock());
-            if (ref_tablet->tablet_state() == TABLET_SHUTDOWN) {
-                return Status::Aborted("tablet has shutdown");
-            }
-            ref_tablet->update_self_owned_remote_rowsets(consistent_rowsets);
-        }
 
         std::vector<RowsetMetaSharedPtr> rs_metas;
         for (auto& rs : consistent_rowsets) {
