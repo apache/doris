@@ -32,6 +32,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
 
@@ -48,15 +49,44 @@ public class ExprToSlotRefRule implements ExprRewriteRule {
 
     public static final ExprRewriteRule INSTANCE = new ExprToSlotRefRule();
 
+    private Pair<OlapTable, TableName> getTable(Expr expr) {
+        List<SlotRef> slots = new ArrayList<>();
+        expr.collect(SlotRef.class, slots);
+
+        OlapTable result = null;
+        TableName tableName = null;
+        for (SlotRef slot : slots) {
+            TableIf table = slot.getTable();
+            if (table == null) {
+                continue;
+            }
+            if (!(table instanceof OlapTable)) {
+                return null;
+            }
+
+            if (result == null) {
+                result = (OlapTable) table;
+                tableName = slot.getTableName();
+            } else if (!result.getName().equals(table.getName())) {
+                return null;
+            }
+        }
+        return Pair.of(result, tableName);
+    }
+
     @Override
     public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
-        // todo: support more pattern
+        Pair<OlapTable, TableName> info = getTable(expr);
+        if (info == null || info.first == null || info.second == null) {
+            return expr;
+        }
+
         if (expr instanceof FunctionCallExpr && ((FunctionCallExpr) expr).isAggregate()) {
-            return matchAggregateExpr((FunctionCallExpr) expr, analyzer);
+            return matchAggregateExpr((FunctionCallExpr) expr, analyzer, info.first, info.second);
         } else if (expr instanceof ArithmeticExpr || expr instanceof FunctionCallExpr) {
-            return matchExpr(expr, analyzer);
+            return matchExpr(expr, analyzer, info.first, info.second);
         } else if (expr instanceof SlotRef) {
-            return matchSlotRef((SlotRef) expr, analyzer);
+            return matchSlotRef((SlotRef) expr, analyzer, info.first, info.second);
         } else {
             return expr;
         }
@@ -141,42 +171,34 @@ public class ExprToSlotRefRule implements ExprRewriteRule {
         return expr;
     }
 
-    private Expr matchAggregateExpr(FunctionCallExpr expr, Analyzer analyzer)
+    private Expr matchAggregateExpr(FunctionCallExpr expr, Analyzer analyzer, OlapTable olapTable,
+            TableName tableName)
             throws AnalysisException {
-        List<SlotRef> slots = new ArrayList<>();
-        expr.collect(SlotRef.class, slots);
-
-        if (expr.getChildren().size() != 1 || slots.size() != 1) {
+        if (expr.getChildren().size() != 1) {
             return expr;
         }
-
-        TableIf table = slots.get(0).getTable();
-        if (table == null || !(table instanceof OlapTable)) {
-            return expr;
-        }
-        OlapTable olapTable = (OlapTable) table;
 
         String fnName = expr.getFnName().getFunction();
         if (fnName.equalsIgnoreCase(FunctionSet.COUNT)) {
-            Expr result = matchAggregateExprCount(expr, analyzer, olapTable, slots.get(0).getTableName());
+            Expr result = matchAggregateExprCount(expr, analyzer, olapTable, tableName);
             if (result != expr) {
                 return result;
             }
         }
         if (fnName.equalsIgnoreCase(FunctionSet.APPROX_COUNT_DISTINCT) || fnName.equalsIgnoreCase(FunctionSet.NDV)) {
-            Expr result = matchAggregateExprCountApprox(expr, analyzer, olapTable, slots.get(0).getTableName());
+            Expr result = matchAggregateExprCountApprox(expr, analyzer, olapTable, tableName);
             if (result != expr) {
                 return result;
             }
         }
         if (fnName.equalsIgnoreCase(FunctionSet.BITMAP_UNION)
                 || fnName.equalsIgnoreCase(FunctionSet.BITMAP_UNION_COUNT)) {
-            return matchAggregateExprBitmap(expr, analyzer, olapTable, slots.get(0).getTableName());
+            return matchAggregateExprBitmap(expr, analyzer, olapTable, tableName);
         }
         if (fnName.equalsIgnoreCase(FunctionSet.HLL_UNION)
                 || fnName.equalsIgnoreCase(FunctionSet.HLL_UNION_AGG)
                 || fnName.equalsIgnoreCase(FunctionSet.HLL_RAW_AGG)) {
-            return matchAggregateExprHll(expr, analyzer, olapTable, slots.get(0).getTableName());
+            return matchAggregateExprHll(expr, analyzer, olapTable, tableName);
         }
 
         Expr child0 = expr.getChild(0);
@@ -192,29 +214,15 @@ public class ExprToSlotRefRule implements ExprRewriteRule {
 
         if (mvColumn != null) {
             expr = (FunctionCallExpr) expr.clone();
-            expr.setChild(0, rewriteExpr(slots.get(0).getTableName(), mvColumn, analyzer));
+            expr.setChild(0, rewriteExpr(tableName, mvColumn, analyzer));
         }
 
         return expr;
     }
 
-    private Expr matchExpr(Expr expr, Analyzer analyzer)
+    private Expr matchExpr(Expr expr, Analyzer analyzer, OlapTable olapTable,
+            TableName tableName)
             throws AnalysisException {
-        List<SlotRef> slots = new ArrayList<>();
-        expr.collect(SlotRef.class, slots);
-
-        if (slots.size() != 1) {
-            return expr;
-        }
-
-        SlotRef queryColumnSlotRef = slots.get(0);
-
-        TableIf table = queryColumnSlotRef.getTable();
-        if (table == null || !(table instanceof OlapTable)) {
-            return expr;
-        }
-        OlapTable olapTable = (OlapTable) table;
-
         Column mvColumn = olapTable.getVisibleColumn(expr.toSqlWithoutTbl());
         if (mvColumn == null) {
             mvColumn = olapTable.getVisibleColumn(
@@ -230,17 +238,12 @@ public class ExprToSlotRefRule implements ExprRewriteRule {
             return expr;
         }
 
-        return rewriteExpr(queryColumnSlotRef.getTableName(), mvColumn, analyzer);
+        return rewriteExpr(tableName, mvColumn, analyzer);
     }
 
-    private Expr matchSlotRef(SlotRef slot, Analyzer analyzer)
+    private Expr matchSlotRef(SlotRef slot, Analyzer analyzer, OlapTable olapTable,
+            TableName tableName)
             throws AnalysisException {
-        TableIf table = slot.getTable();
-        if (table == null || !(table instanceof OlapTable)) {
-            return slot;
-        }
-        OlapTable olapTable = (OlapTable) table;
-
         Column mvColumn = olapTable
                 .getVisibleColumn(CreateMaterializedViewStmt.mvColumnBuilder(slot.toSqlWithoutTbl()));
         if (mvColumn == null) {

@@ -35,7 +35,6 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnType;
 
-import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 import org.apache.commons.lang3.StringUtils;
@@ -593,14 +592,13 @@ public class Column implements Writable, GsonPostProcessable {
         return defaultValueExprDef;
     }
 
-    public SlotRef getRefColumn() {
-        List<Expr> slots = new ArrayList<>();
+    public List<SlotRef> getRefColumns() {
         if (defineExpr == null) {
             return null;
         } else {
+            List<SlotRef> slots = new ArrayList<>();
             defineExpr.collect(SlotRef.class, slots);
-            Preconditions.checkArgument(slots.size() == 1);
-            return (SlotRef) slots.get(0);
+            return slots;
         }
     }
 
