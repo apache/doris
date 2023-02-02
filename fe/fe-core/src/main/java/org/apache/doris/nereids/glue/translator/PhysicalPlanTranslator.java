@@ -646,13 +646,9 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         outputList.forEach(k -> {
             sortTupleOutputList.add(ExpressionTranslator.translate(k, context));
         });
-        // 2. Generate new Tuple
-        TupleDescriptor tupleDesc = generateTupleDesc(outputList, orderKeyList, context, null);
-        // 3. Get current slotRef
+        // 2. Generate new Tuple and get current slotRef for newOrderingExprList
         List<Expr> newOrderingExprList = Lists.newArrayList();
-        orderKeyList.forEach(k -> {
-            newOrderingExprList.add(ExpressionTranslator.translate(k.getExpr(), context));
-        });
+        TupleDescriptor tupleDesc = generateTupleDesc(outputList, orderKeyList, newOrderingExprList, context, null);
         // 4. fill in SortInfo members
         SortInfo sortInfo = new SortInfo(newOrderingExprList, ascOrderList, nullsFirstParamList, tupleDesc);
         PlanNode childNode = childFragment.getPlanRoot();
@@ -1445,6 +1441,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     private TupleDescriptor generateTupleDesc(List<Slot> slotList, List<OrderKey> orderKeyList,
+            List<Expr> newOrderingExprList,
             PlanTranslatorContext context, Table table) {
         TupleDescriptor tupleDescriptor = context.generateTupleDesc();
         Set<ExprId> alreadyExists = Sets.newHashSet();
@@ -1461,6 +1458,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 continue;
             }
             context.createSlotDesc(tupleDescriptor, slotReference);
+            newOrderingExprList.add(context.findSlotRef(slotReference.getExprId()));
             alreadyExists.add(slotReference.getExprId());
         }
         for (Slot slot : slotList) {
