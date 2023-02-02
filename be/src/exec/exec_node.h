@@ -316,14 +316,6 @@ protected:
     // Appends option to '_runtime_exec_options'
     void add_runtime_exec_option(const std::string& option);
 
-    /// Frees any local allocations made by evals_to_free_ and returns the result of
-    /// state->CheckQueryState(). Nodes should call this periodically, e.g. once per input
-    /// row batch. This should not be called outside the main execution thread.
-    //
-    /// Nodes may override this to add extra periodic cleanup, e.g. freeing other local
-    /// allocations. ExecNodes overriding this function should return
-    /// ExecNode::QueryMaintenance().
-    virtual Status QueryMaintenance(RuntimeState* state, const std::string& msg) WARN_UNUSED_RESULT;
     std::atomic<bool> _can_read = false;
 
 private:

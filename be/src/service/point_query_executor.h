@@ -41,8 +41,6 @@ public:
     Status init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
                 size_t block_size = 1);
 
-    RuntimeState* runtime_state() { return _runtime_state.get(); }
-
     std::unique_ptr<vectorized::Block> get_block();
 
     // do not touch block after returned
