@@ -39,6 +39,7 @@ suite("test_broker_load", "p0") {
                   "parquet_s3_case7", // col5 will be ignored, load normally
                   "parquet_s3_case8", // first column in table is not specified, will load default value for it.
                   "parquet_s3_case9", // first column in table is not specified, will load default value for it.
+                  "orc_s3_case1"
                  ]
     def paths = ["s3://doris-build-hk-1308700295/regression/load/data/part*",
                  "s3://doris-build-hk-1308700295/regression/load/data/part*",
@@ -62,6 +63,7 @@ suite("test_broker_load", "p0") {
                  "s3://doris-build-hk-1308700295/regression/load/data/part*",
                  "s3://doris-build-hk-1308700295/regression/load/data/part*",
                  "s3://doris-build-hk-1308700295/regression/load/data/random_all_types/part*",
+                 "s3://doris-build-hk-1308700295/regression/load/data/orc/hits_100k_rows.orc"
     ]
     def columns_list = ["""p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",
                    """p_partkey, p_name, p_mfgr, p_brand, p_type, p_size, p_container, p_retailprice, p_comment""",
@@ -84,10 +86,11 @@ suite("test_broker_load", "p0") {
                    """p_partkey, p_name, p_mfgr, p_brand""",
                    """p_partkey, p_name, p_mfgr, p_brand""",
                    """p_name, p_mfgr""",
-                   """"""
+                   """""",
+                   """WatchID,JavaEnable,Title,GoodEvent,EventTime,EventDate,CounterID,ClientIP,RegionID,UserID,CounterClass,OS,UserAgent,URL,Referer,IsRefresh,RefererCategoryID,RefererRegionID,URLCategoryID,URLRegionID,ResolutionWidth,ResolutionHeight,ResolutionDepth,FlashMajor,FlashMinor,FlashMinor2,NetMajor,NetMinor,UserAgentMajor,UserAgentMinor,CookieEnable,JavascriptEnable,IsMobile,MobilePhone,MobilePhoneModel,Params,IPNetworkID,TraficSourceID,SearchEngineID,SearchPhrase,AdvEngineID,IsArtifical,WindowClientWidth,WindowClientHeight,ClientTimeZone,ClientEventTime,SilverlightVersion1,SilverlightVersion2,SilverlightVersion3,SilverlightVersion4,PageCharset,CodeVersion,IsLink,IsDownload,IsNotBounce,FUniqID,OriginalURL,HID,IsOldCounter,IsEvent,IsParameter,DontCountHits,WithHash,HitColor,LocalEventTime,Age,Sex,Income,Interests,Robotness,RemoteIP,WindowName,OpenerName,HistoryLength,BrowserLanguage,BrowserCountry,SocialNetwork,SocialAction,HTTPError,SendTiming,DNSTiming,ConnectTiming,ResponseStartTiming,ResponseEndTiming,FetchTiming,SocialSourceNetworkID,SocialSourcePage,ParamPrice,ParamOrderID,ParamCurrency,ParamCurrencyID,OpenstatServiceName,OpenstatCampaignID,OpenstatAdID,OpenstatSourceID,UTMSource,UTMMedium,UTMCampaign,UTMContent,UTMTerm,FromTag,HasGCLID,RefererHash,URLHash,CLID"""
                    ]
-    def column_in_paths = ["", "", "", "", "", "", "", "", "", "", "", "", "COLUMNS FROM PATH AS (city)", "", "", "", "", "", "", "", "", ""]
-    def preceding_filters = ["", "", "", "", "", "", "", "", "", "", "", "preceding filter p_size < 10", "", "", "", "", "", "", "", "", "", ""]
+    def column_in_paths = ["", "", "", "", "", "", "", "", "", "", "", "", "COLUMNS FROM PATH AS (city)", "", "", "", "", "", "", "", "", "", ""]
+    def preceding_filters = ["", "", "", "", "", "", "", "", "", "", "", "preceding filter p_size < 10", "", "", "", "", "", "", "", "", "", "", ""]
     def set_values = ["",
                       "",
                       "SET(comment=p_comment, retailprice=p_retailprice, container=p_container, size=p_size, type=p_type, brand=p_brand, mfgr=p_mfgr, name=p_name, partkey=p_partkey)",
@@ -109,9 +112,10 @@ suite("test_broker_load", "p0") {
                       "set(col4 = p_brand)",
                       "set(col5 = p_brand)",
                       "",
+                      "",
                       ""
     ]
-    def where_exprs = ["", "", "", "", "", "", "", "", "", "", "", "where p_partkey>10", "", "", "", "", "", "", "", "", "", ""]
+    def where_exprs = ["", "", "", "", "", "", "", "", "", "", "", "where p_partkey>10", "", "", "", "", "", "", "", "", "", "", ""]
 
     def etl_info = ["unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
@@ -134,7 +138,8 @@ suite("test_broker_load", "p0") {
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
                     "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=200000",
-                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=4096"
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=4096",
+                    "unselected.rows=0; dpp.abnorm.ALL=0; dpp.norm.ALL=100000",
                     ]
 
     def error_msg = ["",
@@ -151,10 +156,11 @@ suite("test_broker_load", "p0") {
                     "",
                     "",
                     "",
-                    "type:LOAD_RUN_FAIL; msg:errCode = 2, detailMessage = failed to find default value expr for slot: x1",
+                    "type:LOAD_RUN_FAIL; msg:errCode = 2, detailMessage = [INTERNAL_ERROR]failed to find default value expr for slot: x1",
                     "",
                     "",
-                    "type:LOAD_RUN_FAIL; msg:errCode = 2, detailMessage = failed to find default value expr for slot: x1",
+                    "type:LOAD_RUN_FAIL; msg:errCode = 2, detailMessage = [INTERNAL_ERROR]failed to find default value expr for slot: x1",
+                    "",
                     "",
                     "",
                     "",
@@ -167,12 +173,13 @@ suite("test_broker_load", "p0") {
 
     def do_load_job = {uuid, path, table, columns, column_in_path, preceding_filter,
                           set_value, where_expr ->
-        String columns_str = ("$columns" != "") ? "($columns)" : "";
+        String columns_str = ("$columns" != "") ? "($columns)" : ""; 
+        String format_str = ("$table" == "orc_s3_case1") ? "ORC" : "PARQUET"
         sql """
             LOAD LABEL $uuid (
                 DATA INFILE("$path")
                 INTO TABLE $table
-                FORMAT AS "PARQUET"
+                FORMAT AS $format_str
                 $columns_str
                 $column_in_path
                 $preceding_filter
