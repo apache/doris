@@ -121,6 +121,7 @@ private:
 
     std::atomic<int> _num_buffered_bytes;
     std::unique_ptr<MemTracker> _mem_tracker;
+    // Managed by object pool
     std::vector<SenderQueue*> _sender_queues;
 
     std::unique_ptr<VSortedRunMerger> _merger;
