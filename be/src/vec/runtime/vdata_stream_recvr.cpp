@@ -52,7 +52,7 @@ bool VDataStreamRecvr::SenderQueue::should_wait() {
     return !_is_cancelled && _block_queue.empty() && _num_remaining_senders > 0;
 }
 
-BlockUPtr VDataStreamRecvr::SenderQueue::get_batch() {
+Status VDataStreamRecvr::SenderQueue::get_batch(Block* block) {
     std::unique_lock<std::mutex> l(_lock);
     // wait until something shows up or we know we're done
     while (!_is_cancelled && _block_queue.empty() && _num_remaining_senders > 0) {
@@ -65,7 +65,8 @@ BlockUPtr VDataStreamRecvr::SenderQueue::get_batch() {
                 &_is_cancelled);
         _data_arrival_cv.wait(l);
     }
-    return _inner_get_batch();
+    block->swap(*_inner_get_batch());
+    return Status::OK();
 }
 
 BlockUPtr VDataStreamRecvr::SenderQueue::_inner_get_batch() {
@@ -388,10 +389,11 @@ bool VDataStreamRecvr::ready_to_read() {
 
 Status VDataStreamRecvr::get_next(Block* block, bool* eos) {
     if (!_is_merging) {
-        BlockUPtr nblock = _sender_queues[0]->get_batch();
+        BlockUPtr nblock;
+        RETURN_IF_ERROR(_sender_queues[0]->get_batch(block));
         if (res != nullptr) {
             // will clear block automatically
-            block->swap(*res);
+            block->swap(*nblock);
         } else {
             *eos = true;
             return Status::OK();
