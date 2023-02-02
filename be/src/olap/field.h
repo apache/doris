@@ -456,7 +456,6 @@ uint32_t Field::hash_code(const CellType& cell, uint32_t seed) const {
     return _type_info->hash_code(cell.cell_ptr(), seed);
 }
 
-
 class MapField : public Field {
 public:
     explicit MapField(const TabletColumn& column) : Field(column) {}
@@ -468,14 +467,14 @@ public:
         }
         _type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
     }
-     // make variable_ptr memory allocate to cell_ptr as MapValue
+    // make variable_ptr memory allocate to cell_ptr as MapValue
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
         return variable_ptr + _length;
     }
 
     size_t get_variable_len() const override { return _length; }
 };
-    
+
 class StructField : public Field {
 public:
     explicit StructField(const TabletColumn& column) : Field(column) {}

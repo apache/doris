@@ -374,8 +374,8 @@ private:
 class MapColumnWriter final : public ColumnWriter, public FlushPageCallback {
 public:
     explicit MapColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
-	                      ScalarColumnWriter* null_writer,
-                              std::vector<std::unique_ptr<ColumnWriter>>& _kv_writers);
+                             ScalarColumnWriter* null_writer,
+                             std::vector<std::unique_ptr<ColumnWriter>>& _kv_writers);
 
     ~MapColumnWriter() override = default;
 
@@ -425,7 +425,6 @@ private:
     std::unique_ptr<InvertedIndexColumnWriter> _inverted_index_builder;
     ColumnWriterOptions _opts;
 };
-
 
 } // namespace segment_v2
 } // namespace doris

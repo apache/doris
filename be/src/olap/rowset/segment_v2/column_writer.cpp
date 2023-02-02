@@ -275,7 +275,7 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
                 null_writer =
                         new ScalarColumnWriter(null_options, std::move(null_field), file_writer);
             }
-            
+
             // create key & value writer
             std::vector<std::unique_ptr<ColumnWriter>> inner_writer_list;
             for (int i = 0; i < 2; ++i) {
@@ -312,9 +312,8 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
             }
             // create map writer
             std::unique_ptr<ColumnWriter> sub_column_writer;
-            std::unique_ptr<ColumnWriter> writer_local =
-                    std::unique_ptr<ColumnWriter>(new MapColumnWriter(
-                            opts, std::move(field), null_writer, inner_writer_list));
+            std::unique_ptr<ColumnWriter> writer_local = std::unique_ptr<ColumnWriter>(
+                    new MapColumnWriter(opts, std::move(field), null_writer, inner_writer_list));
 
             *writer = std::move(writer_local);
             return Status::OK();
@@ -958,10 +957,9 @@ Status ArrayColumnWriter::finish_current_page() {
 
 /// ============================= MapColumnWriter =====================////
 MapColumnWriter::MapColumnWriter(const ColumnWriterOptions& opts, std::unique_ptr<Field> field,
-				  ScalarColumnWriter* null_writer,
-                                  std::vector<std::unique_ptr<ColumnWriter>>& kv_writers)
-        : ColumnWriter(std::move(field), opts.meta->is_nullable()),
-          _opts(opts) {
+                                 ScalarColumnWriter* null_writer,
+                                 std::vector<std::unique_ptr<ColumnWriter>>& kv_writers)
+        : ColumnWriter(std::move(field), opts.meta->is_nullable()), _opts(opts) {
     CHECK_EQ(kv_writers.size(), 2);
     if (is_nullable()) {
         _null_writer.reset(null_writer);

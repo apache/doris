@@ -1790,10 +1790,9 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         ARRAY_LITERAL(13),
         CAST_EXPR(14),
         JSON_LITERAL(15),
-        ARITHMETIC_EXPR(16);
-	      MAP_LITERAL(17);
         ARITHMETIC_EXPR(16),
-        STRUCT_LITERAL(17);
+        STRUCT_LITERAL(17),
+        MAP_LITERAL(18);
 
         private static Map<Integer, ExprSerCode> codeMap = Maps.newHashMap();
 
@@ -1898,7 +1897,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 return FunctionCallExpr.read(in);
             case ARRAY_LITERAL:
                 return ArrayLiteral.read(in);
-	          case MAP_LITERAL:
+            case MAP_LITERAL:
                 return MapLiteral.read(in);
             case STRUCT_LITERAL:
                 return StructLiteral.read(in);

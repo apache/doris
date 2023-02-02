@@ -532,7 +532,7 @@ public abstract class Type {
             return ArrayType.canCastTo((ArrayType) sourceType, (ArrayType) targetType);
         } else if (sourceType.isMapType() && targetType.isMapType()) {
             return MapType.canCastTo((MapType) sourceType, (MapType) targetType);
-	} else if (targetType.isArrayType() && !((ArrayType) targetType).getItemType().isScalarType()
+        } else if (targetType.isArrayType() && !((ArrayType) targetType).getItemType().isScalarType()
                 && !sourceType.isNull()) {
             // TODO: current not support cast any non-array type(except for null) to nested array type.
             return false;

@@ -803,9 +803,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap() {
 }
 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
-         const ColumnMap* column_map,
-        const DataTypeMap* data_type_map) {
-
+        const ColumnMap* column_map, const DataTypeMap* data_type_map) {
     ColumnPtr key_data = column_map->get_keys_ptr();
     ColumnPtr value_data = column_map->get_values_ptr();
     if (column_map->get_keys().is_nullable()) {
@@ -820,8 +818,8 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap(
         value_data = val_nullable_column.get_nested_column_ptr();
     }
 
-    ColumnWithTypeAndName key_typed_column = {
-            key_data, remove_nullable(data_type_map->get_keys()),"map.key"};
+    ColumnWithTypeAndName key_typed_column = {key_data, remove_nullable(data_type_map->get_keys()),
+                                              "map.key"};
     _key_convertor->set_source_column(key_typed_column, _row_pos, _num_rows);
     _key_convertor->convert_to_olap();
 
