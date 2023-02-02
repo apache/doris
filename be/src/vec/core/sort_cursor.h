@@ -240,7 +240,7 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
     }
 
     bool has_next_block() override {
-        auto status = _block_supplier(&_block_ptr);
+        auto status = _block_supplier(_block_ptr);
         if (status.ok() && _block_ptr != nullptr) {
             if (_ordering_expr.size() > 0) {
                 for (int i = 0; status.ok() && i < desc.size(); ++i) {
