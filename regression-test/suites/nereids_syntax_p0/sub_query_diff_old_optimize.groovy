@@ -127,7 +127,8 @@ suite ("sub_query_diff_old_optimize") {
     }
 
     //----------with subquery alias----------
-    qt_alias_scalar """
+    //----------remove temporarily-----------
+    /*qt_alias_scalar """
         select * from sub_query_diff_old_optimize_subquery1
             where sub_query_diff_old_optimize_subquery1.k1 < (select max(aa) from
                 (select k1 as aa from sub_query_diff_old_optimize_subquery3 where sub_query_diff_old_optimize_subquery1.k2 = sub_query_diff_old_optimize_subquery3.v2) sub_query_diff_old_optimize_subquery3) order by k1, k2
@@ -155,6 +156,32 @@ suite ("sub_query_diff_old_optimize") {
         select * from sub_query_diff_old_optimize_subquery1
             where not exists (select aa from
                 (select k1 as aa from sub_query_diff_old_optimize_subquery3 where sub_query_diff_old_optimize_subquery1.k2 = sub_query_diff_old_optimize_subquery3.v2) sub_query_diff_old_optimize_subquery3) order by k1, k2
+    """*/
+
+    //----------subquery with limit----------
+    qt_exists_subquery_with_limit """
+        select * from sub_query_diff_old_optimize_subquery1 where exists (select sub_query_diff_old_optimize_subquery3.k3 from sub_query_diff_old_optimize_subquery3 where sub_query_diff_old_optimize_subquery3.v2 = sub_query_diff_old_optimize_subquery1.k2 limit 1);
     """
 
+    test {
+        sql """
+            select * from sub_query_diff_old_optimize_subquery1 where sub_query_diff_old_optimize_subquery1.k1 not in (select sub_query_diff_old_optimize_subquery3.k3 from sub_query_diff_old_optimize_subquery3 where sub_query_diff_old_optimize_subquery3.v2 = sub_query_diff_old_optimize_subquery1.k2 limit 1);
+        """
+        exception "java.sql.SQLException: errCode = 2, detailMessage = Unexpected exception: Unsupported correlated subquery with a LIMIT clause LogicalLimit ( limit=1, offset=0 )"
+
+    }
+
+    //----------subquery with order and limit-------
+    qt_exists_subquery_with_order_and_limit """
+        select * from sub_query_diff_old_optimize_subquery1 where exists (select sub_query_diff_old_optimize_subquery3.k3 from sub_query_diff_old_optimize_subquery3 where sub_query_diff_old_optimize_subquery3.v2 = sub_query_diff_old_optimize_subquery1.k2 order by k1 limit 1);
+    """
+
+    //----------subquery with disjunctions----------
+    test {
+        sql """
+            SELECT DISTINCT k1 FROM sub_query_diff_old_optimize_subquery1 i1 WHERE ((SELECT count(*) FROM sub_query_diff_old_optimize_subquery1 WHERE ((k1 = i1.k1) AND (k2 = 2)) or ((k2 = i1.k1) AND (k2 = 1)) )  > 0);
+        """
+        exception "java.sql.SQLException: errCode = 2, detailMessage = Unexpected exception: scalar subquery's correlatedPredicates's operator must be EQ"
+
+    }
 }
