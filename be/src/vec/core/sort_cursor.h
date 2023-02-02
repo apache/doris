@@ -247,7 +247,7 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
                     status = _ordering_expr[i]->execute(_block_ptr.get(), &desc[i].column_number);
                 }
             }
-            MergeSortCursorImpl::reset(_block_ptr);
+            MergeSortCursorImpl::reset(*_block_ptr);
             return status.ok();
         }
         _block_ptr = nullptr;
