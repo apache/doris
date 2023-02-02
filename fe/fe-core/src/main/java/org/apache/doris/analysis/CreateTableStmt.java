@@ -306,11 +306,13 @@ public class CreateTableStmt extends DdlStmt {
 
         analyzeEngineName();
 
-        // `analyzeUniqueKeyMergeOnWrite` would modify `properties`, which will be used later,
+        // `analyzeXXX` would modify `properties`, which will be used later,
         // so we just clone a properties map here.
         boolean enableUniqueKeyMergeOnWrite = false;
+        boolean enableStoreRowColumn = false;
         if (properties != null) {
             enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(new HashMap<>(properties));
+            enableStoreRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(new HashMap<>(properties));
         }
 
         // analyze key desc
@@ -415,6 +417,9 @@ public class CreateTableStmt extends DdlStmt {
             } else {
                 columnDefs.add(ColumnDef.newDeleteSignColumnDef(AggregateType.REPLACE));
             }
+        }
+        if (enableStoreRowColumn) {
+            columnDefs.add(ColumnDef.newRowStoreColumnDef());
         }
         boolean hasObjectStored = false;
         String objectStoredColumn = "";

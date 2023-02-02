@@ -110,6 +110,10 @@ private:
     Status _generate_delete_bitmap(int64_t atomic_num_segments_before_flush,
                                    int64_t atomic_num_segments_after_flush);
 
+    // serialize block to row store format and append serialized data into row store column
+    // in block
+    void serialize_block_to_row_column(vectorized::Block& block);
+
 private:
     TabletSharedPtr _tablet;
     const KeysType _keys_type;

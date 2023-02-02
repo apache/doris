@@ -149,6 +149,12 @@ public class ColumnDef {
                 "sequence column hidden column", false);
     }
 
+    public static ColumnDef newRowStoreColumnDef() {
+        return new ColumnDef(Column.ROW_STORE_COL, TypeDef.create(PrimitiveType.STRING), false, null, false,
+                new ColumnDef.DefaultValue(true, ""), "doris row store hidden column", false);
+    }
+
+
     public boolean isAllowNull() {
         return isAllowNull;
     }
