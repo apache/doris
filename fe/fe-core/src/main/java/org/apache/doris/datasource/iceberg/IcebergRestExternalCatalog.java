@@ -17,6 +17,7 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.credentials.DataLakeAWSCredentialsProvider;
 
@@ -30,24 +31,32 @@ import java.util.Map;
 
 public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
 
-    public  IcebergRestExternalCatalog(long catalogId, String name, String resource, String catalogType,
-                                       Map<String, String> props) {
-        super(catalogId, name, catalogType);
+    public  IcebergRestExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
+        super(catalogId, name);
         catalogProperty = new CatalogProperty(resource, props);
     }
 
     @Override
     protected void initLocalObjectsImpl() {
+        icebergCatalogType = ICEBERG_REST;
         Map<String, String> restProperties = new HashMap<>();
         String restUri = catalogProperty.getProperties().getOrDefault(CatalogProperties.URI, "");
         restProperties.put(CatalogProperties.URI, restUri);
         RESTCatalog restCatalog = new RESTCatalog();
-        String credentials = catalogProperty.getProperties()
-                .getOrDefault(Constants.AWS_CREDENTIALS_PROVIDER, DataLakeAWSCredentialsProvider.class.getName());
-        Configuration conf = getConfiguration();
-        conf.set(Constants.AWS_CREDENTIALS_PROVIDER, credentials);
+        Configuration conf = replaceS3Properties(getConfiguration());
         restCatalog.setConf(conf);
         restCatalog.initialize(icebergCatalogType, restProperties);
         catalog = restCatalog;
+    }
+
+    private Configuration replaceS3Properties(Configuration conf) {
+        Map<String, String> catalogProperties = catalogProperty.getProperties();
+        String credentials = catalogProperties
+                .getOrDefault(Constants.AWS_CREDENTIALS_PROVIDER, DataLakeAWSCredentialsProvider.class.getName());
+        conf.set(Constants.AWS_CREDENTIALS_PROVIDER, credentials);
+        String usePahStyle = catalogProperties.getOrDefault(S3Resource.USE_PATH_STYLE, "true");
+        conf.set(S3Resource.USE_PATH_STYLE, usePahStyle);
+        conf.set(Constants.PATH_STYLE_ACCESS, usePahStyle);
+        return conf;
     }
 }
