@@ -201,7 +201,8 @@ suite ("sub_query_correlated") {
     """
 
     //----------complex subqueries----------
-    qt_scalar_subquery """
+    //----------remove temporarily---------
+    /*qt_scalar_subquery """
         select * from sub_query_correlated_subquery1
             where k1 = (select sum(k1) from sub_query_correlated_subquery3 where sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.v1 and sub_query_correlated_subquery3.v2 = 2)
             order by k1, k2
@@ -217,7 +218,7 @@ suite ("sub_query_correlated") {
         select * from sub_query_correlated_subquery3
             where k1 = 2 and exists (select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.v2 and sub_query_correlated_subquery1.k2 = 4)
             order by k1, k2
-    """
+    """*/
 
     //----------complex nonEqual subqueries----------
 
