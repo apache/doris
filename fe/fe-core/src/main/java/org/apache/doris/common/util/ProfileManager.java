@@ -101,7 +101,7 @@ public class ProfileManager {
         public MultiProfileTreeBuilder builder = null;
         public String errMsg = "";
 
-        // lazy load profileContent cause sometimes profileContent is very large
+        // lazy load profileContent because sometimes profileContent is very large
         public String getProfileContent() {
             if (profileContent != null) {
                 return profileContent;
