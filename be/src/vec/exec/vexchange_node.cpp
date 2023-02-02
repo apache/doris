@@ -125,7 +125,7 @@ Status VExchangeNode::get_next(RuntimeState* state, Block* block, bool* eos) {
         block->clear();
     }
     auto status = _stream_recvr->get_next(block, eos);
-    if (block != nullptr) {
+    if (!eos) {
         if (!_is_merging) {
             if (_num_rows_skipped + block->rows() < _offset) {
                 _num_rows_skipped += block->rows();

@@ -65,17 +65,17 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block* block) {
                 &_is_cancelled);
         _data_arrival_cv.wait(l);
     }
-    return _inner_get_batch();
+    return _inner_get_batch(block);
 }
 
-Status VDataStreamRecvr::SenderQueue::_inner_get_batch() {
+Status VDataStreamRecvr::SenderQueue::_inner_get_batch(Block* block) {
     if (_is_cancelled) {
         return Status::Cancelled("Cancelled");
     }
 
     if (_block_queue.empty()) {
         DCHECK_EQ(_num_remaining_senders, 0);
-        return Status::OK();
+        return Status::Error<END_OF_FILE>();
     }
 
     _received_first_batch = true;
@@ -97,7 +97,7 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch() {
         closure_pair.second.stop();
         _recvr->_buffer_full_total_timer->update(closure_pair.second.elapsed_time());
     }
-
+    block->swap(*next_block);
     return Status::OK();
 }
 
@@ -388,14 +388,13 @@ bool VDataStreamRecvr::ready_to_read() {
 
 Status VDataStreamRecvr::get_next(Block* block, bool* eos) {
     if (!_is_merging) {
-        // clear block and will check if the receiver end by check block empty
         block->clear();
-        RETURN_IF_ERROR(_sender_queues[0]->get_batch(block));
-        if (block->columns() != 0) {
-            *eos = false;
+        auto status = _sender_queues[0]->get_batch(block);
+        if (status.is<ErrorCode::END_OF_FILE>()) {
+            *eos = true;
             return Status::OK();
         } else {
-            *eos = true;
+            *eos = false;
             return Status::OK();
         }
     } else {
