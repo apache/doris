@@ -17,7 +17,7 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
-suite ("test_dup_mv_bin") {
+suite ("test_dup_group_by_mv_plus") {
     sql """ DROP TABLE IF EXISTS d_table; """
 
     sql """
@@ -37,7 +37,7 @@ suite ("test_dup_mv_bin") {
     sql "insert into d_table select 3,-3,null,'c';"
 
     def result = "null"
-    sql "create materialized view k12b as select k1,bin(k2) from d_table;"
+    sql "create materialized view k12sp as select k1,sum(k2+1) from d_table group by k1;"
     while (!result.contains("FINISHED")){
         result = sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='d_table' ORDER BY CreateTime DESC LIMIT 1;"
         result = result.toString()
@@ -53,38 +53,14 @@ suite ("test_dup_mv_bin") {
     qt_select_star "select * from d_table order by k1;"
 
     explain {
-        sql("select k1,bin(k2) from d_table order by k1;")
-        contains "(k12b)"
+        sql("select k1,sum(k2+1) from d_table group by k1;")
+        contains "(k12sp)"
     }
-    qt_select_mv "select k1,bin(k2) from d_table order by k1;"
+    qt_select_mv "select k1,sum(k2+1) from d_table group by k1 order by k1;"
 
     explain {
-        sql("select bin(k2) from d_table order by k1;")
-        contains "(k12b)"
+        sql("select sum(k2+1) from d_table group by k1;")
+        contains "(k12sp)"
     }
-    qt_select_mv_sub "select bin(k2) from d_table order by k1;"
-
-    explain {
-        sql("select bin(k2)+1 from d_table order by k1;")
-        contains "(k12b)"
-    }
-    qt_select_mv_sub_add "select concat(bin(k2),'a') from d_table order by k1;"
-
-    explain {
-        sql("select group_concat(bin(k2)) from d_table group by k1 order by k1;")
-        contains "(k12b)"
-    }
-    qt_select_group_mv "select group_concat(bin(k2)) from d_table group by k1 order by k1;"
-
-    explain {
-        sql("select group_concat(concat(bin(k2),'a')) from d_table group by k1 order by k1;")
-        contains "(k12b)"
-    }
-    qt_select_group_mv_add "select group_concat(concat(bin(k2),'a')) from d_table group by k1 order by k1;"
-
-    explain {
-        sql("select group_concat(bin(k2)) from d_table group by k3;")
-        contains "(d_table)"
-    }
-    qt_select_group_mv_not "select group_concat(bin(k2)) from d_table group by k3 order by k3;"
+    qt_select_mv_sub "select sum(k2+1) from d_table group by k1 order by k1;"
 }

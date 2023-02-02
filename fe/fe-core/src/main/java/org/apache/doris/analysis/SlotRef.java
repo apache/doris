@@ -111,8 +111,6 @@ public class SlotRef extends Expr {
     }
 
     public SlotDescriptor getDesc() {
-        Preconditions.checkState(isAnalyzed);
-        Preconditions.checkNotNull(desc);
         return desc;
     }
 
@@ -229,6 +227,10 @@ public class SlotRef extends Expr {
 
     @Override
     public String toSqlImpl() {
+        if (disableTableName && label != null) {
+            return label;
+        }
+
         StringBuilder sb = new StringBuilder();
 
         if (tblName != null) {
@@ -245,13 +247,15 @@ public class SlotRef extends Expr {
                 return label;
             }
         } else if (desc.getSourceExprs() != null) {
-            if (ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId()) {
+            if (!disableTableName && (ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId())) {
                 if (desc.getId().asInt() != 1) {
                     sb.append("<slot " + desc.getId().asInt() + ">");
                 }
             }
             for (Expr expr : desc.getSourceExprs()) {
-                sb.append(" ");
+                if (!disableTableName) {
+                    sb.append(" ");
+                }
                 sb.append(expr.toSql());
             }
             return sb.toString();

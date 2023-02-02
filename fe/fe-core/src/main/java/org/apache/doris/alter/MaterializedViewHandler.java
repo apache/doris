@@ -468,18 +468,14 @@ public class MaterializedViewHandler extends AlterHandler {
                 }
 
                 String mvColumnName = mvColumnItem.getBaseColumnNames().iterator().next();
-                Column baseColumn = olapTable.getColumn(mvColumnName);
+                Column mvColumn = mvColumnItem.toMVColumn(olapTable);
                 if (mvColumnItem.isKey()) {
                     ++numOfKeys;
                 }
-                if (baseColumn == null) {
-                    throw new DdlException("The mv column of agg or uniq table cannot be transformed "
-                            + "from original column[" + String.join(",", mvColumnItem.getBaseColumnNames()) + "]");
-                }
-                Preconditions.checkNotNull(baseColumn, "Column[" + mvColumnName + "] does not exist");
-                AggregateType baseAggregationType = baseColumn.getAggregationType();
+
+                AggregateType baseAggregationType = mvColumn.getAggregationType();
                 AggregateType mvAggregationType = mvColumnItem.getAggregationType();
-                if (baseColumn.isKey() && !mvColumnItem.isKey()) {
+                if (mvColumn.isKey() && !mvColumnItem.isKey()) {
                     throw new DdlException("The column[" + mvColumnName + "] must be the key of materialized view");
                 }
                 if (baseAggregationType != mvAggregationType) {

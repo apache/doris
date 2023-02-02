@@ -438,7 +438,7 @@ public class OlapScanNode extends ScanNode {
      * For example: select count(*) from table (table has a mv named mv1)
      * if Optimizer deceide use mv1, we need updateSlotUniqueId.
      */
-    private void updateSlotUniqueId() {
+    private void updateSlotUniqueId() throws UserException {
         if (!olapTable.getEnableLightSchemaChange() || selectedIndexId == olapTable.getBaseIndexId()) {
             return;
         }
@@ -449,6 +449,9 @@ public class OlapScanNode extends ScanNode {
             }
             Column baseColumn = slotDescriptor.getColumn();
             Column mvColumn = meta.getColumnByName(baseColumn.getName());
+            if (mvColumn == null) {
+                throw new UserException("Do not found mvColumn " + baseColumn.getName());
+            }
             slotDescriptor.setColumn(mvColumn);
         }
         LOG.debug("updateSlotUniqueId() slots: {}", desc.getSlots());

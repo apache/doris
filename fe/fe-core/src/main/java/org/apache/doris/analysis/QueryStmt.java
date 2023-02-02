@@ -76,6 +76,8 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
      */
     protected ArrayList<Expr> resultExprs = Lists.newArrayList();
 
+    protected ArrayList<Expr> originResultExprs = null;
+
     // For a select statement: select list exprs resolved to base tbl refs
     // For a union statement: same as resultExprs
     /**
@@ -546,6 +548,10 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
             return true;
         }
         return false;
+    }
+
+    public Expr getExprFromAliasSMap(Expr expr) {
+        return aliasSMap.get(expr);
     }
 
     // get tables used by this query.

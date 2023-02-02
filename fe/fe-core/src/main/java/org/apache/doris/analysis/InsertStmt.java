@@ -472,7 +472,8 @@ public class InsertStmt extends DdlStmt {
                     }
                 }
             }
-            if (column.isNameWithPrefix(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)) {
+            if (column.isNameWithPrefix(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)
+                    || column.isNameWithPrefix(CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX)) {
                 SlotRef refColumn = column.getRefColumn();
                 if (refColumn == null) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR,
@@ -704,14 +705,7 @@ public class InsertStmt extends DdlStmt {
                         && ((OlapTable) targetTable).getSequenceMapCol() != null) {
                     resultExprs.add(exprByName.get(((OlapTable) targetTable).getSequenceMapCol()));
                 } else if (col.getDefaultValue() == null) {
-                    /*
-                    The import stmt has been filtered in function checkColumnCoverage when
-                        the default value of column is null and column is not nullable.
-                    So the default value of column may simply be null when column is nullable
-                     */
-                    Preconditions.checkState(col.isAllowNull());
                     resultExprs.add(NullLiteral.create(col.getType()));
-
                 } else {
                     if (col.getDefaultValueExprDef() != null) {
                         resultExprs.add(col.getDefaultValueExpr());
