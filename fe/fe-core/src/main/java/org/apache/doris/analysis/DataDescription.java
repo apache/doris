@@ -98,6 +98,7 @@ public class DataDescription {
     private final String tableName;
 
     private String dbName;
+    private String fullDbName;
     private final PartitionNames partitionNames;
     private final List<String> filePaths;
     private final Separator columnSeparator;
@@ -504,6 +505,10 @@ public class DataDescription {
     }
 
     public String getDbName() {
+        return dbName;
+    }
+
+    public String getFullDbName() {
         return dbName;
     }
 
@@ -981,11 +986,13 @@ public class DataDescription {
             if (Strings.isNullOrEmpty(dbName)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
-            this.dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), dbName);
-            return this.dbName;
+            this.dbName = dbName;
+            this.fullDbName = ClusterNamespace.getFullName(analyzer.getClusterName(), dbName);
+            return this.fullDbName;
         } else {
             // Get dbName from label.
             this.dbName = ClusterNamespace.getNameFromFullName(labelDbName);
+            this.fullDbName = labelDbName;
             return labelDbName;
         }
     }

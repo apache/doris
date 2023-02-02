@@ -86,10 +86,10 @@ public class MysqlLoadManager {
         LoadJobRowResult loadResult = new LoadJobRowResult();
         // Mysql data load only have one data desc
         DataDescription dataDesc = stmt.getDataDescriptions().get(0);
-        String database = dataDesc.getDbName();
-        String table = dataDesc.getTableName();
         List<String> filePaths = dataDesc.getFilePaths();
         if (Config.use_http_mysql_load_job) {
+            String database = dataDesc.getDbName();
+            String table = dataDesc.getTableName();
             try (final CloseableHttpClient httpclient = HttpClients.createDefault()) {
                 for (String file : filePaths) {
                     InputStreamEntity entity = getInputStreamEntity(context, dataDesc.isClientLocal(), file);
@@ -109,7 +109,8 @@ public class MysqlLoadManager {
         } else {
             StreamLoadTxnExecutor executor = null;
             try {
-
+                String database = dataDesc.getFullDbName();
+                String table = dataDesc.getTableName();
                 TransactionEntry entry = prepareTransactionEntry(database, table);
                 openTxn(context, entry);
                 executor = beginTxn(context, entry);
