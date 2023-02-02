@@ -91,8 +91,7 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
     CREATE_AND_START_THREAD(REPORT_DISK_STATE, _report_disk_state_workers);
     CREATE_AND_START_THREAD(REPORT_OLAP_TABLE, _report_tablet_workers);
     CREATE_AND_START_POOL(SUBMIT_TABLE_COMPACTION, _submit_table_compaction_workers);
-    CREATE_AND_START_THREAD(REFRESH_STORAGE_POLICY, _storage_refresh_policy_workers);
-    CREATE_AND_START_POOL(UPDATE_STORAGE_POLICY, _storage_update_policy_workers);
+    CREATE_AND_START_POOL(PUSH_STORAGE_POLICY, _push_storage_policy_workers);
 #undef CREATE_AND_START_POOL
 #undef CREATE_AND_START_THREAD
 
@@ -155,8 +154,8 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
             HANDLE_TYPE(TTaskType::UPDATE_TABLET_META_INFO, _update_tablet_meta_info_workers,
                         update_tablet_meta_info_req);
             HANDLE_TYPE(TTaskType::COMPACTION, _submit_table_compaction_workers, compaction_req);
-            HANDLE_TYPE(TTaskType::NOTIFY_UPDATE_STORAGE_POLICY, _storage_update_policy_workers,
-                        update_policy);
+            HANDLE_TYPE(TTaskType::PUSH_STORAGE_POLICY, _push_storage_policy_workers,
+                        push_storage_policy_req);
 
         case TTaskType::REALTIME_PUSH:
         case TTaskType::PUSH:

@@ -45,6 +45,7 @@ suite("test_mysql_jdbc_catalog", "p0") {
         String ex_tb18 = "ex_tb18";
         String ex_tb19 = "ex_tb19";
         String ex_tb20 = "ex_tb20";
+        String test_insert = "test_insert";
 
         sql """ADMIN SET FRONTEND CONFIG ("enable_decimal_conversion" = "true");"""
         sql """drop catalog if exists ${catalog_name} """
@@ -101,8 +102,20 @@ suite("test_mysql_jdbc_catalog", "p0") {
         order_qt_ex_tb19  """ select * from ${ex_tb19} order by date_value; """
         order_qt_ex_tb20  """ select * from ${ex_tb20} order by decimal_normal; """
 
-        sql """drop catalog if exists ${catalog_name} """
-        sql """drop resource if exists ${resource_name}"""
+        // test insert
+        String uuid1 = UUID.randomUUID().toString();
+        sql """ insert into ${test_insert} values ('${uuid1}', 'doris1', 18) """
+        order_qt_test_insert1 """ select name, age from ${test_insert} where id = '${uuid1}' order by age """
+
+        String uuid2 = UUID.randomUUID().toString();
+        sql """ insert into ${test_insert} values ('${uuid2}', 'doris2', 19), ('${uuid2}', 'doris3', 20) """
+        order_qt_test_insert2 """ select name, age from ${test_insert} where id = '${uuid2}' order by age """
+
+        sql """ insert into ${test_insert} select * from ${test_insert} where id = '${uuid2}' """
+        order_qt_test_insert3 """ select name, age from ${test_insert} where id = '${uuid2}' order by age """
+
+        sql """ drop catalog if exists ${catalog_name} """
+        sql """ drop resource if exists ${resource_name} """
 
         // test old create-catalog syntax for compatibility
         sql """ CREATE CATALOG ${catalog_name} PROPERTIES (
@@ -113,9 +126,9 @@ suite("test_mysql_jdbc_catalog", "p0") {
             "jdbc.driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
             "jdbc.driver_class" = "com.mysql.cj.jdbc.Driver");
         """
-        sql """switch ${catalog_name}"""
-        sql """use ${ex_db_name}"""
+        sql """ switch ${catalog_name} """
+        sql """ use ${ex_db_name} """
         order_qt_ex_tb1  """ select * from ${ex_tb1} order by id; """
-        sql """drop resource if exists ${resource_name}"""
+        sql """ drop catalog if exists ${catalog_name} """
     }
 }

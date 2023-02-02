@@ -446,7 +446,7 @@ public class EsUtil {
             case "scaled_float":
                 return Type.DOUBLE;
             case "date":
-                return ScalarType.getDefaultDateType(Type.DATE);
+                return ScalarType.createDateV2Type();
             case "keyword":
             case "text":
             case "ip":

@@ -551,4 +551,12 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 * `rewrite_or_to_in_predicate_threshold`
 
     默认的改写OR to IN的OR数量阈值。默认值为2，即表示有2个OR的时候，如果可以合并，则会改写成IN。
+
+*   `group_by_and_having_use_alias_first`
+
+       指定group by和having语句是否优先使用列的别名，而非从From语句里寻找列的名字。默认为false。
+
+* `enable_file_cache`
+
+    控制是否启用block file cache。该变量只有在be.conf中enable_file_cache=true时才有效，如果be.conf中enable_file_cache=false，则block file cache一直处于禁用状态。
 	

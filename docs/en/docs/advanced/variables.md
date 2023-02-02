@@ -564,3 +564,10 @@ Translated with www.DeepL.com/Translator (free version)
 
     The default threshold of rewriting OR to IN. The default value is 2, which means that when there are 2 ORs, if they can be compact, they will be rewritten as IN predicate.
 
+*   `group_by_and_having_use_alias_first`
+
+    Specifies whether group by and having clauses use column aliases rather than searching for column name in From clause. The default value is false.
+
+* `enable_file_cache`
+
+    Set wether to use block file cache. This variable takes effect only if the BE config enable_file_cache=true. The cache is not used when BE config enable_file_cache=false.

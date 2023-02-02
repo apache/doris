@@ -18,6 +18,7 @@
 package org.apache.doris.transaction;
 
 import org.apache.doris.catalog.Database;
+import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
@@ -664,7 +665,7 @@ public class DatabaseTransactionMgr {
         LOG.info("transaction:[{}] successfully committed", transactionState);
     }
 
-    public boolean waitForTransactionFinished(Database db, long transactionId, long timeoutMillis)
+    public boolean waitForTransactionFinished(DatabaseIf db, long transactionId, long timeoutMillis)
             throws TransactionCommitFailedException {
         TransactionState transactionState = null;
         readLock();

@@ -118,7 +118,7 @@ private:
     bool try_reserve(const Key& key, const TUniqueId& query_id, bool is_persistent, size_t offset,
                      size_t size, std::lock_guard<std::mutex>& cache_lock) override;
 
-    bool try_reserve_for_main_list(const Key& key, QueryContextPtr query_context,
+    bool try_reserve_for_main_list(const Key& key, QueryFileCacheContextPtr query_context,
                                    bool is_persistent, size_t offset, size_t size,
                                    std::lock_guard<std::mutex>& cache_lock);
 

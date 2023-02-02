@@ -1,3 +1,4 @@
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -15,34 +16,22 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+suite("test_invalid_date") {
+    def tbName = "test_invalid_date"
+    sql "DROP TABLE IF EXISTS ${tbName}"
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tbName} (
+                c0 int,
+                c1 char(10),
+                c2 date,
+                c3 datev2
+            )
+            UNIQUE KEY(c0)
+            DISTRIBUTED BY HASH(c0) BUCKETS 5 properties("replication_num" = "1");
+        """
+    sql "insert into ${tbName} values(1, 'test1', '2000-01-01', '2000-01-01')"
 
-#include <memory>
-#include <shared_mutex>
-#include <unordered_map>
-
-#include "io/fs/file_system.h"
-
-namespace doris {
-namespace io {
-
-class FileSystemMap {
-public:
-    static FileSystemMap* instance();
-    ~FileSystemMap() = default;
-
-    void insert(ResourceId id, FileSystemSPtr fs);
-
-    // If `id` is not in `_map`, return nullptr.
-    FileSystemSPtr get(const ResourceId& id);
-
-private:
-    FileSystemMap() = default;
-
-private:
-    std::shared_mutex _mu;
-    std::unordered_map<ResourceId, FileSystemSPtr> _map; // GUARED_BY(_mu)
-};
-
-} // namespace io
-} // namespace doris
+    qt_sql1 "select str_to_date('202301', '%Y%m');"
+    qt_sql2 "select str_to_date('202301', '%Y%m') from ${tbName}"
+    sql "DROP TABLE ${tbName}"
+}

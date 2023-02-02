@@ -168,7 +168,7 @@ public:
     }
 
     const char* get_value() const { return data; }
-    const uint32_t get_size() const { return size; }
+    uint32_t get_size() const { return size; }
 
     bool operator<(const JsonbField& r) const {
         LOG(FATAL) << "comparing between JsonbField is not supported";

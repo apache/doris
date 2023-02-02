@@ -117,6 +117,7 @@ public class BaseViewStmt extends DdlStmt {
 
         Analyzer tmpAnalyzer = new Analyzer(analyzer);
         List<String> colNames = cols.stream().map(c -> c.getColName()).collect(Collectors.toList());
+        cloneStmt.setNeedToSql(true);
         cloneStmt.substituteSelectList(tmpAnalyzer, colNames);
 
         try (ToSqlContext toSqlContext = ToSqlContext.getOrNewThreadLocalContext()) {
