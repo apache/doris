@@ -280,7 +280,27 @@ Status S3FileSystem::file_size(const Path& path, size_t* file_size) const {
 }
 
 Status S3FileSystem::list(const Path& path, std::vector<Path>* files) {
-    return Status::NotSupported("not support");
+    auto client = get_client();
+    CHECK_S3_CLIENT(client);
+
+    Aws::S3::Model::ListObjectsV2Request request;
+    auto prefix = get_key(path);
+    if (!prefix.empty() && prefix.back() != '/') {
+        prefix.push_back('/');
+    }
+    request.WithBucket(_s3_conf.bucket).WithPrefix(prefix);
+
+    auto outcome = client->ListObjectsV2(request);
+    if (!outcome.IsSuccess()) {
+        return Status::IOError("failed to list objects(endpoint={}, bucket={}, prefix={}): {}",
+                               _s3_conf.endpoint, _s3_conf.bucket, prefix,
+                               outcome.GetError().GetMessage());
+    }
+    const auto& result = outcome.GetResult();
+    for (const auto& obj : result.GetContents()) {
+        files->emplace_back(obj.GetKey());
+    }
+    return Status::OK();
 }
 
 std::string S3FileSystem::get_key(const Path& path) const {

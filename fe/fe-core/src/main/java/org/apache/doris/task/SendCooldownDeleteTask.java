@@ -17,12 +17,9 @@
 
 package org.apache.doris.task;
 
-import org.apache.doris.cooldown.CooldownConf;
 import org.apache.doris.cooldown.CooldownDelete;
-import org.apache.doris.thrift.TCooldownConf;
 import org.apache.doris.thrift.TCooldownDeleteFile;
 import org.apache.doris.thrift.TCooldownDeleteFileReq;
-import org.apache.doris.thrift.TPushCooldownConfReq;
 import org.apache.doris.thrift.TTaskType;
 
 import org.apache.logging.log4j.LogManager;

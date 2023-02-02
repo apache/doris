@@ -1767,8 +1767,8 @@ Status Tablet::_cooldown_data() {
     TabletMetaPB remote_tablet_meta_pb;
     _tablet_meta->to_meta_pb(true, &remote_tablet_meta_pb);
     new_rowset_meta->to_rowset_pb(remote_tablet_meta_pb.add_rs_metas());
-    // reset tablet_meta_id
-    remote_tablet_meta_pb.set_tablet_meta_id(UniqueId::gen_uid().to_proto());
+    // reset cooldown_meta_id
+    *(remote_tablet_meta_pb.mutable_cooldown_meta_id()) = UniqueId::gen_uid().to_proto();
     // upload rowset_meta to remote fs.
     RETURN_IF_ERROR(_write_remote_tablet_meta(dest_fs, remote_tablet_meta_pb));
 

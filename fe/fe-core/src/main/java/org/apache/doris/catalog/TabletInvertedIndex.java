@@ -197,7 +197,7 @@ public class TabletInvertedIndex {
 
                             if (backendTabletInfo.isIsCooldown()) {
                                 replica.setCooldownMetaId(backendTabletInfo.getCooldownMetaId());
-                                replica.setCooldownedVersion(backendTabletInfo.getCooldownMetaId());
+                                replica.setCooldownedVersion(backendTabletInfo.getCooldownedVersion());
                             }
 
                             if (hasCooldownDeleteId(tabletMeta, backendTabletInfo)) {

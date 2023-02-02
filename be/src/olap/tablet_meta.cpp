@@ -684,7 +684,7 @@ Status TabletMeta::add_rs_meta(const RowsetMetaSharedPtr& rs_meta) {
     }
     _rs_metas.push_back(rs_meta);
     if (!rs_meta->is_local() && rs_meta->end_version() > _cooldowned_version) {
-        _cooldowned_version = it.end_version();
+        _cooldowned_version = rs_meta->end_version();
     }
     return Status::OK();
 }
@@ -729,7 +729,7 @@ void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
     _rs_metas.insert(_rs_metas.end(), to_add.begin(), to_add.end());
     for (auto& rs_meta : to_add) {
         if (!rs_meta->is_local() && rs_meta->end_version() > _cooldowned_version) {
-            _cooldowned_version = it.end_version();
+            _cooldowned_version = rs_meta->end_version();
         }
     }
     _cooldown_meta_id = generate_uuid();
