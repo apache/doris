@@ -223,4 +223,9 @@ create table doris_test.ex_tb20 (
     decimal_unsigned_long decimal(65, 5) unsigned
 ) engine=innodb charset=utf8;
 
+create table doris_test.test_insert (
+    `id` varchar(128) NULL,
+    `name` varchar(128) NULL,
+    `age` int NULL
+) engine=innodb charset=utf8;
 
