@@ -106,7 +106,7 @@ public class ProfileManager {
             if (profileContent != null) {
                 return profileContent;
             }
-            // no need to lock cause the possibility of concurrent read is very low
+            // no need to lock because the possibility of concurrent read is very low
             profileContent = profile.toString();
             return profileContent;
         }
