@@ -84,13 +84,13 @@ public class Role implements Writable {
     public Role(String roleName, TablePattern tablePattern, PrivBitSet privs) throws DdlException {
         this.roleName = roleName;
         this.tblPatternToPrivs.put(tablePattern, privs);
-        grantPrivs(tablePattern, privs);
+        grantPrivs(tablePattern, privs.copy());
     }
 
     public Role(String roleName, ResourcePattern resourcePattern, PrivBitSet privs) throws DdlException {
         this.roleName = roleName;
         this.resourcePatternToPrivs.put(resourcePattern, privs);
-        grantPrivs(resourcePattern, privs);
+        grantPrivs(resourcePattern, privs.copy());
     }
 
     public Role(String roleName, TablePattern tablePattern, PrivBitSet tablePrivs,
@@ -100,8 +100,8 @@ public class Role implements Writable {
         this.resourcePatternToPrivs.put(resourcePattern, resourcePrivs);
         //for init admin role,will not generate exception
         try {
-            grantPrivs(tablePattern, tablePrivs);
-            grantPrivs(resourcePattern, resourcePrivs);
+            grantPrivs(tablePattern, tablePrivs.copy());
+            grantPrivs(resourcePattern, resourcePrivs.copy());
         } catch (DdlException e) {
             LOG.warn("grant failed,", e);
         }
@@ -129,7 +129,7 @@ public class Role implements Writable {
             } else {
                 tblPatternToPrivs.put(entry.getKey(), entry.getValue());
             }
-            grantPrivs(entry.getKey(), entry.getValue());
+            grantPrivs(entry.getKey(), entry.getValue().copy());
         }
         for (Map.Entry<ResourcePattern, PrivBitSet> entry : other.resourcePatternToPrivs.entrySet()) {
             if (resourcePatternToPrivs.containsKey(entry.getKey())) {
@@ -138,7 +138,7 @@ public class Role implements Writable {
             } else {
                 resourcePatternToPrivs.put(entry.getKey(), entry.getValue());
             }
-            grantPrivs(entry.getKey(), entry.getValue());
+            grantPrivs(entry.getKey(), entry.getValue().copy());
         }
     }
 
@@ -180,14 +180,14 @@ public class Role implements Writable {
             TablePattern tblPattern = TablePattern.read(in);
             PrivBitSet privs = PrivBitSet.read(in);
             tblPatternToPrivs.put(tblPattern, privs);
-            grantPrivs(tblPattern, privs);
+            grantPrivs(tblPattern, privs.copy());
         }
         size = in.readInt();
         for (int i = 0; i < size; i++) {
             ResourcePattern resourcePattern = ResourcePattern.read(in);
             PrivBitSet privs = PrivBitSet.read(in);
             resourcePatternToPrivs.put(resourcePattern, privs);
-            grantPrivs(resourcePattern, privs);
+            grantPrivs(resourcePattern, privs.copy());
         }
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_116) {
             size = in.readInt();

@@ -816,6 +816,9 @@ public class Auth implements Writable {
     private void dropRoleInternal(String role, boolean ignoreIfNonExists, boolean isReplay) throws DdlException {
         writeLock();
         try {
+            if (role.startsWith(RoleManager.DEFAULT_ROLE_PREFIX)) {
+                throw new DdlException("Can not drop default role.");
+            }
             if (ignoreIfNonExists && roleManager.getRole(role) == null) {
                 LOG.info("role non exists, ignored to drop role: {}, is replay: {}", role, isReplay);
                 return;

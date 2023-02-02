@@ -76,9 +76,6 @@ public abstract class PrivTable {
             if (errOnExist) {
                 throw new DdlException("entry already exist");
             } else {
-                //                checkOperationAllowed(existingEntry, newEntry, "ADD ENTRY");
-                // if existing entry is set by domain resolver, just replace it with the new entry.
-                // if existing entry is not set by domain resolver, merge the 2 entries.
                 mergePriv(existingEntry, newEntry);
                 LOG.debug("merge priv entry: {}", existingEntry);
             }
@@ -112,8 +109,6 @@ public abstract class PrivTable {
             }
             return;
         }
-
-        //        checkOperationAllowed(existingEntry, entry, "REVOKE");
 
         // check if privs to be revoked exist in priv entry.
         PrivBitSet tmp = existingEntry.getPrivSet().copy();

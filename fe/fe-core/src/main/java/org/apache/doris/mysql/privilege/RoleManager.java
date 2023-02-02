@@ -121,7 +121,6 @@ public class RoleManager implements Writable {
             }
             List<String> info = Lists.newArrayList();
             info.add(role.getRoleName());
-
             Map<PrivLevel, String> infoMap =
                     Stream.concat(
                             role.getTblPatternToPrivs().entrySet().stream()
