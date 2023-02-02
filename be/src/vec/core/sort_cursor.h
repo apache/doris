@@ -216,7 +216,7 @@ struct MergeSortCursorImpl {
     virtual Block* block_ptr() { return nullptr; }
 };
 
-using BlockSupplier = std::function<Status(Block**)>;
+using BlockSupplier = std::function<Status(Block*)>;
 
 struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
     BlockSupplierSortCursorImpl(const BlockSupplier& block_supplier,

@@ -207,12 +207,14 @@ public:
 
     void _update_block_queue_empty() override { _block_queue_empty = _block_queue.empty(); }
 
-    BlockUPtr get_batch() override {
+    Status get_batch(Block* block) override {
         CHECK(!should_wait()) << " _is_cancelled: " << _is_cancelled
                               << ", _block_queue_empty: " << _block_queue_empty
                               << ", _num_remaining_senders: " << _num_remaining_senders;
         std::lock_guard<std::mutex> l(_lock); // protect _block_queue
-        return _inner_get_batch();
+        block->clear();
+        block->swap(*_inner_get_batch());
+        return Status::OK();
     }
 
     void add_block(Block* block, bool use_move) override {
