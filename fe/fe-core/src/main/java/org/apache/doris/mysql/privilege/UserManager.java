@@ -54,21 +54,24 @@ public class UserManager implements Writable {
     //One name may have multiple User,because host can be different
     private Map<String, List<User>> nameToUsers = new HashMap<>();
 
-    public boolean userIdentityExist(UserIdentity userIdentity) {
+    public boolean userIdentityExist(UserIdentity userIdentity, boolean includeByDomain) {
         List<User> users = nameToUsers.get(userIdentity.getQualifiedUser());
         if (CollectionUtils.isEmpty(users)) {
             return false;
         }
         for (User user : users) {
             if (user.getUserIdentity().getHost().equalsIgnoreCase(userIdentity.getHost())) {
-                return true;
+                if (includeByDomain || !user.isSetByDomainResolver()) {
+                    return true;
+                }
             }
         }
         return false;
     }
 
     public List<User> getUserByName(String name) {
-        return nameToUsers.get(name);
+        List<User> users = nameToUsers.get(name);
+        return users == null ? Collections.EMPTY_LIST : users;
     }
 
     public void checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
@@ -123,7 +126,8 @@ public class UserManager implements Writable {
         PasswordPolicyManager passwdPolicyMgr = Env.getCurrentEnv().getAuth().getPasswdPolicyManager();
         List<User> users = nameToUsers.get(remoteUser);
         if (CollectionUtils.isEmpty(users)) {
-            return;
+            throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
+                    "YES");
         }
         for (User user : users) {
             if (user.getUserIdentity().isDomain()) {
@@ -173,9 +177,10 @@ public class UserManager implements Writable {
 
     public User createUser(UserIdentity userIdent, byte[] pwd, UserIdentity domainUserIdent, boolean setByResolver)
             throws AnalysisException {
-        if (userIdentityExist(userIdent)) {
+        if (userIdentityExist(userIdent, true)) {
             User userByUserIdentity = getUserByUserIdentity(userIdent);
-            userByUserIdentity.getPassword().setPassword(pwd);
+            userByUserIdentity.setPassword(pwd);
+            userByUserIdentity.setSetByDomainResolver(setByResolver);
             return userByUserIdentity;
         }
 

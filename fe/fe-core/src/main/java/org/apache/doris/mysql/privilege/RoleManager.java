@@ -26,6 +26,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -195,7 +196,7 @@ public class RoleManager implements Writable {
         // grant read privs to database information_schema
         TablePattern tblPattern = new TablePattern(Auth.DEFAULT_CATALOG, InfoSchemaDb.DATABASE_NAME, "*");
         try {
-            tblPattern.analyze("default_cluster");
+            tblPattern.analyze(SystemInfoService.DEFAULT_CLUSTER);
         } catch (AnalysisException e) {
             LOG.warn("should not happen", e);
         }

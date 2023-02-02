@@ -587,6 +587,9 @@ public class Auth implements Writable {
         writeLock();
         try {
             if (role == null) {
+                if (!doesUserExist(userIdent)) {
+                    throw new DdlException("user " + userIdent + " does not exist");
+                }
                 role = roleManager.getUserDefaultRoleName(userIdent);
             }
             Role newRole = new Role(role, tblPattern, privs);
@@ -627,14 +630,14 @@ public class Auth implements Writable {
 
     // return true if user ident exist
     private boolean doesUserExist(UserIdentity userIdent) {
-        return userManager.userIdentityExist(userIdent);
+        return userManager.userIdentityExist(userIdent, false);
     }
 
     // Check whether the user exists. If the user exists, return UserIdentity, otherwise return null.
     public UserIdentity getCurrentUserIdentity(UserIdentity userIdent) {
         readLock();
         try {
-            if (userManager.userIdentityExist(userIdent)) {
+            if (doesUserExist(userIdent)) {
                 return userIdent;
             }
             return null;

@@ -28,6 +28,7 @@ import org.apache.commons.collections.CollectionUtils;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.Collections;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
@@ -52,6 +53,9 @@ public class UserRoleManager implements Writable {
     }
 
     public void dropUser(UserIdentity userIdentity) {
+        if (!userToRoles.containsKey(userIdentity)) {
+            return;
+        }
         Set<String> roles = userToRoles.remove(userIdentity);
         for (String roleName : roles) {
             Set<UserIdentity> userIdentities = roleToUsers.get(roleName);
@@ -66,6 +70,9 @@ public class UserRoleManager implements Writable {
     }
 
     public void dropRole(String roleName) {
+        if (!roleToUsers.containsKey(roleName)) {
+            return;
+        }
         Set<UserIdentity> remove = roleToUsers.remove(roleName);
         for (UserIdentity userIdentity : remove) {
             Set<String> roles = userToRoles.get(userIdentity);
@@ -80,7 +87,8 @@ public class UserRoleManager implements Writable {
     }
 
     public Set<String> getRolesByUser(UserIdentity user) {
-        return userToRoles.get(user);
+        Set<String> roles = userToRoles.get(user);
+        return roles == null ? Collections.EMPTY_SET : roles;
     }
 
     @Override

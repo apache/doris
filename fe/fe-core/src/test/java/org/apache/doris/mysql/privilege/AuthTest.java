@@ -390,8 +390,9 @@ public class AuthTest {
         // 9.1 check auth
         Assert.assertTrue(auth.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db1",
                 PrivPredicate.CREATE));
-        UserIdentity zhangsan1 = UserIdentity.createAnalyzedUserIdentWithIp(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan",
-                "172.1.1.1");
+        UserIdentity zhangsan1 = UserIdentity
+                .createAnalyzedUserIdentWithIp(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan",
+                        "172.1.1.1");
         Assert.assertFalse(auth.checkDbPriv(zhangsan1, SystemInfoService.DEFAULT_CLUSTER + ":db1",
                 PrivPredicate.CREATE));
 
@@ -1344,6 +1345,13 @@ public class AuthTest {
         UserIdentity otherOpUser = new UserIdentity("other_op_user", "%");
         userDesc = new UserDesc(otherOpUser, "12345", true);
         createUserStmt = new CreateUserStmt(false, userDesc, null);
+        new Expectations() {
+            {
+                ctx.getCurrentUserIdentity();
+                minTimes = 1;
+                result = UserIdentity.ROOT;
+            }
+        };
         createUserStmt.analyze(analyzer);
         auth.createUser(createUserStmt);
         // try grant, it should fail
