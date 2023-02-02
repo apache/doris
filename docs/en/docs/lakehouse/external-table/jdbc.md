@@ -28,7 +28,7 @@ under the License.
 
 <version deprecated="1.2.2">
 
-Please use [JDBC](https://doris.apache.org/docs/dev/lakehouse/multi-catalog/jdbc/) to access JDBC data sources.
+Please use [JDBC Catalog](https://doris.apache.org/docs/dev/lakehouse/multi-catalog/jdbc/) to access JDBC data sources.
 
 </version>
 
