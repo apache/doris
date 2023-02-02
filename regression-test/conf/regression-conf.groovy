@@ -94,6 +94,35 @@ es_8_port=39200
 
 cacheDataPath = "/tmp"
 
+//hive  catalog test config for bigdata
+enableExternalHiveTest = false
+extHiveHmsHost = "***.**.**.**"
+extHiveHmsPort = 7004
+extHdfsPort = 4007
+extHiveHmsUser = "****"
+extHiveHmsPassword= "***********"
+
+//mysql jdbc connector test config for bigdata
+enableExternalMysqlTest = false
+extMysqlHost = "***.**.**.**"
+extMysqlPort = 3306
+extMysqlUser = "****"
+extMysqlPassword = "***********"
+
+//postgresql jdbc connector test config for bigdata
+enableExternalPgTest = false
+extPgHost = "***.**.**.*"
+extPgPort = 5432
+extPgUser = "****"
+extPgPassword = "***********"
+
+// elasticsearch external test config for bigdata
+enableExternalEsTest = false
+extEsHost = "***********"
+extEsPort = 9200
+extEsUser = "*******"
+extEsPassword = "***********"
+
 s3Endpoint = "cos.ap-hongkong.myqcloud.com"
 s3BucketName = "doris-build-hk-1308700295"
 s3Region = "ap-hongkong"
