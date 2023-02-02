@@ -67,6 +67,7 @@ public:
     TUniqueId get_builder_fragment_instance_id(int my_node_id);
     SharedHashTableContextPtr get_context(int my_node_id);
     void signal(int my_node_id);
+    void signal(int my_node_id, Status status);
     Status wait_for_signal(RuntimeState* state, const SharedHashTableContextPtr& context);
     bool should_build_hash_table(const TUniqueId& fragment_instance_id, int my_node_id);
 
