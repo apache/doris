@@ -160,7 +160,7 @@ public:
 
     virtual bool should_wait();
 
-    virtual Status get_batch(Block** next_block);
+    virtual Status get_batch(Block* next_block);
 
     void add_block(const PBlock& pblock, int be_number, int64_t packet_seq,
                    ::google::protobuf::Closure** done);
