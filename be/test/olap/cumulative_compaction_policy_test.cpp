@@ -647,7 +647,7 @@ TEST_F(TestSizeBasedCumulativeCompactionPolicy, _level_size) {
     for (auto& rowset : rs_metas) {
         _tablet_meta->add_rs_meta(rowset);
     }
-    config::compaction_promotion_size_mbytes = 1024;
+    config::cumulative_size_based_promotion_size_mbytes = 1024;
     TabletSharedPtr _tablet(new Tablet(_tablet_meta, nullptr, CUMULATIVE_SIZE_BASED_POLICY));
     _tablet->init();
 
