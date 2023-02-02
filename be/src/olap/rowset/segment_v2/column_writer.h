@@ -417,7 +417,7 @@ public:
     ordinal_t get_next_rowid() const override { return _kv_writers[0]->get_next_rowid(); }
 
 private:
-    Status write_null_column(size_t num_rows, bool is_null); // 写入num_rows个null标记
+    Status write_null_column(size_t num_rows, bool is_null);
 
     std::vector<std::unique_ptr<ColumnWriter>> _kv_writers;
     // we need null writer to make sure a row is null or not

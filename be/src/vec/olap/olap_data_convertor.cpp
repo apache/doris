@@ -136,11 +136,6 @@ OlapBlockDataConvertor::create_olap_column_data_convertor(const TabletColumn& co
                         create_olap_column_data_convertor(key_column)),
                 std::make_unique<OlapColumnDataConvertorArray>(
                         create_olap_column_data_convertor(value_column)));
-        //const auto& key_column = column.get_sub_column(0);
-        //const auto& value_column = column.get_sub_column(1);
-        //return std::make_unique<OlapColumnDataConvertorMap>(
-        //        create_olap_column_data_convertor(key_column),
-        //        create_olap_column_data_convertor(value_column));
     }
     default: {
         DCHECK(false) << "Invalid type in RowBlockV2:" << column.type();

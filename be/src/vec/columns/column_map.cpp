@@ -87,7 +87,10 @@ void ColumnMap::insert(const Field& x) {
     values->insert(map[1]);
 }
 
-void ColumnMap::insert_default() {}
+void ColumnMap::insert_default() {
+    keys->insert_default();
+    values->insert_default();
+}
 
 void ColumnMap::pop_back(size_t n) {
     keys->pop_back(n);

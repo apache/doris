@@ -81,17 +81,67 @@ void DataTypeMap::to_string(const class doris::vectorized::IColumn& column, size
 Status DataTypeMap::from_string(ReadBuffer& rb, IColumn* column) const {
     DCHECK(!rb.eof());
     auto* map_column = assert_cast<ColumnMap*>(column);
+
     if (*rb.position() != '{') {
         return Status::InvalidArgument("map does not start with '{' character, found '{}'",
                                        *rb.position());
     }
-
-    keys->from_string(rb, &map_column->get_keys());
-    values->from_string(rb, &map_column->get_values());
     if (*(rb.end() - 1) != '}') {
         return Status::InvalidArgument("map does not end with '}' character, found '{}'",
                                        *(rb.end() - 1));
     }
+
+    std::stringstream keyCharset;
+    std::stringstream valCharset;
+
+    if (rb.count() == 2) {
+        // empty map {} , need to make empty array to add offset
+        keyCharset << "[]";
+        valCharset << "[]";
+    } else {
+        // {"aaa": 1, "bbb": 20}, need to handle key and value to make key column arr and value arr
+        // skip "{"
+        ++rb.position();
+        keyCharset << "[";
+        valCharset << "[";
+        while (!rb.eof()) {
+            size_t kv_len = 0;
+            auto start = rb.position();
+            while (!rb.eof() && *start != ',' && *start != '}') {
+                kv_len++;
+                start++;
+            }
+            if (kv_len >= rb.count()) {
+                return Status::InvalidArgument("Invalid Length");
+            }
+
+            size_t k_len = 0;
+            auto k_rb = rb.position();
+            while (kv_len > 0 && *k_rb != ':') {
+                k_len++;
+                k_rb++;
+            }
+            ReadBuffer key_rb(rb.position(), k_len);
+            ReadBuffer val_rb(k_rb + 1, kv_len - k_len - 1);
+
+            // handle key
+            keyCharset << key_rb.to_string();
+            keyCharset << ",";
+
+            // handle value
+            valCharset << val_rb.to_string();
+            valCharset << ",";
+
+            rb.position() += kv_len + 1;
+        }
+        keyCharset << ']';
+        valCharset << ']';
+    }
+
+    ReadBuffer kb(keyCharset.str().data(), keyCharset.str().length());
+    ReadBuffer vb(valCharset.str().data(), valCharset.str().length());
+    keys->from_string(kb, &map_column->get_keys());
+    values->from_string(vb, &map_column->get_values());
     return Status::OK();
 }
 
