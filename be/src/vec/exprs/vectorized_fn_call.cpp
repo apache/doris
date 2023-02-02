@@ -41,8 +41,6 @@ doris::Status VectorizedFnCall::prepare(doris::RuntimeState* state,
     argument_template.reserve(_children.size());
     std::vector<std::string_view> child_expr_name;
     for (auto child : _children) {
-        // TODO: rethink we really create column here. maybe only need nullptr just to
-        // get the function
         auto column = child->data_type()->create_column();
         argument_template.emplace_back(std::move(column), child->data_type(), child->expr_name());
         child_expr_name.emplace_back(child->expr_name());

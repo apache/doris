@@ -86,17 +86,21 @@ inline std::enable_if_t<IsDecimalNumber<T>, Field> to_field(const T& x, UInt32 s
 
 Columns convert_const_tuple_to_constant_elements(const ColumnConst& column);
 
-/// Returns the copy of a tmp block and temp args order same as args
-/// in which only args column each column specified in the "arguments"
-/// parameter is replaced with its respective nested column if it is nullable.
-std::tuple<Block, ColumnNumbers> create_block_with_nested_columns(const Block& block,
-                                                                  const ColumnNumbers& args,
-                                                                  const bool need_check_same);
+/// Returns the copy of a given block in which each column specified in
+/// the "arguments" parameter is replaced with its respective nested
+/// column if it is nullable.
+Block create_block_with_nested_columns(const Block& block, const ColumnNumbers& args);
 
-// Same as above and return the new_res loc in tuple
-std::tuple<Block, ColumnNumbers, size_t> create_block_with_nested_columns(const Block& block,
-                                                                          const ColumnNumbers& args,
-                                                                          size_t result);
+/// Similar function as above. Additionally transform the result type if needed.
+Block create_block_with_nested_columns(const Block& block, const ColumnNumbers& args,
+                                       size_t result);
+
+/// Returns the copy of a given block in only args column specified in
+/// the "arguments" parameter is replaced with its respective nested
+/// column if it is nullable.
+/// TODO: the old funciton `create_block_with_nested_columns` have performance problem, replace all
+/// by the function and delete old one.
+Block create_block_with_nested_columns_only_args(const Block& block, const ColumnNumbers& args);
 
 /// Checks argument type at specified index with predicate.
 /// throws if there is no argument at specified index or if predicate returns false.
