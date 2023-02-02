@@ -186,7 +186,7 @@ bool InvertedIndexQueryCache::lookup(const CacheKey& key, InvertedIndexQueryCach
 void InvertedIndexQueryCache::insert(const CacheKey& key, roaring::Roaring* bitmap,
             InvertedIndexQueryCacheHandle* handle) {
     auto deleter = [](const doris::CacheKey& key, void* value) {
-        delete (roaring::Roaring**)value;
+        delete (roaring::Roaring*)value;
     };
 
     auto lru_handle = _cache->insert(key.encode(), (void *)bitmap, bitmap->getSizeInBytes(),
