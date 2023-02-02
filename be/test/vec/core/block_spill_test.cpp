@@ -114,7 +114,7 @@ TEST_F(TestBlockSpill, TestInt) {
     vectorized::Block* block_read;
 
     for (int i = 0; i < batch_num; ++i) {
-        spill_block_reader->read(&block_read);
+        spill_block_reader->read(block_read);
         EXPECT_EQ(block_read->rows(), batch_size);
         auto column = block_read->get_by_position(0).column;
         auto* real_column = (vectorized::ColumnVector<int>*)column.get();
@@ -123,7 +123,7 @@ TEST_F(TestBlockSpill, TestInt) {
         }
     }
 
-    spill_block_reader->read(&block_read);
+    spill_block_reader->read(block_read);
     spill_block_reader->close();
 
     EXPECT_EQ(block_read->rows(), 1);
@@ -162,7 +162,7 @@ TEST_F(TestBlockSpill, TestIntNullable) {
     vectorized::Block* block_read;
 
     for (int i = 0; i < batch_num; ++i) {
-        spill_block_reader->read(&block_read);
+        spill_block_reader->read(block_read);
 
         EXPECT_EQ(block_read->rows(), batch_size);
         auto column = block_read->get_by_position(0).column;
@@ -178,7 +178,7 @@ TEST_F(TestBlockSpill, TestIntNullable) {
         }
     }
 
-    spill_block_reader->read(&block_read);
+    spill_block_reader->read(block_read);
     spill_block_reader->close();
 
     EXPECT_EQ(block_read->rows(), 1);
@@ -214,7 +214,7 @@ TEST_F(TestBlockSpill, TestString) {
     vectorized::Block* block_read;
 
     for (int i = 0; i < batch_num; ++i) {
-        st = spill_block_reader->read(&block_read);
+        st = spill_block_reader->read(block_read);
         EXPECT_TRUE(st.ok());
 
         EXPECT_EQ(block_read->rows(), batch_size);
@@ -225,7 +225,7 @@ TEST_F(TestBlockSpill, TestString) {
         }
     }
 
-    spill_block_reader->read(&block_read);
+    spill_block_reader->read(block_read);
     spill_block_reader->close();
 
     EXPECT_EQ(block_read->rows(), 1);
@@ -265,7 +265,7 @@ TEST_F(TestBlockSpill, TestStringNullable) {
     vectorized::Block* block_read;
 
     for (int i = 0; i < batch_num; ++i) {
-        st = spill_block_reader->read(&block_read);
+        st = spill_block_reader->read(block_read);
         EXPECT_TRUE(st.ok());
 
         EXPECT_EQ(block_read->rows(), batch_size);
@@ -283,7 +283,7 @@ TEST_F(TestBlockSpill, TestStringNullable) {
         }
     }
 
-    st = spill_block_reader->read(&block_read);
+    st = spill_block_reader->read(block_read);
     spill_block_reader->close();
     EXPECT_TRUE(st.ok());
 
@@ -323,7 +323,7 @@ TEST_F(TestBlockSpill, TestDecimal) {
     vectorized::Block* block_read;
 
     for (int i = 0; i < batch_num; ++i) {
-        st = spill_block_reader->read(&block_read);
+        st = spill_block_reader->read(block_read);
         EXPECT_TRUE(st.ok());
 
         EXPECT_EQ(block_read->rows(), batch_size);
@@ -336,7 +336,7 @@ TEST_F(TestBlockSpill, TestDecimal) {
         }
     }
 
-    st = spill_block_reader->read(&block_read);
+    st = spill_block_reader->read(block_read);
     spill_block_reader->close();
     EXPECT_TRUE(st.ok());
 
@@ -379,7 +379,7 @@ TEST_F(TestBlockSpill, TestDecimalNullable) {
     vectorized::Block* block_read;
 
     for (int i = 0; i < batch_num; ++i) {
-        st = spill_block_reader->read(&block_read);
+        st = spill_block_reader->read(block_read);
         EXPECT_TRUE(st.ok());
 
         EXPECT_EQ(block_read->rows(), batch_size);
@@ -397,7 +397,7 @@ TEST_F(TestBlockSpill, TestDecimalNullable) {
         }
     }
 
-    st = spill_block_reader->read(&block_read);
+    st = spill_block_reader->read(block_read);
     spill_block_reader->close();
     EXPECT_TRUE(st.ok());
 
@@ -444,7 +444,7 @@ TEST_F(TestBlockSpill, TestBitmap) {
     vectorized::Block* block_read;
 
     for (int i = 0; i < batch_num; ++i) {
-        st = spill_block_reader->read(&block_read);
+        st = spill_block_reader->read(block_read);
         EXPECT_TRUE(st.ok());
 
         EXPECT_EQ(block_read->rows(), batch_size);
@@ -456,7 +456,7 @@ TEST_F(TestBlockSpill, TestBitmap) {
         }
     }
 
-    st = spill_block_reader->read(&block_read);
+    st = spill_block_reader->read(block_read);
     spill_block_reader->close();
     EXPECT_TRUE(st.ok());
 
