@@ -65,11 +65,10 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block* block) {
                 &_is_cancelled);
         _data_arrival_cv.wait(l);
     }
-    block->swap(*_inner_get_batch());
-    return Status::OK();
+    return _inner_get_batch();
 }
 
-BlockUPtr VDataStreamRecvr::SenderQueue::_inner_get_batch() {
+Status VDataStreamRecvr::SenderQueue::_inner_get_batch() {
     if (_is_cancelled) {
         return Status::Cancelled("Cancelled");
     }
@@ -389,11 +388,12 @@ bool VDataStreamRecvr::ready_to_read() {
 
 Status VDataStreamRecvr::get_next(Block* block, bool* eos) {
     if (!_is_merging) {
-        BlockUPtr nblock;
+        // clear block and will check if the receiver end by check block empty
+        block->clear();
         RETURN_IF_ERROR(_sender_queues[0]->get_batch(block));
-        if (res != nullptr) {
-            // will clear block automatically
-            block->swap(*nblock);
+        if (block->columns() != 0) {
+            *eos = false;
+            return Status::OK();
         } else {
             *eos = true;
             return Status::OK();

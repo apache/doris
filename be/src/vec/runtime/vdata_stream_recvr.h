@@ -175,7 +175,7 @@ public:
 
 protected:
     virtual void _update_block_queue_empty() {}
-    BlockUPtr _inner_get_batch();
+    Status _inner_get_batch();
 
     // Not managed by this class
     VDataStreamRecvr* _recvr;
@@ -212,9 +212,7 @@ public:
                               << ", _block_queue_empty: " << _block_queue_empty
                               << ", _num_remaining_senders: " << _num_remaining_senders;
         std::lock_guard<std::mutex> l(_lock); // protect _block_queue
-        block->clear();
-        block->swap(*_inner_get_batch());
-        return Status::OK();
+        return _inner_get_batch(block);
     }
 
     void add_block(Block* block, bool use_move) override {
