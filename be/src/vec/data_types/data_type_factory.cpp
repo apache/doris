@@ -185,7 +185,6 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
                 create_data_type(col_desc.children[0], col_desc.contains_nulls[0]),
                 create_data_type(col_desc.children[1], col_desc.contains_nulls[1]));
         break;
-    }
     case INVALID_TYPE:
     default:
         DCHECK(false) << "invalid PrimitiveType:" << (int)col_desc.type;
