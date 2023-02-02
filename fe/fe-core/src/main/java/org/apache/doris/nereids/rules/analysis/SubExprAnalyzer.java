@@ -30,11 +30,12 @@ import org.apache.doris.nereids.trees.expressions.ScalarSubquery;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
-import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -81,6 +82,7 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
         checkHasGroupBy(analyzedResult);
+        checkRootIsLimit(analyzedResult);
 
         return new InSubquery(
                 expr.getCompareExpr().accept(this, context),
@@ -93,7 +95,7 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
         AnalyzedResult analyzedResult = analyzeSubquery(scalar);
 
         checkOutputColumn(analyzedResult.getLogicalPlan());
-        checkRootIsAgg(analyzedResult);
+        checkHasAgg(analyzedResult);
         checkHasGroupBy(analyzedResult);
 
         return new ScalarSubquery(analyzedResult.getLogicalPlan(), analyzedResult.getCorrelatedSlots());
@@ -106,11 +108,11 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
         }
     }
 
-    private void checkRootIsAgg(AnalyzedResult analyzedResult) {
+    private void checkHasAgg(AnalyzedResult analyzedResult) {
         if (!analyzedResult.isCorrelated()) {
             return;
         }
-        if (!analyzedResult.rootIsAgg()) {
+        if (!analyzedResult.hasAgg()) {
             throw new AnalysisException("The select item in correlated subquery of binary predicate "
                     + "should only be sum, min, max, avg and count. Current subquery: "
                     + analyzedResult.getLogicalPlan());
@@ -123,6 +125,16 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
         }
         if (analyzedResult.hasGroupBy()) {
             throw new AnalysisException("Unsupported correlated subquery with grouping and/or aggregation "
+                    + analyzedResult.getLogicalPlan());
+        }
+    }
+
+    private void checkRootIsLimit(AnalyzedResult analyzedResult) {
+        if (!analyzedResult.isCorrelated()) {
+            return;
+        }
+        if (analyzedResult.rootIsLimit()) {
+            throw new AnalysisException("Unsupported correlated subquery with a LIMIT clause "
                     + analyzedResult.getLogicalPlan());
         }
     }
@@ -173,15 +185,21 @@ class SubExprAnalyzer extends DefaultExpressionRewriter<CascadesContext> {
             return !correlatedSlots.isEmpty();
         }
 
-        public boolean rootIsAgg() {
-            return logicalPlan instanceof LogicalAggregate;
+        public boolean hasAgg() {
+            return logicalPlan.anyMatch(LogicalAggregate.class::isInstance);
         }
 
         public boolean hasGroupBy() {
-            if (rootIsAgg()) {
-                return !((LogicalAggregate<? extends Plan>) logicalPlan).getGroupByExpressions().isEmpty();
+            if (hasAgg()) {
+                return !((LogicalAggregate)
+                        ((ImmutableSet) logicalPlan.collect(LogicalAggregate.class::isInstance)).asList().get(0))
+                        .getGroupByExpressions().isEmpty();
             }
             return false;
+        }
+
+        public boolean rootIsLimit() {
+            return logicalPlan instanceof LogicalLimit;
         }
     }
 }
