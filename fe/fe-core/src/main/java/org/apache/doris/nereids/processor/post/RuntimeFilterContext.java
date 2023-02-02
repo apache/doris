@@ -72,6 +72,9 @@ public class RuntimeFilterContext {
     // you can see disjoint set data structure to learn the processing detailed.
     private final Map<NamedExpression, Pair<RelationId, NamedExpression>> aliasTransferMap = Maps.newHashMap();
 
+    /**
+     * record slot to cast, when encounter cast, we should change the corresponding slot to cast in translation phase.
+     */
     private final Map<NamedExpression, Cast> castMap = Maps.newHashMap();
 
     private final Map<Slot, OlapScanNode> scanNodeOfLegacyRuntimeFilterTarget = Maps.newHashMap();

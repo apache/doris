@@ -116,7 +116,6 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         return join;
     }
 
-    // TODO: support src key is agg slot.
     @Override
     public PhysicalPlan visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext context) {
         project.child().accept(this, context);
@@ -125,16 +124,15 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         Map<NamedExpression, Cast> castMap = context.getRuntimeFilterContext().getCastMap();
         // change key when encounter alias.
         for (Expression expression : project.getProjects()) {
-            if (expression instanceof Alias) {
-                Alias alias = ((Alias) expression);
-                Expression expr = ExpressionUtils.getExpressionCoveredByCast(alias.child());
-                if (expr instanceof NamedExpression
-                        && aliasTransferMap.containsKey((NamedExpression) expr)) {
+            Expression expr = ExpressionUtils.getExpressionCoveredByCast(expression.child(0));
+            if (expr instanceof NamedExpression && aliasTransferMap.containsKey((NamedExpression) expr)) {
+                if (expression instanceof Alias) {
+                    Alias alias = ((Alias) expression);
                     aliasTransferMap.put(alias.toSlot(), aliasTransferMap.remove(expr));
+                } else if (expression instanceof Cast) {
+                    Cast cast = ((Cast) expression);
+                    castMap.put(((NamedExpression) expr), cast);
                 }
-            } else if (expression instanceof Cast) {
-                Cast cast = ((Cast) expression);
-                Expression expr = ExpressionUtils.getExpressionCoveredByCast()
             }
         }
         return project;

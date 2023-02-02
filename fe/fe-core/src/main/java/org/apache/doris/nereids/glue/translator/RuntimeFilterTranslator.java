@@ -17,8 +17,14 @@
 
 package org.apache.doris.nereids.glue.translator;
 
+import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TupleId;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
+import org.apache.doris.nereids.trees.expressions.Cast;
+import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -33,6 +39,7 @@ import com.google.common.collect.ImmutableMap;
 
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
 
 /**
  * translate runtime filter
@@ -71,16 +78,24 @@ public class RuntimeFilterTranslator {
      * @param ctx plan translator context
      */
     public void createLegacyRuntimeFilter(RuntimeFilter filter, HashJoinNode node, PlanTranslatorContext ctx) {
-        SlotRef src = ctx.findSlotRef(filter.getSrcExpr().getExprId());
-        SlotRef target = context.getExprIdToOlapScanNodeSlotRef().get(filter.getTargetExpr().getExprId());
+        Expr src = ctx.findSlotRef(filter.getSrcExpr().getExprId());
+        Expr target = context.getExprIdToOlapScanNodeSlotRef().get(filter.getTargetExpr().getExprId());
         if (target == null) {
             context.setTargetNullCount();
             return;
         }
+        SlotRef targetSlot = target.getSrcSlotRef();
+        TupleId targetTupleId = targetSlot.getDesc().getParent().getId();
+        SlotId targetSlotId = targetSlot.getSlotId();
+        Map<NamedExpression, Cast> castMap = context.getCastMap();
+        if (castMap.containsKey(filter.getTargetExpr())) {
+            Cast cast = castMap.get(filter.getTargetExpr());
+            target = new CastExpr(cast.getDataType().toCatalogDataType(), target);
+        }
         org.apache.doris.planner.RuntimeFilter origFilter
                 = org.apache.doris.planner.RuntimeFilter.fromNereidsRuntimeFilter(
                 filter.getId(), node, src, filter.getExprOrder(), target,
-                ImmutableMap.of(target.getDesc().getParent().getId(), ImmutableList.of(target.getSlotId())),
+                ImmutableMap.of(targetTupleId, ImmutableList.of(targetSlotId)),
                 filter.getType(), context.getLimits());
         origFilter.setIsBroadcast(node.getDistributionMode() == DistributionMode.BROADCAST);
         OlapScanNode scanNode = context.getScanNodeOfLegacyRuntimeFilterTarget().get(filter.getTargetExpr());
