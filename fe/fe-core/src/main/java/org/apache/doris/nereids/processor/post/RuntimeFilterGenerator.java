@@ -158,7 +158,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     private static Pair<Expression, Expression> checkAndMaybeSwapChild(EqualTo expr,
             PhysicalHashJoin<? extends Plan, ? extends Plan> join) {
         if (expr.child(0).equals(expr.child(1))
-                || !expr.children().stream().allMatch(SlotReference.class::isInstance)) {
+                || !expr.children().stream().map(ExpressionUtils::getExpressionCoveredByCast)
+                .allMatch(SlotReference.class::isInstance)) {
             return null;
         }
         // current we assume that there are certainly different slot reference in equal to.
