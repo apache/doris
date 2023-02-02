@@ -48,6 +48,8 @@ public class RuntimeProfile {
     public static String ROOT_COUNTER = "";
     private Counter counterTotalTime;
     private double localTimePercent;
+    // cache the result of toString method
+    private volatile String profileContent;
 
     private Map<String, String> infoStrings = Maps.newHashMap();
     private List<String> infoStringsDisplayOrder = Lists.newArrayList();
@@ -268,9 +270,14 @@ public class RuntimeProfile {
     }
 
     public String toString() {
+        if (profileContent != null) {
+            return profileContent;
+        }
+        // no need to lock because the possibility of concurrent invoke is very low
         StringBuilder builder = new StringBuilder();
         prettyPrint(builder, "");
-        return builder.toString();
+        profileContent = builder.toString();
+        return profileContent;
     }
 
     private void printChildCounters(String prefix, String counterName, StringBuilder builder) {

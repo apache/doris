@@ -90,10 +90,19 @@ public class ProfileManager {
                     START_TIME, END_TIME, TOTAL_TIME, QUERY_STATE, TRACE_ID));
 
     private class ProfileElement {
+        public ProfileElement(RuntimeProfile profile) {
+            this.profile = profile;
+        }
+
+        private final RuntimeProfile profile;
         public Map<String, String> infoStrings = Maps.newHashMap();
-        public String profileContent = "";
         public MultiProfileTreeBuilder builder = null;
         public String errMsg = "";
+
+        // lazy load profileContent cause sometimes profileContent is very large
+        public String getProfileContent() {
+            return profile.toString();
+        }
     }
 
     // only protect queryIdDeque; queryIdToProfileMap is concurrent, no need to protect
@@ -125,12 +134,11 @@ public class ProfileManager {
     }
 
     public ProfileElement createElement(RuntimeProfile profile) {
-        ProfileElement element = new ProfileElement();
+        ProfileElement element = new ProfileElement(profile);
         RuntimeProfile summaryProfile = profile.getChildList().get(0).first;
         for (String header : PROFILE_HEADERS) {
             element.infoStrings.put(header, summaryProfile.getInfoString(header));
         }
-        element.profileContent = profile.toString();
 
         MultiProfileTreeBuilder builder = new MultiProfileTreeBuilder(profile);
         try {
@@ -215,7 +223,7 @@ public class ProfileManager {
             if (element == null) {
                 return null;
             }
-            return element.profileContent;
+            return element.getProfileContent();
         } finally {
             readLock.unlock();
         }
