@@ -576,7 +576,6 @@ void PInternalServiceImpl::commit(google::protobuf::RpcController* controller,
     fragment_instance_id.lo = request->fragment_instance_id().lo();
 
     auto pipe = _exec_env->fragment_mgr()->get_pipe(fragment_instance_id);
-    auto stream_ctx = _exec_env->new_load_stream_mgr()->
     if (pipe == nullptr) {
         response->mutable_status()->set_status_code(1);
         response->mutable_status()->add_error_msgs("pipe is null");
