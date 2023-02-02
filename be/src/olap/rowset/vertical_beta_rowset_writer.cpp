@@ -162,9 +162,6 @@ Status VerticalBetaRowsetWriter::_create_segment_writer(
         writer->reset(nullptr);
         return s;
     }
-    if (_context.tablet_schema->store_row_column()) {
-        (*writer)->append_row_column_writer();
-    }
     return Status::OK();
 }
 

@@ -27,6 +27,7 @@
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/core/field.h"
+#include "vec/jsonb/serialize.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -356,12 +357,43 @@ Status MemTable::_do_flush(int64_t& duration_ns) {
     SCOPED_RAW_TIMER(&duration_ns);
     _collect_vskiplist_results<true>();
     vectorized::Block block = _output_mutable_block.to_block();
+    if (_tablet_schema->store_row_column()) {
+        // convert block to row store format
+        serialize_block_to_row_column(block);
+    }
     RETURN_NOT_OK(_rowset_writer->flush_single_memtable(&block, &_flush_size));
     return Status::OK();
 }
 
 Status MemTable::close() {
     return flush();
+}
+
+void MemTable::serialize_block_to_row_column(vectorized::Block& block) {
+    if (block.rows() == 0) {
+        return;
+    }
+    MonotonicStopWatch watch;
+    watch.start();
+    // find row column id
+    int row_column_id = 0;
+    for (int i = 0; i < _tablet_schema->num_columns(); ++i) {
+        if (_tablet_schema->column(i).is_row_store_column()) {
+            row_column_id = i;
+            break;
+        }
+    }
+    vectorized::ColumnString* row_store_column =
+            static_cast<vectorized::ColumnString*>(block.get_by_position(row_column_id)
+                                                           .column->assume_mutable_ref()
+                                                           .assume_mutable()
+                                                           .get());
+    row_store_column->clear();
+    vectorized::JsonbSerializeUtil::block_to_jsonb(*_tablet_schema, block, *row_store_column,
+                                                   _tablet_schema->num_columns());
+    VLOG_DEBUG << "serialize , num_rows:" << block.rows() << ", row_column_id:" << row_column_id
+               << ", total_byte_size:" << block.allocated_bytes() << ", serialize_cost(us)"
+               << watch.elapsed_time() / 1000;
 }
 
 } // namespace doris
