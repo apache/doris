@@ -17,7 +17,7 @@
 
 suite("test_array_functions_of_array_difference") {
     def tableName = "test_array_functions_of_array_difference"
-    // open enable_array_type
+    // array functions only supported in vectorized engine
     sql """DROP TABLE IF EXISTS ${tableName}"""
     sql """ 
             CREATE TABLE IF NOT EXISTS ${tableName} (
