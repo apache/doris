@@ -75,7 +75,7 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch(Block* block) {
 
     if (_block_queue.empty()) {
         DCHECK_EQ(_num_remaining_senders, 0);
-        return Status::Error<END_OF_FILE>();
+        return Status::Error<ErrorCode::END_OF_FILE>();
     }
 
     _received_first_batch = true;
@@ -85,7 +85,6 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch(Block* block) {
     auto block_byte_size = block->allocated_bytes();
     _recvr->_num_buffered_bytes -= block_byte_size;
     _recvr->_blocks_memory_usage->add(-block_byte_size);
-    VLOG_ROW << "fetched #rows=" << result->rows();
     _block_queue.pop_front();
     _update_block_queue_empty();
 
