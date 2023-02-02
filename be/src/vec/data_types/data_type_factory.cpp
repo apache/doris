@@ -165,7 +165,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         nested = std::make_shared<vectorized::DataTypeArray>(
                 create_data_type(col_desc.children[0], col_desc.contains_nulls[0]));
         break;
-    case TYPE_STRUCT: {
+    case TYPE_STRUCT:
         DCHECK(col_desc.children.size() >= 1);
         size_t child_size = col_desc.children.size();
         DCHECK_EQ(col_desc.field_names.size(), child_size);
