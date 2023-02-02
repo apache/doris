@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
@@ -422,14 +423,22 @@ public class CreateTableStmt extends DdlStmt {
         for (ColumnDef columnDef : columnDefs) {
             columnDef.analyze(engineName.equals("olap"));
 
-            if (columnDef.getType().isArrayType() && engineName.equals("olap")) {
+            if (columnDef.getType().isComplexType()) {
+                if (columnDef.getType().isMapType() && !Config.enable_map_type) {
+                    throw new AnalysisException("Please open enable_map_type config before use Map.");
+                }
+
+                if (columnDef.getType().isStructType() && !Config.enable_struct_type) {
+                    throw new AnalysisException("Please open enable_struct_type config before use Struct.");
+                }
+
                 if (columnDef.getAggregateType() != null && columnDef.getAggregateType() != AggregateType.NONE) {
-                    throw new AnalysisException("Array column can't support aggregation "
-                            + columnDef.getAggregateType());
+                    throw new AnalysisException(columnDef.getType().getPrimitiveType()
+                            + " column can't support aggregation " + columnDef.getAggregateType());
                 }
                 if (columnDef.isKey()) {
-                    throw new AnalysisException("Array can only be used in the non-key column of"
-                            + " the duplicate table at present.");
+                    throw new AnalysisException(columnDef.getType().getPrimitiveType()
+                            + " can only be used in the non-key column of the duplicate table at present.");
                 }
             }
 
