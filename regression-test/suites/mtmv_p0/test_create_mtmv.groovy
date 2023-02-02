@@ -66,10 +66,12 @@ suite("test_create_mtmv") {
     def index = show_task_meta.indexOf(['State', 'CHAR'])
     def query = "SHOW MTMV TASK ON ${mvName}"
     def show_task_result
-    def state
+    def state = "PENDING"
     do {
         show_task_result = sql "${query}"
-        state = show_task_result.last().get(index)
+        if (!show_task_result.isEmpty()) {
+            state = show_task_result.last().get(index)
+        }
         println "The state of ${query} is ${state}"
         Thread.sleep(1000);
     } while (state.equals('PENDING') || state.equals('RUNNING'))
@@ -93,9 +95,12 @@ suite("test_create_mtmv") {
         SELECT ${tableName}.username, ${tableNamePv}.pv FROM ${tableName}, ${tableNamePv} WHERE ${tableName}.id=${tableNamePv}.id;
     """
     // wait task to be finished to avoid task leak in suite.
+    state = "PENDING"
     do {
         show_task_result = sql "${query}"
-        state = show_task_result.last().get(index)
+        if (!show_task_result.isEmpty()) {
+            state = show_task_result.last().get(index)
+        }
         println "The state of ${query} is ${state}"
         Thread.sleep(1000);
     } while (state.equals('PENDING') || state.equals('RUNNING'))
@@ -103,13 +108,16 @@ suite("test_create_mtmv") {
     def show_job_result = sql "SHOW MTMV JOB ON ${mvName}"
     assertEquals 1, show_job_result.size()
 
-    // test REFRESH make sure only defile one mv
+    // test REFRESH make sure only define one mv and already run a task.
     sql """
         REFRESH MATERIALIZED VIEW ${mvName} COMPLETE
     """
-        do {
+    state = "PENDING"
+    do {
         show_task_result = sql "${query}"
-        state = show_task_result.last().get(index)
+        if (!show_task_result.isEmpty()) {
+            state = show_task_result.last().get(index)
+        }
         println "The state of ${query} is ${state}"
         Thread.sleep(1000);
     } while (state.equals('PENDING') || state.equals('RUNNING'))
