@@ -29,7 +29,6 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.planner.PlannerContext;
 
 import org.apache.commons.lang.StringUtils;
 
@@ -37,9 +36,9 @@ import java.util.List;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
-class Binder extends SubExprAnalyzer {
+class SlotBinder extends SubExprAnalyzer {
 
-    public Binder(Scope scope, CascadesContext cascadesContext) {
+    public SlotBinder(Scope scope, CascadesContext cascadesContext) {
         super(scope, cascadesContext);
     }
 
@@ -48,7 +47,7 @@ class Binder extends SubExprAnalyzer {
     }
 
     @Override
-    public Expression visitUnboundAlias(UnboundAlias unboundAlias, PlannerContext context) {
+    public Expression visitUnboundAlias(UnboundAlias unboundAlias, CascadesContext context) {
         Expression child = unboundAlias.child().accept(this, context);
         if (unboundAlias.getAlias().isPresent()) {
             return new Alias(child, unboundAlias.getAlias().get());
@@ -62,7 +61,7 @@ class Binder extends SubExprAnalyzer {
     }
 
     @Override
-    public Slot visitUnboundSlot(UnboundSlot unboundSlot, PlannerContext context) {
+    public Slot visitUnboundSlot(UnboundSlot unboundSlot, CascadesContext context) {
         Optional<List<Slot>> boundedOpt = Optional.of(bindSlot(unboundSlot, getScope().getSlots()));
         boolean foundInThisScope = !boundedOpt.get().isEmpty();
         // Currently only looking for symbols on the previous level.
@@ -110,7 +109,7 @@ class Binder extends SubExprAnalyzer {
     }
 
     @Override
-    public Expression visitUnboundStar(UnboundStar unboundStar, PlannerContext context) {
+    public Expression visitUnboundStar(UnboundStar unboundStar, CascadesContext context) {
         List<String> qualifier = unboundStar.getQualifier();
         List<Slot> slots = getScope().getSlots()
                 .stream()
