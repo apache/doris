@@ -175,7 +175,7 @@ public:
 
 protected:
     virtual void _update_block_queue_empty() {}
-    Status _inner_get_batch();
+    Status _inner_get_batch(Block* block);
 
     // Not managed by this class
     VDataStreamRecvr* _recvr;
