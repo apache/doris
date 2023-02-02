@@ -18,7 +18,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateType;
-import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
@@ -423,7 +422,7 @@ public class CreateTableStmt extends DdlStmt {
         for (ColumnDef columnDef : columnDefs) {
             columnDef.analyze(engineName.equals("olap"));
 
-            if (columnDef.getType().isComplexType()) {
+            if (columnDef.getType().isComplexType() && engineName.equals("olap")) {
                 if (columnDef.getType().isMapType() && !Config.enable_map_type) {
                     throw new AnalysisException("Please open enable_map_type config before use Map.");
                 }
