@@ -42,6 +42,7 @@ Before using, compile `be(RELEASE)` and `be-ut(ASAN)` once to generate the corre
     "clangd.arguments": [
         "--background-index",
         "--clang-tidy", //enable clang-tidy
+        "--compile-commands-dir=doris/be/build_Release/",
         "--completion-style=detailed",
         "-j=5", //clangd diagnostic parallelism
         "--all-scopes-completion",

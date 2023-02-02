@@ -19,14 +19,6 @@ Diagnostics:
   UnusedIncludes: Strict
 
 If:
-  PathMatch: be/src/.*
-
-CompileFlags:
-  CompilationDatabase: be/build_Release/
-
----
-
-If:
   PathMatch: be/test/.*
 
 CompileFlags:

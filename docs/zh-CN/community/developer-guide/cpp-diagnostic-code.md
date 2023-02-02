@@ -42,6 +42,7 @@ Clang-Tidy中可以做一些代码分析的配置,配置文件`.clang-tidy`在Do
     "clangd.arguments": [
         "--background-index",
         "--clang-tidy", //开启clang-tidy
+        "--compile-commands-dir=doris/be/build_Release/",
         "--completion-style=detailed",
         "-j=5", //clangd分析文件的并行数
         "--all-scopes-completion",
