@@ -1949,6 +1949,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         boolean storeRowColumn = false;
         try {
             storeRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(properties);
+            if (storeRowColumn && !enableLightSchemaChange) {
+                throw new DdlException(
+                        "Row store column rely on light schema change, enable light schema change first");
+            }
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }
