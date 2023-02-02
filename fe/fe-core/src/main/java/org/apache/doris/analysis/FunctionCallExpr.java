@@ -101,7 +101,8 @@ public class FunctionCallExpr extends Expr {
         java.util.function.BiFunction<ArrayList<Expr>, Type, Type> roundRule = (children, returnType) -> {
             Preconditions.checkArgument(children != null && children.size() > 0);
             if (children.size() == 1 && children.get(0).getType().isDecimalV3()) {
-                return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(), 0);
+                return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(),
+                        ((ScalarType) children.get(0).getType()).decimalScale());
             } else if (children.size() == 2) {
                 Preconditions.checkArgument(children.get(1) instanceof IntLiteral
                                 || (children.get(1) instanceof CastExpr
@@ -853,6 +854,7 @@ public class FunctionCallExpr extends Expr {
             if (!getChild(1).isConstant()) {
                 throw new AnalysisException(fnName + "function's second argument should be constant");
             }
+            throw new AnalysisException(fnName + "not support on vectorized engine now.");
         }
 
         if ((fnName.getFunction().equalsIgnoreCase("HLL_UNION_AGG")

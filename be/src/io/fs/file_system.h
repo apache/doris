@@ -72,7 +72,7 @@ public:
 
     const Path& root_path() const { return _root_path; }
     const std::string& id() const { return _id; }
-    const FileSystemType type() const { return _type; }
+    FileSystemType type() const { return _type; }
 
 protected:
     FileSystem(Path&& root_path, std::string&& id, FileSystemType type)

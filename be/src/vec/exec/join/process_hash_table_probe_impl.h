@@ -130,7 +130,6 @@ void ProcessHashTableProbe<JoinOpType>::probe_side_output_column(
         if (output_slot_flags[i]) {
             auto& column = probe_block.get_by_position(i).column;
             if (all_match_one) {
-                DCHECK_EQ(probe_size, column->size() - last_probe_index);
                 mcol[i]->insert_range_from(*column, last_probe_index, probe_size);
             } else {
                 DCHECK_GE(_items_counts.size(), last_probe_index + probe_size);
@@ -209,124 +208,177 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
 
     bool all_match_one = true;
     int last_probe_index = probe_index;
+    size_t probe_size = 0;
+    auto& probe_row_match_iter =
+            std::get<ForwardIterator<Mapped>>(_join_node->_probe_row_match_iter);
     {
         SCOPED_TIMER(_search_hashtable_timer);
-        while (probe_index < probe_rows) {
-            if constexpr (ignore_null && need_null_map_for_probe) {
-                if ((*null_map)[probe_index]) {
-                    if constexpr (probe_all) {
-                        _items_counts[probe_index++] = (uint32_t)1;
-                        // only full outer / left outer need insert the data of right table
-                        if (LIKELY(current_offset < _build_block_rows.size())) {
-                            _build_block_offsets[current_offset] = -1;
-                            _build_block_rows[current_offset] = -1;
-                        } else {
-                            _build_block_offsets.emplace_back(-1);
-                            _build_block_rows.emplace_back(-1);
-                        }
-                        ++current_offset;
+        if constexpr (!is_right_semi_anti_join) {
+            // handle ramaining matched rows from last probe row
+            if (probe_row_match_iter.ok()) {
+                for (; probe_row_match_iter.ok() && current_offset < _batch_size;
+                     ++probe_row_match_iter) {
+                    if (LIKELY(current_offset < _build_block_rows.size())) {
+                        _build_block_offsets[current_offset] = probe_row_match_iter->block_offset;
+                        _build_block_rows[current_offset] = probe_row_match_iter->row_num;
                     } else {
-                        _items_counts[probe_index++] = (uint32_t)0;
+                        _build_block_offsets.emplace_back(probe_row_match_iter->block_offset);
+                        _build_block_rows.emplace_back(probe_row_match_iter->row_num);
                     }
-                    all_match_one = false;
-                    continue;
-                }
-            }
-            int last_offset = current_offset;
-            auto find_result =
-                    !need_null_map_for_probe
-                            ? key_getter.find_key(hash_table_ctx.hash_table, probe_index, *_arena)
-                    : (*null_map)[probe_index]
-                            ? decltype(key_getter.find_key(hash_table_ctx.hash_table, probe_index,
-                                                           *_arena)) {nullptr, false}
-                            : key_getter.find_key(hash_table_ctx.hash_table, probe_index, *_arena);
-            if (probe_index + PREFETCH_STEP < probe_rows) {
-                key_getter.template prefetch<true>(hash_table_ctx.hash_table,
-                                                   probe_index + PREFETCH_STEP, *_arena);
-            }
-
-            if constexpr (JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
-                          JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
-                if (is_mark_join) {
                     ++current_offset;
-                    assert_cast<doris::vectorized::ColumnVector<UInt8>&>(*mcol[mcol.size() - 1])
-                            .get_data()
-                            .template push_back(!find_result.is_found());
-                } else {
-                    if (!find_result.is_found()) {
-                        ++current_offset;
-                    }
                 }
-            } else if constexpr (JoinOpType == TJoinOp::LEFT_SEMI_JOIN) {
-                if (is_mark_join) {
-                    ++current_offset;
-                    assert_cast<doris::vectorized::ColumnVector<UInt8>&>(*mcol[mcol.size() - 1])
-                            .get_data()
-                            .template push_back(find_result.is_found());
-                } else {
-                    if (find_result.is_found()) {
-                        ++current_offset;
-                    }
+                _items_counts[probe_index] = current_offset;
+                all_match_one &= (current_offset == 1);
+                if (!probe_row_match_iter.ok()) {
+                    ++probe_index;
                 }
-            } else {
-                DCHECK(!is_mark_join);
-                if (find_result.is_found()) {
-                    auto& mapped = find_result.get_mapped();
-                    // TODO: Iterators are currently considered to be a heavy operation and have a certain impact on performance.
-                    // We should rethink whether to use this iterator mode in the future. Now just opt the one row case
-                    if (mapped.get_row_count() == 1) {
-                        if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
-                            mapped.visited = true;
-                        }
+                probe_size = 1;
+            }
+        }
 
-                        if constexpr (!is_right_semi_anti_join) {
+        if (current_offset < _batch_size) {
+            while (probe_index < probe_rows) {
+                if constexpr (ignore_null && need_null_map_for_probe) {
+                    if ((*null_map)[probe_index]) {
+                        if constexpr (probe_all) {
+                            _items_counts[probe_index++] = (uint32_t)1;
+                            // only full outer / left outer need insert the data of right table
                             if (LIKELY(current_offset < _build_block_rows.size())) {
-                                _build_block_offsets[current_offset] = mapped.block_offset;
-                                _build_block_rows[current_offset] = mapped.row_num;
+                                _build_block_offsets[current_offset] = -1;
+                                _build_block_rows[current_offset] = -1;
                             } else {
-                                _build_block_offsets.emplace_back(mapped.block_offset);
-                                _build_block_rows.emplace_back(mapped.row_num);
+                                _build_block_offsets.emplace_back(-1);
+                                _build_block_rows.emplace_back(-1);
                             }
                             ++current_offset;
+                        } else {
+                            _items_counts[probe_index++] = (uint32_t)0;
                         }
+                        all_match_one = false;
+                        if constexpr (probe_all) {
+                            if (current_offset >= _batch_size) {
+                                break;
+                            }
+                        }
+                        continue;
+                    }
+                }
+                int last_offset = current_offset;
+                auto find_result = !need_null_map_for_probe
+                                           ? key_getter.find_key(hash_table_ctx.hash_table,
+                                                                 probe_index, *_arena)
+                                   : (*null_map)[probe_index]
+                                           ? decltype(key_getter.find_key(hash_table_ctx.hash_table,
+                                                                          probe_index,
+                                                                          *_arena)) {nullptr, false}
+                                           : key_getter.find_key(hash_table_ctx.hash_table,
+                                                                 probe_index, *_arena);
+                if (probe_index + PREFETCH_STEP < probe_rows) {
+                    key_getter.template prefetch<true>(hash_table_ctx.hash_table,
+                                                       probe_index + PREFETCH_STEP, *_arena);
+                }
+
+                auto current_probe_index = probe_index;
+                if constexpr (JoinOpType == TJoinOp::LEFT_ANTI_JOIN ||
+                              JoinOpType == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
+                    if (is_mark_join) {
+                        ++current_offset;
+                        assert_cast<doris::vectorized::ColumnVector<UInt8>&>(*mcol[mcol.size() - 1])
+                                .get_data()
+                                .template push_back(!find_result.is_found());
                     } else {
-                        for (auto it = mapped.begin(); it.ok(); ++it) {
+                        if (!find_result.is_found()) {
+                            ++current_offset;
+                        }
+                    }
+                    ++probe_index;
+                } else if constexpr (JoinOpType == TJoinOp::LEFT_SEMI_JOIN) {
+                    if (is_mark_join) {
+                        ++current_offset;
+                        assert_cast<doris::vectorized::ColumnVector<UInt8>&>(*mcol[mcol.size() - 1])
+                                .get_data()
+                                .template push_back(find_result.is_found());
+                    } else {
+                        if (find_result.is_found()) {
+                            ++current_offset;
+                        }
+                    }
+                    ++probe_index;
+                } else {
+                    DCHECK(!is_mark_join);
+                    if (find_result.is_found()) {
+                        auto& mapped = find_result.get_mapped();
+                        // TODO: Iterators are currently considered to be a heavy operation and have a certain impact on performance.
+                        // We should rethink whether to use this iterator mode in the future. Now just opt the one row case
+                        if (mapped.get_row_count() == 1) {
+                            if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
+                                mapped.visited = true;
+                            }
+
                             if constexpr (!is_right_semi_anti_join) {
                                 if (LIKELY(current_offset < _build_block_rows.size())) {
-                                    _build_block_offsets[current_offset] = it->block_offset;
-                                    _build_block_rows[current_offset] = it->row_num;
+                                    _build_block_offsets[current_offset] = mapped.block_offset;
+                                    _build_block_rows[current_offset] = mapped.row_num;
                                 } else {
-                                    _build_block_offsets.emplace_back(it->block_offset);
-                                    _build_block_rows.emplace_back(it->row_num);
+                                    _build_block_offsets.emplace_back(mapped.block_offset);
+                                    _build_block_rows.emplace_back(mapped.row_num);
                                 }
                                 ++current_offset;
                             }
-                        }
-                        if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
-                            mapped.visited = true;
-                        }
-                    }
-                } else {
-                    if constexpr (probe_all) {
-                        // only full outer / left outer need insert the data of right table
-                        if (LIKELY(current_offset < _build_block_rows.size())) {
-                            _build_block_offsets[current_offset] = -1;
-                            _build_block_rows[current_offset] = -1;
+                            ++probe_index;
                         } else {
-                            _build_block_offsets.emplace_back(-1);
-                            _build_block_rows.emplace_back(-1);
+                            if constexpr (!is_right_semi_anti_join) {
+                                auto it = mapped.begin();
+                                for (; it.ok() && current_offset < _batch_size; ++it) {
+                                    if (LIKELY(current_offset < _build_block_rows.size())) {
+                                        _build_block_offsets[current_offset] = it->block_offset;
+                                        _build_block_rows[current_offset] = it->row_num;
+                                    } else {
+                                        _build_block_offsets.emplace_back(it->block_offset);
+                                        _build_block_rows.emplace_back(it->row_num);
+                                    }
+                                    ++current_offset;
+                                }
+                                probe_row_match_iter = it;
+                                if (!it.ok()) {
+                                    // If all matched rows for the current probe row are handled,
+                                    // advance to next probe row.
+                                    // If not(which means it excceed batch size), probe_index is not increased and
+                                    // remaining matched rows for the current probe row will be
+                                    // handled in the next call of this function
+                                    ++probe_index;
+                                }
+                            } else {
+                                ++probe_index;
+                            }
+                            if constexpr (std::is_same_v<Mapped, RowRefListWithFlag>) {
+                                mapped.visited = true;
+                            }
                         }
-                        ++current_offset;
+                    } else {
+                        if constexpr (probe_all) {
+                            // only full outer / left outer need insert the data of right table
+                            if (LIKELY(current_offset < _build_block_rows.size())) {
+                                _build_block_offsets[current_offset] = -1;
+                                _build_block_rows[current_offset] = -1;
+                            } else {
+                                _build_block_offsets.emplace_back(-1);
+                                _build_block_rows.emplace_back(-1);
+                            }
+                            ++current_offset;
+                        }
+                        ++probe_index;
                     }
                 }
-            }
 
-            uint32_t count = (uint32_t)(current_offset - last_offset);
-            _items_counts[probe_index++] = count;
-            all_match_one &= (count == 1);
-            if (current_offset >= _batch_size && !all_match_one) {
-                break;
+                uint32_t count = (uint32_t)(current_offset - last_offset);
+                _items_counts[current_probe_index] = count;
+                all_match_one &= (count == 1);
+                if (current_offset >= _batch_size) {
+                    break;
+                }
             }
+            probe_size = probe_index - last_probe_index + (probe_row_match_iter.ok() ? 1 : 0);
         }
     }
 
@@ -340,8 +392,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                   JoinOpType != TJoinOp::RIGHT_ANTI_JOIN) {
         SCOPED_TIMER(_probe_side_output_timer);
         probe_side_output_column(mcol, _join_node->_left_output_slot_flags, current_offset,
-                                 last_probe_index, probe_index - last_probe_index, all_match_one,
-                                 false);
+                                 last_probe_index, probe_size, all_match_one, false);
     }
 
     output_block->swap(mutable_block.to_block());

@@ -194,7 +194,7 @@ public:
         _storage_policy_id = id;
     }
 
-    const int64_t cooldown_replica_id() const { return _cooldown_replica_id; }
+    int64_t cooldown_replica_id() const { return _cooldown_replica_id; }
 
     void set_cooldown_replica_id_and_term(int64_t cooldown_replica_id, int64_t cooldown_term) {
         VLOG_NOTICE << "set tablet_id : " << _table_id << " cooldown_replica_id from "
@@ -204,7 +204,7 @@ public:
         _cooldown_term = cooldown_term;
     }
 
-    const int64_t cooldown_term() const { return _cooldown_term; }
+    int64_t cooldown_term() const { return _cooldown_term; }
 
     static void init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                          ColumnPB* column);
