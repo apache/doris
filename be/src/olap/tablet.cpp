@@ -1997,7 +1997,6 @@ Status Tablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_
         LOG_EVERY_N(INFO, 500) << "get a single_row, cost(us):" << watch.elapsed_time() / 1000
                                << ", row_size:" << row_size;
     });
-    // TODO(lhy) too long, refacor
     if (tablet_schema->store_row_column()) {
         // create _source column
         segment_v2::ColumnIterator* column_iterator = nullptr;
@@ -2019,6 +2018,11 @@ Status Tablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_
         RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), 1, column_ptr));
         assert(column_ptr->size() == 1);
         auto string_column = static_cast<vectorized::ColumnString*>(column_ptr.get());
+        if (write_to_cache) {
+            StringRef value = string_column->get_data_at(0);
+            RowCache::instance()->insert({tablet_id(), encoded_key},
+                                         Slice {value.data, value.size});
+        }
         vectorized::JsonbSerializeUtil::jsonb_to_block(*desc, *string_column, *block);
         return Status::OK();
     }
