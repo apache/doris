@@ -188,6 +188,7 @@ public class UserManager implements Writable {
         password.setPassword(pwd);
         user.setPassword(password);
         user.setHostPattern(hostPattern);
+        user.setSetByDomainResolver(setByResolver);
         if (setByResolver) {
             Preconditions.checkNotNull(domainUserIdent);
             user.setDomainUserIdentity(domainUserIdent);
@@ -197,6 +198,7 @@ public class UserManager implements Writable {
             nameToLists = Lists.newArrayList(user);
             nameToUsers.put(userIdent.getQualifiedUser(), nameToLists);
         } else {
+            nameToLists.add(user);
             Collections.sort(nameToLists);
         }
         return user;
