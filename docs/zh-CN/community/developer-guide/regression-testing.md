@@ -705,7 +705,7 @@ Doris 支持一些外部署数据源的查询。所以回归框架也提供了�
         ```
         create database db1;
         show databases;
-        create table db1.test1(k1 bigint, k2 bigint, k3 string) partitioned by (k1);
+        craete table db1.test1(k1 bigint, k2 bigint, k3 string) partition by (k1);
         insert into db1.test1 values(1,2,'abc');
         select * from db1.test1;
         quit;
@@ -718,7 +718,7 @@ Doris 支持一些外部署数据源的查询。所以回归框架也提供了�
         
         spark.sql(s"create database db1")
         spark.sql(s"show databases").show()
-        spark.sql(s"create table db1.test1(k1 bigint, k2 bigint, k3 string) partitioned by (k1)").show()
+        spark.sql(s"craete table db1.test1(k1 bigint, k2 bigint, k3 string) partition by (k1)").show()
         spark.sql(s"show tables from db1").show()
         spark.sql(s"insert into db1.test1 values(1,2,'abc')").show()
         spark.sql(s"select * from db1.test1").show()
