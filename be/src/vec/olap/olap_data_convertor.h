@@ -396,28 +396,33 @@ private:
         OlapColumnDataConvertorBaseUPtr _item_convertor;
     };
 
-    class OlapColumnDataConvertorMap : public OlapColumnDataConvertorBase {
+
+    class OlapColumnDataConvertorMap
+            : public OlapColumnDataConvertorBase {
     public:
         OlapColumnDataConvertorMap(OlapColumnDataConvertorBaseUPtr key_convertor,
-                                   OlapColumnDataConvertorBaseUPtr value_convertor)
-                : _key_convertor(std::move(key_convertor)),
-                  _value_convertor(std::move(value_convertor)) {
+                                     OlapColumnDataConvertorBaseUPtr value_convertor)
+                : _key_convertor(std::move(key_convertor)), _value_convertor(std::move(value_convertor)) {
             _results.resize(2);
         }
 
         Status convert_to_olap() override;
-        const void* get_data() const override { return _results.data(); };
+        const void* get_data() const override {
+            return _results.data();
+        };
 
         const void* get_data_at(size_t offset) const override {
             LOG(FATAL) << "now not support get_data_at for OlapColumnDataConvertorMap";
         };
 
     private:
-        Status convert_to_olap(const ColumnMap* column_map, const DataTypeMap* data_type_map);
+        Status convert_to_olap(const ColumnMap* column_map,
+                               const DataTypeMap* data_type_map);
         OlapColumnDataConvertorBaseUPtr _key_convertor;
         OlapColumnDataConvertorBaseUPtr _value_convertor;
         std::vector<const void*> _results;
-    }; //OlapColumnDataConvertorMap
+    };//OlapColumnDataConvertorMap
+
 
 private:
     std::vector<OlapColumnDataConvertorBaseUPtr> _convertors;

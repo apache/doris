@@ -38,9 +38,9 @@ Status VMapLiteral::prepare(RuntimeState* state, const RowDescriptor& row_desc,
 
         if ((idx & 1) == 0) {
             keys.get<Array>().push_back(item);
-        } else {
+	} else {
             values.get<Array>().push_back(item);
-        }
+	}
     }
     map.get<Map>().push_back(keys);
     map.get<Map>().push_back(values);

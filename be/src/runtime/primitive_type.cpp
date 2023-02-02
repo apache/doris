@@ -271,7 +271,7 @@ PrimitiveType thrift_to_type(TPrimitiveType::type ttype) {
 
     case TPrimitiveType::MAP:
         return TYPE_MAP;
-
+        
     case TPrimitiveType::STRUCT:
         return TYPE_STRUCT;
 

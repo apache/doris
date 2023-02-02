@@ -18,7 +18,6 @@
 #pragma once
 
 #include <type_traits>
-
 #include "runtime/primitive_type.h"
 
 namespace doris {
@@ -40,6 +39,7 @@ public:
     int32_t length() const { return _length; }
 
     void shallow_copy(const MapValue* other);
+
 
     const void* key_data() const { return _key_data; }
     void* mutable_key_data() const { return _key_data; }
