@@ -76,6 +76,7 @@ SET GLOBAL exec_mem_limit = 137438953472
 - `allow_partition_column_nullable`
 - `insert_visible_timeout_ms`
 - `enable_fold_constant_by_be`
+- `insert_timeout`
 
 只支持全局生效的变量包括：
 

@@ -76,6 +76,7 @@ Variables that support both session-level and global-level setting include:
 * `allow_partition_column_nullable`
 * `insert_visible_timeout_ms`
 * `enable_fold_constant_by_be`
+* `insert_timeout`
 
 Variables that support only global-level setting include:
 

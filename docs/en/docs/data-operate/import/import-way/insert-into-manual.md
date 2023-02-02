@@ -199,7 +199,7 @@ This command returns the insert results and the details of the corresponding tra
 
 - query u timeout
 
-  Insert Into itself is also an SQL command, so the Insert Into statement is also restricted by the Session variable `query_timeout`. You can increase the timeout time by `SET query_timeout = xxx;` in seconds.
+  Insert Into itself is also an SQL command, and the Insert Into statement is restricted by the Session variable `insert_timeout`. You can increase the timeout time by `SET insert_timeout = xxx;` in seconds.
 
 ## Best Practices
 
