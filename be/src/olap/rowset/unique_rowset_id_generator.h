@@ -31,7 +31,7 @@ public:
     ~UniqueRowsetIdGenerator() override;
 
     UniqueRowsetIdGenerator(const UniqueRowsetIdGenerator&) = delete;
-    UniqueRowsetIdGenerator operator=(const UniqueRowsetIdGenerator&) = delete;
+    UniqueRowsetIdGenerator& operator=(const UniqueRowsetIdGenerator&) = delete;
 
     RowsetId next_id() override;
 
