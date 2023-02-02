@@ -325,277 +325,233 @@ public class JdbcExecutor {
     public void copyBatchBooleanResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Boolean[] column = (Boolean[]) columnObj;
-        byte[] columnData = new byte[numRows];
         if (isNullable) {
-            byte[] nullMap = new byte[numRows];
             for (int i = 0; i < numRows; i++) {
                 if (column[i] == null) {
-                    nullMap[i] = 1;
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
-                    columnData[i] = (column[i] ? (byte) 1 : 0);
+                    UdfUtils.UNSAFE.putByte(columnAddr + i, column[i] ? (byte) 1 : 0);
                 }
             }
-            UdfUtils.copyMemory(nullMap, UdfUtils.BYTE_ARRAY_OFFSET, null, nullMapAddr, numRows);
         } else {
             for (int i = 0; i < numRows; i++) {
-                columnData[i] = (column[i] ? (byte) 1 : 0);
+                UdfUtils.UNSAFE.putByte(columnAddr + i, column[i] ? (byte) 1 : 0);
             }
         }
-        UdfUtils.copyMemory(columnData, UdfUtils.BYTE_ARRAY_OFFSET, null, columnAddr, numRows);
     }
 
     public void copyBatchTinyIntResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
-        byte[] columnData = new byte[numRows];
         if (isNullable) {
-            byte[] nullMap = new byte[numRows];
             for (int i = 0; i < numRows; i++) {
                 if (column[i] == null) {
-                    nullMap[i] = 1;
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
-                    columnData[i] = convertTinyIntToByte(column[i]);
+                    UdfUtils.UNSAFE.putByte(columnAddr + i, convertTinyIntToByte(column[i]));
                 }
             }
-            UdfUtils.copyMemory(nullMap, UdfUtils.BYTE_ARRAY_OFFSET, null, nullMapAddr, numRows);
         } else {
             for (int i = 0; i < numRows; i++) {
-                columnData[i] = convertTinyIntToByte(column[i]);
+                UdfUtils.UNSAFE.putByte(columnAddr + i, convertTinyIntToByte(column[i]));
             }
         }
-        UdfUtils.copyMemory(columnData, UdfUtils.BYTE_ARRAY_OFFSET, null, columnAddr, numRows);
     }
 
     public void copyBatchSmallIntResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
-        short[] columnData = new short[numRows];
         if (isNullable) {
-            byte[] nullMap = new byte[numRows];
             for (int i = 0; i < numRows; i++) {
                 if (column[i] == null) {
-                    nullMap[i] = 1;
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
-                    columnData[i] = convertSmallIntToShort(column[i]);
+                    UdfUtils.UNSAFE.putShort(columnAddr + (i * 2), convertSmallIntToShort(column[i]));
                 }
             }
-            UdfUtils.copyMemory(nullMap, UdfUtils.BYTE_ARRAY_OFFSET, null, nullMapAddr, numRows);
         } else {
             for (int i = 0; i < numRows; i++) {
-                columnData[i] = convertSmallIntToShort(column[i]);
+                UdfUtils.UNSAFE.putShort(columnAddr + (i * 2), convertSmallIntToShort(column[i]));
             }
         }
-        UdfUtils.copyMemory(columnData, UdfUtils.SHORT_ARRAY_OFFSET, null, columnAddr, numRows * 2L);
     }
 
     public void copyBatchIntResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Integer[] column = (Integer[]) columnObj;
-        int[] columnData = new int[numRows];
         if (isNullable) {
-            byte[] nullMap = new byte[numRows];
             for (int i = 0; i < numRows; i++) {
                 if (column[i] == null) {
-                    nullMap[i] = 1;
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
-                    columnData[i] = column[i];
+                    UdfUtils.UNSAFE.putInt(columnAddr + (i * 4), (int) column[i]);
                 }
             }
-            UdfUtils.copyMemory(nullMap, UdfUtils.BYTE_ARRAY_OFFSET, null, nullMapAddr, numRows);
         } else {
             for (int i = 0; i < numRows; i++) {
-                columnData[i] = column[i];
+                UdfUtils.UNSAFE.putInt(columnAddr + (i * 4), (int) column[i]);
             }
         }
-        UdfUtils.copyMemory(columnData, UdfUtils.INT_ARRAY_OFFSET, null, columnAddr, numRows * 4L);
     }
 
     public void copyBatchBigIntResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Long[] column = (Long[]) columnObj;
-        long[] columnData = new long[numRows];
         if (isNullable) {
-            byte[] nullMap = new byte[numRows];
             for (int i = 0; i < numRows; i++) {
                 if (column[i] == null) {
-                    nullMap[i] = 1;
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
-                    columnData[i] = column[i];
+                    UdfUtils.UNSAFE.putLong(columnAddr + (i * 8), (long) column[i]);
                 }
             }
-            UdfUtils.copyMemory(nullMap, UdfUtils.BYTE_ARRAY_OFFSET, null, nullMapAddr, numRows);
         } else {
             for (int i = 0; i < numRows; i++) {
-                columnData[i] = column[i];
+                UdfUtils.UNSAFE.putLong(columnAddr + (i * 8), (long) column[i]);
             }
         }
-        UdfUtils.copyMemory(columnData, UdfUtils.LONG_ARRAY_OFFSET, null, columnAddr, numRows * 8L);
     }
 
     public void copyBatchLargeIntResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr, int typeLen) {
         BigInteger[] column = (BigInteger[]) columnObj;
-        byte[] bytes = new byte[numRows * typeLen];
         if (isNullable == true) {
-            byte[] nullMap = new byte[numRows];
             for (int i = 0; i < numRows; i++) {
                 if (column[i] == null) {
-                    nullMap[i] = 1;
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
+                    byte[] bytes = UdfUtils.convertByteOrder(column[i].toByteArray());
+                    byte[] value = new byte[typeLen];
                     if (column[i].signum() == -1) {
-                        Arrays.fill(bytes, i * typeLen, (i + 1) * typeLen, (byte) -1);
+                        Arrays.fill(value, (byte) -1);
                     }
-                    byte[] value = UdfUtils.convertByteOrder(column[i].toByteArray());
-                    for (int index = 0; index < Math.min(value.length, typeLen); ++index) {
-                        bytes[i * typeLen + index] = value[index];
+                    for (int index = 0; index < Math.min(bytes.length, value.length); ++index) {
+                        value[index] = bytes[index];
                     }
+                    UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null, columnAddr + (i * typeLen), typeLen);
                 }
             }
-            UdfUtils.copyMemory(nullMap, UdfUtils.BYTE_ARRAY_OFFSET, null, nullMapAddr, numRows);
         } else {
             for (int i = 0; i < numRows; i++) {
+                byte[] bytes = UdfUtils.convertByteOrder(column[i].toByteArray());
+                byte[] value = new byte[typeLen];
                 if (column[i].signum() == -1) {
-                    Arrays.fill(bytes, i * typeLen, (i + 1) * typeLen, (byte) -1);
+                    Arrays.fill(value, (byte) -1);
                 }
-                byte[] value = UdfUtils.convertByteOrder(column[i].toByteArray());
-                for (int index = 0; index < Math.min(value.length, typeLen); ++index) {
-                    bytes[i * typeLen + index] = value[index];
+                for (int index = 0; index < Math.min(bytes.length, value.length); ++index) {
+                    value[index] = bytes[index];
                 }
+                UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null, columnAddr + (i * typeLen), typeLen);
             }
         }
-        UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null, columnAddr, numRows * typeLen);
     }
 
     public void copyBatchFloatResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Float[] column = (Float[]) columnObj;
-        float[] columnData = new float[numRows];
         if (isNullable) {
-            byte[] nullMap = new byte[numRows];
             for (int i = 0; i < numRows; i++) {
                 if (column[i] == null) {
-                    nullMap[i] = 1;
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
-                    columnData[i] = column[i];
+                    UdfUtils.UNSAFE.putFloat(columnAddr + (i * 4), (float) column[i]);
                 }
             }
-            UdfUtils.copyMemory(nullMap, UdfUtils.BYTE_ARRAY_OFFSET, null, nullMapAddr, numRows);
         } else {
             for (int i = 0; i < numRows; i++) {
-                columnData[i] = column[i];
+                UdfUtils.UNSAFE.putFloat(columnAddr + (i * 4), (float) column[i]);
             }
         }
-        UdfUtils.copyMemory(columnData, UdfUtils.FLOAT_ARRAY_OFFSET, null, columnAddr, numRows * 4L);
     }
 
     public void copyBatchDoubleResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Double[] column = (Double[]) columnObj;
-        double[] columnData = new double[numRows];
         if (isNullable) {
-            byte[] nullMap = new byte[numRows];
             for (int i = 0; i < numRows; i++) {
                 if (column[i] == null) {
-                    nullMap[i] = 1;
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
-                    columnData[i] = column[i];
+                    UdfUtils.UNSAFE.putDouble(columnAddr + (i * 8), (double) column[i]);
                 }
             }
-            UdfUtils.copyMemory(nullMap, UdfUtils.BYTE_ARRAY_OFFSET, null, nullMapAddr, numRows);
         } else {
             for (int i = 0; i < numRows; i++) {
-                columnData[i] = column[i];
+                UdfUtils.UNSAFE.putDouble(columnAddr + (i * 8), (double) column[i]);
             }
         }
-        UdfUtils.copyMemory(columnData, UdfUtils.DOUBLE_ARRAY_OFFSET, null, columnAddr, numRows * 8L);
     }
 
     public void copyBatchDateResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
-        long[] columnData = new long[numRows];
         if (isNullable) {
-            byte[] nullMap = new byte[numRows];
             for (int i = 0; i < numRows; i++) {
                 if (column[i] == null) {
-                    nullMap[i] = 1;
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
-                    columnData[i] = convertDateToLong(column[i], false);
+                    UdfUtils.UNSAFE.putLong(columnAddr + (i * 8), convertDateToLong(column[i], false));
                 }
             }
-            UdfUtils.copyMemory(nullMap, UdfUtils.BYTE_ARRAY_OFFSET, null, nullMapAddr, numRows);
         } else {
             for (int i = 0; i < numRows; i++) {
-                columnData[i] = convertDateToLong(column[i], false);
+                UdfUtils.UNSAFE.putLong(columnAddr + (i * 8), convertDateToLong(column[i], false));
             }
         }
-        UdfUtils.copyMemory(columnData, UdfUtils.LONG_ARRAY_OFFSET, null, columnAddr, numRows * 8L);
     }
 
     public void copyBatchDateV2Result(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
-        int[] columnData = new int[numRows];
         if (isNullable) {
-            byte[] nullMap = new byte[numRows];
             for (int i = 0; i < numRows; i++) {
                 if (column[i] == null) {
-                    nullMap[i] = 1;
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
-                    columnData[i] = (int) convertDateToLong(column[i], true);
+                    UdfUtils.UNSAFE.putInt(columnAddr + (i * 4), (int) convertDateToLong(column[i], true));
                 }
             }
-            UdfUtils.copyMemory(nullMap, UdfUtils.BYTE_ARRAY_OFFSET, null, nullMapAddr, numRows);
         } else {
             for (int i = 0; i < numRows; i++) {
-                columnData[i] = (int) convertDateToLong(column[i], true);
+                UdfUtils.UNSAFE.putInt(columnAddr + (i * 4), (int) convertDateToLong(column[i], true));
             }
         }
-        UdfUtils.copyMemory(columnData, UdfUtils.LONG_ARRAY_OFFSET, null, columnAddr, numRows * 4L);
     }
 
     public void copyBatchDateTimeResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) throws UdfRuntimeException {
         Object[] column = (Object[]) columnObj;
-        long[] columnData = new long[numRows];
         if (isNullable) {
-            byte[] nullMap = new byte[numRows];
             for (int i = 0; i < numRows; i++) {
                 if (column[i] == null) {
-                    nullMap[i] = 1;
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
-                    columnData[i] = convertDateTimeToLong(column[i], false);
+                    UdfUtils.UNSAFE.putLong(columnAddr + (i * 8), convertDateTimeToLong(column[i], false));
                 }
             }
-            UdfUtils.copyMemory(nullMap, UdfUtils.BYTE_ARRAY_OFFSET, null, nullMapAddr, numRows);
         } else {
             for (int i = 0; i < numRows; i++) {
-                columnData[i] = convertDateTimeToLong(column[i], false);
+                UdfUtils.UNSAFE.putLong(columnAddr + (i * 8), convertDateTimeToLong(column[i], false));
             }
         }
-        UdfUtils.copyMemory(columnData, UdfUtils.LONG_ARRAY_OFFSET, null, columnAddr, numRows * 8L);
     }
 
     public void copyBatchDateTimeV2Result(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) throws UdfRuntimeException {
         Object[] column = (Object[]) columnObj;
-        long[] columnData = new long[numRows];
         if (isNullable) {
-            byte[] nullMap = new byte[numRows];
             for (int i = 0; i < numRows; i++) {
                 if (column[i] == null) {
-                    nullMap[i] = 1;
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
-                    columnData[i] = convertDateTimeToLong(column[i], true);
+                    UdfUtils.UNSAFE.putLong(columnAddr + (i * 8), convertDateTimeToLong(column[i], true));
                 }
             }
-            UdfUtils.copyMemory(nullMap, UdfUtils.BYTE_ARRAY_OFFSET, null, nullMapAddr, numRows);
         } else {
             for (int i = 0; i < numRows; i++) {
-                columnData[i] = convertDateTimeToLong(column[i], true);
+                UdfUtils.UNSAFE.putLong(columnAddr + (i * 8), convertDateTimeToLong(column[i], true));
             }
         }
-        UdfUtils.copyMemory(columnData, UdfUtils.LONG_ARRAY_OFFSET, null, columnAddr, numRows * 8L);
     }
 
     public void copyBatchStringResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
@@ -605,18 +561,16 @@ public class JdbcExecutor {
         byte[][] byteRes = new byte[numRows][];
         int offset = 0;
         if (isNullable == true) {
-            byte[] nullMap = new byte[numRows];
             for (int i = 0; i < numRows; i++) {
                 if (column[i] == null) {
                     byteRes[i] = emptyBytes;
-                    nullMap[i] = 1;
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
                     byteRes[i] = column[i].getBytes(StandardCharsets.UTF_8);
                 }
                 offset += byteRes[i].length;
                 offsets[i] = offset;
             }
-            UdfUtils.copyMemory(nullMap, UdfUtils.BYTE_ARRAY_OFFSET, null, nullMapAddr, numRows);
         } else {
             for (int i = 0; i < numRows; i++) {
                 byteRes[i] = column[i].getBytes(StandardCharsets.UTF_8);
