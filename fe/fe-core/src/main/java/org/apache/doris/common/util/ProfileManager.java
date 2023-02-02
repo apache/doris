@@ -95,13 +95,20 @@ public class ProfileManager {
         }
 
         private final RuntimeProfile profile;
+        // cache the result of getProfileContent method
+        private volatile String profileContent;
         public Map<String, String> infoStrings = Maps.newHashMap();
         public MultiProfileTreeBuilder builder = null;
         public String errMsg = "";
 
         // lazy load profileContent cause sometimes profileContent is very large
         public String getProfileContent() {
-            return profile.toString();
+            if (profileContent != null) {
+                return profileContent;
+            }
+            // no need to lock cause the possibility of concurrent read is very low
+            profileContent = profile.toString();
+            return profileContent;
         }
     }
 
