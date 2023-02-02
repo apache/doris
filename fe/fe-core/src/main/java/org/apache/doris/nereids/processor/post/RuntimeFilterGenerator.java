@@ -123,6 +123,9 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         Map<NamedExpression, Cast> castMap = context.getRuntimeFilterContext().getCastMap();
         // change key when encounter alias.
         for (Expression expression : project.getProjects()) {
+            if (expression.children().isEmpty()) {
+                continue;
+            }
             Expression expr = ExpressionUtils.getExpressionCoveredByCast(expression.child(0));
             if (expr instanceof NamedExpression && aliasTransferMap.containsKey((NamedExpression) expr)) {
                 if (expression instanceof Alias) {
