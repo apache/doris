@@ -289,8 +289,6 @@ set(VEC_FILES
   exec/format/json/new_json_reader.cpp
   exec/format/table/table_format_reader.cpp
   exec/format/table/iceberg_reader.cpp
-  exec/format/file_reader/new_plain_text_line_reader.cpp
-  exec/format/file_reader/new_plain_binary_line_reader.cpp
   )
 
 if (WITH_MYSQL)

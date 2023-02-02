@@ -19,7 +19,8 @@
 
 #include "common/status.h"
 #include "exec/decompressor.h"
-#include "io/file_reader.h"
+#include "io/fs/file_reader.h"
+#include "olap/iterators.h"
 
 // INPUT_CHUNK must
 //  larger than 15B for correct lz4 file decompressing
@@ -32,10 +33,10 @@
 
 namespace doris {
 
-PlainTextLineReader::PlainTextLineReader(RuntimeProfile* profile, FileReader* file_reader,
+PlainTextLineReader::PlainTextLineReader(RuntimeProfile* profile, io::FileReaderSPtr file_reader,
                                          Decompressor* decompressor, size_t length,
                                          const std::string& line_delimiter,
-                                         size_t line_delimiter_length)
+                                         size_t line_delimiter_length, size_t current_offset)
         : _profile(profile),
           _file_reader(file_reader),
           _decompressor(decompressor),
@@ -56,6 +57,7 @@ PlainTextLineReader::PlainTextLineReader(RuntimeProfile* profile, FileReader* fi
           _stream_end(true),
           _more_input_bytes(0),
           _more_output_bytes(0),
+          _current_offset(current_offset),
           _bytes_read_counter(nullptr),
           _read_timer(nullptr),
           _bytes_decompress_counter(nullptr),
@@ -85,7 +87,7 @@ void PlainTextLineReader::close() {
 inline bool PlainTextLineReader::update_eof() {
     if (done()) {
         _eof = true;
-    } else if (_decompressor == nullptr && _total_read_bytes >= _min_length) {
+    } else if (_decompressor == nullptr && (_total_read_bytes >= _min_length)) {
         _eof = true;
     }
     return _eof;
@@ -132,11 +134,6 @@ void PlainTextLineReader::extend_input_buf() {
         _input_buf_limit -= _input_buf_pos;
         _input_buf_pos = 0;
     } while (false);
-
-    // LOG(INFO) << "extend input buf."
-    //           << " input_buf_size: " << _input_buf_size
-    //           << " input_buf_pos: " << _input_buf_pos
-    //           << " input_buf_limit: " << _input_buf_limit;
 }
 
 void PlainTextLineReader::extend_output_buf() {
@@ -174,11 +171,6 @@ void PlainTextLineReader::extend_output_buf() {
         _output_buf_limit -= _output_buf_pos;
         _output_buf_pos = 0;
     } while (false);
-
-    // LOG(INFO) << "extend output buf."
-    //           << " output_buf_size: " << _output_buf_size
-    //           << " output_buf_pos: " << _output_buf_pos
-    //           << " output_buf_limit: " << _output_buf_limit;
 }
 
 Status PlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* eof) {
@@ -206,7 +198,7 @@ Status PlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* e
                 // we still have data in input which is not decompressed.
                 // and no more data is required for input
             } else {
-                int64_t read_len = 0;
+                size_t read_len = 0;
                 int64_t buffer_len = 0;
                 uint8_t* file_buf;
 
@@ -235,11 +227,16 @@ Status PlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* e
 
                 {
                     SCOPED_TIMER(_read_timer);
+                    Slice file_slice(file_buf, buffer_len);
+                    IOContext io_ctx;
                     RETURN_IF_ERROR(
-                            _file_reader->read(file_buf, buffer_len, &read_len, &_file_eof));
+                            _file_reader->read_at(_current_offset, file_slice, io_ctx, &read_len));
+                    _current_offset += read_len;
+                    if (read_len == 0) {
+                        _file_eof = true;
+                    }
                     COUNTER_UPDATE(_bytes_read_counter, read_len);
                 }
-                // LOG(INFO) << "after read file: _file_eof: " << _file_eof << " read_len: " << read_len;
                 if (_file_eof || read_len == 0) {
                     if (!_stream_end) {
                         return Status::InternalError(
@@ -341,5 +338,4 @@ Status PlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* e
 
     return Status::OK();
 }
-
 } // namespace doris
