@@ -208,7 +208,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 // check duplicate column
                 List<SlotRef> slots = new ArrayList<>();
                 functionCallExpr.collect(SlotRef.class, slots);
-                Preconditions.checkArgument(slots.size() == 1);
 
                 if (beginIndexOfAggregation == -1) {
                     beginIndexOfAggregation = i;

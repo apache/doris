@@ -174,7 +174,7 @@ public class CreateMaterializedViewStmtTest {
         try {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.fail();
-        } catch (IllegalArgumentException e) {
+        } catch (AnalysisException e) {
             System.out.print(e.getMessage());
         }
     }
