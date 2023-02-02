@@ -110,6 +110,8 @@ CONF_Int32(clear_transaction_task_worker_count, "1");
 CONF_Int32(delete_worker_count, "3");
 // the count of thread to alter table
 CONF_Int32(alter_tablet_worker_count, "3");
+// the count of thread to alter inverted index
+CONF_Int32(alter_inverted_index_worker_count, "3");
 // the count of thread to clone
 CONF_Int32(clone_worker_count, "3");
 // the count of thread to clone
