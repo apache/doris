@@ -188,7 +188,7 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
         return Status::OK();
     }
 
-    const int batch_size = _state->batch_size();
+    const int batch_size = std::max(_state->batch_size(), (int)_MIN_BATCH_SIZE);
     size_t rows = 0;
     auto columns = block->mutate_columns();
     while (rows < batch_size && !_line_reader_eof) {
