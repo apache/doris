@@ -210,8 +210,8 @@ public class SelectStmt extends QueryStmt {
         if (getAggInfo() != null && getAggInfo().getGroupingExprs() != null) {
             exprs.addAll(getAggInfo().getGroupingExprs());
         }
-        if (originSelectList != null) {
-            exprs.addAll(originSelectList.getExprs());
+        if (originResultExprs != null) {
+            exprs.addAll(originResultExprs);
         }
         if (havingClause != null) {
             exprs.add(havingClause);
@@ -594,6 +594,7 @@ public class SelectStmt extends QueryStmt {
                 groupingInfo.substituteGroupingFn(orderingExprNotInSelect, analyzer);
             }
         }
+        originResultExprs = Expr.cloneList(resultExprs);
         analyzeAggregation(analyzer);
         createAnalyticInfo(analyzer);
         eliminatingSortNode();
