@@ -21,8 +21,6 @@
 
 namespace doris {
 
-
-
 /// This action is used for viewing the compaction status.
 /// See compaction-action.md for details.
 class CompactionHandler : public BaseHttpHandler {

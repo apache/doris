@@ -23,7 +23,11 @@
 #include "http/brpc/action/check_rpc_channel_action.h"
 
 namespace doris {
-HandlerDispatcher::HandlerDispatcher() : _registry(new HandlerRegistry()), _registered(false) {}
+HandlerDispatcher::HandlerDispatcher() : _registry(new HandlerRegistry()) {}
+
+HandlerDispatcher::~HandlerDispatcher() {
+    _pool.clear();
+}
 
 void HandlerDispatcher::dispatch(const std::string& handler_name, RpcController* cntl,
                                  Closure* done) {
@@ -32,7 +36,7 @@ void HandlerDispatcher::dispatch(const std::string& handler_name, RpcController*
 
 HandlerDispatcher* HandlerDispatcher::add_handler(BaseHttpHandler* handler) {
     LOG(INFO) << handler->get_name();
-    _registry->insert({handler->get_name(), handler});
+    _registry->insert({handler->get_name(), _pool.add(handler)});
     return this;
 }
 

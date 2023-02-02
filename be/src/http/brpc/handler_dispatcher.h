@@ -22,6 +22,7 @@
 #include <unordered_map>
 
 #include "brpc_http_handler.h"
+#include "common/object_pool.h"
 #include "runtime/exec_env.h"
 
 namespace doris {
@@ -33,6 +34,7 @@ using RegistryPtr = std::unique_ptr<HandlerRegistry>;
 class HandlerDispatcher {
 public:
     HandlerDispatcher();
+    ~HandlerDispatcher();
 
     void dispatch(const std::string& handler_name, RpcController* cntl, Closure* done);
 
@@ -40,5 +42,7 @@ public:
 
 private:
     RegistryPtr _registry;
+
+    ObjectPool _pool;
 };
 } // namespace doris
