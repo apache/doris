@@ -49,6 +49,17 @@ static bool ignore_cast(SlotDescriptor* slot, VExpr* expr) {
     if (slot->type().is_string_type() && expr->type().is_string_type()) {
         return true;
     }
+    if (slot->type().is_array_type()) {
+        if (slot->type().children[0].type == expr->type().type) {
+            return true;
+        }
+        if (slot->type().children[0].is_date_type() && expr->type().is_date_type()) {
+            return true;
+        }
+        if (slot->type().children[0].is_string_type() && expr->type().is_string_type()) {
+            return true;
+        }
+    }
     return false;
 }
 
@@ -391,7 +402,14 @@ Status VScanNode::_normalize_conjuncts() {
     std::vector<SlotDescriptor*> slots = _output_tuple_desc->slots();
 
     for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
-        switch (slots[slot_idx]->type().type) {
+        auto type = slots[slot_idx]->type().type;
+        if (slots[slot_idx]->type().type == TYPE_ARRAY) {
+            type = slots[slot_idx]->type().children[0].type;
+            if (type == TYPE_ARRAY) {
+                continue;
+            }
+        }
+        switch (type) {
 #define M(NAME)                                                                              \
     case TYPE_##NAME: {                                                                      \
         ColumnValueRange<TYPE_##NAME> range(slots[slot_idx]->col_name(),                     \

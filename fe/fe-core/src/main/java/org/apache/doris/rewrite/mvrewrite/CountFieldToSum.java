@@ -18,14 +18,19 @@
 package org.apache.doris.rewrite.mvrewrite;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.CaseExpr;
+import org.apache.doris.analysis.CaseWhenClause;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
+import org.apache.doris.analysis.IntLiteral;
+import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.rewrite.ExprRewriteRule;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -38,12 +43,18 @@ import com.google.common.collect.Lists;
  * For example:
  * Table: (k1 int ,k2 varchar)
  * MV: (k1 int, mv_count_k2 bigint sum)
- *       mv_count_k1 = case when k2 is null then 0 else 1
+ * mv_count_k1 = case when k2 is null then 0 else 1
  * Query: select k1, count(k2) from table group by k1
  * Rewritten query: select k1, sum(mv_count_k2) from table group by k1
  */
 public class CountFieldToSum implements ExprRewriteRule {
     public static final ExprRewriteRule INSTANCE = new CountFieldToSum();
+
+    public static Expr slotToCaseWhen(Expr expr) throws AnalysisException {
+        return new CaseExpr(null, Lists.newArrayList(new CaseWhenClause(
+                new IsNullPredicate(expr, false),
+                new IntLiteral(0, Type.BIGINT))), new IntLiteral(1, Type.BIGINT));
+    }
 
     @Override
     public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
@@ -74,20 +85,30 @@ public class CountFieldToSum implements ExprRewriteRule {
         String mvColumnName = CreateMaterializedViewStmt.mvColumnBuilder(FunctionSet.COUNT, queryColumnName);
         Column mvColumn = olapTable.getVisibleColumn(mvColumnName);
         if (mvColumn == null) {
-            return expr;
+            mvColumn = olapTable
+                    .getVisibleColumn(CreateMaterializedViewStmt.mvAggregateColumnBuilder("SUM",
+                            slotToCaseWhen(fnChild0).toSqlWithoutTbl()));
+            if (mvColumn != null) {
+                return rewriteExpr(mvColumn, analyzer);
+            }
+        } else {
+            return rewriteExpr(mvColumn, analyzer);
         }
-
-        // rewrite expr
-        return rewriteExpr(mvColumn, analyzer);
+        return expr;
     }
 
     private Expr rewriteExpr(Column mvColumn, Analyzer analyzer) {
         Preconditions.checkNotNull(mvColumn);
-        // Notice that we shouldn't set table name field of mvSlotRef here, for we will analyze the new mvSlotRef
-        // later, if the table name was set here, the Analyzer::registerColumnRef would invoke
-        // Analyzer::resolveColumnRef(TableName, String) which only try to find the column from the tupleByAlias,
-        // as at the most time the alias is not equal with the origin table name, so it would cause the unexpected
-        // exception to Unknown column, because we can't find an alias which named as origin table name that has
+        // Notice that we shouldn't set table name field of mvSlotRef here, for we will
+        // analyze the new mvSlotRef
+        // later, if the table name was set here, the Analyzer::registerColumnRef would
+        // invoke
+        // Analyzer::resolveColumnRef(TableName, String) which only try to find the
+        // column from the tupleByAlias,
+        // as at the most time the alias is not equal with the origin table name, so it
+        // would cause the unexpected
+        // exception to Unknown column, because we can't find an alias which named as
+        // origin table name that has
         // required column.
         SlotRef mvSlotRef = new SlotRef(null, mvColumn.getName());
         FunctionCallExpr result = new FunctionCallExpr("sum", Lists.newArrayList(mvSlotRef));

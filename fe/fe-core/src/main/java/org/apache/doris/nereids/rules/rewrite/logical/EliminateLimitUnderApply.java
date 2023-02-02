@@ -15,27 +15,29 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner.external;
+package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.trees.plans.Plan;
 
-import lombok.Data;
-import org.apache.hadoop.fs.Path;
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 
-@Data
-public class IcebergSplit extends HiveSplit {
-    public IcebergSplit(Path file, long start, long length, String[] hosts) {
-        super(file, start, length, hosts);
+/**
+ * EliminateLimitUnderApply.
+ */
+public class EliminateLimitUnderApply extends OneRewriteRuleFactory {
+    @Override
+    public Rule build() {
+        return logicalApply(group(), logicalLimit()).then(apply -> {
+            List<Plan> children = new ImmutableList.Builder<Plan>()
+                    .add(apply.left())
+                    .add(apply.right().child())
+                    .build();
+            return apply.withChildren(children);
+        }).toRule(RuleType.ELIMINATE_LIMIT_UNDER_APPLY);
     }
-
-    private Analyzer analyzer;
-    private String dataFilePath;
-    private Integer formatVersion;
-    private List<IcebergDeleteFileFilter> deleteFileFilters;
 }
-
-
-
-

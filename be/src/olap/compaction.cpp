@@ -275,11 +275,6 @@ Status Compaction::do_compaction_impl(int64_t permits) {
         stats.rowid_conversion = &_rowid_conversion;
     }
 
-    if (_cur_tablet_schema->store_row_column()) {
-        // table with row column not support vertical compaction now
-        vertical_compaction = false;
-    }
-
     if (use_vectorized_compaction) {
         if (vertical_compaction) {
             res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,

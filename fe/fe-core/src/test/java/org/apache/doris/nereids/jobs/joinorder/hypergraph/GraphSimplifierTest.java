@@ -40,7 +40,6 @@ public class GraphSimplifierTest {
                 .addEdge(JoinType.INNER_JOIN, 0, 4)
                 .build();
         GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
-        graphSimplifier.initFirstStep();
         while (graphSimplifier.applySimplificationStep()) {
         }
         Counter counter = new Counter();
@@ -68,7 +67,6 @@ public class GraphSimplifierTest {
                 .addEdge(JoinType.INNER_JOIN, 2, 3)
                 .build();
         GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
-        graphSimplifier.initFirstStep();
         while (graphSimplifier.applySimplificationStep()) {
         }
         Counter counter = new Counter();
@@ -97,7 +95,6 @@ public class GraphSimplifierTest {
                 .addEdge(JoinType.INNER_JOIN, 2, 3)
                 .build();
         GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
-        graphSimplifier.initFirstStep();
         while (graphSimplifier.applySimplificationStep()) {
         }
         Counter counter = new Counter();
@@ -131,7 +128,6 @@ public class GraphSimplifierTest {
                 .addEdge(JoinType.INNER_JOIN, 0, 11)
                 .build();
         GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
-        graphSimplifier.initFirstStep();
         while (graphSimplifier.applySimplificationStep()) {
         }
         Counter counter = new Counter();
@@ -153,13 +149,12 @@ public class GraphSimplifierTest {
             HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWith(tableNum, edgeNum);
             double now = System.currentTimeMillis();
             GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
-            graphSimplifier.initFirstStep();
             while (graphSimplifier.applySimplificationStep()) {
             }
             totalTime += System.currentTimeMillis() - now;
         }
-        System.out.println(String.format("Simplify graph with %d nodes %d edges cost %f ms", tableNum, edgeNum,
-                totalTime / times));
+        System.out.printf("Simplify graph with %d nodes %d edges cost %f ms%n", tableNum, edgeNum,
+                totalTime / times);
     }
 
     @Test
@@ -176,7 +171,6 @@ public class GraphSimplifierTest {
                 .addEdge(JoinType.INNER_JOIN, 0, 2)
                 .build();
         GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
-        graphSimplifier.initFirstStep();
         while (graphSimplifier.applySimplificationStep()) {
         }
         Counter counter = new Counter();
@@ -193,7 +187,6 @@ public class GraphSimplifierTest {
         for (int i = 0; i < 10; i++) {
             HyperGraph hyperGraph = new HyperGraphBuilder().randomBuildWith(6, 6);
             GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
-            graphSimplifier.initFirstStep();
             while (graphSimplifier.applySimplificationStep()) {
             }
             Counter counter = new Counter();

@@ -290,6 +290,10 @@ void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block&
         for (int j = 0; j < num_cols; ++j) {
             const auto& column = block.get_by_position(j).column;
             const auto& tablet_column = schema.columns()[j];
+            if (tablet_column.is_row_store_column()) {
+                // ignore dst row store column
+                continue;
+            }
             const auto& data_ref =
                     !tablet_column.is_array_type() ? column->get_data_at(i) : StringRef();
             serialize_column(&pool, tablet_column, column.get(), data_ref, i, jsonb_writer);

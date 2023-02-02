@@ -15,22 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.planner.external;
+package org.apache.doris.planner.external.iceberg;
 
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.TableSnapshot;
-import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.catalog.HiveMetaStoreClientHelper;
-import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.catalog.TableIf;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.external.iceberg.util.IcebergUtils;
-import org.apache.doris.planner.ColumnRange;
+import org.apache.doris.planner.external.ExternalFileScanNode;
+import org.apache.doris.planner.external.QueryScanProvider;
+import org.apache.doris.planner.external.TableFormatType;
+import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileRangeDesc;
+import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TIcebergDeleteFileDesc;
 import org.apache.doris.thrift.TIcebergFileDesc;
 import org.apache.doris.thrift.TTableFormatFileDesc;
@@ -43,7 +46,7 @@ import org.apache.iceberg.FileContent;
 import org.apache.iceberg.FileScanTask;
 import org.apache.iceberg.HistoryEntry;
 import org.apache.iceberg.MetadataColumns;
-import org.apache.iceberg.TableProperties;
+import org.apache.iceberg.PartitionField;
 import org.apache.iceberg.TableScan;
 import org.apache.iceberg.exceptions.NotFoundException;
 import org.apache.iceberg.expressions.Expression;
@@ -52,23 +55,23 @@ import org.apache.iceberg.types.Conversions;
 import java.nio.ByteBuffer;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalLong;
+import java.util.stream.Collectors;
 
 /**
  * A file scan provider for iceberg.
  */
-public class IcebergScanProvider extends HiveScanProvider {
+public class IcebergScanProvider extends QueryScanProvider {
 
     private static final int MIN_DELETE_FILE_SUPPORT_VERSION = 2;
     private final Analyzer analyzer;
+    private final IcebergSource icebergSource;
 
-    public IcebergScanProvider(HMSExternalTable hmsTable, Analyzer analyzer, TupleDescriptor desc,
-                               Map<String, ColumnRange> columnNameToRange) {
-        super(hmsTable, desc, columnNameToRange);
+    public IcebergScanProvider(IcebergSource icebergSource, Analyzer analyzer) {
+        this.icebergSource = icebergSource;
         this.analyzer = analyzer;
     }
 
@@ -111,34 +114,43 @@ public class IcebergScanProvider extends HiveScanProvider {
     }
 
     @Override
-    public TFileFormatType getFileFormatType() throws DdlException, MetaNotFoundException {
-        TFileFormatType type;
-
-        String icebergFormat = getRemoteHiveTable().getParameters()
-                .getOrDefault(TableProperties.DEFAULT_FILE_FORMAT, TableProperties.DEFAULT_FILE_FORMAT_DEFAULT);
-        if (icebergFormat.equalsIgnoreCase("parquet")) {
-            type = TFileFormatType.FORMAT_PARQUET;
-        } else if (icebergFormat.equalsIgnoreCase("orc")) {
-            type = TFileFormatType.FORMAT_ORC;
-        } else {
-            throw new DdlException(String.format("Unsupported format name: %s for iceberg table.", icebergFormat));
+    public TFileType getLocationType() throws DdlException, MetaNotFoundException {
+        String location = icebergSource.getIcebergTable().location();
+        if (location != null && !location.isEmpty()) {
+            if (location.startsWith(FeConstants.FS_PREFIX_S3)
+                    || location.startsWith(FeConstants.FS_PREFIX_S3A)
+                    || location.startsWith(FeConstants.FS_PREFIX_S3N)
+                    || location.startsWith(FeConstants.FS_PREFIX_BOS)
+                    || location.startsWith(FeConstants.FS_PREFIX_COS)
+                    || location.startsWith(FeConstants.FS_PREFIX_OSS)
+                    || location.startsWith(FeConstants.FS_PREFIX_OBS)) {
+                return TFileType.FILE_S3;
+            } else if (location.startsWith(FeConstants.FS_PREFIX_HDFS)) {
+                return TFileType.FILE_HDFS;
+            } else if (location.startsWith(FeConstants.FS_PREFIX_FILE)) {
+                return TFileType.FILE_LOCAL;
+            } else if (location.startsWith(FeConstants.FS_PREFIX_OFS)) {
+                return TFileType.FILE_BROKER;
+            } else if (location.startsWith(FeConstants.FS_PREFIX_JFS)) {
+                return TFileType.FILE_BROKER;
+            }
         }
-        return type;
+        throw new DdlException("Unknown file location " + location
+            + " for hms table " + icebergSource.getIcebergTable().name());
     }
 
     @Override
     public List<InputSplit> getSplits(List<Expr> exprs) throws UserException {
         List<Expression> expressions = new ArrayList<>();
-        org.apache.iceberg.Table table = HiveMetaStoreClientHelper.getIcebergTable(hmsTable);
+        org.apache.iceberg.Table table = icebergSource.getIcebergTable();
         for (Expr conjunct : exprs) {
             Expression expression = IcebergUtils.convertToIcebergExpr(conjunct, table.schema());
             if (expression != null) {
                 expressions.add(expression);
             }
         }
-
         TableScan scan = table.newScan();
-        TableSnapshot tableSnapshot = desc.getRef().getTableSnapshot();
+        TableSnapshot tableSnapshot = icebergSource.getDesc().getRef().getTableSnapshot();
         if (tableSnapshot != null) {
             TableSnapshot.VersionType type = tableSnapshot.getType();
             try {
@@ -158,13 +170,13 @@ public class IcebergScanProvider extends HiveScanProvider {
         List<InputSplit> splits = new ArrayList<>();
         int formatVersion = ((BaseTable) table).operations().current().formatVersion();
         for (FileScanTask task : scan.planFiles()) {
-            for (FileScanTask spitTask : task.split(128 * 1024 * 1024)) {
-                String dataFilePath = spitTask.file().path().toString();
-                IcebergSplit split = new IcebergSplit(new Path(dataFilePath), spitTask.start(),
-                        spitTask.length(), new String[0]);
+            for (FileScanTask splitTask : task.split(128 * 1024 * 1024)) {
+                String dataFilePath = splitTask.file().path().toString();
+                IcebergSplit split = new IcebergSplit(new Path(dataFilePath), splitTask.start(),
+                        splitTask.length(), new String[0]);
                 split.setFormatVersion(formatVersion);
                 if (formatVersion >= MIN_DELETE_FILE_SUPPORT_VERSION) {
-                    split.setDeleteFileFilters(getDeleteFileFilters(spitTask));
+                    split.setDeleteFileFilters(getDeleteFileFilters(splitTask));
                 }
                 split.setTableFormatType(TableFormatType.ICEBERG);
                 split.setAnalyzer(analyzer);
@@ -220,6 +232,41 @@ public class IcebergScanProvider extends HiveScanProvider {
 
     @Override
     public List<String> getPathPartitionKeys() throws DdlException, MetaNotFoundException {
-        return Collections.emptyList();
+        return icebergSource.getIcebergTable().spec().fields().stream().map(PartitionField::name)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public TFileFormatType getFileFormatType() throws DdlException, MetaNotFoundException {
+        TFileFormatType type;
+        String icebergFormat = icebergSource.getFileFormat();
+        if (icebergFormat.equalsIgnoreCase("parquet")) {
+            type = TFileFormatType.FORMAT_PARQUET;
+        } else if (icebergFormat.equalsIgnoreCase("orc")) {
+            type = TFileFormatType.FORMAT_ORC;
+        } else {
+            throw new DdlException(String.format("Unsupported format name: %s for iceberg table.", icebergFormat));
+        }
+        return type;
+    }
+
+    @Override
+    public Map<String, String> getLocationProperties() throws MetaNotFoundException, DdlException {
+        return icebergSource.getCatalog().getProperties();
+    }
+
+    @Override
+    public ExternalFileScanNode.ParamCreateContext createContext(Analyzer analyzer) throws UserException {
+        return icebergSource.createContext();
+    }
+
+    @Override
+    public TableIf getTargetTable() {
+        return icebergSource.getTargetTable();
+    }
+
+    @Override
+    public TFileAttributes getFileAttributes() throws UserException {
+        return icebergSource.getFileAttributes();
     }
 }

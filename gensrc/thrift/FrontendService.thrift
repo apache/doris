@@ -547,6 +547,7 @@ struct TStreamLoadPutRequest {
     40: optional PlanNodes.TFileCompressType compress_type
     41: optional i64 file_size // only for stream load with parquet or orc
     42: optional bool trim_double_quotes // trim double quotes for csv
+    43: optional i32 skip_lines // csv skip line num, only used when csv header_type is not set.
 }
 
 struct TStreamLoadPutResult {

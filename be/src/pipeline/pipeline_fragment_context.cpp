@@ -200,7 +200,6 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
     // 2. Create ExecNode to build pipeline with PipelineFragmentContext
     RETURN_IF_ERROR(ExecNode::create_tree(_runtime_state.get(), _runtime_state->obj_pool(),
                                           request.fragment.plan, *desc_tbl, &_root_plan));
-    _runtime_state->set_fragment_root_id(_root_plan->id());
 
     // Set senders of exchange nodes before pipeline build
     std::vector<ExecNode*> exch_nodes;

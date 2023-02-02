@@ -22,7 +22,6 @@
 #include "gutil/integral_types.h"
 #include "olap/merger.h"
 #include "olap/olap_common.h"
-#include "olap/row_cursor.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
@@ -38,8 +37,6 @@
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-
-using std::nothrow;
 
 namespace doris {
 using namespace ErrorCode;
@@ -218,13 +215,6 @@ ColumnMapping* RowBlockChanger::get_mutable_column_mapping(size_t column_index) 
 
 Status RowBlockChanger::change_block(vectorized::Block* ref_block,
                                      vectorized::Block* new_block) const {
-    if (new_block->columns() != _schema_mapping.size()) {
-        LOG(WARNING) << "block does not match with schema mapping rules. "
-                     << "block_schema_size=" << new_block->columns()
-                     << ", mapping_schema_size=" << _schema_mapping.size();
-        return Status::Error<UNINITIALIZED>();
-    }
-
     ObjectPool pool;
     RuntimeState* state = pool.add(new RuntimeState());
     state->set_desc_tbl(&_desc_tbl);
@@ -426,7 +416,7 @@ Status VSchemaChangeDirectly::_inner_process(RowsetReaderSharedPtr rowset_reader
         auto ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
 
         rowset_reader->next_block(ref_block.get());
-        if (ref_block->rows() < 1) {
+        if (ref_block->rows() == 0) {
             break;
         }
 
@@ -500,7 +490,7 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
     do {
         auto ref_block = std::make_unique<vectorized::Block>(base_tablet_schema->create_block());
         rowset_reader->next_block(ref_block.get());
-        if (ref_block->rows() < 1) {
+        if (ref_block->rows() == 0) {
             break;
         }
 

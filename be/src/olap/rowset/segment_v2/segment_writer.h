@@ -103,8 +103,6 @@ public:
 
     DataDir* get_data_dir() { return _data_dir; }
     bool is_unique_key() { return _tablet_schema->keys_type() == UNIQUE_KEYS; }
-    // add an extra column writer for writing row column
-    Status append_row_column_writer();
 
 private:
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
