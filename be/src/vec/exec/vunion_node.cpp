@@ -263,7 +263,6 @@ Status VUnionNode::get_next(RuntimeState* state, Block* block, bool* eos) {
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VUnionNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
-    // RETURN_IF_ERROR(QueryMaintenance(state));
 
     // TODO: Rethink the logic, which cause close the exec node twice.
     if (_to_close_child_idx != -1) {
