@@ -440,21 +440,21 @@ Status BkdIndexReader::query(OlapReaderStatistics* stats,
     auto index_dir = path.parent_path();
     auto index_file_name = InvertedIndexDescriptor::get_index_file_name(path.filename(), _index_id);
     auto index_file_path = index_dir / index_file_name;
-    std::string query_str {(const char *)query_value};
+    // std::string query_str {(const char *)query_value};
 
-    // try to get query bitmap result from cache and return immediately on cache hit
-    InvertedIndexQueryCache::CacheKey cache_key
-        {index_file_path, column_name, query_type, std::wstring(query_str.begin(), query_str.end())};
-    auto cache = InvertedIndexQueryCache::instance();
-    InvertedIndexQueryCacheHandle cache_handle;
-    if (cache->lookup(cache_key, &cache_handle)) {
-        stats->inverted_index_query_cache_hit++;
-        SCOPED_RAW_TIMER(&stats->inverted_index_query_bitmap_copy_timer);
-        *bit_map = *cache_handle.match_bitmap();
-        return Status::OK();
-    } else {
-        stats->inverted_index_query_cache_miss++;
-    }
+    // // try to get query bitmap result from cache and return immediately on cache hit
+    // InvertedIndexQueryCache::CacheKey cache_key
+    //     {index_file_path, column_name, query_type, std::wstring(query_str.begin(), query_str.end())};
+    // auto cache = InvertedIndexQueryCache::instance();
+    // InvertedIndexQueryCacheHandle cache_handle;
+    // if (cache->lookup(cache_key, &cache_handle)) {
+    //     stats->inverted_index_query_cache_hit++;
+    //     SCOPED_RAW_TIMER(&stats->inverted_index_query_bitmap_copy_timer);
+    //     *bit_map = *cache_handle.match_bitmap();
+    //     return Status::OK();
+    // } else {
+    //     stats->inverted_index_query_cache_miss++;
+    // }
 
     uint64_t start = UnixMillis();
     auto visitor = std::make_unique<InvertedIndexVisitor>(bit_map, query_type);
@@ -469,10 +469,10 @@ Status BkdIndexReader::query(OlapReaderStatistics* stats,
         return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
     }
 
-    // add to cache
-    roaring::Roaring* term_match_bitmap = new roaring::Roaring(*bit_map);
-    term_match_bitmap->runOptimize();
-    cache->insert(cache_key, term_match_bitmap, &cache_handle);
+    // // add to cache
+    // roaring::Roaring* term_match_bitmap = new roaring::Roaring(*bit_map);
+    // term_match_bitmap->runOptimize();
+    // cache->insert(cache_key, term_match_bitmap, &cache_handle);
 
     LOG(INFO) << "BKD index search time taken: " << UnixMillis() - start << "ms "
               << " column: " << column_name << " result: " << bit_map->cardinality()
