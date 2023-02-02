@@ -302,6 +302,9 @@ public class MTMVJobManager {
                     periodFutureMap.remove(job.getId());
                 }
                 killJobTask(job.getName(), true);
+                if (!Config.keep_scheduler_mtmv_task_when_job_deleted) {
+                    taskManager.clearTasksByJobName(job.getName(), isReplay);
+                }
                 idToJobMap.remove(job.getId());
                 nameToJobMap.remove(job.getName());
             }
