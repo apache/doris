@@ -76,9 +76,7 @@ public class AdjustNullable implements RewriteRuleFactory {
                     List<Expression> otherConjuncts = updateExpressions(join.getOtherJoinConjuncts(), exprIdSlotMap);
                     return join.withJoinConjuncts(hashConjuncts, otherConjuncts).recomputeLogicalProperties();
                 })),
-                RuleType.ADJUST_NULLABLE_ON_LIMIT.build(logicalLimit().then(limit -> {
-                    return limit.recomputeLogicalProperties();
-                })),
+                RuleType.ADJUST_NULLABLE_ON_LIMIT.build(logicalLimit().then(LogicalPlan::recomputeLogicalProperties)),
                 RuleType.ADJUST_NULLABLE_ON_PROJECT.build(logicalProject().then(project -> {
                     Map<ExprId, Slot> exprIdSlotMap = collectChildrenOutputMap(project);
                     List<NamedExpression> newProjects = updateExpressions(project.getProjects(), exprIdSlotMap);
