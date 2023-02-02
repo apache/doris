@@ -29,15 +29,12 @@ import java.util.List;
 
 public class IcebergExternalTable extends ExternalTable {
 
-    IcebergExternalCatalog icebergCatalog;
-
     public IcebergExternalTable(long id, String name, String dbName, IcebergExternalCatalog catalog) {
         super(id, name, catalog, dbName, TableType.ICEBERG_EXTERNAL_TABLE);
-        icebergCatalog = catalog;
     }
 
     public String getIcebergCatalogType() {
-        return icebergCatalog.getIcebergCatalogType();
+        return ((IcebergExternalCatalog) catalog).getIcebergCatalogType();
     }
 
     protected synchronized void makeSureInitialized() {
@@ -49,7 +46,7 @@ public class IcebergExternalTable extends ExternalTable {
     @Override
     public TTableDescriptor toThrift() {
         List<Column> schema = getFullSchema();
-        if (icebergCatalog.getIcebergCatalogType().equals("hms")) {
+        if (getIcebergCatalogType().equals("hms")) {
             THiveTable tHiveTable = new THiveTable(dbName, name, new HashMap<>());
             TTableDescriptor tTableDescriptor = new TTableDescriptor(getId(), TTableType.HIVE_TABLE, schema.size(), 0,
                     getName(), dbName);

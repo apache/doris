@@ -170,13 +170,13 @@ public class IcebergScanProvider extends QueryScanProvider {
         List<InputSplit> splits = new ArrayList<>();
         int formatVersion = ((BaseTable) table).operations().current().formatVersion();
         for (FileScanTask task : scan.planFiles()) {
-            for (FileScanTask spitTask : task.split(128 * 1024 * 1024)) {
-                String dataFilePath = spitTask.file().path().toString();
-                IcebergSplit split = new IcebergSplit(new Path(dataFilePath), spitTask.start(),
-                        spitTask.length(), new String[0]);
+            for (FileScanTask splitTask : task.split(128 * 1024 * 1024)) {
+                String dataFilePath = splitTask.file().path().toString();
+                IcebergSplit split = new IcebergSplit(new Path(dataFilePath), splitTask.start(),
+                        splitTask.length(), new String[0]);
                 split.setFormatVersion(formatVersion);
                 if (formatVersion >= MIN_DELETE_FILE_SUPPORT_VERSION) {
-                    split.setDeleteFileFilters(getDeleteFileFilters(spitTask));
+                    split.setDeleteFileFilters(getDeleteFileFilters(splitTask));
                 }
                 split.setTableFormatType(TableFormatType.ICEBERG);
                 split.setAnalyzer(analyzer);
