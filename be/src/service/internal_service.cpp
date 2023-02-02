@@ -559,6 +559,10 @@ void PInternalServiceImpl::send_data(google::protobuf::RpcController* controller
             pipe->append_and_flush(reinterpret_cast<char*>(&row), sizeof(row),
                                    sizeof(row) + row->ByteSizeLong());
         }
+        if (request->has_chunk()) {
+            const std::string& chuck_body = request->chunk();
+            pipe->append(chuck_body.data(), chuck_body.size());
+        }
         response->mutable_status()->set_status_code(0);
     }
 }
@@ -572,6 +576,7 @@ void PInternalServiceImpl::commit(google::protobuf::RpcController* controller,
     fragment_instance_id.lo = request->fragment_instance_id().lo();
 
     auto pipe = _exec_env->fragment_mgr()->get_pipe(fragment_instance_id);
+    auto stream_ctx = _exec_env->new_load_stream_mgr()->
     if (pipe == nullptr) {
         response->mutable_status()->set_status_code(1);
         response->mutable_status()->add_error_msgs("pipe is null");

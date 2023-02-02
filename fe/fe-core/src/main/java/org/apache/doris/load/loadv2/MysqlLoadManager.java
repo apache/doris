@@ -20,18 +20,34 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.analysis.DataDescription;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Table;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.io.ByteBufferNetworkInputStream;
 import org.apache.doris.load.LoadJobRowResult;
 import org.apache.doris.load.loadv2.LoadTask.MergeType;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.MasterTxnExecutor;
+import org.apache.doris.qe.StreamLoadTxnExecutor;
+import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TFileFormatType;
+import org.apache.doris.thrift.TFileType;
+import org.apache.doris.thrift.TLoadTxnBeginRequest;
+import org.apache.doris.thrift.TLoadTxnBeginResult;
+import org.apache.doris.thrift.TMergeType;
+import org.apache.doris.thrift.TStreamLoadPutRequest;
+import org.apache.doris.thrift.TTxnParams;
+import org.apache.doris.transaction.TransactionEntry;
+import org.apache.doris.transaction.TransactionState;
 
 import com.google.common.base.Joiner;
+import com.google.common.collect.Lists;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import org.apache.http.client.methods.CloseableHttpResponse;
@@ -43,6 +59,7 @@ import org.apache.http.impl.client.HttpClients;
 import org.apache.http.util.EntityUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.thrift.TException;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -52,6 +69,7 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.ThreadPoolExecutor;
 
 public class MysqlLoadManager {
@@ -71,23 +89,122 @@ public class MysqlLoadManager {
         String database = dataDesc.getDbName();
         String table = dataDesc.getTableName();
         List<String> filePaths = dataDesc.getFilePaths();
-        try (final CloseableHttpClient httpclient = HttpClients.createDefault()) {
-            for (String file : filePaths) {
-                InputStreamEntity entity = getInputStreamEntity(context, dataDesc.isClientLocal(), file);
-                HttpPut request = generateRequestForMySqlLoad(entity, dataDesc, database, table);
-                try (final CloseableHttpResponse response = httpclient.execute(request)) {
-                    JsonObject result = JsonParser.parseString(EntityUtils.toString(response.getEntity()))
-                            .getAsJsonObject();
-                    if (!result.get("Status").getAsString().equalsIgnoreCase("Success")) {
-                        LOG.warn("Execute stream load for mysql data load failed with message: " + request);
-                        throw new LoadException(result.get("Message").getAsString());
+        if (Config.use_http_mysql_load_job) {
+            try (final CloseableHttpClient httpclient = HttpClients.createDefault()) {
+                for (String file : filePaths) {
+                    InputStreamEntity entity = getInputStreamEntity(context, dataDesc.isClientLocal(), file);
+                    HttpPut request = generateRequestForMySqlLoad(entity, dataDesc, database, table);
+                    try (final CloseableHttpResponse response = httpclient.execute(request)) {
+                        JsonObject result = JsonParser.parseString(EntityUtils.toString(response.getEntity()))
+                                .getAsJsonObject();
+                        if (!result.get("Status").getAsString().equalsIgnoreCase("Success")) {
+                            LOG.warn("Execute stream load for mysql data load failed with message: " + request);
+                            throw new LoadException(result.get("Message").getAsString());
+                        }
+                        loadResult.incRecords(result.get("NumberLoadedRows").getAsLong());
+                        loadResult.incSkipped(result.get("NumberFilteredRows").getAsInt());
                     }
-                    loadResult.incRecords(result.get("NumberLoadedRows").getAsLong());
-                    loadResult.incSkipped(result.get("NumberFilteredRows").getAsInt());
                 }
+            }
+        } else {
+            StreamLoadTxnExecutor executor = null;
+            try {
+
+                TransactionEntry entry = prepareTransactionEntry(database, table);
+                openTxn(context, entry);
+                executor = beginTxn(context, entry);
+                // sendData
+                for (String file : filePaths) {
+                    sendData(context, executor, file);
+                }
+                executor.commitTransaction();
+            } catch (Exception e) {
+                LOG.error("Failed to load mysql data into doris", e);
+                if (executor != null) {
+                    try {
+                        executor.abortTransaction();
+                    } catch (Exception ex) {
+                        throw new LoadException("Failed when abort the transaction", ex);
+                    }
+                }
+                throw new LoadException("Load failed when execute the mysql data load", e);
             }
         }
         return loadResult;
+    }
+
+    private TransactionEntry prepareTransactionEntry(String database, String table)
+            throws TException {
+        TTxnParams txnConf = new TTxnParams();
+        txnConf.setNeedTxn(true).setEnablePipelineTxnLoad(Config.enable_pipeline_load)
+                .setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb("").setTbl("");
+        Database dbObj = Env.getCurrentInternalCatalog()
+                .getDbOrException(database, s -> new TException("database is invalid for dbName: " + s));
+        Table tblObj = dbObj.getTableOrException(table, s -> new TException("table is invalid: " + s));
+        txnConf.setDbId(dbObj.getId()).setTbl(table).setDb(database);
+
+        TransactionEntry txnEntry = new TransactionEntry();
+        txnEntry.setTxnConf(txnConf);
+        txnEntry.setTable(tblObj);
+        txnEntry.setDb(dbObj);
+        String label = UUID.randomUUID().toString();
+        txnEntry.setLabel(label);
+        return txnEntry;
+    }
+
+    private void openTxn(ConnectContext context, TransactionEntry txnEntry) throws Exception {
+        TTxnParams txnParams = txnEntry.getTxnConf();
+        long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
+        TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
+        if (Env.getCurrentEnv().isMaster()) {
+            long txnId = Env.getCurrentGlobalTransactionMgr().beginTransaction(
+                    txnParams.getDbId(), Lists.newArrayList(txnEntry.getTable().getId()),
+                    txnEntry.getLabel(), new TransactionState.TxnCoordinator(
+                            TransactionState.TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
+                    sourceType, timeoutSecond);
+            txnParams.setTxnId(txnId);
+            String authCodeUuid = Env.getCurrentGlobalTransactionMgr().getTransactionState(
+                    txnParams.getDbId(), txnParams.getTxnId()).getAuthCode();
+            txnParams.setAuthCodeUuid(authCodeUuid);
+        } else {
+            String authCodeUuid = UUID.randomUUID().toString();
+            MasterTxnExecutor masterTxnExecutor = new MasterTxnExecutor(context);
+            TLoadTxnBeginRequest request = new TLoadTxnBeginRequest();
+            request.setDb(txnParams.getDb()).setTbl(txnParams.getTbl()).setAuthCodeUuid(authCodeUuid)
+                    .setCluster(txnEntry.getDb().getClusterName()).setLabel(txnEntry.getLabel())
+                    .setUser("").setUserIp("").setPasswd("");
+            TLoadTxnBeginResult result = masterTxnExecutor.beginTxn(request);
+            txnParams.setTxnId(result.getTxnId());
+            txnParams.setAuthCodeUuid(authCodeUuid);
+        }
+    }
+
+    private StreamLoadTxnExecutor beginTxn(ConnectContext context, TransactionEntry txnEntry) throws Exception {
+        TTxnParams txnParams = txnEntry.getTxnConf();
+        TStreamLoadPutRequest request = new TStreamLoadPutRequest();
+        request.setTxnId(txnParams.getTxnId()).setDb(txnParams.getDb())
+                .setTbl(txnParams.getTbl())
+                .setFileType(TFileType.FILE_STREAM).setFormatType(TFileFormatType.FORMAT_CSV_PLAIN)
+                .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(context.queryId());
+        // execute begin txn
+        StreamLoadTxnExecutor executor = new StreamLoadTxnExecutor(txnEntry, TFileFormatType.FORMAT_CSV_PLAIN);
+        executor.beginTransaction(request);
+        return executor;
+    }
+
+    private void sendData(ConnectContext context, StreamLoadTxnExecutor executor, String file) throws Exception {
+        replyClientForReadFile(context, file);
+        ByteBuffer buffer = null;
+        try {
+            buffer = context.getMysqlChannel().fetchOnePacket();
+            // MySql client will send an empty packet when eof
+            while (buffer != null && buffer.limit() != 0) {
+                executor.sendData(buffer);
+                buffer = context.getMysqlChannel().fetchOnePacket();
+            }
+        } catch (IOException | InterruptedException e) {
+            throw new RuntimeException(e);
+        }
     }
 
     private InputStreamEntity getInputStreamEntity(ConnectContext context, boolean isClientLocal, String file)

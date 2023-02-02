@@ -42,6 +42,8 @@ import org.apache.doris.transaction.TransactionEntry;
 
 import org.apache.thrift.TException;
 
+import java.nio.ByteBuffer;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
@@ -49,13 +51,19 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
-public class InsertStreamTxnExecutor {
+public class StreamLoadTxnExecutor {
     private long txnId;
     private TUniqueId loadId;
-    private TransactionEntry txnEntry;
+    private final TransactionEntry txnEntry;
+    private final TFileFormatType formatType;
 
-    public InsertStreamTxnExecutor(TransactionEntry txnEntry) {
+    public StreamLoadTxnExecutor(TransactionEntry txnEntry) {
+        this(txnEntry, TFileFormatType.FORMAT_PROTO);
+    }
+
+    public StreamLoadTxnExecutor(TransactionEntry txnEntry, TFileFormatType formatType) {
         this.txnEntry = txnEntry;
+        this.formatType = formatType;
     }
 
     public void beginTransaction(TStreamLoadPutRequest request) throws UserException, TException, TimeoutException,
@@ -75,8 +83,7 @@ public class InsertStreamTxnExecutor {
         tRequest.setTxnConf(txnConf).setImportLabel(txnEntry.getLabel());
         for (Map.Entry<Integer, List<TScanRangeParams>> entry : tRequest.params.per_node_scan_ranges.entrySet()) {
             for (TScanRangeParams scanRangeParams : entry.getValue()) {
-                scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setFormatType(
-                        TFileFormatType.FORMAT_PROTO);
+                scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setFormatType(formatType);
                 scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setCompressType(
                         TFileCompressType.PLAIN);
             }
@@ -151,7 +158,16 @@ public class InsertStreamTxnExecutor {
         if (txnEntry.getDataToSend() == null || txnEntry.getDataToSend().isEmpty()) {
             return;
         }
+        sendData(txnEntry.getDataToSend(), null);
+    }
 
+    public void sendData(ByteBuffer bytes) throws TException, TimeoutException,
+            InterruptedException, ExecutionException {
+        sendData(Collections.emptyList(), bytes);
+    }
+
+    private void sendData(List<InternalService.PDataRow> dateToSend, ByteBuffer chunkToSend) throws TException,
+            TimeoutException, InterruptedException, ExecutionException {
         TTxnParams txnConf = txnEntry.getTxnConf();
         Types.PUniqueId fragmentInstanceId = Types.PUniqueId.newBuilder()
                 .setHi(txnConf.getFragmentInstanceId().getHi())
@@ -161,7 +177,7 @@ public class InsertStreamTxnExecutor {
         TNetworkAddress address = new TNetworkAddress(backend.getHost(), backend.getBrpcPort());
         try {
             Future<InternalService.PSendDataResult> future = BackendServiceProxy.getInstance().sendData(
-                    address, fragmentInstanceId, txnEntry.getDataToSend());
+                    address, fragmentInstanceId, dateToSend, chunkToSend);
             InternalService.PSendDataResult result = future.get(5, TimeUnit.SECONDS);
             TStatusCode code = TStatusCode.findByValue(result.getStatus().getStatusCode());
             if (code != TStatusCode.OK) {

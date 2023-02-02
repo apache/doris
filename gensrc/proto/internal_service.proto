@@ -383,6 +383,7 @@ message PDataRow {
 message PSendDataRequest {
     required PUniqueId fragment_instance_id = 1;
     repeated PDataRow data = 2;
+    optional bytes chunk = 3;
 }
 
 message PSendDataResult {

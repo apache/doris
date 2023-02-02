@@ -31,7 +31,7 @@ import org.apache.doris.load.sync.SyncChannelCallback;
 import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.load.sync.model.Data;
 import org.apache.doris.proto.InternalService;
-import org.apache.doris.qe.InsertStreamTxnExecutor;
+import org.apache.doris.qe.StreamLoadTxnExecutor;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.SyncTask;
 import org.apache.doris.task.SyncTaskPool;
@@ -74,7 +74,7 @@ public class CanalSyncChannel extends SyncChannel {
     private long lastBatchId;
 
     private Data<InternalService.PDataRow> batchBuffer;
-    private InsertStreamTxnExecutor txnExecutor;
+    private StreamLoadTxnExecutor txnExecutor;
 
     public CanalSyncChannel(long id, SyncJob syncJob, Database db, OlapTable table, List<String> columns,
             String srcDataBase, String srcTable) {
@@ -86,11 +86,11 @@ public class CanalSyncChannel extends SyncChannel {
     }
 
     private static final class SendTask extends SyncTask {
-        private final InsertStreamTxnExecutor executor;
+        private final StreamLoadTxnExecutor executor;
         private final Data<InternalService.PDataRow> rows;
 
         public SendTask(long signature, int index, SyncChannelCallback callback, Data<InternalService.PDataRow> rows,
-                InsertStreamTxnExecutor executor) {
+                StreamLoadTxnExecutor executor) {
             super(signature, index, callback);
             this.executor = executor;
             this.rows = rows;
@@ -251,7 +251,7 @@ public class CanalSyncChannel extends SyncChannel {
             TTxnParams txnConf = new TTxnParams().setNeedTxn(true).setEnablePipelineTxnLoad(Config.enable_pipeline_load)
                     .setThriftRpcTimeoutMs(5000).setTxnId(-1).setDb(db.getFullName())
                     .setTbl(tbl.getName()).setDbId(db.getId());
-            this.txnExecutor = new InsertStreamTxnExecutor(new TransactionEntry(txnConf, db, tbl));
+            this.txnExecutor = new StreamLoadTxnExecutor(new TransactionEntry(txnConf, db, tbl));
             txnExecutor.setTxnId(-1L);
             txnExecutor.setLoadId(loadId);
         }

@@ -1357,7 +1357,7 @@ public class StmtExecutor implements ProfileWriter {
 
             TTxnParams txnConf = context.getTxnEntry().getTxnConf();
             try {
-                InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(context.getTxnEntry());
+                StreamLoadTxnExecutor executor = new StreamLoadTxnExecutor(context.getTxnEntry());
                 if (context.getTxnEntry().getDataToSend().size() > 0) {
                     // send rest data
                     executor.sendData();
@@ -1400,7 +1400,7 @@ public class StmtExecutor implements ProfileWriter {
             }
             try {
                 // abort txn
-                InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(context.getTxnEntry());
+                StreamLoadTxnExecutor executor = new StreamLoadTxnExecutor(context.getTxnEntry());
                 executor.abortTransaction();
 
                 StringBuilder sb = new StringBuilder();
@@ -1455,7 +1455,7 @@ public class StmtExecutor implements ProfileWriter {
                 dataToSend.add(data);
                 if (dataToSend.size() >= MAX_DATA_TO_SEND_FOR_TXN) {
                     // send data
-                    InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(txnEntry);
+                    StreamLoadTxnExecutor executor = new StreamLoadTxnExecutor(txnEntry);
                     executor.sendData();
                 }
             }
@@ -1505,7 +1505,7 @@ public class StmtExecutor implements ProfileWriter {
                 .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(context.queryId());
 
         // execute begin txn
-        InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(txnEntry);
+        StreamLoadTxnExecutor executor = new StreamLoadTxnExecutor(txnEntry);
         executor.beginTransaction(request);
     }
 

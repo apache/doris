@@ -35,6 +35,7 @@ import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 import org.apache.thrift.protocol.TCompactProtocol;
 
+import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
@@ -261,12 +262,18 @@ public class BackendServiceProxy {
     }
 
     public Future<InternalService.PSendDataResult> sendData(
-            TNetworkAddress address, Types.PUniqueId fragmentInstanceId, List<InternalService.PDataRow> data)
+            TNetworkAddress address,
+            Types.PUniqueId fragmentInstanceId,
+            List<InternalService.PDataRow> data,
+            ByteBuffer buffer)
             throws RpcException {
 
         final InternalService.PSendDataRequest.Builder pRequest = InternalService.PSendDataRequest.newBuilder();
         pRequest.setFragmentInstanceId(fragmentInstanceId);
         pRequest.addAllData(data);
+        if (buffer != null) {
+            pRequest.setChunk(ByteString.copyFrom(buffer));
+        }
         try {
             final BackendServiceClient client = getProxy(address);
             return client.sendData(pRequest.build());
@@ -275,6 +282,7 @@ public class BackendServiceProxy {
             throw new RpcException(address.hostname, e.getMessage());
         }
     }
+
 
     public Future<InternalService.PRollbackResult> rollback(TNetworkAddress address, Types.PUniqueId fragmentInstanceId)
             throws RpcException {

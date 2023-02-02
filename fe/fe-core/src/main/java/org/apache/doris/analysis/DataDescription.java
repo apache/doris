@@ -978,11 +978,11 @@ public class DataDescription {
     public String analyzeFullDbName(String labelDbName, Analyzer analyzer) throws AnalysisException {
         if (Strings.isNullOrEmpty(labelDbName)) {
             String dbName = Strings.isNullOrEmpty(getDbName()) ? analyzer.getDefaultDb() : getDbName();
-            this.dbName = dbName;
             if (Strings.isNullOrEmpty(dbName)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
             }
-            return ClusterNamespace.getFullName(analyzer.getClusterName(), dbName);
+            this.dbName = ClusterNamespace.getFullName(analyzer.getClusterName(), dbName);
+            return this.dbName;
         } else {
             // Get dbName from label.
             this.dbName = ClusterNamespace.getNameFromFullName(labelDbName);
