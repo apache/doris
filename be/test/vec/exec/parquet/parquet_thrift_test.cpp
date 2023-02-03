@@ -26,9 +26,9 @@
 #include "io/buffered_reader.h"
 #include "io/fs/local_file_system.h"
 #include "olap/iterators.h"
-#include "runtime/string_value.h"
 #include "util/runtime_profile.h"
 #include "util/timezone_utils.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/block.h"
 #include "vec/core/column_with_type_and_name.h"
 #include "vec/data_types/data_type_factory.hpp"
@@ -227,7 +227,7 @@ static Status get_column_values(io::FileReaderSPtr file_reader, tparquet::Column
 
 static void create_block(std::unique_ptr<vectorized::Block>& block) {
     // Current supported column type:
-    SchemaScanner::ColumnDesc column_descs[] = {
+    std::vector<SchemaScanner::ColumnDesc> column_descs = {
             {"tinyint_col", TYPE_TINYINT, sizeof(int8_t), true},
             {"smallint_col", TYPE_SMALLINT, sizeof(int16_t), true},
             {"int_col", TYPE_INT, sizeof(int32_t), true},
@@ -235,19 +235,18 @@ static void create_block(std::unique_ptr<vectorized::Block>& block) {
             {"boolean_col", TYPE_BOOLEAN, sizeof(bool), true},
             {"float_col", TYPE_FLOAT, sizeof(float_t), true},
             {"double_col", TYPE_DOUBLE, sizeof(double_t), true},
-            {"string_col", TYPE_STRING, sizeof(StringValue), true},
+            {"string_col", TYPE_STRING, sizeof(StringRef), true},
             // binary is not supported, use string instead
-            {"binary_col", TYPE_STRING, sizeof(StringValue), true},
+            {"binary_col", TYPE_STRING, sizeof(StringRef), true},
             // 64-bit-length, see doris::get_slot_size in primitive_type.cpp
             {"timestamp_col", TYPE_DATETIME, sizeof(DateTimeValue), true},
             {"decimal_col", TYPE_DECIMALV2, sizeof(DecimalV2Value), true},
-            {"char_col", TYPE_CHAR, sizeof(StringValue), true},
-            {"varchar_col", TYPE_VARCHAR, sizeof(StringValue), true},
+            {"char_col", TYPE_CHAR, sizeof(StringRef), true},
+            {"varchar_col", TYPE_VARCHAR, sizeof(StringRef), true},
             {"date_col", TYPE_DATE, sizeof(DateTimeValue), true},
             {"date_v2_col", TYPE_DATEV2, sizeof(uint32_t), true},
             {"timestamp_v2_col", TYPE_DATETIMEV2, sizeof(DateTimeValue), true, 18, 0}};
-    SchemaScanner schema_scanner(column_descs,
-                                 sizeof(column_descs) / sizeof(SchemaScanner::ColumnDesc));
+    SchemaScanner schema_scanner(column_descs);
     ObjectPool object_pool;
     SchemaScannerParam param;
     schema_scanner.init(&param, &object_pool);
@@ -347,7 +346,7 @@ TEST_F(ParquetThriftReaderTest, dict_decoder) {
 }
 
 TEST_F(ParquetThriftReaderTest, group_reader) {
-    SchemaScanner::ColumnDesc column_descs[] = {
+    std::vector<SchemaScanner::ColumnDesc> column_descs = {
             {"tinyint_col", TYPE_TINYINT, sizeof(int8_t), true},
             {"smallint_col", TYPE_SMALLINT, sizeof(int16_t), true},
             {"int_col", TYPE_INT, sizeof(int32_t), true},
@@ -355,15 +354,14 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
             {"boolean_col", TYPE_BOOLEAN, sizeof(bool), true},
             {"float_col", TYPE_FLOAT, sizeof(float_t), true},
             {"double_col", TYPE_DOUBLE, sizeof(double_t), true},
-            {"string_col", TYPE_STRING, sizeof(StringValue), true},
-            {"binary_col", TYPE_STRING, sizeof(StringValue), true},
+            {"string_col", TYPE_STRING, sizeof(StringRef), true},
+            {"binary_col", TYPE_STRING, sizeof(StringRef), true},
             {"timestamp_col", TYPE_DATETIME, sizeof(DateTimeValue), true},
             {"decimal_col", TYPE_DECIMALV2, sizeof(DecimalV2Value), true},
-            {"char_col", TYPE_CHAR, sizeof(StringValue), true},
-            {"varchar_col", TYPE_VARCHAR, sizeof(StringValue), true},
+            {"char_col", TYPE_CHAR, sizeof(StringRef), true},
+            {"varchar_col", TYPE_VARCHAR, sizeof(StringRef), true},
             {"date_col", TYPE_DATE, sizeof(DateTimeValue), true}};
-    int num_cols = sizeof(column_descs) / sizeof(SchemaScanner::ColumnDesc);
-    SchemaScanner schema_scanner(column_descs, num_cols);
+    SchemaScanner schema_scanner(column_descs);
     ObjectPool object_pool;
     SchemaScannerParam param;
     schema_scanner.init(&param, &object_pool);

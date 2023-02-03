@@ -20,6 +20,8 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherException;
+import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.io.Text;
 
 import java.io.DataInput;
@@ -46,7 +48,7 @@ public class ResourcePrivEntry extends PrivEntry {
     }
 
     public static ResourcePrivEntry create(String resourceName, PrivBitSet privs)
-            throws AnalysisException {
+            throws AnalysisException, PatternMatcherException {
         PatternMatcher resourcePattern = PatternMatcher.createMysqlPattern(
                 resourceName.equals(ANY_RESOURCE) ? "%" : resourceName,
                 CaseSensibility.RESOURCE.getCaseSensibility());
@@ -103,7 +105,7 @@ public class ResourcePrivEntry extends PrivEntry {
         try {
             resourcePattern = PatternMatcher.createMysqlPattern(origResource,
                     CaseSensibility.RESOURCE.getCaseSensibility());
-        } catch (AnalysisException e) {
+        } catch (PatternMatcherException e) {
             throw new IOException(e);
         }
         isAnyResource = origResource.equals(ANY_RESOURCE);

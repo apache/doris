@@ -21,8 +21,6 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "exprs/expr.h"
-#include "exprs/expr_context.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "runtime/exec_env.h"
@@ -30,7 +28,6 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
-#include "runtime/tuple_row.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -41,58 +38,6 @@ using std::map;
 namespace doris {
 
 TUniqueId FoldConstantExecutor::_dummy_id;
-
-Status FoldConstantExecutor::fold_constant_expr(const TFoldConstantParams& params,
-                                                PConstantExprResult* response) {
-    const auto& expr_map = params.expr_map;
-    auto expr_result_map = response->mutable_expr_result_map();
-
-    TQueryGlobals query_globals = params.query_globals;
-    // init
-    RETURN_IF_ERROR(_init(query_globals));
-    // only after init operation, _mem_tracker is ready
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-
-    for (const auto& m : expr_map) {
-        PExprResultMap pexpr_result_map;
-        for (const auto& n : m.second) {
-            ExprContext* ctx = nullptr;
-            const TExpr& texpr = n.second;
-            // create expr tree from TExpr
-            RETURN_IF_ERROR(Expr::create_expr_tree(&_pool, texpr, &ctx));
-            // prepare and open context
-            RETURN_IF_ERROR(_prepare_and_open(ctx));
-
-            TupleRow* row = nullptr;
-            // calc expr
-            void* src = ctx->get_value(row);
-            PrimitiveType root_type = ctx->root()->type().type;
-            // covert to thrift type
-            TPrimitiveType::type t_type = doris::to_thrift(root_type);
-
-            // collect result
-            PExprResult expr_result;
-            string result;
-            if (src == nullptr) {
-                expr_result.set_success(false);
-            } else {
-                expr_result.set_success(true);
-                result = _get_result(src, 0, ctx->root()->type().type);
-            }
-
-            expr_result.set_content(std::move(result));
-            expr_result.mutable_type()->set_type(t_type);
-            pexpr_result_map.mutable_map()->insert({n.first, expr_result});
-
-            // close context expr
-            ctx->close(_runtime_state.get());
-        }
-
-        expr_result_map->insert({m.first, pexpr_result_map});
-    }
-
-    return Status::OK();
-}
 
 Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& params,
                                                  PConstantExprResult* response) {
@@ -180,7 +125,6 @@ Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals) {
     _runtime_profile = _runtime_state->runtime_profile();
     _runtime_profile->set_name("FoldConstantExpr");
     _mem_tracker = std::make_unique<MemTracker>("FoldConstantExpr");
-    _mem_pool.reset(new MemPool(_mem_tracker.get()));
 
     return Status::OK();
 }
@@ -234,7 +178,7 @@ string FoldConstantExecutor::_get_result(void* src, size_t size, PrimitiveType s
         if constexpr (is_vec) {
             return std::string((char*)src, size);
         }
-        return (reinterpret_cast<StringValue*>(src))->to_string();
+        return (reinterpret_cast<StringRef*>(src))->to_string();
     }
     case TYPE_DATE:
     case TYPE_DATETIME: {

@@ -189,6 +189,7 @@ public class EsUtil {
 
     /**
      * Remove `dynamic_templates` and check explicit mapping
+     *
      * @param mappings
      */
     private static void checkDynamicTemplates(JSONObject mappings) {
@@ -376,13 +377,24 @@ public class EsUtil {
 
     /**
      * Generate columns from ES Cluster.
+     * Add mappingEsId config in es external catalog.
      **/
-    public static List<Column> genColumnsFromEs(EsRestClient client, String indexName, String mappingType) {
+    public static List<Column> genColumnsFromEs(EsRestClient client, String indexName, String mappingType,
+            boolean mappingEsId) {
         String mapping = client.getMapping(indexName);
         JSONObject mappingProps = getMappingProps(indexName, mapping, mappingType);
         List<String> arrayFields = getArrayFields(mapping);
         Set<String> keys = (Set<String>) mappingProps.keySet();
         List<Column> columns = new ArrayList<>();
+        if (mappingEsId) {
+            Column column = new Column();
+            column.setName("_id");
+            column.setIsKey(true);
+            column.setType(ScalarType.createVarcharType(255));
+            column.setIsAllowNull(true);
+            column.setUniqueId(-1);
+            columns.add(column);
+        }
         for (String key : keys) {
             JSONObject field = (JSONObject) mappingProps.get(key);
             Type type;
@@ -434,7 +446,7 @@ public class EsUtil {
             case "scaled_float":
                 return Type.DOUBLE;
             case "date":
-                return ScalarType.getDefaultDateType(Type.DATE);
+                return ScalarType.createDateV2Type();
             case "keyword":
             case "text":
             case "ip":

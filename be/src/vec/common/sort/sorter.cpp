@@ -247,6 +247,9 @@ Status Sorter::partial_sort(Block& src_block, Block& dest_block) {
         int i = 0;
         const auto& convert_nullable_flags = _vsort_exec_exprs.get_convert_nullable_flags();
         for (auto column_id : valid_column_ids) {
+            if (column_id < 0) {
+                continue;
+            }
             if (convert_nullable_flags[i]) {
                 auto column_ptr = make_nullable(src_block.get_by_position(column_id).column);
                 new_block.insert(
@@ -336,15 +339,24 @@ Status FullSorter::_do_sort() {
         // if one block totally greater the heap top of _block_priority_queue
         // we can throw the block data directly.
         if (_state->num_rows() < _limit) {
-            _block_priority_queue.emplace(
-                    _pool->add(new MergeSortCursorImpl(desc_block, _sort_description)));
             _state->add_sorted_block(desc_block);
+            // if it's spilled, sorted_block is not added into sorted block vector,
+            // so it's should not be added to _block_priority_queue, since
+            // sorted_block will be destroyed when _do_sort is finished
+            if (!_state->is_spilled()) {
+                _block_priority_queue.emplace(_pool->add(
+                        new MergeSortCursorImpl(_state->last_sorted_block(), _sort_description)));
+            }
         } else {
-            MergeSortBlockCursor block_cursor(
-                    _pool->add(new MergeSortCursorImpl(desc_block, _sort_description)));
+            auto tmp_cursor_impl =
+                    std::make_unique<MergeSortCursorImpl>(desc_block, _sort_description);
+            MergeSortBlockCursor block_cursor(tmp_cursor_impl.get());
             if (!block_cursor.totally_greater(_block_priority_queue.top())) {
                 _state->add_sorted_block(desc_block);
-                _block_priority_queue.push(block_cursor);
+                if (!_state->is_spilled()) {
+                    _block_priority_queue.emplace(_pool->add(new MergeSortCursorImpl(
+                            _state->last_sorted_block(), _sort_description)));
+                }
             }
         }
     } else {

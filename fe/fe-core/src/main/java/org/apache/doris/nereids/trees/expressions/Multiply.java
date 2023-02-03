@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.NumericType;
+import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 
@@ -44,7 +45,12 @@ public class Multiply extends BinaryArithmetic {
 
     @Override
     public DataType getDataType() {
-        return left().getDataType().promotion();
+        DataType rightType = child(0).getDataType();
+        DataType leftType = child(1).getDataType();
+        DataType outputType = TypeCoercionUtils.findTightestCommonType(this,
+                rightType, leftType).orElseGet(() -> rightType);
+        outputType = outputType.promotion();
+        return outputType;
     }
 
     @Override

@@ -41,10 +41,6 @@ public:
 
     Status init(const RowsetWriterContext& rowset_writer_context) override;
 
-    Status add_row(const RowCursor& row) override { return _add_row(row); }
-    // For Memtable::flush()
-    Status add_row(const ContiguousRow& row) override { return _add_row(row); }
-
     Status add_block(const vectorized::Block* block) override;
 
     // add rowset by create hard link
@@ -85,8 +81,6 @@ public:
     int32_t get_atomic_num_segment() const override { return _num_segment.load(); }
 
 private:
-    template <typename RowType>
-    Status _add_row(const RowType& row);
     Status _add_block(const vectorized::Block* block,
                       std::unique_ptr<segment_v2::SegmentWriter>* writer);
     Status _add_block_for_segcompaction(const vectorized::Block* block,

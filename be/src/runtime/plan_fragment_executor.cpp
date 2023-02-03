@@ -100,7 +100,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     _runtime_state->set_tracer(std::move(tracer));
 
     SCOPED_ATTACH_TASK(_runtime_state.get());
-    _runtime_state->init_scanner_mem_trackers();
     _runtime_state->runtime_filter_mgr()->init();
     _runtime_state->set_be_number(request.backend_num);
     if (request.__isset.backend_id) {
@@ -114,9 +113,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     }
     if (request.__isset.load_job_id) {
         _runtime_state->set_load_job_id(request.load_job_id);
-    }
-    if (request.__isset.load_error_hub_info) {
-        _runtime_state->set_load_error_hub_info(request.load_error_hub_info);
     }
 
     if (request.query_options.__isset.is_report_success) {
@@ -137,7 +133,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     DCHECK(request.__isset.fragment);
     RETURN_IF_ERROR(ExecNode::create_tree(_runtime_state.get(), obj_pool(), request.fragment.plan,
                                           *desc_tbl, &_plan));
-    _runtime_state->set_fragment_root_id(_plan->id());
 
     // set #senders of exchange nodes before calling Prepare()
     std::vector<ExecNode*> exch_nodes;

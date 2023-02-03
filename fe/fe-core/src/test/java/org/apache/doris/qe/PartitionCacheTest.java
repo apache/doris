@@ -1074,7 +1074,7 @@ public class PartitionCacheTest {
         SqlCache sqlCache = (SqlCache) ca.getCache();
         String cacheKey = sqlCache.getSqlWithViewStmt();
         Types.PUniqueId sqlKey2 = CacheProxy.getMd5(cacheKey.replace("北京", "上海"));
-        Assert.assertNotEquals(sqlCache.getSqlKey(), sqlKey2);
+        Assert.assertNotEquals(CacheProxy.getMd5(sqlCache.getSqlWithViewStmt()), sqlKey2);
     }
 
     @Test

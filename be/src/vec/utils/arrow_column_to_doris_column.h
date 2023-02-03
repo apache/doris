@@ -31,7 +31,7 @@
 // data format from Apache Arrow format.
 namespace doris::vectorized {
 
-const PrimitiveType arrow_type_to_primitive_type(::arrow::Type::type type);
+PrimitiveType arrow_type_to_primitive_type(::arrow::Type::type type);
 
 // For convenient unit test. Not use this in formal code.
 Status arrow_column_to_doris_column(const arrow::Array* arrow_column, size_t arrow_batch_cur_idx,

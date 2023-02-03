@@ -255,6 +255,7 @@ public class HMSExternalTable extends ExternalTable {
      * get the dla type for scan node to get right information.
      */
     public DLAType getDlaType() {
+        makeSureInitialized();
         return dlaType;
     }
 
@@ -287,10 +288,6 @@ public class HMSExternalTable extends ExternalTable {
 
     public Map<String, String> getCatalogProperties() {
         return catalog.getProperties();
-    }
-
-    public Map<String, String> getS3HadoopProperties() {
-        return catalog.getCatalogProperty().getS3HadoopProperties();
     }
 
     public Map<String, String> getHadoopProperties() {

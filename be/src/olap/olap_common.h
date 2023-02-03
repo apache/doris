@@ -102,18 +102,6 @@ struct TabletSize {
     size_t tablet_size;
 };
 
-enum RangeCondition {
-    GT = 0, // greater than
-    GE = 1, // greater or equal
-    LT = 2, // less than
-    LE = 3, // less or equal
-};
-
-enum DelCondSatisfied {
-    DEL_SATISFIED = 0,         //satisfy delete condition
-    DEL_NOT_SATISFIED = 1,     //not satisfy delete condition
-    DEL_PARTIAL_SATISFIED = 2, //partially satisfy delete condition
-};
 // Define all data types supported by Field.
 // If new filed_type is defined, not only new TypeInfo may need be defined,
 // but also some functions like get_type_info in types.cpp need to be changed.
@@ -173,20 +161,10 @@ enum FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_QUANTILE_UNION = 9
 };
 
-// Compression algorithm type
-enum OLAPCompressionType {
-    // Compression algorithm used for network transmission, low compression rate, low cpu overhead
-    OLAP_COMP_TRANSPORT = 1,
-    // Compression algorithm used for hard disk data, with high compression rate and high CPU overhead
-    OLAP_COMP_STORAGE = 2,
-    // The compression algorithm used for storage, the compression rate is low, and the cpu overhead is low
-    OLAP_COMP_LZ4 = 3,
-};
-
 enum PushType {
-    PUSH_NORMAL = 1,          // for broker/hadoop load
+    PUSH_NORMAL = 1,          // for broker/hadoop load, not used any more
     PUSH_FOR_DELETE = 2,      // for delete
-    PUSH_FOR_LOAD_DELETE = 3, // not use
+    PUSH_FOR_LOAD_DELETE = 3, // not used any more
     PUSH_NORMAL_V2 = 4,       // for spark load
 };
 

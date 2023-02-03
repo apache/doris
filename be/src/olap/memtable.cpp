@@ -18,17 +18,16 @@
 #include "olap/memtable.h"
 
 #include "common/logging.h"
-#include "olap/row.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_writer.h"
 #include "olap/schema.h"
 #include "olap/schema_change.h"
 #include "runtime/load_channel_mgr.h"
-#include "runtime/tuple.h"
 #include "util/doris_metrics.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/aggregate_functions/aggregate_function_simple_factory.h"
 #include "vec/core/field.h"
+#include "vec/jsonb/serialize.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -57,13 +56,12 @@ MemTable::MemTable(TabletSharedPtr tablet, Schema* schema, const TabletSchema* t
           _cur_max_version(cur_max_version) {
 #ifndef BE_TEST
     _insert_mem_tracker_use_hook = std::make_unique<MemTracker>(
-            fmt::format("MemTableHookInsert:TabletId={}", std::to_string(tablet_id())), nullptr,
-            ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker_set());
+            fmt::format("MemTableHookInsert:TabletId={}", std::to_string(tablet_id())),
+            ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker());
 #else
     _insert_mem_tracker_use_hook = std::make_unique<MemTracker>(
             fmt::format("MemTableHookInsert:TabletId={}", std::to_string(tablet_id())));
 #endif
-    _buffer_mem_pool = std::make_unique<MemPool>(_insert_mem_tracker.get());
     _table_mem_pool = std::make_unique<MemPool>(_insert_mem_tracker.get());
     _vec_row_comparator = std::make_shared<RowInBlockComparator>(_schema);
     // TODO: Support ZOrderComparator in the future
@@ -135,7 +133,6 @@ MemTable::~MemTable() {
     }
     std::for_each(_row_in_blocks.begin(), _row_in_blocks.end(), std::default_delete<RowInBlock>());
     _insert_mem_tracker->release(_mem_usage);
-    _buffer_mem_pool->free_all();
     _table_mem_pool->free_all();
     _flush_mem_tracker->set_consumption(0);
     DCHECK_EQ(_insert_mem_tracker->consumption(), 0)
@@ -209,8 +206,9 @@ void MemTable::_insert_one_row_from_block(RowInBlock* row_in_block) {
 void MemTable::_aggregate_two_row_in_block(RowInBlock* new_row, RowInBlock* row_in_skiplist) {
     if (_tablet_schema->has_sequence_col()) {
         auto sequence_idx = _tablet_schema->sequence_col_idx();
-        auto res = _input_mutable_block.compare_at(row_in_skiplist->_row_pos, new_row->_row_pos,
-                                                   sequence_idx, _input_mutable_block, -1);
+        DCHECK_LT(sequence_idx, _input_mutable_block.columns());
+        auto col_ptr = _input_mutable_block.mutable_columns()[sequence_idx].get();
+        auto res = col_ptr->compare_at(row_in_skiplist->_row_pos, new_row->_row_pos, *col_ptr, -1);
         // dst sequence column larger than src, don't need to update
         if (res > 0) {
             return;
@@ -359,12 +357,43 @@ Status MemTable::_do_flush(int64_t& duration_ns) {
     SCOPED_RAW_TIMER(&duration_ns);
     _collect_vskiplist_results<true>();
     vectorized::Block block = _output_mutable_block.to_block();
+    if (_tablet_schema->store_row_column()) {
+        // convert block to row store format
+        serialize_block_to_row_column(block);
+    }
     RETURN_NOT_OK(_rowset_writer->flush_single_memtable(&block, &_flush_size));
     return Status::OK();
 }
 
 Status MemTable::close() {
     return flush();
+}
+
+void MemTable::serialize_block_to_row_column(vectorized::Block& block) {
+    if (block.rows() == 0) {
+        return;
+    }
+    MonotonicStopWatch watch;
+    watch.start();
+    // find row column id
+    int row_column_id = 0;
+    for (int i = 0; i < _tablet_schema->num_columns(); ++i) {
+        if (_tablet_schema->column(i).is_row_store_column()) {
+            row_column_id = i;
+            break;
+        }
+    }
+    vectorized::ColumnString* row_store_column =
+            static_cast<vectorized::ColumnString*>(block.get_by_position(row_column_id)
+                                                           .column->assume_mutable_ref()
+                                                           .assume_mutable()
+                                                           .get());
+    row_store_column->clear();
+    vectorized::JsonbSerializeUtil::block_to_jsonb(*_tablet_schema, block, *row_store_column,
+                                                   _tablet_schema->num_columns());
+    VLOG_DEBUG << "serialize , num_rows:" << block.rows() << ", row_column_id:" << row_column_id
+               << ", total_byte_size:" << block.allocated_bytes() << ", serialize_cost(us)"
+               << watch.elapsed_time() / 1000;
 }
 
 } // namespace doris

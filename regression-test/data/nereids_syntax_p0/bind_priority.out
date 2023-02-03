@@ -26,3 +26,13 @@ all	2
 3
 2
 
+-- !bind_order_to_project_alias --
+4	5
+5	4
+6	6
+
+-- !bind_order_to_project_alias --
+5	4
+4	5
+6	6
+

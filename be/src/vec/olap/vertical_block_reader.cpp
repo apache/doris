@@ -20,7 +20,6 @@
 #include "common/status.h"
 #include "olap/like_column_predicate.h"
 #include "olap/olap_common.h"
-#include "runtime/mem_pool.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/olap/block_reader.h"
 #include "vec/olap/vcollect_iterator.h"
@@ -55,7 +54,9 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
     _reader_context.is_vertical_compaction = true;
     for (auto& rs_reader : rs_readers) {
         // segment iterator will be inited here
-        RETURN_NOT_OK(rs_reader->get_segment_iterators(&_reader_context, segment_iters));
+        // In vertical compaction, every group will load segment so we should cache
+        // segment to avoid tot many s3 head request
+        RETURN_NOT_OK(rs_reader->get_segment_iterators(&_reader_context, segment_iters, true));
         // if segments overlapping, all segment iterator should be inited in
         // heap merge iterator. If segments are none overlapping, only first segment of this
         // rowset will be inited and push to heap, other segment will be inited later when current
@@ -185,8 +186,7 @@ Status VerticalBlockReader::init(const ReaderParams& read_params) {
     return Status::OK();
 }
 
-Status VerticalBlockReader::_direct_next_block(Block* block, MemPool* mem_pool,
-                                               ObjectPool* agg_pool, bool* eof) {
+Status VerticalBlockReader::_direct_next_block(Block* block, bool* eof) {
     auto res = _vcollect_iter->next_batch(block);
     if (UNLIKELY(!res.ok() && !res.is<END_OF_FILE>())) {
         return res;
@@ -296,8 +296,7 @@ size_t VerticalBlockReader::_copy_agg_data() {
     return copy_size;
 }
 
-Status VerticalBlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool,
-                                                ObjectPool* agg_pool, bool* eof) {
+Status VerticalBlockReader::_agg_key_next_block(Block* block, bool* eof) {
     if (_reader_context.is_key_column_group) {
         // collect_iter will filter agg keys
         auto res = _vcollect_iter->next_batch(block);
@@ -350,8 +349,7 @@ Status VerticalBlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool,
     return Status::OK();
 }
 
-Status VerticalBlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool,
-                                                   ObjectPool* agg_pool, bool* eof) {
+Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
     if (_reader_context.is_key_column_group) {
         // Record row_source_buffer current size for key column agg flag
         // _vcollect_iter->next_batch(block) will fill row_source_buffer but delete sign is ignored

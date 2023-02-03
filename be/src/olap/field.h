@@ -20,7 +20,6 @@
 #include <sstream>
 #include <string>
 
-#include "olap/aggregate_func.h"
 #include "olap/key_coder.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
@@ -48,14 +47,7 @@ public:
               _name(column.name()),
               _index_size(column.index_length()),
               _is_nullable(column.is_nullable()),
-              _unique_id(column.unique_id()) {
-        if (column.type() == OLAP_FIELD_TYPE_ARRAY) {
-            _agg_info = get_aggregate_info(column.aggregation(), column.type(),
-                                           column.get_sub_column(0).type());
-        } else {
-            _agg_info = get_aggregate_info(column.aggregation(), column.type());
-        }
-    }
+              _unique_id(column.unique_id()) {}
 
     virtual ~Field() = default;
 
@@ -82,39 +74,6 @@ public:
 
     virtual char* allocate_zone_map_value(MemPool* pool) const { return allocate_value(pool); }
 
-    void agg_update(RowCursorCell* dest, const RowCursorCell& src,
-                    MemPool* mem_pool = nullptr) const {
-        if (type() == OLAP_FIELD_TYPE_STRING && mem_pool == nullptr && !src.is_null()) {
-            auto dst_slice = reinterpret_cast<Slice*>(dest->mutable_cell_ptr());
-            auto src_slice = reinterpret_cast<const Slice*>(src.cell_ptr());
-            if (dst_slice->size < src_slice->size) {
-                *_long_text_buf = static_cast<char*>(realloc(*_long_text_buf, src_slice->size));
-                dst_slice->data = *_long_text_buf;
-            }
-        }
-        _agg_info->update(dest, src, mem_pool);
-    }
-
-    void agg_finalize(RowCursorCell* dst, MemPool* mem_pool) const {
-        _agg_info->finalize(dst, mem_pool);
-    }
-
-    virtual void consume(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
-                         ObjectPool* agg_pool) const {
-        _agg_info->init(dst, src, src_null, mem_pool, agg_pool);
-    }
-
-    // todo(kks): Unify AggregateInfo::init method and Field::agg_init method
-
-    // This function will initialize destination with source.
-    // This function differs copy function in that if this field
-    // contain aggregate information, this function will initialize
-    // destination in aggregate format, and update with source content.
-    virtual void agg_init(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool,
-                          ObjectPool* agg_pool) const {
-        direct_copy(dst, src);
-    }
-
     virtual char* allocate_memory(char* cell_ptr, char* variable_ptr) const { return variable_ptr; }
 
     virtual size_t get_variable_len() const { return 0; }
@@ -125,21 +84,6 @@ public:
         auto* local = new Field();
         this->clone(local);
         return local;
-    }
-
-    // Test if these two cell is equal with each other
-    template <typename LhsCellType, typename RhsCellType>
-    bool equal(const LhsCellType& lhs, const RhsCellType& rhs) const {
-        bool l_null = lhs.is_null();
-        bool r_null = rhs.is_null();
-
-        if (l_null != r_null) {
-            return false;
-        } else if (l_null) {
-            return true;
-        } else {
-            return _type_info->equal(lhs.cell_ptr(), rhs.cell_ptr());
-        }
     }
 
     // Only compare column content, without considering nullptr condition.
@@ -168,11 +112,6 @@ public:
         return l_null ? 0 : _type_info->cmp(lhs.cell_ptr(), rhs.cell_ptr());
     }
 
-    // Used to compare short key index. Because short key will truncate
-    // a varchar column, this function will handle in this condition.
-    template <typename LhsCellType, typename RhsCellType>
-    int index_cmp(const LhsCellType& lhs, const RhsCellType& rhs) const;
-
     // Copy source cell's content to destination cell directly.
     // For string type, this function assume that destination has
     // enough space and copy source content into destination without
@@ -200,19 +139,6 @@ public:
     // For string type, this will allocate data form pool,
     // and copy source's content.
     template <typename DstCellType, typename SrcCellType>
-    void copy_object(DstCellType* dst, const SrcCellType& src, MemPool* pool) const {
-        bool is_null = src.is_null();
-        dst->set_is_null(is_null);
-        if (is_null) {
-            return;
-        }
-        _type_info->copy_object(dst->mutable_cell_ptr(), src.cell_ptr(), pool);
-    }
-
-    // deep copy source cell' content to destination cell.
-    // For string type, this will allocate data form pool,
-    // and copy source's content.
-    template <typename DstCellType, typename SrcCellType>
     void deep_copy(DstCellType* dst, const SrcCellType& src, MemPool* pool) const {
         bool is_null = src.is_null();
         dst->set_is_null(is_null);
@@ -221,27 +147,6 @@ public:
         }
         _type_info->deep_copy(dst->mutable_cell_ptr(), src.cell_ptr(), pool);
     }
-
-    // deep copy field content from `src` to `dst` without null-byte
-    void deep_copy_content(char* dst, const char* src, MemPool* mem_pool) const {
-        _type_info->deep_copy(dst, src, mem_pool);
-    }
-
-    // shallow copy field content from `src` to `dst` without null-byte.
-    // for string like type, shallow copy only copies Slice, not the actual data pointed by slice.
-    void shallow_copy_content(char* dst, const char* src) const {
-        _type_info->shallow_copy(dst, src);
-    }
-
-    //convert and copy field from src to desc
-    Status convert_from(char* dest, const char* src, const TypeInfo* src_type,
-                        MemPool* mem_pool) const {
-        return _type_info->convert_from(dest, src, src_type, mem_pool, get_variable_len());
-    }
-
-    // Copy source content to destination in index format.
-    template <typename DstCellType, typename SrcCellType>
-    void to_index(DstCellType* dst, const SrcCellType& src) const;
 
     // used by init scan key stored in string format
     // value_string should end with '\0'
@@ -273,11 +178,7 @@ public:
         return ss.str();
     }
 
-    template <typename CellType>
-    uint32_t hash_code(const CellType& cell, uint32_t seed) const;
-
     FieldType type() const { return _type_info->type(); }
-    FieldAggregationMethod aggregation() const { return _agg_info->agg_method(); }
     const TypeInfo* type_info() const { return _type_info.get(); }
     bool is_nullable() const { return _is_nullable; }
 
@@ -308,7 +209,6 @@ public:
 
 protected:
     TypeInfoPtr _type_info;
-    const AggregateInfo* _agg_info;
     // unit : byte
     // except for strings, other types have fixed lengths
     uint32_t _length;
@@ -356,112 +256,9 @@ private:
     int32_t _unique_id;
 };
 
-template <typename LhsCellType, typename RhsCellType>
-int Field::index_cmp(const LhsCellType& lhs, const RhsCellType& rhs) const {
-    bool l_null = lhs.is_null();
-    bool r_null = rhs.is_null();
-    if (l_null != r_null) {
-        return l_null ? -1 : 1;
-    } else if (l_null) {
-        return 0;
-    }
-
-    int32_t res = 0;
-    if (type() == OLAP_FIELD_TYPE_VARCHAR || type() == OLAP_FIELD_TYPE_STRING) {
-        const Slice* l_slice = reinterpret_cast<const Slice*>(lhs.cell_ptr());
-        const Slice* r_slice = reinterpret_cast<const Slice*>(rhs.cell_ptr());
-        uint32_t max_bytes =
-                type() == OLAP_FIELD_TYPE_VARCHAR ? OLAP_VARCHAR_MAX_BYTES : OLAP_STRING_MAX_BYTES;
-        if (r_slice->size + max_bytes > _index_size || l_slice->size + max_bytes > _index_size) {
-            // if the actual length of the field is longer than the short key, only the prefix is compared,
-            // make sure all blocks with the same short key are scanned
-            // Otherwise, the short key and field can be compared directly
-            int compare_size = _index_size - max_bytes;
-            // l_slice size and r_slice size may be less than compare_size
-            // so calculate the min of the three size as new compare_size
-            compare_size = std::min(std::min(compare_size, (int)l_slice->size), (int)r_slice->size);
-
-            // This function is used to compare prefix index.
-            // Only the fixed length of prefix index should be compared.
-            // If r_slice->size > l_slice->size, ignore the extra parts directly.
-            res = strncmp(l_slice->data, r_slice->data, compare_size);
-            if (res == 0 && compare_size != (_index_size - max_bytes)) {
-                if (l_slice->size < r_slice->size) {
-                    res = -1;
-                } else if (l_slice->size > r_slice->size) {
-                    res = 1;
-                } else {
-                    res = 0;
-                }
-            }
-        } else {
-            res = l_slice->compare(*r_slice);
-        }
-    } else {
-        res = _type_info->cmp(lhs.cell_ptr(), rhs.cell_ptr());
-    }
-
-    return res;
-}
-
-template <typename DstCellType, typename SrcCellType>
-void Field::to_index(DstCellType* dst, const SrcCellType& src) const {
-    bool is_null = src.is_null();
-    dst->set_is_null(is_null);
-    if (is_null) {
-        return;
-    }
-
-    if (type() == OLAP_FIELD_TYPE_VARCHAR) {
-        // clear before copy
-        memset(dst->mutable_cell_ptr(), 0, _index_size);
-        const Slice* slice = reinterpret_cast<const Slice*>(src.cell_ptr());
-        size_t copy_size = slice->size < _index_size - OLAP_VARCHAR_MAX_BYTES
-                                   ? slice->size
-                                   : _index_size - OLAP_VARCHAR_MAX_BYTES;
-        *reinterpret_cast<VarcharLengthType*>(dst->mutable_cell_ptr()) = copy_size;
-        memory_copy((char*)dst->mutable_cell_ptr() + OLAP_VARCHAR_MAX_BYTES, slice->data,
-                    copy_size);
-    } else if (type() == OLAP_FIELD_TYPE_STRING) {
-        // clear before copy
-        memset(dst->mutable_cell_ptr(), 0, _index_size);
-        const Slice* slice = reinterpret_cast<const Slice*>(src.cell_ptr());
-        size_t copy_size = slice->size < _index_size - OLAP_STRING_MAX_BYTES
-                                   ? slice->size
-                                   : _index_size - OLAP_STRING_MAX_BYTES;
-        *reinterpret_cast<StringLengthType*>(dst->mutable_cell_ptr()) = copy_size;
-        memory_copy((char*)dst->mutable_cell_ptr() + OLAP_STRING_MAX_BYTES, slice->data, copy_size);
-    } else if (type() == OLAP_FIELD_TYPE_CHAR) {
-        // clear before copy
-        memset(dst->mutable_cell_ptr(), 0, _index_size);
-        const Slice* slice = reinterpret_cast<const Slice*>(src.cell_ptr());
-        memory_copy(dst->mutable_cell_ptr(), slice->data, _index_size);
-    } else {
-        memory_copy(dst->mutable_cell_ptr(), src.cell_ptr(), size());
-    }
-}
-
-template <typename CellType>
-uint32_t Field::hash_code(const CellType& cell, uint32_t seed) const {
-    bool is_null = cell.is_null();
-    if (is_null) {
-        return HashUtil::hash(&is_null, sizeof(is_null), seed);
-    }
-    return _type_info->hash_code(cell.cell_ptr(), seed);
-}
-
 class ArrayField : public Field {
 public:
     explicit ArrayField(const TabletColumn& column) : Field(column) {}
-
-    void consume(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
-                 ObjectPool* agg_pool) const override {
-        dst->set_is_null(src_null);
-        if (src_null) {
-            return;
-        }
-        _type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
-    }
 
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
         auto array_v = (CollectionValue*)cell_ptr;
@@ -476,22 +273,6 @@ class CharField : public Field {
 public:
     explicit CharField() : Field() {}
     explicit CharField(const TabletColumn& column) : Field(column) {}
-
-    // the char field is especial, which need the _length info when consume raw data
-    void consume(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
-                 ObjectPool* agg_pool) const override {
-        dst->set_is_null(src_null);
-        if (src_null) {
-            return;
-        }
-
-        auto* value = reinterpret_cast<const StringValue*>(src);
-        auto* dest_slice = (Slice*)(dst->mutable_cell_ptr());
-        dest_slice->size = _length;
-        dest_slice->data = (char*)mem_pool->allocate(dest_slice->size);
-        memcpy(dest_slice->data, value->ptr, value->len);
-        memset(dest_slice->data + value->len, 0, dest_slice->size - value->len);
-    }
 
     size_t get_variable_len() const override { return _length; }
 
@@ -667,12 +448,6 @@ public:
     explicit BitmapAggField() : Field() {}
     explicit BitmapAggField(const TabletColumn& column) : Field(column) {}
 
-    // bitmap storage data always not null
-    void agg_init(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool,
-                  ObjectPool* agg_pool) const override {
-        _agg_info->init(dst, (const char*)src.cell_ptr(), false, mem_pool, agg_pool);
-    }
-
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
         auto slice = (Slice*)cell_ptr;
         slice->data = nullptr;
@@ -691,12 +466,6 @@ public:
     explicit QuantileStateAggField() : Field() {}
     explicit QuantileStateAggField(const TabletColumn& column) : Field(column) {}
 
-    // quantile_state storage data always not null
-    void agg_init(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool,
-                  ObjectPool* agg_pool) const override {
-        _agg_info->init(dst, (const char*)src.cell_ptr(), false, mem_pool, agg_pool);
-    }
-
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
         auto slice = (Slice*)cell_ptr;
         slice->data = nullptr;
@@ -714,12 +483,6 @@ class HllAggField : public Field {
 public:
     explicit HllAggField() : Field() {}
     explicit HllAggField(const TabletColumn& column) : Field(column) {}
-
-    // Hll storage data always not null
-    void agg_init(RowCursorCell* dst, const RowCursorCell& src, MemPool* mem_pool,
-                  ObjectPool* agg_pool) const override {
-        _agg_info->init(dst, (const char*)src.cell_ptr(), false, mem_pool, agg_pool);
-    }
 
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
         auto slice = (Slice*)cell_ptr;

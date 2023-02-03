@@ -23,7 +23,8 @@ suite("test_oracle_jdbc_catalog", "p0") {
         String internal_db_name = "regression_test_jdbc_catalog_p0";
         String ex_db_name = "DORIS_TEST";
         String oracle_port = context.config.otherConfigs.get("oracle_11_port");
-        String SID = "XE"
+        String SID = "XE";
+        String test_insert = "TEST_INSERT";
 
         String inDorisTable = "doris_in_tb";
 
@@ -62,11 +63,23 @@ suite("test_oracle_jdbc_catalog", "p0") {
         order_qt_test2  """ select * from TEST_CHAR order by ID; """
         order_qt_test3  """ select * from TEST_INT order by ID; """
         order_qt_test5  """ select * from TEST_DATE order by ID; """
+        order_qt_test6  """ select * from TEST_TIMESTAMP order by ID; """
 
         // The result of TEST_RAW will change
         // So instead of qt, we're using sql here.
         sql  """ select * from TEST_RAW order by ID; """
 
+        // test insert
+        String uuid1 = UUID.randomUUID().toString();
+        sql """ insert into ${test_insert} values ('${uuid1}', 'doris1', 18) """
+        order_qt_test_insert1 """ select name, age from ${test_insert} where id = '${uuid1}' order by age """
+
+        String uuid2 = UUID.randomUUID().toString();
+        sql """ insert into ${test_insert} values ('${uuid2}', 'doris2', 19), ('${uuid2}', 'doris3', 20) """
+        order_qt_test_insert2 """ select name, age from ${test_insert} where id = '${uuid2}' order by age """
+
+        sql """ insert into ${test_insert} select * from ${test_insert} where id = '${uuid2}' """
+        order_qt_test_insert3 """ select name, age from ${test_insert} where id = '${uuid2}' order by age """
 
         sql """drop catalog if exists ${catalog_name} """
         sql """drop resource if exists jdbc_resource_catalog_pg"""

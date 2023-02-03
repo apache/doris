@@ -68,6 +68,14 @@ public class ShowMTMVJobStmtTest {
         Assert.assertNotNull(stmt.getDbName());
         Assert.assertNotNull(stmt.getMVName());
         Assert.assertEquals("SHOW MTMV JOB ON `db2`.`mv1`", stmt.toSql());
+
+        tableName = new TableName(null, null, "mv1");
+        stmt = new ShowMTMVJobStmt("db1", tableName);
+        stmt.analyze(analyzer);
+        Assert.assertNull(stmt.getJobName());
+        Assert.assertNotNull(stmt.getDbName());
+        Assert.assertNotNull(stmt.getMVName());
+        Assert.assertEquals("SHOW MTMV JOB FROM db1 ON `mv1`", stmt.toSql());
     }
 
     @Test(expected = UserException.class)

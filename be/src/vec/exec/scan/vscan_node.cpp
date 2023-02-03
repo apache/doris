@@ -19,6 +19,7 @@
 
 #include "common/consts.h"
 #include "common/status.h"
+#include "exprs/bloom_filter_func.h"
 #include "exprs/hybrid_set.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "util/defer_op.h"
@@ -48,6 +49,17 @@ static bool ignore_cast(SlotDescriptor* slot, VExpr* expr) {
     if (slot->type().is_string_type() && expr->type().is_string_type()) {
         return true;
     }
+    if (slot->type().is_array_type()) {
+        if (slot->type().children[0].type == expr->type().type) {
+            return true;
+        }
+        if (slot->type().children[0].is_date_type() && expr->type().is_date_type()) {
+            return true;
+        }
+        if (slot->type().children[0].is_string_type() && expr->type().is_string_type()) {
+            return true;
+        }
+    }
     return false;
 }
 
@@ -75,7 +87,6 @@ Status VScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status VScanNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     // init profile for runtime filter
     for (auto& rf_ctx : _runtime_filter_ctxs) {
@@ -85,7 +96,6 @@ Status VScanNode::prepare(RuntimeState* state) {
 }
 
 Status VScanNode::open(RuntimeState* state) {
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VScanNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_CANCELLED(state);
@@ -96,7 +106,6 @@ Status VScanNode::alloc_resource(RuntimeState* state) {
     if (_opened) {
         return Status::OK();
     }
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     _input_tuple_desc = state->desc_tbl().get_tuple_descriptor(_input_tuple_id);
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VScanNode::alloc_resource");
@@ -125,7 +134,6 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VScanNode::get_next");
     SCOPED_TIMER(_get_next_timer);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     // in inverted index apply logic, in order to optimize query performance,
     // we built some temporary columns into block, these columns only used in scan node level,
     // remove them when query leave scan node to avoid other nodes use block->columns() to make a wrong decision
@@ -139,8 +147,14 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
     }};
 
     if (state->is_cancelled()) {
-        _scanner_ctx->set_status_on_error(Status::Cancelled("query cancelled"));
-        return _scanner_ctx->status();
+        // ISSUE: https://github.com/apache/doris/issues/16360
+        // _scanner_ctx may be null here, see: `VScanNode::alloc_resource` (_eos == null)
+        if (_scanner_ctx) {
+            _scanner_ctx->set_status_on_error(Status::Cancelled("query cancelled"));
+            return _scanner_ctx->status();
+        } else {
+            return Status::Cancelled("query cancelled");
+        }
     }
 
     if (_eos) {
@@ -380,12 +394,28 @@ void VScanNode::release_resource(RuntimeState* state) {
     ExecNode::release_resource(state);
 }
 
+Status VScanNode::try_close() {
+    if (_scanner_ctx.get()) {
+        // mark this scanner ctx as should_stop to make sure scanners will not be scheduled anymore
+        // TODO: there is a lock in `set_should_stop` may cause some slight impact
+        _scanner_ctx->set_should_stop();
+    }
+    return Status::OK();
+}
+
 Status VScanNode::_normalize_conjuncts() {
     // The conjuncts is always on output tuple, so use _output_tuple_desc;
     std::vector<SlotDescriptor*> slots = _output_tuple_desc->slots();
 
     for (int slot_idx = 0; slot_idx < slots.size(); ++slot_idx) {
-        switch (slots[slot_idx]->type().type) {
+        auto type = slots[slot_idx]->type().type;
+        if (slots[slot_idx]->type().type == TYPE_ARRAY) {
+            type = slots[slot_idx]->type().children[0].type;
+            if (type == TYPE_ARRAY) {
+                continue;
+            }
+        }
+        switch (type) {
 #define M(NAME)                                                                              \
     case TYPE_##NAME: {                                                                      \
         ColumnValueRange<TYPE_##NAME> range(slots[slot_idx]->col_name(),                     \
@@ -555,7 +585,7 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
                                           (*_vconjunct_ctx_ptr)->get_function_state_scope());
             }
 
-            // here do not close Expr* now
+            // here do not close VExpr* now
             *output_expr = left_child != nullptr ? left_child : right_child;
             return Status::OK();
         }
@@ -641,6 +671,11 @@ bool VScanNode::_is_predicate_acting_on_slot(
             // the type of predicate not match the slot's type
             return false;
         }
+    } else if (child_contains_slot->type().is_datetime_type() &&
+               child_contains_slot->node_type() == doris::TExprNodeType::CAST_EXPR) {
+        // Expr `CAST(CAST(datetime_col AS DATE) AS DATETIME) = datetime_literal` should not be
+        // push down.
+        return false;
     }
     *range = &(entry->second.second);
     return true;
@@ -665,7 +700,7 @@ Status VScanNode::_eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, Pu
             //  But now we still don't cover all predicates for const expression.
             //  For example, for query `SELECT col FROM tbl WHERE 'PROMOTION' LIKE 'AAA%'`,
             //  predicate `like` will return a ColumnVector<UInt8> which contains a single value.
-            LOG(WARNING) << "Expr[" << vexpr->debug_string()
+            LOG(WARNING) << "VExpr[" << vexpr->debug_string()
                          << "] should return a const column but actually is "
                          << const_col_wrapper->column_ptr->get_name();
             DCHECK_EQ(bool_column->size(), 1);
@@ -681,7 +716,7 @@ Status VScanNode::_eval_const_conjuncts(VExpr* vexpr, VExprContext* expr_ctx, Pu
                              << bool_column->size();
             }
         } else {
-            LOG(WARNING) << "Expr[" << vexpr->debug_string()
+            LOG(WARNING) << "VExpr[" << vexpr->debug_string()
                          << "] should return a const column but actually is "
                          << const_col_wrapper->column_ptr->get_name();
         }
@@ -758,7 +793,7 @@ Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr
         if (value.data != nullptr) {
             if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
                           T == TYPE_HLL) {
-                auto val = StringValue(value.data, value.size);
+                auto val = StringRef(value.data, value.size);
                 RETURN_IF_ERROR(_change_value_range<true>(
                         temp_range, reinterpret_cast<void*>(&val),
                         ColumnValueRange<T>::add_fixed_value_range, fn_name));
@@ -835,7 +870,7 @@ Status VScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprConte
             auto fn_name = std::string("");
             if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
                           T == TYPE_HLL) {
-                auto val = StringValue(value.data, value.size);
+                auto val = StringRef(value.data, value.size);
                 if (is_fixed_range) {
                     RETURN_IF_ERROR(_change_value_range<true>(
                             range, reinterpret_cast<void*>(&val),
@@ -924,7 +959,7 @@ Status VScanNode::_normalize_noneq_binary_predicate(VExpr* expr, VExprContext* e
             if (value.data != nullptr) {
                 if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
                               T == TYPE_HLL) {
-                    auto val = StringValue(value.data, value.size);
+                    auto val = StringRef(value.data, value.size);
                     RETURN_IF_ERROR(_change_value_range<false>(range, reinterpret_cast<void*>(&val),
                                                                ColumnValueRange<T>::add_value_range,
                                                                fn_name, slot_ref_child));
@@ -964,6 +999,24 @@ Status VScanNode::_normalize_compound_predicate(
                             [&](auto& value_range) {
                                 _normalize_binary_in_compound_predicate(child_expr, expr_ctx, slot,
                                                                         value_range, pdt);
+                            },
+                            active_range);
+
+                    _compound_value_ranges.emplace_back(active_range);
+                }
+            } else if (TExprNodeType::MATCH_PRED == child_expr->node_type()) {
+                SlotDescriptor* slot = nullptr;
+                ColumnValueRangeType* range_on_slot = nullptr;
+                if (_is_predicate_acting_on_slot(child_expr, in_predicate_checker, &slot,
+                                                 &range_on_slot) ||
+                    _is_predicate_acting_on_slot(child_expr, eq_predicate_checker, &slot,
+                                                 &range_on_slot)) {
+                    ColumnValueRangeType active_range =
+                            *range_on_slot; // copy, in order not to affect the range in the _colname_to_value_range
+                    std::visit(
+                            [&](auto& value_range) {
+                                _normalize_match_in_compound_predicate(child_expr, expr_ctx, slot,
+                                                                       value_range, pdt);
                             },
                             active_range);
 
@@ -1019,7 +1072,7 @@ Status VScanNode::_normalize_binary_in_compound_predicate(vectorized::VExpr* exp
             if (value.data != nullptr) {
                 if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
                               T == TYPE_HLL) {
-                    auto val = StringValue(value.data, value.size);
+                    auto val = StringRef(value.data, value.size);
                     RETURN_IF_ERROR(_change_value_range<false>(
                             range, reinterpret_cast<void*>(&val),
                             ColumnValueRange<T>::add_compound_value_range, fn_name,
@@ -1038,6 +1091,20 @@ Status VScanNode::_normalize_binary_in_compound_predicate(vectorized::VExpr* exp
 }
 
 template <PrimitiveType T>
+Status VScanNode::_normalize_match_in_compound_predicate(vectorized::VExpr* expr,
+                                                         VExprContext* expr_ctx,
+                                                         SlotDescriptor* slot,
+                                                         ColumnValueRange<T>& range,
+                                                         PushDownType* pdt) {
+    DCHECK(expr->children().size() == 2);
+    if (TExprNodeType::MATCH_PRED == expr->node_type()) {
+        RETURN_IF_ERROR(_normalize_match_predicate(expr, expr_ctx, slot, range, pdt));
+    }
+
+    return Status::OK();
+}
+
+template <PrimitiveType T>
 Status VScanNode::_normalize_match_predicate(VExpr* expr, VExprContext* expr_ctx,
                                              SlotDescriptor* slot, ColumnValueRange<T>& range,
                                              PushDownType* pdt) {
@@ -1049,7 +1116,7 @@ Status VScanNode::_normalize_match_predicate(VExpr* expr, VExprContext* expr_ctx
                 slot->type().precision, slot->type().scale);
         // Normalize match conjuncts like 'where col match value'
 
-        auto match_checker = [](const std::string& fn_name) { return fn_name == "match"; };
+        auto match_checker = [](const std::string& fn_name) { return is_match_condition(fn_name); };
         StringRef value;
         int slot_ref_child = -1;
         PushDownType temp_pdt;
@@ -1062,7 +1129,7 @@ Status VScanNode::_normalize_match_predicate(VExpr* expr, VExprContext* expr_ctx
                 using CppType = typename PrimitiveTypeTraits<T>::CppType;
                 if constexpr (T == TYPE_CHAR || T == TYPE_VARCHAR || T == TYPE_STRING ||
                               T == TYPE_HLL) {
-                    auto val = StringValue(value.data, value.size);
+                    auto val = StringRef(value.data, value.size);
                     ColumnValueRange<T>::add_match_value_range(temp_range,
                                                                to_match_type(expr->op()),
                                                                reinterpret_cast<CppType*>(&val));

@@ -34,8 +34,6 @@
 
 namespace doris {
 
-class MemPool;
-
 struct OlapTableIndexSchema {
     int64_t index_id;
     std::vector<SlotDescriptor*> slots;
@@ -248,6 +246,8 @@ public:
         }
         return nullptr;
     }
+
+    const std::unordered_map<int64_t, NodeInfo>& nodes_info() { return _nodes; }
 
 private:
     std::unordered_map<int64_t, NodeInfo> _nodes;

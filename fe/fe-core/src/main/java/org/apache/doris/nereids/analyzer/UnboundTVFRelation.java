@@ -24,9 +24,11 @@ import org.apache.doris.nereids.properties.UnboundLogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.TVFProperties;
+import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.algebra.TVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLeaf;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
@@ -36,10 +38,11 @@ import java.util.Objects;
 import java.util.Optional;
 
 /** UnboundTVFRelation */
-public class UnboundTVFRelation extends LogicalLeaf implements Relation, Unbound {
+public class UnboundTVFRelation extends LogicalLeaf implements TVFRelation, Unbound {
+
+    private final RelationId id;
     private final String functionName;
     private final TVFProperties properties;
-    private final RelationId id;
 
     public UnboundTVFRelation(RelationId id, String functionName, TVFProperties properties) {
         this(id, functionName, properties, Optional.empty(), Optional.empty());
@@ -63,6 +66,11 @@ public class UnboundTVFRelation extends LogicalLeaf implements Relation, Unbound
 
     public RelationId getId() {
         return id;
+    }
+
+    @Override
+    public TableValuedFunction getFunction() {
+        throw new UnboundException("getFunction");
     }
 
     @Override
@@ -115,13 +123,12 @@ public class UnboundTVFRelation extends LogicalLeaf implements Relation, Unbound
         if (!super.equals(o)) {
             return false;
         }
-        UnboundTVFRelation relation = (UnboundTVFRelation) o;
-        return Objects.equals(functionName, relation.functionName) && Objects.equals(properties,
-                relation.properties);
+        UnboundTVFRelation that = (UnboundTVFRelation) o;
+        return functionName.equals(that.functionName) && properties.equals(that.properties) && id.equals(that.id);
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(super.hashCode(), functionName, properties);
+        return Objects.hash(super.hashCode(), functionName, properties, id);
     }
 }

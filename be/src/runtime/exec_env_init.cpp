@@ -22,9 +22,9 @@
 #include "gen_cpp/HeartbeatService_types.h"
 #include "gen_cpp/TPaloBrokerService.h"
 #include "olap/page_cache.h"
+#include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
-#include "olap/storage_policy_mgr.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/block_spill_manager.h"
 #include "runtime/broker_mgr.h"
@@ -45,7 +45,6 @@
 #include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
-#include "runtime/thread_resource_mgr.h"
 #include "runtime/tmp_file_mgr.h"
 #include "util/bfd_parser.h"
 #include "util/brpc_client_cache.h"
@@ -94,7 +93,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _backend_client_cache = new BackendServiceClientCache(config::max_client_cache_size_per_host);
     _frontend_client_cache = new FrontendServiceClientCache(config::max_client_cache_size_per_host);
     _broker_client_cache = new BrokerServiceClientCache(config::max_client_cache_size_per_host);
-    _thread_mgr = new ThreadResourceMgr();
 
     ThreadPoolBuilder("SendBatchThreadPool")
             .set_min_threads(config::send_batch_thread_pool_thread_num)
@@ -124,7 +122,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _stream_load_executor = new StreamLoadExecutor(this);
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
-    _storage_policy_mgr = new StoragePolicyMgr();
     _block_spill_mgr = new BlockSpillManager(_store_paths);
 
     _backend_client_cache->init_metrics("backend");
@@ -166,9 +163,7 @@ Status ExecEnv::_init_mem_env() {
     bool is_percent = false;
     std::stringstream ss;
     // 1. init mem tracker
-    _orphan_mem_tracker =
-            std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL, "Orphan");
-    _orphan_mem_tracker_raw = _orphan_mem_tracker.get();
+    init_mem_tracker();
     thread_context()->thread_mem_tracker_mgr->init();
 #if defined(USE_MEM_TRACKER) && !defined(__SANITIZE_ADDRESS__) && !defined(ADDRESS_SANITIZER) && \
         !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER) && !defined(USE_JEMALLOC)
@@ -213,6 +208,19 @@ Status ExecEnv::_init_mem_env() {
               << " segment_cache_capacity: " << segment_cache_capacity;
     SegmentLoader::create_global_instance(segment_cache_capacity);
 
+    // use memory limit
+    int64_t inverted_index_cache_limit =
+            ParseUtil::parse_mem_spec(config::inverted_index_searcher_cache_limit,
+                                      MemInfo::mem_limit(), MemInfo::physical_mem(), &is_percent);
+    while (!is_percent && inverted_index_cache_limit > MemInfo::mem_limit() / 2) {
+        // Reason same as buffer_pool_limit
+        inverted_index_cache_limit = inverted_index_cache_limit / 2;
+    }
+    InvertedIndexSearcherCache::create_global_instance(inverted_index_cache_limit);
+    LOG(INFO) << "Inverted index searcher cache memory limit: "
+              << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
+              << ", origin config value: " << config::inverted_index_searcher_cache_limit;
+
     // 4. init other managers
     RETURN_IF_ERROR(_tmp_file_mgr->init());
     RETURN_IF_ERROR(_block_spill_mgr->init());
@@ -234,6 +242,14 @@ Status ExecEnv::_init_mem_env() {
               << PrettyPrinter::print(chunk_reserved_bytes_limit, TUnit::BYTES)
               << ", origin config value: " << config::chunk_reserved_bytes_limit;
     return Status::OK();
+}
+
+void ExecEnv::init_mem_tracker() {
+    _orphan_mem_tracker =
+            std::make_shared<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL, "Orphan");
+    _orphan_mem_tracker_raw = _orphan_mem_tracker.get();
+    _experimental_mem_tracker = std::make_shared<MemTrackerLimiter>(
+            MemTrackerLimiter::Type::EXPERIMENTAL, "ExperimentalSet");
 }
 
 void ExecEnv::init_download_cache_buf() {
@@ -293,7 +309,6 @@ void ExecEnv::_destroy() {
     SAFE_DELETE(_fragment_mgr);
     SAFE_DELETE(_pipeline_task_scheduler);
     SAFE_DELETE(_cgroups_mgr);
-    SAFE_DELETE(_thread_mgr);
     SAFE_DELETE(_broker_client_cache);
     SAFE_DELETE(_frontend_client_cache);
     SAFE_DELETE(_backend_client_cache);

@@ -54,21 +54,15 @@ public class AesDecrypt extends AesCryptoFunction {
                     .args(StringType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE)
     );
 
-    /**
-     * constructor with 2 arguments.
-     */
     public AesDecrypt(Expression arg0, Expression arg1) {
         super("aes_decrypt", arg0, arg1);
     }
 
-    /**
-     * constructor with 3 arguments.
-     */
     public AesDecrypt(Expression arg0, Expression arg1, Expression arg2) {
         super("aes_decrypt", arg0, arg1, arg2, getDefaultBlockEncryptionMode());
     }
 
-    private AesDecrypt(Expression arg0, Expression arg1, Expression arg2, StringLiteral arg3) {
+    public AesDecrypt(Expression arg0, Expression arg1, Expression arg2, Expression arg3) {
         super("aes_decrypt", arg0, arg1, arg2, arg3);
     }
 

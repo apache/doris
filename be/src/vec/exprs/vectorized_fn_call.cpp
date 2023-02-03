@@ -21,8 +21,6 @@
 
 #include "common/consts.h"
 #include "common/status.h"
-#include "exprs/anyval_util.h"
-#include "exprs/rpc_fn.h"
 #include "fmt/format.h"
 #include "fmt/ranges.h"
 #include "udf/udf_internal.h"
@@ -38,20 +36,13 @@ VectorizedFnCall::VectorizedFnCall(const doris::TExprNode& node) : VExpr(node) {
 
 doris::Status VectorizedFnCall::prepare(doris::RuntimeState* state,
                                         const doris::RowDescriptor& desc, VExprContext* context) {
-    // In 1.2-lts, repeat function return type is changed to always nullable,
-    // which is not compatible with 1.1-lts
-    if ("repeat" == _fn.name.function_name and !_data_type->is_nullable()) {
-        const auto error_msg =
-                "In progress of upgrading from 1.1-lts to 1.2-lts, vectorized repeat "
-                "function cannot be executed, you can switch to non-vectorized engine by "
-                "'set global enable_vectorized_engine = false'";
-        return Status::InternalError(error_msg);
-    }
     RETURN_IF_ERROR_OR_PREPARED(VExpr::prepare(state, desc, context));
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(_children.size());
     std::vector<std::string_view> child_expr_name;
     for (auto child : _children) {
+        // TODO: rethink we really create column here. maybe only need nullptr just to
+        // get the function
         auto column = child->data_type()->create_column();
         argument_template.emplace_back(std::move(column), child->data_type(), child->expr_name());
         child_expr_name.emplace_back(child->expr_name());

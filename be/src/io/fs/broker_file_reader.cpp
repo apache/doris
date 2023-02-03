@@ -51,12 +51,14 @@ Status BrokerFileReader::close() {
 
         TBrokerOperationStatus response;
         try {
+            std::shared_ptr<BrokerServiceConnection> client;
+            RETURN_IF_ERROR(_fs->get_client(&client));
             try {
-                (*_client)->closeReader(response, request);
+                (*client)->closeReader(response, request);
             } catch (apache::thrift::transport::TTransportException& e) {
                 std::this_thread::sleep_for(std::chrono::seconds(1));
-                RETURN_IF_ERROR((*_client).reopen());
-                (*_client)->closeReader(response, request);
+                RETURN_IF_ERROR((*client).reopen());
+                (*client)->closeReader(response, request);
             }
         } catch (apache::thrift::TException& e) {
             std::stringstream ss;
@@ -93,16 +95,18 @@ Status BrokerFileReader::read_at(size_t offset, Slice result, const IOContext& /
     request.__set_length(bytes_req);
 
     TBrokerReadResponse response;
+    std::shared_ptr<BrokerServiceConnection> client;
+    RETURN_IF_ERROR(_fs->get_client(&client));
     try {
         VLOG_RPC << "send pread request to broker:" << _broker_addr << " position:" << offset
                  << ", read bytes length:" << bytes_req;
         try {
-            (*_client)->pread(response, request);
+            (*client)->pread(response, request);
         } catch (apache::thrift::transport::TTransportException& e) {
             std::this_thread::sleep_for(std::chrono::seconds(1));
-            RETURN_IF_ERROR((*_client).reopen());
+            RETURN_IF_ERROR((*client).reopen());
             LOG(INFO) << "retry reading from broker: " << _broker_addr << ". reason: " << e.what();
-            (*_client)->pread(response, request);
+            (*client)->pread(response, request);
         }
     } catch (apache::thrift::TException& e) {
         std::stringstream ss;

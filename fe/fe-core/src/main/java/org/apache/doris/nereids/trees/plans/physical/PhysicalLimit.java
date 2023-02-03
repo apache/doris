@@ -39,8 +39,8 @@ import java.util.Optional;
  * Physical limit plan
  */
 public class PhysicalLimit<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> implements Limit {
-    private final long limit;
 
+    private final long limit;
     private final long offset;
 
     public PhysicalLimit(long limit, long offset,

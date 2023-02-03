@@ -10,3 +10,5 @@
 -- !sort_string_on_fe --
 true
 
+-- !sql --
+

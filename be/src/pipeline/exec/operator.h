@@ -89,8 +89,6 @@ public:
 
     std::string get_name() const { return _name; }
 
-    RuntimeState* runtime_state() { return _state; }
-
     virtual const RowDescriptor& row_desc() = 0;
 
     int32_t id() const { return _id; }
@@ -216,6 +214,8 @@ public:
      */
     virtual bool is_pending_finish() const { return false; }
 
+    virtual Status try_close() { return Status::OK(); }
+
     bool is_closed() const { return _is_closed; }
 
     MemTracker* mem_tracker() const { return _mem_tracker.get(); }
@@ -225,7 +225,7 @@ public:
     const RowDescriptor& row_desc();
 
     RuntimeProfile* runtime_profile() { return _runtime_profile.get(); }
-    std::string debug_string() const;
+    virtual std::string debug_string() const;
     int32_t id() const { return _operator_builder->id(); }
 
 protected:
@@ -262,8 +262,9 @@ public:
         _runtime_profile.reset(new RuntimeProfile(
                 fmt::format("{} (id={})", _operator_builder->get_name(), _operator_builder->id())));
         _sink->profile()->insert_child_head(_runtime_profile.get(), true);
-        _mem_tracker = std::make_unique<MemTracker>("DataSinkOperator:" + _runtime_profile->name(),
-                                                    _runtime_profile.get());
+        _mem_tracker =
+                std::make_unique<MemTracker>("DataSinkOperator:" + _runtime_profile->name(),
+                                             _runtime_profile.get(), nullptr, "PeakMemoryUsage");
         return Status::OK();
     }
 
@@ -319,8 +320,9 @@ public:
         _runtime_profile.reset(new RuntimeProfile(
                 fmt::format("{} (id={})", _operator_builder->get_name(), _operator_builder->id())));
         _node->runtime_profile()->insert_child_head(_runtime_profile.get(), true);
-        _mem_tracker = std::make_unique<MemTracker>(get_name() + ": " + _runtime_profile->name(),
-                                                    _runtime_profile.get());
+        _mem_tracker =
+                std::make_unique<MemTracker>(get_name() + ": " + _runtime_profile->name(),
+                                             _runtime_profile.get(), nullptr, "PeakMemoryUsage");
         _node->increase_ref();
         return Status::OK();
     }

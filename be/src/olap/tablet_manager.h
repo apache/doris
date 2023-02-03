@@ -80,6 +80,9 @@ public:
 
     std::vector<TabletSharedPtr> get_all_tablet();
 
+    uint64_t get_rowset_nums();
+    uint64_t get_segment_nums();
+
     // Extract tablet_id and schema_hash from given path.
     //
     // The normal path pattern is like "/data/{shard_id}/{tablet_id}/{schema_hash}/xxx.data".
@@ -202,6 +205,7 @@ private:
 
     // trace the memory use by meta of tablet
     std::shared_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _tablet_meta_mem_tracker;
 
     const int32_t _tablets_shards_size;
     const int32_t _tablets_shards_mask;

@@ -20,8 +20,8 @@ package org.apache.doris.nereids.rules.exploration.join;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -62,21 +62,21 @@ public class InnerJoinLeftAssociate extends OneExplorationRuleFactory {
                     GroupPlan c = bottomJoin.right();
 
                     // Split condition
-                    Set<Slot> abOutputSet = JoinUtils.getJoinOutputSet(a, b);
+                    Set<ExprId> abOutputExprIdSet = JoinUtils.getJoinOutputExprIdSet(a, b);
                     Map<Boolean, List<Expression>> hashConjunctsSplit = Stream.concat(
                                     topJoin.getHashJoinConjuncts().stream(),
                                     bottomJoin.getHashJoinConjuncts().stream())
                             .collect(Collectors.partitioningBy(condition -> {
-                                Set<Slot> usedSlot = condition.getInputSlots();
-                                return abOutputSet.containsAll(usedSlot);
+                                Set<ExprId> usedSlotExprIds = condition.getInputSlotExprIds();
+                                return abOutputExprIdSet.containsAll(usedSlotExprIds);
                             }));
 
                     Map<Boolean, List<Expression>> otherConjunctsSplit = Stream.concat(
                                     topJoin.getOtherJoinConjuncts().stream(),
                                     bottomJoin.getOtherJoinConjuncts().stream())
                             .collect(Collectors.partitioningBy(condition -> {
-                                Set<Slot> usedSlot = condition.getInputSlots();
-                                return abOutputSet.containsAll(usedSlot);
+                                Set<ExprId> usedSlotExprIds = condition.getInputSlotExprIds();
+                                return abOutputExprIdSet.containsAll(usedSlotExprIds);
                             }));
 
                     List<Expression> newBottomHashJoinConjuncts = hashConjunctsSplit.get(true);

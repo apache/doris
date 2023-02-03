@@ -39,7 +39,7 @@ public:
     // Hold reader point to get reader params
     ~VCollectIterator();
 
-    void init(TabletReader* reader, bool force_merge, bool is_reverse);
+    void init(TabletReader* reader, bool ori_data_overlapping, bool force_merge, bool is_reverse);
 
     Status add_child(RowsetReaderSharedPtr rs_reader);
 
@@ -85,6 +85,9 @@ private:
                   _compare_columns(reader->_reader_context.read_orderby_key_columns) {};
 
         virtual Status init(bool get_data_by_ref = false) = 0;
+        virtual Status init_for_union(bool is_first_child, bool get_data_by_ref = false) {
+            return Status::OK();
+        };
 
         virtual int64_t version() const = 0;
 
@@ -146,6 +149,7 @@ private:
         ~Level0Iterator() override = default;
 
         Status init(bool get_data_by_ref = false) override;
+        Status init_for_union(bool is_first_child, bool get_data_by_ref = false) override;
 
         int64_t version() const override;
 

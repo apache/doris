@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
@@ -436,7 +437,7 @@ public class Role implements Writable {
         ResourcePrivEntry entry;
         try {
             entry = ResourcePrivEntry.create(resourceName, privs);
-        } catch (AnalysisException e) {
+        } catch (AnalysisException | PatternMatcherException e) {
             throw new DdlException(e.getMessage());
         }
         resourcePrivTable.addEntry(entry, false, false);
@@ -513,7 +514,7 @@ public class Role implements Writable {
         ResourcePrivEntry entry;
         try {
             entry = ResourcePrivEntry.create(resourceName, privs);
-        } catch (AnalysisException e) {
+        } catch (AnalysisException | PatternMatcherException e) {
             throw new DdlException(e.getMessage());
         }
         resourcePrivTable.revoke(entry, false, true);

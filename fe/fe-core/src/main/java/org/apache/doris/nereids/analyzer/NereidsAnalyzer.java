@@ -22,8 +22,6 @@ import org.apache.doris.nereids.jobs.batch.AdjustAggregateNullableForEmptySetJob
 import org.apache.doris.nereids.jobs.batch.AnalyzeRulesJob;
 import org.apache.doris.nereids.jobs.batch.AnalyzeSubqueryRulesJob;
 import org.apache.doris.nereids.jobs.batch.CheckAnalysisJob;
-import org.apache.doris.nereids.jobs.batch.TypeCoercionJob;
-import org.apache.doris.nereids.rules.analysis.Scope;
 
 import java.util.Objects;
 import java.util.Optional;
@@ -33,6 +31,7 @@ import java.util.Optional;
  * TODO: revisit the interface after subquery analysis is supported.
  */
 public class NereidsAnalyzer {
+
     private final CascadesContext cascadesContext;
     private final Optional<Scope> outerScope;
 
@@ -52,7 +51,6 @@ public class NereidsAnalyzer {
         new AnalyzeRulesJob(cascadesContext, outerScope).execute();
         new AnalyzeSubqueryRulesJob(cascadesContext).execute();
         new AdjustAggregateNullableForEmptySetJob(cascadesContext).execute();
-        new TypeCoercionJob(cascadesContext).execute();
         // check whether analyze result is meaningful
         new CheckAnalysisJob(cascadesContext).execute();
     }

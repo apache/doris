@@ -68,3 +68,19 @@ t1 date,
 t2 interval year(3) to month,
 t3 interval day(3) to second(6)
 );
+
+create table doris_test.test_timestamp(
+id int,
+t1 date,
+t2 timestamp(6),
+t3 timestamp(9),
+t4 timestamp,
+t5 interval year(3) to month,
+t6 interval day(3) to second(6)
+);
+
+create table doris_test.test_insert(
+id varchar2(128),
+name varchar2(128),
+age number(5)
+);

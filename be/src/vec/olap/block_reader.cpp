@@ -20,7 +20,6 @@
 #include "common/status.h"
 #include "olap/like_column_predicate.h"
 #include "olap/olap_common.h"
-#include "runtime/mem_pool.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/olap/vcollect_iterator.h"
 
@@ -34,9 +33,33 @@ BlockReader::~BlockReader() {
     }
 }
 
+bool BlockReader::_rowsets_overlapping(const std::vector<RowsetReaderSharedPtr>& rs_readers) {
+    std::string cur_max_key;
+    for (const auto& rs_reader : rs_readers) {
+        // version 0-1 of every tablet is empty, just skip this rowset
+        if (rs_reader->rowset()->version().second == 1) {
+            continue;
+        }
+        if (rs_reader->rowset()->num_rows() == 0) {
+            continue;
+        }
+        if (rs_reader->rowset()->is_segments_overlapping()) {
+            return true;
+        }
+        std::string min_key;
+        bool has_min_key = rs_reader->rowset()->min_key(&min_key);
+        if (!has_min_key) {
+            return true;
+        }
+        if (min_key <= cur_max_key) {
+            return true;
+        }
+        CHECK(rs_reader->rowset()->max_key(&cur_max_key));
+    }
+    return false;
+}
 Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
                                        std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
-    _vcollect_iter.init(this, read_params.read_orderby_key, read_params.read_orderby_key_reverse);
     std::vector<RowsetReaderSharedPtr> rs_readers;
     auto res = _capture_rs_readers(read_params, &rs_readers);
     if (!res.ok()) {
@@ -47,6 +70,10 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
                      << ", version:" << read_params.version;
         return res;
     }
+    // check if rowsets are noneoverlapping
+    _is_rowsets_overlapping = _rowsets_overlapping(rs_readers);
+    _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
+                        read_params.read_orderby_key_reverse);
 
     _reader_context.batch_size = _batch_size;
     _reader_context.is_vec = true;
@@ -64,10 +91,8 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
     }
 
     RETURN_IF_ERROR(_vcollect_iter.build_heap(*valid_rs_readers));
-    if (_vcollect_iter.is_merge()) {
-        auto status = _vcollect_iter.current_row(&_next_row);
-        _eof = status.is<END_OF_FILE>();
-    }
+    auto status = _vcollect_iter.current_row(&_next_row);
+    _eof = status.is<END_OF_FILE>();
 
     return Status::OK();
 }
@@ -163,8 +188,7 @@ Status BlockReader::init(const ReaderParams& read_params) {
     return Status::OK();
 }
 
-Status BlockReader::_direct_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                       bool* eof) {
+Status BlockReader::_direct_next_block(Block* block, bool* eof) {
     auto res = _vcollect_iter.next(block);
     if (UNLIKELY(!res.ok() && !res.is<END_OF_FILE>())) {
         return res;
@@ -181,13 +205,11 @@ Status BlockReader::_direct_next_block(Block* block, MemPool* mem_pool, ObjectPo
     return Status::OK();
 }
 
-Status BlockReader::_direct_agg_key_next_block(Block* block, MemPool* mem_pool,
-                                               ObjectPool* agg_pool, bool* eof) {
+Status BlockReader::_direct_agg_key_next_block(Block* block, bool* eof) {
     return Status::OK();
 }
 
-Status BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                        bool* eof) {
+Status BlockReader::_agg_key_next_block(Block* block, bool* eof) {
     if (UNLIKELY(_eof)) {
         *eof = true;
         return Status::OK();
@@ -237,8 +259,7 @@ Status BlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool, ObjectP
     return Status::OK();
 }
 
-Status BlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool, ObjectPool* agg_pool,
-                                           bool* eof) {
+Status BlockReader::_unique_key_next_block(Block* block, bool* eof) {
     if (UNLIKELY(_eof)) {
         *eof = true;
         return Status::OK();

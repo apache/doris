@@ -21,6 +21,8 @@
 
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/Types_types.h"
+#include "runtime/define_primitive_type.h"
+#include "runtime/primitive_type.h"
 
 namespace doris {
 

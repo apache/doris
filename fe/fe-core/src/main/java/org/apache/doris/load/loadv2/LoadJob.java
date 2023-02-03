@@ -797,7 +797,8 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
 
     public String errorTabletsToJson() {
         Map<Long, String> map = Maps.newHashMap();
-        errorTabletInfos.stream().limit(3).forEach(p -> map.put(p.getTabletId(), p.getMsg()));
+        errorTabletInfos.stream().limit(Config.max_error_tablet_of_broker_load)
+            .forEach(p -> map.put(p.getTabletId(), p.getMsg()));
         Gson gson = new GsonBuilder().disableHtmlEscaping().create();
         return gson.toJson(map);
     }
@@ -831,8 +832,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             job = new SparkLoadJob();
         } else if (type == EtlJobType.INSERT) {
             job = new InsertLoadJob();
-        } else if (type == EtlJobType.MINI) {
-            job = new MiniLoadJob();
         } else {
             throw new IOException("Unknown load type: " + type.name());
         }

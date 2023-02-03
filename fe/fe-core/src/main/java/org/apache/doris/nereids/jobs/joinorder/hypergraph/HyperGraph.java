@@ -45,6 +45,10 @@ public class HyperGraph {
     private final List<Node> nodes = new ArrayList<>();
     private final HashSet<Group> nodeSet = new HashSet<>();
     private final HashMap<Slot, Long> slotToNodeMap = new HashMap<>();
+
+    // Record the complex project expression for some subgraph
+    // e.g. project (a + b)
+    //         |-- join(t1.a = t2.b)
     private final HashMap<Long, NamedExpression> complexProject = new HashMap<>();
 
     public List<Edge> getEdges() {
@@ -70,10 +74,10 @@ public class HyperGraph {
     /**
      * Store the relation between Alias Slot and Original Slot and its expression
      * e.g. a = b
-     * project((c + d) as b)
-     * Note if the alias if the alias only associated with one endNode,
+     *        |--- project((c + d) as b)
+     * Note if the alias only associated with one endNode,
      * e.g. a = b
-     * project((c + 1) as b)
+     *        |--- project((c + 1) as b)
      * we need to replace the group of that node with this project group.
      *
      * @param alias The alias Expression in project Operator
@@ -87,6 +91,7 @@ public class HyperGraph {
         Preconditions.checkArgument(!slotToNodeMap.containsKey(aliasSlot));
         slotToNodeMap.put(aliasSlot, bitmap);
         if (LongBitmap.getCardinality(bitmap) == 1) {
+            // This means the alias only associate with one endNode
             int index = LongBitmap.lowestOneIndex(bitmap);
             nodeSet.remove(nodes.get(index).getGroup());
             nodeSet.add(group);
@@ -129,11 +134,11 @@ public class HyperGraph {
         Preconditions.checkArgument(group.isJoinGroup());
         LogicalJoin<? extends Plan, ? extends Plan> join = (LogicalJoin) group.getLogicalExpression().getPlan();
         for (Expression expression : join.getExpressions()) {
-            LogicalJoin singleJoin = new LogicalJoin(join.getJoinType(), ImmutableList.of(expression), join.left(),
+            LogicalJoin singleJoin = new LogicalJoin<>(join.getJoinType(), ImmutableList.of(expression), join.left(),
                     join.right());
             Edge edge = new Edge(singleJoin, edges.size());
             Preconditions.checkArgument(expression.children().size() == 2);
-
+            // TODO: use connected property to calculate edge
             long left = calNodeMap(expression.child(0).getInputSlots());
             edge.setLeft(left);
             long right = calNodeMap(expression.child(1).getInputSlots());

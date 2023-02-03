@@ -15,7 +15,6 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "exprs/hll_function.h"
 #include "olap/hll.h"
 #include "vec/columns/column_complex.h"
 #include "vec/data_types/data_type_hll.h"

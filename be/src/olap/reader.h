@@ -20,7 +20,6 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include "exprs/bitmapfilter_predicate.h"
-#include "exprs/bloomfilter_predicate.h"
 #include "exprs/function_filter.h"
 #include "exprs/hybrid_set.h"
 #include "olap/delete_handler.h"
@@ -41,6 +40,23 @@ class VCollectIterator;
 class Block;
 class VExpr;
 } // namespace vectorized
+
+// Used to compare row with input scan key. Scan key only contains key columns,
+// row contains all key columns, which is superset of key columns.
+// So we should compare the common prefix columns of lhs and rhs.
+//
+// NOTE: if you are not sure if you can use it, please don't use this function.
+template <typename LhsRowType, typename RhsRowType>
+int compare_row_key(const LhsRowType& lhs, const RhsRowType& rhs) {
+    auto cmp_cids = std::min(lhs.schema()->num_column_ids(), rhs.schema()->num_column_ids());
+    for (uint32_t cid = 0; cid < cmp_cids; ++cid) {
+        auto res = lhs.schema()->column(cid)->compare_cell(lhs.cell(cid), rhs.cell(cid));
+        if (res != 0) {
+            return res;
+        }
+    }
+    return 0;
+}
 
 class TabletReader {
     struct KeysParam {
@@ -128,8 +144,7 @@ public:
     // Return OK and set `*eof` to true when no more rows can be read.
     // Return others when unexpected error happens.
     // TODO: Rethink here we still need mem_pool and agg_pool?
-    virtual Status next_block_with_aggregation(vectorized::Block* block, MemPool* mem_pool,
-                                               ObjectPool* agg_pool, bool* eof) {
+    virtual Status next_block_with_aggregation(vectorized::Block* block, bool* eof) {
         return Status::Error<ErrorCode::READER_INITIALIZE_ERROR>();
     }
 

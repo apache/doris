@@ -21,7 +21,7 @@
 #include "runtime/collection_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/jsonb_value.h"
-#include "runtime/string_value.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
@@ -84,56 +84,6 @@ PrimitiveType convert_type_to_primitive(FunctionContext::Type type) {
     }
 
     return PrimitiveType::INVALID_TYPE;
-}
-
-// Returns the byte size of 'type'  Returns 0 for variable length types.
-int get_byte_size(PrimitiveType type) {
-    switch (type) {
-    case TYPE_VARCHAR:
-    case TYPE_STRING:
-    case TYPE_OBJECT:
-    case TYPE_HLL:
-    case TYPE_QUANTILE_STATE:
-    case TYPE_ARRAY:
-    case TYPE_MAP:
-        return 0;
-
-    case TYPE_NULL:
-    case TYPE_BOOLEAN:
-    case TYPE_TINYINT:
-        return 1;
-
-    case TYPE_SMALLINT:
-        return 2;
-
-    case TYPE_INT:
-    case TYPE_FLOAT:
-    case TYPE_DECIMAL32:
-        return 4;
-
-    case TYPE_BIGINT:
-    case TYPE_DOUBLE:
-    case TYPE_TIME:
-    case TYPE_DECIMAL64:
-        return 8;
-
-    case TYPE_DATETIME:
-    case TYPE_DATE:
-    case TYPE_LARGEINT:
-    case TYPE_DECIMALV2:
-    case TYPE_DECIMAL128I:
-        return 16;
-
-    case INVALID_TYPE:
-    // datev2/datetimev2/timev2 is not supported on row-based engine
-    case TYPE_DATEV2:
-    case TYPE_DATETIMEV2:
-    case TYPE_TIMEV2:
-    default:
-        DCHECK(false);
-    }
-
-    return 0;
 }
 
 bool is_type_compatible(PrimitiveType lhs, PrimitiveType rhs) {
@@ -584,7 +534,7 @@ int get_slot_size(PrimitiveType type) {
     case TYPE_OBJECT:
     case TYPE_HLL:
     case TYPE_QUANTILE_STATE:
-        return sizeof(StringValue);
+        return sizeof(StringRef);
     case TYPE_JSONB:
         return sizeof(JsonBinaryValue);
     case TYPE_ARRAY:

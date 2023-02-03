@@ -32,7 +32,7 @@ class ColumnString;
 
 class DateTimeValue;
 class DecimalV2Value;
-struct StringValue;
+struct StringRef;
 struct JsonBinaryValue;
 
 PrimitiveType convert_type_to_primitive(FunctionContext::Type type);
@@ -96,8 +96,6 @@ constexpr bool has_variable_type(PrimitiveType type) {
            type == TYPE_QUANTILE_STATE || type == TYPE_STRING;
 }
 
-// Returns the byte size of 'type'  Returns 0 for variable length types.
-int get_byte_size(PrimitiveType type);
 // Returns the byte size of type when in a tuple
 int get_slot_size(PrimitiveType type);
 
@@ -210,24 +208,24 @@ struct PrimitiveTypeTraits<TYPE_LARGEINT> {
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_CHAR> {
-    using CppType = StringValue;
+    using CppType = StringRef;
     using ColumnType = vectorized::ColumnString;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_VARCHAR> {
-    using CppType = StringValue;
+    using CppType = StringRef;
     using ColumnType = vectorized::ColumnString;
 };
 
 template <>
 struct PrimitiveTypeTraits<TYPE_STRING> {
-    using CppType = StringValue;
+    using CppType = StringRef;
     using ColumnType = vectorized::ColumnString;
 };
 
 template <>
 struct PrimitiveTypeTraits<TYPE_HLL> {
-    using CppType = StringValue;
+    using CppType = StringRef;
     using ColumnType = vectorized::ColumnString;
 };
 

@@ -22,6 +22,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.datasource.InternalCatalog;
 
@@ -76,7 +77,8 @@ public class CatalogPrivEntry extends PrivEntry {
     @Deprecated
     public static CatalogPrivEntry create(String user, String host, String ctl, boolean isDomain, PrivBitSet privs)
             throws AnalysisException {
-        PatternMatcher hostPattern = PatternMatcher.createMysqlPattern(host, CaseSensibility.HOST.getCaseSensibility());
+        PatternMatcher hostPattern = PatternMatcherWrapper.createMysqlPattern(host,
+                CaseSensibility.HOST.getCaseSensibility());
 
         PatternMatcher ctlPattern = createCtlPatternMatcher(ctl);
 

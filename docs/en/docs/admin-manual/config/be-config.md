@@ -250,7 +250,7 @@ There are two ways to configure BE configuration items:
 
 * Description: This configuration is mainly used to modify the number of bthreads for brpc. The default value is set to -1, which means the number of bthreads is #cpu-cores.
   - User can set this configuration to a larger value to get better QPS performance. For more information, please refer to `https://github.com/apache/incubator-brpc/blob/master/docs/cn/benchmark.md`
-* Default value: 1
+* Default value: -1
 
 #### `thrift_rpc_timeout_ms`
 
@@ -334,8 +334,8 @@ There are two ways to configure BE configuration items:
 
 #### `fragment_pool_thread_num_max`
 
-* Description: Follow up query requests create threads dynamically, with a maximum of 256 threads created.
-* Default value: 256
+* Description: Follow up query requests create threads dynamically, with a maximum of 512 threads created.
+* Default value: 512
 
 #### `doris_max_pushdown_conjuncts_return_rate`
 
@@ -672,12 +672,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 * Description: The load error log will be deleted after this time
 * Default value: 48 (h)
 
-#### `load_process_max_memory_limit_bytes`
-
-* Description: The upper limit of memory occupied by all imported threads on a single node.
-  - Set these default values very large, because we don't want to affect load performance when users upgrade Doris. If necessary, the user should set these configurations correctly.
-* Default value: 107374182400 (100G)
-
 #### `load_process_max_memory_limit_percent`
 
 * Description: The percentage of the upper memory limit occupied by all imported threads on a single node, the default is 50%
@@ -989,14 +983,20 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 #### `file_cache_type`
 
 * Type: string
-* Description: Type of cache file. whole_ file_ Cache: download the entire segment file, sub_ file_ Cache: the segment file is divided into multiple files by size.
-* Default value: null
+* Description: Type of cache file.`whole_file_cache`: download the entire segment file, `sub_file_cache`: the segment file is divided into multiple files by size. if set "", no cache, please set this parameter when caching is required.
+* Default value: ""
 
 #### `file_cache_alive_time_sec`
 
 * Type: int64
 * Description: Save time of cache file
 * Default value: 604800 (1 week)
+
+#### `file_cache_max_size_per_disk`
+
+* Type: int64
+* Description: The cache occupies the disk size. Once this setting is exceeded, the cache that has not been accessed for the longest time will be deleted. If it is 0, the size is not limited. unit is bytes.
+* Default value: 0
 
 #### `max_sub_cache_file_size`
 

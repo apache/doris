@@ -40,7 +40,7 @@ import java.util.Optional;
  */
 public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements TopN {
 
-    private final ImmutableList<OrderKey> orderKeys;
+    private final List<OrderKey> orderKeys;
     private final int limit;
     private final int offset;
 
@@ -114,20 +114,25 @@ public class LogicalTopN<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYP
                 .collect(ImmutableList.toImmutableList());
     }
 
+    public LogicalTopN<Plan> withOrderKeys(List<OrderKey> orderKeys) {
+        return new LogicalTopN<>(orderKeys, limit, offset,
+                Optional.empty(), Optional.of(getLogicalProperties()), child());
+    }
+
     @Override
-    public LogicalUnary<Plan> withChildren(List<Plan> children) {
+    public LogicalTopN<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
         return new LogicalTopN<>(orderKeys, limit, offset, children.get(0));
     }
 
     @Override
-    public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
+    public LogicalTopN<Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalTopN<>(orderKeys, limit, offset, groupExpression, Optional.of(getLogicalProperties()),
                 child());
     }
 
     @Override
-    public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
+    public LogicalTopN<Plan> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
         return new LogicalTopN<>(orderKeys, limit, offset, Optional.empty(), logicalProperties, child());
     }
 }

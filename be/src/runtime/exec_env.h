@@ -58,7 +58,6 @@ class ResultBufferMgr;
 class ResultQueueMgr;
 class TMasterInfo;
 class LoadChannelMgr;
-class ThreadResourceMgr;
 class TmpFileMgr;
 class WebPageHandler;
 class StreamLoadExecutor;
@@ -102,7 +101,7 @@ public:
     // declarations for classes in scoped_ptrs.
     ~ExecEnv();
 
-    const bool initialized() const { return _is_init; }
+    bool initialized() const { return _is_init; }
     const std::string& token() const;
     ExternalScanContextMgr* external_scan_context_mgr() { return _external_scan_context_mgr; }
     doris::vectorized::VDataStreamMgr* vstream_mgr() { return _vstream_mgr; }
@@ -120,13 +119,10 @@ public:
         return nullptr;
     }
 
-    void set_orphan_mem_tracker(const std::shared_ptr<MemTrackerLimiter>& orphan_tracker) {
-        _orphan_mem_tracker = orphan_tracker;
-        _orphan_mem_tracker_raw = orphan_tracker.get();
-    }
+    void init_mem_tracker();
     std::shared_ptr<MemTrackerLimiter> orphan_mem_tracker() { return _orphan_mem_tracker; }
     MemTrackerLimiter* orphan_mem_tracker_raw() { return _orphan_mem_tracker_raw; }
-    ThreadResourceMgr* thread_mgr() { return _thread_mgr; }
+    MemTrackerLimiter* experimental_mem_tracker() { return _experimental_mem_tracker.get(); }
     ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
     ThreadPool* download_cache_thread_pool() { return _download_cache_thread_pool.get(); }
     void set_serial_download_cache_thread_token() {
@@ -163,7 +159,6 @@ public:
     LoadStreamMgr* load_stream_mgr() { return _load_stream_mgr; }
     NewLoadStreamMgr* new_load_stream_mgr() { return _new_load_stream_mgr; }
     SmallFileMgr* small_file_mgr() { return _small_file_mgr; }
-    StoragePolicyMgr* storage_policy_mgr() { return _storage_policy_mgr; }
     BlockSpillManager* block_spill_mgr() { return _block_spill_mgr; }
 
     const std::vector<StorePath>& store_paths() const { return _store_paths; }
@@ -206,7 +201,6 @@ private:
     ClientCache<BackendServiceClient>* _backend_client_cache = nullptr;
     ClientCache<FrontendServiceClient>* _frontend_client_cache = nullptr;
     ClientCache<TPaloBrokerServiceClient>* _broker_client_cache = nullptr;
-    ThreadResourceMgr* _thread_mgr = nullptr;
 
     // The default tracker consumed by mem hook. If the thread does not attach other trackers,
     // by default all consumption will be passed to the process tracker through the orphan tracker.
@@ -215,6 +209,7 @@ private:
     // and the consumption of the orphan mem tracker is close to 0, but greater than 0.
     std::shared_ptr<MemTrackerLimiter> _orphan_mem_tracker;
     MemTrackerLimiter* _orphan_mem_tracker_raw;
+    std::shared_ptr<MemTrackerLimiter> _experimental_mem_tracker;
 
     std::unique_ptr<ThreadPool> _send_batch_thread_pool;
 
@@ -246,7 +241,6 @@ private:
     RoutineLoadTaskExecutor* _routine_load_task_executor = nullptr;
     SmallFileMgr* _small_file_mgr = nullptr;
     HeartbeatFlags* _heartbeat_flags = nullptr;
-    StoragePolicyMgr* _storage_policy_mgr = nullptr;
     doris::vectorized::ScannerScheduler* _scanner_scheduler = nullptr;
 
     BlockSpillManager* _block_spill_mgr = nullptr;

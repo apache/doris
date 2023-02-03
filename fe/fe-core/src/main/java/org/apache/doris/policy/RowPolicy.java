@@ -142,7 +142,7 @@ public class RowPolicy extends Policy {
 
     @Override
     public RowPolicy clone() {
-        return new RowPolicy(this.policyId, this.policyName, this.dbId, this.user, this.originStmt, this.tableId,
+        return new RowPolicy(this.id, this.policyName, this.dbId, this.user, this.originStmt, this.tableId,
                 this.filterType, this.wherePredicate);
     }
 

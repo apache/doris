@@ -565,7 +565,7 @@ suite("test_date_function") {
         ('2022-01-01', '2022-01-01', '2022-01-01 00:00:00', '2022-01-01 00:00:00'), 
         ('2000-02-01', '2000-02-01', '2000-02-01 00:00:00', '2000-02-01 00:00:00.123'), 
         ('2022-02-29', '2022-02-29', '2022-02-29 00:00:00', '2022-02-29 00:00:00'),
-        ('2022-02-28', '2022-02-28', '2022-02-28 23:59:59', '2022-02-28 23:59:59');"""
+        ('2022-02-28', '2022-02-28', '2022-02-28T23:59:59', '2022-02-28T23:59:59');"""
     qt_sql """
         select last_day(birth), last_day(birth1), 
                 last_day(birth2), last_day(birth3) 
@@ -618,4 +618,32 @@ suite("test_date_function") {
                 from ${tableName};
     """
     sql """ DROP TABLE IF EXISTS ${tableName}; """
+
+    // test date_sub(datetime,dayofmonth)
+    sql """ DROP TABLE IF EXISTS ${tableName}; """
+    sql """
+            CREATE TABLE IF NOT EXISTS ${tableName} (
+                birth1 datetime,
+                birth2 datetimev2)
+            UNIQUE KEY(birth1,birth2)
+            DISTRIBUTED BY HASH (birth1,birth2) BUCKETS 1
+            PROPERTIES( "replication_allocation" = "tag.location.default: 1");
+        """
+    sql """
+        insert into ${tableName} values
+        ('2022-01-20 00:00:00', '2023-01-20 00:00:00.123');"""
+    qt_sql """
+        select *  from
+          ${tableName}
+        where
+          birth1 <= date_sub('2023-02-01 10:35:13', INTERVAL dayofmonth('2023-02-01 10:35:13')-1 DAY)
+    """
+        qt_sql """
+            select *  from
+              ${tableName}
+            where
+              birth2 <= date_sub('2023-02-01 10:35:13', INTERVAL dayofmonth('2023-02-01 10:35:13')-1 DAY)
+        """
+    sql """ DROP TABLE IF EXISTS ${tableName}; """
+
 }

@@ -18,8 +18,8 @@
 #pragma once
 
 #include "gutil/strings/stringpiece.h"
-#include "runtime/string_value.h"
 #include "vec/columns/column.h"
+#include "vec/common/string_ref.h"
 #include "vec/exprs/table_function/table_function.h"
 
 namespace doris::vectorized {
@@ -38,10 +38,13 @@ public:
     Status reset() override;
 
 private:
-    std::vector<std::string> _backup;
+    std::vector<std::string_view> _backup;
 
     ColumnPtr _text_column;
-    ColumnPtr _delimiter_column;
+    const uint8_t* _test_null_map = nullptr;
+    const ColumnString* _real_text_column = nullptr;
+
+    StringRef _delimiter = {};
 };
 
 } // namespace doris::vectorized

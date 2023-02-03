@@ -114,7 +114,7 @@ public:
         }
     };
 
-    const size_t row_id() const { return _row_id; }
+    size_t row_id() const { return _row_id; }
 
     const ColumnRawPtrs& sort_columns() const { return _block_view->value().sort_columns; }
 
@@ -243,12 +243,12 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
         auto status = _block_supplier(&_block_ptr);
         if (status.ok() && _block_ptr != nullptr) {
             if (_ordering_expr.size() > 0) {
-                for (int i = 0; i < desc.size(); ++i) {
-                    _ordering_expr[i]->execute(_block_ptr, &desc[i].column_number);
+                for (int i = 0; status.ok() && i < desc.size(); ++i) {
+                    status = _ordering_expr[i]->execute(_block_ptr, &desc[i].column_number);
                 }
             }
             MergeSortCursorImpl::reset(*_block_ptr);
-            return true;
+            return status.ok();
         }
         _block_ptr = nullptr;
         return false;

@@ -30,8 +30,10 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DataQualityException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LabelAlreadyUsedException;
+import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
@@ -40,7 +42,9 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.Load;
+import org.apache.doris.load.LoadJobRowResult;
 import org.apache.doris.persist.CleanLabelOperationLog;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.DatabaseTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
@@ -85,9 +89,11 @@ public class LoadManager implements Writable {
     private LoadJobScheduler loadJobScheduler;
 
     private ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    private MysqlLoadManager mysqlLoadManager;
 
     public LoadManager(LoadJobScheduler loadJobScheduler) {
         this.loadJobScheduler = loadJobScheduler;
+        this.mysqlLoadManager = new MysqlLoadManager();
     }
 
     /**
@@ -136,31 +142,6 @@ public class LoadManager implements Writable {
     }
 
     /**
-     * This method will be invoked by version1 of broker or hadoop load.
-     * It is used to check the label of v1 and v2 at the same time.
-     * Finally, the v1 of broker or hadoop load will belongs to load class.
-     * Step1: lock the load manager
-     * Step2: check the label in load manager
-     * Step3: call the addLoadJob of load class
-     * Step3.1: lock the load
-     * Step3.2: check the label in load
-     * Step3.3: add the loadJob in load rather than load manager
-     * Step3.4: unlock the load
-     * Step4: unlock the load manager
-     *
-     */
-    public void createLoadJobV1FromStmt(LoadStmt stmt, EtlJobType jobType, long timestamp) throws DdlException {
-        Database database = checkDb(stmt.getLabel().getDbName());
-        writeLock();
-        try {
-            checkLabelUsed(database.getId(), stmt.getLabel().getLabelName());
-            Env.getCurrentEnv().getLoadInstance().addLoadJob(stmt, jobType, timestamp);
-        } finally {
-            writeUnlock();
-        }
-    }
-
-    /**
      * MultiLoadMgr use.
      **/
     public void createLoadJobV1FromMultiStart(String fullDbName, String label) throws DdlException {
@@ -173,6 +154,11 @@ public class LoadManager implements Writable {
         } finally {
             writeUnlock();
         }
+    }
+
+    public LoadJobRowResult executeMySqlLoadJobFromStmt(ConnectContext context, LoadStmt stmt)
+            throws IOException, LoadException {
+        return mysqlLoadManager.executeMySqlLoadJobFromStmt(context, stmt);
     }
 
     public void replayCreateLoadJob(LoadJob loadJob) {
@@ -239,7 +225,8 @@ public class LoadManager implements Writable {
             throws AnalysisException {
         String label = stmt.getLabel();
         String state = stmt.getState();
-        PatternMatcher matcher = PatternMatcher.createMysqlPattern(label, CaseSensibility.LABEL.getCaseSensibility());
+        PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(label,
+                CaseSensibility.LABEL.getCaseSensibility());
         matchLoadJobs.addAll(loadJobs.stream().filter(job -> {
             if (stmt.getOperator() != null) {
                 // compound
@@ -482,7 +469,8 @@ public class LoadManager implements Writable {
                 } else {
                     // non-accurate match
                     PatternMatcher matcher =
-                            PatternMatcher.createMysqlPattern(labelValue, CaseSensibility.LABEL.getCaseSensibility());
+                            PatternMatcherWrapper.createMysqlPattern(labelValue,
+                                    CaseSensibility.LABEL.getCaseSensibility());
                     for (Map.Entry<String, List<LoadJob>> entry : labelToLoadJobs.entrySet()) {
                         if (matcher.match(entry.getKey())) {
                             loadJobList.addAll(entry.getValue());

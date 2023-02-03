@@ -1538,6 +1538,8 @@ public class AuthTest {
         }
         Assert.assertTrue(auth.checkResourcePriv(userIdentity, resourceName, PrivPredicate.USAGE));
         Assert.assertTrue(auth.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
+        Assert.assertTrue(auth.checkGlobalPriv(userIdentity, PrivPredicate.SHOW_RESOURCES));
+        Assert.assertFalse(auth.checkGlobalPriv(userIdentity, PrivPredicate.SHOW));
 
         // 3. revoke usage_priv on resource '*' from 'testUser'@'%'
         revokeStmt = new RevokeStmt(userIdentity, null, anyResourcePattern, usagePrivileges);
@@ -1550,6 +1552,8 @@ public class AuthTest {
         }
         Assert.assertFalse(auth.checkResourcePriv(userIdentity, resourceName, PrivPredicate.USAGE));
         Assert.assertFalse(auth.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
+        Assert.assertFalse(auth.checkGlobalPriv(userIdentity, PrivPredicate.SHOW_RESOURCES));
+        Assert.assertFalse(auth.checkGlobalPriv(userIdentity, PrivPredicate.SHOW));
 
         // 4. drop user
         dropUserStmt = new DropUserStmt(userIdentity);

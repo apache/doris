@@ -18,7 +18,6 @@
 suite("test_nereids_set_operation") {
 
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
 
     sql "DROP TABLE IF EXISTS setOperationTable"
     sql "DROP TABLE IF EXISTS setOperationTableNotNullable"
@@ -277,4 +276,13 @@ suite("test_nereids_set_operation") {
     """
 
     qt_union43 """select '2020-05-25' day from test_table union all select day from test_table;"""
+    
+    qt_union44 """
+        select * from
+            (select day from test_table
+            union all
+            select DATE_FORMAT(day, '%Y-%m-%d %H') dt_h from test_table
+            ) a
+        order by 1
+    """
 }

@@ -46,7 +46,6 @@ Status NewOlapScanNode::collect_query_statistics(QueryStatistics* statistics) {
 }
 
 Status NewOlapScanNode::prepare(RuntimeState* state) {
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_ERROR(VScanNode::prepare(state));
     return Status::OK();
 }
@@ -245,6 +244,8 @@ Status NewOlapScanNode::_build_key_ranges_and_filters() {
                     [&](auto&& range) {
                         if (range.is_in_compound_value_range()) {
                             range.to_condition_in_compound(filters);
+                        } else if (range.is_match_value_range()) {
+                            range.to_match_condition(filters);
                         }
                     },
                     iter);

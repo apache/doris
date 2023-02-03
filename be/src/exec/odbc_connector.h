@@ -28,9 +28,6 @@ struct ODBCConnectorParam {
     // only use in query
     std::string query_string;
     const TupleDescriptor* tuple_desc;
-
-    // only use in write
-    std::vector<ExprContext*> output_expr_ctxs;
 };
 
 // Because the DataBinding have the mem alloc, so

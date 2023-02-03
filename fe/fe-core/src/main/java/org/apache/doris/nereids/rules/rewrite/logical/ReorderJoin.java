@@ -21,8 +21,8 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinHint.JoinHintType;
@@ -227,10 +227,10 @@ public class ReorderJoin extends OneRewriteRuleFactory {
             Plan right;
             if (multiJoinHandleChildren.getJoinType().isLeftJoin()) {
                 right = multiJoinHandleChildren.child(multiJoinHandleChildren.arity() - 1);
-                Set<Slot> rightOutputSet = right.getOutputSet();
+                Set<ExprId> rightOutputExprIdSet = right.getOutputExprIdSet();
                 Map<Boolean, List<Expression>> split = multiJoin.getJoinFilter().stream()
                         .collect(Collectors.partitioningBy(expr ->
-                                ExpressionUtils.isIntersecting(rightOutputSet, expr.getInputSlots())
+                                ExpressionUtils.isIntersecting(rightOutputExprIdSet, expr.getInputSlotExprIds())
                         ));
                 remainingFilter = split.get(true);
                 List<Expression> pushedFilter = split.get(false);
@@ -241,10 +241,10 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                         ExpressionUtils.EMPTY_CONDITION), planToHintType);
             } else if (multiJoinHandleChildren.getJoinType().isRightJoin()) {
                 left = multiJoinHandleChildren.child(0);
-                Set<Slot> leftOutputSet = left.getOutputSet();
+                Set<ExprId> leftOutputExprIdSet = left.getOutputExprIdSet();
                 Map<Boolean, List<Expression>> split = multiJoin.getJoinFilter().stream()
                         .collect(Collectors.partitioningBy(expr ->
-                                ExpressionUtils.isIntersecting(leftOutputSet, expr.getInputSlots())
+                                ExpressionUtils.isIntersecting(leftOutputExprIdSet, expr.getInputSlotExprIds())
                         ));
                 remainingFilter = split.get(true);
                 List<Expression> pushedFilter = split.get(false);
@@ -315,23 +315,23 @@ public class ReorderJoin extends OneRewriteRuleFactory {
     private LogicalJoin<? extends Plan, ? extends Plan> findInnerJoin(Plan left, List<Plan> candidates,
             Set<Expression> joinFilter, Set<Integer> usedPlansIndex, Map<Plan, JoinHintType> planToHintType) {
         List<Expression> otherJoinConditions = Lists.newArrayList();
-        Set<Slot> leftOutputSet = left.getOutputSet();
+        Set<ExprId> leftOutputExprIdSet = left.getOutputExprIdSet();
         for (int i = 0; i < candidates.size(); i++) {
             if (usedPlansIndex.contains(i)) {
                 continue;
             }
 
             Plan candidate = candidates.get(i);
-            Set<Slot> rightOutputSet = candidate.getOutputSet();
+            Set<ExprId> rightOutputExprIdSet = candidate.getOutputExprIdSet();
 
-            Set<Slot> joinOutput = JoinUtils.getJoinOutputSet(left, candidate);
+            Set<ExprId> joinOutputExprIdSet = JoinUtils.getJoinOutputExprIdSet(left, candidate);
 
             List<Expression> currentJoinFilter = joinFilter.stream()
                     .filter(expr -> {
-                        Set<Slot> exprInputSlots = expr.getInputSlots();
-                        return !leftOutputSet.containsAll(exprInputSlots)
-                                && !rightOutputSet.containsAll(exprInputSlots)
-                                && joinOutput.containsAll(exprInputSlots);
+                        Set<ExprId> exprInputSlotExprIds = expr.getInputSlotExprIds();
+                        return !leftOutputExprIdSet.containsAll(exprInputSlotExprIds)
+                                && !rightOutputExprIdSet.containsAll(exprInputSlotExprIds)
+                                && joinOutputExprIdSet.containsAll(exprInputSlotExprIds);
                     }).collect(Collectors.toList());
 
             Pair<List<Expression>, List<Expression>> pair = JoinUtils.extractExpressionForHashTable(

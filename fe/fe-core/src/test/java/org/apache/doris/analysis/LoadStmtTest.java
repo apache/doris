@@ -32,6 +32,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.LoadTaskInfo;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
@@ -39,6 +40,8 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.File;
+import java.io.IOException;
 import java.io.StringReader;
 import java.util.List;
 
@@ -93,6 +96,9 @@ public class LoadStmtTest {
                 desc.getTableName();
                 minTimes = 0;
                 result = "testTbl";
+                desc.analyzeFullDbName("testCluster:testDb", (Analyzer) any);
+                minTimes = 0;
+                result = "testCluster:testDb";
                 env.getResourceMgr();
                 result = resourceMgr;
                 resourceMgr.getResource(resourceName);
@@ -181,5 +187,42 @@ public class LoadStmtTest {
         String columnsSQL = "COLUMNS (" + columns + ")";
         return ((ImportColumnsStmt) SqlParserUtils.getFirstStmt(
                 new SqlParser(new SqlScanner(new StringReader(columnsSQL))))).getColumns();
+    }
+
+    @Test
+    public void testMySqlLoadData(@Injectable DataDescription desc) throws UserException, IOException {
+        File temp = File.createTempFile("testMySqlLoadData", ".txt");
+        new Expectations() {
+            {
+                desc.isClientLocal();
+                minTimes = 0;
+                result = false;
+
+                desc.getFilePaths();
+                minTimes = 0;
+                result = Lists.newArrayList(temp.getPath());
+
+                desc.toSql();
+                minTimes = 0;
+                result = "XXX";
+
+                desc.getTableName();
+                minTimes = 0;
+                result = "testTbl";
+
+                desc.analyzeFullDbName(null, (Analyzer) any);
+                minTimes = 0;
+                result = "testCluster:testDb";
+
+                desc.getMergeType();
+                minTimes = 0;
+                result = LoadTask.MergeType.APPEND;
+            }
+        };
+
+        LoadStmt stmt = new LoadStmt(desc, Maps.newHashMap());
+        stmt.analyze(analyzer);
+        Assert.assertNull(stmt.getLabel().getDbName());
+        Assert.assertEquals(EtlJobType.LOCAL_FILE, stmt.getEtlJobType());
     }
 }

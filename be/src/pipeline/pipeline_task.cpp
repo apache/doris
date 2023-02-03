@@ -124,7 +124,7 @@ Status PipelineTask::execute(bool* eos) {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_exec_timer);
-    SCOPED_ATTACH_TASK(runtime_state());
+    SCOPED_ATTACH_TASK(_state);
     int64_t time_spent = 0;
     // The status must be runnable
     *eos = false;
@@ -192,6 +192,10 @@ Status PipelineTask::finalize() {
     SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_finalize_timer);
     return _sink->finalize(_state);
+}
+
+Status PipelineTask::try_close() {
+    return _source->try_close();
 }
 
 Status PipelineTask::close() {

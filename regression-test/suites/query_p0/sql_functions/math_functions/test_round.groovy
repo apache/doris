@@ -31,6 +31,10 @@ suite("test_round") {
         PROPERTIES ( "replication_num" = "1" ); """
 
     sql """ insert into `${tableName}` values(16.025, 16.025, 16.025); """
+    qt_select """ SELECT round(col1), round(col2), round(col3) FROM `${tableName}`; """
+    qt_select """ SELECT floor(col1), floor(col2), floor(col3) FROM `${tableName}`; """
+    qt_select """ SELECT ceil(col1), ceil(col2), ceil(col3) FROM `${tableName}`; """
+    qt_select """ SELECT round_bankers(col1), round_bankers(col2), round_bankers(col3) FROM `${tableName}`; """
     qt_select """ SELECT round(col1, 2), round(col2, 2), round(col3, 2) FROM `${tableName}`; """
     qt_select """ SELECT floor(col1, 2), floor(col2, 2), floor(col3, 2) FROM `${tableName}`; """
     qt_select """ SELECT ceil(col1, 2), ceil(col2, 2), ceil(col3, 2) FROM `${tableName}`; """
@@ -39,7 +43,6 @@ suite("test_round") {
     sql """ DROP TABLE IF EXISTS `${tableName}` """
 
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
     sql "SET enable_fallback_to_original_planner=false"
 
     qt_nereids_round_arg1 "SELECT round(10.12345)"

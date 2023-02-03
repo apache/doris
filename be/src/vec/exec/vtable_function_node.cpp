@@ -83,11 +83,8 @@ bool VTableFunctionNode::_is_inner_and_empty() {
 Status VTableFunctionNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     _num_rows_filtered_counter = ADD_COUNTER(_runtime_profile, "RowsFiltered", TUnit::UNIT);
-
-    RETURN_IF_ERROR(Expr::prepare(_fn_ctxs, state, _row_descriptor));
     for (auto fn : _fns) {
         RETURN_IF_ERROR(fn->prepare());
     }
@@ -130,7 +127,7 @@ Status VTableFunctionNode::get_next(RuntimeState* state, Block* block, bool* eos
                                   std::placeholders::_3)),
                 child(0)->get_next_span(), _child_eos);
 
-        push(state, &_child_block, _child_eos);
+        RETURN_IF_ERROR(push(state, &_child_block, _child_eos));
     }
 
     return pull(state, block, eos);

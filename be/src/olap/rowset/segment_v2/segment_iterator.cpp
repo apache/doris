@@ -179,6 +179,9 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     _remaining_vconjunct_root = opts.remaining_vconjunct_root;
 
     _column_predicate_info.reset(new ColumnPredicateInfo());
+    if (_schema.rowid_col_idx() > 0) {
+        _opts.record_rowids = true;
+    }
     return Status::OK();
 }
 
@@ -463,8 +466,12 @@ Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(vectorize
     } else if (_is_literal_node(node_type)) {
         auto v_literal_expr = dynamic_cast<doris::vectorized::VLiteral*>(expr);
         _column_predicate_info->query_value = v_literal_expr->value();
-    } else if (node_type == TExprNodeType::BINARY_PRED) {
-        _column_predicate_info->query_op = expr->fn().name.function_name;
+    } else if (node_type == TExprNodeType::BINARY_PRED || node_type == TExprNodeType::MATCH_PRED) {
+        if (node_type == TExprNodeType::MATCH_PRED) {
+            _column_predicate_info->query_op = "match";
+        } else {
+            _column_predicate_info->query_op = expr->fn().name.function_name;
+        }
         // get child condition result in compound condtions
         auto pred_result_sign = _gen_predicate_result_sign(_column_predicate_info.get());
         _column_predicate_info.reset(new ColumnPredicateInfo());
@@ -533,9 +540,13 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred) {
     int32_t unique_id = _schema.unique_id(pred->column_id());
     if (_inverted_index_iterators.count(unique_id) < 1 ||
         _inverted_index_iterators[unique_id] == nullptr ||
-        (pred->type() != PredicateType::MATCH && handle_by_fulltext)) {
+        (pred->type() != PredicateType::MATCH && handle_by_fulltext) ||
+        pred->type() == PredicateType::IS_NULL || pred->type() == PredicateType::IS_NOT_NULL ||
+        pred->type() == PredicateType::BF) {
         // 1. this column without inverted index
         // 2. equal or range qeury for fulltext index
+        // 3. is_null or is_not_null predicate
+        // 4. bloom filter predicate
         return false;
     }
     return true;
@@ -562,7 +573,8 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
         auto pred_type = pred->type();
         bool is_support = pred_type == PredicateType::EQ || pred_type == PredicateType::NE ||
                           pred_type == PredicateType::LT || pred_type == PredicateType::LE ||
-                          pred_type == PredicateType::GT || pred_type == PredicateType::GE;
+                          pred_type == PredicateType::GT || pred_type == PredicateType::GE ||
+                          pred_type == PredicateType::MATCH;
         if (!is_support) {
             continue;
         }
@@ -580,6 +592,12 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
         }
 
         if (!res.ok()) {
+            if ((res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND &&
+                 pred->type() != PredicateType::MATCH) ||
+                res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT) {
+                // downgrade without index query
+                continue;
+            }
             LOG(WARNING) << "failed to evaluate index"
                          << ", column predicate type: " << pred->pred_type_string(pred->type())
                          << ", error msg: " << res.code_as_string();
@@ -617,12 +635,9 @@ bool SegmentIterator::_is_handle_predicate_by_fulltext(ColumnPredicate* predicat
     auto column_id = predicate->column_id();
     int32_t unique_id = _schema.unique_id(column_id);
     bool handle_by_fulltext =
-            (_inverted_index_iterators[unique_id] != nullptr) &&
-            (is_string_type(_schema.column(column_id)->type())) &&
-            ((_inverted_index_iterators[unique_id]->get_inverted_index_analyser_type() ==
-              InvertedIndexParserType::PARSER_ENGLISH) ||
-             (_inverted_index_iterators[unique_id]->get_inverted_index_analyser_type() ==
-              InvertedIndexParserType::PARSER_STANDARD));
+            _inverted_index_iterators[unique_id] != nullptr &&
+            _inverted_index_iterators[unique_id]->get_inverted_index_reader_type() ==
+                    InvertedIndexReaderType::FULLTEXT;
 
     return handle_by_fulltext;
 }
@@ -637,15 +652,26 @@ Status SegmentIterator::_apply_inverted_index() {
         int32_t unique_id = _schema.unique_id(pred->column_id());
         if (_inverted_index_iterators.count(unique_id) < 1 ||
             _inverted_index_iterators[unique_id] == nullptr ||
-            (pred->type() != PredicateType::MATCH && handle_by_fulltext)) {
+            (pred->type() != PredicateType::MATCH && handle_by_fulltext) ||
+            pred->type() == PredicateType::IS_NULL || pred->type() == PredicateType::IS_NOT_NULL ||
+            pred->type() == PredicateType::BF) {
             // 1. this column no inverted index
             // 2. equal or range for fulltext index
+            // 3. is_null or is_not_null predicate
+            // 4. bloom filter predicate
             remaining_predicates.push_back(pred);
         } else {
             roaring::Roaring bitmap = _row_bitmap;
             Status res = pred->evaluate(_schema, _inverted_index_iterators[unique_id], num_rows(),
                                         &bitmap);
             if (!res.ok()) {
+                if ((res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND &&
+                     pred->type() != PredicateType::MATCH) ||
+                    res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT) {
+                    //downgrade without index query
+                    remaining_predicates.push_back(pred);
+                    continue;
+                }
                 LOG(WARNING) << "failed to evaluate index"
                              << ", column predicate type: " << pred->pred_type_string(pred->type())
                              << ", error msg: " << res.code_as_string();
@@ -674,8 +700,14 @@ Status SegmentIterator::_init_return_column_iterators() {
     if (_cur_rowid >= num_rows()) {
         return Status::OK();
     }
+
     for (auto cid : _schema.column_ids()) {
         int32_t unique_id = _opts.tablet_schema->column(cid).unique_id();
+        if (_opts.tablet_schema->column(cid).name() == BeConsts::ROWID_COL) {
+            _column_iterators[unique_id] =
+                    new RowIdColumnIterator(_opts.tablet_id, _opts.rowset_id, _segment->id());
+            continue;
+        }
         if (_column_iterators.count(unique_id) < 1) {
             RETURN_IF_ERROR(_segment->new_column_iterator(_opts.tablet_schema->column(cid),
                                                           &_column_iterators[unique_id]));
@@ -1258,6 +1290,7 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
     for (size_t i = 0; i < select_size; ++i) {
         rowids[i] = rowid_vector[sel_rowid_idx[i]];
     }
+
     for (auto cid : read_column_ids) {
         RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->read_by_rowids(
                 rowids.data(), select_size, _current_return_columns[cid]));
@@ -1282,8 +1315,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
             auto cid = _schema.column_id(i);
             auto column_desc = _schema.column(cid);
             if (_is_pred_column[cid]) {
-                _current_return_columns[cid] =
-                        Schema::get_predicate_column_nullable_ptr(*column_desc);
+                _current_return_columns[cid] = Schema::get_predicate_column_ptr(*column_desc);
                 _current_return_columns[cid]->set_rowset_segment_id(
                         {_segment->rowset_id(), _segment->id()});
                 _current_return_columns[cid]->reserve(_opts.block_row_max);

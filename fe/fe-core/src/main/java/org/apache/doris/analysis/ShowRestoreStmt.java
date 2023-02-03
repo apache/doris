@@ -26,6 +26,7 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -179,7 +180,7 @@ public class ShowRestoreStmt extends ShowStmt {
             return CaseSensibility.LABEL.getCaseSensibility()
                     ? label -> label.equals(labelValue) : label -> label.equalsIgnoreCase(labelValue);
         } else {
-            PatternMatcher patternMatcher = PatternMatcher.createMysqlPattern(
+            PatternMatcher patternMatcher = PatternMatcherWrapper.createMysqlPattern(
                     labelValue, CaseSensibility.LABEL.getCaseSensibility());
             return patternMatcher::match;
         }

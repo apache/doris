@@ -190,6 +190,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String TRIM_TAILING_SPACES_FOR_EXTERNAL_TABLE_QUERY
             = "trim_tailing_spaces_for_external_table_query";
 
+    public static final String ENABLE_DPHYP_OPTIMIZER = "enable_dphyp_optimizer";
+
     public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
     public static final String DISABLE_NEREIDS_RULES = "disable_nereids_rules";
 
@@ -244,6 +246,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String INTERNAL_SESSION = "internal_session";
 
     public static final String PARTITIONED_HASH_JOIN_ROWS_THRESHOLD = "partitioned_hash_join_rows_threshold";
+    public static final String PARTITIONED_HASH_AGG_ROWS_THRESHOLD = "partitioned_hash_agg_rows_threshold";
 
     public static final String ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN
             = "enable_share_hash_table_for_broadcast_join";
@@ -253,6 +256,12 @@ public class SessionVariable implements Serializable, Writable {
     public static final String GROUP_CONCAT_MAX_LEN = "group_concat_max_len";
 
     public static final String EXTERNAL_SORT_BYTES_THRESHOLD = "external_sort_bytes_threshold";
+
+    public static final String ENABLE_TWO_PHASE_READ_OPT = "enable_two_phase_read_opt";
+    public static final String TWO_PHASE_READ_OPT_LIMIT_THRESHOLD = "two_phase_read_opt_limit_threshold";
+    public static final String ENABLE_FILE_CACHE = "enable_file_cache";
+
+    public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -388,9 +397,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = CODEGEN_LEVEL)
     public int codegenLevel = 0;
 
-    // 1024 minus 16 + 16 bytes padding that in padding pod array
+    // 4096 minus 16 + 16 bytes padding that in padding pod array
     @VariableMgr.VarAttr(name = BATCH_SIZE)
-    public int batchSize = 992;
+    public int batchSize = 4064;
 
     @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS)
     public boolean disableStreamPreaggregations = false;
@@ -542,6 +551,8 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = CHECK_OVERFLOW_FOR_DECIMAL)
     private boolean checkOverflowForDecimal = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_DPHYP_OPTIMIZER)
+    private boolean enableDPHypOptimizer = false;
     /**
      * as the new optimizer is not mature yet, use this var
      * to control whether to use new optimizer, remove it when
@@ -644,6 +655,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = PARTITIONED_HASH_JOIN_ROWS_THRESHOLD)
     public int partitionedHashJoinRowsThreshold = 0;
 
+    // Use partitioned hash join if build side row count >= the threshold . 0 - the threshold is not set.
+    @VariableMgr.VarAttr(name = PARTITIONED_HASH_AGG_ROWS_THRESHOLD)
+    public int partitionedHashAggRowsThreshold = 0;
+
     @VariableMgr.VarAttr(name = ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN)
     public boolean enableShareHashTableForBroadcastJoin = true;
 
@@ -659,6 +674,23 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = EXTERNAL_SORT_BYTES_THRESHOLD, checker = "checkExternalSortBytesThreshold")
     public long externalSortBytesThreshold = 0;
 
+    // Whether enable two phase read optimization
+    // 1. read related rowids along with necessary column data
+    // 2. spawn fetch RPC to other nodes to get related data by sorted rowids
+    @VariableMgr.VarAttr(name = ENABLE_TWO_PHASE_READ_OPT)
+    public boolean enableTwoPhaseReadOpt = true;
+    @VariableMgr.VarAttr(name = TWO_PHASE_READ_OPT_LIMIT_THRESHOLD)
+    public long twoPhaseReadLimitThreshold = 512;
+
+    // Default value is false, which means the group by and having clause
+    // should first use column name not alias. According to mysql.
+    @VariableMgr.VarAttr(name = GROUP_BY_AND_HAVING_USE_ALIAS_FIRST)
+    public boolean groupByAndHavingUseAliasFirst = false;
+
+    // Whether enable block file cache. Only take effect when BE config item enable_file_cache is true.
+    @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE, needForward = true)
+    public boolean enableFileCache = true;
+
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
     public void initFuzzyModeVariables() {
@@ -669,6 +701,7 @@ public class SessionVariable implements Serializable, Writable {
         // this.disableJoinReorder = random.nextBoolean();
         this.disableStreamPreaggregations = random.nextBoolean();
         this.partitionedHashJoinRowsThreshold = random.nextBoolean() ? 8 : 1048576;
+        this.partitionedHashAggRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
         this.rewriteOrToInPredicateThreshold = random.nextInt(100) + 2;
         int randomInt = random.nextInt(4);
@@ -1144,7 +1177,7 @@ public class SessionVariable implements Serializable, Writable {
     }
 
     public boolean enablePipelineEngine() {
-        return enablePipelineEngine && enableVectorizedEngine;
+        return enablePipelineEngine;
     }
 
     public void setEnablePipelineEngine(boolean enablePipelineEngine) {
@@ -1217,6 +1250,10 @@ public class SessionVariable implements Serializable, Writable {
         return extractWideRangeExpr;
     }
 
+    public boolean isGroupByAndHavingUseAliasFirst() {
+        return groupByAndHavingUseAliasFirst;
+    }
+
     public int getCpuResourceLimit() {
         return cpuResourceLimit;
     }
@@ -1279,11 +1316,19 @@ public class SessionVariable implements Serializable, Writable {
      * @return true if both nereids and vectorized engine are enabled
      */
     public boolean isEnableNereidsPlanner() {
-        return enableNereidsPlanner && enableVectorizedEngine;
+        return enableNereidsPlanner;
     }
 
     public void setEnableNereidsPlanner(boolean enableNereidsPlanner) {
         this.enableNereidsPlanner = enableNereidsPlanner;
+    }
+
+    public boolean isEnableDPHypOptimizer() {
+        return isEnableNereidsPlanner() && enableDPHypOptimizer;
+    }
+
+    public void setEnableDphypOptimizer(boolean enableDPHypOptimizer) {
+        this.enableDPHypOptimizer = enableDPHypOptimizer;
     }
 
     public Set<String> getDisableNereidsRules() {
@@ -1348,6 +1393,14 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public boolean isEnableFileCache() {
+        return enableFileCache;
+    }
+
+    public void setEnableFileCache(boolean enableFileCache) {
+        this.enableFileCache = enableFileCache;
+    }
+
     /**
      * Serialize to thrift object.
      * Used for rest api.
@@ -1365,7 +1418,6 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setQueryTimeout(queryTimeoutS);
         tResult.setIsReportSuccess(enableProfile);
         tResult.setCodegenLevel(codegenLevel);
-        tResult.setEnableVectorizedEngine(enableVectorizedEngine);
         tResult.setBeExecVersion(Config.be_exec_version);
         tResult.setEnablePipelineEngine(enablePipelineEngine);
         tResult.setReturnObjectDataAsBinary(returnObjectDataAsBinary);
@@ -1405,10 +1457,13 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSkipDeletePredicate(skipDeletePredicate);
 
         tResult.setPartitionedHashJoinRowsThreshold(partitionedHashJoinRowsThreshold);
+        tResult.setPartitionedHashAggRowsThreshold(partitionedHashAggRowsThreshold);
 
         tResult.setRepeatMaxNum(repeatMaxNum);
 
         tResult.setExternalSortBytesThreshold(externalSortBytesThreshold);
+
+        tResult.setEnableFileCache(enableFileCache);
 
         return tResult;
     }

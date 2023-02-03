@@ -137,18 +137,17 @@ public class Alter {
         if (!stmt.isForMTMV() && stmt.getTableName() == null) {
             throw new DdlException("Drop materialized view without table name is unsupported : " + stmt.toSql());
         }
-        TableName tableName = !stmt.isForMTMV() ? stmt.getTableName() : stmt.getMTMVName();
-
-        // check db
-        String dbName = tableName.getDb();
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
-
-        String name = tableName.getTbl();
-        OlapTable olapTable = (OlapTable) db.getTableOrMetaException(name,
-                !stmt.isForMTMV() ? TableType.OLAP : TableType.MATERIALIZED_VIEW);
 
         // drop materialized view
         if (!stmt.isForMTMV()) {
+            TableName tableName = stmt.getTableName();
+
+            // check db
+            String dbName = tableName.getDb();
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
+
+            String name = tableName.getTbl();
+            OlapTable olapTable = (OlapTable) db.getTableOrMetaException(name, TableType.OLAP);
             ((MaterializedViewHandler) materializedViewHandler).processDropMaterializedView(stmt, db, olapTable);
         } else {
             DropTableStmt dropTableStmt = new DropTableStmt(stmt.isIfExists(), stmt.getMTMVName(), false);
@@ -476,7 +475,7 @@ public class Alter {
                 // currently, only in memory and storage policy property could reach here
                 Preconditions.checkState(properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)
                         || properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY));
-                ((SchemaChangeHandler) schemaChangeHandler).updatePartitionsInMemoryMeta(
+                ((SchemaChangeHandler) schemaChangeHandler).updatePartitionsProperties(
                         db, tableName, partitionNames, properties);
                 OlapTable olapTable = (OlapTable) table;
                 olapTable.writeLockOrDdlException();
@@ -490,7 +489,7 @@ public class Alter {
                 // currently, only in memory and storage policy property could reach here
                 Preconditions.checkState(properties.containsKey(PropertyAnalyzer.PROPERTIES_INMEMORY)
                         || properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY));
-                ((SchemaChangeHandler) schemaChangeHandler).updateTableInMemoryMeta(db, tableName, properties);
+                ((SchemaChangeHandler) schemaChangeHandler).updateTableProperties(db, tableName, properties);
             } else {
                 throw new DdlException("Invalid alter operation: " + alterClause.getOpType());
             }

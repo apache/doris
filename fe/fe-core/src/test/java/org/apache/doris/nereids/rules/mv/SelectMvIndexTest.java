@@ -52,6 +52,7 @@ import java.util.stream.Collectors;
 /**
  * Tests ported from {@link org.apache.doris.planner.MaterializedViewFunctionTest}
  */
+@Disabled("Disabled until nereids support advanced mv")
 public class SelectMvIndexTest extends BaseMaterializedIndexSelectTest implements PatternMatchSupported {
 
     private static final String EMPS_TABLE_NAME = "emps";

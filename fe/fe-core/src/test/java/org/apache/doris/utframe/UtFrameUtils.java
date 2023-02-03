@@ -18,14 +18,20 @@
 package org.apache.doris.utframe;
 
 import org.apache.doris.analysis.Analyzer;
+import org.apache.doris.analysis.CreateDbStmt;
+import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.QueryStmt;
+import org.apache.doris.analysis.ShowCreateTableStmt;
+import org.apache.doris.analysis.ShowPartitionsStmt;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DiskInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -35,6 +41,8 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.qe.QueryState;
+import org.apache.doris.qe.ShowExecutor;
+import org.apache.doris.qe.ShowResultSet;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.SystemInfoService;
@@ -62,6 +70,7 @@ import java.net.ServerSocket;
 import java.net.SocketException;
 import java.nio.channels.SocketChannel;
 import java.nio.file.Files;
+import java.util.ConcurrentModificationException;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -267,7 +276,7 @@ public class UtFrameUtils {
         // start be
         MockedBackend backend = MockedBackendFactory.createBackend(beHost, beHeartbeatPort, beThriftPort, beBrpcPort,
                 beHttpPort, new DefaultHeartbeatServiceImpl(beThriftPort, beHttpPort, beBrpcPort),
-            new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
+                new DefaultBeThriftServiceImpl(), new DefaultPBackendServiceImpl());
         backend.setFeAddress(new TNetworkAddress("127.0.0.1", feRpcPort));
         backend.start();
 
@@ -307,7 +316,7 @@ public class UtFrameUtils {
                     datagramSocket.setReuseAddress(true);
                     break;
                 } catch (SocketException e) {
-                    System.out.println("The port " + port  + " is invalid and try another port.");
+                    System.out.println("The port " + port + " is invalid and try another port.");
                 }
             } catch (IOException e) {
                 throw new IllegalStateException("Could not find a free TCP/IP port to start HTTP Server on");
@@ -357,8 +366,8 @@ public class UtFrameUtils {
     }
 
     public static String getStmtDigest(ConnectContext connectContext, String originStmt) throws Exception {
-        SqlScanner input =
-                new SqlScanner(new StringReader(originStmt), connectContext.getSessionVariable().getSqlMode());
+        SqlScanner input = new SqlScanner(new StringReader(originStmt),
+                connectContext.getSessionVariable().getSqlMode());
         SqlParser parser = new SqlParser(input);
         StatementBase statementBase = SqlParserUtils.getFirstStmt(parser);
         Preconditions.checkState(statementBase instanceof QueryStmt);
@@ -371,5 +380,71 @@ public class UtFrameUtils {
         String realNodeName = idx + ":" + nodeName;
         String realVNodeName = idx + ":V" + nodeName;
         return planResult.contains(realNodeName) || planResult.contains(realVNodeName);
+    }
+
+    public static void createDatabase(ConnectContext ctx, String db) throws Exception {
+        String createDbStmtStr = "CREATE DATABASE " + db;
+        CreateDbStmt createDbStmt = (CreateDbStmt) parseAndAnalyzeStmt(createDbStmtStr, ctx);
+        Env.getCurrentEnv().createDb(createDbStmt);
+    }
+
+    public static void createTable(ConnectContext ctx, String sql) throws Exception {
+        try {
+            createTables(ctx, sql);
+        } catch (ConcurrentModificationException e) {
+            e.printStackTrace();
+            throw e;
+        }
+    }
+
+    public static void createTables(ConnectContext ctx, String... sqls) throws Exception {
+        for (String sql : sqls) {
+            CreateTableStmt stmt = (CreateTableStmt) parseAndAnalyzeStmt(sql, ctx);
+            Env.getCurrentEnv().createTable(stmt);
+        }
+        updateReplicaPathHash();
+    }
+
+    public static ShowResultSet showCreateTable(ConnectContext ctx, String sql) throws Exception {
+        ShowCreateTableStmt stmt = (ShowCreateTableStmt) parseAndAnalyzeStmt(sql, ctx);
+        ShowExecutor executor = new ShowExecutor(ctx, stmt);
+        return executor.execute();
+    }
+
+    public static ShowResultSet showCreateTableByName(ConnectContext ctx, String table) throws Exception {
+        String sql = "show create table " + table;
+        return showCreateTable(ctx, sql);
+    }
+
+    public static ShowResultSet showPartitions(ConnectContext ctx, String sql) throws Exception {
+        ShowPartitionsStmt stmt = (ShowPartitionsStmt) parseAndAnalyzeStmt(sql, ctx);
+        ShowExecutor executor = new ShowExecutor(ctx, stmt);
+        return executor.execute();
+    }
+
+    public static ShowResultSet showPartitionsByName(ConnectContext ctx, String table) throws Exception {
+        String sql = "show partitions from " + table;
+        return showPartitions(ctx, sql);
+    }
+
+    private static void updateReplicaPathHash() {
+        com.google.common.collect.Table<Long, Long, Replica> replicaMetaTable = Env.getCurrentInvertedIndex()
+                .getReplicaMetaTable();
+        for (com.google.common.collect.Table.Cell<Long, Long, Replica> cell : replicaMetaTable.cellSet()) {
+            long beId = cell.getColumnKey();
+            Backend be = Env.getCurrentSystemInfo().getBackend(beId);
+            if (be == null) {
+                continue;
+            }
+            Replica replica = cell.getValue();
+            TabletMeta tabletMeta = Env.getCurrentInvertedIndex().getTabletMeta(cell.getRowKey());
+            ImmutableMap<String, DiskInfo> diskMap = be.getDisks();
+            for (DiskInfo diskInfo : diskMap.values()) {
+                if (diskInfo.getStorageMedium() == tabletMeta.getStorageMedium()) {
+                    replica.setPathHash(diskInfo.getPathHash());
+                    break;
+                }
+            }
+        }
     }
 }

@@ -23,7 +23,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.Auth;
@@ -147,7 +147,7 @@ public class UserIdentity implements Writable, GsonPostProcessable {
         }
 
         // reuse createMysqlPattern to validate host pattern
-        PatternMatcher.createMysqlPattern(host, CaseSensibility.HOST.getCaseSensibility());
+        PatternMatcherWrapper.createMysqlPattern(host, CaseSensibility.HOST.getCaseSensibility());
         isAnalyzed = true;
     }
 

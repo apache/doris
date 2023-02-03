@@ -1320,8 +1320,14 @@ public class SingleNodePlanner {
                 if (olapScanNode.getSelectedPartitionIds().size() == 0 && !FeConstants.runningUnitTest) {
                     continue;
                 }
-                // select index by the old Rollup selector
-                olapScanNode.selectBestRollupByRollupSelector(analyzer);
+
+                try {
+                    // select index by the old Rollup selector
+                    olapScanNode.selectBestRollupByRollupSelector(analyzer);
+                } catch (UserException e) {
+                    LOG.debug("May no rollup index matched");
+                }
+
                 // select index by the new Materialized selector
                 MaterializedViewSelector.BestIndexInfo bestIndexInfo
                         = materializedViewSelector.selectBestMV(olapScanNode);
@@ -1332,11 +1338,21 @@ public class SingleNodePlanner {
                     LOG.debug("MV rewriter of tuple [] will be disable", tupleId);
                     continue;
                 }
-                // if the new selected index id is different from the old one, scan node will be updated.
-                olapScanNode.updateScanRangeInfoByNewMVSelector(bestIndexInfo.getBestIndexId(),
-                        bestIndexInfo.isPreAggregation(), bestIndexInfo.getReasonOfDisable());
-                if (selectStmt.getAggInfo() != null) {
-                    selectStmt.getAggInfo().updateTypeOfAggregateExprs();
+                try {
+                    // if the new selected index id is different from the old one, scan node will be
+                    // updated.
+                    olapScanNode.updateScanRangeInfoByNewMVSelector(bestIndexInfo.getBestIndexId(),
+                            bestIndexInfo.isPreAggregation(), bestIndexInfo.getReasonOfDisable());
+
+                    if (selectStmt.getAggInfo() != null) {
+                        selectStmt.getAggInfo().updateTypeOfAggregateExprs();
+                    }
+                } catch (Exception e) {
+                    selectFailed = true;
+                    TupleId tupleId = olapScanNode.getTupleId();
+                    selectStmt.updateDisableTuplesMVRewriter(tupleId);
+                    LOG.debug("MV rewriter of tuple [] will be disable", tupleId);
+                    continue;
                 }
             }
 
@@ -1769,7 +1785,7 @@ public class SingleNodePlanner {
             return;
         }
 
-        final List<Expr> newConjuncts = cloneExprs(conjuncts);
+        List<Expr> newConjuncts = cloneExprs(conjuncts);
         final QueryStmt stmt = inlineViewRef.getViewStmt();
         final Analyzer viewAnalyzer = inlineViewRef.getAnalyzer();
         viewAnalyzer.markConjunctsAssigned(conjuncts);
@@ -1778,23 +1794,10 @@ public class SingleNodePlanner {
             if (select.getAggInfo() != null) {
                 viewAnalyzer.registerConjuncts(newConjuncts, select.getAggInfo().getOutputTupleId().asList());
             } else if (select.getTableRefs().size() > 1) {
-                // Conjuncts will be assigned to the lowest outer join node or non-outer join's leaf children.
-                for (int i = select.getTableRefs().size(); i > 1; i--) {
-                    final TableRef joinInnerChild = select.getTableRefs().get(i - 1);
-                    final TableRef joinOuterChild = select.getTableRefs().get(i - 2);
-                    if (!joinInnerChild.getJoinOp().isOuterJoin()) {
-                        // lowest join isn't outer join.
-                        if (i == 2) {
-                            // Register constant for inner.
-                            viewAnalyzer.registerConjuncts(newConjuncts, joinInnerChild.getDesc().getId().asList());
-                            // Register constant for outer.
-                            final List<Expr> cloneConjuncts = cloneExprs(newConjuncts);
-                            viewAnalyzer.registerConjuncts(cloneConjuncts, joinOuterChild.getDesc().getId().asList());
-                        }
-                        continue;
-                    }
-                    viewAnalyzer.registerConjuncts(newConjuncts, joinOuterChild.getId());
-                    break;
+                for (int i = select.getTableRefs().size() - 1; i >= 0; i--) {
+                    viewAnalyzer.registerConjuncts(newConjuncts,
+                            select.getTableRefs().get(i).getDesc().getId().asList());
+                    newConjuncts = cloneExprs(newConjuncts);
                 }
             } else {
                 Preconditions.checkArgument(select.getTableRefs().size() == 1);
@@ -1934,23 +1937,18 @@ public class SingleNodePlanner {
                 }
                 break;
             case BROKER:
-                scanNode = new BrokerScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "BrokerScanNode",
-                        null, -1);
-                break;
+                throw new RuntimeException("Broker external table is not supported, try to use table function please");
             case ELASTICSEARCH:
                 scanNode = new EsScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "EsScanNode");
                 break;
             case HIVE:
-                scanNode = new HiveScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HiveScanNode",
-                        null, -1);
-                break;
+                throw new RuntimeException("Hive external table is not supported, try to use hive catalog please");
             case ICEBERG:
                 scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc());
                 break;
             case HUDI:
-                scanNode = new HudiScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "HudiScanNode",
-                        null, -1);
-                break;
+                throw new UserException(
+                        "Hudi table is no longer supported. Use Multi Catalog feature to connect to Hudi");
             case JDBC:
                 scanNode = new JdbcScanNode(ctx.getNextNodeId(), tblRef.getDesc(), false);
                 break;
@@ -1958,6 +1956,7 @@ public class SingleNodePlanner {
                 scanNode = ((TableValuedFunctionRef) tblRef).getScanNode(ctx.getNextNodeId());
                 break;
             case HMS_EXTERNAL_TABLE:
+            case ICEBERG_EXTERNAL_TABLE:
                 scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc());
                 break;
             case ES_EXTERNAL_TABLE:
@@ -1969,7 +1968,7 @@ public class SingleNodePlanner {
             default:
                 break;
         }
-        if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode || scanNode instanceof HiveScanNode
+        if (scanNode instanceof OlapScanNode || scanNode instanceof EsScanNode
                 || scanNode instanceof ExternalFileScanNode) {
             if (analyzer.enableInferPredicate()) {
                 PredicatePushDown.visitScanNode(scanNode, tblRef.getJoinOp(), analyzer);
@@ -2070,11 +2069,10 @@ public class SingleNodePlanner {
             // Also assign conjuncts from On clause. All remaining unassigned conjuncts
             // that can be evaluated by this join are assigned in createSelectPlan().
             ojConjuncts = analyzer.getUnassignedOjConjuncts(innerRef);
-        } else if (innerRef.getJoinOp().isAntiJoin()) {
-            ojConjuncts = analyzer.getUnassignedAntiJoinConjuncts(innerRef);
-        } else if (innerRef.getJoinOp().isSemiJoin()) {
-            final List<TupleId> tupleIds = innerRef.getAllTupleIds();
-            ojConjuncts = analyzer.getUnassignedConjuncts(tupleIds, false);
+        } else if (innerRef.getJoinOp().isAntiJoinNullAware()) {
+            ojConjuncts = analyzer.getUnassignedAntiJoinNullAwareConjuncts(innerRef);
+        } else if (innerRef.getJoinOp().isSemiOrAntiJoinNoNullAware()) {
+            ojConjuncts = analyzer.getUnassignedSemiAntiJoinNoNullAwareConjuncts(innerRef);
         }
         analyzer.markConjunctsAssigned(ojConjuncts);
         if (eqJoinConjuncts.isEmpty()) {

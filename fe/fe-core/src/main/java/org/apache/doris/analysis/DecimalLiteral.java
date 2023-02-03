@@ -367,4 +367,19 @@ public class DecimalLiteral extends LiteralExpr {
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(value);
     }
+
+    @Override
+    public void setupParamFromBinary(ByteBuffer data) {
+        int len = getParmLen(data);
+        BigDecimal v = null;
+        try {
+            byte[] bytes = new byte[len];
+            data.get(bytes);
+            String value = new String(bytes);
+            v = new BigDecimal(value);
+        } catch (NumberFormatException e) {
+            // throw new AnalysisException("Invalid floating-point literal: " + value, e);
+        }
+        init(v);
+    }
 }

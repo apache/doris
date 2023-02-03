@@ -28,7 +28,6 @@
 #include "io/fs/file_writer.h"
 #include "olap/memtable.h"
 #include "olap/olap_define.h"
-#include "olap/row.h"        // ContiguousRow
 #include "olap/row_cursor.h" // RowCursor
 #include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
@@ -588,28 +587,6 @@ Status BetaRowsetWriter::_add_block_for_segcompaction(
     return Status::OK();
 }
 
-template <typename RowType>
-Status BetaRowsetWriter::_add_row(const RowType& row) {
-    if (PREDICT_FALSE(_segment_writer == nullptr)) {
-        RETURN_NOT_OK(_create_segment_writer(&_segment_writer));
-    }
-    // TODO update rowset zonemap
-    auto s = _segment_writer->append_row(row);
-    if (PREDICT_FALSE(!s.ok())) {
-        LOG(WARNING) << "failed to append row: " << s.to_string();
-        return Status::Error<WRITER_DATA_WRITE_ERROR>();
-    }
-    if (PREDICT_FALSE(_segment_writer->estimate_segment_size() >= MAX_SEGMENT_SIZE ||
-                      _segment_writer->num_rows_written() >= _context.max_rows_per_segment)) {
-        RETURN_NOT_OK(_flush_segment_writer(&_segment_writer));
-    }
-    ++_raw_num_rows_written;
-    return Status::OK();
-}
-
-template Status BetaRowsetWriter::_add_row(const RowCursor& row);
-template Status BetaRowsetWriter::_add_row(const ContiguousRow& row);
-
 Status BetaRowsetWriter::add_rowset(RowsetSharedPtr rowset) {
     assert(rowset->rowset_meta()->rowset_type() == BETA_ROWSET);
     RETURN_NOT_OK(rowset->link_files_to(_context.rowset_dir, _context.rowset_id));
@@ -861,6 +838,7 @@ Status BetaRowsetWriter::_do_create_segment_writer(
     DCHECK(file_writer != nullptr);
     segment_v2::SegmentWriterOptions writer_options;
     writer_options.enable_unique_key_merge_on_write = _context.enable_unique_key_merge_on_write;
+    writer_options.rowset_ctx = &_context;
 
     if (is_segcompaction) {
         writer->reset(new segment_v2::SegmentWriter(file_writer.get(), _num_segcompacted,

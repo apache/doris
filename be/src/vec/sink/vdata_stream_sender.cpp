@@ -23,7 +23,6 @@
 #include <random>
 
 #include "common/status.h"
-#include "runtime/dpp_sink_internal.h"
 #include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
@@ -33,7 +32,6 @@
 #include "vec/common/sip_hash.h"
 #include "vec/runtime/vdata_stream_mgr.h"
 #include "vec/runtime/vdata_stream_recvr.h"
-#include "vec/runtime/vpartition_info.h"
 
 namespace doris::vectorized {
 
@@ -382,26 +380,7 @@ Status VDataStreamSender::init(const TDataSink& tsink) {
         RETURN_IF_ERROR(VExpr::create_expr_trees(
                 _pool, t_stream_sink.output_partition.partition_exprs, &_partition_expr_ctxs));
     } else if (_part_type == TPartitionType::RANGE_PARTITIONED) {
-        // Range partition
-        // Partition Exprs
-        RETURN_IF_ERROR(VExpr::create_expr_trees(
-                _pool, t_stream_sink.output_partition.partition_exprs, &_partition_expr_ctxs));
-        // Partition infos
-        int num_parts = t_stream_sink.output_partition.partition_infos.size();
-        if (num_parts == 0) {
-            return Status::InternalError("Empty partition info.");
-        }
-        for (int i = 0; i < num_parts; ++i) {
-            VPartitionInfo* info = _pool->add(new VPartitionInfo());
-            RETURN_IF_ERROR(VPartitionInfo::from_thrift(
-                    _pool, t_stream_sink.output_partition.partition_infos[i], info));
-            _partition_infos.push_back(info);
-        }
-        // partitions should be in ascending order
-        std::sort(_partition_infos.begin(), _partition_infos.end(),
-                  [](const VPartitionInfo* v1, const VPartitionInfo* v2) {
-                      return v1->range() < v2->range();
-                  });
+        return Status::InternalError("TPartitionType::RANGE_PARTITIONED should not be used");
     } else {
         // UNPARTITIONED
     }
@@ -421,7 +400,8 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
     _profile = _pool->add(new RuntimeProfile(title));
     SCOPED_TIMER(_profile->total_time_counter());
     _mem_tracker = std::make_unique<MemTracker>(
-            "VDataStreamSender:" + print_id(state->fragment_instance_id()), _profile);
+            "VDataStreamSender:" + print_id(state->fragment_instance_id()), _profile, nullptr,
+            "PeakMemoryUsage");
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     if (_part_type == TPartitionType::UNPARTITIONED || _part_type == TPartitionType::RANDOM) {
@@ -436,9 +416,6 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
         RETURN_IF_ERROR(VExpr::prepare(_partition_expr_ctxs, state, _row_desc));
     } else {
         RETURN_IF_ERROR(VExpr::prepare(_partition_expr_ctxs, state, _row_desc));
-        for (auto iter : _partition_infos) {
-            RETURN_IF_ERROR(iter->prepare(state, _row_desc));
-        }
     }
 
     _bytes_sent_counter = ADD_COUNTER(profile(), "BytesSent", TUnit::BYTES);
@@ -471,9 +448,6 @@ Status VDataStreamSender::open(RuntimeState* state) {
     }
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     RETURN_IF_ERROR(VExpr::open(_partition_expr_ctxs, state));
-    for (auto iter : _partition_infos) {
-        RETURN_IF_ERROR(iter->open(state));
-    }
 
     _compression_type = state->fragement_transmission_compression_type();
     return Status::OK();
@@ -620,9 +594,6 @@ Status VDataStreamSender::close(RuntimeState* state, Status exec_status) {
         if (!st.ok() && final_st.ok()) {
             final_st = st;
         }
-    }
-    for (auto iter : _partition_infos) {
-        iter->close(state);
     }
     VExpr::close(_partition_expr_ctxs, state);
     DataSink::close(state, exec_status);

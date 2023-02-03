@@ -44,10 +44,9 @@ public:
     };
 
     // Creates and adds the tracker to the mem_tracker_pool.
-    MemTracker(const std::string& label, RuntimeProfile* profile = nullptr,
-               MemTrackerLimiter* parent = nullptr,
-               const std::string& profile_counter_name = "PeakMemoryUsage",
-               bool only_track_alloc = false);
+    MemTracker(const std::string& label, RuntimeProfile* profile, MemTrackerLimiter* parent,
+               const std::string& profile_counter_name);
+    MemTracker(const std::string& label, MemTrackerLimiter* parent = nullptr);
     // For MemTrackerLimiter
     MemTracker() { _parent_group_num = -1; }
 
@@ -61,13 +60,13 @@ public:
 public:
     const std::string& label() const { return _label; }
     const std::string& parent_label() const { return _parent_label; }
+    const std::string& set_parent_label() const { return _parent_label; }
     // Returns the memory consumed in bytes.
     int64_t consumption() const { return _consumption->current_value(); }
     int64_t peak_consumption() const { return _consumption->value(); }
 
     void consume(int64_t bytes) {
         if (bytes == 0) return;
-        if (bytes < 0 && _only_track_alloc) return;
         _consumption->add(bytes);
     }
     void release(int64_t bytes) { consume(-bytes); }
@@ -89,6 +88,8 @@ public:
     }
 
 protected:
+    void bind_parent(MemTrackerLimiter* parent);
+
     // label used in the make snapshot, not guaranteed unique.
     std::string _label;
 
@@ -96,9 +97,8 @@ protected:
 
     // Tracker is located in group num in mem_tracker_pool
     int64_t _parent_group_num = 0;
+    // Use _parent_label to correlate with parent limiter tracker.
     std::string _parent_label = "-";
-
-    bool _only_track_alloc = false;
 
     // Iterator into mem_tracker_pool for this object. Stored to have O(1) remove.
     std::list<MemTracker*>::iterator _tracker_group_it;
