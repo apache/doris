@@ -336,7 +336,7 @@ public:
             set_whole_value_range();
         }
         _contain_null = contain_null;
-    };
+    }
 
     int precision() const { return _precision; }
 

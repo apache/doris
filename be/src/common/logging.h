@@ -86,7 +86,7 @@ public:
         } else {
             _stream << fmt::format(fmt, std::forward<Args>(args)...);
         }
-    };
+    }
 
     template <typename V>
     TaggableLogger& tag(std::string_view key, const V& value) {

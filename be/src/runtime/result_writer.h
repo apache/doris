@@ -33,9 +33,9 @@ class Block;
 // abstract class of the result writer
 class ResultWriter {
 public:
-    ResultWriter() {};
-    ResultWriter(bool output_object_data) : _output_object_data(output_object_data) {};
-    ~ResultWriter() {};
+    ResultWriter() {}
+    ResultWriter(bool output_object_data) : _output_object_data(output_object_data) {}
+    ~ResultWriter() {}
 
     virtual Status init(RuntimeState* state) = 0;
 
@@ -53,7 +53,7 @@ public:
     virtual void set_header_info(const std::string& header_type, const std::string& header) {
         _header_type = header_type;
         _header = header;
-    };
+    }
 
 protected:
     int64_t _written_rows = 0; // number of rows written

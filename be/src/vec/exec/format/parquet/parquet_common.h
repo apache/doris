@@ -58,7 +58,7 @@ struct RowRange {
 
 struct ParquetReadColumn {
     ParquetReadColumn(int parquet_col_id, const std::string& file_slot_name)
-            : _parquet_col_id(parquet_col_id), _file_slot_name(file_slot_name) {};
+            : _parquet_col_id(parquet_col_id), _file_slot_name(file_slot_name) {}
 
     int _parquet_col_id;
     const std::string& _file_slot_name;
@@ -223,7 +223,7 @@ void Decoder::init_decimal_converter(DataTypePtr& data_type) {
 
 class FixLengthDecoder final : public Decoder {
 public:
-    FixLengthDecoder(tparquet::Type::type physical_type) : _physical_type(physical_type) {};
+    FixLengthDecoder(tparquet::Type::type physical_type) : _physical_type(physical_type) {}
     ~FixLengthDecoder() override = default;
 
     Status decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,

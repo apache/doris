@@ -32,7 +32,6 @@
 namespace doris {
 class PBlock;
 class PColumn;
-enum FieldType;
 
 namespace vectorized {
 

@@ -54,7 +54,7 @@ public:
     virtual std::string as_wkt() const = 0;
 
     virtual bool contains(const GeoShape* rhs) const { return false; }
-    virtual std::string to_string() const { return ""; };
+    virtual std::string to_string() const { return ""; }
 
 protected:
     virtual void encode(std::string* buf) = 0;
