@@ -250,7 +250,7 @@ Status Sorter::partial_sort(Block& src_block, Block& dest_block) {
             if (column_id < 0) {
                 continue;
             }
-            if (convert_nullable_flags[i]) {
+            if (i < convert_nullable_flags.size() && convert_nullable_flags[i]) {
                 auto column_ptr = make_nullable(src_block.get_by_position(column_id).column);
                 new_block.insert(
                         {column_ptr, make_nullable(src_block.get_by_position(column_id).type), ""});
