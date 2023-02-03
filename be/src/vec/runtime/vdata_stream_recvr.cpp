@@ -75,7 +75,8 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch(Block* block, bool* eos) 
 
     if (_block_queue.empty()) {
         DCHECK_EQ(_num_remaining_senders, 0);
-        return *eos = true;
+        *eos = true;
+        return Status::OK();
     }
 
     _received_first_batch = true;
