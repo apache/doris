@@ -1293,7 +1293,8 @@ void TabletManager::get_cooldown_tablets(std::vector<TabletSharedPtr>* tablets) 
             const TabletSharedPtr& tablet = item.second;
             int64_t cooldown_timestamp = -1;
             size_t file_size = -1;
-            if (tablet->need_cooldown(&cooldown_timestamp, &file_size)) {
+            if (tablet->need_cooldown(&cooldown_timestamp, &file_size)
+                    || tablet->need_deal_cooldown_delete()) {
                 sort_ctx_vec.emplace_back(tablet, cooldown_timestamp, file_size);
             }
         }

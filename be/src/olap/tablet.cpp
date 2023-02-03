@@ -41,6 +41,7 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "gutil/strings/util.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
 #include "olap/base_compaction.h"
@@ -1681,6 +1682,11 @@ void Tablet::enable_cooldown_flag(const TUniqueId& cooldown_delete_id) {
     }
 }
 
+bool Tablet::need_deal_cooldown_delete() {
+    return _cooldown_delete_flag
+            || time(NULL) - _last_cooldown_delete_time >= config::cooldown_delete_interval_time_sec;
+}
+
 Status Tablet::_deal_cooldown_delete_files(io::FileSystemSPtr fs) {
     TabletMetaPB remote_tablet_meta_pb;
     _tablet_meta->to_meta_pb(true, &remote_tablet_meta_pb);
@@ -1718,6 +1724,9 @@ Status Tablet::_deal_cooldown_delete_files(io::FileSystemSPtr fs) {
         RETURN_IF_ERROR(fs->list(remote_tablet_path, &segment_files));
 
         for (auto& path : segment_files) {
+            if (!ends_with(path, ".dat")) {
+                continue;
+            }
             if (remote_segment_path_map.find(path.native()) != remote_segment_path_map.end()) {
                 _cooldown_delete_files.emplace_back(path);
             }

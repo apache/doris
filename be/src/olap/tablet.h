@@ -297,6 +297,8 @@ public:
 
     bool need_cooldown(int64_t* cooldown_timestamp, size_t* file_size);
 
+    bool need_deal_cooldown_delete();
+
     Status remove_all_remote_rowsets();
 
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
