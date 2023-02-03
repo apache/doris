@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 public class JoinTest extends SqlTestBase {
@@ -57,5 +58,28 @@ public class JoinTest extends SqlTestBase {
                 .getBestPlanTree();
         // generate colocate join plan without physicalDistribute
         Assertions.assertFalse(plan.anyMatch(PhysicalDistribute.class::isInstance));
+    }
+
+    @Test
+    void testInferNotNullFromFilterAndEliminateOuter() {
+        String sql
+                = "select * from T1 left outer join T2 on T1.id = T2.id where T2.score > 0";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .printlnTree()
+                .rewrite()
+                .printlnTree();
+    }
+
+    @Test
+    @Disabled
+    void testInferNotNullFromJoinAndEliminateOuter() {
+        String sql
+                = "select * from (select T1.id from T1 left outer join T2 on T1.id = T2.id) T1 left semi join T3 on T1.id = T3.id";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .printlnTree()
+                .rewrite()
+                .printlnTree();
     }
 }

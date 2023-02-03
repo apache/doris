@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -41,6 +43,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.Arrays;
@@ -51,6 +54,7 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Expression rewrite helper class.
@@ -325,6 +329,7 @@ public class ExpressionUtils {
 
     /**
      * merge arguments into an expression array
+     *
      * @param arguments instance of Expression or Expression Array
      * @return Expression Array
      */
@@ -361,16 +366,33 @@ public class ExpressionUtils {
     }
 
     /**
-     * extract the predicate that is covered by `slots`
+     * infer notNulls slot from predicate
      */
-    public static Set<Expression> extractCoveredConjunction(Set<Expression> predicates, Set<Slot> slots) {
-        Set<Expression> coveredPredicates = Sets.newHashSet();
-        for (Expression predicate : predicates) {
-            if (slots.containsAll(predicate.getInputSlots())) {
-                coveredPredicates.add(predicate);
-            }
-        }
-        return coveredPredicates;
+    public static Set<Slot> inferNotNullSlots(Set<Expression> predicates) {
+        Literal nullLiteral = Literal.of(null);
+        return predicates
+                .stream()
+                .filter(predicate -> {
+                    Map<Expression, Expression> replaceMap = Maps.newHashMap();
+                    predicate.getInputSlots().forEach(slot -> replaceMap.put(slot, nullLiteral));
+                    Expression evalExpr = FoldConstantRule.INSTANCE.rewrite(
+                            ExpressionUtils.replace(predicate, replaceMap),
+                            new ExpressionRewriteContext(null));
+                    return nullLiteral.equals(evalExpr) || BooleanLiteral.FALSE.equals(evalExpr);
+                })
+                .flatMap(predicate -> predicate.getInputSlots().stream())
+                .collect(Collectors.toSet());
+    }
+
+    public static Set<Expression> inferNotNull(Set<Expression> predicates) {
+        return inferNotNullSlots(predicates).stream()
+                .map(slot -> new Not(new IsNull(slot))).collect(Collectors.toSet());
+    }
+
+    public static Set<Expression> inferNotNull(Set<Expression> predicates, Set<Slot> slots) {
+        return inferNotNullSlots(predicates).stream()
+                .filter(slots::contains)
+                .map(slot -> new Not(new IsNull(slot))).collect(Collectors.toSet());
     }
 
     public static <E extends Expression> List<E> flatExpressions(List<List<E>> expressions) {
