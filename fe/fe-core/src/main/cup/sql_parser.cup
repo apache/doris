@@ -7077,6 +7077,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_IGNORE:id
     {: RESULT = id; :}
+    | KW_HISTOGRAM:id
+    {: RESULT = id; :}
     ;
 
 // Identifier that contain keyword
