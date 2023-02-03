@@ -64,7 +64,7 @@ bool parse_basic_auth(const HttpRequest& req, std::string* user, std::string* pa
 }
 
 bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth) {
-    auto& token = req.header("cluster_token");
+    auto& token = req.header("token");
     if (token.empty()) {
         std::string full_user;
         if (!parse_basic_auth(req, &full_user, &auth->passwd)) {
@@ -78,7 +78,7 @@ bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth) {
             auth->user = full_user;
         }
     } else {
-        auth->cluster_token = token;
+        auth->token = token;
     }
 
     // set user ip

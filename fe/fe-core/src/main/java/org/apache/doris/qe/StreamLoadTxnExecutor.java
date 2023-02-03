@@ -57,13 +57,16 @@ public class StreamLoadTxnExecutor {
     private final TransactionEntry txnEntry;
     private final TFileFormatType formatType;
 
+    private final TFileCompressType compressType;
+
     public StreamLoadTxnExecutor(TransactionEntry txnEntry) {
-        this(txnEntry, TFileFormatType.FORMAT_PROTO);
+        this(txnEntry, TFileFormatType.FORMAT_PROTO, TFileCompressType.PLAIN);
     }
 
-    public StreamLoadTxnExecutor(TransactionEntry txnEntry, TFileFormatType formatType) {
-        this.txnEntry = txnEntry;
+    public StreamLoadTxnExecutor(TransactionEntry entry, TFileFormatType formatType, TFileCompressType compressType) {
+        this.txnEntry = entry;
         this.formatType = formatType;
+        this.compressType = compressType;
     }
 
     public void beginTransaction(TStreamLoadPutRequest request) throws UserException, TException, TimeoutException,
@@ -84,8 +87,7 @@ public class StreamLoadTxnExecutor {
         for (Map.Entry<Integer, List<TScanRangeParams>> entry : tRequest.params.per_node_scan_ranges.entrySet()) {
             for (TScanRangeParams scanRangeParams : entry.getValue()) {
                 scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setFormatType(formatType);
-                scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setCompressType(
-                        TFileCompressType.PLAIN);
+                scanRangeParams.scan_range.ext_scan_range.file_scan_range.params.setCompressType(compressType);
             }
         }
         txnConf.setFragmentInstanceId(tRequest.params.fragment_instance_id);

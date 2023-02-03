@@ -1881,8 +1881,12 @@ public class StmtExecutor implements ProfileWriter {
                     return;
                 }
                 LoadJobRowResult submitResult = loadManager.executeMySqlLoadJobFromStmt(context, loadStmt);
-                context.getState().setOk(submitResult.getRecords(), submitResult.getWarnings(),
-                        submitResult.toString());
+                if (submitResult.logInfoForMySqlLoad()) {
+                    context.getState().setOk(submitResult.getRecords(), submitResult.getWarnings(),
+                            submitResult.toString());
+                } else {
+                    context.getState().setOk();
+                }
             } else {
                 loadManager.createLoadJobFromStmt(loadStmt);
                 context.getState().setOk();

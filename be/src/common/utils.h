@@ -33,7 +33,7 @@ struct AuthInfo {
     // -1 as unset
     int64_t auth_code = -1;
     std::string auth_code_uuid = "";
-    std::string cluster_token;
+    std::string token;
 };
 
 template <class T>
@@ -48,9 +48,9 @@ void set_request_auth(T* req, const AuthInfo& auth) {
     } else if (auth.auth_code_uuid != "") {
         req->__isset.auth_code_uuid = true;
         req->auth_code_uuid = auth.auth_code_uuid;
-    } else if (auth.cluster_token != "") {
-        req->__isset.cluster_token = true;
-        req->cluster_token = auth.cluster_token;
+    } else if (auth.token != "") {
+        req->__isset.token = true;
+        req->token = auth.token;
     } else {
         req->user = auth.user;
         req->passwd = auth.passwd;

@@ -28,7 +28,6 @@ import org.apache.doris.common.LoadException;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.io.ByteBufferNetworkInputStream;
 import org.apache.doris.load.LoadJobRowResult;
-import org.apache.doris.load.loadv2.LoadTask.MergeType;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.MasterTxnExecutor;
 import org.apache.doris.qe.StreamLoadTxnExecutor;
@@ -36,6 +35,7 @@ import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
 import org.apache.doris.system.SystemInfoService;
+import org.apache.doris.thrift.TFileCompressType;
 import org.apache.doris.thrift.TFileFormatType;
 import org.apache.doris.thrift.TFileType;
 import org.apache.doris.thrift.TLoadTxnBeginRequest;
@@ -210,6 +210,18 @@ public class MysqlLoadManager {
                 String strictMode = desc.getProperties().get(LoadStmt.STRICT_MODE);
                 request.setStrictMode(Boolean.parseBoolean(strictMode));
             }
+
+            // timeout
+            if (desc.getProperties().containsKey(LoadStmt.TIMEOUT_PROPERTY)) {
+                String timeout = desc.getProperties().get(LoadStmt.TIMEOUT_PROPERTY);
+                request.setTimeout(Integer.parseInt(timeout));
+            }
+
+            // timezone
+            if (desc.getProperties().containsKey(LoadStmt.TIMEZONE)) {
+                String timezone = desc.getProperties().get(LoadStmt.TIMEZONE);
+                request.setTimezone(timezone);
+            }
         }
 
         // column_separator
@@ -239,7 +251,9 @@ public class MysqlLoadManager {
             request.setSkipLines(desc.getSkipLines());
         }
         // execute begin txn
-        StreamLoadTxnExecutor executor = new StreamLoadTxnExecutor(txnEntry, TFileFormatType.FORMAT_CSV_PLAIN);
+        StreamLoadTxnExecutor executor = new StreamLoadTxnExecutor(txnEntry,
+                TFileFormatType.FORMAT_CSV_PLAIN,
+                TFileCompressType.PLAIN);
         executor.beginTransaction(request);
         return executor;
     }
@@ -328,7 +342,7 @@ public class MysqlLoadManager {
 
         httpPut.addHeader("Expect", "100-continue");
         httpPut.addHeader("Content-Type", "text/plain");
-        httpPut.addHeader("cluster_token", Env.getCurrentEnv().getToken());
+        httpPut.addHeader("token", Env.getCurrentEnv().getToken());
 
         Map<String, String> props = desc.getProperties();
         if (props != null) {
@@ -349,6 +363,24 @@ public class MysqlLoadManager {
                 String strictMode = props.get(LoadStmt.STRICT_MODE);
                 httpPut.addHeader(LoadStmt.STRICT_MODE, strictMode);
             }
+
+            // timeout
+            if (props.containsKey(LoadStmt.TIMEOUT_PROPERTY)) {
+                String timeout = props.get(LoadStmt.TIMEOUT_PROPERTY);
+                httpPut.addHeader(LoadStmt.TIMEOUT_PROPERTY, timeout);
+            }
+
+            // timezone
+            if (props.containsKey(LoadStmt.TIMEZONE)) {
+                String timezone = props.get(LoadStmt.TIMEZONE);
+                httpPut.addHeader(LoadStmt.TIMEZONE, timezone);
+            }
+
+            // compress_type
+            if (props.containsKey(COMPRESS_TYPE)) {
+                String compressType = props.get(COMPRESS_TYPE);
+                httpPut.addHeader(COMPRESS_TYPE, compressType);
+            }
         }
 
         // skip_lines
@@ -364,11 +396,6 @@ public class MysqlLoadManager {
         // line_delimiter
         if (desc.getLineDelimiter() != null) {
             httpPut.addHeader(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER, desc.getLineDelimiter());
-        }
-
-        // merge_type
-        if (!desc.getMergeType().equals(MergeType.APPEND)) {
-            httpPut.addHeader(LoadStmt.KEY_IN_PARAM_MERGE_TYPE, desc.getMergeType().name());
         }
 
         // columns
