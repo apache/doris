@@ -106,7 +106,7 @@ void BlockedTaskScheduler::_schedule() {
                 LOG(WARNING) << "Timeout, query_id="
                              << print_id(task->query_fragments_context()->query_id)
                              << ", instance_id="
-                             << print_id(task->fragment_context()->get_fragment_id());
+                             << print_id(task->fragment_context()->get_fragment_instance_id());
 
                 task->fragment_context()->cancel(PPlanFragmentCancelReason::TIMEOUT);
 
