@@ -280,7 +280,7 @@ TEST_F(TestTablet, pad_rowset) {
 TEST_F(TestTablet, cooldown_policy) {
     std::vector<RowsetMetaSharedPtr> rs_metas;
     RowsetMetaSharedPtr ptr1(new RowsetMeta());
-    init_rs_meta(ptr1, 1, 2, 200);
+    init_rs_meta(ptr1,0, 2, 200);
     rs_metas.push_back(ptr1);
     RowsetSharedPtr rowset1 = make_shared<BetaRowset>(nullptr, "", ptr1);
 
@@ -320,6 +320,7 @@ TEST_F(TestTablet, cooldown_policy) {
     _tablet->_rs_version_map[ptr5->version()] = rowset5;
 
     _tablet->set_cumulative_layer_point(20);
+    sleep(30);
 
     {
         auto storage_policy = std::make_shared<StoragePolicy>();
