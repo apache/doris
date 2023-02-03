@@ -167,7 +167,7 @@ struct MergeSortCursorImpl {
 
     MergeSortCursorImpl(const SortDescription& desc_)
             : desc(desc_), sort_columns_size(desc.size()) {}
-
+    /*
     MergeSortCursorImpl(const Columns& columns, const SortDescription& desc_)
             : desc(desc_), sort_columns_size(desc.size()) {
         for (auto& column_desc : desc) {
@@ -179,7 +179,7 @@ struct MergeSortCursorImpl {
         }
         reset(columns, {});
     }
-
+*/
     bool empty() const { return rows == 0; }
 
     /// Set the cursor to the beginning of the new block.
