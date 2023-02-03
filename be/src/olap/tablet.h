@@ -385,7 +385,7 @@ private:
                                  std::vector<segment_v2::SegmentSharedPtr>* segments);
     bool get_cooldown_delete_id(TUniqueId* cooldown_delete_id);
     void enable_cooldown_flag(const TUniqueId& cooldown_delete_id);
-    Status _deal_cooldown_delete_files(io::FileSystemSPtr fs);
+    Status _deal_cooldown_delete_files();
     Status _cooldown_data();
     Status _follow_cooldowned_data();
     Status _read_remote_tablet_meta(io::FileSystemSPtr fs, TabletMetaPB* tablet_meta_pb);

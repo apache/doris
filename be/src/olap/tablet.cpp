@@ -1652,7 +1652,7 @@ Status Tablet::cooldown() {
 
     if (_need_deal_cooldown_delete
             && _tablet_meta->cooldown_replica_id() == _tablet_meta->replica_id()) {
-        RETURN_IF_ERROR(_deal_cooldown_delete_files(dest_fs));
+        RETURN_IF_ERROR(_deal_cooldown_delete_files());
     }
 
     if (_need_cooldown) {
