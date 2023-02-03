@@ -220,7 +220,7 @@ public class RuntimeFilterTest extends SSBTestBase {
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
         Assertions.assertEquals(1, filters.size());
         checkRuntimeFilterExprs(filters, ImmutableList.of(
-                Pair.of("expr_(c_custkey + 5)", "expr_c")));
+                Pair.of("expr_(c_custkey + 5)", "lo_custkey")));
     }
 
     @Test

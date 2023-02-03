@@ -20,7 +20,6 @@ package org.apache.doris.nereids.processor.post;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
@@ -70,12 +69,7 @@ public class RuntimeFilterContext {
     // alias -> alias's child, if there's a key that is alias's child, the key-value will change by this way
     // Alias(A) = B, now B -> A in map, and encounter Alias(B) -> C, the kv will be C -> A.
     // you can see disjoint set data structure to learn the processing detailed.
-    private final Map<NamedExpression, Pair<RelationId, NamedExpression>> aliasTransferMap = Maps.newHashMap();
-
-    /**
-     * record slot to cast, when encounter cast, we should change the corresponding slot to cast in translation phase.
-     */
-    private final Map<NamedExpression, Cast> castMap = Maps.newHashMap();
+    private final Map<NamedExpression, Pair<RelationId, Slot>> aliasTransferMap = Maps.newHashMap();
 
     private final Map<Slot, OlapScanNode> scanNodeOfLegacyRuntimeFilterTarget = Maps.newHashMap();
 
@@ -130,7 +124,7 @@ public class RuntimeFilterContext {
         return exprIdToOlapScanNodeSlotRef;
     }
 
-    public Map<NamedExpression, Pair<RelationId, NamedExpression>> getAliasTransferMap() {
+    public Map<NamedExpression, Pair<RelationId, Slot>> getAliasTransferMap() {
         return aliasTransferMap;
     }
 
@@ -145,10 +139,6 @@ public class RuntimeFilterContext {
     public void generatePhysicalHashJoinToRuntimeFilter() {
         targetExprIdToFilter.values().forEach(filters -> filters.forEach(filter -> runtimeFilterOnHashJoinNode
                 .computeIfAbsent(filter.getBuilderNode(), k -> Lists.newArrayList()).add(filter)));
-    }
-
-    public Map<NamedExpression, Cast> getCastMap() {
-        return castMap;
     }
 
     public Map<ExprId, List<RuntimeFilter>> getTargetExprIdToFilter() {

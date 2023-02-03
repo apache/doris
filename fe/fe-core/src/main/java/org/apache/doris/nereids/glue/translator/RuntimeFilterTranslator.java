@@ -23,8 +23,6 @@ import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TupleId;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
-import org.apache.doris.nereids.trees.expressions.Cast;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
@@ -39,7 +37,6 @@ import com.google.common.collect.ImmutableMap;
 
 import java.util.Collections;
 import java.util.List;
-import java.util.Map;
 
 /**
  * translate runtime filter
@@ -78,19 +75,18 @@ public class RuntimeFilterTranslator {
      * @param ctx plan translator context
      */
     public void createLegacyRuntimeFilter(RuntimeFilter filter, HashJoinNode node, PlanTranslatorContext ctx) {
-        Expr src = ExpressionTranslator.translate(filter.getSrcExpr(), ctx);
         Expr target = context.getExprIdToOlapScanNodeSlotRef().get(filter.getTargetExpr().getExprId());
         if (target == null) {
             context.setTargetNullCount();
             return;
         }
+        Expr src = ExpressionTranslator.translate(filter.getSrcExpr(), ctx);
         SlotRef targetSlot = target.getSrcSlotRef();
         TupleId targetTupleId = targetSlot.getDesc().getParent().getId();
         SlotId targetSlotId = targetSlot.getSlotId();
-        Map<NamedExpression, Cast> castMap = context.getCastMap();
-        if (castMap.containsKey(filter.getTargetExpr())) {
-            Cast cast = castMap.get(filter.getTargetExpr());
-            target = new CastExpr(cast.getDataType().toCatalogDataType(), target);
+        // adjust data type
+        if (!src.getType().equals(target.getType())) {
+            target = new CastExpr(src.getType(), target);
         }
         org.apache.doris.planner.RuntimeFilter origFilter
                 = org.apache.doris.planner.RuntimeFilter.fromNereidsRuntimeFilter(

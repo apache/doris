@@ -21,7 +21,6 @@ import org.apache.doris.common.IdGenerator;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.trees.expressions.Alias;
-import org.apache.doris.nereids.trees.expressions.Cast;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -77,7 +76,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     public PhysicalPlan visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
             CascadesContext context) {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        Map<NamedExpression, Pair<RelationId, NamedExpression>> aliasTransferMap = ctx.getAliasTransferMap();
+        Map<NamedExpression, Pair<RelationId, Slot>> aliasTransferMap = ctx.getAliasTransferMap();
         join.right().accept(this, context);
         join.left().accept(this, context);
         if (deniedJoinType.contains(join.getJoinType())) {
@@ -101,11 +100,12 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                     if (unwrappedSlot == null || !aliasTransferMap.containsKey(unwrappedSlot)) {
                         continue;
                     }
+                    Slot olapScanSlot = aliasTransferMap.get(unwrappedSlot).second;
                     RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
-                            equalTo.right(), unwrappedSlot, type, i, join);
-                    ctx.addJoinToTargetMap(join, unwrappedSlot.getExprId());
-                    ctx.setTargetExprIdToFilter(unwrappedSlot.getExprId(), filter);
-                    ctx.setTargetsOnScanNode(aliasTransferMap.get(unwrappedSlot).first, unwrappedSlot);
+                            equalTo.right(), olapScanSlot, type, i, join);
+                    ctx.addJoinToTargetMap(join, olapScanSlot.getExprId());
+                    ctx.setTargetExprIdToFilter(olapScanSlot.getExprId(), filter);
+                    ctx.setTargetsOnScanNode(aliasTransferMap.get(unwrappedSlot).first, olapScanSlot);
                 }
             }
         }
@@ -115,9 +115,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     @Override
     public PhysicalPlan visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext context) {
         project.child().accept(this, context);
-        Map<NamedExpression, Pair<RelationId, NamedExpression>> aliasTransferMap
+        Map<NamedExpression, Pair<RelationId, Slot>> aliasTransferMap
                 = context.getRuntimeFilterContext().getAliasTransferMap();
-        Map<NamedExpression, Cast> castMap = context.getRuntimeFilterContext().getCastMap();
         // change key when encounter alias.
         for (Expression expression : project.getProjects()) {
             if (expression.children().isEmpty()) {
@@ -128,9 +127,6 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
                 if (expression instanceof Alias) {
                     Alias alias = ((Alias) expression);
                     aliasTransferMap.put(alias.toSlot(), aliasTransferMap.remove(expr));
-                } else if (expression instanceof Cast) {
-                    Cast cast = ((Cast) expression);
-                    castMap.put(((NamedExpression) expr), cast);
                 }
             }
         }
