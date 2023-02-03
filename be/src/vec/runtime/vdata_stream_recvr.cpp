@@ -98,6 +98,7 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch(Block* block, bool* eos) 
         _recvr->_buffer_full_total_timer->update(closure_pair.second.elapsed_time());
     }
     block->swap(*next_block);
+    *eos = false;
     return Status::OK();
 }
 
