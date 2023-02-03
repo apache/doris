@@ -26,7 +26,6 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -37,7 +36,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
@@ -93,22 +91,21 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             // TODO: some complex situation cannot be handled now, see testPushDownThroughJoin.
             // TODO: we will support it in later version.
             for (int i = 0; i < join.getHashJoinConjuncts().size(); i++) {
-                EqualTo expr = (EqualTo) join.getHashJoinConjuncts().get(i);
+                EqualTo equalTo = (EqualTo) join.getHashJoinConjuncts().get(i);
                 for (TRuntimeFilterType type : legalTypes) {
-                    Pair<Expression, Expression> normalizedChildren = checkAndMaybeSwapChild(expr, join);
+                    // currently, we can ensure children in the two side are corresponding to the equal_to's.
+                    // so right maybe an expression and left is a slot or cast(slot)
+                    Slot unwrappedSlot = checkTargetChild(equalTo.left());
                     // aliasTransMap doesn't contain the key, means that the path from the olap scan to the join
                     // contains join with denied join type. for example: a left join b on a.id = b.id
-                    if (normalizedChildren == null || !aliasTransferMap.containsKey((Slot) normalizedChildren.first)) {
+                    if (unwrappedSlot == null || !aliasTransferMap.containsKey(unwrappedSlot)) {
                         continue;
                     }
-                    Pair<Slot, Slot> slots = Pair.of(
-                            aliasTransferMap.get((Slot) normalizedChildren.first).second.toSlot(),
-                            ((Slot) normalizedChildren.second));
                     RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
-                            slots.second, slots.first, type, i, join);
-                    ctx.addJoinToTargetMap(join, slots.first.getExprId());
-                    ctx.setTargetExprIdToFilter(slots.first.getExprId(), filter);
-                    ctx.setTargetsOnScanNode(aliasTransferMap.get((Slot) normalizedChildren.first).first, slots.first);
+                            equalTo.right(), unwrappedSlot, type, i, join);
+                    ctx.addJoinToTargetMap(join, unwrappedSlot.getExprId());
+                    ctx.setTargetExprIdToFilter(unwrappedSlot.getExprId(), filter);
+                    ctx.setTargetsOnScanNode(aliasTransferMap.get(unwrappedSlot).first, unwrappedSlot);
                 }
             }
         }
@@ -155,16 +152,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         return storageLayerAggregate;
     }
 
-    private static Pair<Expression, Expression> checkAndMaybeSwapChild(EqualTo expr,
-            PhysicalHashJoin<? extends Plan, ? extends Plan> join) {
-        if (expr.child(0).equals(expr.child(1))
-                || !expr.children().stream().map(ExpressionUtils::getExpressionCoveredByCast)
-                .allMatch(SlotReference.class::isInstance)) {
-            return null;
-        }
-        // current we assume that there are certainly different slot reference in equal to.
-        // they are not from the same relation.
-        List<Expression> children = JoinUtils.swapEqualToForChildrenOrder(expr, join.left().getOutputSet()).children();
-        return Pair.of(children.get(0), children.get(1));
+    private static Slot checkTargetChild(Expression leftChild) {
+        Expression expression = ExpressionUtils.getExpressionCoveredByCast(leftChild);
+        return expression instanceof Slot ? ((Slot) expression) : null;
     }
 }

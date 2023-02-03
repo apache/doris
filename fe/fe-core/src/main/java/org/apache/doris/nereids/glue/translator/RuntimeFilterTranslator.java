@@ -78,7 +78,7 @@ public class RuntimeFilterTranslator {
      * @param ctx plan translator context
      */
     public void createLegacyRuntimeFilter(RuntimeFilter filter, HashJoinNode node, PlanTranslatorContext ctx) {
-        Expr src = ctx.findSlotRef(filter.getSrcExpr().getExprId());
+        Expr src = ExpressionTranslator.translate(filter.getSrcExpr(), ctx);
         Expr target = context.getExprIdToOlapScanNodeSlotRef().get(filter.getTargetExpr().getExprId());
         if (target == null) {
             context.setTargetNullCount();

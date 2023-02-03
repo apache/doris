@@ -213,6 +213,25 @@ public class RuntimeFilterTest extends SSBTestBase {
                 Pair.of("lo_custkey", "c_custkey")));
     }
 
+    @Test
+    public void testAliasCastAtLeftAndExpressionAtRight() {
+        String sql = "select c_custkey from (select cast(lo_custkey as bigint) c from lineorder) a"
+                + " inner join customer b on a.c = b.c_custkey + 5";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(1, filters.size());
+        checkRuntimeFilterExprs(filters, ImmutableList.of(
+                Pair.of("expr_(c_custkey + 5)", "expr_c")));
+    }
+
+    @Test
+    public void testCastAtOnExpression() {
+        String sql = "select * from part p, supplier s where p.p_name = s.s_name";
+        List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
+        Assertions.assertEquals(1, filters.size());
+        checkRuntimeFilterExprs(filters, ImmutableList.of(
+                Pair.of("s_name", "p_name")));
+    }
+
     private Optional<List<RuntimeFilter>> getRuntimeFilters(String sql) {
         PlanChecker checker = PlanChecker.from(connectContext).analyze(sql)
                 .rewrite()
@@ -231,7 +250,7 @@ public class RuntimeFilterTest extends SSBTestBase {
         Assertions.assertEquals(filters.size(), colNames.size());
         for (RuntimeFilter filter : filters) {
             Assertions.assertTrue(colNames.contains(Pair.of(
-                    filter.getSrcExpr().getName(),
+                    filter.getSrcExpr().toSql(),
                     filter.getTargetExpr().getName())));
         }
     }
