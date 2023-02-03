@@ -234,6 +234,7 @@ TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNod
         children.push_back(TypeDescriptor(types, idx));
         ++(*idx);
         children.push_back(TypeDescriptor(types, idx));
+    }
     case TTypeNodeType::STRUCT: {
         type = TYPE_STRUCT;
         size_t children_size = node.struct_fields_size();

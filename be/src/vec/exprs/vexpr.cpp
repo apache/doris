@@ -127,6 +127,7 @@ Status VExpr::create_expr(doris::ObjectPool* pool, const doris::TExprNode& texpr
     }
     case TExprNodeType::MAP_LITERAL: {
         *expr = pool->add(new VMapLiteral(texpr_node));
+    }
     case TExprNodeType::STRUCT_LITERAL: {
         *expr = pool->add(new VStructLiteral(texpr_node));
         return Status::OK();
