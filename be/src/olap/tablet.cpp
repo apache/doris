@@ -41,7 +41,6 @@
 #include "common/config.h"
 #include "common/logging.h"
 #include "common/status.h"
-#include "gutil/strings/util.h"
 #include "io/fs/path.h"
 #include "io/fs/remote_file_system.h"
 #include "olap/base_compaction.h"
@@ -66,11 +65,13 @@
 #include "util/path_util.h"
 #include "util/pretty_printer.h"
 #include "util/scoped_cleanup.h"
+#include "util/string_util.h"
 #include "util/time.h"
 #include "util/trace.h"
 #include "util/uid_util.h"
 #include "vec/data_types/data_type_factory.hpp"
 #include "vec/jsonb/serialize.h"
+
 namespace doris {
 using namespace ErrorCode;
 
@@ -1701,25 +1702,26 @@ bool Tablet::need_deal_cooldown_delete() {
 }
 
 Status Tablet::_deal_cooldown_delete_files() {
-    auto dest_fs = io::FileSystemMap::instance()->get(storage_policy());
-    if (!dest_fs) {
+    auto fs = io::FileSystemMap::instance()->get(storage_policy());
+    if (!fs) {
         return Status::Error<UNINITIALIZED>();
     }
-    if (dest_fs->type() != io::FileSystemType::S3) {
+    if (fs->type() != io::FileSystemType::S3) {
         return Status::Error<UNINITIALIZED>();
     }
 
     TabletMetaPB remote_tablet_meta_pb;
     _tablet_meta->to_meta_pb(true, &remote_tablet_meta_pb);
-    std::map<std::string, bool> remote_segment_path_map;
+    std::map<std::string, bool> remote_segment_name_map;
     for (auto& rowset_meta_pb : remote_tablet_meta_pb.rs_metas()) {
         for (int i = 0; i < rowset_meta_pb.num_segments(); ++i) {
-            std::string segment_path = BetaRowset::remote_segment_path(
-                    tablet_id(), rowset_meta_pb.rowset_id_v2(), i);
-            remote_segment_path_map.emplace(segment_path, true);
+            std::string segment_filename = io::Path(BetaRowset::remote_segment_path(
+                    tablet_id(), rowset_meta_pb.rowset_id_v2(), i)).filename();
+            boost::replace_all(segment_filename, "\"", "");
+            remote_segment_name_map.emplace(segment_filename, true);
         }
     }
-    if (remote_segment_path_map.size() == 0) {
+    if (remote_segment_name_map.size() == 0) {
         return Status::OK();
     }
 
@@ -1746,10 +1748,12 @@ Status Tablet::_deal_cooldown_delete_files() {
         RETURN_IF_ERROR(fs->list(remote_tablet_path, &segment_files));
 
         for (auto& path : segment_files) {
-            if (!ends_with(path, ".dat")) {
+            std::string filename = path.filename();
+            boost::replace_all(filename, "\"", "");
+            if (!ends_with(filename, ".dat")) {
                 continue;
             }
-            if (remote_segment_path_map.find(path.native()) != remote_segment_path_map.end()) {
+            if (remote_segment_name_map.find(filename) == remote_segment_name_map.end()) {
                 _cooldown_delete_files.emplace_back(path);
             }
         }
