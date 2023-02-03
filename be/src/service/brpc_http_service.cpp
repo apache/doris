@@ -26,6 +26,7 @@
 #include "http/brpc/action/config_action.h"
 #include "http/brpc/action/download_action.h"
 #include "http/brpc/action/health_action.h"
+#include "http/brpc/action/jeprofile_action.h"
 
 namespace doris {
 
@@ -70,11 +71,8 @@ BrpcHttpService::BrpcHttpService(ExecEnv* exec_env) : _dispatcher(new HandlerDis
             ->add_handler(new ConfigHandler())
             ->add_handler(new HealthHandler());
 
-    std::vector<std::string> allow_paths;
-    for (auto& path : exec_env->store_paths()) {
-        allow_paths.emplace_back(path.path);
-    }
-    _dispatcher->add_handler(new DownloadHandler(exec_env, allow_paths));
+    JeProfileHandler::setup(exec_env, _dispatcher.get());
+    DownloadHandler::setup(exec_env, _dispatcher.get());
 }
 
 void add_brpc_http_service(brpc::Server* server, ExecEnv* env) {
@@ -84,7 +82,9 @@ void add_brpc_http_service(brpc::Server* server, ExecEnv* env) {
                                         "/api/check_tablet_segment_lost => check_tablet_segement,"
                                         "/api/compaction/* => compaction,"
                                         "/api/*_config => config,"
-                                        "/api/_download_load");
+                                        "/api/_download_load => download,"
+                                        "/api/health => health,"
+                                        "/jeheap/dump => jeprofile");
     if (stat != 0) {
         LOG(WARNING) << "fail to add brpc http service";
     }

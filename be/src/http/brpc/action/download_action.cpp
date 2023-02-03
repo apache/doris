@@ -217,6 +217,14 @@ void* DownloadHandler::send_file(void* raw_args) {
     return nullptr;
 }
 
+void DownloadHandler::setup(ExecEnv* env, HandlerDispatcher* dispatcher) {
+    std::vector<std::string> allow_paths;
+    for (auto& path : env->store_paths()) {
+        allow_paths.emplace_back(path.path);
+    }
+    dispatcher->add_handler(new DownloadHandler(env, allow_paths));
+}
+
 Status DownloadHandler::check_token(brpc::Controller* cntl) {
     const std::string& token_str = *get_param(cntl, TOKEN_PARAMETER);
     if (token_str.empty()) {

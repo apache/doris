@@ -17,12 +17,15 @@
 
 #include "jeprofile_action.h"
 
+#include <brpc/http_method.h>
 #include <jemalloc/jemalloc.h>
 
-namespace doris {
-JeProfileHandlers::JeProfileHandlers() : BaseHttpHandler("jeprofile") {}
+#include "util/file_utils.h"
 
-void JeProfileHandlers::handle_sync(brpc::Controller* cntl) {
+namespace doris {
+JeProfileHandler::JeProfileHandler() : BaseHttpHandler("jeprofile") {}
+
+void JeProfileHandler::handle_sync(brpc::Controller* cntl) {
     std::lock_guard<std::mutex> lock(_mutex);
 #ifndef USE_JEMALLOC
     std::string str = "jemalloc heap dump is not available without setting USE_JEMALLOC";
@@ -47,4 +50,15 @@ void JeProfileHandlers::handle_sync(brpc::Controller* cntl) {
 #endif
 }
 
+bool JeProfileHandler::support_method(brpc::HttpMethod method) const {
+    return method == brpc::HTTP_METHOD_GET;
+}
+
+Status JeProfileHandler::setup(doris::ExecEnv* exec_env, HandlerDispatcher* dispatcher) {
+    if (!config::jeprofile_dir.empty()) {
+        FileUtils::create_dir(config::jeprofile_dir);
+    }
+    dispatcher->add_handler(new JeProfileHandler());
+    return Status::OK();
+}
 } // namespace doris

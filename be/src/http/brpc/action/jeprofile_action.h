@@ -18,16 +18,21 @@
 #pragma once
 
 #include "http/brpc/brpc_http_handler.h"
+#include "http/brpc/handler_dispatcher.h"
 
 namespace doris {
 
-class JeProfileHandlers : public BaseHttpHandler {
+class JeProfileHandler : public BaseHttpHandler {
 public:
-    JeProfileHandlers();
-    ~JeProfileHandlers() override = default;
+    JeProfileHandler();
+    ~JeProfileHandler() override = default;
+
+    static Status setup(doris::ExecEnv* exec_env, HandlerDispatcher* dispatcher);
 
 protected:
     void handle_sync(brpc::Controller* cntl) override;
+
+    bool support_method(brpc::HttpMethod method) const override;
 
 private:
     std::mutex _mutex;

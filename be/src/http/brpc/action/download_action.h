@@ -19,7 +19,9 @@
 
 #include "exec/scan_node.h"
 #include "http/brpc/brpc_http_handler.h"
+#include "http/brpc/handler_dispatcher.h"
 #include "runtime/descriptors.h"
+#include "runtime/exec_env.h"
 
 namespace doris {
 
@@ -38,6 +40,8 @@ public:
     ~DownloadHandler() override = default;
 
     static void* send_file(void* raw_args);
+
+    static void setup(ExecEnv* env, HandlerDispatcher* dispatcher);
 
 protected:
     void handle_sync(brpc::Controller* cntl) override;
