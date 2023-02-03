@@ -362,7 +362,6 @@ public class InternalCatalog implements CatalogIf<Database> {
                         for (Tablet tablet : index.getTablets()) {
                             TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash,
                                     medium);
-                            tabletMeta.setCooldownConf(tablet.getCooldownReplicaId(), tablet.getCooldownTerm());
                             long tabletId = tablet.getId();
                             invertedIndex.addTablet(tabletId, tabletMeta);
                             for (Replica replica : tablet.getReplicas()) {

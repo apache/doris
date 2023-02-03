@@ -342,16 +342,32 @@ public class TabletInvertedIndex {
         if (!beTabletInfo.isSetCooldownReplicaId()) {
             return;
         }
-        Pair<Long, Long> cooldownConf = tabletMeta.getCooldownConf();
+        Tablet tablet;
+        try {
+            OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId())
+                    .getTable(tabletMeta.getTableId())
+                    .get();
+            table.readLock();
+            try {
+                tablet = table.getPartition(tabletMeta.getPartitionId()).getIndex(tabletMeta.getIndexId())
+                        .getTablet(beTabletInfo.tablet_id);
+            } finally {
+                table.readUnlock();
+            }
+        } catch (RuntimeException e) {
+            LOG.warn("failed to get tablet. tabletId={}", beTabletInfo.tablet_id);
+            return;
+        }
+        Pair<Long, Long> cooldownConf = tablet.getCooldownConf();
         if (beTabletInfo.getCooldownTerm() > cooldownConf.second) { // should not be here
-            LOG.warn("report cooldownTerm({}) > cooldownTerm in TabletMeta({})", beTabletInfo.getCooldownTerm(),
-                    cooldownConf.second);
+            LOG.warn("report cooldownTerm({}) > cooldownTerm in TabletMeta({}), tabletId={}",
+                    beTabletInfo.getCooldownTerm(), cooldownConf.second, beTabletInfo.tablet_id);
             return;
         }
 
         if (cooldownConf.first <= 0) { // invalid cooldownReplicaId
             CooldownConf conf = new CooldownConf(tabletMeta.getDbId(), tabletMeta.getTableId(),
-                    tabletMeta.getPartitionId(), tabletMeta.getIndexId(), beTabletInfo.tablet_id);
+                    tabletMeta.getPartitionId(), tabletMeta.getIndexId(), beTabletInfo.tablet_id, cooldownConf.second);
             synchronized (cooldownConfToUpdate) {
                 cooldownConfToUpdate.add(conf);
             }
@@ -372,7 +388,7 @@ public class TabletInvertedIndex {
         }
         if (replicaInvalid) {
             CooldownConf conf = new CooldownConf(tabletMeta.getDbId(), tabletMeta.getTableId(),
-                    tabletMeta.getPartitionId(), tabletMeta.getIndexId(), beTabletInfo.tablet_id);
+                    tabletMeta.getPartitionId(), tabletMeta.getIndexId(), beTabletInfo.tablet_id, cooldownConf.second);
             synchronized (cooldownConfToUpdate) {
                 cooldownConfToUpdate.add(conf);
             }

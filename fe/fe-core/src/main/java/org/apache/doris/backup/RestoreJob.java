@@ -988,7 +988,6 @@ public class RestoreJob extends AbstractJob {
             for (Tablet restoreTablet : restoredIdx.getTablets()) {
                 TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
                         restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD);
-                tabletMeta.setCooldownConf(restoreTablet.getCooldownReplicaId(), restoreTablet.getCooldownTerm());
                 Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                 for (Replica restoreReplica : restoreTablet.getReplicas()) {
                     Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
@@ -1177,7 +1176,6 @@ public class RestoreJob extends AbstractJob {
                 for (Tablet restoreTablet : restoreIdx.getTablets()) {
                     TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
                             restoreIdx.getId(), schemaHash, TStorageMedium.HDD);
-                    tabletMeta.setCooldownConf(restoreTablet.getCooldownReplicaId(), restoreTablet.getCooldownTerm());
                     Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                     for (Replica restoreReplica : restoreTablet.getReplicas()) {
                         Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
@@ -1210,8 +1208,6 @@ public class RestoreJob extends AbstractJob {
                         for (Tablet restoreTablet : restoreIdx.getTablets()) {
                             TabletMeta tabletMeta = new TabletMeta(db.getId(), restoreTbl.getId(), restorePart.getId(),
                                     restoreIdx.getId(), schemaHash, TStorageMedium.HDD);
-                            tabletMeta.setCooldownConf(restoreTablet.getCooldownReplicaId(),
-                                    restoreTablet.getCooldownTerm());
                             Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                             for (Replica restoreReplica : restoreTablet.getReplicas()) {
                                 Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);

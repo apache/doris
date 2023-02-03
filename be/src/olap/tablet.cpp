@@ -1767,6 +1767,8 @@ Status Tablet::_write_cooldown_meta(io::RemoteFileSystem* fs, RowsetMeta* new_rs
 }
 
 Status Tablet::_follow_cooldowned_data(io::RemoteFileSystem* fs, int64_t cooldown_replica_id) {
+    LOG(INFO) << "try to follow cooldowned data. tablet_id=" << tablet_id()
+              << " cooldown_replica_id=" << cooldown_replica_id;
     TabletMetaPB cooldown_meta_pb;
     RETURN_IF_ERROR(_read_cooldown_meta(fs, cooldown_replica_id, &cooldown_meta_pb));
     DCHECK(cooldown_meta_pb.rs_metas_size() > 0);
@@ -1787,12 +1789,13 @@ Status Tablet::_follow_cooldowned_data(io::RemoteFileSystem* fs, int64_t cooldow
         }
     }
     if (!version_aligned) {
-        LOG(INFO) << "cooldowned version is not aligned";
-        return Status::OK();
+        return Status::InternalError("cooldowned version is not aligned");
     }
     for (auto& [v, rs] : _rs_version_map) {
         if (v.second <= cooldowned_version) {
             overlap_rowsets.push_back(rs);
+        } else if (!rs->is_local()) {
+            return Status::InternalError("cooldowned version larger than that to follow");
         }
     }
     std::sort(overlap_rowsets.begin(), overlap_rowsets.end(), Rowset::comparator);
@@ -1852,6 +1855,9 @@ RowsetSharedPtr Tablet::pick_cooldown_rowset() {
                 rowset = rs;
             }
         }
+    }
+    if (!rowset) {
+        return nullptr;
     }
     if (min_local_version != cooldowned_version + 1) { // ensure version continuity
         if (UNLIKELY(cooldowned_version != -1)) {

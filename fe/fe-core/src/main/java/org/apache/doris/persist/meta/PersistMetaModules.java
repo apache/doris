@@ -38,7 +38,7 @@ public class PersistMetaModules {
             "masterInfo", "frontends", "backends", "datasource", "db", "alterJob", "recycleBin",
             "globalVariable", "cluster", "broker", "resources", "exportJob", "syncJob", "backupHandler",
             "paloAuth", "transactionState", "colocateTableIndex", "routineLoadJobs", "loadJobV2", "smallFiles",
-            "plugins", "deleteHandler", "sqlBlockRule", "policy", "mtmvJobManager", "cooldownJob");
+            "plugins", "deleteHandler", "sqlBlockRule", "policy", "mtmvJobManager");
 
     static {
         MODULES_MAP = Maps.newHashMap();

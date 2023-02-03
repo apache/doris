@@ -51,14 +51,17 @@ public class CooldownConf implements Writable {
     public CooldownConf() {
     }
 
-    public CooldownConf(long dbId, long tableId, long partitionId, long indexId, long tabletId) {
+    // for update
+    public CooldownConf(long dbId, long tableId, long partitionId, long indexId, long tabletId, long cooldownTerm) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;
         this.indexId = indexId;
         this.tabletId = tabletId;
+        this.cooldownTerm = cooldownTerm;
     }
 
+    // for push
     public CooldownConf(long tabletId, long cooldownReplicaId, long cooldownTerm) {
         this.tabletId = tabletId;
         this.cooldownReplicaId = cooldownReplicaId;
