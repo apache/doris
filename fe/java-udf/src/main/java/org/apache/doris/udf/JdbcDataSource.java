@@ -37,4 +37,8 @@ public class JdbcDataSource {
     public void putSource(String jdbcUrl, DruidDataSource ds) {
         sourcesMap.put(jdbcUrl, ds);
     }
+
+    public Map<String, DruidDataSource> getSourcesMap() {
+        return sourcesMap;
+    }
 }

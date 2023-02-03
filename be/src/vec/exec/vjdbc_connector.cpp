@@ -17,6 +17,8 @@
 
 #include "vec/exec/vjdbc_connector.h"
 
+#include <cstring>
+
 #include "common/status.h"
 #include "exec/table_connector.h"
 #include "gen_cpp/Types_types.h"
@@ -396,8 +398,9 @@ Status JdbcConnector::_convert_batch_result_set(JNIEnv* env, jobject jcolumn_dat
     bool column_is_nullable = slot_desc->is_nullable();
     if (column_is_nullable) {
         auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
-        address[0] = reinterpret_cast<int64_t>(
-                nullable_column->get_null_map_column_ptr()->get_raw_data().data);
+        auto& null_map = nullable_column->get_null_map_data();
+        memset(null_map.data(), 0, num_rows);
+        address[0] = reinterpret_cast<int64_t>(null_map.data());
         col_ptr = &nullable_column->get_nested_column();
     }
     switch (slot_desc->type().type) {
@@ -440,7 +443,7 @@ Status JdbcConnector::_convert_batch_result_set(JNIEnv* env, jobject jcolumn_dat
         address[1] = reinterpret_cast<int64_t>(col_ptr->get_raw_data().data);
         env->CallNonvirtualVoidMethod(_executor_obj, _executor_clazz, _executor_get_largeint_result,
                                       jcolumn_data, column_is_nullable, num_rows, address[0],
-                                      address[1], 16);
+                                      address[1]);
         break;
     }
     case TYPE_FLOAT: {
@@ -581,7 +584,7 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchBigIntResult",
                                 JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_bigint_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchLargeIntResult",
-                                "(Ljava/lang/Object;ZIJJI)V", _executor_get_largeint_result));
+                                JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_largeint_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchFloatResult",
                                 JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_float_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchDoubleResult",
@@ -651,7 +654,8 @@ Status JdbcConnector::_convert_column_data(JNIEnv* env, jobject jobj,
     if (true == slot_desc->is_nullable()) {
         auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(column_ptr);
         if (jobj == nullptr) {
-            nullable_column->insert_data(nullptr, 0);
+            //nullable column of null map have memset 0 before
+            nullable_column->get_nested_column_ptr()->insert_default();
             if (_need_cast_array_type && slot_desc->type().type == TYPE_ARRAY) {
                 reinterpret_cast<vectorized::ColumnNullable*>(
                         str_array_cols[_map_column_idx_to_cast_idx[column_index]].get())
@@ -659,7 +663,6 @@ Status JdbcConnector::_convert_column_data(JNIEnv* env, jobject jobj,
             }
             return Status::OK();
         } else {
-            nullable_column->get_null_map_data().push_back(0);
             col_ptr = &nullable_column->get_nested_column();
         }
     }

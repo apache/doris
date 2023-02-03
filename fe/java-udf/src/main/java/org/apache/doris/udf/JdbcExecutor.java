@@ -111,14 +111,7 @@ public class JdbcExecutor {
 
     public int write(String sql) throws UdfRuntimeException {
         try {
-            boolean res = stmt.execute(sql);
-            if (res) { // sql query
-                resultSet = stmt.getResultSet();
-                resultSetMetaData = resultSet.getMetaData();
-                return resultSetMetaData.getColumnCount();
-            } else {
-                return stmt.getUpdateCount();
-            }
+            return stmt.executeUpdate(sql);
         } catch (SQLException e) {
             throw new UdfRuntimeException("JDBC executor sql has error: ", e);
         }
@@ -401,7 +394,7 @@ public class JdbcExecutor {
     }
 
     public void copyBatchLargeIntResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr, int typeLen) {
+            long columnAddr) {
         BigInteger[] column = (BigInteger[]) columnObj;
         if (isNullable == true) {
             for (int i = 0; i < numRows; i++) {
@@ -409,27 +402,27 @@ public class JdbcExecutor {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
                     byte[] bytes = UdfUtils.convertByteOrder(column[i].toByteArray());
-                    byte[] value = new byte[typeLen];
+                    byte[] value = new byte[16];
                     if (column[i].signum() == -1) {
                         Arrays.fill(value, (byte) -1);
                     }
                     for (int index = 0; index < Math.min(bytes.length, value.length); ++index) {
                         value[index] = bytes[index];
                     }
-                    UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null, columnAddr + (i * typeLen), typeLen);
+                    UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null, columnAddr + (i * 16), 16);
                 }
             }
         } else {
             for (int i = 0; i < numRows; i++) {
                 byte[] bytes = UdfUtils.convertByteOrder(column[i].toByteArray());
-                byte[] value = new byte[typeLen];
+                byte[] value = new byte[16];
                 if (column[i].signum() == -1) {
                     Arrays.fill(value, (byte) -1);
                 }
                 for (int index = 0; index < Math.min(bytes.length, value.length); ++index) {
                     value[index] = bytes[index];
                 }
-                UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null, columnAddr + (i * typeLen), typeLen);
+                UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null, columnAddr + (i * 16), 16);
             }
         }
     }
@@ -583,9 +576,14 @@ public class JdbcExecutor {
         BigDecimal[] column = (BigDecimal[]) columnObj;
         BigInteger[] data = new BigInteger[numRows];
         for (int i = 0; i < numRows; i++) {
-            data[i] = column[i].setScale(9, RoundingMode.HALF_EVEN).unscaledValue();
+            if (column[i] == null) {
+                data[i] = null;
+                UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+            } else {
+                data[i] = column[i].setScale(9, RoundingMode.HALF_EVEN).unscaledValue();
+            }
         }
-        copyBatchLargeIntResult(data, isNullable, numRows, nullMapAddr, columnAddr, 16);
+        copyBatchDecimalResult(data, isNullable, numRows, columnAddr, 16);
     }
 
     public void copyBatchDecimal32Result(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
@@ -593,9 +591,14 @@ public class JdbcExecutor {
         BigDecimal[] column = (BigDecimal[]) columnObj;
         BigInteger[] data = new BigInteger[numRows];
         for (int i = 0; i < numRows; i++) {
-            data[i] = column[i].setScale(scale, RoundingMode.HALF_EVEN).unscaledValue();
+            if (column[i] == null) {
+                data[i] = null;
+                UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+            } else {
+                data[i] = column[i].setScale(scale, RoundingMode.HALF_EVEN).unscaledValue();
+            }
         }
-        copyBatchLargeIntResult(data, isNullable, numRows, nullMapAddr, columnAddr, 4);
+        copyBatchDecimalResult(data, isNullable, numRows, columnAddr, 4);
     }
 
     public void copyBatchDecimal64Result(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
@@ -603,9 +606,14 @@ public class JdbcExecutor {
         BigDecimal[] column = (BigDecimal[]) columnObj;
         BigInteger[] data = new BigInteger[numRows];
         for (int i = 0; i < numRows; i++) {
-            data[i] = column[i].setScale(scale, RoundingMode.HALF_EVEN).unscaledValue();
+            if (column[i] == null) {
+                data[i] = null;
+                UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+            } else {
+                data[i] = column[i].setScale(scale, RoundingMode.HALF_EVEN).unscaledValue();
+            }
         }
-        copyBatchLargeIntResult(data, isNullable, numRows, nullMapAddr, columnAddr, 8);
+        copyBatchDecimalResult(data, isNullable, numRows, columnAddr, 8);
     }
 
     public void copyBatchDecimal128Result(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
@@ -613,8 +621,45 @@ public class JdbcExecutor {
         BigDecimal[] column = (BigDecimal[]) columnObj;
         BigInteger[] data = new BigInteger[numRows];
         for (int i = 0; i < numRows; i++) {
-            data[i] = column[i].setScale(scale, RoundingMode.HALF_EVEN).unscaledValue();
+            if (column[i] == null) {
+                data[i] = null;
+                UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+            } else {
+                data[i] = column[i].setScale(scale, RoundingMode.HALF_EVEN).unscaledValue();
+            }
         }
-        copyBatchLargeIntResult(data, isNullable, numRows, nullMapAddr, columnAddr, 16);
+        copyBatchDecimalResult(data, isNullable, numRows, columnAddr, 16);
+    }
+
+    public void copyBatchDecimalResult(Object columnObj, boolean isNullable, int numRows,
+            long columnAddr, int typeLen) {
+        BigInteger[] column = (BigInteger[]) columnObj;
+        if (isNullable == true) {
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] != null) {
+                    byte[] bytes = UdfUtils.convertByteOrder(column[i].toByteArray());
+                    byte[] value = new byte[typeLen];
+                    if (column[i].signum() == -1) {
+                        Arrays.fill(value, (byte) -1);
+                    }
+                    for (int index = 0; index < Math.min(bytes.length, value.length); ++index) {
+                        value[index] = bytes[index];
+                    }
+                    UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null, columnAddr + (i * typeLen), typeLen);
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                byte[] bytes = UdfUtils.convertByteOrder(column[i].toByteArray());
+                byte[] value = new byte[typeLen];
+                if (column[i].signum() == -1) {
+                    Arrays.fill(value, (byte) -1);
+                }
+                for (int index = 0; index < Math.min(bytes.length, value.length); ++index) {
+                    value[index] = bytes[index];
+                }
+                UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null, columnAddr + (i * typeLen), typeLen);
+            }
+        }
     }
 }
