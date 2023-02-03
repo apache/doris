@@ -192,7 +192,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         for (FieldSchema field : schema) {
             tmpSchema.add(new Column(field.getName(),
                     HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
-                    true, null, field.getComment(), true, null, -1));
+                    true, field.getComment(), true, -1));
         }
         return tmpSchema;
     }
@@ -204,7 +204,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         for (FieldSchema field : hmsSchema) {
             tmpSchema.add(new Column(field.getName(),
                     HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
-                    true, null, field.getComment(), true, null,
+                    true, field.getComment(), true,
                     schema.caseInsensitiveFindField(field.getName()).fieldId()));
         }
         return tmpSchema;
