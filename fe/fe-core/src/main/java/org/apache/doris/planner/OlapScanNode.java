@@ -148,7 +148,6 @@ public class OlapScanNode extends ScanNode {
     private long selectedTabletsNum = 0;
     private long totalTabletsNum = 0;
     private long selectedIndexId = -1;
-    private int selectedPartitionNum = 0;
     private Collection<Long> selectedPartitionIds = Lists.newArrayList();
     private long totalBytes = 0;
 
@@ -248,7 +247,7 @@ public class OlapScanNode extends ScanNode {
     }
 
     public Integer getSelectedPartitionNum() {
-        return selectedPartitionNum;
+        return selectedPartitionIds.size();
     }
 
     public Long getSelectedTabletsNum() {
@@ -513,7 +512,6 @@ public class OlapScanNode extends ScanNode {
      * Init OlapScanNode, ONLY used for Nereids. Should NOT use this function in anywhere else.
      */
     public void init() throws UserException {
-        selectedPartitionNum = selectedPartitionIds.size();
         try {
             getScanRangeLocations();
         } catch (AnalysisException e) {
@@ -766,7 +764,6 @@ public class OlapScanNode extends ScanNode {
                     .filter(id -> olapTable.getPartition(id).hasData())
                     .collect(Collectors.toList());
         }
-        selectedPartitionNum = selectedPartitionIds.size();
 
         for (long id : selectedPartitionIds) {
             Partition partition = olapTable.getPartition(id);
@@ -800,7 +797,7 @@ public class OlapScanNode extends ScanNode {
     }
 
     private void getScanRangeLocations() throws UserException {
-        if (selectedPartitionIds.size() == 0) {
+        if (selectedPartitionIds.isEmpty()) {
             desc.setCardinality(0);
             return;
         }
@@ -1062,7 +1059,7 @@ public class OlapScanNode extends ScanNode {
             output.append(getRuntimeFilterExplainString(false));
         }
 
-        output.append(prefix).append(String.format("partitions=%s/%s, tablets=%s/%s", selectedPartitionNum,
+        output.append(prefix).append(String.format("partitions=%s/%s, tablets=%s/%s", getSelectedPartitionNum(),
                 olapTable.getPartitions().size(), selectedTabletsNum, totalTabletsNum));
         // We print up to 3 tablet, and we print "..." if the number is more than 3
         if (scanTabletIds.size() > 3) {
@@ -1142,7 +1139,6 @@ public class OlapScanNode extends ScanNode {
         olapScanNode.numInstances = 1;
 
         olapScanNode.selectedIndexId = olapScanNode.olapTable.getBaseIndexId();
-        olapScanNode.selectedPartitionNum = 1;
         olapScanNode.selectedTabletsNum = 1;
         olapScanNode.totalTabletsNum = 1;
         olapScanNode.setIsPreAggregation(false, "Export job");
