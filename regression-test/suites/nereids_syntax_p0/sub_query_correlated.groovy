@@ -262,4 +262,22 @@ suite ("sub_query_correlated") {
     qt_scalar_subquery_with_disjunctions """
         SELECT DISTINCT k1 FROM sub_query_correlated_subquery1 i1 WHERE ((SELECT count(*) FROM sub_query_correlated_subquery1 WHERE ((k1 = i1.k1) AND (k2 = 2)) or ((k1 = i1.k1) AND (k2 = 1)) )  > 0);
     """
+
+    //--------subquery case when-----------
+    qt_case_when_subquery """
+        SELECT CASE
+            WHEN (
+                SELECT COUNT(*) / 2
+                FROM sub_query_correlated_subquery3
+            ) > v1 THEN (
+                SELECT AVG(v1)
+                FROM sub_query_correlated_subquery3
+            )
+            ELSE (
+                SELECT SUM(v2)
+                FROM sub_query_correlated_subquery3
+            )
+            END AS kk4
+        FROM sub_query_correlated_subquery3 ;
+    """
 }
