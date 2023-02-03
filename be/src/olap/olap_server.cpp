@@ -729,7 +729,7 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
                 Status st = tablet->cooldown();
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to cooldown, tablet: " << tablet->tablet_id()
-                                 << " err: " << st.to_string();
+                                 << " err: " << st;
                 } else {
                     LOG(INFO) << "succeed to cooldown, tablet: " << tablet->tablet_id()
                               << " cooldown progress ("

@@ -1391,9 +1391,9 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     tablet_info->__set_is_in_memory(_tablet_meta->tablet_schema()->is_in_memory());
     tablet_info->__set_replica_id(replica_id());
     tablet_info->__set_remote_data_size(_tablet_meta->tablet_remote_size());
-    tablet_info->__set_is_cooldown(_tablet_meta->storage_policy_id() > 0);
-    if (tablet_info->is_cooldown) {
+    if (tablet_state() == TABLET_RUNNING && _tablet_meta->storage_policy_id() > 0) {
         tablet_info->__set_cooldown_replica_id(_cooldown_replica_id);
+        tablet_info->__set_cooldown_term(_cooldown_term);
     }
 }
 
@@ -1644,7 +1644,7 @@ Status Tablet::cooldown() {
     }
     int64_t cooldown_replica_id = _cooldown_replica_id;
     if (cooldown_replica_id <= 0) { // wait for FE to push cooldown conf
-        return Status::OK();
+        return Status::InternalError("invalid cooldown_replica_id");
     }
     auto storage_policy = get_storage_policy(storage_policy_id());
     if (storage_policy == nullptr) {

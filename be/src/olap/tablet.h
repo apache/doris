@@ -305,9 +305,10 @@ public:
 
     void update_cooldown_conf(int64_t cooldown_term, int64_t cooldown_replica_id) {
         if (cooldown_term > _cooldown_term) {
-            LOG(INFO) << "update cooldown conf. cooldown_replica_id: " << _cooldown_replica_id
-                      << " -> " << cooldown_replica_id << ", cooldown_term: " << _cooldown_term
-                      << " -> " << cooldown_term;
+            LOG(INFO) << "update cooldown conf. tablet_id=" << tablet_id()
+                      << " cooldown_replica_id: " << _cooldown_replica_id << " -> "
+                      << cooldown_replica_id << ", cooldown_term: " << _cooldown_term << " -> "
+                      << cooldown_term;
             _cooldown_replica_id = cooldown_replica_id;
             _cooldown_term = cooldown_term;
         }
