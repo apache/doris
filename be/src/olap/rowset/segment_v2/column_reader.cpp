@@ -30,6 +30,7 @@
 #include "util/rle_encoding.h" // for RleDecoder
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_struct.h"
 #include "vec/core/types.h"
 #include "vec/runtime/vdatetime_value.h" //for VecDateTime
@@ -98,6 +99,32 @@ Status ColumnReader::create(const ColumnReaderOptions& opts, const ColumnMetaPB&
                 array_reader->_sub_readers[2] = std::move(null_reader);
             }
             *reader = std::move(array_reader);
+            return Status::OK();
+        }
+        case FieldType::OLAP_FIELD_TYPE_MAP: {
+            // map reader now has 3 sub readers for key(arr), value(arr), null(scala)
+            std::unique_ptr<ColumnReader> map_reader(
+                    new ColumnReader(opts, meta, num_rows, file_reader));
+            std::unique_ptr<ColumnReader> key_reader;
+            RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(0), num_rows,
+                                                 file_reader, &key_reader));
+            std::unique_ptr<ColumnReader> val_reader;
+            RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(1), num_rows,
+                                                 file_reader, &val_reader));
+            std::unique_ptr<ColumnReader> null_reader;
+            if (meta.is_nullable()) {
+                RETURN_IF_ERROR(ColumnReader::create(opts, meta.children_columns(2),
+                                                     meta.children_columns(2).num_rows(),
+                                                     file_reader, &null_reader));
+            }
+            map_reader->_sub_readers.resize(meta.children_columns_size());
+
+            map_reader->_sub_readers[0] = std::move(key_reader);
+            map_reader->_sub_readers[1] = std::move(val_reader);
+            if (meta.is_nullable()) {
+                map_reader->_sub_readers[2] = std::move(null_reader);
+            }
+            *reader = std::move(map_reader);
             return Status::OK();
         }
         default:
@@ -494,11 +521,89 @@ Status ColumnReader::new_iterator(ColumnIterator** iterator) {
                     null_iterator);
             return Status::OK();
         }
+        case FieldType::OLAP_FIELD_TYPE_MAP: {
+            ColumnIterator* key_iterator = nullptr;
+            RETURN_IF_ERROR(_sub_readers[0]->new_iterator(&key_iterator));
+            ColumnIterator* val_iterator = nullptr;
+            RETURN_IF_ERROR(_sub_readers[1]->new_iterator(&val_iterator));
+            ColumnIterator* null_iterator = nullptr;
+            if (is_nullable()) {
+                RETURN_IF_ERROR(_sub_readers[2]->new_iterator(&null_iterator));
+            }
+            *iterator = new MapFileColumnIterator(this, null_iterator, key_iterator, val_iterator);
+            return Status::OK();
+        }
         default:
             return Status::NotSupported("unsupported type to create iterator: {}",
                                         std::to_string(type));
         }
     }
+}
+
+///====================== MapFileColumnIterator ============================////
+MapFileColumnIterator::MapFileColumnIterator(ColumnReader* reader, ColumnIterator* null_iterator,
+                                             ColumnIterator* key_iterator,
+                                             ColumnIterator* val_iterator)
+        : _map_reader(reader) {
+    _key_iterator.reset(key_iterator);
+    _val_iterator.reset(val_iterator);
+    if (_map_reader->is_nullable()) {
+        _null_iterator.reset(null_iterator);
+    }
+}
+
+Status MapFileColumnIterator::init(const ColumnIteratorOptions& opts) {
+    RETURN_IF_ERROR(_key_iterator->init(opts));
+    RETURN_IF_ERROR(_val_iterator->init(opts));
+    if (_map_reader->is_nullable()) {
+        RETURN_IF_ERROR(_null_iterator->init(opts));
+    }
+    return Status::OK();
+}
+
+Status MapFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) {
+    return Status::NotSupported("Not support next_batch");
+}
+
+Status MapFileColumnIterator::seek_to_ordinal(ordinal_t ord) {
+    RETURN_IF_ERROR(_key_iterator->seek_to_ordinal(ord));
+    RETURN_IF_ERROR(_val_iterator->seek_to_ordinal(ord));
+    if (_map_reader->is_nullable()) {
+        RETURN_IF_ERROR(_null_iterator->seek_to_ordinal(ord));
+    }
+    return Status::OK();
+}
+
+Status MapFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,
+                                         bool* has_null) {
+    const auto* column_map = vectorized::check_and_get_column<vectorized::ColumnMap>(
+            dst->is_nullable() ? static_cast<vectorized::ColumnNullable&>(*dst).get_nested_column()
+                               : *dst);
+    size_t num_read = *n;
+    auto column_key_ptr = column_map->get_keys().assume_mutable();
+    auto column_val_ptr = column_map->get_values().assume_mutable();
+    RETURN_IF_ERROR(_key_iterator->next_batch(&num_read, column_key_ptr, has_null));
+    RETURN_IF_ERROR(_val_iterator->next_batch(&num_read, column_val_ptr, has_null));
+
+    if (dst->is_nullable()) {
+        auto null_map_ptr =
+                static_cast<vectorized::ColumnNullable&>(*dst).get_null_map_column_ptr();
+        bool null_signs_has_null = false;
+        RETURN_IF_ERROR(_null_iterator->next_batch(&num_read, null_map_ptr, &null_signs_has_null));
+        DCHECK(num_read == *n);
+    }
+    return Status::OK();
+}
+
+Status MapFileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t count,
+                                             vectorized::MutableColumnPtr& dst) {
+    for (size_t i = 0; i < count; ++i) {
+        RETURN_IF_ERROR(seek_to_ordinal(rowids[i]));
+        size_t num_read = 1;
+        RETURN_IF_ERROR(next_batch(&num_read, dst, nullptr));
+        DCHECK(num_read == 1);
+    }
+    return Status::OK();
 }
 
 ////////////////////////////////////////////////////////////////////////////////

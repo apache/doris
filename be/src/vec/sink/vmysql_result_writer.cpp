@@ -29,6 +29,7 @@
 #include "vec/common/assert_cast.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_decimal.h"
+#include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_struct.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -185,6 +186,22 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
             }
             buf_ret = rows_buffer[i].push_string("]", 1);
             rows_buffer[i].close_dynamic_mode();
+        }
+    } else if constexpr (type == TYPE_MAP) {
+        DCHECK_GE(sub_types.size(), 1);
+        auto& map_type = assert_cast<const DataTypeMap&>(*sub_types[0]);
+        for (ssize_t i = 0; i < row_size; ++i) {
+            if (0 != buf_ret) {
+                return Status::InternalError("pack mysql buffer failed.");
+            }
+            _buffer.reset();
+
+            _buffer.open_dynamic_mode();
+            std::string cell_str = map_type.to_string(*column, i);
+            buf_ret = _buffer.push_string(cell_str.c_str(), strlen(cell_str.c_str()));
+
+            _buffer.close_dynamic_mode();
+            result->result_batch.rows[i].append(_buffer.buf(), _buffer.length());
         }
     } else if constexpr (type == TYPE_STRUCT) {
         DCHECK_GE(sub_types.size(), 1);
@@ -747,6 +764,18 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
                 auto& sub_types = assert_cast<const DataTypeStruct&>(*type_ptr).get_elements();
                 status = _add_one_column<PrimitiveType::TYPE_STRUCT, false>(column_ptr, result,
                                                                             scale, sub_types);
+            }
+            break;
+        }
+        case TYPE_MAP: {
+            if (type_ptr->is_nullable()) {
+                auto& nested_type =
+                        assert_cast<const DataTypeNullable&>(*type_ptr).get_nested_type(); //for map
+                status = _add_one_column<PrimitiveType::TYPE_MAP, true>(column_ptr, result, scale,
+                                                                        {nested_type});
+            } else {
+                status = _add_one_column<PrimitiveType::TYPE_MAP, false>(column_ptr, result, scale,
+                                                                         {type_ptr});
             }
             break;
         }

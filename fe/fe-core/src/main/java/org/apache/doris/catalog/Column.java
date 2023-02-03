@@ -63,6 +63,8 @@ public class Column implements Writable, GsonPostProcessable {
     private static final String COLUMN_ARRAY_CHILDREN = "item";
     private static final String COLUMN_STRUCT_CHILDREN = "field";
     public static final int COLUMN_UNIQUE_ID_INIT_VALUE = -1;
+    private static final String COLUMN_MAP_KEY = "key";
+    private static final String COLUMN_MAP_VALUE = "value";
 
     public static final Column UNSUPPORTED_COLUMN = new Column("unknown",
             Type.UNSUPPORTED, true, null, true, null, "invalid", true, null, -1, null);
@@ -211,6 +213,11 @@ public class Column implements Writable, GsonPostProcessable {
             Column c = new Column(COLUMN_ARRAY_CHILDREN, ((ArrayType) type).getItemType());
             c.setIsAllowNull(((ArrayType) type).getContainsNull());
             column.addChildrenColumn(c);
+        } else if (type.isMapType()) {
+            Column k = new Column(COLUMN_MAP_KEY, ((MapType) type).getKeyType());
+            Column v = new Column(COLUMN_MAP_VALUE, ((MapType) type).getValueType());
+            column.addChildrenColumn(k);
+            column.addChildrenColumn(v);
         } else if (type.isStructType()) {
             ArrayList<StructField> fields = ((StructType) type).getFields();
             for (StructField field : fields) {
@@ -467,6 +474,12 @@ public class Column implements Writable, GsonPostProcessable {
             Column children = column.getChildren().get(0);
             tColumn.setChildrenColumn(new ArrayList<>());
             setChildrenTColumn(children, tColumn);
+        } else if (column.type.isMapType()) {
+            Column k = column.getChildren().get(0);
+            Column v = column.getChildren().get(1);
+            tColumn.setChildrenColumn(new ArrayList<>());
+            setChildrenTColumn(k, tColumn);
+            setChildrenTColumn(v, tColumn);
         } else if (column.type.isStructType()) {
             List<Column> childrenColumns = column.getChildren();
             tColumn.setChildrenColumn(new ArrayList<>());
@@ -475,6 +488,7 @@ public class Column implements Writable, GsonPostProcessable {
             }
         }
     }
+
 
     public void checkSchemaChangeAllowed(Column other) throws DdlException {
         if (Strings.isNullOrEmpty(other.name)) {

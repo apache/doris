@@ -65,7 +65,6 @@ bool StoragePageCache::lookup(const CacheKey& key, PageCacheHandle* handle,
 void StoragePageCache::insert(const CacheKey& key, const Slice& data, PageCacheHandle* handle,
                               segment_v2::PageTypePB page_type, bool in_memory) {
     auto deleter = [](const doris::CacheKey& key, void* value) { delete[] (uint8_t*)value; };
-
     CachePriority priority = CachePriority::NORMAL;
     if (in_memory) {
         priority = CachePriority::DURABLE;

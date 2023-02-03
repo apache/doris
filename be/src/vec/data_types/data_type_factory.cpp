@@ -29,6 +29,11 @@ DataTypePtr DataTypeFactory::create_data_type(const doris::Field& col_desc) {
     if (col_desc.type() == OLAP_FIELD_TYPE_ARRAY) {
         DCHECK(col_desc.get_sub_field_count() == 1);
         nested = std::make_shared<DataTypeArray>(create_data_type(*col_desc.get_sub_field(0)));
+    } else if (col_desc.type() == OLAP_FIELD_TYPE_MAP) {
+        DCHECK(col_desc.get_sub_field_count() == 2);
+        nested = std::make_shared<vectorized::DataTypeMap>(
+                create_data_type(*col_desc.get_sub_field(0)),
+                create_data_type(*col_desc.get_sub_field(1)));
     } else if (col_desc.type() == OLAP_FIELD_TYPE_STRUCT) {
         DCHECK(col_desc.get_sub_field_count() >= 1);
         size_t field_size = col_desc.get_sub_field_count();
@@ -57,6 +62,11 @@ DataTypePtr DataTypeFactory::create_data_type(const TabletColumn& col_desc, bool
     if (col_desc.type() == OLAP_FIELD_TYPE_ARRAY) {
         DCHECK(col_desc.get_subtype_count() == 1);
         nested = std::make_shared<DataTypeArray>(create_data_type(col_desc.get_sub_column(0)));
+    } else if (col_desc.type() == OLAP_FIELD_TYPE_MAP) {
+        DCHECK(col_desc.get_subtype_count() == 2);
+        nested = std::make_shared<vectorized::DataTypeMap>(
+                create_data_type(col_desc.get_sub_column(0)),
+                create_data_type(col_desc.get_sub_column(1)));
     } else if (col_desc.type() == OLAP_FIELD_TYPE_STRUCT) {
         DCHECK(col_desc.get_subtype_count() >= 1);
         size_t col_size = col_desc.get_subtype_count();
@@ -154,6 +164,12 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
         DCHECK(col_desc.children.size() == 1);
         nested = std::make_shared<vectorized::DataTypeArray>(
                 create_data_type(col_desc.children[0], col_desc.contains_nulls[0]));
+        break;
+    case TYPE_MAP:
+        DCHECK(col_desc.children.size() == 2);
+        nested = std::make_shared<vectorized::DataTypeMap>(
+                create_data_type(col_desc.children[0], col_desc.contains_nulls[0]),
+                create_data_type(col_desc.children[1], col_desc.contains_nulls[1]));
         break;
     case TYPE_STRUCT: {
         DCHECK(col_desc.children.size() >= 1);
@@ -338,6 +354,13 @@ DataTypePtr DataTypeFactory::create_data_type(const PColumnMeta& pcolumn) {
     case PGenericType::FIXEDLENGTHOBJECT:
         nested = std::make_shared<DataTypeFixedLengthObject>();
         break;
+    case PGenericType::MAP:
+        DCHECK(pcolumn.children_size() == 2);
+        // here to check pcolumn is list?
+        nested = std::make_shared<vectorized::DataTypeMap>(
+                create_data_type(pcolumn.children(0).children(0)),
+                create_data_type(pcolumn.children(1).children(0)));
+        break;
     case PGenericType::STRUCT: {
         size_t col_size = pcolumn.children_size();
         DCHECK(col_size >= 1);
@@ -420,6 +443,12 @@ DataTypePtr DataTypeFactory::create_data_type(const arrow::DataType* type, bool 
         DCHECK(type->num_fields() == 1);
         nested = std::make_shared<vectorized::DataTypeArray>(
                 create_data_type(type->field(0)->type().get(), true));
+        break;
+    case ::arrow::Type::MAP:
+        DCHECK(type->num_fields() == 2);
+        nested = std::make_shared<vectorized::DataTypeMap>(
+                create_data_type(type->field(0)->type().get(), true),
+                create_data_type(type->field(1)->type().get(), true));
         break;
     default:
         DCHECK(false) << "invalid arrow type:" << (int)(type->id());

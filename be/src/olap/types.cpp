@@ -201,6 +201,15 @@ TypeInfoPtr get_type_info(segment_v2::ColumnMetaPB* column_meta_pb) {
         }
         return create_static_type_info_ptr(
                 get_array_type_info((FieldType)child_column->type(), iterations));
+    } else if (UNLIKELY(type == OLAP_FIELD_TYPE_MAP)) {
+        segment_v2::ColumnMetaPB key_meta = column_meta_pb->children_columns(0);
+        TypeInfoPtr key_type_info = get_type_info(&key_meta);
+        segment_v2::ColumnMetaPB value_meta = column_meta_pb->children_columns(1);
+        TypeInfoPtr value_type_info = get_type_info(&value_meta);
+
+        MapTypeInfo* map_type_info =
+                new MapTypeInfo(std::move(key_type_info), std::move(value_type_info));
+        return create_static_type_info_ptr(map_type_info);
     } else {
         return create_static_type_info_ptr(get_scalar_type_info(type));
     }
@@ -240,6 +249,13 @@ TypeInfoPtr get_type_info(const TabletColumn* col) {
             child_column = &child_column->get_sub_column(0);
         }
         return create_static_type_info_ptr(get_array_type_info(child_column->type(), iterations));
+    } else if (UNLIKELY(type == OLAP_FIELD_TYPE_MAP)) {
+        const auto* key_column = &col->get_sub_column(0);
+        TypeInfoPtr key_type = get_type_info(key_column);
+        const auto* val_column = &col->get_sub_column(1);
+        TypeInfoPtr value_type = get_type_info(val_column);
+        MapTypeInfo* map_type_info = new MapTypeInfo(std::move(key_type), std::move(value_type));
+        return create_static_type_info_ptr(map_type_info);
     } else {
         return create_static_type_info_ptr(get_scalar_type_info(type));
     }
@@ -248,22 +264,24 @@ TypeInfoPtr get_type_info(const TabletColumn* col) {
 TypeInfoPtr clone_type_info(const TypeInfo* type_info) {
     if (is_scalar_type(type_info->type())) {
         return create_static_type_info_ptr(type_info);
-    } else {
-        auto type = type_info->type();
-        if (type == OLAP_FIELD_TYPE_STRUCT) {
-            const auto struct_type_info = dynamic_cast<const StructTypeInfo*>(type_info);
-            std::vector<TypeInfoPtr> clone_type_infos;
-            const std::vector<TypeInfoPtr>* sub_type_infos = struct_type_info->type_infos();
-            clone_type_infos.reserve(sub_type_infos->size());
-            for (size_t i = 0; i < sub_type_infos->size(); i++) {
-                clone_type_infos.push_back(clone_type_info((*sub_type_infos)[i].get()));
-            }
-            return create_dynamic_type_info_ptr(new StructTypeInfo(clone_type_infos));
-        } else {
-            const auto array_type_info = dynamic_cast<const ArrayTypeInfo*>(type_info);
-            return create_dynamic_type_info_ptr(
-                    new ArrayTypeInfo(clone_type_info(array_type_info->item_type_info())));
+    } else if (type_info->type() == OLAP_FIELD_TYPE_MAP) {
+        const auto map_type_info = dynamic_cast<const MapTypeInfo*>(type_info);
+        return create_dynamic_type_info_ptr(
+                new MapTypeInfo(clone_type_info(map_type_info->get_key_type_info()),
+                                clone_type_info(map_type_info->get_value_type_info())));
+    } else if (type_info->type() == OLAP_FIELD_TYPE_STRUCT) {
+        const auto struct_type_info = dynamic_cast<const StructTypeInfo*>(type_info);
+        std::vector<TypeInfoPtr> clone_type_infos;
+        const std::vector<TypeInfoPtr>* sub_type_infos = struct_type_info->type_infos();
+        clone_type_infos.reserve(sub_type_infos->size());
+        for (size_t i = 0; i < sub_type_infos->size(); i++) {
+            clone_type_infos.push_back(clone_type_info((*sub_type_infos)[i].get()));
         }
+        return create_dynamic_type_info_ptr(new StructTypeInfo(clone_type_infos));
+    } else if (type_info->type() == OLAP_FIELD_TYPE_ARRAY) {
+        const auto array_type_info = dynamic_cast<const ArrayTypeInfo*>(type_info);
+        return create_dynamic_type_info_ptr(
+                new ArrayTypeInfo(clone_type_info(array_type_info->item_type_info())));
     }
 }
 

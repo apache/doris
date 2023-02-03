@@ -163,6 +163,15 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
                 return Status::NotSupported("Do not support bitmap index for jsonb type");
             }
         }
+        if (column.type() == FieldType::OLAP_FIELD_TYPE_MAP) {
+            opts.need_zone_map = false;
+            if (opts.need_bloom_filter) {
+                return Status::NotSupported("Do not support bloom filter for map type");
+            }
+            if (opts.need_bitmap_index) {
+                return Status::NotSupported("Do not support bitmap index for map type");
+            }
+        }
 
         if (column.is_row_store_column()) {
             // smaller page size for row store column

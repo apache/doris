@@ -28,6 +28,7 @@
 #include "olap/types.h"
 #include "olap/utils.h"
 #include "runtime/collection_value.h"
+#include "runtime/map_value.h"
 #include "runtime/mem_pool.h"
 #include "util/hash_util.hpp"
 #include "util/mem_util.hpp"
@@ -355,10 +356,9 @@ uint32_t Field::hash_code(const CellType& cell, uint32_t seed) const {
     return _type_info->hash_code(cell.cell_ptr(), seed);
 }
 
-class StructField : public Field {
+class MapField : public Field {
 public:
-    explicit StructField(const TabletColumn& column) : Field(column) {}
-
+    explicit MapField(const TabletColumn& column) : Field(column) {}
     void consume(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
                  ObjectPool* agg_pool) const override {
         dst->set_is_null(src_null);
@@ -367,7 +367,17 @@ public:
         }
         _type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
     }
+    // make variable_ptr memory allocate to cell_ptr as MapValue
+    char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
+        return variable_ptr + _length;
+    }
 
+    size_t get_variable_len() const override { return _length; }
+};
+
+class StructField : public Field {
+public:
+    explicit StructField(const TabletColumn& column) : Field(column) {}
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
         auto struct_v = (StructValue*)cell_ptr;
         struct_v->set_values(reinterpret_cast<void**>(variable_ptr));
@@ -656,6 +666,14 @@ public:
                 local->add_sub_field(std::move(item_field));
                 return local;
             }
+            case OLAP_FIELD_TYPE_MAP: {
+                std::unique_ptr<Field> key_field(FieldFactory::create(column.get_sub_column(0)));
+                std::unique_ptr<Field> val_field(FieldFactory::create(column.get_sub_column(1)));
+                auto* local = new MapField(column);
+                local->add_sub_field(std::move(key_field));
+                local->add_sub_field(std::move(val_field));
+                return local;
+            }
             case OLAP_FIELD_TYPE_DECIMAL:
                 [[fallthrough]];
             case OLAP_FIELD_TYPE_DECIMAL32:
@@ -703,6 +721,15 @@ public:
                 std::unique_ptr<Field> item_field(FieldFactory::create(column.get_sub_column(0)));
                 auto* local = new ArrayField(column);
                 local->add_sub_field(std::move(item_field));
+                return local;
+            }
+            case OLAP_FIELD_TYPE_MAP: {
+                DCHECK(column.get_subtype_count() == 2);
+                auto* local = new MapField(column);
+                std::unique_ptr<Field> key_field(FieldFactory::create(column.get_sub_column(0)));
+                std::unique_ptr<Field> value_field(FieldFactory::create(column.get_sub_column(1)));
+                local->add_sub_field(std::move(key_field));
+                local->add_sub_field(std::move(value_field));
                 return local;
             }
             case OLAP_FIELD_TYPE_DECIMAL:

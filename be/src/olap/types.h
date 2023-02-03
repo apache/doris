@@ -31,6 +31,7 @@
 #include "olap/olap_define.h"
 #include "runtime/collection_value.h"
 #include "runtime/jsonb_value.h"
+#include "runtime/map_value.h"
 #include "runtime/mem_pool.h"
 #include "runtime/struct_value.h"
 #include "util/jsonb_document.h"
@@ -321,6 +322,93 @@ public:
 private:
     TypeInfoPtr _item_type_info;
     const size_t _item_size;
+};
+///====================== MapType Info ==========================///
+class MapTypeInfo : public TypeInfo {
+public:
+    explicit MapTypeInfo(TypeInfoPtr key_type_info, TypeInfoPtr value_type_info)
+            : _key_type_info(std::move(key_type_info)),
+              _value_type_info(std::move(value_type_info)) {}
+    ~MapTypeInfo() override = default;
+
+    inline bool equal(const void* left, const void* right) const override {
+        auto l_value = reinterpret_cast<const MapValue*>(left);
+        auto r_value = reinterpret_cast<const MapValue*>(right);
+        return l_value->size() == r_value->size();
+    }
+
+    int cmp(const void* left, const void* right) const override {
+        auto l_value = reinterpret_cast<const MapValue*>(left);
+        auto r_value = reinterpret_cast<const MapValue*>(right);
+        uint32_t l_size = l_value->size();
+        uint32_t r_size = r_value->size();
+        if (l_size < r_size) {
+            return -1;
+        } else if (l_size > r_size) {
+            return 1;
+        } else {
+            return 0;
+        }
+    }
+
+    void shallow_copy(void* dest, const void* src) const override {
+        auto dest_value = reinterpret_cast<MapValue*>(dest);
+        auto src_value = reinterpret_cast<const MapValue*>(src);
+        dest_value->shallow_copy(src_value);
+    }
+
+    void deep_copy(void* dest, const void* src, MemPool* mem_pool) const override { DCHECK(false); }
+
+    void copy_object(void* dest, const void* src, MemPool* mem_pool) const override {
+        deep_copy(dest, src, mem_pool);
+    }
+
+    void direct_copy(void* dest, const void* src) const override { CHECK(false); }
+
+    void direct_copy(uint8_t** base, void* dest, const void* src) const { CHECK(false); }
+
+    void direct_copy_may_cut(void* dest, const void* src) const override { direct_copy(dest, src); }
+
+    Status convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool,
+                        size_t variable_len = 0) const override {
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+    }
+
+    Status from_string(void* buf, const std::string& scan_key, const int precision = 0,
+                       const int scale = 0) const override {
+        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
+    }
+
+    std::string to_string(const void* src) const override { return "{}"; }
+
+    void set_to_max(void* buf) const override {
+        DCHECK(false) << "set_to_max of list is not implemented.";
+    }
+
+    void set_to_min(void* buf) const override {
+        DCHECK(false) << "set_to_min of list is not implemented.";
+    }
+
+    uint32_t hash_code(const void* data, uint32_t seed) const override {
+        auto map_value = reinterpret_cast<const MapValue*>(data);
+        auto size = map_value->size();
+        uint32_t result = HashUtil::hash(&size, sizeof(size), seed);
+        result = seed * result + _key_type_info->hash_code(map_value->key_data(), seed) +
+                 _value_type_info->hash_code(map_value->value_data(), seed);
+        return result;
+    }
+
+    // todo . is here only to need return 16 for two ptr?
+    const size_t size() const override { return sizeof(MapValue); }
+
+    FieldType type() const override { return OLAP_FIELD_TYPE_MAP; }
+
+    inline const TypeInfo* get_key_type_info() const { return _key_type_info.get(); }
+    inline const TypeInfo* get_value_type_info() const { return _value_type_info.get(); }
+
+private:
+    TypeInfoPtr _key_type_info;
+    TypeInfoPtr _value_type_info;
 };
 
 class StructTypeInfo : public TypeInfo {
@@ -708,6 +796,10 @@ struct CppTypeTraits<OLAP_FIELD_TYPE_STRUCT> {
 template <>
 struct CppTypeTraits<OLAP_FIELD_TYPE_ARRAY> {
     using CppType = CollectionValue;
+};
+template <>
+struct CppTypeTraits<OLAP_FIELD_TYPE_MAP> {
+    using CppType = MapValue;
 };
 template <FieldType field_type>
 struct BaseFieldtypeTraits : public CppTypeTraits<field_type> {
