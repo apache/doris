@@ -152,7 +152,7 @@ public:
     int32_t unique_id(size_t index) const { return _unique_ids[index]; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
     bool has_sequence_col() const { return _has_sequence_col; }
-    int32_t rowid_col_idx() const { return _rowid_col_idx; };
+    int32_t rowid_col_idx() const { return _rowid_col_idx; }
 
 private:
     void _init(const std::vector<TabletColumn>& cols, const std::vector<ColumnId>& col_ids,

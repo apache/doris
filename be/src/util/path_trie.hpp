@@ -28,7 +28,7 @@ namespace doris {
 template <class T>
 class PathTrie {
 public:
-    PathTrie() : _root("/", "*"), _root_value(nullptr), _separator('/') {};
+    PathTrie() : _root("/", "*"), _root_value(nullptr), _separator('/') {}
 
     ~PathTrie() {
         if (_root_value != nullptr) {

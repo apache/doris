@@ -24,16 +24,11 @@
 
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
-#include "json2pb/json_to_pb.h"
 #include "olap/olap_meta.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_factory.h"
 #include "olap/rowset/rowset_meta_manager.h"
 #include "olap/storage_engine.h"
-
-#ifndef BE_TEST
-#define BE_TEST
-#endif
 
 using ::testing::_;
 using ::testing::Return;
