@@ -174,6 +174,13 @@ suite("test_join", "nereids_p0") {
                 order by 1, 2, 3, 4, 5 limit 65535"""
     }
 
+    explain {
+        sql ("select ${i} from ${tbName1} a inner join ${tbName2} b on a.k2 = b.k2 and a.k1 > 0 \n" +
+                "                inner join ${tbName3} c on a.k3 = c.k3 and b.k1 = c.k1 + 1 and c.k3 > 0 \n" +
+                "                order by 1, 2, 3, 4, 5 limit 65535")
+        contains("RF001")
+    }
+
     // test_left_join
     String i = "a.k1, b.k1, a.k2, b.k2, a.k3, b.k3"
     qt_left_join1"""select ${i} from ${tbName1} a left join ${tbName2} b 
