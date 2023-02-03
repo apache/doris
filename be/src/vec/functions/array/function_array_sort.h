@@ -272,10 +272,10 @@ private:
                                                   dest_offsets, src_null_map, dest_null_map);
         } else if (which.is_date_v2()) {
             res = _execute_number<ColumnDateV2>(src_column, src_offsets, dest_column, dest_offsets,
-                                              src_null_map, dest_null_map);
+                                                src_null_map, dest_null_map);
         } else if (which.is_date_time_v2()) {
             res = _execute_number<ColumnDateTimeV2>(src_column, src_offsets, dest_column,
-                                                  dest_offsets, src_null_map, dest_null_map);
+                                                    dest_offsets, src_null_map, dest_null_map);
         } else if (which.is_decimal128()) {
             res = _execute_number<ColumnDecimal128>(src_column, src_offsets, dest_column,
                                                     dest_offsets, src_null_map, dest_null_map);
