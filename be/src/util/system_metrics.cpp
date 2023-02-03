@@ -430,6 +430,9 @@ void SystemMetrics::_install_memory_metrics(MetricEntity* entity) {
 void SystemMetrics::_update_memory_metrics() {
     _memory_metrics->memory_allocated_bytes->set_value(PerfCounters::get_vm_rss());
     get_metrics_from_proc_vmstat();
+}
+
+void SystemMetrics::update_allocator_metrics() {
 #if defined(ADDRESS_SANITIZER) || defined(LEAK_SANITIZER) || defined(THREAD_SANITIZER)
     LOG(INFO) << "Memory tracking is not available with address sanitizer builds.";
 #elif defined(USE_JEMALLOC)
