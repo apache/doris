@@ -141,10 +141,18 @@ private:
             if constexpr (std::is_same_v<CppType, StringRef>) {
                 min_value = StringRef(encoded_min);
                 max_value = StringRef(encoded_max);
-            }
+            } else {
+                return false;
+            };
             break;
         case TYPE_DECIMALV2:
             if constexpr (std::is_same_v<CppType, DecimalV2Value>) {
+                size_t max_precision = max_decimal_precision<Decimal<__int128_t>>();
+                if (col_schema->parquet_schema.precision < 1 ||
+                    col_schema->parquet_schema.precision > max_precision ||
+                    col_schema->parquet_schema.scale > max_precision) {
+                    return false;
+                }
                 int v2_scale = DecimalV2Value::SCALE;
                 if (physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
                     min_value = DecimalV2Value(
@@ -164,6 +172,8 @@ private:
                 } else {
                     return false;
                 }
+            } else {
+                return false;
             }
             break;
         case TYPE_DECIMAL32:
@@ -171,6 +181,12 @@ private:
         case TYPE_DECIMAL128I:
             if constexpr (std::is_same_v<CppType, int32_t> || std::is_same_v<CppType, int64_t> ||
                           std::is_same_v<CppType, __int128_t>) {
+                size_t max_precision = max_decimal_precision<Decimal<CppType>>();
+                if (col_schema->parquet_schema.precision < 1 ||
+                    col_schema->parquet_schema.precision > max_precision ||
+                    col_schema->parquet_schema.scale > max_precision) {
+                    return false;
+                }
                 if (physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
                     min_value = _decode_binary_decimal<CppType>(col_schema, encoded_min,
                                                                 predicate.scale);
@@ -189,6 +205,8 @@ private:
                 } else {
                     return false;
                 }
+            } else {
+                return false;
             }
             break;
         case TYPE_DATE:
@@ -202,6 +220,8 @@ private:
                               std::is_same_v<CppType, DateV2Value<DateV2ValueType>>) {
                     min_value.from_unixtime(min_date_value * 24 * 60 * 60, utc);
                     max_value.from_unixtime(max_date_value * 24 * 60 * 60, utc);
+                } else {
+                    return false;
                 }
             } else {
                 return false;
@@ -224,6 +244,8 @@ private:
                         min_value.set_microsecond(micros_min % 1000000);
                         max_value.set_microsecond(micros_max % 1000000);
                     }
+                } else {
+                    return false;
                 }
             } else if (physical_type == tparquet::Type::INT64) {
                 int64_t date_value_min = *reinterpret_cast<const int64_t*>(encoded_min.data());
@@ -271,6 +293,8 @@ private:
                         max_value.set_microsecond((date_value_max % second_mask) *
                                                   scale_to_nano_factor / 1000);
                     }
+                } else {
+                    return false;
                 }
             } else {
                 return false;
