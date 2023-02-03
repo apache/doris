@@ -109,8 +109,14 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
     SCOPED_TIMER(_get_next_timer);
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     if (state->is_cancelled()) {
-        _scanner_ctx->set_status_on_error(Status::Cancelled("query cancelled"));
-        return _scanner_ctx->status();
+        // ISSUE: https://github.com/apache/doris/issues/16360
+        // _scanner_ctx may be null here, see: `VScanNode::alloc_resource` (_eos == null)
+        if (_scanner_ctx) {
+            _scanner_ctx->set_status_on_error(Status::Cancelled("query cancelled"));
+            return _scanner_ctx->status();
+        } else {
+            return Status::Cancelled("query cancelled");
+        }
     }
 
     if (_eos) {
