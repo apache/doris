@@ -35,6 +35,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.thrift.TRuntimeFilterType;
 
@@ -90,7 +91,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             // TODO: some complex situation cannot be handled now, see testPushDownThroughJoin.
             // TODO: we will support it in later version.
             for (int i = 0; i < join.getHashJoinConjuncts().size(); i++) {
-                EqualTo equalTo = (EqualTo) join.getHashJoinConjuncts().get(i);
+                EqualTo equalTo = ((EqualTo) JoinUtils.swapEqualToForChildrenOrder(
+                        (EqualTo) join.getHashJoinConjuncts().get(i), join.left().getOutputSet()));
                 for (TRuntimeFilterType type : legalTypes) {
                     // currently, we can ensure children in the two side are corresponding to the equal_to's.
                     // so right maybe an expression and left is a slot or cast(slot)
