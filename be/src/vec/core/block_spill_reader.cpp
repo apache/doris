@@ -79,11 +79,12 @@ Status BlockSpillReader::open() {
 
 // The returned block is owned by BlockSpillReader and is
 // destroyed when reading next block.
-Status BlockSpillReader::read(Block* block) {
+Status BlockSpillReader::read(Block* block, bool* eos) {
     DCHECK(file_reader_);
     block->clear();
 
     if (read_block_index_ >= block_count_) {
+        *eos = true;
         return Status::OK();
     }
 

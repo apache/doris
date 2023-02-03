@@ -52,7 +52,7 @@ bool VDataStreamRecvr::SenderQueue::should_wait() {
     return !_is_cancelled && _block_queue.empty() && _num_remaining_senders > 0;
 }
 
-Status VDataStreamRecvr::SenderQueue::get_batch(Block* block) {
+Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
     std::unique_lock<std::mutex> l(_lock);
     // wait until something shows up or we know we're done
     while (!_is_cancelled && _block_queue.empty() && _num_remaining_senders > 0) {
@@ -65,17 +65,17 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block* block) {
                 &_is_cancelled);
         _data_arrival_cv.wait(l);
     }
-    return _inner_get_batch(block);
+    return _inner_get_batch(block, eos);
 }
 
-Status VDataStreamRecvr::SenderQueue::_inner_get_batch(Block* block) {
+Status VDataStreamRecvr::SenderQueue::_inner_get_batch(Block* block, bool* eos) {
     if (_is_cancelled) {
         return Status::Cancelled("Cancelled");
     }
 
     if (_block_queue.empty()) {
         DCHECK_EQ(_num_remaining_senders, 0);
-        return Status::Error<ErrorCode::END_OF_FILE>();
+        return *eos = true;
     }
 
     _received_first_batch = true;
@@ -388,19 +388,10 @@ bool VDataStreamRecvr::ready_to_read() {
 Status VDataStreamRecvr::get_next(Block* block, bool* eos) {
     if (!_is_merging) {
         block->clear();
-        auto status = _sender_queues[0]->get_batch(block);
-        if (status.is<ErrorCode::END_OF_FILE>()) {
-            *eos = true;
-            return Status::OK();
-        } else {
-            *eos = false;
-            return Status::OK();
-        }
+        return _sender_queues[0]->get_batch(block, eos);
     } else {
         RETURN_IF_ERROR(_merger->get_next(block, eos));
     }
-
-    return Status::OK();
 }
 
 void VDataStreamRecvr::remove_sender(int sender_id, int be_number) {

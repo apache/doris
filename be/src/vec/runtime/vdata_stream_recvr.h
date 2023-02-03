@@ -161,7 +161,7 @@ public:
 
     virtual bool should_wait();
 
-    virtual Status get_batch(Block* next_block);
+    virtual Status get_batch(Block* next_block, bool* eos);
 
     void add_block(const PBlock& pblock, int be_number, int64_t packet_seq,
                    ::google::protobuf::Closure** done);
@@ -176,7 +176,7 @@ public:
 
 protected:
     virtual void _update_block_queue_empty() {}
-    Status _inner_get_batch(Block* block);
+    Status _inner_get_batch(Block* block, bool* eos);
 
     // Not managed by this class
     VDataStreamRecvr* _recvr;
@@ -208,12 +208,12 @@ public:
 
     void _update_block_queue_empty() override { _block_queue_empty = _block_queue.empty(); }
 
-    Status get_batch(Block* block) override {
+    Status get_batch(Block* block, bool* eos) override {
         CHECK(!should_wait()) << " _is_cancelled: " << _is_cancelled
                               << ", _block_queue_empty: " << _block_queue_empty
                               << ", _num_remaining_senders: " << _num_remaining_senders;
         std::lock_guard<std::mutex> l(_lock); // protect _block_queue
-        return _inner_get_batch(block);
+        return _inner_get_batch(block, eos);
     }
 
     void add_block(Block* block, bool use_move) override {

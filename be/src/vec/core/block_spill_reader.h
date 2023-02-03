@@ -40,7 +40,7 @@ public:
 
     Status close();
 
-    Status read(Block* block);
+    Status read(Block* block, bool* eos);
 
     int64_t get_id() const { return stream_id_; }
 
