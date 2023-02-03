@@ -392,7 +392,7 @@ Status VDataStreamRecvr::get_next(Block* block, bool* eos) {
         block->clear();
         return _sender_queues[0]->get_batch(block, eos);
     } else {
-        RETURN_IF_ERROR(_merger->get_next(block, eos));
+        return _merger->get_next(block, eos);
     }
 }
 
