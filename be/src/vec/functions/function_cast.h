@@ -194,17 +194,16 @@ struct ConvertImpl {
                     } else if constexpr (IsTimeType<ToDataType>) {
                         if constexpr (IsDateTimeType<ToDataType> && IsDateV2Type<FromDataType>) {
                             DataTypeDateV2::cast_to_date_time(vec_from[i], vec_to[i]);
-                        } else if constexpr (IsDateTimeV2Type<ToDataType> &&
-                                             IsDateV2Type<FromDataType>) {
+                        } else if constexpr (IsDateType<ToDataType> && IsDateV2Type<FromDataType>) {
                             DataTypeDateV2::cast_to_date(vec_from[i], vec_to[i]);
                         } else if constexpr (IsDateTimeType<ToDataType> &&
                                              IsDateTimeV2Type<FromDataType>) {
                             DataTypeDateTimeV2::cast_to_date_time(vec_from[i], vec_to[i]);
-                        } else if constexpr (IsDateTimeV2Type<ToDataType> &&
+                        } else if constexpr (IsDateType<ToDataType> &&
                                              IsDateTimeV2Type<FromDataType>) {
                             DataTypeDateTimeV2::cast_to_date(vec_from[i], vec_to[i]);
-                        } else if constexpr (IsDateType<ToDataType> && IsDateV2Type<FromDataType>) {
-                            DataTypeDateV2::cast_to_date(vec_from[i], vec_to[i]);
+                        } else {
+                            return Status::InvalidArgument("Wrong cast expression!");
                         }
                     } else {
                         if constexpr (IsDateTimeV2Type<FromDataType>) {
