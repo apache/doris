@@ -1650,11 +1650,19 @@ Status Tablet::cooldown() {
         return Status::Error<TRY_LOCK_FAILED>();
     }
 
-    if (_tablet_meta->cooldown_replica_id() == _tablet_meta->replica_id()) {
-        RETURN_IF_ERROR(_cooldown_data());
-    } else {
-        RETURN_IF_ERROR(_follow_cooldowned_data());
+    if (_need_deal_cooldown_delete
+            && _tablet_meta->cooldown_replica_id() == _tablet_meta->replica_id()) {
+        RETURN_IF_ERROR(_deal_cooldown_delete_files(dest_fs));
     }
+
+    if (_need_cooldown) {
+        if (_tablet_meta->cooldown_replica_id() == _tablet_meta->replica_id()) {
+            RETURN_IF_ERROR(_cooldown_data());
+        } else {
+            RETURN_IF_ERROR(_follow_cooldowned_data());
+        }
+    }
+
     return Status::OK();
 }
 
@@ -1683,11 +1691,24 @@ void Tablet::enable_cooldown_flag(const TUniqueId& cooldown_delete_id) {
 }
 
 bool Tablet::need_deal_cooldown_delete() {
-    return _cooldown_delete_flag
+    if (_tablet_meta->cooldown_replica_id() != _tablet_meta->replica_id()) {
+        _need_deal_cooldown_delete = false;
+        return false;
+    }
+    _need_deal_cooldown_delete = _cooldown_delete_flag
             || time(NULL) - _last_cooldown_delete_time >= config::cooldown_delete_interval_time_sec;
+    return _need_deal_cooldown_delete;
 }
 
-Status Tablet::_deal_cooldown_delete_files(io::FileSystemSPtr fs) {
+Status Tablet::_deal_cooldown_delete_files() {
+    auto dest_fs = io::FileSystemMap::instance()->get(storage_policy());
+    if (!dest_fs) {
+        return Status::Error<UNINITIALIZED>();
+    }
+    if (dest_fs->type() != io::FileSystemType::S3) {
+        return Status::Error<UNINITIALIZED>();
+    }
+
     TabletMetaPB remote_tablet_meta_pb;
     _tablet_meta->to_meta_pb(true, &remote_tablet_meta_pb);
     std::map<std::string, bool> remote_segment_path_map;
@@ -1709,6 +1730,7 @@ Status Tablet::_deal_cooldown_delete_files(io::FileSystemSPtr fs) {
     }
     if (_cooldown_delete_flag) {
         for (auto& file_path : _cooldown_delete_files) {
+            LOG(INFO) << "delete invalid remote file: " << file_path;
             RETURN_IF_ERROR(fs->delete_file(file_path));
         }
         _cooldown_delete_flag = false;
@@ -1744,8 +1766,6 @@ Status Tablet::_cooldown_data() {
     if (dest_fs->type() != io::FileSystemType::S3) {
         return Status::Error<UNINITIALIZED>();
     }
-
-    RETURN_IF_ERROR(_deal_cooldown_delete_files(dest_fs));
 
     auto old_rowset = pick_cooldown_rowset();
     if (!old_rowset) {
@@ -1921,6 +1941,7 @@ RowsetSharedPtr Tablet::pick_cooldown_rowset() {
 }
 
 bool Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
+    _need_cooldown = false;
     // std::shared_lock meta_rlock(_meta_lock);
     if (storage_policy().empty()) {
         VLOG_DEBUG << "tablet does not need cooldown, tablet id: " << tablet_id();
@@ -1959,6 +1980,7 @@ bool Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
         *cooldown_timestamp = oldest_cooldown_time;
         VLOG_DEBUG << "tablet need cooldown, tablet id: " << tablet_id()
                    << " cooldown_timestamp: " << *cooldown_timestamp;
+        _need_cooldown = true;
         return true;
     }
 
@@ -1966,6 +1988,7 @@ bool Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
         *file_size = rowset->data_disk_size();
         VLOG_DEBUG << "tablet need cooldown, tablet id: " << tablet_id()
                    << " file_size: " << *file_size;
+        _need_cooldown = true;
         return true;
     }
 

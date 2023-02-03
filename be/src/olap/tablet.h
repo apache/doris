@@ -468,6 +468,8 @@ private:
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 
+    bool _need_cooldown = false;
+    bool _need_deal_cooldown_delete = false;
     // Used for cooldown delete operation
     std::mutex _cooldown_delete_lock;
     TUniqueId _cooldown_delete_id;
