@@ -1615,24 +1615,23 @@ public class Coordinator {
     // Populates scan_range_assignment_.
     // <fragment, <server, nodeId>>
     private void computeScanRangeAssignment() throws Exception {
+        if (isPointQuery) {
+            // Fast path for evaluate Backend for point query
+            List<TScanRangeLocations> locations = ((OlapScanNode) scanNodes.get(0)).lazyEvaluateRangeLocations();
+            Preconditions.checkNotNull(locations);
+            return;
+        }
         Map<TNetworkAddress, Long> assignedBytesPerHost = Maps.newHashMap();
         Map<TNetworkAddress, Long> replicaNumPerHost = getReplicaNumPerHost();
         Collections.shuffle(scanNodes);
         // set scan ranges/locations for scan nodes
         for (ScanNode scanNode : scanNodes) {
             List<TScanRangeLocations> locations;
-            if (isPointQuery) {
-                // Fast path for evaluate Backend for point query
-                locations = ((OlapScanNode) scanNode).lazyEvaluateRangeLocations();
-                Preconditions.checkNotNull(locations);
-                return;
-            } else {
-                // the parameters of getScanRangeLocations may ignore, It doesn't take effect
-                locations = scanNode.getScanRangeLocations(0);
-                if (locations == null) {
-                    // only analysis olap scan node
-                    continue;
-                }
+            // the parameters of getScanRangeLocations may ignore, It doesn't take effect
+            locations = scanNode.getScanRangeLocations(0);
+            if (locations == null) {
+                // only analysis olap scan node
+                continue;
             }
             Collections.shuffle(locations);
             Set<Integer> scanNodeIds = fragmentIdToScanNodeIds.computeIfAbsent(scanNode.getFragmentId(),
