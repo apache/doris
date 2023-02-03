@@ -53,9 +53,6 @@ public class FunctionName implements Writable {
     public FunctionName(String db, String fn) {
         this.db = db;
         this.fn = fn.toLowerCase();
-        if (this.db != null) {
-            this.db = this.db.toLowerCase();
-        }
     }
 
     public FunctionName(String fn) {
