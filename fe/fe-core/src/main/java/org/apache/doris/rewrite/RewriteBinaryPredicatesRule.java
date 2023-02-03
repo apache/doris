@@ -123,7 +123,10 @@ public class RewriteBinaryPredicatesRule implements ExprRewriteRule {
         Expr expr1 = expr.getChild(1);
         if (expr0 instanceof CastExpr && (expr0.getType() == Type.DECIMALV2 || expr0.getType().isDecimalV3())
                 && expr0.getChild(0) instanceof SlotRef
-                && expr0.getChild(0).getType().getResultType() == Type.BIGINT && expr1 instanceof DecimalLiteral) {
+                && expr0.getChild(0).getType().getResultType() == Type.BIGINT && expr1 instanceof DecimalLiteral
+                //expr0.getChild(0) should be a real column, not a function. refer to pr 16401
+                && expr0.getSrcSlotRef() != null
+                && expr0.getSrcSlotRef().getColumn() != null) {
             return rewriteBigintSlotRefCompareDecimalLiteral(expr0, (DecimalLiteral) expr1, op);
         }
         return expr;
