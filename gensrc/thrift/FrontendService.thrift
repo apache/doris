@@ -721,6 +721,19 @@ struct TFetchSchemaTableDataResult {
   2: optional list<Data.TRow> data_batch;
 }
 
+struct TMySqlLoadAcquireTokenResult {
+    1: required Status.TStatus status
+    2: optional string token
+}
+
+struct TMySqlLoadReleaseTokenRequest {
+    1: optional string token
+}
+
+struct TMySqlLoadReleaseTokenResult {
+    1: required Status.TStatus status
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -758,4 +771,9 @@ service FrontendService {
     TInitExternalCtlMetaResult initExternalCtlMeta(1: TInitExternalCtlMetaRequest request)
 
     TFetchSchemaTableDataResult fetchSchemaTableData(1: TFetchSchemaTableDataRequest request)
+
+    TMySqlLoadAcquireTokenResult acquireToken()
+
+    TMySqlLoadReleaseTokenResult releaseToken(1: TMySqlLoadReleaseTokenRequest request)
+
 }

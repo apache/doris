@@ -21,6 +21,9 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TLoadTxnBeginRequest;
 import org.apache.doris.thrift.TLoadTxnBeginResult;
+import org.apache.doris.thrift.TMySqlLoadAcquireTokenResult;
+import org.apache.doris.thrift.TMySqlLoadReleaseTokenRequest;
+import org.apache.doris.thrift.TMySqlLoadReleaseTokenResult;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;
@@ -124,6 +127,85 @@ public class MasterTxnExecutor {
                 throw e;
             } else {
                 TWaitingTxnStatusResult result = client.waitingTxnStatus(request);
+                if (result.getStatus().getStatusCode() != TStatusCode.OK) {
+                    throw new TException("commit failed.");
+                }
+                isReturnToPool = true;
+                return result;
+            }
+        } finally {
+            if (isReturnToPool) {
+                ClientPool.frontendPool.returnObject(thriftAddress, client);
+            } else {
+                ClientPool.frontendPool.invalidateObject(thriftAddress, client);
+            }
+        }
+    }
+
+    public String acquireToken() throws TException {
+        TNetworkAddress thriftAddress = getMasterAddress();
+
+        FrontendService.Client client = getClient(thriftAddress);
+
+        LOG.info("Send acquire token {} to Master {}", ctx.getStmtId(), thriftAddress);
+
+        boolean isReturnToPool = false;
+        try {
+            TMySqlLoadAcquireTokenResult result = client.acquireToken();
+            isReturnToPool = true;
+            if (result.getStatus().getStatusCode() != TStatusCode.OK) {
+                throw new TException("get acquire token failed.");
+            }
+            return result.getToken();
+        } catch (TTransportException e) {
+            boolean ok = ClientPool.frontendPool.reopen(client, thriftTimeoutMs);
+            if (!ok) {
+                throw e;
+            }
+            if (e.getType() == TTransportException.TIMED_OUT) {
+                throw e;
+            } else {
+                TMySqlLoadAcquireTokenResult result = client.acquireToken();
+                if (result.getStatus().getStatusCode() != TStatusCode.OK) {
+                    throw new TException("commit failed.");
+                }
+                isReturnToPool = true;
+                return result.getToken();
+            }
+        } finally {
+            if (isReturnToPool) {
+                ClientPool.frontendPool.returnObject(thriftAddress, client);
+            } else {
+                ClientPool.frontendPool.invalidateObject(thriftAddress, client);
+            }
+        }
+    }
+
+    public TMySqlLoadReleaseTokenResult releaseToken(String token) throws TException {
+        TNetworkAddress thriftAddress = getMasterAddress();
+
+        FrontendService.Client client = getClient(thriftAddress);
+
+        LOG.info("Send acquire token {} to Master {}", ctx.getStmtId(), thriftAddress);
+        TMySqlLoadReleaseTokenRequest request = new TMySqlLoadReleaseTokenRequest();
+        request.setToken(token);
+        boolean isReturnToPool = false;
+        try {
+            TMySqlLoadReleaseTokenResult result = client.releaseToken(request);
+            isReturnToPool = true;
+            if (result.getStatus().getStatusCode() != TStatusCode.OK) {
+                throw new TException("get acquire token failed.");
+            }
+            return result;
+        } catch (TTransportException e) {
+            boolean ok = ClientPool.frontendPool.reopen(client, thriftTimeoutMs);
+            if (!ok) {
+                throw e;
+            }
+            if (e.getType() == TTransportException.TIMED_OUT) {
+                throw e;
+            } else {
+                TMySqlLoadReleaseTokenResult result = client.releaseToken(request);
                 if (result.getStatus().getStatusCode() != TStatusCode.OK) {
                     throw new TException("commit failed.");
                 }

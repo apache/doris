@@ -99,6 +99,9 @@ import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TMasterResult;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
+import org.apache.doris.thrift.TMySqlLoadAcquireTokenResult;
+import org.apache.doris.thrift.TMySqlLoadReleaseTokenRequest;
+import org.apache.doris.thrift.TMySqlLoadReleaseTokenResult;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TReportExecStatusParams;
@@ -564,7 +567,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     private void checkToken(String token) throws AuthenticationException {
-        if (!Env.getCurrentEnv().getToken().equals(token)) {
+        if (!Env.getCurrentEnv().getLoadManager().getMysqlLoadManager().checkAuthToken(token)) {
             throw new AuthenticationException("Un matched cluster token.");
         }
     }
@@ -680,7 +683,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             // CHECKSTYLE IGNORE THIS LINE
         } else if (request.isSetAuthCodeUuid()) {
             checkAuthCodeUuid(request.getDb(), request.getTxnId(), request.getAuthCodeUuid());
-        } else if (request.isSetClusterToken()) {
+        } else if (request.isSetToken()) {
             checkToken(request.getToken());
         } else {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
@@ -818,7 +821,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             // TODO(cmy): find a way to check
         } else if (request.isSetAuthCodeUuid()) {
             checkAuthCodeUuid(request.getDb(), request.getTxnId(), request.getAuthCodeUuid());
-        } else if (request.isSetClusterToken()) {
+        } else if (request.isSetToken()) {
             checkToken(request.getToken());
         } else {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
@@ -883,7 +886,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             // TODO(cmy): find a way to check
         } else if (request.isSetAuthCodeUuid()) {
             checkAuthCodeUuid(request.getDb(), request.getTxnId(), request.getAuthCodeUuid());
-        } else if (request.isSetClusterToken()) {
+        } else if (request.isSetToken()) {
             checkToken(request.getToken());
         } else {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
@@ -1277,6 +1280,48 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TInitExternalCtlMetaResult result = new TInitExternalCtlMetaResult();
         result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
         result.setStatus("OK");
+        return result;
+    }
+
+    @Override
+    public TMySqlLoadAcquireTokenResult acquireToken() throws TException {
+        String clientAddr = getClientAddrAsString();
+        LOG.debug("receive acquire token request from client: {}", clientAddr);
+        TMySqlLoadAcquireTokenResult result = new TMySqlLoadAcquireTokenResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            String token = Env.getCurrentEnv().getLoadManager().getMysqlLoadManager().acquireToken(null);
+            result.setToken(token);
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        }
+
+        return result;
+    }
+
+    @Override
+    public TMySqlLoadReleaseTokenResult releaseToken(TMySqlLoadReleaseTokenRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        LOG.debug("receive release token request from client: {}", clientAddr);
+        TMySqlLoadReleaseTokenResult result = new TMySqlLoadReleaseTokenResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            if (request.isSetToken()) {
+                String token =  request.getToken();
+                Env.getCurrentEnv().getLoadManager().getMysqlLoadManager().releaseToken(null, token);
+            }
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        }
+
         return result;
     }
 }

@@ -1880,7 +1880,8 @@ public class StmtExecutor implements ProfileWriter {
                             + " to load client local file.");
                     return;
                 }
-                LoadJobRowResult submitResult = loadManager.executeMySqlLoadJobFromStmt(context, loadStmt);
+                LoadJobRowResult submitResult = loadManager.getMysqlLoadManager()
+                        .executeMySqlLoadJobFromStmt(context, loadStmt);
                 if (submitResult.logInfoForMySqlLoad()) {
                     context.getState().setOk(submitResult.getRecords(), submitResult.getWarnings(),
                             submitResult.toString());

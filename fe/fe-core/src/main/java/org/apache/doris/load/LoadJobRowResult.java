@@ -59,7 +59,7 @@ public class LoadJobRowResult {
     }
 
     public boolean logInfoForMySqlLoad() {
-        return  (records + deleted + skipped + warnings) == 0;
+        return  (records + deleted + skipped + warnings) != 0;
     }
 
     @Override

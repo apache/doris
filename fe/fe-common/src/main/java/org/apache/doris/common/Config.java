@@ -1082,7 +1082,7 @@ public class Config extends ConfigBase {
     public static boolean disable_load_job = false;
 
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean use_http_mysql_load_job = false;
+    public static boolean use_http_mysql_load_job = true;
 
     /*
      * One master daemon thread will update database used data quota for db txn manager

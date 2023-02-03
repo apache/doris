@@ -70,15 +70,68 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 public class MysqlLoadManager {
     private static final Logger LOG = LogManager.getLogger(MysqlLoadManager.class);
 
     private final ThreadPoolExecutor mysqlLoadPool;
+    private final ConcurrentHashMap<String, Long> mysqlAuthTokens = new ConcurrentHashMap<>();
+    private final ScheduledExecutorService authCleaner;
 
     public MysqlLoadManager() {
         this.mysqlLoadPool = ThreadPoolManager.newDaemonCacheThreadPool(4, "Mysql Load", true);
+        this.authCleaner = Executors.newScheduledThreadPool(1);
+        this.authCleaner.scheduleAtFixedRate(() -> {
+            synchronized (mysqlAuthTokens) {
+                for (String key : mysqlAuthTokens.keySet()) {
+                    if (System.currentTimeMillis() - mysqlAuthTokens.get(key) >= 3600 * 1000) {
+                        mysqlAuthTokens.remove(key);
+                    }
+                }
+            }
+        }, 1, 1, TimeUnit.DAYS);
+    }
+
+    // this method only will be called in master node, since stream load only send message to master.
+    public boolean checkAuthToken(String token) {
+        return mysqlAuthTokens.containsKey(token);
+    }
+
+    // context only use in no master branch.
+    public String acquireToken(ConnectContext context) {
+        if (Env.getCurrentEnv().isMaster()) {
+            String token = UUID.randomUUID().toString();
+            long createTime = System.currentTimeMillis();
+            mysqlAuthTokens.put(token, createTime);
+            return token;
+        } else {
+            MasterTxnExecutor masterTxnExecutor = new MasterTxnExecutor(context);
+            try {
+                return masterTxnExecutor.acquireToken();
+            } catch (TException e) {
+                LOG.error("acquire token error", e);
+                return null;
+            }
+        }
+    }
+
+    // context only use in no master branch.
+    public void releaseToken(ConnectContext context, String token) {
+        if (Env.getCurrentEnv().isMaster()) {
+            mysqlAuthTokens.remove(token);
+        } else {
+            MasterTxnExecutor masterTxnExecutor = new MasterTxnExecutor(context);
+            try {
+                masterTxnExecutor.releaseToken(token);
+            } catch (TException e) {
+                LOG.error("release token error", e);
+            }
+        }
     }
 
     public LoadJobRowResult executeMySqlLoadJobFromStmt(ConnectContext context, LoadStmt stmt)
@@ -90,10 +143,14 @@ public class MysqlLoadManager {
         if (Config.use_http_mysql_load_job) {
             String database = dataDesc.getDbName();
             String table = dataDesc.getTableName();
+            String token = acquireToken(context);
+            if (token == null) {
+                throw new LoadException("Can't get the load token in mysql load");
+            }
             try (final CloseableHttpClient httpclient = HttpClients.createDefault()) {
                 for (String file : filePaths) {
                     InputStreamEntity entity = getInputStreamEntity(context, dataDesc.isClientLocal(), file);
-                    HttpPut request = generateRequestForMySqlLoad(entity, dataDesc, database, table);
+                    HttpPut request = generateRequestForMySqlLoad(entity, dataDesc, database, table, token);
                     try (final CloseableHttpResponse response = httpclient.execute(request)) {
                         JsonObject result = JsonParser.parseString(EntityUtils.toString(response.getEntity()))
                                 .getAsJsonObject();
@@ -106,6 +163,7 @@ public class MysqlLoadManager {
                     }
                 }
             }
+            releaseToken(context, token);
         } else {
             StreamLoadTxnExecutor executor = null;
             try {
@@ -337,12 +395,13 @@ public class MysqlLoadManager {
             InputStreamEntity entity,
             DataDescription desc,
             String database,
-            String table) throws LoadException {
+            String table,
+            String token) throws LoadException {
         final HttpPut httpPut = new HttpPut(selectBackendForMySqlLoad(database, table));
 
         httpPut.addHeader("Expect", "100-continue");
         httpPut.addHeader("Content-Type", "text/plain");
-        httpPut.addHeader("token", Env.getCurrentEnv().getToken());
+        httpPut.addHeader("token", token);
 
         Map<String, String> props = desc.getProperties();
         if (props != null) {
@@ -374,12 +433,6 @@ public class MysqlLoadManager {
             if (props.containsKey(LoadStmt.TIMEZONE)) {
                 String timezone = props.get(LoadStmt.TIMEZONE);
                 httpPut.addHeader(LoadStmt.TIMEZONE, timezone);
-            }
-
-            // compress_type
-            if (props.containsKey(COMPRESS_TYPE)) {
-                String compressType = props.get(COMPRESS_TYPE);
-                httpPut.addHeader(COMPRESS_TYPE, compressType);
             }
         }
 
