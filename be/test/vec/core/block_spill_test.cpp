@@ -228,7 +228,7 @@ TEST_F(TestBlockSpill, TestString) {
         }
     }
 
-    spill_block_reader->read(&block_read);
+    spill_block_reader->read(&block_read, &eos);
     spill_block_reader->close();
 
     EXPECT_EQ(block_read.rows(), 1);
