@@ -50,6 +50,7 @@ set(RUNTIME_FILES
     large_int_value.cpp
     struct_value.cpp
     collection_value.cpp
+    map_value.cpp
     tuple.cpp
     tuple_row.cpp
     fragment_mgr.cpp

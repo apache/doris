@@ -95,15 +95,17 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
     //     ++(*idx);
     //     children.push_back(TypeDescriptor(types, idx));
     //     break;
-    // case TTypeNodeType::MAP:
-    //     DCHECK(!node.__isset.scalar_type);
-    //     DCHECK_LT(*idx, types.size() - 2);
-    //     type = TYPE_MAP;
-    //     ++(*idx);
-    //     children.push_back(TypeDescriptor(types, idx));
-    //     ++(*idx);
-    //     children.push_back(TypeDescriptor(types, idx));
-    //     break;
+    case TTypeNodeType::MAP: {
+        DCHECK(!node.__isset.scalar_type);
+        DCHECK_LT(*idx, types.size() - 2);
+        DCHECK(!node.__isset.contains_null);
+        type = TYPE_MAP;
+        ++(*idx);
+        children.push_back(TypeDescriptor(types, idx));
+        ++(*idx);
+        children.push_back(TypeDescriptor(types, idx));
+        break;
+    }
     default:
         DCHECK(false) << node.type;
     }
@@ -150,8 +152,6 @@ void TypeDescriptor::to_thrift(TTypeDesc* thrift_type) const {
 }
 
 void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
-    DCHECK(!is_complex_type() || type == TYPE_ARRAY || type == TYPE_STRUCT)
-            << "Don't support complex type now, type=" << type;
     auto node = ptype->add_types();
     node->set_type(TTypeNodeType::SCALAR);
     auto scalar_type = node->mutable_scalar_type();
@@ -178,6 +178,11 @@ void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
             field->set_name(field_names[i]);
             field->set_contains_null(contains_nulls[i]);
         }
+        for (const TypeDescriptor& child : children) {
+            child.to_protobuf(ptype);
+        }
+    } else if (type == TYPE_MAP) {
+        node->set_type(TTypeNodeType::MAP);
         for (const TypeDescriptor& child : children) {
             child.to_protobuf(ptype);
         }
@@ -223,6 +228,12 @@ TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNod
         children.push_back(TypeDescriptor(types, idx));
         break;
     }
+    case TTypeNodeType::MAP: {
+        type = TYPE_MAP;
+        ++(*idx);
+        children.push_back(TypeDescriptor(types, idx));
+        ++(*idx);
+        children.push_back(TypeDescriptor(types, idx));
     case TTypeNodeType::STRUCT: {
         type = TYPE_STRUCT;
         size_t children_size = node.struct_fields_size();
@@ -240,64 +251,67 @@ TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNod
     default:
         DCHECK(false) << node.type();
     }
-}
-
-std::string TypeDescriptor::debug_string() const {
-    std::stringstream ss;
-    switch (type) {
-    case TYPE_CHAR:
-        ss << "CHAR(" << len << ")";
-        return ss.str();
-    case TYPE_DECIMALV2:
-        ss << "DECIMALV2(" << precision << ", " << scale << ")";
-        return ss.str();
-    case TYPE_DECIMAL32:
-        ss << "DECIMAL32(" << precision << ", " << scale << ")";
-        return ss.str();
-    case TYPE_DECIMAL64:
-        ss << "DECIMAL64(" << precision << ", " << scale << ")";
-        return ss.str();
-    case TYPE_DECIMAL128I:
-        ss << "DECIMAL128(" << precision << ", " << scale << ")";
-        return ss.str();
-    case TYPE_ARRAY: {
-        ss << "ARRAY<" << children[0].debug_string() << ">";
-        return ss.str();
     }
-    case TYPE_STRUCT: {
-        ss << "STRUCT<";
-        for (size_t i = 0; i < children.size(); i++) {
-            ss << field_names[i];
-            ss << ":";
-            ss << children[i].debug_string();
-            if (i != children.size() - 1) {
-                ss << ",";
-            }
+
+    std::string TypeDescriptor::debug_string() const {
+        std::stringstream ss;
+        switch (type) {
+        case TYPE_CHAR:
+            ss << "CHAR(" << len << ")";
+            return ss.str();
+        case TYPE_DECIMALV2:
+            ss << "DECIMALV2(" << precision << ", " << scale << ")";
+            return ss.str();
+        case TYPE_DECIMAL32:
+            ss << "DECIMAL32(" << precision << ", " << scale << ")";
+            return ss.str();
+        case TYPE_DECIMAL64:
+            ss << "DECIMAL64(" << precision << ", " << scale << ")";
+            return ss.str();
+        case TYPE_DECIMAL128I:
+            ss << "DECIMAL128(" << precision << ", " << scale << ")";
+            return ss.str();
+        case TYPE_ARRAY: {
+            ss << "ARRAY<" << children[0].debug_string() << ">";
+            return ss.str();
         }
-        ss << ">";
-        return ss.str();
+        case TYPE_MAP:
+            ss << "MAP<" << children[0].debug_string() << ", " << children[1].debug_string() << ">";
+            return ss.str();
+        case TYPE_STRUCT: {
+            ss << "STRUCT<";
+            for (size_t i = 0; i < children.size(); i++) {
+                ss << field_names[i];
+                ss << ":";
+                ss << children[i].debug_string();
+                if (i != children.size() - 1) {
+                    ss << ",";
+                }
+            }
+            ss << ">";
+            return ss.str();
+        }
+        default:
+            return type_to_string(type);
+        }
     }
-    default:
-        return type_to_string(type);
+
+    std::ostream& operator<<(std::ostream& os, const TypeDescriptor& type) {
+        os << type.debug_string();
+        return os;
     }
-}
 
-std::ostream& operator<<(std::ostream& os, const TypeDescriptor& type) {
-    os << type.debug_string();
-    return os;
-}
-
-TTypeDesc create_type_desc(PrimitiveType type, int precision, int scale) {
-    TTypeDesc type_desc;
-    std::vector<TTypeNode> node_type;
-    node_type.emplace_back();
-    TScalarType scalarType;
-    scalarType.__set_type(to_thrift(type));
-    scalarType.__set_len(-1);
-    scalarType.__set_precision(precision);
-    scalarType.__set_scale(scale);
-    node_type.back().__set_scalar_type(scalarType);
-    type_desc.__set_types(node_type);
-    return type_desc;
-}
+    TTypeDesc create_type_desc(PrimitiveType type, int precision, int scale) {
+        TTypeDesc type_desc;
+        std::vector<TTypeNode> node_type;
+        node_type.emplace_back();
+        TScalarType scalarType;
+        scalarType.__set_type(to_thrift(type));
+        scalarType.__set_len(-1);
+        scalarType.__set_precision(precision);
+        scalarType.__set_scale(scale);
+        node_type.back().__set_scalar_type(scalarType);
+        type_desc.__set_types(node_type);
+        return type_desc;
+    }
 } // namespace doris

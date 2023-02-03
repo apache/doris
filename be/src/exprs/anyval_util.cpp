@@ -212,6 +212,12 @@ FunctionContext::TypeDesc AnyValUtil::column_type_to_type_desc(const TypeDescrip
             out.children.push_back(column_type_to_type_desc(t));
         }
         break;
+    case TYPE_MAP:
+        out.type = FunctionContext::TYPE_MAP;
+        for (const auto& t : type.children) {
+            out.children.push_back(column_type_to_type_desc(t));
+        }
+        break;
     case TYPE_STRING:
         out.type = FunctionContext::TYPE_STRING;
         out.len = type.len;

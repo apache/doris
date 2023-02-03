@@ -89,6 +89,7 @@ public:
         TYPE_DECIMALV2,
         TYPE_OBJECT,
         TYPE_ARRAY,
+        TYPE_MAP,
         TYPE_STRUCT,
         TYPE_QUANTILE_STATE,
         TYPE_DATEV2,
@@ -911,6 +912,7 @@ struct CollectionVal : public AnyVal {
         return val;
     }
 };
+
 typedef uint8_t* BufferVal;
 } // namespace doris_udf
 
