@@ -231,9 +231,6 @@ struct BlockSupplierSortCursorImpl : public MergeSortCursorImpl {
         auto status = _block_supplier(&_block, &_is_eof);
         // If status not ok, upper callers could not detect whether it is eof or error.
         // So that fatal here, and should throw exception in the future.
-        if (!status.ok()) {
-            LOG(FATAL) << "supplier status not ok " << status;
-        }
         if (status.ok() && !_is_eof) {
             if (_ordering_expr.size() > 0) {
                 for (int i = 0; status.ok() && i < desc.size(); ++i) {
