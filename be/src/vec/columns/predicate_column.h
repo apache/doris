@@ -422,11 +422,11 @@ public:
     [[noreturn]] ColumnPtr filter(const IColumn::Filter& filt,
                                   ssize_t result_size_hint) const override {
         LOG(FATAL) << "filter not supported in PredicateColumnType";
-    };
+    }
 
     [[noreturn]] ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
         LOG(FATAL) << "permute not supported in PredicateColumnType";
-    };
+    }
 
     Container& get_data() { return data; }
 
@@ -434,7 +434,7 @@ public:
 
     [[noreturn]] ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override {
         LOG(FATAL) << "replicate not supported in PredicateColumnType";
-    };
+    }
 
     [[noreturn]] MutableColumns scatter(IColumn::ColumnIndex num_columns,
                                         const IColumn::Selector& selector) const override {

@@ -430,9 +430,9 @@ public:
             : _function(function),
               _data(std::make_unique<AggregateData[]>(function->size_of_data())) {
         _function->create(_data.get());
-    };
+    }
     ~AggregateFunctionGuard() { _function->destroy(_data.get()); }
-    AggregateDataPtr data() { return _data.get(); };
+    AggregateDataPtr data() { return _data.get(); }
 
 private:
     const IAggregateFunction* _function;

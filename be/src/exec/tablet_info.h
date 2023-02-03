@@ -99,7 +99,7 @@ struct VOlapTablePartition {
     std::vector<OlapTableIndexTablets> indexes;
 
     VOlapTablePartition(vectorized::Block* partition_block)
-            : start_key {partition_block, -1}, end_key {partition_block, -1} {};
+            : start_key {partition_block, -1}, end_key {partition_block, -1} {}
 };
 
 class VOlapTablePartKeyComparator {
