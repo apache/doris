@@ -803,13 +803,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int alter_table_timeout_second = 86400 * 30; // 1month
     /**
-     * Maximal timeout of push cooldown conf request.
-     */
-    @ConfField(mutable = false, masterOnly = true)
-    public static boolean cooldown_single_remote_file = false;
-    @ConfField(mutable = false, masterOnly = true)
-    public static int push_cooldown_conf_timeout_second = 600; // 10 min
-    /**
      * If a backend is down for *max_backend_down_time_second*, a BACKEND_DOWN event will be triggered.
      * Do not set this if you know what you are doing.
      */
@@ -1935,7 +1928,7 @@ public class Config extends ConfigBase {
      * The storage policy is still under developement.
      * Disable it by default.
      */
-    @ConfField(mutable = true, masterOnly = true)
+    @ConfField(mutable = false, masterOnly = true)
     public static boolean enable_storage_policy = false;
 
     /**

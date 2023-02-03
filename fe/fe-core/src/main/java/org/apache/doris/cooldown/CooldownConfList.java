@@ -22,47 +22,22 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
-import lombok.Data;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
+import java.util.List;
 
-/**
- * This class represents the olap replica related metadata.
- */
-@Data
-public class CooldownConf implements Writable {
-    @SerializedName(value = "dbId")
-    protected long dbId;
-    @SerializedName(value = "tableId")
-    protected long tableId;
-    @SerializedName(value = "partitionId")
-    protected long partitionId;
-    @SerializedName(value = "indexId")
-    protected long indexId;
-    @SerializedName(value = "tabletId")
-    protected long tabletId;
-    @SerializedName(value = "cooldownReplicaId")
-    protected long cooldownReplicaId = -1;
-    @SerializedName(value = "cooldownTerm")
-    protected long cooldownTerm = -1;
+public class CooldownConfList implements Writable {
+    @SerializedName(value = "cooldownConf")
+    private List<CooldownConf> cooldownConf;
 
-    public CooldownConf() {
+    CooldownConfList(List<CooldownConf> cooldownConf) {
+        this.cooldownConf = cooldownConf;
     }
 
-    public CooldownConf(long dbId, long tableId, long partitionId, long indexId, long tabletId) {
-        this.dbId = dbId;
-        this.tableId = tableId;
-        this.partitionId = partitionId;
-        this.indexId = indexId;
-        this.tabletId = tabletId;
-    }
-
-    public CooldownConf(long tabletId, long cooldownReplicaId, long cooldownTerm) {
-        this.tabletId = tabletId;
-        this.cooldownReplicaId = cooldownReplicaId;
-        this.cooldownTerm = cooldownTerm;
+    List<CooldownConf> getCooldownConf() {
+        return cooldownConf;
     }
 
     @Override
@@ -71,9 +46,8 @@ public class CooldownConf implements Writable {
         Text.writeString(out, json);
     }
 
-    public static CooldownConf read(DataInput in) throws IOException {
+    public static CooldownConfList read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, CooldownConf.class);
+        return GsonUtils.GSON.fromJson(json, CooldownConfList.class);
     }
 }
-

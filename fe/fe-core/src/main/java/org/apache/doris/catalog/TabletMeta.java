@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.thrift.TStorageMedium;
 
 import org.apache.logging.log4j.LogManager;
@@ -37,14 +38,14 @@ public class TabletMeta {
 
     private TStorageMedium storageMedium;
 
-    private long cooldownReplicaId;
-
-    private long cooldownTerm;
+    // cooldown conf
+    private long cooldownReplicaId = -1;
+    private long cooldownTerm = -1;
 
     private ReentrantReadWriteLock lock;
 
     public TabletMeta(long dbId, long tableId, long partitionId, long indexId, int schemaHash,
-            TStorageMedium storageMedium, long cooldownReplicaId, long cooldownTerm) {
+            TStorageMedium storageMedium) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;
@@ -54,8 +55,6 @@ public class TabletMeta {
         this.newSchemaHash = -1;
 
         this.storageMedium = storageMedium;
-        this.cooldownReplicaId = cooldownReplicaId;
-        this.cooldownTerm = cooldownTerm;
 
         lock = new ReentrantReadWriteLock();
     }
@@ -84,20 +83,20 @@ public class TabletMeta {
         this.storageMedium = storageMedium;
     }
 
-    public long getCooldownReplicaId() {
-        return cooldownReplicaId;
-    }
-
-    public void setCooldownReplicaId(long cooldownReplicaId) {
+    public void setCooldownConf(long cooldownReplicaId, long cooldownTerm) {
+        lock.writeLock().lock();
         this.cooldownReplicaId = cooldownReplicaId;
-    }
-
-    public long getCooldownTerm() {
-        return cooldownTerm;
-    }
-
-    public void setCooldownTerm(long cooldownTerm) {
         this.cooldownTerm = cooldownTerm;
+        lock.writeLock().unlock();
+    }
+
+    public Pair<Long, Long> getCooldownConf() {
+        lock.readLock().lock();
+        try {
+            return Pair.of(cooldownReplicaId, cooldownTerm);
+        } finally {
+            lock.readLock().unlock();
+        }
     }
 
     public int getOldSchemaHash() {
