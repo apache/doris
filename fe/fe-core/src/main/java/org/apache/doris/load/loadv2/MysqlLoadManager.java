@@ -109,11 +109,11 @@ public class MysqlLoadManager {
         } else {
             StreamLoadTxnExecutor executor = null;
             try {
-                String database = dataDesc.getFullDbName();
+                String database = dataDesc.getFullDatabaseName();
                 String table = dataDesc.getTableName();
                 TransactionEntry entry = prepareTransactionEntry(database, table);
                 openTxn(context, entry);
-                executor = beginTxn(context, entry);
+                executor = beginTxn(context, entry, dataDesc);
                 // sendData
                 for (String file : filePaths) {
                     sendData(context, executor, file);
@@ -180,22 +180,92 @@ public class MysqlLoadManager {
         }
     }
 
-    private StreamLoadTxnExecutor beginTxn(ConnectContext context, TransactionEntry txnEntry) throws Exception {
+    private StreamLoadTxnExecutor beginTxn(ConnectContext context, TransactionEntry txnEntry, DataDescription desc)
+            throws Exception {
         TTxnParams txnParams = txnEntry.getTxnConf();
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();
-        request.setTxnId(txnParams.getTxnId()).setDb(txnParams.getDb())
+        request.setTxnId(txnParams.getTxnId())
+                .setDb(txnParams.getDb())
                 .setTbl(txnParams.getTbl())
-                .setFileType(TFileType.FILE_STREAM).setFormatType(TFileFormatType.FORMAT_CSV_PLAIN)
-                .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(context.queryId());
+                .setFileType(TFileType.FILE_STREAM)
+                .setFormatType(TFileFormatType.FORMAT_CSV_PLAIN)
+                .setMergeType(TMergeType.APPEND)
+                .setThriftRpcTimeoutMs(5000)
+                .setLoadId(context.queryId());
+        if (desc.getProperties() != null) {
+            // max_filter_ratio
+            if (desc.getProperties().containsKey(LoadStmt.KEY_IN_PARAM_MAX_FILTER_RATIO)) {
+                String maxFilterRatio = desc.getProperties().get(LoadStmt.KEY_IN_PARAM_MAX_FILTER_RATIO);
+                request.setMaxFilterRatio(Float.parseFloat(maxFilterRatio));
+            }
+
+            // exec_mem_limit
+            if (desc.getProperties().containsKey(LoadStmt.EXEC_MEM_LIMIT)) {
+                String memory = desc.getProperties().get(LoadStmt.EXEC_MEM_LIMIT);
+                request.setExecMemLimit(Long.parseLong(memory));
+            }
+
+            // strict_mode
+            if (desc.getProperties().containsKey(LoadStmt.STRICT_MODE)) {
+                String strictMode = desc.getProperties().get(LoadStmt.STRICT_MODE);
+                request.setStrictMode(Boolean.parseBoolean(strictMode));
+            }
+        }
+
+        // column_separator
+        if (desc.getColumnSeparator() != null) {
+            request.setColumnSeparator(desc.getColumnSeparator());
+        }
+
+        // line_delimiter
+        if (desc.getLineDelimiter() != null) {
+            request.setLineDelimiter(desc.getLineDelimiter());
+        }
+
+        // columns
+        String columns = getColumns(desc);
+        if (columns != null) {
+            request.setColumns(columns);
+        }
+
+        // partitions
+        if (desc.getPartitionNames() != null && !desc.getPartitionNames().getPartitionNames().isEmpty()) {
+            List<String> ps = desc.getPartitionNames().getPartitionNames();
+            String pNames = Joiner.on(",").join(ps);
+            request.setIsTempPartition(desc.getPartitionNames().isTemp());
+            request.setPartitions(pNames);
+        }
+        if (desc.getSkipLines() != 0) {
+            request.setSkipLines(desc.getSkipLines());
+        }
         // execute begin txn
         StreamLoadTxnExecutor executor = new StreamLoadTxnExecutor(txnEntry, TFileFormatType.FORMAT_CSV_PLAIN);
         executor.beginTransaction(request);
         return executor;
     }
 
+    private String getColumns(DataDescription desc) {
+        if (desc.getFileFieldNames() != null) {
+            List<String> fields = desc.getFileFieldNames();
+            StringBuilder fieldString = new StringBuilder();
+            fieldString.append(Joiner.on(",").join(fields));
+
+            if (desc.getColumnMappingList() != null) {
+                fieldString.append(",");
+                List<String> mappings = new ArrayList<>();
+                for (Expr expr : desc.getColumnMappingList()) {
+                    mappings.add(expr.toSql().replaceAll("`", ""));
+                }
+                fieldString.append(Joiner.on(",").join(mappings));
+            }
+            return fieldString.toString();
+        }
+        return null;
+    }
+
     private void sendData(ConnectContext context, StreamLoadTxnExecutor executor, String file) throws Exception {
         replyClientForReadFile(context, file);
-        ByteBuffer buffer = null;
+        ByteBuffer buffer;
         try {
             buffer = context.getMysqlChannel().fetchOnePacket();
             // MySql client will send an empty packet when eof
@@ -232,7 +302,7 @@ public class MysqlLoadManager {
 
     private void fillByteBufferAsync(ConnectContext context, ByteBufferNetworkInputStream inputStream) {
         mysqlLoadPool.submit(() -> {
-            ByteBuffer buffer = null;
+            ByteBuffer buffer;
             try {
                 buffer = context.getMysqlChannel().fetchOnePacket();
                 // MySql client will send an empty packet when eof
@@ -302,20 +372,9 @@ public class MysqlLoadManager {
         }
 
         // columns
-        if (desc.getFileFieldNames() != null) {
-            List<String> fields = desc.getFileFieldNames();
-            StringBuilder fieldString = new StringBuilder();
-            fieldString.append(Joiner.on(",").join(fields));
-
-            if (desc.getColumnMappingList() != null) {
-                fieldString.append(",");
-                List<String> mappings = new ArrayList<>();
-                for (Expr expr : desc.getColumnMappingList()) {
-                    mappings.add(expr.toSql().replaceAll("`", ""));
-                }
-                fieldString.append(Joiner.on(",").join(mappings));
-            }
-            httpPut.addHeader(LoadStmt.KEY_IN_PARAM_COLUMNS, fieldString.toString());
+        String columns = getColumns(desc);
+        if (columns != null) {
+            httpPut.addHeader(LoadStmt.KEY_IN_PARAM_COLUMNS, columns);
         }
 
         // partitions
