@@ -573,6 +573,9 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
             request.__set_trim_double_quotes(false);
         }
     }
+    if (!http_req->header(HTTP_SKIP_LINES).empty()) {
+        request.__set_skip_lines(std::stoi(http_req->header(HTTP_SKIP_LINES)));
+    }
 
 #ifndef BE_TEST
     // plan this load

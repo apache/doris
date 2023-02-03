@@ -73,6 +73,8 @@ public:
 
     bool is_spilled() const { return is_spilled_; }
 
+    const Block& last_sorted_block() const { return sorted_blocks_.back(); }
+
     std::unique_ptr<Block> unsorted_block_;
 
 private:

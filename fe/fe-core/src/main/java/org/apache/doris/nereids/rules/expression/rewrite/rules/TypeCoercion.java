@@ -20,7 +20,6 @@ package org.apache.doris.nereids.rules.expression.rewrite.rules;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.nereids.annotation.DependsRules;
-import org.apache.doris.nereids.annotation.Developing;
 import org.apache.doris.nereids.jobs.batch.CheckLegalityBeforeTypeCoercion;
 import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
@@ -56,7 +55,7 @@ import java.util.stream.Collectors;
  * a rule to add implicit cast for expressions.
  * This class is inspired by spark's TypeCoercion.
  */
-@Developing
+@Deprecated
 @DependsRules(CheckLegalityBeforeTypeCoercion.class)
 public class TypeCoercion extends AbstractExpressionRewriteRule {
 

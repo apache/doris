@@ -21,12 +21,7 @@
 #include <filesystem>
 #include <fstream>
 
-#include "gmock/gmock.h"
 #include "gtest/gtest.h"
-
-#ifndef BE_TEST
-#define BE_TEST
-#endif
 
 using ::testing::_;
 using ::testing::Return;

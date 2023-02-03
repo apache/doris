@@ -194,6 +194,11 @@ public class StringLiteral extends LiteralExpr {
                 throw e;
             }
         }
+        try {
+            newLiteral.checkValueValid();
+        } catch (AnalysisException e) {
+            return NullLiteral.create(newLiteral.getType());
+        }
         return newLiteral;
     }
 

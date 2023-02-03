@@ -59,6 +59,7 @@ public class Column implements Writable, GsonPostProcessable {
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
     public static final String ROWID_COL = "__DORIS_ROWID_COL__";
+    public static final String ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
     private static final String COLUMN_ARRAY_CHILDREN = "item";
     public static final int COLUMN_UNIQUE_ID_INIT_VALUE = -1;
 
@@ -208,7 +209,7 @@ public class Column implements Writable, GsonPostProcessable {
     }
 
     public String getNameWithoutMvPrefix() {
-        return this.getNameWithoutPrefix(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX);
+        return CreateMaterializedViewStmt.mvColumnBreaker(name);
     }
 
     public String getDisplayName() {
@@ -260,6 +261,11 @@ public class Column implements Writable, GsonPostProcessable {
         // aggregationType is NONE for unique table with merge on write.
         return !visible && (aggregationType == AggregateType.REPLACE
                 || aggregationType == AggregateType.NONE) && nameEquals(SEQUENCE_COL, true);
+    }
+
+    public boolean isRowStoreColumn() {
+        return !visible && (aggregationType == AggregateType.REPLACE
+                || aggregationType == AggregateType.NONE) && nameEquals(ROW_STORE_COL, true);
     }
 
     public PrimitiveType getDataType() {

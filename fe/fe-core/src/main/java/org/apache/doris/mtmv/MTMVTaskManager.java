@@ -37,10 +37,12 @@ import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.Deque;
+import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
@@ -67,7 +69,7 @@ public class MTMVTaskManager {
     // keep track of all the completed tasks
     private final Deque<MTMVTask> historyQueue = Queues.newLinkedBlockingDeque();
 
-    private final ScheduledExecutorService taskScheduler = Executors.newScheduledThreadPool(1);
+    private ScheduledExecutorService taskScheduler = Executors.newScheduledThreadPool(1);
 
     private final MTMVJobManager mtmvJobManager;
 
@@ -76,6 +78,9 @@ public class MTMVTaskManager {
     }
 
     public void startTaskScheduler() {
+        if (taskScheduler.isShutdown()) {
+            taskScheduler = Executors.newScheduledThreadPool(1);
+        }
         taskScheduler.scheduleAtFixedRate(() -> {
             if (!tryLock()) {
                 return;
@@ -89,6 +94,10 @@ public class MTMVTaskManager {
                 unlock();
             }
         }, 0, 1, TimeUnit.SECONDS);
+    }
+
+    public void stopTaskScheduler() {
+        taskScheduler.shutdown();
     }
 
     public MTMVUtils.TaskSubmitStatus submitTask(MTMVTaskExecutor taskExecutor, MTMVTaskExecuteParams params) {
@@ -113,7 +122,8 @@ public class MTMVTaskManager {
         String taskId = UUID.randomUUID().toString();
         MTMVTask task = taskExecutor.initTask(taskId, MTMVUtils.getNowTimeStamp());
         task.setPriority(params.getPriority());
-        Env.getCurrentEnv().getEditLog().logCreateScheduleTask(task);
+        LOG.info("Submit a mtmv task with id: {} of the job {}.", taskId, taskExecutor.getJob().getName());
+        Env.getCurrentEnv().getEditLog().logCreateMTMVTask(task);
         arrangeToPendingTask(taskExecutor);
         return MTMVUtils.TaskSubmitStatus.SUBMITTED;
     }
@@ -228,7 +238,7 @@ public class MTMVTaskManager {
 
     private void changeAndLogTaskStatus(long jobId, MTMVTask task, TaskState fromStatus, TaskState toStatus) {
         ChangeMTMVTask changeTask = new ChangeMTMVTask(jobId, task, fromStatus, toStatus);
-        Env.getCurrentEnv().getEditLog().logAlterScheduleTask(changeTask);
+        Env.getCurrentEnv().getEditLog().logChangeMTMVTask(changeTask);
     }
 
     public boolean tryLock() {
@@ -322,7 +332,7 @@ public class MTMVTaskManager {
                     return;
                 }
                 MTMVTaskExecutor taskExecutor = MTMVUtils.buildTask(job);
-                taskExecutor.initTask(task.getTaskId(), task.getCreateTime());
+                taskExecutor.setTask(task);
                 arrangeToPendingTask(taskExecutor);
                 break;
             case RUNNING:
@@ -399,19 +409,32 @@ public class MTMVTaskManager {
         }
         try {
             Deque<MTMVTask> taskHistory = getAllHistory();
-            Iterator<MTMVTask> iterator = taskHistory.iterator();
-            while (iterator.hasNext()) {
-                MTMVTask task = iterator.next();
+            for (MTMVTask task : taskHistory) {
                 long expireTime = task.getExpireTime();
                 if (currentTime > expireTime) {
                     historyToDelete.add(task.getTaskId());
-                    iterator.remove();
                 }
             }
         } finally {
             unlock();
         }
-        LOG.info("remove task history:{}", historyToDelete);
+        dropTasks(historyToDelete, false);
+    }
+
+    public void dropTasks(List<String> taskIds, boolean isReplay) {
+        if (!tryLock()) {
+            return;
+        }
+        try {
+            Set<String> taskSet = new HashSet<>(taskIds);
+            getAllHistory().removeIf(mtmvTask -> taskSet.contains(mtmvTask.getTaskId()));
+            if (!isReplay) {
+                Env.getCurrentEnv().getEditLog().logDropMTMVTasks(taskIds);
+            }
+        } finally {
+            unlock();
+        }
+        LOG.info("drop task history:{}", taskIds);
     }
 
     public void clearUnfinishedTasks() {

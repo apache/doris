@@ -35,7 +35,7 @@ namespace io {
 // This class is thread-safe.(Except `set_xxx` method)
 class S3FileSystem final : public RemoteFileSystem {
 public:
-    static std::shared_ptr<S3FileSystem> create(S3Conf s3_conf, ResourceId resource_id);
+    static std::shared_ptr<S3FileSystem> create(S3Conf s3_conf, std::string id);
 
     ~S3FileSystem() override;
 
@@ -68,19 +68,17 @@ public:
     std::shared_ptr<Aws::S3::S3Client> get_client() const {
         std::lock_guard lock(_client_mu);
         return _client;
-    };
+    }
 
     // Guarded by external lock.
-    void set_ak(std::string ak) { _s3_conf.ak = std::move(ak); }
-
-    // Guarded by external lock.
-    void set_sk(std::string sk) { _s3_conf.sk = std::move(sk); }
+    void set_conf(S3Conf s3_conf) { _s3_conf = std::move(s3_conf); }
 
     std::string get_key(const Path& path) const;
 
 private:
-    S3FileSystem(S3Conf s3_conf, ResourceId resource_id);
+    S3FileSystem(S3Conf&& s3_conf, std::string&& id);
 
+private:
     S3Conf _s3_conf;
 
     // FIXME(cyx): We can use std::atomic<std::shared_ptr> since c++20.

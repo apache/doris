@@ -28,7 +28,7 @@ namespace pipeline {
 class TableSinkOperatorBuilder final : public DataSinkOperatorBuilder<vectorized::VTableSink> {
 public:
     TableSinkOperatorBuilder(int32_t id, DataSink* sink)
-            : DataSinkOperatorBuilder(id, "TableSinkOperator", sink) {};
+            : DataSinkOperatorBuilder(id, "TableSinkOperator", sink) {}
 
     OperatorPtr build_operator() override;
 };
@@ -36,7 +36,7 @@ public:
 class TableSinkOperator final : public DataSinkOperator<TableSinkOperatorBuilder> {
 public:
     TableSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
-            : DataSinkOperator(operator_builder, sink) {};
+            : DataSinkOperator(operator_builder, sink) {}
 
     bool can_write() override { return true; }
 };

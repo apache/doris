@@ -33,13 +33,13 @@ public:
     HashJoinBuildSinkBuilder(int32_t, ExecNode*);
 
     OperatorPtr build_operator() override;
-    bool is_sink() const override { return true; };
+    bool is_sink() const override { return true; }
 };
 
 class HashJoinBuildSink final : public StreamingOperator<HashJoinBuildSinkBuilder> {
 public:
     HashJoinBuildSink(OperatorBuilderBase* operator_builder, ExecNode* node);
-    bool can_write() override { return _node->can_sink_write(); };
+    bool can_write() override { return _node->can_sink_write(); }
 };
 
 } // namespace pipeline

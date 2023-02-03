@@ -65,14 +65,13 @@ suite("nereids_scalar_fn_3") {
     qt_sql "select mask(kstr) from fn_test order by kstr"
     qt_sql "select mask_first_n(kvchrs1) from fn_test order by kvchrs1"
     qt_sql "select mask_first_n(kstr) from fn_test order by kstr"
-    // core
-    // qt_sql "select mask_first_n(kvchrs1, kint) from fn_test order by kvchrs1, kint"
-    // qt_sql "select mask_first_n(kstr, kint) from fn_test order by kstr, kint"
+    qt_sql "select mask_first_n(kvchrs1, kint) from fn_test order by kvchrs1, kint"
+    qt_sql "select mask_first_n(kstr, kint) from fn_test order by kstr, kint"
+    qt_sql_mask_const "select mask_first_n('asd123', 54);"
     qt_sql "select mask_last_n(kvchrs1) from fn_test order by kvchrs1"
     qt_sql "select mask_last_n(kstr) from fn_test order by kstr"
-    // core
-    // qt_sql "select mask_last_n(kvchrs1, kint) from fn_test order by kvchrs1, kint"
-    // qt_sql "select mask_last_n(kstr, kint) from fn_test order by kstr, kint"
+    qt_sql "select mask_last_n(kvchrs1, kint) from fn_test order by kvchrs1, kint"
+    qt_sql "select mask_last_n(kstr, kint) from fn_test order by kstr, kint"
     qt_sql "select md5(kvchrs1) from fn_test order by kvchrs1"
     qt_sql "select md5(kstr) from fn_test order by kstr"
     // cannot find function
@@ -90,12 +89,12 @@ suite("nereids_scalar_fn_3") {
     qt_sql "select minute_ceil(kdtmv2s1, kdtmv2s1) from fn_test order by kdtmv2s1, kdtmv2s1"
     qt_sql "select minute_ceil(kdtmv2s1, kint) from fn_test order by kdtmv2s1, kint"
     // core
-    // qt_sql "select minute_ceil(kdtv2, kdtv2) from fn_test order by kdtv2, kdtv2"
-    // qt_sql "select minute_ceil(kdtv2, kint) from fn_test order by kdtv2, kint"
+    qt_sql "select minute_ceil(kdtv2, kdtv2) from fn_test order by kdtv2, kdtv2"
+    qt_sql "select minute_ceil(kdtv2, kint) from fn_test order by kdtv2, kint"
     qt_sql "select minute_ceil(kdtm, kint, kdtm) from fn_test order by kdtm, kint, kdtm"
     qt_sql "select minute_ceil(kdtmv2s1, kint, kdtmv2s1) from fn_test order by kdtmv2s1, kint, kdtmv2s1"
     // core
-    // qt_sql "select minute_ceil(kdtv2, kint, kdtv2) from fn_test order by kdtv2, kint, kdtv2"
+    qt_sql "select minute_ceil(kdtv2, kint, kdtv2) from fn_test order by kdtv2, kint, kdtv2"
     qt_sql "select minute_floor(kdtm) from fn_test order by kdtm"
     qt_sql "select minute_floor(kdtmv2s1) from fn_test order by kdtmv2s1"
     // core
@@ -105,12 +104,12 @@ suite("nereids_scalar_fn_3") {
     qt_sql "select minute_floor(kdtmv2s1, kdtmv2s1) from fn_test order by kdtmv2s1, kdtmv2s1"
     qt_sql "select minute_floor(kdtmv2s1, kint) from fn_test order by kdtmv2s1, kint"
     // core
-    // qt_sql "select minute_floor(kdtv2, kdtv2) from fn_test order by kdtv2, kdtv2"
-    // qt_sql "select minute_floor(kdtv2, kint) from fn_test order by kdtv2, kint"
+    qt_sql "select minute_floor(kdtv2, kdtv2) from fn_test order by kdtv2, kdtv2"
+    qt_sql "select minute_floor(kdtv2, kint) from fn_test order by kdtv2, kint"
     qt_sql "select minute_floor(kdtm, kint, kdtm) from fn_test order by kdtm, kint, kdtm"
     qt_sql "select minute_floor(kdtmv2s1, kint, kdtmv2s1) from fn_test order by kdtmv2s1, kint, kdtmv2s1"
     // core
-    // qt_sql "select minute_floor(kdtv2, kint, kdtv2) from fn_test order by kdtv2, kint, kdtv2"
+    qt_sql "select minute_floor(kdtv2, kint, kdtv2) from fn_test order by kdtv2, kint, kdtv2"
     // cannot find function
     // qt_sql "select minutes_add(kdtm, kint) from fn_test order by kdtm, kint"
     // qt_sql "select minutes_add(kdtmv2s1, kint) from fn_test order by kdtmv2s1, kint"
@@ -150,7 +149,7 @@ suite("nereids_scalar_fn_3") {
     qt_sql "select month_ceil(kdtmv2s1, kint, kdtmv2s1) from fn_test order by kdtmv2s1, kint, kdtmv2s1"
     qt_sql "select month_ceil(kdtv2, kint, kdtv2) from fn_test order by kdtv2, kint, kdtv2"
     // core
-    // qt_sql "select month_floor(kdtm) from fn_test order by kdtm"
+    qt_sql "select month_floor(kdtm) from fn_test order by kdtm"
     qt_sql "select month_floor(kdtmv2s1) from fn_test order by kdtmv2s1"
     qt_sql "select month_floor(kdtv2) from fn_test order by kdtv2"
     qt_sql "select month_floor(kdtm, kdtm) from fn_test order by kdtm, kdtm"

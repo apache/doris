@@ -38,7 +38,7 @@ public:
     };
 
     ORCFileInputStream(const std::string& file_name, io::FileReaderSPtr file_reader)
-            : _file_name(file_name), _file_reader(file_reader) {};
+            : _file_name(file_name), _file_reader(file_reader) {}
 
     ~ORCFileInputStream() override = default;
 

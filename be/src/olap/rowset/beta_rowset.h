@@ -77,7 +77,7 @@ public:
     // only applicable to alpha rowset, no op here
     Status remove_old_files(std::vector<std::string>* files_to_remove) override {
         return Status::OK();
-    };
+    }
 
     bool check_path(const std::string& path) override;
 

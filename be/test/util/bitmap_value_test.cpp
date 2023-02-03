@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "util/bitmap_value.h"
+
 #include <gtest/gtest.h>
 
 #include <cstdint>
 #include <string>
 
 #include "util/coding.h"
-#define private public
-#include "util/bitmap_value.h"
 
 namespace doris {
 using roaring::Roaring;

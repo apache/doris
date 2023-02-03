@@ -134,7 +134,6 @@ Status RowGroupReader::_read_column_data(Block* block, const std::vector<std::st
                                          ColumnSelectVector& select_vector) {
     size_t batch_read_rows = 0;
     bool has_eof = false;
-    int col_idx = 0;
     for (auto& read_col : columns) {
         auto& column_with_type_and_name = block->get_by_name(read_col);
         auto& column_ptr = column_with_type_and_name.column;
@@ -150,15 +149,13 @@ Status RowGroupReader::_read_column_data(Block* block, const std::vector<std::st
                     &col_eof));
             col_read_rows += loop_rows;
         }
-        if (col_idx > 0 && (has_eof ^ col_eof)) {
-            return Status::Corruption("The number of rows are not equal among parquet columns");
-        }
         if (batch_read_rows > 0 && batch_read_rows != col_read_rows) {
             return Status::Corruption("Can't read the same number of rows among parquet columns");
         }
         batch_read_rows = col_read_rows;
-        has_eof = col_eof;
-        col_idx++;
+        if (col_eof) {
+            has_eof = true;
+        }
     }
     *read_rows = batch_read_rows;
     *batch_eof = has_eof;

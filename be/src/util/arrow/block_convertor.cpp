@@ -69,12 +69,12 @@ public:
 #define PRIMITIVE_VISIT(TYPE) \
     arrow::Status Visit(const arrow::TYPE& type) override { return _visit(type); }
 
-    PRIMITIVE_VISIT(Int8Type);
-    PRIMITIVE_VISIT(Int16Type);
-    PRIMITIVE_VISIT(Int32Type);
-    PRIMITIVE_VISIT(Int64Type);
-    PRIMITIVE_VISIT(FloatType);
-    PRIMITIVE_VISIT(DoubleType);
+    PRIMITIVE_VISIT(Int8Type)
+    PRIMITIVE_VISIT(Int16Type)
+    PRIMITIVE_VISIT(Int32Type)
+    PRIMITIVE_VISIT(Int64Type)
+    PRIMITIVE_VISIT(FloatType)
+    PRIMITIVE_VISIT(DoubleType)
 
 #undef PRIMITIVE_VISIT
 

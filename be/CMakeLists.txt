@@ -60,7 +60,6 @@ endif ()
 # Set boost/stacktrace use backtrace api to unwind
 if (NOT OS_MACOSX)
     add_definitions(-DBOOST_STACKTRACE_USE_BACKTRACE)
-    #add_definitions(-DPRINT_ALL_ERR_STATUS_STACKTRACE)
 else()
     add_definitions(-DBOOST_STACKTRACE_USE_NOOP)
 endif()
@@ -118,8 +117,8 @@ option(WITH_MYSQL "Support access MySQL" ON)
 
 # Check gcc
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "11.0")
-        message(FATAL_ERROR "Need GCC version at least 11.0")
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "11.1")
+        message(FATAL_ERROR "Need GCC version at least 11.1")
     endif()
 endif()
 
@@ -459,7 +458,7 @@ check_function_exists(sched_getcpu HAVE_SCHED_GETCPU)
 #  -fno-omit-frame-pointers: Keep frame pointer for functions in register
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -g -Wall -Wextra -pthread -Werror")
 # TODO: resolve and remove those wno
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-unused-parameter -Wno-ignored-qualifiers -Wno-implicit-fallthrough -Wno-sign-compare")
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-unused-parameter -Wno-implicit-fallthrough -Wno-sign-compare")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fstrict-aliasing -fno-omit-frame-pointer")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -std=gnu++17 -D__STDC_FORMAT_MACROS")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG")
@@ -490,26 +489,24 @@ if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=${CUSTUM_LINKER_COMMAND}")
 endif()
 
-if (USE_LIBCPP AND COMPILER_CLANG)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -stdlib=libc++")
-    if (NOT OS_MACOSX)
-        set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -lstdc++")
-    endif()
-    add_definitions(-DUSE_LIBCPP)
-endif()
-
 if (COMPILER_GCC)
-    # Avoid GCC 11 false alarm
-    # https://stackoverflow.com/questions/67584073/gcc-11-false-array-subscript-is-partly-outside-array-bounds-warning
-    # https://stackoverflow.com/questions/69426070/gcc-11-order-of-arguments-triggers-false-positive-wstringop-overflow-is-this-bu
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-array-bounds -Wno-stringop-overread")
-    add_compile_options(-Wno-stringop-overflow -fdiagnostics-color=always)
+    add_compile_options(-fdiagnostics-color=always -Wno-array-bounds -Wno-stringop-overread)
 endif ()
 
 if (COMPILER_CLANG)
-    add_compile_options(-fcolor-diagnostics -fno-limit-debug-info)
+    add_compile_options(-fcolor-diagnostics -fno-limit-debug-info -Wpedantic)
+    add_compile_options(-Wno-zero-length-array -Wno-variadic-macros -Wno-gnu-zero-variadic-macro-arguments -Wno-vla-extension -Wno-c++20-designator -Wno-gnu-label-as-value -Wno-embedded-directive -Wno-array-bounds)
     if(MAKE_TEST STREQUAL "OFF")
         add_compile_options(-Qunused-arguments)
+    endif()
+    if (USE_LIBCPP)
+        add_compile_options(-stdlib=libc++)
+        if (NOT OS_MACOSX)
+            add_compile_options(-lstdc++)
+        endif()
+        add_definitions(-DUSE_LIBCPP)
+    else()
+        add_compile_options(-Wno-c++20-attribute-extensions)
     endif()
 endif ()
 

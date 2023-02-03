@@ -28,7 +28,7 @@ class OlapTableSinkOperatorBuilder final
         : public DataSinkOperatorBuilder<stream_load::VOlapTableSink> {
 public:
     OlapTableSinkOperatorBuilder(int32_t id, DataSink* sink)
-            : DataSinkOperatorBuilder(id, "OlapTableSinkOperator", sink) {};
+            : DataSinkOperatorBuilder(id, "OlapTableSinkOperator", sink) {}
 
     OperatorPtr build_operator() override;
 };
@@ -36,7 +36,7 @@ public:
 class OlapTableSinkOperator final : public DataSinkOperator<OlapTableSinkOperatorBuilder> {
 public:
     OlapTableSinkOperator(OperatorBuilderBase* operator_builder, DataSink* sink)
-            : DataSinkOperator(operator_builder, sink) {};
+            : DataSinkOperator(operator_builder, sink) {}
 
     bool can_write() override { return true; } // TODO: need use mem_limit
 };

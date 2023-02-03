@@ -390,10 +390,10 @@ public class JdbcClient {
             case "BIGINT":
                 return Type.BIGINT;
             case "DATE":
-                return ScalarType.getDefaultDateType(Type.DATE);
+                return ScalarType.createDateV2Type();
             case "TIMESTAMP":
             case "DATETIME":
-                return ScalarType.getDefaultDateType(Type.DATETIME);
+                return ScalarType.createDatetimeV2Type(0);
             case "FLOAT":
                 return Type.FLOAT;
             case "DOUBLE":
@@ -473,9 +473,9 @@ public class JdbcClient {
                 return charType;
             case "timestamp":
             case "timestamptz":
-                return ScalarType.getDefaultDateType(Type.DATETIME);
+                return ScalarType.createDatetimeV2Type(0);
             case "date":
-                return ScalarType.getDefaultDateType(Type.DATE);
+                return ScalarType.createDateV2Type();
             case "bool":
                 return Type.BOOLEAN;
             case "bit":
@@ -530,7 +530,7 @@ public class JdbcClient {
                 || ckType.startsWith("FixedString")) {
             return ScalarType.createStringType();
         } else if (ckType.startsWith("DateTime")) {
-            return ScalarType.getDefaultDateType(Type.DATETIME);
+            return ScalarType.createDatetimeV2Type(0);
         }
         switch (ckType) {
             case "Bool":
@@ -559,7 +559,7 @@ public class JdbcClient {
                 return Type.DOUBLE;
             case "Date":
             case "Date32":
-                return ScalarType.getDefaultDateType(Type.DATE);
+                return ScalarType.createDateV2Type();
             default:
                 return Type.UNSUPPORTED;
         }
@@ -574,7 +574,7 @@ public class JdbcClient {
             if (oracleType.equals("TIMESTAMPTZ") || oracleType.equals("TIMESTAMPLTZ")) {
                 return Type.UNSUPPORTED;
             }
-            return ScalarType.getDefaultDateType(Type.DATETIME);
+            return ScalarType.createDatetimeV2Type(0);
         }
         switch (oracleType) {
             case "NUMBER":
@@ -605,7 +605,7 @@ public class JdbcClient {
             case "FLOAT":
                 return Type.DOUBLE;
             case "DATE":
-                return ScalarType.getDefaultDateType(Type.DATETIME);
+                return ScalarType.createDatetimeV2Type(0);
             case "VARCHAR2":
             case "NVARCHAR2":
             case "CHAR":
@@ -650,7 +650,7 @@ public class JdbcClient {
                 int scale = fieldSchema.getDecimalDigits();
                 return ScalarType.createDecimalV3Type(precision, scale);
             case "date":
-                return ScalarType.getDefaultDateType(Type.DATE);
+                return ScalarType.createDateV2Type();
             case "datetime":
             case "datetime2":
             case "smalldatetime":

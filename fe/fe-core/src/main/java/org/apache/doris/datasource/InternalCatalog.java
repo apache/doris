@@ -956,7 +956,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         if (table instanceof MaterializedView && Config.enable_mtmv_scheduler_framework) {
             List<Long> dropIds = Env.getCurrentEnv().getMTMVJobManager().showJobs(db.getFullName(), table.getName())
                     .stream().map(MTMVJob::getId).collect(Collectors.toList());
-            Env.getCurrentEnv().getMTMVJobManager().dropJobs(dropIds, false);
+            Env.getCurrentEnv().getMTMVJobManager().dropJobs(dropIds, isReplay);
             LOG.info("Drop related {} mv job.", dropIds.size());
         }
         LOG.info("finished dropping table[{}] in db[{}]", table.getName(), db.getFullName());
@@ -1949,6 +1949,10 @@ public class InternalCatalog implements CatalogIf<Database> {
         boolean storeRowColumn = false;
         try {
             storeRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(properties);
+            if (storeRowColumn && !enableLightSchemaChange) {
+                throw new DdlException(
+                        "Row store column rely on light schema change, enable light schema change first");
+            }
         } catch (AnalysisException e) {
             throw new DdlException(e.getMessage());
         }

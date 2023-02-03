@@ -36,7 +36,7 @@ public:
 class EmptySetSourceOperator final : public SourceOperator<EmptySetSourceOperatorBuilder> {
 public:
     EmptySetSourceOperator(OperatorBuilderBase* operator_builder, ExecNode* empty_set_node);
-    bool can_read() override { return true; };
+    bool can_read() override { return true; }
 };
 
 } // namespace pipeline

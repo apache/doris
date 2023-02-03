@@ -29,7 +29,7 @@ namespace doris {
 class MasterServerClient {
 public:
     MasterServerClient(const TMasterInfo& master_info, FrontendServiceClientCache* client_cache);
-    virtual ~MasterServerClient() {};
+    virtual ~MasterServerClient() = default;
 
     // Report finished task to the master server
     //
@@ -49,15 +49,6 @@ public:
     // * result: The result of report task
     virtual Status report(const TReportRequest& request, TMasterResult* result);
 
-    // refreshStoragePolicy get storage policy from the master server
-    //
-    // Input parameters:
-    // * request: The name of storage policy
-    //
-    // Output parameters:
-    // * result: The result of storage policy
-    virtual Status refresh_storage_policy(TGetStoragePolicyResult* result);
-
 private:
     DISALLOW_COPY_AND_ASSIGN(MasterServerClient);
 
@@ -68,8 +59,8 @@ private:
 
 class AgentUtils {
 public:
-    AgentUtils() {};
-    virtual ~AgentUtils() {};
+    AgentUtils() = default;
+    virtual ~AgentUtils() = default;
 
     // Execute shell cmd
     virtual bool exec_cmd(const std::string& command, std::string* errmsg,

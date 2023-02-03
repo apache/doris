@@ -37,22 +37,24 @@ public class StoragePolicyPersistTest {
 
         // 1. Write objects to file
         File file = new File("./StoregaPolicyPersistTest");
-        file.createNewFile();
-        DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
-        storagePolicy.write(dos);
-        dos.flush();
-        dos.close();
+        try {
+            file.createNewFile();
+            DataOutputStream dos = new DataOutputStream(new FileOutputStream(file));
+            storagePolicy.write(dos);
+            dos.flush();
+            dos.close();
 
-        // 2. Read objects from file
-        DataInputStream dis = new DataInputStream(new FileInputStream(file));
-        StoragePolicy anotherStoragePolicy = StoragePolicy.read(dis);
-        Assert.assertEquals(cooldownTime, anotherStoragePolicy.getCooldownTimestampMs());
+            // 2. Read objects from file
+            DataInputStream dis = new DataInputStream(new FileInputStream(file));
+            StoragePolicy storagePolicy1 = (StoragePolicy) StoragePolicy.read(dis);
+            dis.close();
+            Assert.assertEquals(cooldownTime, storagePolicy1.getCooldownTimestampMs());
+            Assert.assertTrue(storagePolicy1.getLock() != null);
 
-        StoragePolicy clonePolicy = anotherStoragePolicy.clone();
-        Assert.assertEquals(cooldownTime, clonePolicy.getCooldownTimestampMs());
-
-        // 3. delete files
-        dis.close();
-        file.delete();
+            StoragePolicy clonePolicy = storagePolicy1.clone();
+            Assert.assertEquals(cooldownTime, clonePolicy.getCooldownTimestampMs());
+        } finally {
+            file.delete();
+        }
     }
 }

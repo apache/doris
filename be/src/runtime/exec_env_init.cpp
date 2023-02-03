@@ -25,7 +25,6 @@
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
-#include "olap/storage_policy_mgr.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/block_spill_manager.h"
 #include "runtime/broker_mgr.h"
@@ -123,7 +122,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _stream_load_executor = new StreamLoadExecutor(this);
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
-    _storage_policy_mgr = new StoragePolicyMgr();
     _block_spill_mgr = new BlockSpillManager(_store_paths);
 
     _backend_client_cache->init_metrics("backend");

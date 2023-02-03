@@ -51,9 +51,9 @@ ALTER SYSTEM DECOMMISSION BACKEND "host:heartbeat_port"[,"host:heartbeat_port"..
 
 1. 下线两个节点
 
-         ```sql
-          ALTER SYSTEM DECOMMISSION BACKEND "host1:port", "host2:port";
-         ```
+     ```sql
+      ALTER SYSTEM DECOMMISSION BACKEND "host1:port", "host2:port";
+     ```
 
 ### Keywords
 

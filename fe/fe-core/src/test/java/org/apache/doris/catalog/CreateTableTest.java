@@ -687,4 +687,22 @@ public class CreateTableTest {
                             + ");");
                 });
     }
+
+    @Test
+    public void testCreateTableWithMapType() throws Exception {
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Please open enable_map_type config before use Map.",
+                () -> {
+                    createTable("create table test.test_map(k1 INT, k2 Map<int, VARCHAR(20)>) duplicate key (k1) "
+                            + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');");
+                });
+    }
+
+    @Test
+    public void testCreateTableWithStructType() throws Exception {
+        ExceptionChecker.expectThrowsWithMsg(AnalysisException.class, "Please open enable_struct_type config before use Struct.",
+                () -> {
+                    createTable("create table test.test_struct(k1 INT, k2 Struct<f1:int, f2:VARCHAR(20)>) duplicate key (k1) "
+                            + "distributed by hash(k1) buckets 1 properties('replication_num' = '1');");
+                });
+    }
 }
