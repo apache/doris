@@ -978,6 +978,7 @@ public class OlapScanNode extends ScanNode {
         computePartitionInfo();
         scanBackendIds.clear();
         scanTabletIds.clear();
+        result.clear();
         try {
             getScanRangeLocations();
         } catch (AnalysisException e) {
