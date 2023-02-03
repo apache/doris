@@ -29,7 +29,7 @@ class StreamLoad2PCAction : public HttpHandler {
 public:
     StreamLoad2PCAction(ExecEnv* exec_env);
 
-    virtual ~StreamLoad2PCAction() {};
+    ~StreamLoad2PCAction() override = default;
 
     void handle(HttpRequest* req) override;
     std::string get_success_info(const std::string txn_id, const std::string txn_operation);

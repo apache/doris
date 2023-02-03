@@ -112,7 +112,7 @@ public:
         if (_block_view) {
             _block_view->unref();
         }
-    };
+    }
 
     size_t row_id() const { return _row_id; }
 

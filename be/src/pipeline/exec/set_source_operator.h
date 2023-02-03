@@ -48,7 +48,7 @@ public:
     SetSourceOperator(OperatorBuilderBase* builder,
                       vectorized::VSetOperationNode<is_intersect>* set_node);
 
-    Status open(RuntimeState* /*state*/) override { return Status::OK(); };
+    Status open(RuntimeState* /*state*/) override { return Status::OK(); }
 };
 
 } // namespace pipeline

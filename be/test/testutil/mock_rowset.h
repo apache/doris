@@ -23,36 +23,34 @@
 namespace doris {
 
 class MockRowset : public Rowset {
-    virtual Status create_reader(std::shared_ptr<RowsetReader>* result) override {
+    Status create_reader(std::shared_ptr<RowsetReader>* result) override {
         return Status::NotSupported("MockRowset not support this method.");
     }
 
-    virtual Status remove() override {
+    Status remove() override { return Status::NotSupported("MockRowset not support this method."); }
+
+    Status link_files_to(const std::string& dir, RowsetId new_rowset_id,
+                         size_t start_seg_id) override {
         return Status::NotSupported("MockRowset not support this method.");
     }
 
-    virtual Status link_files_to(const std::string& dir, RowsetId new_rowset_id,
-                                 size_t start_seg_id) override {
+    Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) override {
         return Status::NotSupported("MockRowset not support this method.");
     }
 
-    virtual Status copy_files_to(const std::string& dir, const RowsetId& new_rowset_id) override {
+    Status remove_old_files(std::vector<std::string>* files_to_remove) override {
         return Status::NotSupported("MockRowset not support this method.");
     }
 
-    virtual Status remove_old_files(std::vector<std::string>* files_to_remove) override {
+    bool check_path(const std::string& path) override {
         return Status::NotSupported("MockRowset not support this method.");
     }
 
-    virtual bool check_path(const std::string& path) override {
+    bool check_file_exist() override {
         return Status::NotSupported("MockRowset not support this method.");
     }
 
-    virtual bool check_file_exist() override {
-        return Status::NotSupported("MockRowset not support this method.");
-    }
-
-    virtual Status get_segments_key_bounds(std::vector<KeyBoundsPB>* segments_key_bounds) override {
+    Status get_segments_key_bounds(std::vector<KeyBoundsPB>* segments_key_bounds) override {
         // TODO(zhangchen): remove this after we implemented memrowset.
         if (is_mem_rowset_) {
             return Status::NotSupported("Memtable not support key bounds");
@@ -73,19 +71,17 @@ protected:
                RowsetMetaSharedPtr rowset_meta)
             : Rowset(schema, rowset_path, rowset_meta) {}
 
-    virtual Status init() override {
+    Status init() override { return Status::NotSupported("MockRowset not support this method."); }
+
+    Status do_load(bool use_cache) override {
         return Status::NotSupported("MockRowset not support this method.");
     }
 
-    virtual Status do_load(bool use_cache) override {
-        return Status::NotSupported("MockRowset not support this method.");
-    }
-
-    virtual void do_close() override {
+    void do_close() override {
         // Do nothing.
     }
 
-    virtual bool check_current_rowset_segment() override { return true; };
+    bool check_current_rowset_segment() override { return true; }
 
 private:
     bool is_mem_rowset_;

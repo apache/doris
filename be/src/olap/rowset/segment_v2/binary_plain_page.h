@@ -238,7 +238,7 @@ public:
 
         *n = max_fetch;
         return Status::OK();
-    };
+    }
 
     Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
                           vectorized::MutableColumnPtr& dst) override {
