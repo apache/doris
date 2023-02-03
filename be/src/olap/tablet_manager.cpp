@@ -1326,7 +1326,7 @@ void TabletManager::get_cooldown_tablets(std::vector<TabletSharedPtr>* tablets,
             candidates.begin(), candidates.end(),
             [&sort_ctx_vec, &skip_tablet](std::weak_ptr<Tablet>& t) {
                 const TabletSharedPtr& tablet = t.lock();
-                if (nullptr == tablet) [[unlikely]] {
+                if (UNLIKELY(nullptr == tablet)) {
                     return;
                 }
                 std::shared_lock rdlock(tablet->get_header_lock());
