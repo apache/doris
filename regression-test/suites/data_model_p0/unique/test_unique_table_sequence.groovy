@@ -49,8 +49,8 @@ suite("test_unique_table_sequence") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
-            assertEquals(3, json.NumberTotalRows)
-            assertEquals(3, json.NumberLoadedRows)
+            assertEquals(4, json.NumberTotalRows)
+            assertEquals(4, json.NumberLoadedRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
         }
@@ -76,8 +76,8 @@ suite("test_unique_table_sequence") {
             log.info("Stream load result: ${result}".toString())
             def json = parseJson(result)
             assertEquals("success", json.Status.toLowerCase())
-            assertEquals(3, json.NumberTotalRows)
-            assertEquals(3, json.NumberLoadedRows)
+            assertEquals(4, json.NumberTotalRows)
+            assertEquals(4, json.NumberLoadedRows)
             assertEquals(0, json.NumberFilteredRows)
             assertEquals(0, json.NumberUnselectedRows)
         }

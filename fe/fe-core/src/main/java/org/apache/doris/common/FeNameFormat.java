@@ -80,6 +80,10 @@ public class FeNameFormat {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
                     columnName, FeNameFormat.COLUMN_NAME_REGEX);
         }
+        if (columnName.startsWith(CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX)) {
+            ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_COLUMN_NAME,
+                    columnName, FeNameFormat.COLUMN_NAME_REGEX);
+        }
     }
 
     public static void checkLabel(String label) throws AnalysisException {

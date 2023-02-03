@@ -59,7 +59,7 @@ public:
     // Send a Block into this sink.
     virtual Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) {
         return Status::NotSupported("Not support send block");
-    };
+    }
     // Releases all resources that were allocated in prepare()/send().
     // Further send() calls are illegal after calling close().
     // It must be okay to call this multiple times. Subsequent calls should

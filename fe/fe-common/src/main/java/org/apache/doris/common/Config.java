@@ -1741,6 +1741,18 @@ public class Config extends ConfigBase {
     public static boolean enable_array_type = false;
 
     /**
+     * Support complex data type MAP.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_map_type = false;
+
+    /**
+     * Support complex data type STRUCT.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_struct_type = false;
+
+    /**
      * The timeout of executing async remote fragment.
      * In normal case, the async remote fragment will be executed in a short time. If system are under high load
      * condition，try to set this timeout longer.

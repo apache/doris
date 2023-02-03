@@ -54,7 +54,7 @@ public:
 
     std::string debug_string() const override {
         return fmt::format(" VBitmapPredicate:{}", VExpr::debug_string());
-    };
+    }
 
 private:
     std::shared_ptr<BitmapFilterFuncBase> _filter;

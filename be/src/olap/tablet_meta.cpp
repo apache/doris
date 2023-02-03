@@ -254,8 +254,6 @@ TabletMeta::TabletMeta(const TabletMeta& b)
           _stale_rs_metas(b._stale_rs_metas),
           _in_restore_mode(b._in_restore_mode),
           _preferred_rowset_type(b._preferred_rowset_type),
-          _cooldown_replica_id(b._cooldown_replica_id),
-          _cooldown_term(b._cooldown_term),
           _storage_policy_id(b._storage_policy_id),
           _enable_unique_key_merge_on_write(b._enable_unique_key_merge_on_write),
           _delete_bitmap(b._delete_bitmap) {};
@@ -524,8 +522,6 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         _preferred_rowset_type = tablet_meta_pb.preferred_rowset_type();
     }
 
-    _cooldown_replica_id = -1;
-    _cooldown_term = -1;
     _storage_policy_id = tablet_meta_pb.storage_policy_id();
     if (tablet_meta_pb.has_enable_unique_key_merge_on_write()) {
         _enable_unique_key_merge_on_write = tablet_meta_pb.enable_unique_key_merge_on_write();
@@ -550,10 +546,6 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
 }
 
 void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
-    to_meta_pb(false, tablet_meta_pb);
-}
-
-void TabletMeta::to_meta_pb(bool only_include_remote_rowset, TabletMetaPB* tablet_meta_pb) {
     tablet_meta_pb->set_table_id(table_id());
     tablet_meta_pb->set_partition_id(partition_id());
     tablet_meta_pb->set_tablet_id(tablet_id());
@@ -583,9 +575,7 @@ void TabletMeta::to_meta_pb(bool only_include_remote_rowset, TabletMetaPB* table
     }
 
     for (auto& rs : _rs_metas) {
-        if ((only_include_remote_rowset && !rs->is_local()) || !only_include_remote_rowset) {
-            rs->to_rowset_pb(tablet_meta_pb->add_rs_metas());
-        }
+        rs->to_rowset_pb(tablet_meta_pb->add_rs_metas());
     }
     for (auto rs : _stale_rs_metas) {
         rs->to_rowset_pb(tablet_meta_pb->add_stale_rs_metas());
@@ -877,12 +867,6 @@ bool operator==(const TabletMeta& a, const TabletMeta& b) {
     }
     if (a._in_restore_mode != b._in_restore_mode) return false;
     if (a._preferred_rowset_type != b._preferred_rowset_type) return false;
-    if (a._cooldown_replica_id != b._cooldown_replica_id) {
-        return false;
-    }
-    if (a._cooldown_term != b._cooldown_term) {
-        return false;
-    }
     if (a._storage_policy_id != b._storage_policy_id) return false;
     return true;
 }

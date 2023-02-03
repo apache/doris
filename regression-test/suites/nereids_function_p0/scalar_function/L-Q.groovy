@@ -65,14 +65,13 @@ suite("nereids_scalar_fn_3") {
     qt_sql "select mask(kstr) from fn_test order by kstr"
     qt_sql "select mask_first_n(kvchrs1) from fn_test order by kvchrs1"
     qt_sql "select mask_first_n(kstr) from fn_test order by kstr"
-    // core
-    // qt_sql "select mask_first_n(kvchrs1, kint) from fn_test order by kvchrs1, kint"
-    // qt_sql "select mask_first_n(kstr, kint) from fn_test order by kstr, kint"
+    qt_sql "select mask_first_n(kvchrs1, kint) from fn_test order by kvchrs1, kint"
+    qt_sql "select mask_first_n(kstr, kint) from fn_test order by kstr, kint"
+    qt_sql_mask_const "select mask_first_n('asd123', 54);"
     qt_sql "select mask_last_n(kvchrs1) from fn_test order by kvchrs1"
     qt_sql "select mask_last_n(kstr) from fn_test order by kstr"
-    // core
-    // qt_sql "select mask_last_n(kvchrs1, kint) from fn_test order by kvchrs1, kint"
-    // qt_sql "select mask_last_n(kstr, kint) from fn_test order by kstr, kint"
+    qt_sql "select mask_last_n(kvchrs1, kint) from fn_test order by kvchrs1, kint"
+    qt_sql "select mask_last_n(kstr, kint) from fn_test order by kstr, kint"
     qt_sql "select md5(kvchrs1) from fn_test order by kvchrs1"
     qt_sql "select md5(kstr) from fn_test order by kstr"
     // cannot find function

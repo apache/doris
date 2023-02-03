@@ -93,19 +93,19 @@ static inline void a_store(volatile int *p, int x)
 }
 
 #define a_barrier a_barrier
-static inline void a_barrier()
+static inline void a_barrier(void)
 {
 	__asm__ __volatile__( "" : : : "memory" );
 }
 
 #define a_spin a_spin
-static inline void a_spin()
+static inline void a_spin(void)
 {
 	__asm__ __volatile__( "pause" : : : "memory" );
 }
 
 #define a_crash a_crash
-static inline void a_crash()
+static inline void a_crash(void)
 {
 	__asm__ __volatile__( "hlt" : : : "memory" );
 }

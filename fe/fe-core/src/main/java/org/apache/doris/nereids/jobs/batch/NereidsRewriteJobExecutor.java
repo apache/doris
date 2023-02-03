@@ -69,11 +69,16 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
     public NereidsRewriteJobExecutor(CascadesContext cascadesContext) {
         super(cascadesContext);
         ImmutableList<Job> jobs = new ImmutableList.Builder<Job>()
+                .addAll(new EliminateSpecificPlanUnderApplyJob(cascadesContext).rulesJob)
                 // MergeProjects depends on this rule
                 .add(bottomUpBatch(ImmutableList.of(new LogicalSubQueryAliasToLogicalProject())))
                 // AdjustApplyFromCorrelateToUnCorrelateJob and ConvertApplyToJoinJob
                 // and SelectMaterializedIndexWithAggregate depends on this rule
                 .add(topDownBatch(ImmutableList.of(new MergeProjects())))
+                .add(bottomUpBatch(ImmutableList.of(new AdjustAggregateNullableForEmptySet())))
+                .add(topDownBatch(ImmutableList.of(new ExpressionNormalization(cascadesContext.getConnectContext()))))
+                .add(topDownBatch(ImmutableList.of(new ExpressionOptimization())))
+                .add(topDownBatch(ImmutableList.of(new ExtractSingleTableExpressionFromDisjunction())))
                 /*
                  * Subquery unnesting.
                  * 1. Adjust the plan in correlated logicalApply
@@ -83,10 +88,6 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                  */
                 .addAll(new AdjustApplyFromCorrelateToUnCorrelateJob(cascadesContext).rulesJob)
                 .addAll(new ConvertApplyToJoinJob(cascadesContext).rulesJob)
-                .add(bottomUpBatch(ImmutableList.of(new AdjustAggregateNullableForEmptySet())))
-                .add(topDownBatch(ImmutableList.of(new ExpressionNormalization(cascadesContext.getConnectContext()))))
-                .add(topDownBatch(ImmutableList.of(new ExpressionOptimization())))
-                .add(topDownBatch(ImmutableList.of(new ExtractSingleTableExpressionFromDisjunction())))
                 .add(topDownBatch(ImmutableList.of(new EliminateGroupByConstant())))
                 .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
                 .add(topDownBatch(RuleSet.PUSH_DOWN_FILTERS, false))

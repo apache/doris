@@ -102,6 +102,8 @@ Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
                 rowid_column.set_has_default_value(true);
                 // fake unique id
                 rowid_column.set_unique_id(INT32_MAX);
+                rowid_column.set_aggregation_method(
+                        FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE);
                 rowid_column.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
                 _tablet_schema->append_column(rowid_column);
             }
@@ -476,11 +478,6 @@ void NewOlapScanner::_update_counters_before_close() {
 
     COUNTER_UPDATE(olap_parent->_conditions_filtered_counter, stats.rows_conditions_filtered);
     COUNTER_UPDATE(olap_parent->_key_range_filtered_counter, stats.rows_key_range_filtered);
-
-    size_t timer_count = sizeof(stats.general_debug_ns) / sizeof(*stats.general_debug_ns);
-    for (size_t i = 0; i < timer_count; ++i) {
-        COUNTER_UPDATE(olap_parent->_general_debug_timer[i], stats.general_debug_ns[i]);
-    }
 
     COUNTER_UPDATE(olap_parent->_total_pages_num_counter, stats.total_pages_num);
     COUNTER_UPDATE(olap_parent->_cached_pages_num_counter, stats.cached_pages_num);

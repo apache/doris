@@ -36,7 +36,7 @@ class DataGenOperator : public SourceOperator<DataGenOperatorBuilder> {
 public:
     DataGenOperator(OperatorBuilderBase* operator_builder, ExecNode* datagen_node);
 
-    bool can_read() override { return true; };
+    bool can_read() override { return true; }
 
     Status open(RuntimeState* state) override;
 

@@ -69,7 +69,9 @@ suite ("test_dup_mv_bitmap_hash") {
     sql "insert into d_table select 2,2,'bb';"
     sql "insert into d_table select 3,3,'c';"
 
-    qt_select_star "select * from d_table order by k1;"
+    qt_select_k1 "select k1 from d_table order by k1;"
+
+    qt_select_star "select * from d_table order by k1,k2,k3;"
 
     explain {
         sql("select k1,bitmap_union_count(bitmap_hash(k3)) from d_table group by k1;")

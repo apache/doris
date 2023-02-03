@@ -385,7 +385,7 @@ public class DataDescriptionTest {
         properties.put("line_delimiter", "abc");
         DataDescription desc =
                 new DataDescription(tbl, new PartitionNames(false, Lists.newArrayList("p1", "p2")), "abc.txt", true,
-                        Lists.newArrayList("k1", "k2", "v1"), new Separator("010203"), new Separator("040506"),
+                        Lists.newArrayList("k1", "k2", "v1"), new Separator("010203"), new Separator("040506"), 0,
                         Lists.newArrayList(predicate), properties);
         String db = desc.analyzeFullDbName(null, analyzer);
         Assert.assertEquals("default_cluster:testDb", db);

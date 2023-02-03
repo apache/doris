@@ -133,7 +133,6 @@ Status PlanFragmentExecutor::prepare(const TExecPlanFragmentParams& request,
     DCHECK(request.__isset.fragment);
     RETURN_IF_ERROR(ExecNode::create_tree(_runtime_state.get(), obj_pool(), request.fragment.plan,
                                           *desc_tbl, &_plan));
-    _runtime_state->set_fragment_root_id(_plan->id());
 
     // set #senders of exchange nodes before calling Prepare()
     std::vector<ExecNode*> exch_nodes;

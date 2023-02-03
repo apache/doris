@@ -41,3 +41,16 @@
 7	\N	\N	\N	\N	223-9	\N
 8	\N	\N	\N	\N	\N	12 10:23:1.123457
 
+-- !test_insert1 --
+doris1	18
+
+-- !test_insert2 --
+doris2	19
+doris3	20
+
+-- !test_insert3 --
+doris2	19
+doris2	19
+doris3	20
+doris3	20
+
