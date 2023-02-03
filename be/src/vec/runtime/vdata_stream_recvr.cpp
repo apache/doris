@@ -358,7 +358,8 @@ Status VDataStreamRecvr::create_merger(const std::vector<VExprContext*>& orderin
 
     for (int i = 0; i < _sender_queues.size(); ++i) {
         child_block_suppliers.emplace_back(std::bind(std::mem_fn(&SenderQueue::get_batch),
-                                                     _sender_queues[i], std::placeholders::_1));
+                                                     _sender_queues[i], std::placeholders::_1,
+                                                     std::placeholders::_2));
     }
     RETURN_IF_ERROR(_merger->prepare(child_block_suppliers));
     return Status::OK();
