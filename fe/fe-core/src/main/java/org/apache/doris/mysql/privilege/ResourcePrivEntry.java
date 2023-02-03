@@ -21,7 +21,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherException;
-import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.io.Text;
 
 import java.io.DataInput;

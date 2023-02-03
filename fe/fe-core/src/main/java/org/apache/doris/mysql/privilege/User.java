@@ -18,9 +18,9 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.io.Writable;
 
 import org.apache.logging.log4j.LogManager;
@@ -127,7 +127,7 @@ public class User implements Comparable<User>, Writable {
         try {
             hostPattern = PatternMatcher
                     .createMysqlPattern(userIdentity.getHost(), CaseSensibility.HOST.getCaseSensibility());
-        } catch (AnalysisException e) {
+        } catch (PatternMatcherException e) {
             LOG.warn("readFields error,", e);
         }
         isAnyHost = userIdentity.getHost().equals(UserManager.ANY_HOST);

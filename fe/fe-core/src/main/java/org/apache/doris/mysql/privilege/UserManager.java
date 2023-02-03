@@ -19,12 +19,12 @@ package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
-import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.MysqlPassword;
@@ -176,7 +176,7 @@ public class UserManager implements Writable {
     }
 
     public User createUser(UserIdentity userIdent, byte[] pwd, UserIdentity domainUserIdent, boolean setByResolver)
-            throws AnalysisException {
+            throws PatternMatcherException {
         if (userIdentityExist(userIdent, true)) {
             User userByUserIdentity = getUserByUserIdentity(userIdent);
             userByUserIdentity.setPassword(pwd);
@@ -318,7 +318,7 @@ public class UserManager implements Writable {
                     Preconditions.checkNotNull(password, entry.getKey());
                     try {
                         createUser(userIdent, password, domainUser.getUserIdentity(), true);
-                    } catch (AnalysisException e) {
+                    } catch (PatternMatcherException e) {
                         LOG.info("failed to create user for user ident: {}, {}", userIdent, e.getMessage());
                     }
                 }

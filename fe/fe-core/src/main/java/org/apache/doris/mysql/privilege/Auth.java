@@ -45,6 +45,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.InternalCatalog;
@@ -479,7 +480,7 @@ public class Auth implements Writable {
             try {
                 //we should not throw AnalysisException at here,so transfer it
                 userManager.createUser(userIdent, password, null, false);
-            } catch (AnalysisException e) {
+            } catch (PatternMatcherException e) {
                 throw new DdlException("create user failed,", e);
             }
             if (password != null) {
@@ -1497,7 +1498,7 @@ public class Auth implements Writable {
 
     private void upgradeToVersion116(UserPrivTable userPrivTable, CatalogPrivTable catalogPrivTable,
             DbPrivTable dbPrivTable, TablePrivTable tablePrivTable, ResourcePrivTable resourcePrivTable)
-            throws AnalysisException, DdlException {
+            throws AnalysisException, DdlException, PatternMatcherException {
         //OPERATOR and Admin role not save users,if not inituser,root will do not have admin role
         initUser();
         for (Entry<String, UserProperty> entry : propertyMgr.propertyMap.entrySet()) {
