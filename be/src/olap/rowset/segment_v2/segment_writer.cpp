@@ -207,6 +207,17 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
     return Status::OK();
 }
 
+void SegmentWriter::_maybe_invalid_row_cache(const std::string& key) {
+    // Just invalid row cache for simplicity, since the rowset is not visible at present.
+    // If we update/insert cache, if load failed rowset will not be visible but cached data
+    // will be visible, and lead to inconsistency.
+    if (!config::disable_storage_row_cache && _tablet_schema->store_row_column() &&
+        _opts.is_direct_write) {
+        // invalidate cache
+        RowCache::instance()->erase({_opts.rowset_ctx->tablet_id, key});
+    }
+}
+
 Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_pos,
                                    size_t num_rows) {
     CHECK(block->columns() == _column_writers.size())
@@ -255,11 +266,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
             for (size_t pos = 0; pos < num_rows; pos++) {
                 const std::string& key = _full_encode_keys(key_columns, pos);
                 RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
-                if (!config::disable_storage_row_cache && _tablet_schema->store_row_column() &&
-                    _opts.is_direct_write) {
-                    // invalidate cache
-                    RowCache::instance()->erase({_opts.rowset_ctx->tablet_id, key});
-                }
+                _maybe_invalid_row_cache(key);
             }
         } else {
             // create short key indexes'

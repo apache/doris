@@ -255,7 +255,8 @@ Status PointQueryExecutor::_lookup_row_data() {
     for (size_t i = 0; i < _row_locations.size(); ++i) {
         if (_cached_row_data[i].valid()) {
             vectorized::JsonbSerializeUtil::jsonb_to_block(
-                    *_reusable->tuple_desc(), _cached_row_data[i].data(), *_result_block);
+                    *_reusable->tuple_desc(), _cached_row_data[i].data().data,
+                    _cached_row_data[i].data().size, *_result_block);
             continue;
         }
         if (!_row_locations[i].has_value()) {

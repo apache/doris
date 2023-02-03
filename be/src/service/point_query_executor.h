@@ -88,7 +88,7 @@ public:
     // class will release the cache entry when it is destroyed.
     class CacheHandle {
     public:
-        CacheHandle() {}
+        CacheHandle() = default;
         CacheHandle(Cache* cache, Cache::Handle* handle) : _cache(cache), _handle(handle) {}
         ~CacheHandle() {
             if (_handle != nullptr) {
