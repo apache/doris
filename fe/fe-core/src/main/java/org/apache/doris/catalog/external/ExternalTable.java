@@ -310,6 +310,10 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         return 1;
     }
 
+    public List<Column> initSchema() {
+        throw new NotImplementedException("implement in sub class");
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
