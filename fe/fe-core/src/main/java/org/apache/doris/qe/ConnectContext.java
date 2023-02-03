@@ -17,6 +17,8 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.InsertStmt;
+import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -164,7 +166,7 @@ public class ConnectContext {
     }
 
     public void setOrUpdateInsertResult(long txnId, String label, String db, String tbl,
-                                        TransactionStatus txnStatus, long loadedRows, int filteredRows) {
+            TransactionStatus txnStatus, long loadedRows, int filteredRows) {
         if (isTxnModel() && insertResult != null) {
             insertResult.updateResult(txnStatus, loadedRows, filteredRows);
         } else {
@@ -568,7 +570,7 @@ public class ConnectContext {
         boolean killFlag = false;
         boolean killConnection = false;
         if (command == MysqlCommand.COM_SLEEP) {
-            if (delta > sessionVariable.getWaitTimeoutS() * 1000) {
+            if (delta > sessionVariable.getWaitTimeoutS() * 1000L) {
                 // Need kill this connection.
                 LOG.warn("kill wait timeout connection, remote: {}, wait timeout: {}",
                         getMysqlChannel().getRemoteHostPortString(), sessionVariable.getWaitTimeoutS());
@@ -577,25 +579,30 @@ public class ConnectContext {
                 killConnection = true;
             }
         } else {
+            long timeout;
             if (userQueryTimeout > 0) {
                 // user set query_timeout property
-                if (delta > userQueryTimeout * 1000) {
-                    LOG.warn("kill query timeout, remote: {}, query timeout: {}",
-                            getMysqlChannel().getRemoteHostPortString(), userQueryTimeout);
-
-                    killFlag = true;
-                }
+                timeout = userQueryTimeout * 1000;
             } else {
                 // default use session query_timeout
-                if (delta > sessionVariable.getQueryTimeoutS() * 1000) {
-                    LOG.warn("kill query timeout, remote: {}, query timeout: {}",
-                            getMysqlChannel().getRemoteHostPortString(), sessionVariable.getQueryTimeoutS());
+                timeout = sessionVariable.getQueryTimeoutS() * 1000L;
+            }
 
-                    // Only kill
-                    killFlag = true;
+            //deal with insert stmt particularly
+            if (executor != null) {
+                StatementBase parsedStmt = executor.getParsedStmt();
+                if (parsedStmt instanceof InsertStmt) {
+                    timeout = sessionVariable.getInsertTimeoutS() * 1000L;
                 }
             }
+
+            if (delta > timeout) {
+                LOG.warn("kill query timeout, remote: {}, query timeout: {}",
+                        getMysqlChannel().getRemoteHostPortString(), timeout);
+                killFlag = true;
+            }
         }
+
         if (killFlag) {
             kill(killConnection);
         }
