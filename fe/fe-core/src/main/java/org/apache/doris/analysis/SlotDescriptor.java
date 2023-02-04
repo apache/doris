@@ -159,10 +159,14 @@ public class SlotDescriptor {
         return column;
     }
 
-    public void setColumn(Column column) {
+    public void setColumnAndType(Column column) {
         this.column = column;
         this.type = column.getType();
         this.originType = column.getOriginType();
+    }
+
+    public void setColumn(Column column) {
+        this.column = column;
     }
 
     public boolean isMaterialized() {

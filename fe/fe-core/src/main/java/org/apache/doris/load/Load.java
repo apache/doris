@@ -706,7 +706,7 @@ public class Load {
                     if (exprSrcSlotName.contains(columnName)) {
                         // columns in expr args should be varchar type
                         slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-                        slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
+                        slotDesc.setColumnAndType(new Column(realColName, PrimitiveType.VARCHAR));
                         excludedColumns.add(realColName);
                         // example k1, k2 = k1 + 1, k1 is not nullable, k2 is nullable
                         // so we can not determine columns in expr args whether not nullable or nullable
@@ -715,14 +715,14 @@ public class Load {
                     } else {
                         // columns from files like parquet files can be parsed as the type in table schema
                         slotDesc.setType(tblColumn.getType());
-                        slotDesc.setColumn(new Column(realColName, tblColumn.getType()));
+                        slotDesc.setColumnAndType(new Column(realColName, tblColumn.getType()));
                         // non-nullable column is allowed in vectorized load with parquet format
                         slotDesc.setIsNullable(tblColumn.isAllowNull());
                     }
                 } else {
                     // columns default be varchar type
                     slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-                    slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
+                    slotDesc.setColumnAndType(new Column(realColName, PrimitiveType.VARCHAR));
                     // ISSUE A: src slot should be nullable even if the column is not nullable.
                     // because src slot is what we read from file, not represent to real column value.
                     // If column is not nullable, error will be thrown when filling the dest slot,
@@ -890,7 +890,7 @@ public class Load {
                     throw new UserException("Unknown source slot descriptor. id: " + slotId);
                 }
                 srcSlotDesc.setType(type);
-                srcSlotDesc.setColumn(new Column(columnName, type));
+                srcSlotDesc.setColumnAndType(new Column(columnName, type));
             }
         }
     }

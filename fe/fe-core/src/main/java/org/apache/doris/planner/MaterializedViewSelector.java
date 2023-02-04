@@ -638,7 +638,7 @@ public class MaterializedViewSelector {
             SlotRef slotRef = new SlotRef(null, column.getName());
             // This slot desc is only used to temporarily store column that will be used in subsequent MVExprRewriter.
             SlotDescriptor slotDescriptor = new SlotDescriptor(null, null);
-            slotDescriptor.setColumn(column);
+            slotDescriptor.setColumnAndType(column);
             slotRef.setDesc(slotDescriptor);
             FunctionCallExpr fnExpr = new FunctionCallExpr(column.getAggregationType().name(),
                     Lists.newArrayList(slotRef));

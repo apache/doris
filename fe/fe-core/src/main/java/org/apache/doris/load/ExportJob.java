@@ -311,7 +311,7 @@ public class ExportJob implements Writable {
             for (Column column : exportTable.getBaseSchema()) {
                 SlotDescriptor slot = desc.addSlotDescriptor(exportTupleDesc);
                 slot.setIsMaterialized(true);
-                slot.setColumn(column);
+                slot.setColumnAndType(column);
                 slot.setIsNullable(column.isAllowNull());
             }
         } else {
@@ -320,7 +320,7 @@ public class ExportJob implements Writable {
                 if (exportColumns.contains(colName)) {
                     SlotDescriptor slot = desc.addSlotDescriptor(exportTupleDesc);
                     slot.setIsMaterialized(true);
-                    slot.setColumn(column);
+                    slot.setColumnAndType(column);
                     slot.setIsNullable(column.isAllowNull());
                 }
             }

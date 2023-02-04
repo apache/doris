@@ -119,12 +119,12 @@ public class LoadingTaskPlanner {
         for (Column col : table.getFullSchema()) {
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(destTupleDesc);
             slotDesc.setIsMaterialized(true);
-            slotDesc.setColumn(col);
+            slotDesc.setColumnAndType(col);
             slotDesc.setIsNullable(col.isAllowNull());
             if (Config.enable_vectorized_load) {
                 SlotDescriptor scanSlotDesc = descTable.addSlotDescriptor(scanTupleDesc);
                 scanSlotDesc.setIsMaterialized(true);
-                scanSlotDesc.setColumn(col);
+                scanSlotDesc.setColumnAndType(col);
                 scanSlotDesc.setIsNullable(col.isAllowNull());
                 if (fileGroups.size() > 0) {
                     for (ImportColumnDesc importColumnDesc : fileGroups.get(0).getColumnExprList()) {

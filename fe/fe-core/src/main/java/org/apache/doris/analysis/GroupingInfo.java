@@ -267,7 +267,7 @@ public class GroupingInfo {
         slotDesc.initFromExpr(expr);
         slotDesc.setIsMaterialized(true);
         if (expr instanceof SlotRef) {
-            slotDesc.setColumn(((SlotRef) expr).getColumn());
+            slotDesc.setColumnAndType(((SlotRef) expr).getColumn());
         }
         if (expr instanceof VirtualSlotRef) {
             outputTupleSmap.put(expr.clone(), new VirtualSlotRef(slotDesc));

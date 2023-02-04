@@ -697,7 +697,7 @@ public class Analyzer {
         for (Column col : table.getBaseSchema(true)) {
             SlotDescriptor slot = globalState.descTbl.addSlotDescriptor(result);
             slot.setIsMaterialized(true);
-            slot.setColumn(col);
+            slot.setColumnAndType(col);
             slot.setIsNullable(col.isAllowNull());
             String key = tableRef.aliases[0] + "." + col.getName();
             slotRefMap.put(key, slot);
@@ -910,7 +910,7 @@ public class Analyzer {
             return result;
         }
         result = globalState.descTbl.addSlotDescriptor(d);
-        result.setColumn(col);
+        result.setColumnAndType(col);
         boolean isNullable;
         if (VectorizedUtil.isVectorized()) {
             isNullable = col.isAllowNull();
@@ -939,7 +939,7 @@ public class Analyzer {
         }
         result = addSlotDescriptor(tupleDescriptor);
         Column col = new Column(colName, type);
-        result.setColumn(col);
+        result.setColumnAndType(col);
         result.setIsNullable(col.isAllowNull());
         slotRefMap.put(key, result);
         return result;
@@ -1013,7 +1013,7 @@ public class Analyzer {
         result.setType(srcSlotDesc.getType());
         result.setIsNullable(srcSlotDesc.getIsNullable());
         if (srcSlotDesc.getColumn() != null) {
-            result.setColumn(srcSlotDesc.getColumn());
+            result.setColumnAndType(srcSlotDesc.getColumn());
         }
         // result.setItemTupleDesc(srcSlotDesc.getItemTupleDesc());
         return result;

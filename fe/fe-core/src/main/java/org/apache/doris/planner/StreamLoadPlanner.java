@@ -143,13 +143,13 @@ public class StreamLoadPlanner {
         for (Column col : destTable.getFullSchema()) {
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(tupleDesc);
             slotDesc.setIsMaterialized(true);
-            slotDesc.setColumn(col);
+            slotDesc.setColumnAndType(col);
             slotDesc.setIsNullable(col.isAllowNull());
 
             if (Config.enable_vectorized_load) {
                 SlotDescriptor scanSlotDesc = descTable.addSlotDescriptor(scanTupleDesc);
                 scanSlotDesc.setIsMaterialized(true);
-                scanSlotDesc.setColumn(col);
+                scanSlotDesc.setColumnAndType(col);
                 scanSlotDesc.setIsNullable(col.isAllowNull());
                 for (ImportColumnDesc importColumnDesc : taskInfo.getColumnExprDescs().descs) {
                     try {

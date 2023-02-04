@@ -427,7 +427,7 @@ public class OlapScanNode extends ScanNode {
             }
 
             if (mvColumn.getType() != baseColumn.getType()) {
-                slotDescriptor.setColumn(mvColumn);
+                slotDescriptor.setColumnAndType(mvColumn);
             }
         }
     }
@@ -452,7 +452,7 @@ public class OlapScanNode extends ScanNode {
             if (mvColumn == null) {
                 throw new UserException("Do not found mvColumn " + baseColumn.getName());
             }
-            slotDescriptor.setColumn(mvColumn);
+            slotDescriptor.setColumnAndType(mvColumn);
         }
         LOG.debug("updateSlotUniqueId() slots: {}", desc.getSlots());
     }

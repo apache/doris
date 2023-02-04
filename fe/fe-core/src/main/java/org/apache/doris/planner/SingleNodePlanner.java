@@ -2455,7 +2455,7 @@ public class SingleNodePlanner {
                     slot.setIsMaterialized(true);
                 } else {
                     slot = analyzer.getDescTbl().addSlotDescriptor(tblRef.getDesc());
-                    slot.setColumn(minimuColumn);
+                    slot.setColumnAndType(minimuColumn);
                     slot.setIsMaterialized(true);
                     slot.setIsNullable(minimuColumn.isAllowNull());
                 }

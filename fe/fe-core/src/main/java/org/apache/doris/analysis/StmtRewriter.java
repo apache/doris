@@ -523,7 +523,7 @@ public class StmtRewriter {
             markSlot.setType(ScalarType.BOOLEAN);
             markSlot.setIsMaterialized(true);
             markSlot.setIsNullable(false);
-            markSlot.setColumn(new Column(slotName, ScalarType.BOOLEAN));
+            markSlot.setColumnAndType(new Column(slotName, ScalarType.BOOLEAN));
             SlotRef markRef = new SlotRef(markSlot);
             markRef.setTblName(new TableName(null, null, markTuple.getAlias()));
             markRef.setLabel(slotName);

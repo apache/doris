@@ -312,7 +312,7 @@ public class AnalyticPlanner {
                 //         analyzer.copySlotDescriptor(inputSlotDesc, sortTupleDesc);
                 SlotDescriptor sortSlotDesc = analyzer.getDescTbl().addSlotDescriptor(sortTupleDesc);
                 if (inputSlotDesc.getColumn() != null) {
-                    sortSlotDesc.setColumn(inputSlotDesc.getColumn());
+                    sortSlotDesc.setColumnAndType(inputSlotDesc.getColumn());
                 } else {
                     sortSlotDesc.setType(inputSlotDesc.getType());
                 }

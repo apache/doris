@@ -80,7 +80,7 @@ public class RuntimeFilterGeneratorTest {
         SlotDescriptor lhsSlotDescriptor = new SlotDescriptor(new SlotId(0), lhsTupleDescriptor);
         Column k1 = new Column("test_lhs_col", PrimitiveType.BIGINT, false);
         k1.setIsKey(true);
-        lhsSlotDescriptor.setColumn(k1);
+        lhsSlotDescriptor.setColumnAndType(k1);
         lhsExpr.setDesc(lhsSlotDescriptor);
         OlapTable lhsTable = TableTest.newOlapTable(0, "test_lhs_tbl", 0, ImmutableList.of(k1));
         BaseTableRef lhsTableRef = new BaseTableRef(tableRef, lhsTable, lhsTableName);
@@ -94,7 +94,7 @@ public class RuntimeFilterGeneratorTest {
         SlotDescriptor rhsSlotDescriptor = new SlotDescriptor(new SlotId(1), rhsTupleDescriptor);
         Column k2 = new Column("test_rhs_col", PrimitiveType.INT, false);
         k2.setIsKey(true);
-        rhsSlotDescriptor.setColumn(k2);
+        rhsSlotDescriptor.setColumnAndType(k2);
         rhsExpr.setDesc(rhsSlotDescriptor);
         OlapTable rhsTable = TableTest.newOlapTable(0, "test_rhs_tbl", 0, ImmutableList.of(k2));
         BaseTableRef rhsTableRef = new BaseTableRef(tableRef, rhsTable, rhsTableName);

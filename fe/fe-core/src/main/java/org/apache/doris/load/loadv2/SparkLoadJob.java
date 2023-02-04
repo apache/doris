@@ -896,7 +896,7 @@ public class SparkLoadJob extends BulkLoadJob {
             for (Column column : columns) {
                 SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
                 destSlotDesc.setIsMaterialized(true);
-                destSlotDesc.setColumn(column);
+                destSlotDesc.setColumnAndType(column);
                 destSlotDesc.setIsNullable(column.isAllowNull());
             }
             initTBrokerScanRange(descTable, destTupleDesc, columns, brokerDesc);
@@ -920,10 +920,10 @@ public class SparkLoadJob extends BulkLoadJob {
                 if (column.getDataType() == PrimitiveType.BITMAP) {
                     // cast to bitmap when the target column type is bitmap
                     srcSlotDesc.setType(ScalarType.createType(PrimitiveType.BITMAP));
-                    srcSlotDesc.setColumn(new Column(column.getName(), PrimitiveType.BITMAP));
+                    srcSlotDesc.setColumnAndType(new Column(column.getName(), PrimitiveType.BITMAP));
                 } else {
                     srcSlotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-                    srcSlotDesc.setColumn(new Column(column.getName(), PrimitiveType.VARCHAR));
+                    srcSlotDesc.setColumnAndType(new Column(column.getName(), PrimitiveType.VARCHAR));
                 }
 
                 params.addToSrcSlotIds(srcSlotDesc.getId().asInt());

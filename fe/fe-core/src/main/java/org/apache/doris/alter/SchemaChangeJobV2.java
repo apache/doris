@@ -422,7 +422,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
                     for (Column column : fullSchema) {
                         SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
                         destSlotDesc.setIsMaterialized(true);
-                        destSlotDesc.setColumn(column);
+                        destSlotDesc.setColumnAndType(column);
                         destSlotDesc.setIsNullable(column.isAllowNull());
 
                         if (indexColumnMap.containsKey(SchemaChangeHandler.SHADOW_NAME_PREFIX + column.getName())) {

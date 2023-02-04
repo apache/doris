@@ -157,7 +157,7 @@ public class PlanTranslatorContext {
         // Only the SlotDesc that in the tuple generated for scan node would have corresponding column.
         if (table != null) {
             Optional<Column> column = slotReference.getColumn();
-            column.ifPresent(slotDescriptor::setColumn);
+            column.ifPresent(slotDescriptor::setColumnAndType);
         }
         slotDescriptor.setType(slotReference.getDataType().toCatalogDataType());
         slotDescriptor.setIsMaterialized(true);
@@ -165,7 +165,7 @@ public class PlanTranslatorContext {
         if (slotReference instanceof VirtualSlotReference) {
             slotRef = new VirtualSlotRef(slotDescriptor);
             VirtualSlotReference virtualSlot = (VirtualSlotReference) slotReference;
-            slotDescriptor.setColumn(new Column(
+            slotDescriptor.setColumnAndType(new Column(
                     virtualSlot.getName(), virtualSlot.getDataType().toCatalogDataType()));
             slotDescriptor.setLabel(slotReference.getName());
         } else {

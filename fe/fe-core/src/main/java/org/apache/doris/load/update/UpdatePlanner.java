@@ -113,7 +113,7 @@ public class UpdatePlanner extends OriginalPlanner {
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(targetTupleDesc);
             slotDesc.setIsMaterialized(true);
             slotDesc.setType(col.getType());
-            slotDesc.setColumn(col);
+            slotDesc.setColumnAndType(col);
             slotDesc.setIsNullable(col.isAllowNull());
         }
         targetTupleDesc.computeStatAndMemLayout();

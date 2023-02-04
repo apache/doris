@@ -368,7 +368,7 @@ public class InsertStmt extends DdlStmt {
                 SlotDescriptor slotDesc = descTable.addSlotDescriptor(olapTuple);
                 slotDesc.setIsMaterialized(true);
                 slotDesc.setType(col.getType());
-                slotDesc.setColumn(col);
+                slotDesc.setColumnAndType(col);
                 slotDesc.setIsNullable(col.isAllowNull());
             }
             // will use it during create load job

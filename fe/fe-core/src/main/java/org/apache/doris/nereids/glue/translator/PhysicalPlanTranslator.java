@@ -456,7 +456,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             tupleDescriptor.getSlots().forEach(slotDesc -> {
                 Column column = slotDesc.getColumn();
                 if (column != null && indexCols.containsKey(column.getName())) {
-                    slotDesc.setColumn(indexCols.get(column.getName()));
+                    slotDesc.setColumnAndType(indexCols.get(column.getName()));
                 }
             });
         }

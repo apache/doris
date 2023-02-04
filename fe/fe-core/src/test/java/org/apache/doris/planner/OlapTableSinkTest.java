@@ -60,20 +60,20 @@ public class OlapTableSinkTest {
         TupleDescriptor tuple = descTable.createTupleDescriptor("DstTable");
         // k1
         SlotDescriptor k1 = descTable.addSlotDescriptor(tuple);
-        k1.setColumn(new Column("k1", PrimitiveType.BIGINT));
+        k1.setColumnAndType(new Column("k1", PrimitiveType.BIGINT));
         k1.setIsMaterialized(true);
 
         // k2
         SlotDescriptor k2 = descTable.addSlotDescriptor(tuple);
-        k2.setColumn(new Column("k2", ScalarType.createVarchar(25)));
+        k2.setColumnAndType(new Column("k2", ScalarType.createVarchar(25)));
         k2.setIsMaterialized(true);
         // v1
         SlotDescriptor v1 = descTable.addSlotDescriptor(tuple);
-        v1.setColumn(new Column("v1", ScalarType.createVarchar(25)));
+        v1.setColumnAndType(new Column("v1", ScalarType.createVarchar(25)));
         v1.setIsMaterialized(true);
         // v2
         SlotDescriptor v2 = descTable.addSlotDescriptor(tuple);
-        v2.setColumn(new Column("v2", PrimitiveType.BIGINT));
+        v2.setColumnAndType(new Column("v2", PrimitiveType.BIGINT));
         v2.setIsMaterialized(true);
 
         return tuple;
