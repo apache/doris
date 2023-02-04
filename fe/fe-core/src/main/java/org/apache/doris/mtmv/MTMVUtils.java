@@ -63,7 +63,7 @@ public class MTMVUtils {
         PENDING, RUNNING, FAILURE, SUCCESS,
     }
 
-    enum TaskSubmitStatus {
+    public enum TaskSubmitStatus {
         SUBMITTED, REJECTED, FAILED
     }
 

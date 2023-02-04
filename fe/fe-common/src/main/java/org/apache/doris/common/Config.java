@@ -1812,6 +1812,9 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static long scheduler_mtmv_task_expired = 24 * 60 * 60L; // 1day
 
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean keep_scheduler_mtmv_task_when_job_deleted = false;
+
     /**
      * The candidate of the backend node for federation query such as hive table and es table query.
      * If the backend of computation role is less than this value, it will acquire some mix backend.

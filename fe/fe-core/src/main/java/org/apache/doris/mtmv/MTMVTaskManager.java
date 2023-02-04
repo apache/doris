@@ -399,6 +399,25 @@ public class MTMVTaskManager {
         }
     }
 
+    public void clearTasksByJobName(String jobName, boolean isReplay) {
+        List<String> clearTasks = Lists.newArrayList();
+
+        if (!tryLock()) {
+            return;
+        }
+        try {
+            Deque<MTMVTask> taskHistory = getAllHistory();
+            for (MTMVTask task : taskHistory) {
+                if (task.getJobName().equals(jobName)) {
+                    clearTasks.add(task.getTaskId());
+                }
+            }
+        } finally {
+            unlock();
+        }
+        dropTasks(clearTasks, isReplay);
+    }
+
     public void removeExpiredTasks() {
         long currentTime = MTMVUtils.getNowTimeStamp();
 
