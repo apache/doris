@@ -51,6 +51,7 @@ public class UdfUtils {
     public static final Unsafe UNSAFE;
     private static final long UNSAFE_COPY_THRESHOLD = 1024L * 1024L;
     public static final long BYTE_ARRAY_OFFSET;
+    public static final long INT_ARRAY_OFFSET;
 
     static {
         UNSAFE = (Unsafe) AccessController.doPrivileged(
@@ -64,6 +65,7 @@ public class UdfUtils {
                     }
                 });
         BYTE_ARRAY_OFFSET = UNSAFE.arrayBaseOffset(byte[].class);
+        INT_ARRAY_OFFSET = UNSAFE.arrayBaseOffset(int[].class);
     }
 
     // Data types that are supported as return or argument types in Java UDFs.
