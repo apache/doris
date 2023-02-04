@@ -71,6 +71,8 @@ void ParquetReader::_init_profile() {
                 ADD_CHILD_COUNTER(_profile, "FilteredRowsByLazyRead", TUnit::UNIT, parquet_profile);
         _parquet_profile.filtered_bytes =
                 ADD_CHILD_COUNTER(_profile, "FilteredBytes", TUnit::BYTES, parquet_profile);
+        _parquet_profile.raw_rows_read =
+                ADD_CHILD_COUNTER(_profile, "RawRowsRead", TUnit::UNIT, parquet_profile);
         _parquet_profile.to_read_bytes =
                 ADD_CHILD_COUNTER(_profile, "ReadBytes", TUnit::BYTES, parquet_profile);
         _parquet_profile.column_read_time =
@@ -112,6 +114,7 @@ void ParquetReader::close() {
             COUNTER_UPDATE(_parquet_profile.lazy_read_filtered_rows,
                            _statistics.lazy_read_filtered_rows);
             COUNTER_UPDATE(_parquet_profile.filtered_bytes, _statistics.filtered_bytes);
+            COUNTER_UPDATE(_parquet_profile.raw_rows_read, _statistics.read_rows);
             COUNTER_UPDATE(_parquet_profile.to_read_bytes, _statistics.read_bytes);
             COUNTER_UPDATE(_parquet_profile.column_read_time, _statistics.column_read_time);
             COUNTER_UPDATE(_parquet_profile.parse_meta_time, _statistics.parse_meta_time);
