@@ -298,7 +298,9 @@ public class SortInfo {
             SlotRef origSlotRef = origOrderingExpr.getSrcSlotRef();
             LOG.debug("origOrderingExpr {}", origOrderingExpr);
             if (origSlotRef != null) {
-                materializedDesc.setColumn(origSlotRef.getColumn());
+                // need do this for two phase read of topn query optimization
+                // check https://github.com/apache/doris/pull/15642 for detail
+                materializedDesc.setSrcColumn(origSlotRef.getColumn());
             }
             SlotRef materializedRef = new SlotRef(materializedDesc);
             substOrderBy.put(origOrderingExpr, materializedRef);
