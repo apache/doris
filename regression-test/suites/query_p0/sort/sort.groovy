@@ -41,4 +41,17 @@ suite("sort") {
     LIMIT 110
     OFFSET 130
     """
+
+    sql """drop table if exists tbl1"""
+    sql """create table tbl1 (k1 varchar(100), k2 string) distributed by hash(k1) buckets 1 properties("replication_num" = "1");"""
+    sql """insert into tbl1 values(1, "alice");"""
+    sql """insert into tbl1 values(2, "bob");"""
+    sql """insert into tbl1 values(3, "mark");"""
+    sql """insert into tbl1 values(4, "thor");"""
+    qt_sql """select cast(k1 as INT) as id from tbl1 order by id;"""
+    qt_sql """select cast(k1 as INT) % 2 as id from tbl1 order by id;"""
+    qt_sql """select cast(k1 as BIGINT) as id from tbl1 order by id;"""
+    qt_sql """select cast(k1 as STRING) as id from tbl1 order by id;"""
+    qt_sql """select cast(k1 as INT) as id from tbl1 order by id limit 2"""
+    qt_sql """select cast(k1 as STRING) as id from tbl1 order by id limit 2"""
 }
