@@ -1135,9 +1135,6 @@ void TaskWorkerPool::_report_task_worker_thread_callback() {
 void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
     StorageEngine::instance()->register_report_listener(this);
 
-    TReportRequest request;
-    request.__set_backend(_backend);
-
     while (_is_work) {
         _is_doing_work = false;
         {
@@ -1164,10 +1161,13 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
         // and can not be processed.
         _random_sleep(5);
 
+        TReportRequest request;
+        request.__set_backend(_backend);
+        request.__isset.disks = true;
+
         std::vector<DataDirInfo> data_dir_infos;
         _env->storage_engine()->get_all_data_dir_info(&data_dir_infos, true /* update */);
 
-        std::map<string, TDisk> disks;
         for (auto& root_path_info : data_dir_infos) {
             TDisk disk;
             disk.__set_root_path(root_path_info.path);
@@ -1178,9 +1178,9 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
             disk.__set_remote_used_capacity(root_path_info.remote_used_capacity);
             disk.__set_disk_available_capacity(root_path_info.available);
             disk.__set_used(root_path_info.is_used);
-            disks[root_path_info.path] = disk;
+            request.disks[root_path_info.path] = disk;
         }
-        request.__set_disks(disks);
+
         _handle_report(request, ReportType::DISK);
     }
     StorageEngine::instance()->deregister_report_listener(this);
@@ -1189,9 +1189,6 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
 void TaskWorkerPool::_report_tablet_worker_thread_callback() {
     StorageEngine::instance()->register_report_listener(this);
 
-    TReportRequest request;
-    request.__set_backend(_backend);
-    request.__isset.tablets = true;
     while (_is_work) {
         _is_doing_work = false;
 
@@ -1216,7 +1213,11 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
         _is_doing_work = true;
         // See _random_sleep() comment in _report_disk_state_worker_thread_callback
         _random_sleep(5);
-        request.tablets.clear();
+
+        TReportRequest request;
+        request.__set_backend(_backend);
+        request.__isset.tablets = true;
+
         uint64_t report_version = _s_report_version;
         StorageEngine::instance()->tablet_manager()->build_all_report_tablets_info(
                 &request.tablets);
