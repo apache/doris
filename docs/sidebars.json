@@ -225,18 +225,6 @@
                 "ecosystem/hive-bitmap-udf",
                 {
                     "type": "category",
-                    "label": "Doris Manager",
-                    "items": [
-                        "ecosystem/doris-manager/compiling-deploying",
-                        "ecosystem/doris-manager/initializing",
-                        "ecosystem/doris-manager/cluster-managenent",
-                        "ecosystem/doris-manager/space-list",
-                        "ecosystem/doris-manager/space-management",
-                        "ecosystem/doris-manager/system-settings"
-                    ]
-                },
-                {
-                    "type": "category",
                     "label": "SeaTunnel",
                     "items": [
                         "ecosystem/seatunnel/flink-sink",

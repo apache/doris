@@ -183,11 +183,6 @@ Doris provides support for Spark/Flink to read data stored in Doris through Conn
 
 🔗[apache/doris-spark-connector](https://github.com/apache/doris-spark-connector)
 
-### 🛠 Doris Manager 
-
-Doris provides one-click visual automatic installation and deployment, cluster management and monitoring tools for clusters.
-
-🔗[apache/doris-manager](https://github.com/apache/doris-manager)
 
 ## 🌈 Community and Support
 
