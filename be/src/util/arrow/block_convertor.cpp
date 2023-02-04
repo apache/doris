@@ -107,7 +107,8 @@ public:
             case vectorized::TypeIndex::Date:
             case vectorized::TypeIndex::DateTime: {
                 char buf[64];
-                const DateTimeValue* time_val = (const DateTimeValue*)(data_ref.data);
+                const vectorized::VecDateTimeValue* time_val =
+                        (const vectorized::VecDateTimeValue*)(data_ref.data);
                 int len = time_val->to_buffer(buf);
                 ARROW_RETURN_NOT_OK(builder.Append(buf, len));
                 break;
