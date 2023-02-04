@@ -174,7 +174,7 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_except(array(cast ('2023-02-06' as datev2), cast ('2023-02-05' as datev2)), array(cast ('2023-02-07' as datev2), cast ('2023-02-05' as datev2)))"
     qt_sql "select array_intersect(array(cast ('2023-02-06' as datev2), cast ('2023-02-05' as datev2)), array(cast ('2023-02-07' as datev2), cast ('2023-02-05' as datev2)))"
 
-    // arrat_slice function
+    // array_slice function
     qt_sql "select [1,2,3][1:1]"
     qt_sql "select [1,2,3][1:3]"
     qt_sql "select [1,2,3][1:5]"
