@@ -166,6 +166,7 @@ public class FunctionCallExpr extends Expr {
         PRECISION_INFER_RULE.put("array_min", arrayDateTimeV2OrDecimalV3Rule);
         PRECISION_INFER_RULE.put("array_max", arrayDateTimeV2OrDecimalV3Rule);
         PRECISION_INFER_RULE.put("element_at", arrayDateTimeV2OrDecimalV3Rule);
+        PRECISION_INFER_RULE.put("%element_extract%", arrayDateTimeV2OrDecimalV3Rule);
 
         PRECISION_INFER_RULE.put("round", roundRule);
         PRECISION_INFER_RULE.put("round_bankers", roundRule);
@@ -1453,6 +1454,14 @@ public class FunctionCallExpr extends Expr {
             if (children.size() > 0) {
                 this.type = new ArrayType(children.get(0).getType());
             }
+        } else if (fnName.getFunction().equalsIgnoreCase("if")) {
+            if (children.get(1).getType().isArrayType() && (
+                    ((ArrayType) children.get(1).getType()).getItemType().isDecimalV3()
+                            || ((ArrayType) children.get(1)
+                            .getType()).getItemType().isDecimalV2() || ((ArrayType) children.get(1)
+                            .getType()).getItemType().isDatetimeV2())) {
+                this.type = children.get(1).getType();
+            }
         } else if (fnName.getFunction().equalsIgnoreCase("array_distinct") || fnName.getFunction()
                 .equalsIgnoreCase("array_remove") || fnName.getFunction().equalsIgnoreCase("array_sort")
                 || fnName.getFunction().equalsIgnoreCase("array_overlap")
@@ -1460,6 +1469,7 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("array_intersect")
                 || fnName.getFunction().equalsIgnoreCase("array_compact")
                 || fnName.getFunction().equalsIgnoreCase("array_slice")
+                || fnName.getFunction().equalsIgnoreCase("%element_slice%")
                 || fnName.getFunction().equalsIgnoreCase("array_except")) {
             if (children.size() > 0) {
                 this.type = children.get(0).getType();

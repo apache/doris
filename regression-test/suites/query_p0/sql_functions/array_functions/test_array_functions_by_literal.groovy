@@ -70,6 +70,8 @@ suite("test_array_functions_by_literal") {
     qt_sql "select [1,2,NULL][2]"
     qt_sql "select [][-1]"
     qt_sql "select [true, false]"
+    qt_sql "select (array(cast ('2023-02-04 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))))[2]"
+    qt_sql "select (array(cast ('2023-02-04' as datev2),cast ('2023-02-05' as datev2)))[2]"
 
     // array_aggregation function
     qt_sql "select array_avg([1,2,3])"
