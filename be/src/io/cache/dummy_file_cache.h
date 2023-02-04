@@ -65,7 +65,7 @@ public:
 
     int64_t get_oldest_match_time() const override {
         return _gc_lru_queue.empty() ? 0 : _gc_lru_queue.top().last_match_time;
-    };
+    }
 
     bool is_gc_finish() const override { return _gc_lru_queue.empty(); }
 

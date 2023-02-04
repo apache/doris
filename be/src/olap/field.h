@@ -78,7 +78,7 @@ public:
 
     virtual size_t get_variable_len() const { return 0; }
 
-    virtual void modify_zone_map_index(char*) const {};
+    virtual void modify_zone_map_index(char*) const {}
 
     virtual Field* clone() const {
         auto* local = new Field();

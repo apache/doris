@@ -55,8 +55,14 @@ public class IcebergRestExternalCatalog extends IcebergExternalCatalog {
                 .getOrDefault(Constants.AWS_CREDENTIALS_PROVIDER, DataLakeAWSCredentialsProvider.class.getName());
         conf.set(Constants.AWS_CREDENTIALS_PROVIDER, credentials);
         String usePahStyle = catalogProperties.getOrDefault(S3Resource.USE_PATH_STYLE, "true");
+        // Set path style
         conf.set(S3Resource.USE_PATH_STYLE, usePahStyle);
         conf.set(Constants.PATH_STYLE_ACCESS, usePahStyle);
+        // Get AWS client retry limit
+        conf.set(Constants.RETRY_LIMIT, catalogProperties.getOrDefault(Constants.RETRY_LIMIT, "1"));
+        conf.set(Constants.RETRY_THROTTLE_LIMIT, catalogProperties.getOrDefault(Constants.RETRY_THROTTLE_LIMIT, "1"));
+        conf.set(Constants.S3GUARD_CONSISTENCY_RETRY_LIMIT,
+                catalogProperties.getOrDefault(Constants.S3GUARD_CONSISTENCY_RETRY_LIMIT, "1"));
         return conf;
     }
 }

@@ -1320,8 +1320,14 @@ public class SingleNodePlanner {
                 if (olapScanNode.getSelectedPartitionIds().size() == 0 && !FeConstants.runningUnitTest) {
                     continue;
                 }
-                // select index by the old Rollup selector
-                olapScanNode.selectBestRollupByRollupSelector(analyzer);
+
+                try {
+                    // select index by the old Rollup selector
+                    olapScanNode.selectBestRollupByRollupSelector(analyzer);
+                } catch (UserException e) {
+                    LOG.debug("May no rollup index matched");
+                }
+
                 // select index by the new Materialized selector
                 MaterializedViewSelector.BestIndexInfo bestIndexInfo
                         = materializedViewSelector.selectBestMV(olapScanNode);
@@ -1332,11 +1338,21 @@ public class SingleNodePlanner {
                     LOG.debug("MV rewriter of tuple [] will be disable", tupleId);
                     continue;
                 }
-                // if the new selected index id is different from the old one, scan node will be updated.
-                olapScanNode.updateScanRangeInfoByNewMVSelector(bestIndexInfo.getBestIndexId(),
-                        bestIndexInfo.isPreAggregation(), bestIndexInfo.getReasonOfDisable());
-                if (selectStmt.getAggInfo() != null) {
-                    selectStmt.getAggInfo().updateTypeOfAggregateExprs();
+                try {
+                    // if the new selected index id is different from the old one, scan node will be
+                    // updated.
+                    olapScanNode.updateScanRangeInfoByNewMVSelector(bestIndexInfo.getBestIndexId(),
+                            bestIndexInfo.isPreAggregation(), bestIndexInfo.getReasonOfDisable());
+
+                    if (selectStmt.getAggInfo() != null) {
+                        selectStmt.getAggInfo().updateTypeOfAggregateExprs();
+                    }
+                } catch (Exception e) {
+                    selectFailed = true;
+                    TupleId tupleId = olapScanNode.getTupleId();
+                    selectStmt.updateDisableTuplesMVRewriter(tupleId);
+                    LOG.debug("MV rewriter of tuple [] will be disable", tupleId);
+                    continue;
                 }
             }
 

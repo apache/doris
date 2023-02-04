@@ -60,6 +60,8 @@ public:
     }
 
 protected:
+    const size_t _MIN_BATCH_SIZE = 4064; // 4094 - 32(padding)
+
     /// Whether the underlying FileReader has filled the partition&missing columns
     bool _fill_all_columns = false;
 };

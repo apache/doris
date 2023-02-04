@@ -157,7 +157,7 @@ Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletShar
     // here, the new rowset's file will also be dropped, so use keep files here
     bool keep_files = force ? true : false;
     if (force ||
-        (new_version > old_version || (new_version == old_version && new_time > old_time))) {
+        (new_version > old_version || (new_version == old_version && new_time >= old_time))) {
         // check if new tablet's meta is in store and add new tablet's meta to meta store
         res = _add_tablet_to_map_unlocked(tablet_id, tablet, update_meta, keep_files,
                                           true /*drop_old*/);
@@ -484,8 +484,6 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
         // otherwise if BE shutdown after saving tablet state, these remote rowsets path info will lost.
         if (is_drop_table_or_partition) {
             RETURN_IF_ERROR(to_drop_tablet->remove_all_remote_rowsets());
-        } else {
-            to_drop_tablet->remove_self_owned_remote_rowsets();
         }
         to_drop_tablet->save_meta();
         {

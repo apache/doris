@@ -479,11 +479,6 @@ void NewOlapScanner::_update_counters_before_close() {
     COUNTER_UPDATE(olap_parent->_conditions_filtered_counter, stats.rows_conditions_filtered);
     COUNTER_UPDATE(olap_parent->_key_range_filtered_counter, stats.rows_key_range_filtered);
 
-    size_t timer_count = sizeof(stats.general_debug_ns) / sizeof(*stats.general_debug_ns);
-    for (size_t i = 0; i < timer_count; ++i) {
-        COUNTER_UPDATE(olap_parent->_general_debug_timer[i], stats.general_debug_ns[i]);
-    }
-
     COUNTER_UPDATE(olap_parent->_total_pages_num_counter, stats.total_pages_num);
     COUNTER_UPDATE(olap_parent->_cached_pages_num_counter, stats.cached_pages_num);
 

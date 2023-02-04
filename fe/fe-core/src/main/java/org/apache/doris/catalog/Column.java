@@ -59,6 +59,7 @@ public class Column implements Writable, GsonPostProcessable {
     public static final String DELETE_SIGN = "__DORIS_DELETE_SIGN__";
     public static final String SEQUENCE_COL = "__DORIS_SEQUENCE_COL__";
     public static final String ROWID_COL = "__DORIS_ROWID_COL__";
+    public static final String ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
     private static final String COLUMN_ARRAY_CHILDREN = "item";
     public static final int COLUMN_UNIQUE_ID_INIT_VALUE = -1;
 
@@ -89,6 +90,16 @@ public class Column implements Writable, GsonPostProcessable {
     private ColumnStats stats;     // cardinality and selectivity etc.
     @SerializedName(value = "children")
     private List<Column> children;
+    /**
+     * This is similar as `defaultValue`. Differences are:
+     * 1. `realDefaultValue` indicates the **default underlying literal**.
+     * 2. Instead, `defaultValue` indicates the **original expression** which is specified by users.
+     *
+     * For example, if user create a table with (columnA, DATETIME, DEFAULT CURRENT_TIMESTAMP)
+     * `realDefaultValue` here is current date time while `defaultValue` is `CURRENT_TIMESTAMP`.
+     */
+    @SerializedName(value = "realDefaultValue")
+    private String realDefaultValue;
     // Define expr may exist in two forms, one is analyzed, and the other is not analyzed.
     // Currently, analyzed define expr is only used when creating materialized views,
     // so the define expr in RollupJob must be analyzed.
@@ -136,12 +147,18 @@ public class Column implements Writable, GsonPostProcessable {
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             String defaultValue, String comment) {
         this(name, type, isKey, aggregateType, isAllowNull, defaultValue, comment, true, null,
-                COLUMN_UNIQUE_ID_INIT_VALUE);
+                COLUMN_UNIQUE_ID_INIT_VALUE, defaultValue);
+    }
+
+    public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
+            String comment, boolean visible, int colUniqueId) {
+        this(name, type, isKey, aggregateType, isAllowNull, null, comment, visible, null,
+                colUniqueId, null);
     }
 
     public Column(String name, Type type, boolean isKey, AggregateType aggregateType, boolean isAllowNull,
             String defaultValue, String comment, boolean visible, DefaultValueExprDef defaultValueExprDef,
-            int colUniqueId) {
+            int colUniqueId, String realDefaultValue) {
         this.name = name;
         if (this.name == null) {
             this.name = "";
@@ -157,6 +174,7 @@ public class Column implements Writable, GsonPostProcessable {
         this.isKey = isKey;
         this.isAllowNull = isAllowNull;
         this.defaultValue = defaultValue;
+        this.realDefaultValue = realDefaultValue;
         this.defaultValueExprDef = defaultValueExprDef;
         this.comment = comment;
         this.stats = new ColumnStats();
@@ -175,6 +193,7 @@ public class Column implements Writable, GsonPostProcessable {
         this.isCompoundKey = column.isCompoundKey();
         this.isAllowNull = column.isAllowNull();
         this.defaultValue = column.getDefaultValue();
+        this.realDefaultValue = column.realDefaultValue;
         this.defaultValueExprDef = column.defaultValueExprDef;
         this.comment = column.getComment();
         this.stats = column.getStats();
@@ -208,7 +227,7 @@ public class Column implements Writable, GsonPostProcessable {
     }
 
     public String getNameWithoutMvPrefix() {
-        return this.getNameWithoutPrefix(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX);
+        return CreateMaterializedViewStmt.mvColumnBreaker(name);
     }
 
     public String getDisplayName() {
@@ -260,6 +279,11 @@ public class Column implements Writable, GsonPostProcessable {
         // aggregationType is NONE for unique table with merge on write.
         return !visible && (aggregationType == AggregateType.REPLACE
                 || aggregationType == AggregateType.NONE) && nameEquals(SEQUENCE_COL, true);
+    }
+
+    public boolean isRowStoreColumn() {
+        return !visible && (aggregationType == AggregateType.REPLACE
+                || aggregationType == AggregateType.NONE) && nameEquals(ROW_STORE_COL, true);
     }
 
     public PrimitiveType getDataType() {
@@ -387,7 +411,8 @@ public class Column implements Writable, GsonPostProcessable {
         }
         tColumn.setIsKey(this.isKey);
         tColumn.setIsAllowNull(this.isAllowNull);
-        tColumn.setDefaultValue(this.defaultValue);
+        // keep compatibility
+        tColumn.setDefaultValue(this.realDefaultValue == null ? this.defaultValue : this.realDefaultValue);
         tColumn.setVisible(visible);
         toChildrenThrift(this, tColumn);
 
@@ -585,7 +610,8 @@ public class Column implements Writable, GsonPostProcessable {
     @Override
     public int hashCode() {
         return Objects.hash(name, getDataType(), getStrLen(), getPrecision(), getScale(), aggregationType,
-                isAggregationTypeImplicit, isKey, isAllowNull, defaultValue, comment, children, visible);
+                isAggregationTypeImplicit, isKey, isAllowNull, defaultValue, comment, children, visible,
+                realDefaultValue);
     }
 
     @Override
@@ -611,7 +637,8 @@ public class Column implements Writable, GsonPostProcessable {
                 && getScale() == other.getScale()
                 && Objects.equals(comment, other.comment)
                 && visible == other.visible
-                && Objects.equals(children, other.children);
+                && Objects.equals(children, other.children)
+                && Objects.equals(realDefaultValue, other.realDefaultValue);
     }
 
     @Override
@@ -634,6 +661,7 @@ public class Column implements Writable, GsonPostProcessable {
         notNull = in.readBoolean();
         if (notNull) {
             defaultValue = Text.readString(in);
+            realDefaultValue = defaultValue;
         }
         stats = ColumnStats.read(in);
 

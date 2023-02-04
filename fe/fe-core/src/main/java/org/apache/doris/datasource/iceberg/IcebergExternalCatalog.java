@@ -197,8 +197,7 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         for (Types.NestedField field : columns) {
             tmpSchema.add(new Column(field.name(),
                     icebergTypeToDorisType(field.type()), true, null,
-                    true, null, field.doc(), true, null,
-                    schema.caseInsensitiveFindField(field.name()).fieldId()));
+                    true, field.doc(), true, schema.caseInsensitiveFindField(field.name()).fieldId()));
         }
         return tmpSchema;
     }

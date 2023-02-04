@@ -274,7 +274,7 @@ public:
         case 1:
             h ^= (uint64_t)data[0];
             h *= m;
-        };
+        }
 
         h ^= h >> r;
         h *= m;

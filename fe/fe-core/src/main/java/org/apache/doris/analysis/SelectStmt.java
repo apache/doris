@@ -210,8 +210,8 @@ public class SelectStmt extends QueryStmt {
         if (getAggInfo() != null && getAggInfo().getGroupingExprs() != null) {
             exprs.addAll(getAggInfo().getGroupingExprs());
         }
-        if (originSelectList != null) {
-            exprs.addAll(originSelectList.getExprs());
+        if (originResultExprs != null) {
+            exprs.addAll(originResultExprs);
         }
         if (havingClause != null) {
             exprs.add(havingClause);
@@ -444,7 +444,6 @@ public class SelectStmt extends QueryStmt {
         super.analyze(analyzer);
         fromClause.setNeedToSql(needToSql);
         fromClause.analyze(analyzer);
-
         // Generate !empty() predicates to filter out empty collections.
         // Skip this step when analyzing a WITH-clause because CollectionTableRefs
         // do not register collection slots in their parent in that context
@@ -594,6 +593,7 @@ public class SelectStmt extends QueryStmt {
                 groupingInfo.substituteGroupingFn(orderingExprNotInSelect, analyzer);
             }
         }
+        originResultExprs = Expr.cloneList(resultExprs);
         analyzeAggregation(analyzer);
         createAnalyticInfo(analyzer);
         eliminatingSortNode();
@@ -885,6 +885,13 @@ public class SelectStmt extends QueryStmt {
                 for (LateralViewRef lateralViewRef : tableRef.lateralViewRefs) {
                     lateralViewRef.materializeRequiredSlots(baseTblSmap, analyzer);
                 }
+            }
+            boolean hasConstant = resultExprs.stream().anyMatch(Expr::isConstant);
+            // In such case, agg output must be materialized whether outer query block required or not.
+            if (tableRef instanceof InlineViewRef && hasConstant) {
+                InlineViewRef inlineViewRef = (InlineViewRef) tableRef;
+                QueryStmt queryStmt = inlineViewRef.getQueryStmt();
+                queryStmt.resultExprs.forEach(Expr::materializeSrcExpr);
             }
         }
     }
