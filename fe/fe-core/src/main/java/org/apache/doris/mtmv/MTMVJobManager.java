@@ -239,6 +239,16 @@ public class MTMVJobManager {
         return taskManager.killTask(job.getId(), clearPending);
     }
 
+    public MTMVUtils.TaskSubmitStatus refreshMTMVTask(String dbName, String mvName) throws DdlException {
+        for (String jobName : nameToJobMap.keySet()) {
+            MTMVJob job = nameToJobMap.get(jobName);
+            if (job.getMVName().equals(mvName) && job.getDBName().equals(dbName)) {
+                return submitJobTask(jobName);
+            }
+        }
+        throw new DdlException("No job find for the MaterializedView " + dbName + "." + mvName + " .");
+    }
+
     public MTMVUtils.TaskSubmitStatus submitJobTask(String jobName) {
         return submitJobTask(jobName, new MTMVTaskExecuteParams());
     }
@@ -292,6 +302,9 @@ public class MTMVJobManager {
                     periodFutureMap.remove(job.getId());
                 }
                 killJobTask(job.getName(), true);
+                if (!Config.keep_scheduler_mtmv_task_when_job_deleted) {
+                    taskManager.clearTasksByJobName(job.getName(), isReplay);
+                }
                 idToJobMap.remove(job.getId());
                 nameToJobMap.remove(job.getName());
             }
