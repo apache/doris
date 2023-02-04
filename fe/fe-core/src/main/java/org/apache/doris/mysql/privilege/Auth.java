@@ -994,7 +994,7 @@ public class Auth implements Writable {
         userAuthInfo.add(globalPrivs.isEmpty() ? FeConstants.null_string : globalPrivs.toString());
         // ============== CatalogPrivs ========================
         String ctlPrivs = getUserCtlPrivTable(userIdent).entries.stream()
-                .map(entry -> String.format("%s: %s (%b)",
+                .map(entry -> String.format("%s: %s",
                         ((CatalogPrivEntry) entry).getOrigCtl(), entry.privSet, user.isSetByDomainResolver()))
                 .collect(Collectors.joining("; "));
         if (Strings.isNullOrEmpty(ctlPrivs)) {
