@@ -48,7 +48,7 @@ suite("test_array_aggregation_functions") {
     sql """ INSERT INTO ${tableName} VALUES(4, [], [], [], [], [], [], [], [], [], NULL, NULL, NULL) """
 
     qt_select "SELECT k1, array_min(a1), array_min(a2), array_min(a3), array_min(a4), array_min(a5), array_min(a6), array_min(a7), array_min(a8), array_min(a9), array_min(a10), array_min(a11), array_min(a12) from ${tableName} order by k1"
-    qt_select "SELECT k1, array_max(a1), array_max(a2), array_max(a3), array_max(a4), array_max(a5), array_max(a6), array_max(a7), array_max(a8), array_max(a9), array_max(a10), array_min(a11), array_min(a12) from ${tableName} order by k1"
+    qt_select "SELECT k1, array_max(a1), array_max(a2), array_max(a3), array_max(a4), array_max(a5), array_max(a6), array_max(a7), array_max(a8), array_max(a9), array_max(a10), array_max(a11), array_max(a12) from ${tableName} order by k1"
     qt_select "SELECT k1, array_avg(a1), array_avg(a2), array_avg(a3), array_avg(a4), array_avg(a5), array_avg(a6), array_avg(a7), array_avg(a8) from ${tableName} order by k1"
     qt_select "SELECT k1, array_sum(a1), array_sum(a2), array_sum(a3), array_sum(a4), array_sum(a5), array_sum(a6), array_sum(a7), array_sum(a8) from ${tableName} order by k1"
     qt_select "SELECT k1, array_product(a1), array_product(a2), array_product(a3), array_product(a4), array_product(a5), array_product(a6), array_product(a7), array_product(a8) from ${tableName} order by k1"
