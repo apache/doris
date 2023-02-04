@@ -239,13 +239,19 @@ Status VSetOperationNode<is_intersect>::prepare(RuntimeState* state) {
     _pull_timer = ADD_TIMER(runtime_profile(), "PullTime");
 
     // Prepare result expr lists.
+    vector<bool> nullable_flags;
+    nullable_flags.resize(_child_expr_lists[0].size(), false);
     for (int i = 0; i < _child_expr_lists.size(); ++i) {
+        for (int j = 0; j < _child_expr_lists[i].size(); ++j) {
+            nullable_flags[j] = nullable_flags[j] || _child_expr_lists[i][j]->root()->is_nullable();
+        }
         RETURN_IF_ERROR(VExpr::prepare(_child_expr_lists[i], state, child(i)->row_desc()));
     }
-
-    for (auto ctx : _child_expr_lists[0]) {
+    for (int i = 0; i < _child_expr_lists[0].size(); ++i) {
+        const auto& ctx = _child_expr_lists[0][i];
         _build_not_ignore_null.push_back(ctx->root()->is_nullable());
-        _left_table_data_types.push_back(ctx->root()->data_type());
+        _left_table_data_types.push_back(nullable_flags[i] ? make_nullable(ctx->root()->data_type())
+                                                           : ctx->root()->data_type());
     }
     hash_table_init();
 
@@ -406,8 +412,6 @@ Status VSetOperationNode<is_intersect>::hash_table_build(RuntimeState* state) {
     SCOPED_TIMER(_build_timer);
     RETURN_IF_ERROR(child(0)->open(state));
     Block block;
-    MutableBlock mutable_block(child(0)->row_desc().tuple_descriptors());
-
     bool eos = false;
     while (!eos) {
         block.clear_column_data();
@@ -462,7 +466,14 @@ void VSetOperationNode<is_intersect>::add_result_columns(RowRefListWithFlags& va
     auto it = value.begin();
     for (auto idx = _build_col_idx.begin(); idx != _build_col_idx.end(); ++idx) {
         auto& column = *_build_blocks[it->block_offset].get_by_position(idx->first).column;
-        _mutable_cols[idx->second]->insert_from(column, it->row_num);
+        if (_mutable_cols[idx->second]->is_nullable() xor column.is_nullable()) {
+            DCHECK(_mutable_cols[idx->second]->is_nullable());
+            ((ColumnNullable*)(_mutable_cols[idx->second].get()))
+                    ->insert_from_not_nullable(column, it->row_num);
+
+        } else {
+            _mutable_cols[idx->second]->insert_from(column, it->row_num);
+        }
     }
     block_size++;
 }
