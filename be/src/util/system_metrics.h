@@ -55,6 +55,7 @@ public:
                                          int64_t interval_sec);
     void update_max_network_send_bytes_rate(int64_t max_send_bytes_rate);
     void update_max_network_receive_bytes_rate(int64_t max_receive_bytes_rate);
+    void update_allocator_metrics();
 
 private:
     void _install_cpu_metrics();
