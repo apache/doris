@@ -588,8 +588,9 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     if (_preferred_rowset_type == BETA_ROWSET) {
         tablet_meta_pb->set_preferred_rowset_type(_preferred_rowset_type);
     }
-
-    tablet_meta_pb->set_storage_policy_id(_storage_policy_id);
+    if (_storage_policy_id > 0) {
+        tablet_meta_pb->set_storage_policy_id(_storage_policy_id);
+    }
     tablet_meta_pb->set_enable_unique_key_merge_on_write(_enable_unique_key_merge_on_write);
 
     if (_enable_unique_key_merge_on_write) {

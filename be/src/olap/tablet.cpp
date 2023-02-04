@@ -1927,21 +1927,32 @@ void Tablet::record_unused_remote_rowset(const RowsetId& rowset_id, const std::s
     gc_pb.set_resource_id(resource);
     gc_pb.set_tablet_id(tablet_id());
     gc_pb.set_num_segments(num_segments);
-    WARN_IF_ERROR(
-            _data_dir->get_meta()->put(META_COLUMN_FAMILY_INDEX, gc_key, gc_pb.SerializeAsString()),
-            fmt::format("Failed to record unused remote rowset(tablet id: {}, rowset id: {})",
-                        tablet_id(), rowset_id.to_string()));
+    auto st =
+            _data_dir->get_meta()->put(META_COLUMN_FAMILY_INDEX, gc_key, gc_pb.SerializeAsString());
+    if (!st.ok()) {
+        LOG(WARNING) << "failed to record unused remote rowset. tablet_id=" << tablet_id()
+                     << " rowset_id=" << rowset_id << " resource_id=" << resource;
+    }
 }
 
 Status Tablet::remove_all_remote_rowsets() {
     DCHECK(_state == TABLET_SHUTDOWN);
-    if (storage_policy_id() == 0) {
+    std::set<std::string> resource_ids;
+    for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
+        if (!rs_meta->is_local()) {
+            resource_ids.insert(rs_meta->resource_id());
+        }
+    }
+    if (resource_ids.empty()) {
         return Status::OK();
     }
     auto tablet_gc_key = REMOTE_TABLET_GC_PREFIX + std::to_string(tablet_id());
-    auto policy = get_storage_policy(storage_policy_id());
+    RemoteTabletGcPB gc_pb;
+    for (auto& resource_id : resource_ids) {
+        gc_pb.add_resource_ids(resource_id);
+    }
     return _data_dir->get_meta()->put(META_COLUMN_FAMILY_INDEX, tablet_gc_key,
-                                      std::to_string(policy->resource_id));
+                                      gc_pb.SerializeAsString());
 }
 
 TabletSchemaSPtr Tablet::tablet_schema() const {
