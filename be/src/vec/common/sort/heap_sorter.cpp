@@ -48,7 +48,7 @@ Status HeapSorter::append_block(Block* block) {
                 if (column_id < 0) {
                     continue;
                 }
-                if (convert_nullable_flags[i]) {
+                if (i < convert_nullable_flags.size() && convert_nullable_flags[i]) {
                     auto column_ptr = make_nullable(block->get_by_position(column_id).column);
                     new_block.insert({column_ptr,
                                       make_nullable(block->get_by_position(column_id).type), ""});

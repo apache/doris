@@ -33,6 +33,14 @@ public class AlterMaterializedViewStmt extends DdlStmt  {
         this.info = info;
     }
 
+    public TableName getTable() {
+        return mvName;
+    }
+
+    public MVRefreshInfo getRefreshInfo() {
+        return info;
+    }
+
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         mvName.analyze(analyzer);

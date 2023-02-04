@@ -678,8 +678,8 @@ public class JdbcClient {
         for (JdbcFieldSchema field : jdbcTableSchema) {
             dorisTableSchema.add(new Column(field.getColumnName(),
                     jdbcTypeToDoris(field), true, null,
-                    true, null, field.getRemarks(),
-                    true, null, -1));
+                    true, field.getRemarks(),
+                    true, -1));
         }
         return dorisTableSchema;
     }

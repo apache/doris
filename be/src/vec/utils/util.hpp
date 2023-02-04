@@ -35,7 +35,7 @@ public:
     }
 
     static ColumnsWithTypeAndName create_columns_with_type_and_name(
-            const RowDescriptor& row_desc, bool ignore_trivial_slot = false) {
+            const RowDescriptor& row_desc, bool ignore_trivial_slot = true) {
         ColumnsWithTypeAndName columns_with_type_and_name;
         for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
             for (const auto& slot_desc : tuple_desc->slots()) {
@@ -50,7 +50,7 @@ public:
     }
 
     static ColumnsWithTypeAndName create_empty_block(const RowDescriptor& row_desc,
-                                                     bool ignore_trivial_slot = false) {
+                                                     bool ignore_trivial_slot = true) {
         ColumnsWithTypeAndName columns_with_type_and_name;
         for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
             for (const auto& slot_desc : tuple_desc->slots()) {

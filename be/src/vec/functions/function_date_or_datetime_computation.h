@@ -548,10 +548,12 @@ struct DateTimeAddIntervalImpl {
                 if (const auto* delta_vec_column = check_and_get_column<ColumnVector<FromType2>>(
                             *remove_nullable(block.get_by_position(arguments[1]).column))) {
                     Op::constant_vector(sources_const->template get_value<FromType1>(),
-                                        col_to->get_data(), delta_vec_column->get_data());
+                                        col_to->get_data(), null_map->get_data(),
+                                        delta_vec_column->get_data());
                 } else {
                     Op::constant_vector(
                             sources_const->template get_value<FromType2>(), col_to->get_data(),
+                            null_map->get_data(),
                             *remove_nullable(block.get_by_position(arguments[1]).column));
                 }
                 if (const auto* nullable_col = check_and_get_column<ColumnNullable>(
