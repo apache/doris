@@ -245,10 +245,10 @@ private:
             return _execute_number<NestedColumnType, ColumnDate>(offsets, nested_column,
                                                                  right_column, nested_null_map);
         } else if (right_column.is_datetime_type()) {
-            return _execute_number<NestedColumnType, ColumnDateV2>(offsets, nested_column,
-                                                                   right_column, nested_null_map);
-        } else if (check_column<ColumnDateTime>(right_column)) {
             return _execute_number<NestedColumnType, ColumnDateTime>(offsets, nested_column,
+                                                                   right_column, nested_null_map);
+        } else if (check_column<ColumnDateV2>(right_column)) {
+            return _execute_number<NestedColumnType, ColumnDateV2>(offsets, nested_column,
                                                                      right_column, nested_null_map);
         } else if (check_column<ColumnDateTimeV2>(right_column)) {
             return _execute_number<NestedColumnType, ColumnDateTimeV2>(
@@ -339,10 +339,10 @@ private:
             } else if (nested_column->is_datetime_type()) {
                 res = _execute_number_expanded<ColumnDateTime>(offsets, *nested_column,
                                                                *right_column, nested_null_map);
-            } else if (check_column<ColumnUInt32>(*nested_column)) {
+            } else if (check_column<ColumnDateV2>(*nested_column)) {
                 res = _execute_number_expanded<ColumnDateV2>(offsets, *nested_column, *right_column,
                                                              nested_null_map);
-            } else if (check_column<ColumnUInt64>(*nested_column)) {
+            } else if (check_column<ColumnDateTimeV2>(*nested_column)) {
                 res = _execute_number_expanded<ColumnDateTimeV2>(offsets, *nested_column,
                                                                  *right_column, nested_null_map);
             }
