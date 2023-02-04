@@ -115,6 +115,7 @@ set(UTIL_FILES
   jni-util.cpp
   exception.cpp
   libjvm_loader.cpp
+  jni_native_method.cpp
 )
 
 if (WITH_MYSQL)
