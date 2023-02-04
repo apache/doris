@@ -204,6 +204,10 @@ struct RegexpExtractAllImpl {
                 }
                 scoped_re.reset(re);
             }
+            if (re->NumberOfCapturingGroups() == 0) {
+                StringOP::push_empty_string(i, result_data, result_offset);
+                continue;
+            }
             const auto& str = str_col->get_data_at(i);
             int max_matches = 1 + re->NumberOfCapturingGroups();
             std::vector<re2::StringPiece> res_matches;
