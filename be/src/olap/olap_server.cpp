@@ -711,7 +711,7 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
                 _running_cooldown_tablets.insert(tablet->tablet_id());
             }
             PriorityThreadPool::Task task;
-            task.work_function = [tablet, &tablets, this]() {
+            task.work_function = [tablet, task_size = tablets.size(), this]() {
                 Status st = tablet->cooldown();
                 {
                     std::lock_guard<std::mutex> lock(_running_cooldown_mutex);
@@ -723,8 +723,8 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
                 } else {
                     LOG(INFO) << "succeed to cooldown, tablet: " << tablet->tablet_id()
                               << " cooldown progress ("
-                              << tablets.size() - _cooldown_thread_pool->get_queue_size() << "/"
-                              << tablets.size() << ")";
+                              << task_size - _cooldown_thread_pool->get_queue_size() << "/"
+                              << task_size << ")";
                 }
             };
             task.priority = max_priority--;
