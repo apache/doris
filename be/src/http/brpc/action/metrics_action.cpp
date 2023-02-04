@@ -17,6 +17,7 @@
 
 #include "metrics_action.h"
 
+#include <brpc/http_method.h>
 #include <rapidjson/document.h>
 #include <rapidjson/rapidjson.h>
 #include <rapidjson/stringbuffer.h>
@@ -41,5 +42,9 @@ void MetricsHandler::handle_sync(brpc::Controller* cntl) {
     }
 
     on_succ(cntl, str);
+}
+
+bool MetricsHandler::support_method(brpc::HttpMethod method) const {
+    return method == brpc::HTTP_METHOD_GET;
 }
 } // namespace doris

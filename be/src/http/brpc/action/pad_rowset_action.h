@@ -22,13 +22,15 @@
 
 namespace doris {
 
-class PadRowsetHandler : BaseHttpHandler {
+class PadRowsetHandler :public BaseHttpHandler {
 public:
     PadRowsetHandler();
     ~PadRowsetHandler() override = default;
 
 protected:
     void handle_sync(brpc::Controller* cntl) override;
+
+    bool support_method(brpc::HttpMethod method) const override;
 
 private:
     Status _handle(brpc::Controller* cntl);

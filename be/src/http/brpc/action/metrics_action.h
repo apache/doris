@@ -31,6 +31,8 @@ public:
 protected:
     void handle_sync(brpc::Controller* cntl) override;
 
+    bool support_method(brpc::HttpMethod method) const override;
+
 private:
     MetricRegistry* _metric_registry;
 };

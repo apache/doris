@@ -33,6 +33,8 @@ public:
 protected:
     void handle_sync(brpc::Controller* cntl) override;
 
+    bool support_method(brpc::HttpMethod method) const override;
+
 private:
     Status _handle_header(brpc::Controller* cntl, std::string* json_meta);
 

@@ -17,6 +17,8 @@
 
 #include "pad_rowset_action.h"
 
+#include <brpc/http_method.h>
+
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/storage_engine.h"
@@ -45,6 +47,10 @@ void PadRowsetHandler::handle_sync(brpc::Controller* cntl) {
     } else {
         on_error(cntl, result);
     }
+}
+
+bool PadRowsetHandler::support_method(brpc::HttpMethod method) const {
+    return method == brpc::HTTP_METHOD_POST;
 }
 
 Status PadRowsetHandler::_handle(brpc::Controller* cntl) {

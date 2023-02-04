@@ -16,6 +16,7 @@
 // under the License.
 
 #include "pprof_action.h"
+#include <brpc/http_method.h>
 
 #include "util/bfd_parser.h"
 
@@ -46,6 +47,10 @@ void PProfHandler::handle_sync(brpc::Controller* cntl) {
     } else if (path == "symbol") {
         _do_symbol_action(cntl, method);
     }
+}
+
+bool PProfHandler::support_method(brpc::HttpMethod method) const {
+    return method == brpc::HTTP_METHOD_GET || method == brpc::HTTP_METHOD_HEAD || method == brpc::HTTP_METHOD_POST;
 }
 
 // Protect, only one thread can work

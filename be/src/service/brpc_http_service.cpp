@@ -27,6 +27,10 @@
 #include "http/brpc/action/download_action.h"
 #include "http/brpc/action/health_action.h"
 #include "http/brpc/action/jeprofile_action.h"
+#include "http/brpc/action/meta_action.h"
+#include "http/brpc/action/metrics_action.h"
+#include "http/brpc/action/pad_rowset_action.h"
+#include "http/brpc/action/pprof_action.h"
 
 namespace doris {
 
@@ -69,7 +73,11 @@ BrpcHttpService::BrpcHttpService(ExecEnv* exec_env) : _dispatcher(new HandlerDis
             ->add_handler(new CheckTabletSegmentHandler())
             ->add_handler(new CompactionHandler())
             ->add_handler(new ConfigHandler())
-            ->add_handler(new HealthHandler());
+            ->add_handler(new HealthHandler())
+            ->add_handler(new MetaHandler(HEADER))
+            ->add_handler(new MetricsHandler(DorisMetrics::instance()->metric_registry()))
+            ->add_handler(new PadRowsetHandler())
+            ->add_handler(new PProfHandler(exec_env));
 
     JeProfileHandler::setup(exec_env, _dispatcher.get());
     DownloadHandler::setup(exec_env, _dispatcher.get());
@@ -84,7 +92,11 @@ void add_brpc_http_service(brpc::Server* server, ExecEnv* env) {
                                         "/api/*_config => config,"
                                         "/api/_download_load => download,"
                                         "/api/health => health,"
-                                        "/jeheap/dump => jeprofile");
+                                        "/jeheap/dump => jeprofile,"
+                                        "/api/meta/header => meta,"
+                                        "/metrics => metrics,"
+                                        "api/pad_rowset => pad_rowset,"
+                                        "/pprof => pprof");
     if (stat != 0) {
         LOG(WARNING) << "fail to add brpc http service";
     }

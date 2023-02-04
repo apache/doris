@@ -55,8 +55,8 @@ void DownloadHandler::handle_sync(brpc::Controller* cntl) {
     CgroupsMgr::apply_system_cgroup();
 
     // Get 'file' parameter, then assembly file absolute path
-    const std::string& file_path = *get_param(cntl, FILE_PARAMETER);
-    if (file_path.empty()) {
+    const std::string* file_path = get_param(cntl, FILE_PARAMETER);
+    if (file_path == nullptr || file_path->empty()) {
         std::string error_msg =
                 std::string("parameter " + FILE_PARAMETER + " not specified in url.");
         on_succ(cntl, error_msg);
@@ -64,9 +64,9 @@ void DownloadHandler::handle_sync(brpc::Controller* cntl) {
     }
 
     if (_download_type == ERROR_LOG) {
-        handle_error_log(cntl, file_path);
+        handle_error_log(cntl, *file_path);
     } else if (_download_type == NORMAL) {
-        handle_normal(cntl, file_path);
+        handle_normal(cntl, *file_path);
     }
 
     VLOG_CRITICAL << "deal with download request finished! ";
@@ -152,8 +152,8 @@ void DownloadHandler::_do_file_response(const std::string& file_path, brpc::Cont
 
     // TODO(lingbin): process "IF_MODIFIED_SINCE" header
     // TODO(lingbin): process "RANGE" header
-    const std::string& range_header = *get_header(cntl, HttpHeaders::RANGE);
-    if (!range_header.empty()) {
+    const std::string* range_header = get_header(cntl, HttpHeaders::RANGE);
+    if (!(range_header == nullptr || range_header->empty())) {
         // analyse range header
     }
     cntl->http_response().AppendHeader(HttpHeaders::CONTENT_TYPE, get_content_type(file_path));
@@ -226,12 +226,12 @@ void DownloadHandler::setup(ExecEnv* env, HandlerDispatcher* dispatcher) {
 }
 
 Status DownloadHandler::check_token(brpc::Controller* cntl) {
-    const std::string& token_str = *get_param(cntl, TOKEN_PARAMETER);
-    if (token_str.empty()) {
+    const std::string* token_str = get_param(cntl, TOKEN_PARAMETER);
+    if (token_str == nullptr || token_str->empty()) {
         return Status::InternalError("token is not specified.");
     }
 
-    if (token_str != get_exec_env()->token()) {
+    if (*token_str != get_exec_env()->token()) {
         return Status::InternalError("invalid token.");
     }
     return Status::OK();

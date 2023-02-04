@@ -16,6 +16,9 @@
 // under the License.
 
 #include "meta_action.h"
+#include <brpc/http_method.h>
+
+#include <string>
 
 #include "olap/olap_define.h"
 #include "olap/storage_engine.h"
@@ -43,9 +46,14 @@ void MetaHandler::handle_sync(brpc::Controller* cntl) {
     }
 }
 
+bool MetaHandler::support_method(brpc::HttpMethod method) const {
+    return method == brpc::HTTP_METHOD_GET;
+}
+
 Status MetaHandler::_handle_header(brpc::Controller* cntl, std::string* json_meta) {
-    std::string req_tablet_id = *get_param(cntl, TABLET_ID_KEY);
-    std::string req_enable_base64 = *get_param(cntl, ENABLE_BYTE_TO_BASE64);
+    const std::string& req_tablet_id = cntl->http_request().unresolved_path();
+    const std::string* req_enable_base64_ptr = get_param(cntl, ENABLE_BYTE_TO_BASE64);
+    std::string req_enable_base64 = req_enable_base64_ptr == nullptr ? "" : *req_enable_base64_ptr;
     uint64_t tablet_id = 0;
     bool enable_byte_to_base64 = false;
     if (std::strcmp(req_enable_base64.c_str(), "true") == 0) {
