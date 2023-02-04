@@ -246,10 +246,10 @@ private:
                                                                  right_column, nested_null_map);
         } else if (right_column.is_datetime_type()) {
             return _execute_number<NestedColumnType, ColumnDateTime>(offsets, nested_column,
-                                                                   right_column, nested_null_map);
+                                                                     right_column, nested_null_map);
         } else if (check_column<ColumnDateV2>(right_column)) {
             return _execute_number<NestedColumnType, ColumnDateV2>(offsets, nested_column,
-                                                                     right_column, nested_null_map);
+                                                                   right_column, nested_null_map);
         } else if (check_column<ColumnDateTimeV2>(right_column)) {
             return _execute_number<NestedColumnType, ColumnDateTimeV2>(
                     offsets, nested_column, right_column, nested_null_map);
