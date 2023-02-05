@@ -47,7 +47,7 @@ public:
 
     /// If the underlying FileReader has filled the partition&missing columns,
     /// The FileScanner does not need to fill
-    bool fill_all_columns() const { return _fill_all_columns; }
+    virtual bool fill_all_columns() const { return _fill_all_columns; }
 
     /// Tell the underlying FileReader the partition&missing columns,
     /// and the FileReader determine to fill columns or not.
