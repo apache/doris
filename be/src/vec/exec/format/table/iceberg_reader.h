@@ -49,6 +49,8 @@ public:
                     partition_columns,
             const std::unordered_map<std::string, VExprContext*>& missing_columns) override;
 
+    bool fill_all_columns() const override;
+
     Status get_columns(std::unordered_map<std::string, TypeDescriptor>* name_to_type,
                        std::unordered_set<std::string>* missing_cols) override;
 

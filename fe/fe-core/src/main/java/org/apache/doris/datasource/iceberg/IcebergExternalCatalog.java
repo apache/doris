@@ -35,6 +35,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hdfs.HdfsConfiguration;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.catalog.Catalog;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
@@ -54,13 +55,12 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public static final String ICEBERG_CATALOG_TYPE = "iceberg.catalog.type";
     public static final String ICEBERG_REST = "rest";
     public static final String ICEBERG_HMS = "hms";
-    protected final String icebergCatalogType;
+    protected String icebergCatalogType;
     protected Catalog catalog;
     protected SupportsNamespaces nsCatalog;
 
-    public IcebergExternalCatalog(long catalogId, String name, String type) {
+    public IcebergExternalCatalog(long catalogId, String name) {
         super(catalogId, name);
-        this.icebergCatalogType = type;
     }
 
     @Override
@@ -152,23 +152,34 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
         }
     }
 
+    public Catalog getCatalog() {
+        makeSureInitialized();
+        return catalog;
+    }
+
+    public SupportsNamespaces getNsCatalog() {
+        makeSureInitialized();
+        return nsCatalog;
+    }
+
     public String getIcebergCatalogType() {
+        makeSureInitialized();
         return icebergCatalogType;
     }
 
     protected List<String> listDatabaseNames() {
         return nsCatalog.listNamespaces().stream()
-            .map(e -> {
-                String dbName = e.toString();
-                try {
-                    FeNameFormat.checkDbName(dbName);
-                } catch (AnalysisException ex) {
-                    Util.logAndThrowRuntimeException(LOG,
-                            String.format("Not a supported namespace name format: %s", dbName), ex);
-                }
-                return dbName;
-            })
-            .collect(Collectors.toList());
+                .map(e -> {
+                    String dbName = e.toString();
+                    try {
+                        FeNameFormat.checkDbName(dbName);
+                    } catch (AnalysisException ex) {
+                        Util.logAndThrowRuntimeException(LOG,
+                                String.format("Not a supported namespace name format: %s", dbName), ex);
+                    }
+                    return dbName;
+                })
+                .collect(Collectors.toList());
     }
 
     @Override
@@ -180,12 +191,13 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     @Override
     public List<Column> getSchema(String dbName, String tblName) {
         makeSureInitialized();
-        List<Types.NestedField> columns = getIcebergTable(dbName, tblName).schema().columns();
+        Schema schema = getIcebergTable(dbName, tblName).schema();
+        List<Types.NestedField> columns = schema.columns();
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
         for (Types.NestedField field : columns) {
             tmpSchema.add(new Column(field.name(),
                     icebergTypeToDorisType(field.type()), true, null,
-                    true, null, field.doc(), true, null, -1));
+                    true, field.doc(), true, schema.caseInsensitiveFindField(field.name()).fieldId()));
         }
         return tmpSchema;
     }
