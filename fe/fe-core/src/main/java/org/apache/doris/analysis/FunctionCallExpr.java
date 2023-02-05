@@ -1469,6 +1469,8 @@ public class FunctionCallExpr extends Expr {
                 || fnName.getFunction().equalsIgnoreCase("array_intersect")
                 || fnName.getFunction().equalsIgnoreCase("array_compact")
                 || fnName.getFunction().equalsIgnoreCase("array_slice")
+                || fnName.getFunction().equalsIgnoreCase("array_popback")
+                || fnName.getFunction().equalsIgnoreCase("reverse")
                 || fnName.getFunction().equalsIgnoreCase("%element_slice%")
                 || fnName.getFunction().equalsIgnoreCase("array_except")) {
             if (children.size() > 0) {

@@ -539,6 +539,8 @@ visible_functions = [
     [['reverse'], 'ARRAY_LARGEINT',  ['ARRAY_LARGEINT'], ''],
     [['reverse'], 'ARRAY_DATETIME',  ['ARRAY_DATETIME'], ''],
     [['reverse'], 'ARRAY_DATE',      ['ARRAY_DATE'], ''],
+    [['reverse'], 'ARRAY_DATETIMEV2',  ['ARRAY_DATETIMEV2'], ''],
+    [['reverse'], 'ARRAY_DATEV2',      ['ARRAY_DATEV2'], ''],
     [['reverse'], 'ARRAY_FLOAT',     ['ARRAY_FLOAT'], ''],
     [['reverse'], 'ARRAY_DOUBLE',    ['ARRAY_DOUBLE'], ''],
     [['reverse'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2'], ''],
