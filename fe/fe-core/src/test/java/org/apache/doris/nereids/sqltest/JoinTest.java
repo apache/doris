@@ -61,14 +61,50 @@ public class JoinTest extends SqlTestBase {
     }
 
     @Test
-    void testInferNotNullFromFilterAndEliminateOuter() {
+    void testInferNotNullFromFilterAndEliminateOuter1() {
         String sql
                 = "select * from T1 left outer join T2 on T1.id = T2.id where T2.score > 0";
         PlanChecker.from(connectContext)
                 .analyze(sql)
-                .printlnTree()
                 .rewrite()
-                .printlnTree();
+                .matchesFromRoot(
+                        innerLogicalJoin(
+                                logicalOlapScan(),
+                                logicalFilter().when(f -> f.getPredicate().toString().equals("(score#3 > 0)"))
+                        )
+                );
+    }
+
+    @Test
+    void testInferNotNullFromFilterAndEliminateOuter2() {
+        String sql
+                = "select * from T1 right outer join T2 on T1.id = T2.id where T1.id = 4 OR (T1.id > 4 AND T2.score IS NULL)";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matchesFromRoot(
+                        innerLogicalJoin(
+                                logicalFilter().when(f -> f.getPredicate().toString().equals("((id#0 = 4) OR (id#0 > 4))")),
+                                logicalOlapScan()
+                        )
+                );
+    }
+
+    @Test
+    void testInferNotNullFromFilterAndEliminateOuter3() {
+        String sql
+                = "select * from T1 full outer join T2 on T1.id = T2.id where T1.id = 4 OR (T1.id > 4 AND T2.score IS NULL)";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matchesFromRoot(
+                        logicalFilter(
+                                leftOuterLogicalJoin(
+                                        logicalFilter().when(f -> f.getPredicate().toString().equals("((id#0 = 4) OR (id#0 > 4))")),
+                                        logicalOlapScan()
+                                )
+                        ).when(f -> f.getPredicate().toString().equals("((id#0 = 4) OR ((id#0 > 4) AND score IS NULL))"))
+                );
     }
 
     @Test

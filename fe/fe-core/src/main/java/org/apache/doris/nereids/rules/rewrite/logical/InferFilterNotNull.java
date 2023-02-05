@@ -44,7 +44,11 @@ public class InferFilterNotNull extends OneRewriteRuleFactory {
         return logicalFilter().then(filter -> {
             Builder<Expression> builder = ImmutableSet.<Expression>builder().addAll(filter.getConjuncts());
             Set<Expression> predicates = filter.getConjuncts();
-            builder.addAll(ExpressionUtils.inferNotNull(predicates));
+            Set<Expression> isNotNull = ExpressionUtils.inferNotNull(predicates);
+            if (predicates.containsAll(isNotNull)) {
+                return null;
+            }
+            builder.addAll(isNotNull);
             return PlanUtils.filterOrSelf(builder.build(), filter.child());
         }).toRule(RuleType.INFER_FILTER_NOT_NULL);
     }

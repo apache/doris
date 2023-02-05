@@ -43,11 +43,11 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
-import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -370,18 +370,20 @@ public class ExpressionUtils {
      */
     public static Set<Slot> inferNotNullSlots(Set<Expression> predicates) {
         Literal nullLiteral = Literal.of(null);
-        return predicates
-                .stream()
-                .filter(predicate -> {
-                    Map<Expression, Expression> replaceMap = Maps.newHashMap();
-                    predicate.getInputSlots().forEach(slot -> replaceMap.put(slot, nullLiteral));
-                    Expression evalExpr = FoldConstantRule.INSTANCE.rewrite(
-                            ExpressionUtils.replace(predicate, replaceMap),
-                            new ExpressionRewriteContext(null));
-                    return nullLiteral.equals(evalExpr) || BooleanLiteral.FALSE.equals(evalExpr);
-                })
-                .flatMap(predicate -> predicate.getInputSlots().stream())
-                .collect(Collectors.toSet());
+        Set<Slot> notNullSlots = Sets.newHashSet();
+        for (Expression predicate : predicates) {
+            for (Slot slot : predicate.getInputSlots()) {
+                Map<Expression, Expression> replaceMap = new HashMap<>();
+                replaceMap.put(slot, nullLiteral);
+                Expression evalExpr = FoldConstantRule.INSTANCE.rewrite(
+                        ExpressionUtils.replace(predicate, replaceMap),
+                        new ExpressionRewriteContext(null));
+                if (nullLiteral.equals(evalExpr) || BooleanLiteral.FALSE.equals(evalExpr)) {
+                    notNullSlots.add(slot);
+                }
+            }
+        }
+        return notNullSlots;
     }
 
     public static Set<Expression> inferNotNull(Set<Expression> predicates) {
