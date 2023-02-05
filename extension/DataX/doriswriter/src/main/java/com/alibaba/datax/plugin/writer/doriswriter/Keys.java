@@ -29,7 +29,7 @@ import java.util.stream.Collectors;
 public class Keys implements Serializable {
 
     private static final long serialVersionUID = 1l;
-    private static final int MAX_RETRIES = 3;
+    private static final int DEFAULT_MAX_RETRIES = 3;
     private static final int BATCH_ROWS = 500000;
     private static final long DEFAULT_FLUSH_INTERVAL = 30000;
 
@@ -57,6 +57,8 @@ public class Keys implements Serializable {
     private static final String DEFAULT_LABEL_PREFIX = "datax_doris_writer_";
 
     private static final long DEFAULT_MAX_BATCH_SIZE = 90 * 1024 * 1024; //default 90M
+
+    private static final String MAX_RETRIES = "maxRetries";
 
     private final Configuration options;
 
@@ -134,7 +136,8 @@ public class Keys implements Serializable {
     }
 
     public int getMaxRetries() {
-        return MAX_RETRIES;
+        Integer retries = options.getInt(MAX_RETRIES);
+        return null == retries ? DEFAULT_MAX_RETRIES : retries;
     }
 
     public int getBatchRows() {
