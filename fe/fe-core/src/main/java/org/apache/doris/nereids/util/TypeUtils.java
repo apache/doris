@@ -20,14 +20,8 @@ package org.apache.doris.nereids.util;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.Multiply;
-import org.apache.doris.nereids.trees.expressions.Not;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
-
-import java.util.Optional;
 
 /**
  * Judgment expression type.
@@ -58,17 +52,4 @@ public class TypeUtils {
         return expr instanceof Multiply;
     }
 
-    /**
-     * Judge whether the expression is `is not null`.
-     *
-     * @return Optional.empty() if the expression is `is not null`, otherwise return slot.
-     */
-    public static Optional<Slot> isNotNull(Expression expr) {
-        if (expr instanceof Not && ((Not) expr).child() instanceof IsNull
-                && ((IsNull) ((Not) expr).child()).child() instanceof SlotReference) {
-            return Optional.of(((SlotReference) ((IsNull) ((Not) expr).child()).child()));
-        } else {
-            return Optional.empty();
-        }
-    }
 }
