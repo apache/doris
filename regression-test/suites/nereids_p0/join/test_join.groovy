@@ -181,7 +181,7 @@ suite("test_join", "nereids_p0") {
                 inner join bigtable c on a.k3 = c.k3 and b.k1 = c.k1 + 1 and c.k3 > 0
                 group by 1, 2 order by 1, 2 limit 65535
         """
-        result([1,3,1,1],[2,2,1,1])
+        result([[1,3,1,1],[2,2,1,1]])
     }
 
     // test_left_join
