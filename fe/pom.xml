@@ -223,7 +223,7 @@ under the License.
         <!-- ATTN: avro version must be consistent with Iceberg version -->
         <!-- Please modify iceberg.version and avro.version together,
          you can find avro version info in iceberg mvn repository -->
-        <iceberg.version>0.12.0</iceberg.version>
+        <iceberg.version>1.1.0</iceberg.version>
         <avro.version>1.10.1</avro.version>
         <!-- hudi -->
         <hudi.version>0.10.0</hudi.version>
