@@ -114,6 +114,10 @@ Status IcebergTableReader::set_fill_columns(
     return _file_format_reader->set_fill_columns(partition_columns, missing_columns);
 }
 
+bool IcebergTableReader::fill_all_columns() const {
+    return _file_format_reader->fill_all_columns();
+};
+
 Status IcebergTableReader::get_columns(
         std::unordered_map<std::string, TypeDescriptor>* name_to_type,
         std::unordered_set<std::string>* missing_cols) {
