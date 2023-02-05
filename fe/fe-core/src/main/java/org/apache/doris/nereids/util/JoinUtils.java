@@ -335,11 +335,6 @@ public class JoinUtils {
         return joinOutputExprIdSet;
     }
 
-    private static List<Slot> applyNullable(List<Slot> slots) {
-        return slots.stream().map(o -> o.withNullable(true))
-                .collect(ImmutableList.toImmutableList());
-    }
-
     /**
      * calculate the output slot of a join operator according join type and its children
      * @param joinType the type of join operator
@@ -348,30 +343,33 @@ public class JoinUtils {
      * @return return the output slots
      */
     public static List<Slot> getJoinOutput(JoinType joinType, Plan left, Plan right) {
+        List<Slot> newLeftOutput = left.getOutput().stream().map(o -> o.withNullable(true))
+                .collect(ImmutableList.toImmutableList());
+        List<Slot> newRightOutput = right.getOutput().stream().map(o -> o.withNullable(true))
+                .collect(ImmutableList.toImmutableList());
+
         switch (joinType) {
             case LEFT_SEMI_JOIN:
             case LEFT_ANTI_JOIN:
             case NULL_AWARE_LEFT_ANTI_JOIN:
-                return left.getOutput().stream().map(o -> o.withNullable(false))
-                        .collect(ImmutableList.toImmutableList());
+                return ImmutableList.copyOf(left.getOutput());
             case RIGHT_SEMI_JOIN:
             case RIGHT_ANTI_JOIN:
-                return right.getOutput().stream().map(o -> o.withNullable(false))
-                        .collect(ImmutableList.toImmutableList());
+                return ImmutableList.copyOf(right.getOutput());
             case LEFT_OUTER_JOIN:
                 return ImmutableList.<Slot>builder()
                         .addAll(left.getOutput())
-                        .addAll(applyNullable(right.getOutput()))
+                        .addAll(newRightOutput)
                         .build();
             case RIGHT_OUTER_JOIN:
                 return ImmutableList.<Slot>builder()
-                        .addAll(applyNullable(left.getOutput()))
+                        .addAll(newLeftOutput)
                         .addAll(right.getOutput())
                         .build();
             case FULL_OUTER_JOIN:
                 return ImmutableList.<Slot>builder()
-                        .addAll(applyNullable(left.getOutput()))
-                        .addAll(applyNullable(right.getOutput()))
+                        .addAll(newLeftOutput)
+                        .addAll(newRightOutput)
                         .build();
             default:
                 return ImmutableList.<Slot>builder()
