@@ -33,6 +33,7 @@ import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -324,7 +325,7 @@ public class MTMVJobManager {
 
     public List<MTMVJob> showJobs(String dbName) {
         List<MTMVJob> jobList = Lists.newArrayList();
-        if (dbName == null) {
+        if (Strings.isNullOrEmpty(dbName)) {
             jobList.addAll(nameToJobMap.values());
         } else {
             jobList.addAll(nameToJobMap.values().stream().filter(u -> u.getDBName().equals(dbName))
