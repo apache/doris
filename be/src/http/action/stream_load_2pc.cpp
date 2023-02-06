@@ -99,4 +99,18 @@ std::string StreamLoad2PCAction::get_success_info(const std::string txn_id, cons
     return s.GetString();
 }
 
+void StreamLoad2PCAction::free_handler_ctx(void* param) {
+    StreamLoadContext* ctx = (StreamLoadContext*)param;
+    if (ctx == nullptr) {
+        return;
+    }
+    // sender is gone, make receiver know it
+    if (ctx->body_sink != nullptr) {
+        ctx->body_sink->cancel("sender is gone");
+    }
+    if (ctx->unref()) {
+        delete ctx;
+    }
+}
+
 } // namespace doris
