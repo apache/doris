@@ -127,7 +127,6 @@ public:
 private:
     int (*_cmp)(const void* left, const void* right);
 
-    void (*_shallow_copy)(void* dest, const void* src);
     void (*_deep_copy)(void* dest, const void* src, MemPool* mem_pool);
     void (*_direct_copy)(void* dest, const void* src);
     void (*_direct_copy_may_cut)(void* dest, const void* src);
