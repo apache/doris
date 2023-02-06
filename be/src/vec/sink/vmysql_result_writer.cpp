@@ -176,10 +176,10 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                 } else {
                     if (WhichDataType(remove_nullable(sub_types[0])).is_string()) {
                         buf_ret = rows_buffer[i].push_string("'", 1);
-                        buf_ret = _add_one_cell(data, j, sub_types[0], rows_buffer[i]);
+                        buf_ret = _add_one_cell(data, j, sub_types[0], rows_buffer[i], scale);
                         buf_ret = rows_buffer[i].push_string("'", 1);
                     } else {
-                        buf_ret = _add_one_cell(data, j, sub_types[0], rows_buffer[i]);
+                        buf_ret = _add_one_cell(data, j, sub_types[0], rows_buffer[i], scale);
                     }
                 }
                 begin = false;
