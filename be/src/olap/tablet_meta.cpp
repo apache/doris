@@ -742,6 +742,11 @@ void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
 void TabletMeta::revise_rs_metas(std::vector<RowsetMetaSharedPtr>&& rs_metas) {
     std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
     _rs_metas = std::move(rs_metas);
+    for (auto& rs_meta : _rs_metas) {
+        if (!rs_meta->is_local() && rs_meta->end_version() > _cooldowned_version) {
+            _cooldowned_version = rs_meta->end_version();
+        }
+    }
     _stale_rs_metas.clear();
 }
 

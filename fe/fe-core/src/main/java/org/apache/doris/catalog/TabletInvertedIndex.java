@@ -378,24 +378,19 @@ public class TabletInvertedIndex {
                     tabletMeta.getCooldownReplicaId(), beTabletInfo.getCooldownReplicaId());
             return true;
         }
-        // check cooldown type in one tablet, One UPLOAD_DATA is needed in the replicas.
+        // check cooldown type in one tablet, cooldownReplicaId must be one of the ids in the replicas.
         long stamp = readLock();
         try {
-            boolean replicaInvalid = true;
             Map<Long, Replica> replicaMap = replicaMetaTable.row(beTabletInfo.getTabletId());
             for (Map.Entry<Long, Replica> entry : replicaMap.entrySet()) {
                 if (entry.getValue().getId() == beTabletInfo.getCooldownReplicaId()) {
-                    replicaInvalid = false;
-                    break;
+                    return false;
                 }
             }
-            if (replicaInvalid) {
-                return true;
-            }
+            return true;
         } finally {
             readUnlock(stamp);
         }
-        return false;
     }
 
     public List<Replica> getReplicas(Long tabletId) {

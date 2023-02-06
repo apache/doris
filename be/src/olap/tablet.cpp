@@ -1656,7 +1656,7 @@ Status Tablet::cooldown() {
         RETURN_IF_ERROR(_deal_cooldown_delete_files());
     }
 
-    if (_need_cooldown) {
+    if (_need_cooldown && _tablet_meta->cooldown_replica_id() >= 0) {
         if (_tablet_meta->cooldown_replica_id() == _tablet_meta->replica_id()) {
             RETURN_IF_ERROR(_cooldown_data());
         } else {
@@ -1852,8 +1852,10 @@ Status Tablet::_read_remote_tablet_meta(FileSystemSPtr fs, TabletMetaPB* tablet_
             LOG(WARNING) << "parse tablet meta failed";
             return Status::InternalError("parse tablet meta failed");
         }
+        return Status::OK();
     }
-    LOG(INFO) << "No remote tablet meta file found, init needed. tablet_id: " << tablet_id();
+    LOG(INFO) << "No remote tablet meta file found, init needed. tablet_id: " << tablet_id()
+            << ", remote_meta_path: " << remote_meta_path;
     return Status::InternalError("No remote tablet meta file found, init needed.");
 }
 
