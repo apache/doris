@@ -32,7 +32,12 @@ public class ProfileEvent extends Event {
     public String totalTime = "";
     public String queryState = "";
     public String traceId = "";
-    // use a supplier to lazy get profile
+    /**
+     * Use a supplier to lazy load profile.
+     * Because profile content may be very large, so a profile plugin should filter profiles first as soon as possible.
+     * A profile plugin should invoke profileSupplier.get() to load profile,
+     * if and only if this plugin need to save or handle this profile.
+     */
     public Supplier<String> profileSupplier;
 
     public static class ProfileEventBuilder {
