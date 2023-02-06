@@ -50,9 +50,9 @@ public class SemiJoinSemiJoinTransposeProjectTest implements PatternMatchSupport
          * t1      t2
          */
         LogicalPlan topJoin = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.LEFT_ANTI_JOIN, Pair.of(0, 0))
+                .join(scan2, JoinType.LEFT_ANTI_JOIN, Pair.of(0, 0))
                 .project(ImmutableList.of(1))
-                .hashJoinUsing(scan3, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 1))
+                .join(scan3, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 1))
                 .build();
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
                 .applyExploration(SemiJoinSemiJoinTransposeProject.INSTANCE.build())

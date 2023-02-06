@@ -74,6 +74,10 @@ CONF_Int64(max_sys_mem_available_low_water_mark_bytes, "1717986918");
 // The size of the memory that gc wants to release each time, as a percentage of the mem limit.
 CONF_mString(process_minor_gc_size, "10%");
 CONF_mString(process_full_gc_size, "20%");
+// Some caches have their own gc threads, such as segment cache.
+// For caches that do not have a separate gc thread, perform regular gc in the memory maintenance thread.
+// Currently only storage page cache, chunk allocator, more in the future.
+CONF_mInt32(cache_gc_interval_s, "60");
 
 // If true, when the process does not exceed the soft mem limit, the query memory will not be limited;
 // when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently
@@ -242,6 +246,7 @@ CONF_mBool(row_nums_check, "true");
 // modify them upon necessity
 CONF_Int32(min_file_descriptor_number, "60000");
 CONF_Int64(index_stream_cache_capacity, "10737418240");
+CONF_String(row_cache_mem_limit, "20%");
 
 // Cache for storage page size
 CONF_String(storage_page_cache_limit, "20%");
@@ -253,6 +258,8 @@ CONF_Int32(storage_page_cache_shard_size, "16");
 CONF_Int32(index_page_cache_percentage, "10");
 // whether to disable page cache feature in storage
 CONF_Bool(disable_storage_page_cache, "false");
+// whether to disable row cache feature in storage
+CONF_Bool(disable_storage_row_cache, "false");
 
 CONF_Bool(enable_storage_vectorization, "true");
 
@@ -477,7 +484,7 @@ CONF_Bool(madvise_huge_pages, "false");
 CONF_Bool(mmap_buffers, "false");
 
 // Sleep time in milliseconds between memory maintenance iterations
-CONF_mInt64(memory_maintenance_sleep_time_ms, "500");
+CONF_mInt32(memory_maintenance_sleep_time_ms, "500");
 
 // Sleep time in milliseconds between load channel memory refresh iterations
 CONF_mInt64(load_channel_memory_refresh_sleep_time_ms, "100");
@@ -489,16 +496,8 @@ CONF_Int32(memory_max_alignment, "16");
 CONF_mInt64(write_buffer_size, "209715200");
 // max buffer size used in memtable for the aggregated table, default 400MB
 CONF_mInt64(write_buffer_size_for_agg, "419430400");
-// write buffer size in push task for sparkload, default 1GB
-CONF_mInt64(flush_size_for_sparkload, "1073741824");
 
-// following 2 configs limit the memory consumption of load process on a Backend.
-// eg: memory limit to 80% of mem limit config but up to 100GB(default)
-// NOTICE(cmy): set these default values very large because we don't want to
-// impact the load performance when user upgrading Doris.
-// user should set these configs properly if necessary.
-CONF_Int64(load_process_max_memory_limit_bytes, "107374182400"); // 100GB
-CONF_Int32(load_process_max_memory_limit_percent, "50");         // 50%
+CONF_Int32(load_process_max_memory_limit_percent, "50"); // 50%
 
 // If the memory consumption of load jobs exceed load_process_max_memory_limit,
 // all load jobs will hang there to wait for memtable flush. We should have a

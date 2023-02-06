@@ -46,7 +46,7 @@ public:
 
     virtual Status close() override;
 
-    const ResultList& results() { return _results; };
+    const ResultList& results() { return _results; }
 
 private:
     void _init_profile();
@@ -56,7 +56,7 @@ private:
                            std::vector<MysqlRowBuffer<is_binary_format>>& rows_buffer,
                            const DataTypePtr& nested_type_ptr = nullptr, int scale = -1);
     int _add_one_cell(const ColumnPtr& column_ptr, size_t row_idx, const DataTypePtr& type,
-                      MysqlRowBuffer<is_binary_format>& buffer);
+                      MysqlRowBuffer<is_binary_format>& buffer, int scale = -1);
 
 private:
     BufferControlBlock* _sinker;

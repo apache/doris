@@ -449,6 +449,10 @@ void TabletColumn::add_sub_column(TabletColumn& sub_column) {
     _sub_column_count += 1;
 }
 
+bool TabletColumn::is_row_store_column() const {
+    return _col_name == BeConsts::ROW_STORE_COL;
+}
+
 vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(
         vectorized::DataTypes argument_types, std::string suffix) const {
     std::string agg_name = TabletColumn::get_string_by_aggregation_type(_aggregation) + suffix;
@@ -928,19 +932,6 @@ bool operator==(const TabletSchema& a, const TabletSchema& b) {
 
 bool operator!=(const TabletSchema& a, const TabletSchema& b) {
     return !(a == b);
-}
-
-const TabletColumn& TabletSchema::row_oriented_column() {
-    static TabletColumn source_column(OLAP_FIELD_AGGREGATION_NONE,
-                                      FieldType::OLAP_FIELD_TYPE_STRING, false,
-                                      BeConsts::SOURCE_COL_UNIQUE_ID, 0);
-    source_column.set_name(BeConsts::SOURCE_COL);
-    return source_column;
-}
-
-void TabletSchema::add_row_column() {
-    // create row column
-    append_column(row_oriented_column());
 }
 
 } // namespace doris

@@ -19,8 +19,6 @@
 
 #include <memory>
 
-#include "http/http_common.h"
-
 namespace doris {
 namespace io {
 
@@ -106,10 +104,10 @@ void FileCacheProfile::update(int64_t table_id, int64_t partition_id, OlapReader
         }
         count = _profile[table_id][partition_id];
     }
-    if (partition_metric) [[unlikely]] {
+    if (partition_metric) {
         partition_metric->register_entity();
     }
-    if (table_metric) [[unlikely]] {
+    if (table_metric) {
         table_metric->register_entity();
     }
     count->num_io_total.fetch_add(stats->file_cache_stats.num_io_total, std::memory_order_relaxed);

@@ -84,9 +84,11 @@ CREATE CATALOG hive PROPERTIES (
     'hadoop.kerberos.keytab' = '/your-keytab-filepath/your.keytab',   
     'hadoop.kerberos.principal' = 'your-principal@YOUR.COM',
     'yarn.resourcemanager.address' = 'your-rm-address:your-rm-port',    
-    'yarn.resourcemanager.principal' = 'your-rm-principal/_HOST@YOUR.COM'
+    'yarn.resourcemanager.principal' = 'your-rm-principal/your-rm-address@YOUR.COM'
 );
 ```
+
+请在所有的 `BE`、`FE` 节点下放置 `krb5.conf` 文件和 `keytab` 认证文件，`keytab` 认证文件路径和配置保持一致，`krb5.conf` 文件默认放置在 `/etc/krb5.conf` 路径。
 
 提供 Hadoop KMS 加密传输信息，示例如下：
 	

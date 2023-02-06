@@ -43,6 +43,8 @@ import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.catalog.external.IcebergExternalDatabase;
+import org.apache.doris.catalog.external.IcebergExternalTable;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
 import org.apache.doris.catalog.external.JdbcExternalTable;
 import org.apache.doris.datasource.CatalogIf;
@@ -50,6 +52,9 @@ import org.apache.doris.datasource.EsExternalCatalog;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.JdbcExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergHMSExternalCatalog;
+import org.apache.doris.datasource.iceberg.IcebergRestExternalCatalog;
 import org.apache.doris.load.loadv2.LoadJob.LoadJobStateUpdateInfo;
 import org.apache.doris.load.loadv2.SparkLoadJob.SparkLoadJobStateUpdateInfo;
 import org.apache.doris.load.sync.SyncJob;
@@ -167,21 +172,26 @@ public class GsonUtils {
             .registerSubtype(InternalCatalog.class, InternalCatalog.class.getSimpleName())
             .registerSubtype(HMSExternalCatalog.class, HMSExternalCatalog.class.getSimpleName())
             .registerSubtype(EsExternalCatalog.class, EsExternalCatalog.class.getSimpleName())
-            .registerSubtype(JdbcExternalCatalog.class, JdbcExternalCatalog.class.getSimpleName());
+            .registerSubtype(JdbcExternalCatalog.class, JdbcExternalCatalog.class.getSimpleName())
+            .registerSubtype(IcebergExternalCatalog.class, IcebergExternalCatalog.class.getSimpleName())
+            .registerSubtype(IcebergHMSExternalCatalog.class, IcebergHMSExternalCatalog.class.getSimpleName())
+            .registerSubtype(IcebergRestExternalCatalog.class, IcebergRestExternalCatalog.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<DatabaseIf> dbTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     DatabaseIf.class, "clazz")
             .registerSubtype(ExternalDatabase.class, ExternalDatabase.class.getSimpleName())
             .registerSubtype(EsExternalDatabase.class, EsExternalDatabase.class.getSimpleName())
             .registerSubtype(HMSExternalDatabase.class, HMSExternalDatabase.class.getSimpleName())
-            .registerSubtype(JdbcExternalDatabase.class, JdbcExternalDatabase.class.getSimpleName());
+            .registerSubtype(JdbcExternalDatabase.class, JdbcExternalDatabase.class.getSimpleName())
+            .registerSubtype(IcebergExternalDatabase.class, IcebergExternalDatabase.class.getSimpleName());
 
     private static RuntimeTypeAdapterFactory<TableIf> tblTypeAdapterFactory = RuntimeTypeAdapterFactory.of(
                     TableIf.class, "clazz")
             .registerSubtype(ExternalTable.class, ExternalTable.class.getSimpleName())
             .registerSubtype(EsExternalTable.class, EsExternalTable.class.getSimpleName())
             .registerSubtype(HMSExternalTable.class, HMSExternalTable.class.getSimpleName())
-            .registerSubtype(JdbcExternalTable.class, JdbcExternalTable.class.getSimpleName());
+            .registerSubtype(JdbcExternalTable.class, JdbcExternalTable.class.getSimpleName())
+            .registerSubtype(IcebergExternalTable.class, IcebergExternalTable.class.getSimpleName());
 
     // the builder of GSON instance.
     // Add any other adapters if necessary.

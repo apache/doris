@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
@@ -39,13 +40,13 @@ import com.google.common.collect.Lists;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * Logical join plan.
  */
 public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Plan>
         extends LogicalBinary<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> implements Join {
+
     private final JoinType joinType;
     private final List<Expression> otherJoinConjuncts;
     private final List<Expression> hashJoinConjuncts;
@@ -152,42 +153,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     @Override
     public List<Slot> computeOutput() {
-
-        List<Slot> newLeftOutput = left().getOutput().stream().map(o -> o.withNullable(true))
-                .collect(Collectors.toList());
-
-        List<Slot> newRightOutput = right().getOutput().stream().map(o -> o.withNullable(true))
-                .collect(Collectors.toList());
-
-        switch (joinType) {
-            case LEFT_SEMI_JOIN:
-            case LEFT_ANTI_JOIN:
-            case NULL_AWARE_LEFT_ANTI_JOIN:
-                return ImmutableList.copyOf(left().getOutput());
-            case RIGHT_SEMI_JOIN:
-            case RIGHT_ANTI_JOIN:
-                return ImmutableList.copyOf(right().getOutput());
-            case LEFT_OUTER_JOIN:
-                return ImmutableList.<Slot>builder()
-                        .addAll(left().getOutput())
-                        .addAll(newRightOutput)
-                        .build();
-            case RIGHT_OUTER_JOIN:
-                return ImmutableList.<Slot>builder()
-                        .addAll(newLeftOutput)
-                        .addAll(right().getOutput())
-                        .build();
-            case FULL_OUTER_JOIN:
-                return ImmutableList.<Slot>builder()
-                        .addAll(newLeftOutput)
-                        .addAll(newRightOutput)
-                        .build();
-            default:
-                return ImmutableList.<Slot>builder()
-                        .addAll(left().getOutput())
-                        .addAll(right().getOutput())
-                        .build();
-        }
+        return JoinUtils.getJoinOutput(joinType, left(), right());
     }
 
     @Override

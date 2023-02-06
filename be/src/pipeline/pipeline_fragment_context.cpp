@@ -189,9 +189,6 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
     if (request.__isset.load_job_id) {
         _runtime_state->set_load_job_id(request.load_job_id);
     }
-    if (request.__isset.load_error_hub_info) {
-        _runtime_state->set_load_error_hub_info(request.load_error_hub_info);
-    }
 
     if (request.query_options.__isset.is_report_success) {
         fragment_context->set_is_report_success(request.query_options.is_report_success);
@@ -203,7 +200,6 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
     // 2. Create ExecNode to build pipeline with PipelineFragmentContext
     RETURN_IF_ERROR(ExecNode::create_tree(_runtime_state.get(), _runtime_state->obj_pool(),
                                           request.fragment.plan, *desc_tbl, &_root_plan));
-    _runtime_state->set_fragment_root_id(_root_plan->id());
 
     // Set senders of exchange nodes before pipeline build
     std::vector<ExecNode*> exch_nodes;

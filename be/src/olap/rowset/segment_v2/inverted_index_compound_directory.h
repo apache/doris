@@ -127,7 +127,7 @@ class DorisCompoundDirectory::FSIndexInput : public lucene::store::BufferedIndex
     FSIndexInput(SharedHandle* handle, int32_t buffer_size) : BufferedIndexInput(buffer_size) {
         this->_pos = 0;
         this->_handle = handle;
-    };
+    }
 
 protected:
     FSIndexInput(const FSIndexInput& clone);

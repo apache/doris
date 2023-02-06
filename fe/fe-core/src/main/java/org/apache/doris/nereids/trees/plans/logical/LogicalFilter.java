@@ -33,7 +33,6 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -45,23 +44,19 @@ import java.util.stream.Stream;
  * Logical filter plan.
  */
 public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> implements Filter {
+
     private final Set<Expression> conjuncts;
 
     private final boolean singleTableExpressionExtracted;
 
     public LogicalFilter(Set<Expression> conjuncts, CHILD_TYPE child) {
-        this(conjuncts, Optional.empty(), Optional.empty(), child);
+        this(conjuncts, Optional.empty(), false, Optional.empty(), child);
     }
 
     public LogicalFilter(Set<Expression> conjuncts, boolean singleTableExpressionExtracted,
             CHILD_TYPE child) {
         this(conjuncts, Optional.empty(), singleTableExpressionExtracted,
                 Optional.empty(), child);
-    }
-
-    public LogicalFilter(Set<Expression> conjuncts, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, CHILD_TYPE child) {
-        this(conjuncts, groupExpression, false, logicalProperties, child);
     }
 
     public LogicalFilter(Set<Expression> conjuncts, Optional<GroupExpression> groupExpression,
@@ -94,7 +89,7 @@ public class LogicalFilter<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_T
                         }
                     }).collect(Collectors.toList());
         }
-        return Collections.emptyList();
+        return ImmutableList.of();
     }
 
     @Override

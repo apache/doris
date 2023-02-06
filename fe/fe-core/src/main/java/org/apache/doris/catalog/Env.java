@@ -150,7 +150,6 @@ import org.apache.doris.load.ExportChecker;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
-import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.StreamLoadRecordMgr;
 import org.apache.doris.load.loadv2.LoadEtlChecker;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
@@ -858,8 +857,6 @@ public class Env {
             // If not using bdb, we need to notify the FE type transfer manually.
             notifyNewFETypeTransfer(FrontendNodeType.MASTER);
         }
-        // 7. start mtmv jobManager
-        mtmvJobManager.start();
     }
 
     // wait until FE is ready.
@@ -1417,7 +1414,8 @@ public class Env {
         if (Config.enable_hms_events_incremental_sync) {
             metastoreEventsProcessor.start();
         }
-
+        // start mtmv jobManager
+        mtmvJobManager.start();
     }
 
     // start threads that should running on all FE
@@ -1467,6 +1465,9 @@ public class Env {
         startNonMasterDaemonThreads();
 
         MetricRepo.init();
+
+        // stop mtmv scheduler
+        mtmvJobManager.stop();
     }
 
     // Set global variable 'lower_case_table_names' only when the cluster is initialized.
@@ -1714,62 +1715,6 @@ public class Env {
 
     public long loadDb(DataInputStream dis, long checksum) throws IOException, DdlException {
         return getInternalCatalog().loadDb(dis, checksum);
-    }
-
-    public long saveLoadJob(CountingDataOutputStream dos, long checksum) throws IOException {
-        // 1. save load.dbToLoadJob, force set to 0 since there should be none load jobs
-        int jobSize = 0;
-        checksum ^= jobSize;
-        dos.writeInt(jobSize);
-
-        // 2. save delete jobs
-        // delete jobs are moved to DeleteHandler. So here we just set job size as 0.
-        jobSize = 0;
-        checksum ^= jobSize;
-        dos.writeInt(jobSize);
-
-        // 3. load error hub info
-        LoadErrorHub.Param param = load.getLoadErrorHubInfo();
-        param.write(dos);
-
-        // 4. save delete load job info
-        // delete jobs are moved to DeleteHandler. So here we just set job size as 0.
-        int deleteJobSize = 0;
-        checksum ^= deleteJobSize;
-        dos.writeInt(deleteJobSize);
-        return checksum;
-    }
-
-    public long loadLoadJob(DataInputStream dis, long checksum) throws IOException, DdlException {
-        // load jobs
-        int jobSize = dis.readInt();
-        long newChecksum = checksum ^ jobSize;
-
-        if (jobSize > 0) {
-            LOG.warn("there should be no load jobs, please rollback to 1.2.x and check if there are hadoop load jobs");
-            throw new RuntimeException("there should be no load jobs, please rollback to 1.2.x "
-                    + "and check if there are hadoop load jobs");
-        }
-
-        // delete jobs
-        // Delete job has been moved to DeleteHandler. Here the jobSize is always 0, we need do nothing.
-        jobSize = dis.readInt();
-        Preconditions.checkState(jobSize == 0, jobSize);
-        newChecksum ^= jobSize;
-
-        // load error hub info
-        LoadErrorHub.Param param = new LoadErrorHub.Param();
-        param.readFields(dis);
-        load.setLoadErrorHubInfo(param);
-
-        // 4. load delete jobs
-        // Delete job has been moved to DeleteHandler. Here the jobSize is always 0, we need do nothing.
-        int deleteJobSize = dis.readInt();
-        Preconditions.checkState(deleteJobSize == 0, deleteJobSize);
-        newChecksum ^= deleteJobSize;
-
-        LOG.info("finished replay loadJob from image");
-        return newChecksum;
     }
 
     public long loadExportJob(DataInputStream dis, long checksum) throws IOException, DdlException {
@@ -4291,7 +4236,7 @@ public class Env {
     }
 
     // The caller need to hold the table write lock
-    public void modifyTableInMemoryMeta(Database db, OlapTable table, Map<String, String> properties) {
+    public void modifyTableProperties(Database db, OlapTable table, Map<String, String> properties) {
         Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
         TableProperty tableProperty = table.getTableProperty();
         if (tableProperty == null) {
@@ -4455,7 +4400,7 @@ public class Env {
 
     // Change current database of this session.
     public void changeDb(ConnectContext ctx, String qualifiedDb) throws DdlException {
-        if (!auth.checkDbPriv(ctx, qualifiedDb, PrivPredicate.SHOW)) {
+        if (!auth.checkDbPriv(ctx, ctx.getDefaultCatalog(), qualifiedDb, PrivPredicate.SHOW)) {
             ErrorReport.reportDdlException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, ctx.getQualifiedUser(), qualifiedDb);
         }
 

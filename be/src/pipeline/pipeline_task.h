@@ -177,9 +177,7 @@ public:
 
     std::string debug_string() const;
 
-    RuntimeState* runtime_state() { return _state; }
-
-    const uint32_t total_schedule_time() const { return _schedule_time; }
+    uint32_t total_schedule_time() const { return _schedule_time; }
 
     static constexpr auto THREAD_TIME_SLICE = 100'000'000L;
 

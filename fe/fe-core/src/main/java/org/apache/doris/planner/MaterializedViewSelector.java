@@ -27,6 +27,7 @@ import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableRef;
 import org.apache.doris.analysis.TupleDescriptor;
 import org.apache.doris.analysis.TupleId;
+import org.apache.doris.analysis.VirtualSlotRef;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -417,15 +418,18 @@ public class MaterializedViewSelector {
             boolean noNeedAggregation = candidateIndexMeta.getKeysType() == KeysType.DUP_KEYS
                     || (candidateIndexMeta.getKeysType() == KeysType.UNIQUE_KEYS
                             && table.getTableProperty().getEnableUniqueKeyMergeOnWrite());
-            if (!indexAggColumnExpsList.isEmpty() && selectStmt != null && selectStmt.getAggInfo() != null
-                    && selectStmt.getAggInfo().getSecondPhaseDistinctAggInfo() != null) {
-
-                List<FunctionCallExpr> distinctExprs = selectStmt.getAggInfo().getSecondPhaseDistinctAggInfo()
-                        .getAggregateExprs();
+            if (!indexAggColumnExpsList.isEmpty() && selectStmt != null && selectStmt.getAggInfo() != null) {
+                List<FunctionCallExpr> exprs;
+                if (selectStmt.getAggInfo().getSecondPhaseDistinctAggInfo() != null) {
+                    exprs = selectStmt.getAggInfo().getSecondPhaseDistinctAggInfo()
+                            .getAggregateExprs();
+                } else {
+                    exprs = selectStmt.getAggInfo().getAggregateExprs();
+                }
                 boolean match = false;
-                for (Expr distinctExpr : distinctExprs) {
+                for (Expr expr : exprs) {
                     for (Expr indexExpr : indexAggColumnExpsList) {
-                        if (distinctExpr.toSql() == indexExpr.toSql()) {
+                        if (expr.toSqlWithoutTbl() == indexExpr.toSqlWithoutTbl()) {
                             match = true;
                         }
                     }
@@ -476,15 +480,23 @@ public class MaterializedViewSelector {
             if (expr == null) {
                 throw new AnalysisException("match expr input null");
             }
-            String raw = MaterializedIndexMeta.normalizeName(expr.toSql());
+            if (expr.toSqlWithoutTbl() == null) {
+                throw new AnalysisException("expr.toSqlWithoutTbl() is null, expr.toSql()=" + expr.toSql());
+            }
+
+            if (expr instanceof VirtualSlotRef) {
+                continue;
+            }
+
+            String raw = MaterializedIndexMeta.normalizeName(expr.toSqlWithoutTbl());
             String withPrefix = CreateMaterializedViewStmt.mvColumnBuilder(raw);
             if (indexColumnNames.contains(raw) || indexColumnNames.contains(withPrefix)) {
                 continue;
             }
-            if (!expr.matchExprs(indexExprs)) {
-                return false;
+            if (expr.matchExprs(indexExprs, selectStmt, false)) {
+                continue;
             }
-
+            return false;
         }
         return true;
     }
@@ -496,6 +508,11 @@ public class MaterializedViewSelector {
         if (columnNamesInQueryOutput == null) {
             return;
         }
+        Set<String> queryColumnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+        List<Expr> exprs = selectStmt.getAllExprs();
+        columnNamesInQueryOutput
+                .forEach(name -> queryColumnNames.add(CreateMaterializedViewStmt.mvColumnBreaker(name)));
+
         Iterator<Map.Entry<Long, MaterializedIndexMeta>> iterator = candidateIndexIdToMeta.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<Long, MaterializedIndexMeta> entry = iterator.next();
@@ -503,15 +520,14 @@ public class MaterializedViewSelector {
 
             Set<String> indexColumnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
             candidateIndexSchema
-                    .forEach(column -> indexColumnNames.add(MaterializedIndexMeta.normalizeName(column.getName())));
+                    .forEach(column -> indexColumnNames.add(CreateMaterializedViewStmt
+                            .mvColumnBreaker(MaterializedIndexMeta.normalizeName(column.getName()))));
 
             List<Expr> indexExprs = new ArrayList<Expr>();
             candidateIndexSchema.forEach(column -> indexExprs.add(column.getDefineExpr()));
 
-            List<Expr> exprs = selectStmt.getAllExprs();
-
             // The columns in query output must be subset of the columns in SPJ view
-            if (indexColumnNames.containsAll(columnNamesInQueryOutput)) {
+            if (indexColumnNames.containsAll(queryColumnNames)) {
                 continue;
             }
             if (selectStmt.haveStar() || !matchAllExpr(exprs, indexColumnNames, indexExprs)) {

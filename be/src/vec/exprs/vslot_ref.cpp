@@ -58,8 +58,10 @@ Status VSlotRef::prepare(doris::RuntimeState* state, const doris::RowDescriptor&
     }
     _column_id = desc.get_column_id(_slot_id);
     if (_column_id < 0) {
-        LOG(INFO) << "VSlotRef - invalid slot id: " << _slot_id << " desc:" << desc.debug_string();
-        return Status::InternalError("VSlotRef - invalid slot id {}", _slot_id);
+        return Status::InternalError(
+                "VSlotRef have invalid slot id: {}, desc: {}, slot_desc: {}, desc_tbl: {}",
+                *_column_name, _slot_id, desc.debug_string(), slot_desc->debug_string(),
+                state->desc_tbl().debug_string());
     }
     return Status::OK();
 }

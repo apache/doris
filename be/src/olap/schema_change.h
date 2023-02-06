@@ -101,7 +101,7 @@ protected:
     virtual Status _inner_process(RowsetReaderSharedPtr rowset_reader, RowsetWriter* rowset_writer,
                                   TabletSharedPtr new_tablet, TabletSchemaSPtr base_tablet_schema) {
         return Status::NotSupported("inner process unsupported.");
-    };
+    }
 
     bool _check_row_nums(RowsetReaderSharedPtr reader, const RowsetWriter& writer) const {
         if (reader->rowset()->num_rows() != writer.num_rows() + _merged_rows + _filtered_rows) {

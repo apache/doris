@@ -35,7 +35,6 @@
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_filter_mgr.h"
 #include "util/file_utils.h"
-#include "util/load_error_hub.h"
 #include "util/pretty_printer.h"
 #include "util/timezone_utils.h"
 #include "util/uid_util.h"
@@ -54,7 +53,6 @@ RuntimeState::RuntimeState(const TUniqueId& fragment_instance_id,
           _unreported_error_idx(0),
           _is_cancelled(false),
           _per_fragment_instance_idx(0),
-          _root_node_id(-1),
           _num_rows_load_total(0),
           _num_rows_load_filtered(0),
           _num_rows_load_unselected(0),
@@ -80,7 +78,6 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
           _query_id(fragment_exec_params.query_id),
           _is_cancelled(false),
           _per_fragment_instance_idx(0),
-          _root_node_id(-1),
           _num_rows_load_total(0),
           _num_rows_load_filtered(0),
           _num_rows_load_unselected(0),
@@ -147,16 +144,11 @@ RuntimeState::RuntimeState()
 }
 
 RuntimeState::~RuntimeState() {
-    _block_mgr2.reset();
     // close error log file
     if (_error_log_file != nullptr && _error_log_file->is_open()) {
         _error_log_file->close();
         delete _error_log_file;
         _error_log_file = nullptr;
-    }
-
-    if (_error_hub != nullptr) {
-        _error_hub->close();
     }
 
     _obj_pool->clear();
@@ -219,16 +211,6 @@ Status RuntimeState::init_mem_trackers(const TUniqueId& query_id) {
     return Status::OK();
 }
 
-bool RuntimeState::error_log_is_empty() {
-    std::lock_guard<std::mutex> l(_error_log_lock);
-    return (_error_log.size() > 0);
-}
-
-std::string RuntimeState::error_log() {
-    std::lock_guard<std::mutex> l(_error_log_lock);
-    return boost::algorithm::join(_error_log, "\n");
-}
-
 bool RuntimeState::log_error(const std::string& error) {
     std::lock_guard<std::mutex> l(_error_log_lock);
 
@@ -273,19 +255,7 @@ Status RuntimeState::check_query_state(const std::string& msg) {
 const std::string ERROR_FILE_NAME = "error_log";
 const int64_t MAX_ERROR_NUM = 50;
 
-Status RuntimeState::create_load_dir() {
-    if (!_load_dir.empty()) {
-        return Status::OK();
-    }
-    RETURN_IF_ERROR(_exec_env->load_path_mgr()->allocate_dir(_db_name, _import_label, &_load_dir));
-    _load_dir += "/output";
-    return FileUtils::create_dir(_load_dir);
-}
-
 Status RuntimeState::create_error_log_file() {
-    // Make sure that load dir exists.
-    // create_load_dir();
-
     _exec_env->load_path_mgr()->get_load_error_file_name(
             _db_name, _import_label, _fragment_instance_id, &_error_log_file_path);
     // std::stringstream ss;
@@ -353,35 +323,8 @@ Status RuntimeState::append_error_msg_to_file(std::function<std::string()> line,
 
     if (out.size() > 0) {
         (*_error_log_file) << fmt::to_string(out) << std::endl;
-        export_load_error(fmt::to_string(out));
     }
     return Status::OK();
-}
-
-const int64_t HUB_MAX_ERROR_NUM = 10;
-
-void RuntimeState::export_load_error(const std::string& err_msg) {
-    if (_error_hub == nullptr) {
-        std::lock_guard<std::mutex> lock(_create_error_hub_lock);
-        if (_error_hub == nullptr) {
-            if (_load_error_hub_info == nullptr) {
-                return;
-            }
-
-            Status st = LoadErrorHub::create_hub(_exec_env, _load_error_hub_info.get(),
-                                                 _error_log_file_path, &_error_hub);
-            if (!st.ok()) {
-                LOG(WARNING) << "failed to create load error hub: " << st;
-                return;
-            }
-        }
-    }
-
-    if (_error_row_number <= HUB_MAX_ERROR_NUM) {
-        LoadErrorHub::ErrorMsg err(_load_job_id, err_msg);
-        // TODO(lingbin): think if should check return value?
-        _error_hub->export_error(err);
-    }
 }
 
 int64_t RuntimeState::get_load_mem_limit() {

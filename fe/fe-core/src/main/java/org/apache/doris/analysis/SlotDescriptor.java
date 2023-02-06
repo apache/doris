@@ -165,6 +165,10 @@ public class SlotDescriptor {
         this.originType = column.getOriginType();
     }
 
+    public void setSrcColumn(Column column) {
+        this.column = column;
+    }
+
     public boolean isMaterialized() {
         return isMaterialized;
     }

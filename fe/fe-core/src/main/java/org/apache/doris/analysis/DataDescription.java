@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -95,11 +96,14 @@ public class DataDescription {
             "substitute");
 
     private final String tableName;
+
+    private String dbName;
     private final PartitionNames partitionNames;
     private final List<String> filePaths;
     private final Separator columnSeparator;
     private String fileFormat;
     private TFileCompressType compressType = TFileCompressType.UNKNOWN;
+    private boolean clientLocal = false;
     private final boolean isNegative;
     // column names in the path
     private final List<String> columnsFromPath;
@@ -146,6 +150,8 @@ public class DataDescription {
     private final Expr deleteCondition;
     private final Map<String, String> properties;
     private boolean trimDoubleQuotes = false;
+    private boolean isMysqlLoad = false;
+    private int skipLines = 0;
 
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
@@ -219,6 +225,39 @@ public class DataDescription {
         this.properties = properties;
     }
 
+    // data desc for mysql client
+    public DataDescription(TableName tableName,
+                           PartitionNames partitionNames,
+                           String file,
+                           boolean clientLocal,
+                           List<String> columns,
+                           Separator columnSeparator,
+                           Separator lineDelimiter,
+                           int skipLines,
+                           List<Expr> columnMappingList,
+                           Map<String, String> properties) {
+        this.tableName = tableName.getTbl();
+        this.dbName = tableName.getDb();
+        this.partitionNames = partitionNames;
+        this.filePaths = Lists.newArrayList(file);
+        this.clientLocal = clientLocal;
+        this.fileFieldNames = columns;
+        this.columnSeparator = columnSeparator;
+        this.lineDelimiter = lineDelimiter;
+        this.skipLines = skipLines;
+        this.fileFormat = null;
+        this.columnsFromPath = null;
+        this.isNegative = false;
+        this.columnMappingList = columnMappingList;
+        this.precedingFilterExpr = null;
+        this.whereExpr = null;
+        this.srcTableName = null;
+        this.mergeType = null;
+        this.deleteCondition = null;
+        this.properties = properties;
+        this.isMysqlLoad = true;
+    }
+
     // For stream load using external file scan node.
     public DataDescription(String tableName, LoadTaskInfo taskInfo) {
         this.tableName = tableName;
@@ -252,6 +291,7 @@ public class DataDescription {
         this.numAsString = taskInfo.isNumAsString();
         this.properties = Maps.newHashMap();
         this.trimDoubleQuotes = taskInfo.getTrimDoubleQuotes();
+        this.skipLines = taskInfo.getSkipLines();
     }
 
     private void getFileFormatAndCompressType(LoadTaskInfo taskInfo) {
@@ -459,6 +499,10 @@ public class DataDescription {
         }
     }
 
+    public String getDbName() {
+        return dbName;
+    }
+
     public String getTableName() {
         return tableName;
     }
@@ -495,6 +539,13 @@ public class DataDescription {
             return null;
         }
         return fileFieldNames;
+    }
+
+    public List<Expr> getColumnMappingList() {
+        if (columnMappingList == null || columnMappingList.isEmpty()) {
+            return null;
+        }
+        return columnMappingList;
     }
 
     public String getFileFormat() {
@@ -631,6 +682,10 @@ public class DataDescription {
         return isHadoopLoad;
     }
 
+    public boolean isClientLocal() {
+        return clientLocal;
+    }
+
     public String getSrcTableName() {
         return srcTableName;
     }
@@ -645,6 +700,14 @@ public class DataDescription {
 
     public boolean getTrimDoubleQuotes() {
         return trimDoubleQuotes;
+    }
+
+    public Map<String, String> getProperties() {
+        return properties;
+    }
+
+    public int getSkipLines() {
+        return skipLines;
     }
 
     /*
@@ -846,7 +909,8 @@ public class DataDescription {
         Map<String, String> analysisMap = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         analysisMap.putAll(properties);
 
-        if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER)) {
+        // If lineDelimiter had assigned, do not get it from properties again.
+        if (lineDelimiter == null && analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER)) {
             lineDelimiter = new Separator(analysisMap.get(LoadStmt.KEY_IN_PARAM_LINE_DELIMITER));
             lineDelimiter.analyze();
         }
@@ -896,6 +960,21 @@ public class DataDescription {
         }
     }
 
+    public String analyzeFullDbName(String labelDbName, Analyzer analyzer) throws AnalysisException {
+        if (Strings.isNullOrEmpty(labelDbName)) {
+            String dbName = Strings.isNullOrEmpty(getDbName()) ? analyzer.getDefaultDb() : getDbName();
+            this.dbName = dbName;
+            if (Strings.isNullOrEmpty(dbName)) {
+                ErrorReport.reportAnalysisException(ErrorCode.ERR_NO_DB_ERROR);
+            }
+            return ClusterNamespace.getFullName(analyzer.getClusterName(), dbName);
+        } else {
+            // Get dbName from label.
+            this.dbName = ClusterNamespace.getNameFromFullName(labelDbName);
+            return labelDbName;
+        }
+    }
+
     public void analyze(String fullDbName) throws AnalysisException {
         if (mergeType != LoadTask.MergeType.MERGE && deleteCondition != null) {
             throw new AnalysisException("not support DELETE ON clause when merge type is not MERGE.");
@@ -925,6 +1004,10 @@ public class DataDescription {
 
         if (columnSeparator != null) {
             columnSeparator.analyze();
+        }
+
+        if (lineDelimiter != null) {
+            lineDelimiter.analyze();
         }
 
         if (partitionNames != null) {
@@ -985,7 +1068,10 @@ public class DataDescription {
 
     public String toSql() {
         StringBuilder sb = new StringBuilder();
-        if (isLoadFromTable()) {
+        if (isMysqlLoad) {
+            sb.append("DATA ").append(isClientLocal() ? "LOCAL " : "");
+            sb.append("INFILE '").append(filePaths.get(0)).append("'");
+        } else if (isLoadFromTable()) {
             sb.append(mergeType.toString());
             sb.append(" DATA FROM TABLE ").append(srcTableName);
         } else {
@@ -1001,13 +1087,16 @@ public class DataDescription {
         if (isNegative) {
             sb.append(" NEGATIVE");
         }
-        sb.append(" INTO TABLE ").append(tableName);
+        sb.append(" INTO TABLE ").append(isMysqlLoad ? dbName + "." + tableName : tableName);
         if (partitionNames != null) {
             sb.append(" ");
             sb.append(partitionNames.toSql());
         }
         if (columnSeparator != null) {
             sb.append(" COLUMNS TERMINATED BY ").append(columnSeparator.toSql());
+        }
+        if (lineDelimiter != null && isMysqlLoad) {
+            sb.append(" LINES TERMINATED BY ").append(lineDelimiter.toSql());
         }
         if (fileFormat != null && !fileFormat.isEmpty()) {
             sb.append(" FORMAT AS '" + fileFormat + "'");

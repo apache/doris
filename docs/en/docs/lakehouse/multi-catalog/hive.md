@@ -86,9 +86,12 @@ CREATE CATALOG hive PROPERTIES (
     'hadoop.kerberos.keytab' = '/your-keytab-filepath/your.keytab',   
     'hadoop.kerberos.principal' = 'your-principal@YOUR.COM',
     'yarn.resourcemanager.address' = 'your-rm-address:your-rm-port',    
-    'yarn.resourcemanager.principal' = 'your-rm-principal/_HOST@YOUR.COM'
+    'yarn.resourcemanager.principal' = 'your-rm-principal/your-rm-address@YOUR.COM'
 );
 ```
+
+Remember `krb5.conf` and `keytab` file should be placed at all `BE` nodes and `FE` nodes. The location of `keytab` file should be equal to the value of `hadoop.kerberos.keytab`.
+As default, `krb5.conf` should be placed at `/etc/krb5.conf`.
 
 To provide Hadoop KMS encrypted transmission information:
 

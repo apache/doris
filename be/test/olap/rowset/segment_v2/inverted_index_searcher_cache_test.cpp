@@ -17,18 +17,10 @@
 
 #include <gtest/gtest.h>
 
-#include "common/logging.h"
 #include "io/fs/local_file_system.h"
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "util/file_utils.h"
 #include "util/time.h"
-
-#define protected public
-#define private public
-
-#ifndef BE_TEST
-#define BE_TEST
-#endif
 
 namespace doris {
 namespace segment_v2 {

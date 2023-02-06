@@ -25,6 +25,7 @@
 #include "common/logging.h"
 #include "common/utils.h"
 #include "exec/text_converter.hpp"
+#include "io/cache/block/block_file_cache_profile.h"
 #include "olap/iterators.h"
 #include "runtime/descriptors.h"
 #include "runtime/raw_value.h"
@@ -49,7 +50,6 @@ VFileScanner::VFileScanner(RuntimeState* state, NewFileScanNode* parent, int64_t
           _next_range(0),
           _cur_reader(nullptr),
           _cur_reader_eof(false),
-          _mem_pool(std::make_unique<MemPool>()),
           _kv_cache(kv_cache),
           _strict_mode(false) {
     if (scan_range.params.__isset.strict_mode) {
@@ -77,6 +77,7 @@ Status VFileScanner::prepare(
     _io_ctx.reset(new IOContext());
     _io_ctx->file_cache_stats = _file_cache_statistics.get();
     _io_ctx->query_id = &_state->query_id();
+    _io_ctx->enable_file_cache = _state->query_options().enable_file_cache;
 
     if (vconjunct_ctx_ptr != nullptr) {
         // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.
@@ -750,6 +751,11 @@ Status VFileScanner::close(RuntimeState* state) {
 
     if (_push_down_expr) {
         _push_down_expr->close(state);
+    }
+
+    if (config::enable_file_cache) {
+        io::FileCacheProfileReporter cache_profile(_profile);
+        cache_profile.update(_file_cache_statistics.get());
     }
 
     RETURN_IF_ERROR(VScanner::close(state));

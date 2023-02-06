@@ -125,6 +125,15 @@ suite("test_join_nereids") {
     sql 'set enable_vectorized_engine=true;'
     sql 'set enable_fallback_to_original_planner=false;'
     sql 'set enable_nereids_planner=true;'
+    sql 'set parallel_fragment_exec_instance_num = 2;'
+
+    qt_agg_sql1 """select /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI')*/ count(distinct k1, NULL) from test;"""
+    qt_agg_sql2 """select /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI')*/ count(distinct k1, NULL), avg(k2) from baseall;"""
+    qt_agg_sql3 """select /*+SET_VAR(disable_nereids_rules='TWO_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI')*/ k1,count(distinct k2,k3),min(k4),count(*) from baseall group by k1 order by k1;"""
+
+    qt_agg_sql4 """select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI')*/ count(distinct k1, NULL) from test;"""
+    qt_agg_sql5 """select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI')*/ count(distinct k1, NULL), avg(k2) from baseall;"""
+    qt_agg_sql6 """select /*+SET_VAR(disable_nereids_rules='THREE_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI')*/ k1,count(distinct k2,k3),min(k4),count(*) from baseall group by k1 order by k1;"""
 
     order_sql """select j.*, d.* from ${tbName2} j full outer join ${tbName1} d on (j.k1=d.k1) order by j.k1, j.k2, j.k3, j.k4, d.k1, d.k2
             limit 100"""
@@ -277,9 +286,11 @@ suite("test_join_nereids") {
             on a.k1 = b.k1 and a.k2 > 0 order by 1, isnull(b.k1), 2, 3, 4, 5 limit 65535"""
     qt_left_join2"""select ${i} from ${tbName1} a left join ${tbName2} b 
             on a.k1 = b.k1 and a.k2 > b.k2 order by 1, isnull(b.k1), 2, 3, 4, 5 limit 65535"""
+    sql 'set batch_size = 3;'
     qt_left_join3"""select ${i} from ${tbName1} a left join ${tbName2} b on a.k2 = b.k2 and a.k1 > 0 
             left join ${tbName3} c on a.k3 = c.k3 and b.k1 = c.k1 + 1 and c.k3 > 0 
             order by 1, isnull(b.k1), 2, 3, 4, 5 limit 65535"""
+    sql 'set batch_size = 4064;'
 
     for (s in selected) {
         qt_left_join4"""select ${s} from ${tbName1} a left join ${tbName2} b 

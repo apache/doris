@@ -47,8 +47,7 @@ Status VInPredicate::prepare(RuntimeState* state, const RowDescriptor& desc,
     ColumnsWithTypeAndName argument_template;
     argument_template.reserve(_children.size());
     for (auto child : _children) {
-        auto column = child->data_type()->create_column();
-        argument_template.emplace_back(std::move(column), child->data_type(), child->expr_name());
+        argument_template.emplace_back(nullptr, child->data_type(), child->expr_name());
     }
 
     // construct the proper function_name

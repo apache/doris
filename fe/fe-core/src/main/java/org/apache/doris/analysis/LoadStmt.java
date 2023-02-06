@@ -37,6 +37,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import org.checkerframework.checker.nullness.qual.Nullable;
 
+import java.io.File;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
@@ -116,6 +117,8 @@ public class LoadStmt extends DdlStmt {
     public static final String KEY_IN_PARAM_FUNCTION_COLUMN = "function_column";
     public static final String KEY_IN_PARAM_SEQUENCE_COL = "sequence_col";
     public static final String KEY_IN_PARAM_BACKEND_ID = "backend_id";
+    public static final String KEY_SKIP_LINES = "skip_lines";
+
     private final LabelName label;
     private final List<DataDescription> dataDescriptions;
     private final BrokerDesc brokerDesc;
@@ -123,6 +126,8 @@ public class LoadStmt extends DdlStmt {
     private final ResourceDesc resourceDesc;
     private final Map<String, String> properties;
     private String user;
+
+    private boolean isMysqlLoad = false;
 
     private EtlJobType etlJobType = EtlJobType.UNKNOWN;
 
@@ -188,6 +193,17 @@ public class LoadStmt extends DdlStmt {
                 }
             })
             .build();
+
+    public LoadStmt(DataDescription dataDescription, Map<String, String> properties) {
+        this.label = new LabelName();
+        this.dataDescriptions = Lists.newArrayList(dataDescription);
+        this.brokerDesc = null;
+        this.cluster = null;
+        this.resourceDesc = null;
+        this.properties = properties;
+        this.user = null;
+        this.isMysqlLoad = true;
+    }
 
     public LoadStmt(LabelName label, List<DataDescription> dataDescriptions,
                     BrokerDesc brokerDesc, String cluster, Map<String, String> properties) {
@@ -326,7 +342,9 @@ public class LoadStmt extends DdlStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        label.analyze(analyzer);
+        if (!isMysqlLoad) {
+            label.analyze(analyzer);
+        }
         if (dataDescriptions == null || dataDescriptions.isEmpty()) {
             throw new AnalysisException("No data file in load statement.");
         }
@@ -335,15 +353,16 @@ public class LoadStmt extends DdlStmt {
         // case 2: one hive table, one data description
         boolean isLoadFromTable = false;
         for (DataDescription dataDescription : dataDescriptions) {
-            if (brokerDesc == null && resourceDesc == null) {
+            if (brokerDesc == null && resourceDesc == null && !isMysqlLoad) {
                 dataDescription.setIsHadoopLoad(true);
             }
-            dataDescription.analyze(label.getDbName());
+            String fullDbName = dataDescription.analyzeFullDbName(label.getDbName(), analyzer);
+            dataDescription.analyze(fullDbName);
 
             if (dataDescription.isLoadFromTable()) {
                 isLoadFromTable = true;
             }
-            Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(label.getDbName());
+            Database db = analyzer.getEnv().getInternalCatalog().getDbOrAnalysisException(fullDbName);
             OlapTable table = db.getOlapTableOrAnalysisException(dataDescription.getTableName());
             if (dataDescription.getMergeType() != LoadTask.MergeType.APPEND
                     && table.getKeysType() != KeysType.UNIQUE_KEYS) {
@@ -370,6 +389,15 @@ public class LoadStmt extends DdlStmt {
             }
         }
 
+        // mysql load only have one data desc.
+        if (isMysqlLoad && !dataDescriptions.get(0).isClientLocal()) {
+            for (String path : dataDescriptions.get(0).getFilePaths()) {
+                if (!new File(path).exists()) {
+                    throw new AnalysisException("Path: " + path + " is not exists.");
+                }
+            }
+        }
+
         if (resourceDesc != null) {
             resourceDesc.analyze();
             etlJobType = resourceDesc.getEtlJobType();
@@ -383,6 +411,8 @@ public class LoadStmt extends DdlStmt {
             }
         } else if (brokerDesc != null) {
             etlJobType = EtlJobType.BROKER;
+        } else if (isMysqlLoad) {
+            etlJobType = EtlJobType.LOCAL_FILE;
         } else {
             // if cluster is null, use default hadoop cluster
             // if cluster is not null, use this hadoop cluster

@@ -34,6 +34,7 @@ import org.apache.doris.thrift.TSlotRef;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -111,8 +112,6 @@ public class SlotRef extends Expr {
     }
 
     public SlotDescriptor getDesc() {
-        Preconditions.checkState(isAnalyzed);
-        Preconditions.checkNotNull(desc);
         return desc;
     }
 
@@ -229,6 +228,10 @@ public class SlotRef extends Expr {
 
     @Override
     public String toSqlImpl() {
+        if (disableTableName && label != null) {
+            return label;
+        }
+
         StringBuilder sb = new StringBuilder();
 
         if (tblName != null) {
@@ -245,13 +248,15 @@ public class SlotRef extends Expr {
                 return label;
             }
         } else if (desc.getSourceExprs() != null) {
-            if (ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId()) {
+            if (!disableTableName && (ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId())) {
                 if (desc.getId().asInt() != 1) {
                     sb.append("<slot " + desc.getId().asInt() + ">");
                 }
             }
             for (Expr expr : desc.getSourceExprs()) {
-                sb.append(" ");
+                if (!disableTableName) {
+                    sb.append(" ");
+                }
                 sb.append(expr.toSql());
             }
             return sb.toString();
@@ -350,6 +355,10 @@ public class SlotRef extends Expr {
 
     @Override
     protected boolean isConstantImpl() {
+        if (desc != null) {
+            List<Expr> exprs = desc.getSourceExprs();
+            return CollectionUtils.isNotEmpty(exprs) && exprs.stream().allMatch(Expr::isConstant);
+        }
         return false;
     }
 

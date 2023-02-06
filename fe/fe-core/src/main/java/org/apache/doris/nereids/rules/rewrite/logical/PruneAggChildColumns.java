@@ -32,7 +32,6 @@ import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * prune its child output according to agg.
@@ -65,7 +64,7 @@ public class PruneAggChildColumns extends OneRewriteRuleFactory {
             }
             Set<Slot> aggInputSlots = agg.getInputSlots();
             List<NamedExpression> prunedOutputs = childOutput.stream().filter(aggInputSlots::contains)
-                    .collect(Collectors.toList());
+                    .collect(ImmutableList.toImmutableList());
             if (prunedOutputs.size() == agg.child().getOutput().size()) {
                 return agg;
             }

@@ -271,4 +271,13 @@ public class ShowPartitionsStmt extends ShowStmt {
         return toSql();
     }
 
+    @Override
+    public RedirectStatus getRedirectStatus() {
+        if (ConnectContext.get().getSessionVariable().getForwardToMaster()) {
+            return RedirectStatus.FORWARD_NO_SYNC;
+        } else {
+            return RedirectStatus.NO_FORWARD;
+        }
+    }
+
 }

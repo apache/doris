@@ -36,6 +36,10 @@ public class MockedAuth {
                 minTimes = 0;
                 result = true;
 
+                auth.checkDbPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                minTimes = 0;
+                result = true;
+
                 auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;

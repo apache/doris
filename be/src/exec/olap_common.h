@@ -27,7 +27,7 @@
 
 #include "exec/olap_utils.h"
 #include "olap/olap_common.h"
-#include "olap/tuple.h"
+#include "olap/olap_tuple.h"
 #include "runtime/primitive_type.h"
 #include "runtime/type_limit.h"
 #include "vec/io/io_helper.h"
@@ -336,7 +336,7 @@ public:
             set_whole_value_range();
         }
         _contain_null = contain_null;
-    };
+    }
 
     int precision() const { return _precision; }
 

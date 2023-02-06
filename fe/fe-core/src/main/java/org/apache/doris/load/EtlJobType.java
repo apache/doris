@@ -24,5 +24,6 @@ public enum EtlJobType {
     BROKER,
     DELETE,
     SPARK,
+    LOCAL_FILE,
     UNKNOWN
 }

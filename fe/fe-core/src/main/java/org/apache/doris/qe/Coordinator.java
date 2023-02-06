@@ -37,7 +37,6 @@ import org.apache.doris.common.util.ProfileWriter;
 import org.apache.doris.common.util.RuntimeProfile;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.VectorizedUtil;
-import org.apache.doris.load.LoadErrorHub;
 import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.planner.DataPartition;
@@ -78,7 +77,6 @@ import org.apache.doris.thrift.TErrorTabletInfo;
 import org.apache.doris.thrift.TEsScanRange;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TExecPlanFragmentParamsList;
-import org.apache.doris.thrift.TLoadErrorHubInfo;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPlanFragmentDestination;
@@ -994,6 +992,10 @@ public class Coordinator {
     // fragment,
     // if any, as well as all plan fragments on remote nodes.
     public void cancel() {
+        cancel(Types.PPlanFragmentCancelReason.USER_CANCEL);
+    }
+
+    public void cancel(Types.PPlanFragmentCancelReason cancelReason) {
         lock();
         try {
             if (!queryStatus.ok()) {
@@ -1003,7 +1005,7 @@ public class Coordinator {
                 queryStatus.setStatus(Status.CANCELLED);
             }
             LOG.warn("cancel execution of query, this is outside invoke");
-            cancelInternal(Types.PPlanFragmentCancelReason.USER_CANCEL);
+            cancelInternal(cancelReason);
         } finally {
             unlock();
         }
@@ -1613,24 +1615,23 @@ public class Coordinator {
     // Populates scan_range_assignment_.
     // <fragment, <server, nodeId>>
     private void computeScanRangeAssignment() throws Exception {
+        if (isPointQuery) {
+            // Fast path for evaluate Backend for point query
+            List<TScanRangeLocations> locations = ((OlapScanNode) scanNodes.get(0)).lazyEvaluateRangeLocations();
+            Preconditions.checkNotNull(locations);
+            return;
+        }
         Map<TNetworkAddress, Long> assignedBytesPerHost = Maps.newHashMap();
         Map<TNetworkAddress, Long> replicaNumPerHost = getReplicaNumPerHost();
         Collections.shuffle(scanNodes);
         // set scan ranges/locations for scan nodes
         for (ScanNode scanNode : scanNodes) {
             List<TScanRangeLocations> locations;
-            if (isPointQuery) {
-                // Fast path for evaluate Backend for point query
-                locations = ((OlapScanNode) scanNode).lazyEvaluateRangeLocations();
-                Preconditions.checkNotNull(locations);
-                return;
-            } else {
-                // the parameters of getScanRangeLocations may ignore, It doesn't take effect
-                locations = scanNode.getScanRangeLocations(0);
-                if (locations == null) {
-                    // only analysis olap scan node
-                    continue;
-                }
+            // the parameters of getScanRangeLocations may ignore, It doesn't take effect
+            locations = scanNode.getScanRangeLocations(0);
+            if (locations == null) {
+                // only analysis olap scan node
+                continue;
             }
             Collections.shuffle(locations);
             Set<Integer> scanNodeIds = fragmentIdToScanNodeIds.computeIfAbsent(scanNode.getFragmentId(),
@@ -2476,15 +2477,6 @@ public class Coordinator {
                     for (RuntimeFilter rf : assignedRuntimeFilters) {
                         params.params.runtime_filter_params.putToRidToRuntimeFilter(
                                 rf.getFilterId().asInt(), rf.toThrift());
-                    }
-                }
-                if (queryOptions.getQueryType() == TQueryType.LOAD) {
-                    LoadErrorHub.Param param = Env.getCurrentEnv().getLoadInstance().getLoadErrorHubInfo();
-                    if (param != null) {
-                        TLoadErrorHubInfo info = param.toThrift();
-                        if (info != null) {
-                            params.setLoadErrorHubInfo(info);
-                        }
                     }
                 }
                 paramsList.add(params);

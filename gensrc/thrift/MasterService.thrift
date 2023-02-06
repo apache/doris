@@ -101,6 +101,8 @@ struct TReportRequest {
     // the max compaction score of all tablets on a backend,
     // this field should be set along with tablet report
     8: optional i64 tablet_max_compaction_score
+    9: optional list<AgentService.TStoragePolicy> storage_policy // only id and version
+    10: optional list<AgentService.TStorageResource> resource // only id and version
 }
 
 struct TMasterResult {

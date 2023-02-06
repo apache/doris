@@ -466,8 +466,12 @@ Status SegmentIterator::_execute_predicates_except_leafnode_of_andnode(vectorize
     } else if (_is_literal_node(node_type)) {
         auto v_literal_expr = dynamic_cast<doris::vectorized::VLiteral*>(expr);
         _column_predicate_info->query_value = v_literal_expr->value();
-    } else if (node_type == TExprNodeType::BINARY_PRED) {
-        _column_predicate_info->query_op = expr->fn().name.function_name;
+    } else if (node_type == TExprNodeType::BINARY_PRED || node_type == TExprNodeType::MATCH_PRED) {
+        if (node_type == TExprNodeType::MATCH_PRED) {
+            _column_predicate_info->query_op = "match";
+        } else {
+            _column_predicate_info->query_op = expr->fn().name.function_name;
+        }
         // get child condition result in compound condtions
         auto pred_result_sign = _gen_predicate_result_sign(_column_predicate_info.get());
         _column_predicate_info.reset(new ColumnPredicateInfo());
@@ -536,9 +540,13 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred) {
     int32_t unique_id = _schema.unique_id(pred->column_id());
     if (_inverted_index_iterators.count(unique_id) < 1 ||
         _inverted_index_iterators[unique_id] == nullptr ||
-        (pred->type() != PredicateType::MATCH && handle_by_fulltext)) {
+        (pred->type() != PredicateType::MATCH && handle_by_fulltext) ||
+        pred->type() == PredicateType::IS_NULL || pred->type() == PredicateType::IS_NOT_NULL ||
+        pred->type() == PredicateType::BF) {
         // 1. this column without inverted index
         // 2. equal or range qeury for fulltext index
+        // 3. is_null or is_not_null predicate
+        // 4. bloom filter predicate
         return false;
     }
     return true;
@@ -627,12 +635,9 @@ bool SegmentIterator::_is_handle_predicate_by_fulltext(ColumnPredicate* predicat
     auto column_id = predicate->column_id();
     int32_t unique_id = _schema.unique_id(column_id);
     bool handle_by_fulltext =
-            (_inverted_index_iterators[unique_id] != nullptr) &&
-            (is_string_type(_schema.column(column_id)->type())) &&
-            ((_inverted_index_iterators[unique_id]->get_inverted_index_analyser_type() ==
-              InvertedIndexParserType::PARSER_ENGLISH) ||
-             (_inverted_index_iterators[unique_id]->get_inverted_index_analyser_type() ==
-              InvertedIndexParserType::PARSER_STANDARD));
+            _inverted_index_iterators[unique_id] != nullptr &&
+            _inverted_index_iterators[unique_id]->get_inverted_index_reader_type() ==
+                    InvertedIndexReaderType::FULLTEXT;
 
     return handle_by_fulltext;
 }
@@ -647,9 +652,13 @@ Status SegmentIterator::_apply_inverted_index() {
         int32_t unique_id = _schema.unique_id(pred->column_id());
         if (_inverted_index_iterators.count(unique_id) < 1 ||
             _inverted_index_iterators[unique_id] == nullptr ||
-            (pred->type() != PredicateType::MATCH && handle_by_fulltext)) {
+            (pred->type() != PredicateType::MATCH && handle_by_fulltext) ||
+            pred->type() == PredicateType::IS_NULL || pred->type() == PredicateType::IS_NOT_NULL ||
+            pred->type() == PredicateType::BF) {
             // 1. this column no inverted index
             // 2. equal or range for fulltext index
+            // 3. is_null or is_not_null predicate
+            // 4. bloom filter predicate
             remaining_predicates.push_back(pred);
         } else {
             roaring::Roaring bitmap = _row_bitmap;
@@ -960,7 +969,13 @@ void SegmentIterator::_vec_init_lazy_materialization() {
     }
 
     // add runtime predicate to _col_predicates
-    if (_opts.use_topn_opt) {
+    // should NOT add for order by key,
+    //  since key is already sorted and topn_next only need first N rows from each segment,
+    //  but runtime predicate will filter some rows and read more than N rows.
+    // should add add for order by none-key column, since none-key column is not sorted and
+    //  all rows should be read, so runtime predicate will reduce rows for topn node
+    if (_opts.use_topn_opt &&
+        !(_opts.read_orderby_key_columns != nullptr && !_opts.read_orderby_key_columns->empty())) {
         auto& runtime_predicate =
                 _opts.runtime_state->get_query_fragments_ctx()->get_runtime_predicate();
         _runtime_predicate = runtime_predicate.get_predictate();

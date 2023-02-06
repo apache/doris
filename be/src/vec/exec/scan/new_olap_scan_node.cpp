@@ -338,8 +338,6 @@ void NewOlapScanNode::set_scan_ranges(const std::vector<TScanRangeParams>& scan_
         COUNTER_UPDATE(_tablet_counter, 1);
     }
     // telemetry::set_current_span_attribute(_tablet_counter);
-
-    return;
 }
 
 std::string NewOlapScanNode::get_name() {

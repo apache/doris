@@ -63,7 +63,7 @@ public class MTMVUtils {
         PENDING, RUNNING, FAILURE, SUCCESS,
     }
 
-    enum TaskSubmitStatus {
+    public enum TaskSubmitStatus {
         SUBMITTED, REJECTED, FAILED
     }
 
@@ -85,7 +85,6 @@ public class MTMVUtils {
         return getDelaySeconds(job, LocalDateTime.now());
     }
 
-    // this method only for test
     public static long getDelaySeconds(MTMVJob job, LocalDateTime now) {
         long lastModifyTime = job.getLastModifyTime();
         long nextTime = 0;
@@ -117,10 +116,10 @@ public class MTMVUtils {
         switch (strTimeUnit.toUpperCase()) {
             case "SECOND":
                 return TimeUnit.SECONDS;
+            case "MINUTE":
+                return TimeUnit.MINUTES;
             case "HOUR":
                 return TimeUnit.HOURS;
-            case "DAY":
-                return TimeUnit.DAYS;
             default:
                 return TimeUnit.DAYS;
         }

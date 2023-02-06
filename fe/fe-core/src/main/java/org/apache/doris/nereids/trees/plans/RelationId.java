@@ -26,6 +26,7 @@ import java.util.Objects;
  * relation id
  */
 public class RelationId extends Id<RelationId> {
+
     public RelationId(int id) {
         super(id);
     }

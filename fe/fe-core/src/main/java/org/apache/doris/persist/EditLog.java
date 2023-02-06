@@ -529,8 +529,8 @@ public class EditLog {
                     break;
                 }
                 case OperationType.OP_SET_LOAD_ERROR_HUB: {
-                    final LoadErrorHub.Param param = (LoadErrorHub.Param) journal.getData();
-                    env.getLoadInstance().setLoadErrorHubInfo(param);
+                    // final LoadErrorHub.Param param = (LoadErrorHub.Param) journal.getData();
+                    // ignore load error hub
                     break;
                 }
                 case OperationType.OP_UPDATE_CLUSTER_AND_BACKENDS: {
@@ -882,7 +882,7 @@ public class EditLog {
                     env.getMTMVJobManager().replayCreateJob(job);
                     break;
                 }
-                case OperationType.OP_ALTER_MTMV_JOB: {
+                case OperationType.OP_CHANGE_MTMV_JOB: {
                     final ChangeMTMVJob changeJob = (ChangeMTMVJob) journal.getData();
                     env.getMTMVJobManager().replayUpdateJob(changeJob);
                     break;
@@ -897,7 +897,7 @@ public class EditLog {
                     env.getMTMVJobManager().replayCreateJobTask(task);
                     break;
                 }
-                case OperationType.OP_ALTER_MTMV_TASK: {
+                case OperationType.OP_CHANGE_MTMV_TASK: {
                     final ChangeMTMVTask changeTask = (ChangeMTMVTask) journal.getData();
                     env.getMTMVJobManager().replayUpdateTask(changeTask);
                     break;
@@ -1618,27 +1618,27 @@ public class EditLog {
         logEdit(id, log);
     }
 
-    public void logCreateScheduleJob(MTMVJob job) {
+    public void logCreateMTMVJob(MTMVJob job) {
         logEdit(OperationType.OP_CREATE_MTMV_JOB, job);
     }
 
-    public void logDropScheduleJob(List<Long> jobIds) {
+    public void logDropMTMVJob(List<Long> jobIds) {
         logEdit(OperationType.OP_DROP_MTMV_JOB, new DropMTMVJob(jobIds));
     }
 
-    public void logChangeScheduleJob(ChangeMTMVJob changeJob) {
-        logEdit(OperationType.OP_ALTER_MTMV_JOB, changeJob);
+    public void logChangeMTMVJob(ChangeMTMVJob changeJob) {
+        logEdit(OperationType.OP_CHANGE_MTMV_JOB, changeJob);
     }
 
-    public void logCreateScheduleTask(MTMVTask task) {
+    public void logCreateMTMVTask(MTMVTask task) {
         logEdit(OperationType.OP_CREATE_MTMV_TASK, task);
     }
 
-    public void logAlterScheduleTask(ChangeMTMVTask changeTaskRecord) {
-        logEdit(OperationType.OP_ALTER_MTMV_TASK, changeTaskRecord);
+    public void logChangeMTMVTask(ChangeMTMVTask changeTaskRecord) {
+        logEdit(OperationType.OP_CHANGE_MTMV_TASK, changeTaskRecord);
     }
 
-    public void logAlterScheduleTask(List<String> taskIds) {
+    public void logDropMTMVTasks(List<String> taskIds) {
         logEdit(OperationType.OP_DROP_MTMV_TASK, new DropMTMVTask(taskIds));
     }
 

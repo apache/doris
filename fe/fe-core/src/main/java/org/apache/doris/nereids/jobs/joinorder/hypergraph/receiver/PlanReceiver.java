@@ -17,23 +17,48 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver;
 
+import org.apache.doris.nereids.jobs.JobContext;
+import org.apache.doris.nereids.jobs.cascades.CostAndEnforcerJob;
+import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.Edge;
+import org.apache.doris.nereids.jobs.joinorder.hypergraph.HyperGraph;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
+import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.memo.Memo;
+import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.properties.PhysicalProperties;
-import org.apache.doris.nereids.stats.StatsCalculator;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.JoinHint;
+import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 
 import java.util.ArrayList;
+import java.util.BitSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * The Receiver is used for cached the plan that has been emitted and build the new plan
@@ -41,16 +66,31 @@ import java.util.List;
 public class PlanReceiver implements AbstractReceiver {
     // limit define the max number of csg-cmp pair in this Receiver
     HashMap<Long, Group> planTable = new HashMap<>();
+    HashMap<Long, BitSet> usdEdges = new HashMap<>();
+    HashMap<Long, List<NamedExpression>> projectsOnSubgraph = new HashMap<>();
     int limit;
     int emitCount = 0;
 
+    JobContext jobContext;
+
+    HyperGraph hyperGraph;
+    final Set<Slot> finalOutputs;
+
     public PlanReceiver() {
-        limit = Integer.MAX_VALUE;
+        throw new RuntimeException("");
     }
 
     public PlanReceiver(int limit) {
-        this.limit = limit;
+        throw new RuntimeException("");
     }
+
+    public PlanReceiver(JobContext jobContext, int limit, HyperGraph hyperGraph, Set<Slot> outputs) {
+        this.jobContext = jobContext;
+        this.limit = limit;
+        this.hyperGraph = hyperGraph;
+        this.finalOutputs = outputs;
+    }
+
 
     /**
      * Emit a new plan from bottom to top
@@ -61,39 +101,126 @@ public class PlanReceiver implements AbstractReceiver {
      * @return the left and the right can be connected by the edge
      */
     @Override
-    public boolean emitCsgCmp(long left, long right, List<Edge> edges,
-            HashMap<Long, NamedExpression> projectExpression) {
+    public boolean emitCsgCmp(long left, long right, List<Edge> edges) {
         Preconditions.checkArgument(planTable.containsKey(left));
         Preconditions.checkArgument(planTable.containsKey(right));
+
+        Memo memo = jobContext.getCascadesContext().getMemo();
         emitCount += 1;
         if (emitCount > limit) {
             return false;
         }
+
+        GroupPlan leftPlan = new GroupPlan(planTable.get(left));
+        GroupPlan rightPlan = new GroupPlan(planTable.get(right));
+
+        // First, we implement all possible physical plans
+        // In this step, we don't generate logical expression because they are useless in DPhyp.
+        List<Expression> hashConjuncts = new ArrayList<>();
+        List<Expression> otherConjuncts = new ArrayList<>();
+        JoinType joinType = extractJoinTypeAndConjuncts(edges, hashConjuncts, otherConjuncts);
         long fullKey = LongBitmap.newBitmapUnion(left, right);
-        Group group1 = constructGroup(left, right, edges);
-        Group group2 = constructGroup(right, left, edges);
-        Group winnerGroup;
-        if (group1.getLogicalExpression().getCostByProperties(PhysicalProperties.ANY) < group2.getLogicalExpression()
-                .getCostByProperties(PhysicalProperties.ANY)) {
-            winnerGroup = group1;
-        } else {
-            winnerGroup = group2;
+
+        List<Plan> physicalJoins = proposeAllPhysicalJoins(joinType, leftPlan, rightPlan, hashConjuncts,
+                otherConjuncts);
+        List<Plan> physicalPlans = proposeProject(physicalJoins, edges, left, right);
+
+        // Second, we copy all physical plan to Group and generate properties and calculate cost
+        if (!planTable.containsKey(fullKey)) {
+            planTable.put(fullKey, memo.newGroup(physicalPlans.get(0).getLogicalProperties()));
+        }
+        Group group = planTable.get(fullKey);
+        for (Plan plan : physicalPlans) {
+            CopyInResult copyInResult = memo.copyIn(plan, group, false);
+            GroupExpression physicalExpression = copyInResult.correspondingExpression;
+            proposeAllDistributedPlans(physicalExpression);
         }
 
-        if (!planTable.containsKey(fullKey)
-                || planTable.get(fullKey).getLogicalExpression().getCostByProperties(PhysicalProperties.ANY)
-                > winnerGroup.getLogicalExpression().getCostByProperties(PhysicalProperties.ANY)) {
-            // When we decide to store the new Plan, we need to add the complex project to it.
-            winnerGroup = tryAddProject(winnerGroup, projectExpression, fullKey);
-            planTable.put(fullKey, winnerGroup);
-        }
         return true;
+    }
 
+    private Set<Slot> calculateRequiredSlots(long left, long right, List<Edge> edges) {
+        Set<Slot> outputSlots = new HashSet<>(this.finalOutputs);
+        BitSet usedEdgesBitmap = new BitSet();
+        usedEdgesBitmap.or(usdEdges.get(left));
+        usedEdgesBitmap.or(usdEdges.get(right));
+        for (Edge edge : edges) {
+            usedEdgesBitmap.set(edge.getIndex());
+        }
+        // required output slots = final outputs + slot of unused edges
+        usdEdges.put(LongBitmap.newBitmapUnion(left, right), usedEdgesBitmap);
+        for (Edge edge : hyperGraph.getEdges()) {
+            if (!usedEdgesBitmap.get(edge.getIndex())) {
+                outputSlots.addAll(edge.getExpression().getInputSlots());
+            }
+        }
+        hyperGraph.getComplexProject()
+                .values()
+                .stream()
+                .flatMap(l -> l.stream())
+                .forEach(expr -> outputSlots.addAll(expr.getInputSlots()));
+        return outputSlots;
+    }
+
+    private void proposeAllDistributedPlans(GroupExpression groupExpression) {
+        jobContext.getCascadesContext().pushJob(new CostAndEnforcerJob(groupExpression,
+                new JobContext(jobContext.getCascadesContext(), PhysicalProperties.ANY, Double.MAX_VALUE)));
+        if (!groupExpression.isStatDerived()) {
+            jobContext.getCascadesContext().pushJob(new DeriveStatsJob(groupExpression,
+                    jobContext.getCascadesContext().getCurrentJobContext()));
+        }
+        jobContext.getCascadesContext().getJobScheduler().executeJobPool(jobContext.getCascadesContext());
+    }
+
+    private List<Plan> proposeAllPhysicalJoins(JoinType joinType, Plan left, Plan right, List<Expression> hashConjuncts,
+            List<Expression> otherConjuncts) {
+        // Check whether only NSL can be performed
+        LogicalProperties joinProperties = new LogicalProperties(
+                () -> JoinUtils.getJoinOutput(joinType, left, right));
+        if (JoinUtils.shouldNestedLoopJoin(joinType, hashConjuncts)) {
+            return Lists.newArrayList(
+                    new PhysicalNestedLoopJoin<>(joinType, hashConjuncts, otherConjuncts, joinProperties, left,
+                            right),
+                    new PhysicalNestedLoopJoin<>(joinType.swap(), hashConjuncts, otherConjuncts, joinProperties,
+                            right, left));
+        } else {
+            return Lists.newArrayList(
+                    new PhysicalHashJoin<>(joinType, hashConjuncts, otherConjuncts, JoinHint.NONE, joinProperties,
+                            left,
+                            right),
+                    new PhysicalHashJoin<>(joinType.swap(), hashConjuncts, otherConjuncts, JoinHint.NONE,
+                            joinProperties,
+                            right, left));
+        }
+    }
+
+    private JoinType extractJoinTypeAndConjuncts(List<Edge> edges, List<Expression> hashConjuncts,
+            List<Expression> otherConjuncts) {
+        JoinType joinType = null;
+        for (Edge edge : edges) {
+            Preconditions.checkArgument(joinType == null || joinType == edge.getJoinType());
+            joinType = edge.getJoinType();
+            Expression expression = edge.getExpression();
+            if (expression instanceof EqualTo) {
+                hashConjuncts.add(edge.getExpression());
+            } else {
+                otherConjuncts.add(expression);
+            }
+        }
+        return joinType;
     }
 
     @Override
     public void addGroup(long bitmap, Group group) {
+        Preconditions.checkArgument(LongBitmap.getCardinality(bitmap) == 1);
+        usdEdges.put(bitmap, new BitSet());
+        Plan plan = proposeProject(Lists.newArrayList(new GroupPlan(group)), new ArrayList<>(), bitmap, bitmap).get(0);
+        if (!(plan instanceof GroupPlan)) {
+            CopyInResult copyInResult = jobContext.getCascadesContext().getMemo().copyIn(plan, null, false);
+            group = copyInResult.correspondingExpression.getOwnerGroup();
+        }
         planTable.put(bitmap, group);
+        usdEdges.put(bitmap, new BitSet());
     }
 
     @Override
@@ -110,68 +237,110 @@ public class PlanReceiver implements AbstractReceiver {
     @Override
     public Group getBestPlan(long bitmap) {
         Preconditions.checkArgument(planTable.containsKey(bitmap));
-        return planTable.get(bitmap);
+        Group root = planTable.get(bitmap);
+        // If there are some rules relied on the logical join, we need to make logical Expression
+        // However, it cost 15% of total optimized time.
+        makeLogicalExpression(root);
+        return root;
     }
 
-    private double getSimpleCost(Group group) {
-        if (!group.isJoinGroup()) {
-            return group.getStatistics().getRowCount();
+    private void makeLogicalExpression(Group root) {
+        if (!root.getLogicalExpressions().isEmpty()) {
+            return;
         }
-        return group.getLogicalExpression().getCostByProperties(PhysicalProperties.ANY);
-    }
 
-    private Group tryAddProject(Group group, HashMap<Long, NamedExpression> projectExpression, long fullKey) {
-        List<NamedExpression> projects = new ArrayList<>();
-        List<Long> removedKey = new ArrayList<>();
-        for (Long bitmap : projectExpression.keySet()) {
-            if (LongBitmap.isSubset(bitmap, fullKey)) {
-                NamedExpression namedExpression = projectExpression.get(bitmap);
-                projects.add(namedExpression);
-                removedKey.add(bitmap);
+        // only makeLogicalExpression for those winners
+        Set<GroupExpression> hasGenerated = new HashSet<>();
+        for (PhysicalProperties physicalProperties : root.getAllProperties()) {
+            GroupExpression groupExpression = root.getBestPlan(physicalProperties);
+            if (hasGenerated.contains(groupExpression) || groupExpression.getPlan() instanceof PhysicalDistribute) {
+                continue;
+            }
+            hasGenerated.add(groupExpression);
+
+            // process child first
+            Plan physicalPlan = groupExpression.getPlan();
+            for (Group child : groupExpression.children()) {
+                makeLogicalExpression(child);
+            }
+
+            Plan logicalPlan;
+            if (physicalPlan instanceof PhysicalProject) {
+                PhysicalProject physicalProject = (PhysicalProject) physicalPlan;
+                logicalPlan = new LogicalProject<>(physicalProject.getProjects(),
+                        physicalProject.child(0));
+            } else if (physicalPlan instanceof AbstractPhysicalJoin) {
+                AbstractPhysicalJoin physicalJoin = (AbstractPhysicalJoin) physicalPlan;
+                logicalPlan = new LogicalJoin<>(physicalJoin.getJoinType(), physicalJoin.getHashJoinConjuncts(),
+                        physicalJoin.getOtherJoinConjuncts(), JoinHint.NONE, physicalJoin.child(0),
+                        physicalJoin.child(1));
+            } else {
+                throw new RuntimeException("DPhyp can only handle join and project operator");
+            }
+            // shadow all join order rule
+            CopyInResult copyInResult = jobContext.getCascadesContext().getMemo().copyIn(logicalPlan, root, false);
+            for (Rule rule : jobContext.getCascadesContext().getRuleSet().getJoinOrderRule()) {
+                copyInResult.correspondingExpression.setApplied(rule);
+            }
+            for (Rule rule : jobContext.getCascadesContext().getRuleSet().getImplementationRules()) {
+                copyInResult.correspondingExpression.setApplied(rule);
             }
         }
-        for (Long bitmap : removedKey) {
-            projectExpression.remove(bitmap);
-        }
-        if (projects.size() != 0) {
-            LogicalProject logicalProject = new LogicalProject<>(projects,
-                    group.getLogicalExpression().getPlan());
-            GroupExpression groupExpression = new GroupExpression(logicalProject, Lists.newArrayList(group));
-            groupExpression.updateLowestCostTable(PhysicalProperties.ANY,
-                    Lists.newArrayList(PhysicalProperties.ANY, PhysicalProperties.ANY),
-                    group.getLogicalExpression().getCostByProperties(PhysicalProperties.ANY));
-            // FIXME: use wrong constructor
-            Group projectGroup = new Group(null, groupExpression, null);
-            StatsCalculator.estimate(groupExpression);
-            return projectGroup;
-        }
-        return group;
     }
 
-    private Group constructGroup(long left, long right, List<Edge> edges) {
-        Preconditions.checkArgument(planTable.containsKey(left));
-        Preconditions.checkArgument(planTable.containsKey(right));
-        Group leftGroup = planTable.get(left);
-        Group rightGroup = planTable.get(right);
+    private List<Plan> proposeProject(List<Plan> allChild, List<Edge> edges, long left, long right) {
+        long fullKey = LongBitmap.newBitmapUnion(left, right);
+        List<Slot> outputs = allChild.get(0).getOutput();
+        Set<Slot> outputSet = allChild.get(0).getOutputSet();
+        if (!projectsOnSubgraph.containsKey(fullKey)) {
+            List<NamedExpression> projects = new ArrayList<>();
+            // Calculate complex expression
+            Map<Long, List<NamedExpression>> complexExpressionMap = hyperGraph.getComplexProject();
+            List<Long> bitmaps = complexExpressionMap.keySet().stream()
+                    .filter(bitmap -> LongBitmap.isSubset(bitmap, fullKey)).collect(Collectors.toList());
 
-        double cost = getSimpleCost(leftGroup) + getSimpleCost(rightGroup);
-        List<Expression> conditions = new ArrayList<>();
-        for (Edge edge : edges) {
-            conditions.addAll(edge.getJoin().getExpressions());
+            for (long bitmap : bitmaps) {
+                projects.addAll(complexExpressionMap.get(bitmap));
+                complexExpressionMap.remove(bitmap);
+            }
+
+            // calculate required columns
+            Set<Slot> requireSlots = calculateRequiredSlots(left, right, edges);
+            outputs.stream()
+                    .filter(e -> requireSlots.contains(e))
+                    .forEach(e -> projects.add(e));
+
+            // propose physical project
+            if (projects.isEmpty()) {
+                projects.add(ExpressionUtils.selectMinimumColumn(outputs));
+            }
+            projectsOnSubgraph.put(fullKey, projects);
         }
-        LogicalJoin newJoin = new LogicalJoin<>(edges.get(0).getJoin().getJoinType(), conditions,
-                leftGroup.getLogicalExpression().getPlan(),
-                rightGroup.getLogicalExpression().getPlan());
-
-        GroupExpression groupExpression = new GroupExpression(newJoin, Lists.newArrayList(leftGroup, rightGroup));
-        // FIXME: use wrong constructor
-        Group group = new Group(null, groupExpression, null);
-        StatsCalculator.estimate(groupExpression);
-        cost += group.getStatistics().getRowCount();
-
-        groupExpression.updateLowestCostTable(PhysicalProperties.ANY,
-                Lists.newArrayList(PhysicalProperties.ANY, PhysicalProperties.ANY), cost);
-        return group;
+        List<NamedExpression> allProjects = projectsOnSubgraph.get(fullKey);
+        if (outputSet.equals(new HashSet<>(allProjects))) {
+            return allChild;
+        }
+        while (true) {
+            Set<Slot> childOutputSet = allChild.get(0).getOutputSet();
+            List<NamedExpression> projects = allProjects.stream()
+                    .filter(expr ->
+                            childOutputSet.containsAll(expr.getInputSlots()) || childOutputSet.contains(expr.toSlot()))
+                    .collect(Collectors.toList());
+            if (!outputSet.equals(new HashSet<>(projects))) {
+                LogicalProperties projectProperties = new LogicalProperties(
+                        () -> projects.stream().map(p -> p.toSlot()).collect(Collectors.toList()));
+                allChild = allChild.stream()
+                        .map(c -> new PhysicalProject<>(projects, projectProperties, c))
+                        .collect(Collectors.toList());
+            }
+            if (projects.size() == 0) {
+                throw new RuntimeException("dphyer fail process project");
+            }
+            if (projects.size() == allProjects.size()) {
+                break;
+            }
+        }
+        return allChild;
     }
 }
 

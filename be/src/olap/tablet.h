@@ -30,17 +30,18 @@
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/MasterService_types.h"
 #include "gen_cpp/olap_file.pb.h"
+#include "io/fs/file_system.h"
 #include "olap/base_tablet.h"
 #include "olap/cumulative_compaction_policy.h"
 #include "olap/data_dir.h"
 #include "olap/olap_common.h"
 #include "olap/olap_define.h"
+#include "olap/olap_tuple.h"
 #include "olap/rowset/rowset.h"
 #include "olap/rowset/rowset_reader.h"
 #include "olap/rowset/rowset_tree.h"
 #include "olap/rowset/segment_v2/segment.h"
 #include "olap/tablet_meta.h"
-#include "olap/tuple.h"
 #include "olap/utils.h"
 #include "olap/version_graph.h"
 #include "util/once.h"
@@ -81,9 +82,9 @@ public:
     Status revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
                               const std::vector<Version>& versions_to_delete);
 
-    const int64_t cumulative_layer_point() const;
+    int64_t cumulative_layer_point() const;
     void set_cumulative_layer_point(int64_t new_point);
-    inline const int64_t cumulative_promotion_size() const;
+    inline int64_t cumulative_promotion_size() const;
     inline void set_cumulative_promotion_size(int64_t new_size);
 
     // Disk space occupied by tablet, contain local and remote.
@@ -96,6 +97,7 @@ public:
     size_t num_rows();
     int version_count() const;
     bool exceed_version_limit(int32_t limit) const;
+    uint64_t segment_count() const;
     Version max_version() const;
     Version max_version_unlocked() const;
     CumulativeCompactionPolicy* cumulative_compaction_policy();
@@ -290,6 +292,10 @@ public:
                                          std::unique_ptr<RowsetWriter>* rowset_writer);
 
     Status create_rowset(RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset);
+
+    ////////////////////////////////////////////////////////////////////////////
+    // begin cooldown functions
+    ////////////////////////////////////////////////////////////////////////////
     // Cooldown to remote fs.
     Status cooldown();
 
@@ -299,7 +305,23 @@ public:
 
     bool need_deal_cooldown_delete();
 
+    void update_cooldown_conf(int64_t cooldown_term, int64_t cooldown_replica_id) {
+        if (cooldown_term > _cooldown_term) {
+            LOG(INFO) << "update cooldown conf. cooldown_replica_id: " << _cooldown_replica_id
+                      << " -> " << cooldown_replica_id << ", cooldown_term: " << _cooldown_term
+                      << " -> " << cooldown_term;
+            _cooldown_replica_id = cooldown_replica_id;
+            _cooldown_term = cooldown_term;
+        }
+    }
+
     Status remove_all_remote_rowsets();
+
+    void record_unused_remote_rowset(const RowsetId& rowset_id, const std::string& resource,
+                                     int64_t num_segments);
+    ////////////////////////////////////////////////////////////////////////////
+    // end cooldown functions
+    ////////////////////////////////////////////////////////////////////////////
 
     // Lookup the row location of `encoded_key`, the function sets `row_location` on success.
     // NOTE: the method only works in unique key model with primary key index, you will got a
@@ -308,8 +330,9 @@ public:
                           RowLocation* row_location, uint32_t version);
 
     // Lookup a row with TupleDescriptor and fill Block
-    Status lookup_row_data(const RowLocation& row_location, const TupleDescriptor* desc,
-                           vectorized::Block* block);
+    Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
+                           const TupleDescriptor* desc, vectorized::Block* block,
+                           bool write_to_cache = false);
 
     // calc delete bitmap when flush memtable, use a fake version to calc
     // For example, cur max version is 5, and we use version 6 to calc but
@@ -327,15 +350,6 @@ public:
     Status update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapPtr delete_bitmap,
                                 const RowsetIdUnorderedSet& pre_rowset_ids);
     RowsetIdUnorderedSet all_rs_id(int64_t max_version) const;
-
-    void remove_self_owned_remote_rowsets();
-
-    // Erase entries in `_self_owned_remote_rowsets` iff they are in `rowsets_in_snapshot`.
-    // REQUIRES: held _meta_lock
-    void update_self_owned_remote_rowsets(const std::vector<RowsetSharedPtr>& rowsets_in_snapshot);
-
-    void record_unused_remote_rowset(const RowsetId& rowset_id, const io::ResourceId& resource,
-                                     int64_t num_segments);
 
     bool check_all_rowset_segment();
 
@@ -366,9 +380,9 @@ private:
     Status _capture_consistent_rowsets_unlocked(const std::vector<Version>& version_path,
                                                 std::vector<RowsetSharedPtr>* rowsets) const;
 
-    const uint32_t _calc_cumulative_compaction_score(
+    uint32_t _calc_cumulative_compaction_score(
             std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy);
-    const uint32_t _calc_base_compaction_score() const;
+    uint32_t _calc_base_compaction_score() const;
 
     // When the proportion of empty edges in the adjacency matrix used to represent the version graph
     // in the version tracker is greater than the threshold, rebuild the version tracker
@@ -383,13 +397,21 @@ private:
                                 RowsetIdUnorderedSet* to_add, RowsetIdUnorderedSet* to_del);
     Status _load_rowset_segments(const RowsetSharedPtr& rowset,
                                  std::vector<segment_v2::SegmentSharedPtr>* segments);
+
+    ////////////////////////////////////////////////////////////////////////////
+    // begin cooldown functions
+    ////////////////////////////////////////////////////////////////////////////
     bool get_cooldown_delete_id(TUniqueId* cooldown_delete_id);
     void enable_cooldown_flag(const TUniqueId& cooldown_delete_id);
-    Status _deal_cooldown_delete_files();
-    Status _cooldown_data();
-    Status _follow_cooldowned_data();
-    Status _read_remote_tablet_meta(io::FileSystemSPtr fs, TabletMetaPB* tablet_meta_pb);
-    Status _write_remote_tablet_meta(io::FileSystemSPtr fs, const TabletMetaPB& tablet_meta_pb);
+    Status _deal_cooldown_delete_files(const std::shared_ptr<io::RemoteFileSystem>& dest_fs);
+    Status _cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_fs);
+    Status _follow_cooldowned_data(io::RemoteFileSystem* fs, int64_t cooldown_replica_id);
+    Status _read_cooldown_meta(io::RemoteFileSystem* fs, int64_t cooldown_replica_id,
+                               TabletMetaPB* tablet_meta_pb);
+    Status _write_cooldown_meta(io::RemoteFileSystem* fs, RowsetMeta* new_rs_meta);
+    ////////////////////////////////////////////////////////////////////////////
+    // end cooldown functions
+    ////////////////////////////////////////////////////////////////////////////
 
 public:
     static const int64_t K_INVALID_CUMULATIVE_POINT = -1;
@@ -454,9 +476,6 @@ private:
     int64_t _last_missed_version;
     int64_t _last_missed_time_s;
 
-    // Remote rowsets not shared by other BE. We can delete them when drop tablet.
-    std::unordered_set<RowsetSharedPtr> _self_owned_remote_rowsets; // guarded by _meta_lock
-
     // Max schema_version schema from Rowset or FE
     TabletSchemaSPtr _max_version_schema;
 
@@ -465,6 +484,10 @@ private:
 
     bool _skip_base_compaction = false;
     int64_t _skip_base_compaction_ts;
+
+    // cooldown conf
+    int64_t _cooldown_replica_id = -1;
+    int64_t _cooldown_term = -1;
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 
@@ -503,7 +526,7 @@ inline void Tablet::deregister_tablet_from_dir() {
     _data_dir->deregister_tablet(this);
 }
 
-inline const int64_t Tablet::cumulative_layer_point() const {
+inline int64_t Tablet::cumulative_layer_point() const {
     return _cumulative_point;
 }
 
@@ -515,7 +538,7 @@ inline void Tablet::set_cumulative_layer_point(int64_t new_point) {
     _cumulative_point = new_point;
 }
 
-inline const int64_t Tablet::cumulative_promotion_size() const {
+inline int64_t Tablet::cumulative_promotion_size() const {
     return _cumulative_promotion_size;
 }
 
@@ -557,11 +580,21 @@ inline size_t Tablet::num_rows() {
 }
 
 inline int Tablet::version_count() const {
+    std::shared_lock rdlock(_meta_lock);
     return _tablet_meta->version_count();
 }
 
 inline Version Tablet::max_version() const {
     return _tablet_meta->max_version();
+}
+
+inline uint64_t Tablet::segment_count() const {
+    std::shared_lock rdlock(_meta_lock);
+    uint64_t segment_nums = 0;
+    for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
+        segment_nums += rs_meta->num_segments();
+    }
+    return segment_nums;
 }
 
 inline Version Tablet::max_version_unlocked() const {

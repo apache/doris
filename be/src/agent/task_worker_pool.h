@@ -66,9 +66,8 @@ public:
         RECOVER_TABLET,
         UPDATE_TABLET_META_INFO,
         SUBMIT_TABLE_COMPACTION,
-        REFRESH_STORAGE_POLICY,
-        UPDATE_STORAGE_POLICY,
-        PUSH_COOLDOWN_CONF
+        PUSH_COOLDOWN_CONF,
+        PUSH_STORAGE_POLICY,
     };
 
     enum ReportType { TASK, DISK, TABLET };
@@ -124,12 +123,10 @@ public:
             return "UPDATE_TABLET_META_INFO";
         case SUBMIT_TABLE_COMPACTION:
             return "SUBMIT_TABLE_COMPACTION";
-        case REFRESH_STORAGE_POLICY:
-            return "REFRESH_STORAGE_POLICY";
-        case UPDATE_STORAGE_POLICY:
-            return "UPDATE_STORAGE_POLICY";
         case PUSH_COOLDOWN_CONF:
             return "PUSH_COOLDOWN_CONF";
+        case PUSH_STORAGE_POLICY:
+            return "PUSH_STORAGE_POLICY";
         default:
             return "Unknown";
         }
@@ -193,9 +190,8 @@ private:
     void _move_dir_thread_callback();
     void _update_tablet_meta_worker_thread_callback();
     void _submit_table_compaction_worker_thread_callback();
-    void _storage_refresh_storage_policy_worker_thread_callback();
-    void _storage_update_storage_policy_worker_thread_callback();
     void _push_cooldown_conf_worker_thread_callback();
+    void _push_storage_policy_worker_thread_callback();
 
     void _alter_tablet(const TAgentTaskRequest& alter_tablet_request, int64_t signature,
                        const TTaskType::type task_type, TFinishTaskRequest* finish_task_request);

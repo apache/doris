@@ -109,6 +109,7 @@ public abstract class Type {
 
     private static final Logger LOG = LogManager.getLogger(Type.class);
     private static final ArrayList<ScalarType> integerTypes;
+    private static final ArrayList<ScalarType> stringTypes;
     private static final ArrayList<ScalarType> numericTypes;
     private static final ArrayList<ScalarType> numericDateTimeTypes;
     private static final ArrayList<ScalarType> supportedTypes;
@@ -122,6 +123,11 @@ public abstract class Type {
         integerTypes.add(INT);
         integerTypes.add(BIGINT);
         integerTypes.add(LARGEINT);
+
+        stringTypes = Lists.newArrayList();
+        stringTypes.add(CHAR);
+        stringTypes.add(VARCHAR);
+        stringTypes.add(STRING);
 
         numericTypes = Lists.newArrayList();
         numericTypes.addAll(integerTypes);
@@ -205,6 +211,10 @@ public abstract class Type {
 
     public static ArrayList<ScalarType> getIntegerTypes() {
         return integerTypes;
+    }
+
+    public static ArrayList<ScalarType> getStringTypes() {
+        return stringTypes;
     }
 
     public static ArrayList<ScalarType> getNumericTypes() {
