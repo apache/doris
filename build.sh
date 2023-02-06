@@ -544,9 +544,6 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
     if [[ "${BUILD_JAVA_UDF}" -eq 0 ]]; then
         echo -e "\033[33;1mWARNNING: \033[37;1mDisable Java UDF support in be.conf due to the BE was built without Java UDF.\033[0m"
         cat >>"${DORIS_OUTPUT}/be/conf/be.conf" <<EOF
-
-# Java UDF support
-enable_java_support = false
 EOF
     fi
 
