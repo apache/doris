@@ -1301,11 +1301,56 @@ public class SelectStmt extends QueryStmt {
             substituteOrdinalsAliases(groupingExprs, "GROUP BY", analyzer, aliasFirst);
 
             if (!groupByClause.isGroupByExtension() && !groupingExprs.isEmpty()) {
-                ArrayList<Expr> tempExprs = new ArrayList<>(groupingExprs);
-                groupingExprs.removeIf(Expr::isConstant);
-                if (groupingExprs.isEmpty() && aggExprs.isEmpty()) {
-                    // should keep at least one expr to make the result correct
-                    groupingExprs.add(tempExprs.get(0));
+                /*
+                For performance reason, we want to remove constant column from groupingExprs.
+                For example: `select 'abc', sum(a) from t group by 'abc'` is equivalent to `select 1, sum(a) from t`
+                We can remove constant column `abc` from groupingExprs.
+                But there is an exception:
+                 sql1: `select 'abc' from t group by 'abc'`
+                 sql2: `select 'abc' from t`
+                sql1 is not equivalent to sql2.
+                We need to keep some constant column if all items in groupingExprs are constant columns.
+                Consider sql3 `select a from (select "abc" as a, 'def' as b) T group by b, a;`
+                if the column is in select list, this column should not be removed.
+                 */
+
+                Expr theFirstConstantGroupingExpr = null;
+                boolean someGroupExprRemoved = false;
+                ArrayList<Expr> tempExprs = new ArrayList<>();
+                for (Expr groupExpr : groupingExprs) {
+                    //remove groupExpr if it is const, and it is not in select list
+                    boolean removeConstGroupingKey = false;
+                    if (groupExpr.isConstant()) {
+                        if (theFirstConstantGroupingExpr == null) {
+                            theFirstConstantGroupingExpr = groupExpr;
+                        }
+                        boolean keyInSelectList = false;
+                        if (groupExpr instanceof SlotRef) {
+                            for (SelectListItem item : selectList.getItems()) {
+                                if (item.getExpr() instanceof SlotRef) {
+                                    keyInSelectList = ((SlotRef) item.getExpr()).columnEqual(groupExpr);
+                                    if (keyInSelectList) {
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        removeConstGroupingKey = ! keyInSelectList;
+                    }
+                    if (removeConstGroupingKey) {
+                        someGroupExprRemoved = true;
+                    } else {
+                        tempExprs.add(groupExpr);
+                    }
+                }
+                if (someGroupExprRemoved) {
+                    groupingExprs.clear();
+                    groupingExprs.addAll(tempExprs);
+                    //consider sql1, groupingExprs need at least one expr, it can be
+                    //any original grouping expr. we use the first one.
+                    if (groupingExprs.isEmpty() && aggExprs.isEmpty()) {
+                        groupingExprs.add(theFirstConstantGroupingExpr);
+                    }
                 }
             }
 
