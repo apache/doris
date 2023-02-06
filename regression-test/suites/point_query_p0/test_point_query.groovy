@@ -22,6 +22,7 @@ suite("test_point_query") {
     def user = context.config.jdbcUser
     def password = context.config.jdbcPassword
     def url = context.config.jdbcUrl + "&useServerPrepStmts=true"
+    // def url = context.config.jdbcUrl
     def result1 = connect(user=user, password=password, url=url) {
     sql """DROP TABLE IF EXISTS ${tableName}"""
     test {
@@ -105,6 +106,9 @@ suite("test_point_query") {
       stmt.setBigDecimal(1, new BigDecimal("120939.11130"))
       stmt.setString(2, "a    ddd")
       qe_point_select stmt
+      qe_point_select stmt
+      // invalidate cache
+      sql """ INSERT INTO ${tableName} VALUES(1235, 120939.11130, "a    ddd", "xxxxxx", "2030-01-02", "2020-01-01 12:36:38", 22.822, "7022-01-01 11:30:38", 123) """
       qe_point_select stmt
       qe_point_select stmt
       qe_point_select stmt
