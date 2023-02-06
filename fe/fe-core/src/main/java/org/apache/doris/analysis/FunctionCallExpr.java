@@ -40,6 +40,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TExprNodeType;
 
+
 import com.google.common.base.Joiner;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
@@ -1137,7 +1138,6 @@ public class FunctionCallExpr extends Expr {
         analyzeBuiltinAggFunction(analyzer);
 
         analyzeArrayFunction(analyzer);
-
         if (fnName.getFunction().equalsIgnoreCase("sum")) {
             if (this.children.isEmpty()) {
                 throw new AnalysisException("The " + fnName + " function must has one input param");
@@ -1275,6 +1275,32 @@ public class FunctionCallExpr extends Expr {
                 && collectChildReturnTypes()[0].isDecimalV3()) {
             fn = getBuiltinFunction(fnName.getFunction(), new Type[] { Type.DOUBLE },
                     Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+        } else if (fnName.getFunction().equalsIgnoreCase("array_map")) {
+            if (fnParams.exprs() == null || fnParams.exprs().size() < 2) {
+                throw new AnalysisException("The " + fnName + " function must have at least two params");
+            }
+
+            int childSize = this.children.size();
+            // change the lambda expr to the first args position
+            if (getChild(childSize - 1) instanceof LambdaFunctionExpr) {
+                Type lastType = argTypes[childSize - 1];
+                Expr lastChild = getChild(childSize - 1);
+                for (int i = childSize - 1; i > 0; --i) {
+                    argTypes[i] = getChild(i - 1).getType();
+                    this.setChild(i, getChild(i - 1));
+                }
+                argTypes[0] = lastType;
+                this.setChild(0, lastChild);
+            }
+
+            fn = getBuiltinFunction(fnName.getFunction(), argTypes,
+                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
+            Expr lambda = this.children.get(0);
+            if (fn == null) {
+                LOG.warn("fn {} not exists", this.toSqlImpl());
+                throw new AnalysisException(getFunctionNotFoundError(collectChildReturnTypes()));
+            }
+            fn.setReturnType(ArrayType.create(lambda.getChild(0).getType(), true));
         } else {
             // now first find table function in table function sets
             if (isTableFnCall) {

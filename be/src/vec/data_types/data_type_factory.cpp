@@ -25,6 +25,7 @@
 #include "data_type_time.h"
 #include "vec/data_types/data_type_hll.h"
 #include "vec/data_types/data_type_object.h"
+#include "runtime/define_primitive_type.h"
 
 namespace doris::vectorized {
 
@@ -141,6 +142,7 @@ DataTypePtr DataTypeFactory::create_data_type(const TypeDescriptor& col_desc, bo
     case TYPE_CHAR:
     case TYPE_VARCHAR:
     case TYPE_BINARY:
+    case TYPE_LAMBDA_FUNCTION:
         nested = std::make_shared<vectorized::DataTypeString>();
         break;
     case TYPE_JSONB:

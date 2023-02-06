@@ -54,7 +54,8 @@ enum PrimitiveType {
     TYPE_DECIMAL64,      /* 29 */
     TYPE_DECIMAL128I,    /* 30 */
     TYPE_JSONB,          /* 31 */
-    TYPE_VARIANT         /* 32 */
+    TYPE_VARIANT,        /* 32 */
+    TYPE_LAMBDA_FUNCTION,/* 33 */
 };
 
 }

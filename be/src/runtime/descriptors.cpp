@@ -593,6 +593,7 @@ Status DescriptorTbl::create(ObjectPool* pool, const TDescriptorTable& thrift_tb
         (*tbl)->_row_tuples.emplace_back(tdesc.id);
     }
 
+
     for (size_t i = 0; i < thrift_tbl.slotDescriptors.size(); ++i) {
         const TSlotDescriptor& tdesc = thrift_tbl.slotDescriptors[i];
         SlotDescriptor* slot_d = pool->add(new SlotDescriptor(tdesc));

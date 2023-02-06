@@ -148,6 +148,7 @@ set(VEC_FILES
   exprs/vbitmap_predicate.cpp
   exprs/vruntimefilter_wrapper.cpp
   exprs/vtuple_is_null_predicate.cpp
+  exprs/varray_map_expr.cpp
   exprs/vslot_ref.cpp
   exprs/vcast_expr.cpp
   exprs/vcase_expr.cpp

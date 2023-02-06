@@ -69,6 +69,10 @@ enum TExprNodeType {
 
   // for schema change
   SCHEMA_CHANGE_EXPR,
+  // for lambda function expr
+  LAMBDA_FUNCTION_EXPR,
+  // for column_ref expr
+  COLUMN_REF,
 }
 
 //enum TAggregationOp {
@@ -155,6 +159,12 @@ struct TSlotRef {
   3: optional i32 col_unique_id
 }
 
+struct TColumnRef {
+  1: optional Types.TSlotId slot_id
+  2: optional bool is_nullable
+  3: optional string column_name
+}
+
 struct TStringLiteral {
   1: required string value;
 }
@@ -223,6 +233,8 @@ struct TExprNode {
   
   30: optional TJsonLiteral json_literal
   31: optional TSchemaChangeExpr schema_change_expr 
+
+  32: optional TColumnRef column_ref 
 }
 
 // A flattened representation of a tree of Expr nodes, obtained by depth-first

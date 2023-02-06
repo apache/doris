@@ -499,6 +499,7 @@ import org.apache.doris.qe.SqlModeHelper;
     // add non-keyword tokens
     tokenIdMap.put(new Integer(SqlParserSymbols.IDENT), "IDENTIFIER");
     tokenIdMap.put(new Integer(SqlParserSymbols.COMMA), "COMMA");
+    tokenIdMap.put(new Integer(SqlParserSymbols.ARROW), "->");
     tokenIdMap.put(new Integer(SqlParserSymbols.BITNOT), "~");
     tokenIdMap.put(new Integer(SqlParserSymbols.LPAREN), "(");
     tokenIdMap.put(new Integer(SqlParserSymbols.RPAREN), ")");
@@ -535,6 +536,7 @@ import org.apache.doris.qe.SqlModeHelper;
     tokenIdMap.put(new Integer(SqlParserSymbols.BITXOR), "^");
     tokenIdMap.put(new Integer(SqlParserSymbols.NUMERIC_OVERFLOW), "NUMERIC OVERFLOW");
     tokenIdMap.put(new Integer(SqlParserSymbols.PLACEHOLDER), "?");
+
   }
 
   public static boolean isKeyword(Integer tokenId) {
@@ -642,6 +644,7 @@ EndOfLineComment = "--" !({HintContent}|{ContainsLineTerminator}) {LineTerminato
 %%
 
 "..." { return newToken(SqlParserSymbols.DOTDOTDOT, null); }
+"->" { return newToken(SqlParserSymbols.ARROW, null); }
 
 // single-character tokens
 "," { return newToken(SqlParserSymbols.COMMA, null); }
