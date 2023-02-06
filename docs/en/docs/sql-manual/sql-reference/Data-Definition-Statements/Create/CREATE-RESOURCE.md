@@ -129,7 +129,7 @@ illustrate:
    );
    ```
 
-   If S3 resource is used for [cold hot separation](../../../../../docs/advanced/cold_hot_separation.md), we should add more required fields.
+   If S3 resource is used for [cold hot separation](../../../../../docs/advanced/cold_hot_separation), we should add more required fields.
    ```sql
    CREATE RESOURCE "remote_s3"
    PROPERTIES
@@ -203,7 +203,7 @@ illustrate:
 
 6. Create HMS resource
 
-   HMS resource is used to create [hms catalog](../../../../ecosystem/external-table/multi-catalog.md)
+   HMS resource is used to create [hms catalog](../../../../ecosystem/external-table/multi-catalog)
    ```sql
    CREATE RESOURCE hms_resource PROPERTIES (
       'type'='hms',
