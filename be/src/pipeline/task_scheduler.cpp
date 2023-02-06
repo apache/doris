@@ -20,6 +20,7 @@
 #include "common/signal_handler.h"
 #include "pipeline_fragment_context.h"
 #include "util/thread.h"
+#include "util/debug/tracing.h"
 
 namespace doris::pipeline {
 
@@ -200,6 +201,7 @@ Status TaskScheduler::start() {
     _markers.reserve(cores);
     for (size_t i = 0; i < cores; ++i) {
         _markers.push_back(std::make_unique<std::atomic<bool>>(true));
+        SET_THREAD_BASELINE();
         RETURN_IF_ERROR(
                 _fix_thread_pool->submit_func(std::bind(&TaskScheduler::_do_work, this, i)));
     }
@@ -212,6 +214,7 @@ Status TaskScheduler::schedule_task(PipelineTask* task) {
 }
 
 void TaskScheduler::_do_work(size_t index) {
+    SET_THREAD_LOCAL_QUERY_TRACE_CONTEXT(query_ctx->query_trace(), fragment_ctx->fragment_instance_id(), driver);
     auto queue = _task_queue;
     const auto& marker = _markers[index];
     while (*marker) {

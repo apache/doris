@@ -36,6 +36,10 @@
 
 namespace doris {
 
+namespace debug{
+class QueryTrace;
+}
+
 // Save the common components of fragments in a query.
 // Some components like DescriptorTbl may be very large
 // that will slow down each execution of fragments when DeSer them every time.
@@ -122,6 +126,8 @@ public:
 
     vectorized::RuntimePredicate& get_runtime_predicate() { return _runtime_predicate; }
 
+    debug::QueryTrace* get_query_trace();
+
 public:
     TUniqueId query_id;
     DescriptorTbl* desc_tbl;
@@ -143,6 +149,11 @@ public:
     ObjectPool obj_pool;
     // MemTracker that is shared by all fragment instances running on this host.
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
+
+#ifdef ENABLE_QUERY_DEBUG_TRACE
+    // Thread information tracker of this query. Store records.
+    debug::QueryTrace* _query_trace;
+#endif
 
     std::vector<TUniqueId> fragment_ids;
 

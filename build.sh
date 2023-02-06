@@ -54,6 +54,7 @@ Usage: $0 <options>
     STRIP_DEBUG_INFO            If set STRIP_DEBUG_INFO=ON, the debug information in the compiled binaries will be stored separately in the 'be/lib/debug_info' directory. Default is OFF.
     DISABLE_JAVA_UDF            If set DISABLE_JAVA_UDF=ON, we will do not build binary with java-udf. Default is OFF.
     DISABLE_JAVA_CHECK_STYLE    If set DISABLE_JAVA_CHECK_STYLE=ON, it will skip style check of java code in FE.
+    ENABLE_QUERY_DEBUG_TRACE    If set ENABLE_QUERY_DEBUG_TRACE=ON, BE will be built with Pipeline Tracing function, that will generator JSON file in 'be/log/tracing' for tracing worker threads progress. Default is OFF.
   Eg.
     $0                                      build all
     $0 --be                                 build Backend
@@ -339,29 +340,29 @@ if [[ -z "${ENABLE_QUERY_DEBUG_TRACE}" ]]; then
 fi
 
 echo "Get params:
-    BUILD_FE            -- ${BUILD_FE}
-    BUILD_BE            -- ${BUILD_BE}
-    BUILD_BROKER        -- ${BUILD_BROKER}
-    BUILD_AUDIT         -- ${BUILD_AUDIT}
-    BUILD_META_TOOL     -- ${BUILD_META_TOOL}
-    BUILD_SPARK_DPP     -- ${BUILD_SPARK_DPP}
-    BUILD_JAVA_UDF      -- ${BUILD_JAVA_UDF}
-    BUILD_HIVE_UDF      -- ${BUILD_HIVE_UDF}
-    PARALLEL            -- ${PARALLEL}
-    CLEAN               -- ${CLEAN}
-    WITH_MYSQL          -- ${WITH_MYSQL}
-    WITH_LZO            -- ${WITH_LZO}
-    GLIBC_COMPATIBILITY -- ${GLIBC_COMPATIBILITY}
-    USE_AVX2            -- ${USE_AVX2}
-    USE_LIBCPP          -- ${USE_LIBCPP}
-    USE_DWARF           -- ${USE_DWARF}
-    STRIP_DEBUG_INFO    -- ${STRIP_DEBUG_INFO}
-    USE_MEM_TRACKER     -- ${USE_MEM_TRACKER}
-    USE_JEMALLOC        -- ${USE_JEMALLOC}
-    USE_BTHREAD_SCANNER -- ${USE_BTHREAD_SCANNER}
-    STRICT_MEMORY_USE   -- ${STRICT_MEMORY_USE}
-    ENABLE_STACKTRACE   -- ${ENABLE_STACKTRACE}
-    ENABLE_QUERY_DEBUG_TRACE -- ${ENABLE_QUERY_DEBUG_TRACE}
+    BUILD_FE                    -- ${BUILD_FE}
+    BUILD_BE                    -- ${BUILD_BE}
+    BUILD_BROKER                -- ${BUILD_BROKER}
+    BUILD_AUDIT                 -- ${BUILD_AUDIT}
+    BUILD_META_TOOL             -- ${BUILD_META_TOOL}
+    BUILD_SPARK_DPP             -- ${BUILD_SPARK_DPP}
+    BUILD_JAVA_UDF              -- ${BUILD_JAVA_UDF}
+    BUILD_HIVE_UDF              -- ${BUILD_HIVE_UDF}
+    PARALLEL                    -- ${PARALLEL}
+    CLEAN                       -- ${CLEAN}
+    WITH_MYSQL                  -- ${WITH_MYSQL}
+    WITH_LZO                    -- ${WITH_LZO}
+    GLIBC_COMPATIBILITY         -- ${GLIBC_COMPATIBILITY}
+    USE_AVX2                    -- ${USE_AVX2}
+    USE_LIBCPP                  -- ${USE_LIBCPP}
+    USE_DWARF                   -- ${USE_DWARF}
+    STRIP_DEBUG_INFO            -- ${STRIP_DEBUG_INFO}
+    USE_MEM_TRACKER             -- ${USE_MEM_TRACKER}
+    USE_JEMALLOC                -- ${USE_JEMALLOC}
+    USE_BTHREAD_SCANNER         -- ${USE_BTHREAD_SCANNER}
+    STRICT_MEMORY_USE           -- ${STRICT_MEMORY_USE}
+    ENABLE_STACKTRACE           -- ${ENABLE_STACKTRACE}
+    ENABLE_QUERY_DEBUG_TRACE    -- ${ENABLE_QUERY_DEBUG_TRACE}
 "
 
 # Clean and build generated code

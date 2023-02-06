@@ -27,10 +27,7 @@
 #include "gutil/macros.h"
 #include "runtime/memory/thread_mem_tracker_mgr.h"
 #include "runtime/threadlocal.h"
-#include "util/debug/tracing.h"
 #include "util/defer_op.h"
-#include "pipeline/pipeline_task.h"
-#include "util/debug/tracing.h"
 
 // Used to observe the memory usage of the specified code segment
 #ifdef USE_MEM_TRACKER
@@ -89,9 +86,8 @@ namespace doris {
 class TUniqueId;
 class ThreadContext;
 namespace debug{
-    class EventBuffer;
+    class QueryTraceContext;
 }
-
 
 extern bthread_key_t btls_key;
 
@@ -147,14 +143,8 @@ inline thread_local bthread_t bthread_id;
 // There may be other optional info to be added later.
 class ThreadContext {
 public:
-    ThreadContext() {
-        thread_mem_tracker_mgr.reset(new ThreadMemTrackerMgr());
-        if (ExecEnv::GetInstance()->initialized()) {
-            thread_mem_tracker_mgr->init();
-        }
-    }
-
-    ~ThreadContext() { thread_context_ptr.init = false; }
+    ThreadContext();
+    ~ThreadContext();
 
     void attach_task(const std::string& task_id, const TUniqueId& fragment_instance_id,
                      const std::shared_ptr<MemTrackerLimiter>& mem_tracker) {
@@ -195,19 +185,15 @@ public:
         return thread_mem_tracker_mgr->limiter_mem_tracker_raw();
     }
 
+//#ifdef ENABLE_QUERY_DEBUG_TRACE
     // any time we need the trace context of current query/fragment/task..., tls_trace_ctx is it.
-#ifdef ENABLE_QUERY_DEBUG_TRACE
-    debug::QueryTraceContext tls_trace_ctx;
-#endif
+    debug::QueryTraceContext* tls_trace_ctx;
+//#endif
 
 private:
     std::string _task_id;
     TUniqueId _fragment_instance_id;
 };
-
-debug::QueryTraceContext& get_tls_trace_ctx(){
-    return bthread_context->tls_trace_ctx;
-}
 
 // Cache the pointer of bthread local in pthead local,
 // Avoid calling bthread_getspecific frequently to get bthread local, which has performance problems.

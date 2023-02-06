@@ -19,11 +19,23 @@
 
 #include "common/signal_handler.h"
 #include "runtime/runtime_state.h"
+#include "util/debug/tracing.h"
 #include "util/doris_metrics.h"
+#include "pipeline/pipeline_task.h"
 
 namespace doris {
 
 DEFINE_STATIC_THREAD_LOCAL(ThreadContext, ThreadContextPtr, _ptr);
+
+ThreadContext::ThreadContext() {
+    thread_mem_tracker_mgr.reset(new ThreadMemTrackerMgr());
+    if (ExecEnv::GetInstance()->initialized()) {
+        thread_mem_tracker_mgr->init();
+    }
+    tls_trace_ctx = new debug::QueryTraceContext();
+}
+
+ThreadContext::~ThreadContext() { thread_context_ptr.init = false; }
 
 ThreadContextPtr::ThreadContextPtr() {
     INIT_STATIC_THREAD_LOCAL(ThreadContext, _ptr);
@@ -70,23 +82,27 @@ SwitchThreadMemTrackerLimiter::~SwitchThreadMemTrackerLimiter() {
 }
 
 AddThreadMemTrackerConsumer::AddThreadMemTrackerConsumer(MemTracker* mem_tracker) {
-    if (mem_tracker)
+    if (mem_tracker){
         _need_pop = thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(mem_tracker);
+    }
 }
 
 AddThreadMemTrackerConsumer::AddThreadMemTrackerConsumer(
         const std::shared_ptr<MemTracker>& mem_tracker)
         : _mem_tracker(mem_tracker) {
-    if (_mem_tracker)
+    if (_mem_tracker){
         _need_pop =
                 thread_context()->thread_mem_tracker_mgr->push_consumer_tracker(_mem_tracker.get());
+    }
 }
 
 AddThreadMemTrackerConsumer::~AddThreadMemTrackerConsumer() {
 #ifndef NDEBUG
     DorisMetrics::instance()->add_thread_mem_tracker_consumer_count->increment(1);
 #endif // NDEBUG
-    if (_need_pop) thread_context()->thread_mem_tracker_mgr->pop_consumer_tracker();
+    if (_need_pop){
+        thread_context()->thread_mem_tracker_mgr->pop_consumer_tracker();
+    }
 }
 
 } // namespace doris

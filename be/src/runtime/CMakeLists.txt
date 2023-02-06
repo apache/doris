@@ -79,6 +79,7 @@ set(RUNTIME_FILES
     cache/result_node.cpp
     cache/result_cache.cpp
     block_spill_manager.cpp
+    query_fragments_ctx.cpp
 )
 
 if (USE_JEMALLOC AND USE_MEM_TRACKER)

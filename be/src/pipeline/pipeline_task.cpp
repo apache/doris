@@ -16,8 +16,8 @@
 // under the License.
 
 #include "pipeline_task.h"
-
-#include "pipeline/pipeline_fragment_context.h"
+#include "util/debug/tracing.h"
+#include "runtime/query_fragments_ctx.h"
 
 namespace doris::pipeline {
 
@@ -125,6 +125,7 @@ Status PipelineTask::execute(bool* eos) {
     SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_exec_timer);
     SCOPED_ATTACH_TASK(_state);
+    QUERY_TRACE_SCOPED("PipelineTask", to_string(this->index()));
     int64_t time_spent = 0;
     // The status must be runnable
     *eos = false;

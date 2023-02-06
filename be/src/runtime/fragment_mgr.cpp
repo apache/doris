@@ -45,6 +45,7 @@
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/thread_context.h"
+#include "runtime/query_fragments_ctx.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/network_util.h"

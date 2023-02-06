@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <glog/logging.h>
 #include "exec/operator.h"
 #include "pipeline.h"
 #include "util/stopwatch.hpp"
@@ -89,6 +90,7 @@ class PipelineTask;
 using PipelineTaskRawPtr = PipelineTask*;
 using PipelineTasks = std::vector<PipelineTaskRawPtr>;
 using PipelineTasksId = uint32_t;
+class QueryFragmentsCtx;
 
 // The class do the pipeline task. Minest schdule union by task scheduler
 class PipelineTask {
@@ -129,8 +131,6 @@ public:
     void pop_out_runnable_queue() { _wait_worker_watcher.stop(); }
     void start_schedule_watcher() { _wait_schedule_watcher.start(); }
     void stop_schedule_watcher() { _wait_schedule_watcher.stop(); }
-
-    int pipeline_id() const { return _pipeline->_pipeline_id; }
 
     PipelineTaskState get_state() { return _cur_state; }
     void set_state(PipelineTaskState state);
@@ -176,9 +176,8 @@ public:
 
     bool has_dependency();
 
-    uint32_t index() const { return _index; } // TODO: is it useful?
-
-    auto get_id() const { return _pipeline->get_id(); }
+    // PipelineTask & Pipeline is one-by-one. thus we could use pipeline's identifier as task's.
+    PipelineId index() const { return _pipeline->get_id(); }
 
     OperatorPtr get_root() { return _root; }
 

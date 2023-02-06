@@ -47,15 +47,15 @@ QueryTraceEvent QueryTraceEvent::create(const std::string& name, const std::stri
 }
 
 QueryTraceEvent QueryTraceEvent::create_with_ctx(const std::string& name, const std::string& category, int64_t id,
-                                                 char phase, const QueryTraceContext& ctx) {
-    return create(name, category, id, phase, MonotonicMicros() - ctx.start_ts, QueryTraceContext::DEFAULT_EVENT_ID,
-                  ctx.fragment_instance_id, ctx.task, {});
+                                                 char phase, QueryTraceContext* ctx) {
+    return create(name, category, id, phase, MonotonicMicros() - ctx->start_ts, QueryTraceContext::DEFAULT_EVENT_ID,
+                  ctx->fragment_instance_id, ctx->task, {});
 }
 
 QueryTraceEvent QueryTraceEvent::create_with_ctx(const std::string& name, const std::string& category, int64_t id,
                                                  char phase, int64_t start_ts, int64_t duration,
-                                                 const QueryTraceContext& ctx) {
-    return create(name, category, id, phase, start_ts, duration, ctx.fragment_instance_id, ctx.task, {});
+                                                 QueryTraceContext* ctx) {
+    return create(name, category, id, phase, start_ts, duration, ctx->fragment_instance_id, ctx->task, {});
 }
 
 static const char* kSimpleEventFormat =
@@ -96,18 +96,13 @@ void EventBuffer::add(QueryTraceEvent&& event) {
     _buffer.emplace_back(std::move(event));
 }
 
-#ifdef ENABLE_QUERY_DEBUG_TRACE
 QueryTrace::QueryTrace(const TUniqueId& query_id, bool is_enable) : _query_id(query_id), _is_enable(is_enable) {
     if (_is_enable) {
         _start_ts = MonotonicMicros();
     }
 }
-#else
-QueryTrace::QueryTrace(const TUniqueId& query_id, bool is_enable) {}
-#endif
 
 void QueryTrace::register_tasks(const TUniqueId& fragment_instance_id, pipeline::PipelineTasks& tasks) {
-#ifdef ENABLE_QUERY_DEBUG_TRACE
     if (!_is_enable) {
         return;
     }
@@ -122,11 +117,9 @@ void QueryTrace::register_tasks(const TUniqueId& fragment_instance_id, pipeline:
         iter->second->insert(task); // into this fragment's task map.
         _buffers.emplace(task, std::make_unique<EventBuffer>());
     }
-#endif
 }
 
 Status QueryTrace::dump() {
-#ifdef ENABLE_QUERY_DEBUG_TRACE
     if (!_is_enable) {
         return Status::OK();
     }
@@ -142,15 +135,16 @@ Status QueryTrace::dump() {
         oss << "{\"traceEvents\":[\n";
         bool is_first = true;
         for (auto& [fragment_id, task_set] : _fragment_tasks) {
+            // task_set's type is shared_ptr<umap<PipelineTask*>>
             std::string fragment_id_str = print_id(fragment_id);
             oss << (is_first ? "" : ",\n");
             oss << fmt::sprintf(kProcessNameMetaEventFormat, (uint64_t)fragment_id.lo, fragment_id_str.c_str());
             is_first = false;
             for (auto& task : *task_set) {
-                pipeline::PipelineTaskRawPtr ptr = reinterpret_cast<pipeline::PipelineTaskRawPtr>(task);
+                pipeline::PipelineTaskRawPtr ptr = task;
                 oss << (is_first ? "" : ",\n");
-                oss << fmt::sprintf(kThreadNameMetaEventFormat, (uint64_t)fragment_id.lo, reinterpret_cast<uint64_t>(task.get()),
-                                    std::to_string(ptr->get_id()));
+                oss << fmt::sprintf(kThreadNameMetaEventFormat, (uint64_t)fragment_id.lo, reinterpret_cast<uint64_t>(task),
+                                    std::to_string(ptr->index()));
             }
         }
 
@@ -167,7 +161,6 @@ Status QueryTrace::dump() {
     } catch (std::exception& e) {
         return Status::IOError(fmt::format("dump trace log error {}", e.what()));
     }
-#endif
     return Status::OK();
 }
 
@@ -175,18 +168,18 @@ void QueryTrace::set_tls_trace_context(QueryTrace* query_trace, const TUniqueId&
                                        pipeline::PipelineTaskRawPtr task) {
 #ifdef ENABLE_QUERY_DEBUG_TRACE
     if (!query_trace->_is_enable) {
-        tls_trace_ctx.reset();
+        TLS_CONTEXT->reset();
         return;
     }
     {
         std::shared_lock l(query_trace->_mutex);
         auto iter = query_trace->_buffers.find(task);
         DCHECK(iter != query_trace->_buffers.end());
-        tls_trace_ctx.event_buffer = iter->second.get();
+        TLS_CONTEXT->event_buffer = iter->second.get();
     }
-    tls_trace_ctx.start_ts = query_trace->_start_ts;
-    tls_trace_ctx.fragment_instance_id = fragment_instance_id.lo;
-    tls_trace_ctx.task = task;
+    TLS_CONTEXT->start_ts = query_trace->_start_ts;
+    TLS_CONTEXT->fragment_instance_id = fragment_instance_id.lo;
+    TLS_CONTEXT->task = task;
 #endif
 }
 
@@ -196,12 +189,13 @@ ScopedTracer::ScopedTracer(std::string name, std::string category)
 }
 
 ScopedTracer::~ScopedTracer() noexcept {
-    if (tls_trace_ctx.event_buffer != nullptr) {
+#ifdef ENABLE_QUERY_DEBUG_TRACE
+    if (TLS_CONTEXT->event_buffer != nullptr) {
         _duration = MonotonicMicros() - _start_ts;
-        tls_trace_ctx.event_buffer->add(
+        TLS_CONTEXT->event_buffer->add(
                 QueryTraceEvent::create_with_ctx(_name, _category, QueryTraceContext::DEFAULT_EVENT_ID, 'X',
-                                                 _start_ts - tls_trace_ctx.start_ts, _duration, tls_trace_ctx));
+                                                 _start_ts - TLS_CONTEXT->start_ts, _duration, TLS_CONTEXT));
     }
+#endif
 }
-
 } // namespace debug

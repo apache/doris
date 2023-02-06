@@ -647,7 +647,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PUSH_DOWN_NO_GROUP_AGG)
     public boolean enablePushDownNoGroupAgg = true;
 
-    @VariableMgr.VarAttr(name = ENABLE_QUERY_DEBUG_TRACE)
+    @VariableMgr.VarAttr(name = ENABLE_QUERY_DEBUG_TRACE, flag = VariableMgr.INVISIBLE)
     private boolean enableQueryDebugTrace = false;
 
     /**
@@ -1468,6 +1468,10 @@ public class SessionVariable implements Serializable, Writable {
         this.enableFileCache = enableFileCache;
     }
 
+    public boolean isEnableQueryDebugTrace() {
+        return enableQueryDebugTrace;
+    }
+
     /**
      * Serialize to thrift object.
      * Used for rest api.
@@ -1532,7 +1536,7 @@ public class SessionVariable implements Serializable, Writable {
 
         tResult.setEnableFileCache(enableFileCache);
         
-        tResult.setEnable_query_debug_trace(enableQueryDebugTrace);
+        tResult.setEnableQueryDebugTrace(enableQueryDebugTrace);
 
         return tResult;
     }
