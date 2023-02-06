@@ -383,7 +383,7 @@ public class ProfileManager {
         builder.setEndTime(element.infoStrings.getOrDefault(END_TIME, ""));
         builder.setQueryState(element.infoStrings.getOrDefault(QUERY_STATE, ""));
         builder.setTotalTime(element.infoStrings.getOrDefault(TOTAL_TIME, ""));
-        builder.setProfileSupplier(() -> element.getProfileContent());
+        builder.setProfileSupplier(element::getProfileContent);
         return builder.build();
     }
 }
