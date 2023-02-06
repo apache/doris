@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -99,17 +98,20 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                     List<Expression> newBottomOtherConjuncts = splitOtherConjuncts.get(false);
 
                     /* ********** replace Conjuncts by projects ********** */
-                    Map<ExprId, Slot> inputToOutput = new HashMap<>();
-                    Map<ExprId, Slot> outputToInput = new HashMap<>();
+                    Map<ExprId, Expression> inputToOutput = new HashMap<>();
+                    Map<ExprId, Expression> outputToInput = new HashMap<>();
+                    boolean needNewProject = false;
                     for (NamedExpression expr : projects) {
                         if (expr instanceof Alias) {
                             Alias alias = (Alias) expr;
                             Slot outputSlot = alias.toSlot();
-                            Expression child = alias.child();
-                            Preconditions.checkState(child instanceof Slot);
-                            Slot inputSlot = (Slot) child;
-                            inputToOutput.put(inputSlot.getExprId(), outputSlot);
-                            outputToInput.put(outputSlot.getExprId(), inputSlot);
+                            if (alias.child() instanceof Slot) {
+                                Slot inputSlot = (Slot) alias.child();
+                                inputToOutput.put(inputSlot.getExprId(), outputSlot);
+                            } else {
+                                needNewProject = true;
+                            }
+                            outputToInput.put(outputSlot.getExprId(), alias.child());
                         }
                     }
                     // replace hashConjuncts
@@ -120,12 +122,12 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                     newBottomOtherConjuncts = JoinUtils.replaceJoinConjuncts(newBottomOtherConjuncts, outputToInput);
                     newTopOtherConjuncts = JoinUtils.replaceJoinConjuncts(newTopOtherConjuncts, inputToOutput);
 
-                    // Add all slots used by OnCondition when projects not empty.
+                    // create new left and right project based on top join conjuncts
                     Map<Boolean, Set<Slot>> abOnUsedSlots = Stream.concat(
                                     newTopHashConjuncts.stream(),
                                     newTopOtherConjuncts.stream())
                             .flatMap(onExpr -> {
-                                Set<Slot> usedSlotRefs = onExpr.collect(SlotReference.class::isInstance);
+                                Set<Slot> usedSlotRefs = onExpr.getInputSlots();
                                 return usedSlotRefs.stream();
                             })
                             .filter(slot -> !cOutputExprIdSet.contains(slot.getExprId()))
@@ -137,19 +139,41 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                     JoinUtils.addSlotsUsedByOn(bUsedSlots, newRightProjects);
                     JoinUtils.addSlotsUsedByOn(aUsedSlots, newLeftProjects);
 
-                    if (!newLeftProjects.isEmpty()) {
-                        newLeftProjects.addAll(cOutputSet);
-                    }
-
                     /* ********** new Plan ********** */
-                    LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
-                            newBottomHashConjuncts, newBottomOtherConjuncts, JoinHint.NONE,
-                            a, c, bottomJoin.getJoinReorderContext());
+                    LogicalJoin newBottomJoin;
+                    if (needNewProject) {
+                        newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
+                                newBottomHashJoinConjuncts, newBottomOtherJoinConjuncts,
+                                JoinHint.NONE, PlanUtils.project(newLeftProjects, a).get(), c,
+                                bottomJoin.getJoinReorderContext());
+                    } else {
+                        newBottomHashJoinConjuncts = JoinUtils.replaceJoinConjunctsUseExpression(
+                                newBottomHashJoinConjuncts, outputToInput);
+                        newBottomOtherJoinConjuncts = JoinUtils.replaceJoinConjunctsUseExpression(
+                                newBottomOtherJoinConjuncts, outputToInput);
+                        newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
+                                newBottomHashJoinConjuncts, newBottomOtherJoinConjuncts,
+                                JoinHint.NONE, a, c, bottomJoin.getJoinReorderContext());
+                    }
                     newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
                     newBottomJoin.getJoinReorderContext().setHasCommute(false);
 
-                    Plan left = JoinReorderUtils.projectOrSelf(newLeftProjects, newBottomJoin);
-                    Plan right = JoinReorderUtils.projectOrSelf(newRightProjects, b);
+                    // new left project should contain all output slots from C
+                    if (!newLeftProjects.isEmpty()) {
+                        newLeftProjects.addAll(cOutputSet);
+                    }
+                    Plan left = newBottomJoin;
+                    if (!newLeftProjects.stream().map(NamedExpression::toSlot)
+                            .map(NamedExpression::getExprId).collect(Collectors.toSet())
+                            .equals(left.getOutputExprIdSet())) {
+                        left = PlanUtils.projectOrSelf(newLeftProjects, left);
+                    }
+                    Plan right = b;
+                    if (!newRightProjects.stream().map(NamedExpression::toSlot)
+                            .map(NamedExpression::getExprId).collect(Collectors.toSet())
+                            .equals(right.getOutputExprIdSet())) {
+                        right = PlanUtils.projectOrSelf(newRightProjects, right);
+                    }
 
                     LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
                             newTopHashConjuncts, newTopOtherConjuncts, JoinHint.NONE,

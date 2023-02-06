@@ -312,6 +312,23 @@ public class JoinUtils {
     }
 
     /**
+     * replace JoinConjuncts by using Expression map.
+     */
+    public static List<Expression> replaceJoinConjunctsUseExpression(List<Expression> joinConjuncts,
+            Map<ExprId, Expression> replaceMaps) {
+        return joinConjuncts.stream()
+                .map(expr ->
+                        expr.rewriteUp(e -> {
+                            if (e instanceof Slot && replaceMaps.containsKey(((Slot) e).getExprId())) {
+                                return replaceMaps.get(((Slot) e).getExprId());
+                            } else {
+                                return e;
+                            }
+                        })
+                ).collect(ImmutableList.toImmutableList());
+    }
+
+    /**
      * When project not empty, we add all slots used by hashOnCondition into projects.
      */
     public static void addSlotsUsedByOn(Set<Slot> usedSlots, List<NamedExpression> projects) {

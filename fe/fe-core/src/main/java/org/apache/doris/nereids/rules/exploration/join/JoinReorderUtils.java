@@ -84,5 +84,22 @@ class JoinReorderUtils {
             return plan;
         }
         return new LogicalProject<>(projectExprs, plan);
+    /**
+     * - prevent reorder when hyper edge is in projection. like project A.id + B.id as ab join C on ab = C.id
+     */
+    static boolean checkProjectForInnerJoin(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
+        List<NamedExpression> exprs = project.getProjects();
+        Set<ExprId> leftExprIds = project.child().left().getOutputExprIdSet();
+        Set<ExprId> rightExprIds = project.child().right().getOutputExprIdSet();
+        return exprs.stream().allMatch(expr -> {
+            Set<ExprId> exprIds = expr.getInputSlotExprIds();
+            boolean findInLeft = false;
+            boolean findInRight = false;
+            for (ExprId id : exprIds) {
+                findInLeft = findInLeft || leftExprIds.contains(id);
+                findInRight = findInRight || rightExprIds.contains(id);
+            }
+            return !(findInLeft && findInRight);
+        });
     }
 }
