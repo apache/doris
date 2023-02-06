@@ -169,6 +169,11 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
         return _cancel_status;
     }
 
+    if (_is_closed) {
+        LOG(WARNING) << "write block after closed";
+        return Status::Error<ALREADY_CANCELLED>();
+    }
+
     _total_received_rows += row_idxs.size();
     _mem_table->insert(block, row_idxs);
 
@@ -284,8 +289,14 @@ Status DeltaWriter::close() {
         return _cancel_status;
     }
 
+    if (_is_closed) {
+        LOG(WARNING) << "write block after closed";
+        return Status::Error<ALREADY_CANCELLED>();
+    }
+
     auto s = _flush_memtable_async();
     _mem_table.reset();
+    _is_closed = true;
     if (OLAP_UNLIKELY(!s.ok())) {
         return s;
     } else {
