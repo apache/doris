@@ -330,16 +330,16 @@ private:
                 res = _execute_number_expanded<ColumnDecimal128>(offsets, *nested_column,
                                                                  *right_column, nested_null_map);
             }
-        } else if ((is_date_or_datetime(right_type) && is_date_or_datetime(left_element_type)) ||
-                   (is_date_v2_or_datetime_v2(right_type) &&
-                    is_date_v2_or_datetime_v2(left_element_type))) {
+        } else if ((is_date_or_datetime(right_type) && is_date_or_datetime(left_element_type)){
             if (nested_column->is_date_type()) {
                 res = _execute_number_expanded<ColumnDate>(offsets, *nested_column, *right_column,
                                                            nested_null_map);
             } else if (nested_column->is_datetime_type()) {
                 res = _execute_number_expanded<ColumnDateTime>(offsets, *nested_column,
                                                                *right_column, nested_null_map);
-            } else if (check_column<ColumnDateV2>(*nested_column)) {
+            }
+        } else if(is_date_v2_or_datetime_v2(right_type) && is_date_v2_or_datetime_v2(left_element_type)){
+            if (check_column<ColumnDateV2>(*nested_column)) {
                 res = _execute_number_expanded<ColumnDateV2>(offsets, *nested_column, *right_column,
                                                              nested_null_map);
             } else if (check_column<ColumnDateTimeV2>(*nested_column)) {
@@ -347,7 +347,6 @@ private:
                                                                  *right_column, nested_null_map);
             }
         }
-
         return res;
     }
 };
