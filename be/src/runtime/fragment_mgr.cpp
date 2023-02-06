@@ -1063,13 +1063,6 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
     RuntimeFilterMgr* runtime_filter_mgr = nullptr;
     if (is_pipeline) {
         std::unique_lock<std::mutex> lock(_lock);
-
-        if (!_pipeline_map.count(tfragment_instance_id)) {
-            VLOG_NOTICE << "wait for fragment start execute, fragment-id:" << fragment_instance_id;
-            _cv.wait_for(lock, std::chrono::milliseconds(1000),
-                         [&] { return _pipeline_map.count(tfragment_instance_id); });
-        }
-
         auto iter = _pipeline_map.find(tfragment_instance_id);
         if (iter == _pipeline_map.end()) {
             VLOG_CRITICAL << "unknown.... fragment-id:" << fragment_instance_id;
@@ -1081,12 +1074,6 @@ Status FragmentMgr::apply_filter(const PPublishFilterRequest* request,
         runtime_filter_mgr = pip_context->get_runtime_state()->runtime_filter_mgr();
     } else {
         std::unique_lock<std::mutex> lock(_lock);
-        if (!_fragment_map.count(tfragment_instance_id)) {
-            VLOG_NOTICE << "wait for fragment start execute, fragment-id:" << fragment_instance_id;
-            _cv.wait_for(lock, std::chrono::milliseconds(1000),
-                         [&] { return _fragment_map.count(tfragment_instance_id); });
-        }
-
         auto iter = _fragment_map.find(tfragment_instance_id);
         if (iter == _fragment_map.end()) {
             VLOG_CRITICAL << "unknown.... fragment-id:" << fragment_instance_id;

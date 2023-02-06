@@ -28,14 +28,14 @@ import java.util.Map;
 
 public class IcebergHMSExternalCatalog extends IcebergExternalCatalog {
 
-    public IcebergHMSExternalCatalog(long catalogId, String name, String resource, String catalogType,
-                                     Map<String, String> props) {
-        super(catalogId, name, catalogType);
+    public IcebergHMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
+        super(catalogId, name);
         catalogProperty = new CatalogProperty(resource, props);
     }
 
     @Override
     protected void initLocalObjectsImpl() {
+        icebergCatalogType = ICEBERG_HMS;
         HiveCatalog hiveCatalog = new org.apache.iceberg.hive.HiveCatalog();
         hiveCatalog.setConf(getConfiguration());
         // initialize hive catalog
