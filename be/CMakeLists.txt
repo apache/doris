@@ -551,6 +551,13 @@ if (USE_MEM_TRACKER)
     add_compile_options(-DUSE_MEM_TRACKER)
 endif()
 
+# Control Pipeline tracing. If turned on, PipelineTasks' execution will be recorded continuously
+# and print to json file. 
+if (ENABLE_QUERY_DEBUG_TRACE)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DENABLE_QUERY_DEBUG_TRACE")
+    message(STATUS "enable query debug trace")
+endif()
+
 # Compile with jemalloc.
 # Adding the option `USE_JEMALLOC=ON sh build.sh` when compiling can turn on building with jemalloc
 if (USE_JEMALLOC)

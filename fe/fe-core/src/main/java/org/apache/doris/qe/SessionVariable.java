@@ -267,6 +267,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
     public static final String DROP_TABLE_IF_CTAS_FAILED = "drop_table_if_ctas_failed";
 
+    public static final String ENABLE_QUERY_DEBUG_TRACE = "enable_query_debug_trace";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -644,6 +646,9 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_PUSH_DOWN_NO_GROUP_AGG)
     public boolean enablePushDownNoGroupAgg = true;
+
+    @VariableMgr.VarAttr(name = ENABLE_QUERY_DEBUG_TRACE)
+    private boolean enableQueryDebugTrace = false;
 
     /**
      * The current statistics are only used for CBO test,
@@ -1526,6 +1531,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setExternalSortBytesThreshold(externalSortBytesThreshold);
 
         tResult.setEnableFileCache(enableFileCache);
+        
+        tResult.setEnable_query_debug_trace(enableQueryDebugTrace);
 
         return tResult;
     }

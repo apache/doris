@@ -76,6 +76,8 @@ public:
 
     void disable_task_steal() { _can_steal = false; }
 
+    auto get_id() const { return _pipeline_id; }
+
 private:
     void _init_profile();
     std::atomic<uint32_t> _complete_dependency;

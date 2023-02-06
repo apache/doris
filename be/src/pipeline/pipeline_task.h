@@ -85,6 +85,11 @@ inline const char* get_state_name(PipelineTaskState idx) {
     __builtin_unreachable();
 }
 
+class PipelineTask;
+using PipelineTaskRawPtr = PipelineTask*;
+using PipelineTasks = std::vector<PipelineTaskRawPtr>;
+using PipelineTasksId = uint32_t;
+
 // The class do the pipeline task. Minest schdule union by task scheduler
 class PipelineTask {
 public:
@@ -171,7 +176,9 @@ public:
 
     bool has_dependency();
 
-    uint32_t index() const { return _index; }
+    uint32_t index() const { return _index; } // TODO: is it useful?
+
+    auto get_id() const { return _pipeline->get_id(); }
 
     OperatorPtr get_root() { return _root; }
 

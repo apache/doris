@@ -334,6 +334,10 @@ if [[ "${DISABLE_JAVA_UDF}" == "ON" ]]; then
     BUILD_JAVA_UDF=0
 fi
 
+if [[ -z "${ENABLE_QUERY_DEBUG_TRACE}" ]]; then
+	ENABLE_QUERY_DEBUG_TRACE='OFF'
+fi
+
 echo "Get params:
     BUILD_FE            -- ${BUILD_FE}
     BUILD_BE            -- ${BUILD_BE}
@@ -357,6 +361,7 @@ echo "Get params:
     USE_BTHREAD_SCANNER -- ${USE_BTHREAD_SCANNER}
     STRICT_MEMORY_USE   -- ${STRICT_MEMORY_USE}
     ENABLE_STACKTRACE   -- ${ENABLE_STACKTRACE}
+    ENABLE_QUERY_DEBUG_TRACE -- ${ENABLE_QUERY_DEBUG_TRACE}
 "
 
 # Clean and build generated code
@@ -430,6 +435,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DSTRICT_MEMORY_USE="${STRICT_MEMORY_USE}" \
         -DENABLE_STACKTRACE="${ENABLE_STACKTRACE}" \
         -DUSE_AVX2="${USE_AVX2}" \
+        -DENABLE_QUERY_DEBUG_TRACE="${ENABLE_QUERY_DEBUG_TRACE}" \
         -DGLIBC_COMPATIBILITY="${GLIBC_COMPATIBILITY}" \
         -DEXTRA_CXX_FLAGS="${EXTRA_CXX_FLAGS}" \
         "${DORIS_HOME}/be"

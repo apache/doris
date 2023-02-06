@@ -146,6 +146,8 @@ CONF_Int32(sleep_one_second, "1");
 // log dir
 CONF_String(sys_log_dir, "${DORIS_HOME}/log");
 CONF_String(user_function_dir, "${DORIS_HOME}/lib/udf");
+// tracing monitor dir
+CONF_String(tracing_dir, "${DORIS_HOME}/log/tracing");
 // INFO, WARNING, ERROR, FATAL
 CONF_String(sys_log_level, "INFO");
 // TIME-DAY, TIME-HOUR, SIZE-MB-nnn

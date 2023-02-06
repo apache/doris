@@ -109,6 +109,7 @@ set(UTIL_FILES
   exception.cpp
   libjvm_loader.cpp
   jni_native_method.cpp
+  debug/tracing.cpp
 )
 
 if (OS_MACOSX)

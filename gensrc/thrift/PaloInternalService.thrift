@@ -198,6 +198,8 @@ struct TQueryOptions {
   61: optional i32 insert_timeout = 14400
 
   62: optional i32 execution_timeout = 3600
+
+  63: optional bool enable_query_debug_trace = false
 }
     
 

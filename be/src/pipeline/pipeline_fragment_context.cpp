@@ -172,7 +172,7 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
     _runtime_state->set_query_mem_tracker(_query_ctx->query_mem_tracker);
     _runtime_state->set_tracer(std::move(tracer));
 
-    // TODO should be combine with plan_fragment_executor.prepare funciton
+    // TODO: should be combine with plan_fragment_executor.prepare function
     SCOPED_ATTACH_TASK(get_runtime_state());
     _runtime_state->runtime_filter_mgr()->init();
     _runtime_state->set_be_number(request.backend_num);
@@ -277,7 +277,7 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
     for (PipelinePtr& pipeline : _pipelines) {
         // if sink
         auto sink = pipeline->sink()->build_operator();
-        // TODO pipeline 1 need to add new interface for exec node and operator
+        // TODO: pipeline 1 need to add new interface for exec node and operator
         sink->init(request.fragment.output_sink);
 
         Operators operators;
