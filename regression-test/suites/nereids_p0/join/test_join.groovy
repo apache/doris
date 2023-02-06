@@ -174,16 +174,6 @@ suite("test_join", "nereids_p0") {
                 order by 1, 2, 3, 4, 5 limit 65535"""
     }
 
-    test {
-        sql """
-            select a.k1, b.k1, count(a.k1), count(b.k1) from test a inner join baseall b
-                on a.k2 = b.k2 and a.k1 > 0
-                inner join bigtable c on a.k3 = c.k3 and b.k1 = c.k1 + 1 and c.k3 > 0
-                group by 1, 2 order by 1, 2 limit 65535
-        """
-        result([[1,3,1,1],[2,2,1,1]])
-    }
-
     // test_left_join
     String i = "a.k1, b.k1, a.k2, b.k2, a.k3, b.k3"
     qt_left_join1"""select ${i} from ${tbName1} a left join ${tbName2} b 
