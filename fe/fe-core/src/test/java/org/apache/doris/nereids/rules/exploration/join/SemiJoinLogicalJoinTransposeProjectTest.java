@@ -50,9 +50,9 @@ public class SemiJoinLogicalJoinTransposeProjectTest {
          *  A      B                  A        C
          */
         LogicalPlan topJoin = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))  // t1.id = t2.id
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))  // t1.id = t2.id
                 .project(ImmutableList.of(0))
-                .hashJoinUsing(scan3, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))  // t1.id = t3.id
+                .join(scan3, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))  // t1.id = t3.id
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
@@ -80,9 +80,9 @@ public class SemiJoinLogicalJoinTransposeProjectTest {
     @Test
     public void testSemiJoinLogicalTransposeProjectLAsscomFail() {
         LogicalPlan topJoin = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0)) // t1.id = t2.id
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0)) // t1.id = t2.id
                 .project(ImmutableList.of(0, 2)) // t1.id, t2.id
-                .hashJoinUsing(scan3, JoinType.LEFT_SEMI_JOIN, Pair.of(1, 0)) // t2.id = t3.id
+                .join(scan3, JoinType.LEFT_SEMI_JOIN, Pair.of(1, 0)) // t2.id = t3.id
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
@@ -105,9 +105,9 @@ public class SemiJoinLogicalJoinTransposeProjectTest {
          *  A      B                             B       C
          */
         LogicalPlan topJoin = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0)) // t1.id = t2.id
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0)) // t1.id = t2.id
                 .project(ImmutableList.of(0, 2)) // t1.id, t2.id
-                .hashJoinUsing(scan3, JoinType.LEFT_SEMI_JOIN, Pair.of(1, 0)) // t2.id = t3.id
+                .join(scan3, JoinType.LEFT_SEMI_JOIN, Pair.of(1, 0)) // t2.id = t3.id
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
