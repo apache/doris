@@ -101,7 +101,7 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .add(topDownBatch(RuleSet.PUSH_DOWN_FILTERS, false))
                 .add(visitorJob(RuleType.INFER_PREDICATES, new InferPredicates()))
                 .add(topDownBatch(RuleSet.PUSH_DOWN_FILTERS, false))
-                .add(topDownBatch(ImmutableList.of(PushFilterInsideJoin.INSTANCE)))
+                .add(topDownBatch(ImmutableList.of(new PushFilterInsideJoin())))
                 .add(topDownBatch(ImmutableList.of(new FindHashConditionForJoin())))
                 .add(topDownBatch(RuleSet.PUSH_DOWN_FILTERS, false))
                 .add(topDownBatch(ImmutableList.of(new InnerToCrossJoin())))

@@ -32,8 +32,6 @@ import java.util.List;
  * Push the predicate in the LogicalFilter to the join children.
  */
 public class PushFilterInsideJoin extends OneRewriteRuleFactory {
-    public static final PushFilterInsideJoin INSTANCE = new PushFilterInsideJoin();
-
     @Override
     public Rule build() {
         return logicalFilter(logicalJoin())
