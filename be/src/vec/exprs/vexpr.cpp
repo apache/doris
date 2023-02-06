@@ -180,90 +180,90 @@ Status VExpr::create_expr(doris::ObjectPool* pool, const doris::TExprNode& texpr
     return Status::OK();
 }
 
-    Status VExpr::create_tree_from_thrift(doris::ObjectPool * pool,
-                                          const std::vector<doris::TExprNode>& nodes, VExpr* parent,
-                                          int* node_idx, VExpr** root_expr, VExprContext** ctx) {
-        // propagate error case
+Status VExpr::create_tree_from_thrift(doris::ObjectPool* pool,
+                                      const std::vector<doris::TExprNode>& nodes, VExpr* parent,
+                                      int* node_idx, VExpr** root_expr, VExprContext** ctx) {
+    // propagate error case
+    if (*node_idx >= nodes.size()) {
+        return Status::InternalError("Failed to reconstruct expression tree from thrift.");
+    }
+    int num_children = nodes[*node_idx].num_children;
+    VExpr* expr = nullptr;
+    RETURN_IF_ERROR(create_expr(pool, nodes[*node_idx], &expr));
+    DCHECK(expr != nullptr);
+    if (parent != nullptr) {
+        parent->add_child(expr);
+    } else {
+        DCHECK(root_expr != nullptr);
+        DCHECK(ctx != nullptr);
+        *root_expr = expr;
+        *ctx = pool->add(new VExprContext(expr));
+    }
+    for (int i = 0; i < num_children; i++) {
+        *node_idx += 1;
+        RETURN_IF_ERROR(create_tree_from_thrift(pool, nodes, expr, node_idx, nullptr, nullptr));
+        // we are expecting a child, but have used all nodes
+        // this means we have been given a bad tree and must fail
         if (*node_idx >= nodes.size()) {
             return Status::InternalError("Failed to reconstruct expression tree from thrift.");
         }
-        int num_children = nodes[*node_idx].num_children;
-        VExpr* expr = nullptr;
-        RETURN_IF_ERROR(create_expr(pool, nodes[*node_idx], &expr));
-        DCHECK(expr != nullptr);
-        if (parent != nullptr) {
-            parent->add_child(expr);
-        } else {
-            DCHECK(root_expr != nullptr);
-            DCHECK(ctx != nullptr);
-            *root_expr = expr;
-            *ctx = pool->add(new VExprContext(expr));
-        }
-        for (int i = 0; i < num_children; i++) {
-            *node_idx += 1;
-            RETURN_IF_ERROR(create_tree_from_thrift(pool, nodes, expr, node_idx, nullptr, nullptr));
-            // we are expecting a child, but have used all nodes
-            // this means we have been given a bad tree and must fail
-            if (*node_idx >= nodes.size()) {
-                return Status::InternalError("Failed to reconstruct expression tree from thrift.");
-            }
-        }
+    }
+    return Status::OK();
+}
+
+Status VExpr::create_expr_tree(doris::ObjectPool* pool, const doris::TExpr& texpr,
+                               VExprContext** ctx) {
+    if (texpr.nodes.size() == 0) {
+        *ctx = nullptr;
         return Status::OK();
     }
-
-    Status VExpr::create_expr_tree(doris::ObjectPool * pool, const doris::TExpr& texpr,
-                                   VExprContext** ctx) {
-        if (texpr.nodes.size() == 0) {
-            *ctx = nullptr;
-            return Status::OK();
-        }
-        int node_idx = 0;
-        VExpr* e = nullptr;
-        Status status = create_tree_from_thrift(pool, texpr.nodes, nullptr, &node_idx, &e, ctx);
-        if (status.ok() && node_idx + 1 != texpr.nodes.size()) {
-            status = Status::InternalError(
-                    "Expression tree only partially reconstructed. Not all thrift nodes were "
-                    "used.");
-        }
-        if (!status.ok()) {
-            LOG(ERROR) << "Could not construct expr tree.\n"
-                       << status << "\n"
-                       << apache::thrift::ThriftDebugString(texpr);
-        }
-        return status;
+    int node_idx = 0;
+    VExpr* e = nullptr;
+    Status status = create_tree_from_thrift(pool, texpr.nodes, nullptr, &node_idx, &e, ctx);
+    if (status.ok() && node_idx + 1 != texpr.nodes.size()) {
+        status = Status::InternalError(
+                "Expression tree only partially reconstructed. Not all thrift nodes were "
+                "used.");
     }
-
-    Status VExpr::create_expr_trees(ObjectPool * pool, const std::vector<doris::TExpr>& texprs,
-                                    std::vector<VExprContext*>* ctxs) {
-        ctxs->clear();
-        for (int i = 0; i < texprs.size(); ++i) {
-            VExprContext* ctx = nullptr;
-            RETURN_IF_ERROR(create_expr_tree(pool, texprs[i], &ctx));
-            ctxs->push_back(ctx);
-        }
-        return Status::OK();
+    if (!status.ok()) {
+        LOG(ERROR) << "Could not construct expr tree.\n"
+                   << status << "\n"
+                   << apache::thrift::ThriftDebugString(texpr);
     }
+    return status;
+}
 
-    Status VExpr::prepare(const std::vector<VExprContext*>& ctxs, RuntimeState* state,
-                          const RowDescriptor& row_desc) {
-        for (auto ctx : ctxs) {
-            RETURN_IF_ERROR(ctx->prepare(state, row_desc));
-        }
-        return Status::OK();
+Status VExpr::create_expr_trees(ObjectPool* pool, const std::vector<doris::TExpr>& texprs,
+                                std::vector<VExprContext*>* ctxs) {
+    ctxs->clear();
+    for (int i = 0; i < texprs.size(); ++i) {
+        VExprContext* ctx = nullptr;
+        RETURN_IF_ERROR(create_expr_tree(pool, texprs[i], &ctx));
+        ctxs->push_back(ctx);
     }
+    return Status::OK();
+}
 
-    void VExpr::close(const std::vector<VExprContext*>& ctxs, RuntimeState* state) {
-        for (auto ctx : ctxs) {
-            ctx->close(state);
-        }
+Status VExpr::prepare(const std::vector<VExprContext*>& ctxs, RuntimeState* state,
+                      const RowDescriptor& row_desc) {
+    for (auto ctx : ctxs) {
+        RETURN_IF_ERROR(ctx->prepare(state, row_desc));
     }
+    return Status::OK();
+}
 
-    Status VExpr::open(const std::vector<VExprContext*>& ctxs, RuntimeState* state) {
-        for (int i = 0; i < ctxs.size(); ++i) {
-            RETURN_IF_ERROR(ctxs[i]->open(state));
-        }
-        return Status::OK();
+void VExpr::close(const std::vector<VExprContext*>& ctxs, RuntimeState* state) {
+    for (auto ctx : ctxs) {
+        ctx->close(state);
     }
+}
+
+Status VExpr::open(const std::vector<VExprContext*>& ctxs, RuntimeState* state) {
+    for (int i = 0; i < ctxs.size(); ++i) {
+        RETURN_IF_ERROR(ctxs[i]->open(state));
+    }
+    return Status::OK();
+}
 
 FunctionContext::TypeDesc VExpr::column_type_to_type_desc(const TypeDescriptor& type) {
     FunctionContext::TypeDesc out;
@@ -367,132 +367,131 @@ FunctionContext::TypeDesc VExpr::column_type_to_type_desc(const TypeDescriptor& 
     return out;
 }
 
-    Status VExpr::clone_if_not_exists(const std::vector<VExprContext*>& ctxs, RuntimeState* state,
-                                      std::vector<VExprContext*>* new_ctxs) {
-        DCHECK(new_ctxs != nullptr);
-        if (!new_ctxs->empty()) {
-            // 'ctxs' was already cloned into '*new_ctxs', nothing to do.
-            DCHECK_EQ(new_ctxs->size(), ctxs.size());
-            for (int i = 0; i < new_ctxs->size(); ++i) {
-                DCHECK((*new_ctxs)[i]->_is_clone);
-            }
-            return Status::OK();
-        }
-        new_ctxs->resize(ctxs.size());
-        for (int i = 0; i < ctxs.size(); ++i) {
-            RETURN_IF_ERROR(ctxs[i]->clone(state, &(*new_ctxs)[i]));
+Status VExpr::clone_if_not_exists(const std::vector<VExprContext*>& ctxs, RuntimeState* state,
+                                  std::vector<VExprContext*>* new_ctxs) {
+    DCHECK(new_ctxs != nullptr);
+    if (!new_ctxs->empty()) {
+        // 'ctxs' was already cloned into '*new_ctxs', nothing to do.
+        DCHECK_EQ(new_ctxs->size(), ctxs.size());
+        for (int i = 0; i < new_ctxs->size(); ++i) {
+            DCHECK((*new_ctxs)[i]->_is_clone);
         }
         return Status::OK();
     }
-    std::string VExpr::debug_string() const {
-        // TODO: implement partial debug string for member vars
-        std::stringstream out;
-        out << " type=" << _type.debug_string();
-        out << " codegen="
-            << "false";
+    new_ctxs->resize(ctxs.size());
+    for (int i = 0; i < ctxs.size(); ++i) {
+        RETURN_IF_ERROR(ctxs[i]->clone(state, &(*new_ctxs)[i]));
+    }
+    return Status::OK();
+}
+std::string VExpr::debug_string() const {
+    // TODO: implement partial debug string for member vars
+    std::stringstream out;
+    out << " type=" << _type.debug_string();
+    out << " codegen="
+        << "false";
 
-        if (!_children.empty()) {
-            out << " children=" << debug_string(_children);
-        }
-
-        return out.str();
+    if (!_children.empty()) {
+        out << " children=" << debug_string(_children);
     }
 
-    std::string VExpr::debug_string(const std::vector<VExpr*>& exprs) {
-        std::stringstream out;
-        out << "[";
+    return out.str();
+}
 
-        for (int i = 0; i < exprs.size(); ++i) {
-            out << (i == 0 ? "" : " ") << exprs[i]->debug_string();
-        }
+std::string VExpr::debug_string(const std::vector<VExpr*>& exprs) {
+    std::stringstream out;
+    out << "[";
 
-        out << "]";
-        return out.str();
+    for (int i = 0; i < exprs.size(); ++i) {
+        out << (i == 0 ? "" : " ") << exprs[i]->debug_string();
     }
 
-    std::string VExpr::debug_string(const std::vector<VExprContext*>& ctxs) {
-        std::vector<VExpr*> exprs;
-        for (int i = 0; i < ctxs.size(); ++i) {
-            exprs.push_back(ctxs[i]->root());
+    out << "]";
+    return out.str();
+}
+
+std::string VExpr::debug_string(const std::vector<VExprContext*>& ctxs) {
+    std::vector<VExpr*> exprs;
+    for (int i = 0; i < ctxs.size(); ++i) {
+        exprs.push_back(ctxs[i]->root());
+    }
+    return debug_string(exprs);
+}
+
+bool VExpr::is_constant() const {
+    for (int i = 0; i < _children.size(); ++i) {
+        if (!_children[i]->is_constant()) {
+            return false;
         }
-        return debug_string(exprs);
     }
 
-    bool VExpr::is_constant() const {
-        for (int i = 0; i < _children.size(); ++i) {
-            if (!_children[i]->is_constant()) {
-                return false;
-            }
-        }
+    return true;
+}
 
-        return true;
+Status VExpr::get_const_col(VExprContext* context, ColumnPtrWrapper** output) {
+    *output = nullptr;
+    if (!is_constant()) {
+        return Status::OK();
     }
 
-    Status VExpr::get_const_col(VExprContext * context, ColumnPtrWrapper * *output) {
-        *output = nullptr;
-        if (!is_constant()) {
-            return Status::OK();
-        }
-
-        if (_constant_col != nullptr) {
-            *output = _constant_col.get();
-            return Status::OK();
-        }
-
-        int result = -1;
-        Block block;
-        // If block is empty, some functions will produce no result. So we insert a column with
-        // single value here.
-        block.insert({ColumnUInt8::create(1), std::make_shared<DataTypeUInt8>(), ""});
-        RETURN_IF_ERROR(execute(context, &block, &result));
-        DCHECK(result != -1);
-        const auto& column = block.get_by_position(result).column;
-        _constant_col = std::make_shared<ColumnPtrWrapper>(column);
+    if (_constant_col != nullptr) {
         *output = _constant_col.get();
         return Status::OK();
     }
 
-    void VExpr::register_function_context(doris::RuntimeState * state, VExprContext * context) {
-        FunctionContext::TypeDesc return_type = VExpr::column_type_to_type_desc(_type);
-        std::vector<FunctionContext::TypeDesc> arg_types;
-        for (int i = 0; i < _children.size(); ++i) {
-            arg_types.push_back(VExpr::column_type_to_type_desc(_children[i]->type()));
-        }
+    int result = -1;
+    Block block;
+    // If block is empty, some functions will produce no result. So we insert a column with
+    // single value here.
+    block.insert({ColumnUInt8::create(1), std::make_shared<DataTypeUInt8>(), ""});
+    RETURN_IF_ERROR(execute(context, &block, &result));
+    DCHECK(result != -1);
+    const auto& column = block.get_by_position(result).column;
+    _constant_col = std::make_shared<ColumnPtrWrapper>(column);
+    *output = _constant_col.get();
+    return Status::OK();
+}
 
-        _fn_context_index = context->register_func(state, return_type, arg_types, 0);
+void VExpr::register_function_context(doris::RuntimeState* state, VExprContext* context) {
+    FunctionContext::TypeDesc return_type = VExpr::column_type_to_type_desc(_type);
+    std::vector<FunctionContext::TypeDesc> arg_types;
+    for (int i = 0; i < _children.size(); ++i) {
+        arg_types.push_back(VExpr::column_type_to_type_desc(_children[i]->type()));
     }
 
-    Status VExpr::init_function_context(VExprContext * context,
-                                        FunctionContext::FunctionStateScope scope,
-                                        const FunctionBasePtr& function) const {
+    _fn_context_index = context->register_func(state, return_type, arg_types, 0);
+}
+
+Status VExpr::init_function_context(VExprContext* context,
+                                    FunctionContext::FunctionStateScope scope,
+                                    const FunctionBasePtr& function) const {
+    FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
+    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+        std::vector<ColumnPtrWrapper*> constant_cols;
+        for (auto c : _children) {
+            ColumnPtrWrapper* const_col_wrapper = nullptr;
+            RETURN_IF_ERROR(c->get_const_col(context, &const_col_wrapper));
+            constant_cols.push_back(const_col_wrapper);
+        }
+        fn_ctx->impl()->set_constant_cols(constant_cols);
+    }
+
+    if (scope == FunctionContext::FRAGMENT_LOCAL) {
+        RETURN_IF_ERROR(function->prepare(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
+    }
+    RETURN_IF_ERROR(function->prepare(fn_ctx, FunctionContext::THREAD_LOCAL));
+    return Status::OK();
+}
+
+void VExpr::close_function_context(VExprContext* context, FunctionContext::FunctionStateScope scope,
+                                   const FunctionBasePtr& function) const {
+    if (_fn_context_index != -1 && !context->_stale) {
         FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
+        function->close(fn_ctx, FunctionContext::THREAD_LOCAL);
         if (scope == FunctionContext::FRAGMENT_LOCAL) {
-            std::vector<ColumnPtrWrapper*> constant_cols;
-            for (auto c : _children) {
-                ColumnPtrWrapper* const_col_wrapper = nullptr;
-                RETURN_IF_ERROR(c->get_const_col(context, &const_col_wrapper));
-                constant_cols.push_back(const_col_wrapper);
-            }
-            fn_ctx->impl()->set_constant_cols(constant_cols);
-        }
-
-        if (scope == FunctionContext::FRAGMENT_LOCAL) {
-            RETURN_IF_ERROR(function->prepare(fn_ctx, FunctionContext::FRAGMENT_LOCAL));
-        }
-        RETURN_IF_ERROR(function->prepare(fn_ctx, FunctionContext::THREAD_LOCAL));
-        return Status::OK();
-    }
-
-    void VExpr::close_function_context(VExprContext * context,
-                                       FunctionContext::FunctionStateScope scope,
-                                       const FunctionBasePtr& function) const {
-        if (_fn_context_index != -1 && !context->_stale) {
-            FunctionContext* fn_ctx = context->fn_context(_fn_context_index);
-            function->close(fn_ctx, FunctionContext::THREAD_LOCAL);
-            if (scope == FunctionContext::FRAGMENT_LOCAL) {
-                function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
-            }
+            function->close(fn_ctx, FunctionContext::FRAGMENT_LOCAL);
         }
     }
+}
 
 } // namespace doris::vectorized
