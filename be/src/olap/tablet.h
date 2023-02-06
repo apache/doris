@@ -408,7 +408,8 @@ private:
     Status _follow_cooldowned_data(io::RemoteFileSystem* fs, int64_t cooldown_replica_id);
     Status _read_cooldown_meta(io::RemoteFileSystem* fs, int64_t cooldown_replica_id,
                                TabletMetaPB* tablet_meta_pb);
-    Status _write_cooldown_meta(io::RemoteFileSystem* fs, RowsetMeta* new_rs_meta);
+    Status _write_cooldown_meta(io::RemoteFileSystem* fs, const TUniqueId& cooldown_meta_id,
+                                RowsetMeta* new_rs_meta);
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////

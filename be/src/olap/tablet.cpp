@@ -1819,10 +1819,10 @@ Status Tablet::_cooldown_data() {
     new_rowset_meta->set_resource_id(dest_fs->id());
     new_rowset_meta->set_fs(dest_fs);
     new_rowset_meta->set_creation_time(time(nullptr));
+    TUniqueId cooldown_meta_id = generate_uuid();
 
-//    *(remote_tablet_meta_pb.mutable_cooldown_meta_id()) = UniqueId::gen_uid().to_proto();
     // upload cooldowned rowset meta to remote fs
-    RETURN_IF_ERROR(_write_cooldown_meta(dest_fs.get(), new_rowset_meta.get()));
+    RETURN_IF_ERROR(_write_cooldown_meta(dest_fs.get(), cooldown_meta_id, new_rowset_meta.get()));
 
     RowsetSharedPtr new_rowset;
     RowsetFactory::create_rowset(_schema, _tablet_path, new_rowset_meta, &new_rowset);
@@ -1834,6 +1834,7 @@ Status Tablet::_cooldown_data() {
         std::unique_lock meta_wlock(_meta_lock);
         if (tablet_state() == TABLET_RUNNING) {
             modify_rowsets(to_add, to_delete);
+            _tablet_meta->set_cooldown_meta_id(cooldown_meta_id);
             save_meta();
         }
     }
@@ -1858,7 +1859,8 @@ Status Tablet::_read_cooldown_meta(io::RemoteFileSystem* fs, int64_t cooldown_re
     return Status::OK();
 }
 
-Status Tablet::_write_cooldown_meta(io::RemoteFileSystem* fs, RowsetMeta* new_rs_meta) {
+Status Tablet::_write_cooldown_meta(io::RemoteFileSystem* fs, const TUniqueId& cooldown_meta_id,
+                                    RowsetMeta* new_rs_meta) {
     std::vector<RowsetMetaSharedPtr> cooldowned_rs_metas;
     {
         std::shared_lock meta_rlock(_meta_lock);
@@ -1874,6 +1876,8 @@ Status Tablet::_write_cooldown_meta(io::RemoteFileSystem* fs, RowsetMeta* new_rs
         return Status::InternalError("version not continuous");
     }
     TabletMetaPB tablet_meta_pb;
+    tablet_meta_pb.mutable_cooldown_meta_id()->set_hi(_cooldown_meta_id.hi);
+    tablet_meta_pb.mutable_cooldown_meta_id()->set_lo(_cooldown_meta_id.lo);
     auto rs_metas = tablet_meta_pb.mutable_rs_metas();
     rs_metas->Reserve(cooldowned_rs_metas.size() + 1);
     for (auto& rs_meta : cooldowned_rs_metas) {
@@ -1952,6 +1956,7 @@ Status Tablet::_follow_cooldowned_data(io::RemoteFileSystem* fs, int64_t cooldow
     }
 
     _tablet_meta->modify_rs_metas(to_add, to_delete);
+    _tablet_meta->set_cooldown_meta_id(cooldown_meta_pb.cooldown_meta_id());
 
     // TODO(plat1ko): process primary key
 

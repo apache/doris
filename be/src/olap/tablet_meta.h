@@ -193,6 +193,10 @@ public:
         _storage_policy_id = id;
     }
 
+    void set_cooldown_meta_id(const TUniqueId& cooldown_meta_id) {
+        _cooldown_meta_id = cooldown_meta_id;
+    }
+
     const TUniqueId cooldown_meta_id() const { return _cooldown_meta_id; }
 
     const int64_t cooldowned_version() const { return _cooldowned_version; }

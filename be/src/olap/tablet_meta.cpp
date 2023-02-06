@@ -723,7 +723,6 @@ void TabletMeta::modify_rs_metas(const std::vector<RowsetMetaSharedPtr>& to_add,
             _cooldowned_version = rs_meta->end_version();
         }
     }
-    _cooldown_meta_id = generate_uuid();
 }
 
 // Use the passing "rs_metas" to replace the rs meta in this tablet meta
