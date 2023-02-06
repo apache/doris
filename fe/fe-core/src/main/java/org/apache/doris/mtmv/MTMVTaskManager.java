@@ -29,6 +29,7 @@ import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Queues;
@@ -278,7 +279,7 @@ public class MTMVTaskManager {
 
     public List<MTMVTask> showTasks(String dbName) {
         List<MTMVTask> taskList = Lists.newArrayList();
-        if (dbName == null) {
+        if (Strings.isNullOrEmpty(dbName)) {
             for (Queue<MTMVTaskExecutor> pTaskQueue : getPendingTaskMap().values()) {
                 taskList.addAll(pTaskQueue.stream().map(MTMVTaskExecutor::getTask).collect(Collectors.toList()));
             }
