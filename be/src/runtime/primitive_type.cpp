@@ -21,9 +21,9 @@
 #include "runtime/collection_value.h"
 #include "runtime/define_primitive_type.h"
 #include "runtime/jsonb_value.h"
-#include "vec/common/string_ref.h"
 #include "runtime/map_value.h"
 #include "runtime/struct_value.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 

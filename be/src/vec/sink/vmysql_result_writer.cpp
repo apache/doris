@@ -716,7 +716,7 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
                                                                                rows_buffer, scale);
             } else {
                 status = _add_one_column<PrimitiveType::TYPE_DATETIMEV2, false>(column_ptr, result,
-                                                                               rows_buffer, scale);
+                                                                                rows_buffer, scale);
             }
             break;
         }
