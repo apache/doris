@@ -326,14 +326,6 @@ protected:
             input_rowsets.push_back(rowset);
         }
 
-        // create input rowset reader
-        vector<RowsetReaderSharedPtr> input_rs_readers;
-        for (auto& rowset : input_rowsets) {
-            RowsetReaderSharedPtr rs_reader;
-            EXPECT_TRUE(rowset->create_reader(&rs_reader).ok());
-            input_rs_readers.push_back(std::move(rs_reader));
-        }
-
         // create output rowset writer
         RowsetWriterContext writer_context;
         create_rowset_writer_context(tablet_schema, NONOVERLAPPING, 3456, &writer_context);
@@ -350,6 +342,19 @@ protected:
         TabletSharedPtr tablet =
                 create_tablet(*tablet_schema, enable_unique_key_merge_on_write,
                               output_rs_writer->version().first - 1, has_delete_handler);
+        if (enable_unique_key_merge_on_write) {
+            tablet->tablet_meta()->delete_bitmap().add({input_rowsets[0]->rowset_id(), 0, 0}, 0);
+            tablet->tablet_meta()->delete_bitmap().add({input_rowsets[0]->rowset_id(), 0, 0}, 3);
+        }
+
+        // create input rowset reader
+        vector<RowsetReaderSharedPtr> input_rs_readers;
+        for (auto& rowset : input_rowsets) {
+            RowsetReaderSharedPtr rs_reader;
+            EXPECT_TRUE(rowset->create_reader(&rs_reader).ok());
+            input_rs_readers.push_back(std::move(rs_reader));
+        }
+
         Merger::Statistics stats;
         RowIdConversion rowid_conversion;
         stats.rowid_conversion = &rowid_conversion;
@@ -406,6 +411,11 @@ protected:
                     RowLocation src(input_rowsets[rs_id]->rowset_id(), s_id, row_id);
                     RowLocation dst;
                     int res = rowid_conversion.get(src, &dst);
+                    // key deleted by delete bitmap
+                    if (enable_unique_key_merge_on_write && rs_id == 0 && s_id == 0 &&
+                        (row_id == 0 || row_id == 3)) {
+                        EXPECT_LT(res, 0);
+                    }
                     if (res < 0) {
                         continue;
                     }
