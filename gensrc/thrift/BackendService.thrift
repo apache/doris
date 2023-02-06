@@ -136,10 +136,6 @@ service BackendService {
     PaloInternalService.TTransmitDataResult transmit_data(
         1:PaloInternalService.TTransmitDataParams params);
 
-    // Coordinator Fetch Data From Root fragment
-    PaloInternalService.TFetchDataResult fetch_data(
-        1:PaloInternalService.TFetchDataParams params);
-
     AgentService.TAgentResult submit_tasks(1:list<AgentService.TAgentTaskRequest> tasks);
 
     AgentService.TAgentResult make_snapshot(1:AgentService.TSnapshotRequest snapshot_request);

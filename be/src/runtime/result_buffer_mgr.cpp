@@ -97,17 +97,6 @@ std::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(const TU
     return std::shared_ptr<BufferControlBlock>();
 }
 
-Status ResultBufferMgr::fetch_data(const TUniqueId& query_id, TFetchDataResult* result) {
-    std::shared_ptr<BufferControlBlock> cb = find_control_block(query_id);
-
-    if (nullptr == cb) {
-        // the sender tear down its buffer block
-        return Status::InternalError("no result for this query.");
-    }
-
-    return cb->get_batch(result);
-}
-
 void ResultBufferMgr::fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* ctx) {
     TUniqueId tid;
     tid.__set_hi(finst_id.hi());
