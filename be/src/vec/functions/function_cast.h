@@ -324,6 +324,7 @@ struct ConvertImplGenericToString {
         size_t size = col_from.size();
 
         auto col_to = ColumnString::create();
+        col_to->reserve(size * 2);
         VectorBufferWriter write_buffer(*col_to.get());
         for (size_t i = 0; i < size; ++i) {
             type.to_string(col_from, i, write_buffer);
