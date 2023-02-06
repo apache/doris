@@ -1717,7 +1717,7 @@ public class Config extends ConfigBase {
      * If set to TRUE, FE will convert date/datetime to datev2/datetimev2(0) automatically.
      */
     @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_date_conversion = false;
+    public static boolean enable_date_conversion = true;
 
     @ConfField(mutable = false, masterOnly = true)
     public static boolean enable_multi_tags = false;
