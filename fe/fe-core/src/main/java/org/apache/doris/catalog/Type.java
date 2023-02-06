@@ -187,9 +187,6 @@ public abstract class Type {
         structSubTypes.add(DATETIMEV2);
         structSubTypes.add(TIME);
         structSubTypes.add(TIMEV2);
-        structSubTypes.add(DECIMAL32);
-        structSubTypes.add(DECIMAL64);
-        structSubTypes.add(DECIMAL128);
     }
 
     public static ArrayList<ScalarType> getIntegerTypes() {

@@ -42,11 +42,14 @@ public class StructLiteral extends LiteralExpr {
     public StructLiteral(LiteralExpr... exprs) throws AnalysisException {
         type = new StructType();
         children = new ArrayList<>();
+        boolean containsNull = true;
         for (LiteralExpr expr : exprs) {
-            if (!type.supportSubType(expr.getType())) {
+            if (expr.isNullable()) {
+                containsNull = true;
+            } else if (!type.supportSubType(expr.getType())) {
                 throw new AnalysisException("Invalid element type in STRUCT.");
             }
-            ((StructType) type).addField(new StructField(expr.getType()));
+            ((StructType) type).addField(new StructField("col", expr.getType(), null, containsNull));
             children.add(expr);
         }
     }
