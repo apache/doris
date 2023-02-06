@@ -55,8 +55,6 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
     case TTypeNodeType::ARRAY: {
         DCHECK(!node.__isset.scalar_type);
         DCHECK_LT(*idx, types.size() - 1);
-        // contains_null should be always set in ArrayType
-        DCHECK(node.__isset.contains_null);
         type = TYPE_ARRAY;
         contains_nulls.reserve(1);
         contains_nulls.push_back(node.contains_null);

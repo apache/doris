@@ -69,7 +69,7 @@ template <bool is_binary_format>
 template <PrimitiveType type, bool is_nullable>
 Status VMysqlResultWriter<is_binary_format>::_add_one_column(
         const ColumnPtr& column_ptr, std::unique_ptr<TFetchDataResult>& result,
-        std::vector<MysqlRowBuffer<is_binary_format>>& rows_buffer, int scale, 
+        std::vector<MysqlRowBuffer<is_binary_format>>& rows_buffer, int scale,
         const DataTypes& sub_types) {
     SCOPED_TIMER(_convert_tuple_timer);
 
@@ -712,11 +712,11 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
         }
         case TYPE_DATETIMEV2: {
             if (type_ptr->is_nullable()) {
-                status = _add_one_column<PrimitiveType::TYPE_DATETIMEV2, true>(
-                        column_ptr, result, rows_buffer, scale);
+                status = _add_one_column<PrimitiveType::TYPE_DATETIMEV2, true>(column_ptr, result,
+                                                                               rows_buffer, scale);
             } else {
-                status = _add_one_column<PrimitiveType::TYPE_DATETIMEV2, false>(
-                        column_ptr, result, rows_buffer, scale);
+                status = _add_one_column<PrimitiveType::TYPE_DATETIMEV2, false>(column_ptr, result,
+                                                                               rows_buffer, scale);
             }
             break;
         }
@@ -758,7 +758,7 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
             } else {
                 auto& sub_types = assert_cast<const DataTypeStruct&>(*type_ptr).get_elements();
                 status = _add_one_column<PrimitiveType::TYPE_STRUCT, false>(
-                       column_ptr, result, rows_buffer, scale, sub_types);
+                        column_ptr, result, rows_buffer, scale, sub_types);
             }
             break;
         }
