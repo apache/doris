@@ -331,12 +331,6 @@ public:
               _value_type_info(std::move(value_type_info)) {}
     ~MapTypeInfo() override = default;
 
-    inline bool equal(const void* left, const void* right) const override {
-        auto l_value = reinterpret_cast<const MapValue*>(left);
-        auto r_value = reinterpret_cast<const MapValue*>(right);
-        return l_value->size() == r_value->size();
-    }
-
     int cmp(const void* left, const void* right) const override {
         auto l_value = reinterpret_cast<const MapValue*>(left);
         auto r_value = reinterpret_cast<const MapValue*>(right);
@@ -351,28 +345,13 @@ public:
         }
     }
 
-    void shallow_copy(void* dest, const void* src) const override {
-        auto dest_value = reinterpret_cast<MapValue*>(dest);
-        auto src_value = reinterpret_cast<const MapValue*>(src);
-        dest_value->shallow_copy(src_value);
-    }
-
     void deep_copy(void* dest, const void* src, MemPool* mem_pool) const override { DCHECK(false); }
-
-    void copy_object(void* dest, const void* src, MemPool* mem_pool) const override {
-        deep_copy(dest, src, mem_pool);
-    }
 
     void direct_copy(void* dest, const void* src) const override { CHECK(false); }
 
     void direct_copy(uint8_t** base, void* dest, const void* src) const { CHECK(false); }
 
     void direct_copy_may_cut(void* dest, const void* src) const override { direct_copy(dest, src); }
-
-    Status convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool,
-                        size_t variable_len = 0) const override {
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
-    }
 
     Status from_string(void* buf, const std::string& scan_key, const int precision = 0,
                        const int scale = 0) const override {
@@ -389,17 +368,8 @@ public:
         DCHECK(false) << "set_to_min of list is not implemented.";
     }
 
-    uint32_t hash_code(const void* data, uint32_t seed) const override {
-        auto map_value = reinterpret_cast<const MapValue*>(data);
-        auto size = map_value->size();
-        uint32_t result = HashUtil::hash(&size, sizeof(size), seed);
-        result = seed * result + _key_type_info->hash_code(map_value->key_data(), seed) +
-                 _value_type_info->hash_code(map_value->value_data(), seed);
-        return result;
-    }
-
     // todo . is here only to need return 16 for two ptr?
-    const size_t size() const override { return sizeof(MapValue); }
+    size_t size() const override { return sizeof(MapValue); }
 
     FieldType type() const override { return OLAP_FIELD_TYPE_MAP; }
 
@@ -419,39 +389,6 @@ public:
         }
     }
     ~StructTypeInfo() override = default;
-
-    bool equal(const void* left, const void* right) const override {
-        auto l_value = reinterpret_cast<const StructValue*>(left);
-        auto r_value = reinterpret_cast<const StructValue*>(right);
-        if (l_value->size() != r_value->size()) {
-            return false;
-        }
-        uint32_t size = l_value->size();
-
-        if (!l_value->has_null() && !r_value->has_null()) {
-            for (size_t i = 0; i < size; ++i) {
-                if (!_type_infos[i]->equal(l_value->child_value(i), r_value->child_value(i))) {
-                    return false;
-                }
-            }
-        } else {
-            for (size_t i = 0; i < size; ++i) {
-                if (l_value->is_null_at(i)) {
-                    if (r_value->is_null_at(i)) { // both are null
-                        continue;
-                    } else { // left is null & right is not null
-                        return false;
-                    }
-                } else if (r_value->is_null_at(i)) { // left is not null & right is null
-                    return false;
-                }
-                if (!_type_infos[i]->equal(l_value->child_value(i), r_value->child_value(i))) {
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
 
     int cmp(const void* left, const void* right) const override {
         auto l_value = reinterpret_cast<const StructValue*>(left);
@@ -497,12 +434,6 @@ public:
         }
     }
 
-    void shallow_copy(void* dest, const void* src) const override {
-        auto dest_value = reinterpret_cast<StructValue*>(dest);
-        auto src_value = reinterpret_cast<const StructValue*>(src);
-        dest_value->shallow_copy(src_value);
-    }
-
     void deep_copy(void* dest, const void* src, MemPool* mem_pool) const override {
         auto dest_value = reinterpret_cast<StructValue*>(dest);
         auto src_value = reinterpret_cast<const StructValue*>(src);
@@ -539,10 +470,6 @@ public:
             _type_infos[i]->deep_copy(dest_value->mutable_child_value(i), src_value->child_value(i),
                                       mem_pool);
         }
-    }
-
-    void copy_object(void* dest, const void* src, MemPool* mem_pool) const override {
-        deep_copy(dest, src, mem_pool);
     }
 
     void direct_copy(void* dest, const void* src) const override {
@@ -593,11 +520,6 @@ public:
 
     void direct_copy_may_cut(void* dest, const void* src) const override { direct_copy(dest, src); }
 
-    Status convert_from(void* dest, const void* src, const TypeInfo* src_type, MemPool* mem_pool,
-                        size_t variable_len = 0) const override {
-        return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
-    }
-
     Status from_string(void* buf, const std::string& scan_key, const int precision = 0,
                        const int scale = 0) const override {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
@@ -626,21 +548,7 @@ public:
         DCHECK(false) << "set_to_min of list is not implemented.";
     }
 
-    uint32_t hash_code(const void* data, uint32_t seed) const override {
-        auto struct_value = reinterpret_cast<const StructValue*>(data);
-        auto size = struct_value->size();
-        uint32_t result = HashUtil::hash(&size, sizeof(size), seed);
-        for (size_t i = 0; i < size; ++i) {
-            if (struct_value->is_null_at(i)) {
-                result = seed * result;
-            } else {
-                result = seed * result + _type_infos[i]->hash_code(struct_value->values()[i], seed);
-            }
-        }
-        return result;
-    }
-
-    const size_t size() const override { return sizeof(StructValue); }
+    size_t size() const override { return sizeof(StructValue); }
 
     FieldType type() const override { return OLAP_FIELD_TYPE_STRUCT; }
 

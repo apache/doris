@@ -561,10 +561,6 @@ Status MapFileColumnIterator::init(const ColumnIteratorOptions& opts) {
     return Status::OK();
 }
 
-Status MapFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) {
-    return Status::NotSupported("Not support next_batch");
-}
-
 Status MapFileColumnIterator::seek_to_ordinal(ordinal_t ord) {
     RETURN_IF_ERROR(_key_iterator->seek_to_ordinal(ord));
     RETURN_IF_ERROR(_val_iterator->seek_to_ordinal(ord));
@@ -629,10 +625,6 @@ Status StructFileColumnIterator::init(const ColumnIteratorOptions& opts) {
         RETURN_IF_ERROR(_null_iterator->init(opts));
     }
     return Status::OK();
-}
-
-Status StructFileColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) {
-    return Status::NotSupported("not supported");
 }
 
 Status StructFileColumnIterator::next_batch(size_t* n, vectorized::MutableColumnPtr& dst,

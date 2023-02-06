@@ -390,8 +390,6 @@ public:
 
     Status init(const ColumnIteratorOptions& opts) override;
 
-    Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
-
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
 
     Status read_by_rowids(const rowid_t* rowids, const size_t count,
@@ -423,8 +421,6 @@ public:
     ~StructFileColumnIterator() override = default;
 
     Status init(const ColumnIteratorOptions& opts) override;
-
-    Status next_batch(size_t* n, ColumnBlockView* dst, bool* has_null) override;
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst, bool* has_null) override;
 

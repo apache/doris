@@ -260,113 +260,10 @@ private:
     int32_t _unique_id;
 };
 
-<<<<<<< HEAD
-=======
-template <typename LhsCellType, typename RhsCellType>
-int Field::index_cmp(const LhsCellType& lhs, const RhsCellType& rhs) const {
-    bool l_null = lhs.is_null();
-    bool r_null = rhs.is_null();
-    if (l_null != r_null) {
-        return l_null ? -1 : 1;
-    } else if (l_null) {
-        return 0;
-    }
-
-    int32_t res = 0;
-    if (type() == OLAP_FIELD_TYPE_VARCHAR || type() == OLAP_FIELD_TYPE_STRING) {
-        const Slice* l_slice = reinterpret_cast<const Slice*>(lhs.cell_ptr());
-        const Slice* r_slice = reinterpret_cast<const Slice*>(rhs.cell_ptr());
-        uint32_t max_bytes =
-                type() == OLAP_FIELD_TYPE_VARCHAR ? OLAP_VARCHAR_MAX_BYTES : OLAP_STRING_MAX_BYTES;
-        if (r_slice->size + max_bytes > _index_size || l_slice->size + max_bytes > _index_size) {
-            // if the actual length of the field is longer than the short key, only the prefix is compared,
-            // make sure all blocks with the same short key are scanned
-            // Otherwise, the short key and field can be compared directly
-            int compare_size = _index_size - max_bytes;
-            // l_slice size and r_slice size may be less than compare_size
-            // so calculate the min of the three size as new compare_size
-            compare_size = std::min(std::min(compare_size, (int)l_slice->size), (int)r_slice->size);
-
-            // This function is used to compare prefix index.
-            // Only the fixed length of prefix index should be compared.
-            // If r_slice->size > l_slice->size, ignore the extra parts directly.
-            res = strncmp(l_slice->data, r_slice->data, compare_size);
-            if (res == 0 && compare_size != (_index_size - max_bytes)) {
-                if (l_slice->size < r_slice->size) {
-                    res = -1;
-                } else if (l_slice->size > r_slice->size) {
-                    res = 1;
-                } else {
-                    res = 0;
-                }
-            }
-        } else {
-            res = l_slice->compare(*r_slice);
-        }
-    } else {
-        res = _type_info->cmp(lhs.cell_ptr(), rhs.cell_ptr());
-    }
-
-    return res;
-}
-
-template <typename DstCellType, typename SrcCellType>
-void Field::to_index(DstCellType* dst, const SrcCellType& src) const {
-    bool is_null = src.is_null();
-    dst->set_is_null(is_null);
-    if (is_null) {
-        return;
-    }
-
-    if (type() == OLAP_FIELD_TYPE_VARCHAR) {
-        // clear before copy
-        memset(dst->mutable_cell_ptr(), 0, _index_size);
-        const Slice* slice = reinterpret_cast<const Slice*>(src.cell_ptr());
-        size_t copy_size = slice->size < _index_size - OLAP_VARCHAR_MAX_BYTES
-                                   ? slice->size
-                                   : _index_size - OLAP_VARCHAR_MAX_BYTES;
-        *reinterpret_cast<VarcharLengthType*>(dst->mutable_cell_ptr()) = copy_size;
-        memory_copy((char*)dst->mutable_cell_ptr() + OLAP_VARCHAR_MAX_BYTES, slice->data,
-                    copy_size);
-    } else if (type() == OLAP_FIELD_TYPE_STRING) {
-        // clear before copy
-        memset(dst->mutable_cell_ptr(), 0, _index_size);
-        const Slice* slice = reinterpret_cast<const Slice*>(src.cell_ptr());
-        size_t copy_size = slice->size < _index_size - OLAP_STRING_MAX_BYTES
-                                   ? slice->size
-                                   : _index_size - OLAP_STRING_MAX_BYTES;
-        *reinterpret_cast<StringLengthType*>(dst->mutable_cell_ptr()) = copy_size;
-        memory_copy((char*)dst->mutable_cell_ptr() + OLAP_STRING_MAX_BYTES, slice->data, copy_size);
-    } else if (type() == OLAP_FIELD_TYPE_CHAR) {
-        // clear before copy
-        memset(dst->mutable_cell_ptr(), 0, _index_size);
-        const Slice* slice = reinterpret_cast<const Slice*>(src.cell_ptr());
-        memory_copy(dst->mutable_cell_ptr(), slice->data, _index_size);
-    } else {
-        memory_copy(dst->mutable_cell_ptr(), src.cell_ptr(), size());
-    }
-}
-
-template <typename CellType>
-uint32_t Field::hash_code(const CellType& cell, uint32_t seed) const {
-    bool is_null = cell.is_null();
-    if (is_null) {
-        return HashUtil::hash(&is_null, sizeof(is_null), seed);
-    }
-    return _type_info->hash_code(cell.cell_ptr(), seed);
-}
-
 class MapField : public Field {
 public:
     explicit MapField(const TabletColumn& column) : Field(column) {}
-    void consume(RowCursorCell* dst, const char* src, bool src_null, MemPool* mem_pool,
-                 ObjectPool* agg_pool) const override {
-        dst->set_is_null(src_null);
-        if (src_null) {
-            return;
-        }
-        _type_info->deep_copy(dst->mutable_cell_ptr(), src, mem_pool);
-    }
+
     // make variable_ptr memory allocate to cell_ptr as MapValue
     char* allocate_memory(char* cell_ptr, char* variable_ptr) const override {
         return variable_ptr + _length;
@@ -397,7 +294,6 @@ public:
     }
 };
 
->>>>>>> [WIP](struct-type) support struct-type in vectorize engine (#15665)
 class ArrayField : public Field {
 public:
     explicit ArrayField(const TabletColumn& column) : Field(column) {}
