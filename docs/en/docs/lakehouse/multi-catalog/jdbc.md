@@ -37,7 +37,11 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
 
 ## Create Catalog
 
+<version since="1.2.0">
+
 1. MySQL
+
+</version>
 
    ```sql
    CREATE CATALOG jdbc_mysql PROPERTIES (
@@ -50,7 +54,11 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
    )
    ```
 
+<version since="1.2.2">
+
 2. PostgreSQL
+
+</version>
 
    ```sql
    CREATE CATALOG jdbc_postgresql PROPERTIES (
@@ -71,7 +79,11 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
    | Database | Schema     |
    | Table    | Table      |
 
+<version since="1.2.2">
+
 3. Oracle
+
+</version>
 
    ```sql
    CREATE CATALOG jdbc_oracle PROPERTIES (
@@ -92,7 +104,11 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
    | Database | User       |
    | Table    | Table      |
 
+<version since="1.2.2">
+
 4. Clickhouse
+
+</version>
 
    ```sql
    CREATE CATALOG jdbc_clickhouse PROPERTIES (
@@ -105,7 +121,11 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
    );
    ```
 
+<version since="1.2.2">
+
 5. SQLServer
+
+</version>
 
    ```sql
    CREATE CATALOG sqlserver_catalog PROPERTIES (
