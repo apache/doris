@@ -487,7 +487,7 @@ WITH BROKER broker_name
 
 2. 取消导入任务
 
-   已提交切尚未结束的导入任务可以通过 [CANCEL LOAD](../CANCEL-LOAD) 命令取消。取消后，已写入的数据也会回滚，不会生效。
+   已提交切尚未结束的导入任务可以通过 [CANCEL LOAD](./CANCEL-LOAD) 命令取消。取消后，已写入的数据也会回滚，不会生效。
 
 3. Label、导入事务、多表原子性
 
