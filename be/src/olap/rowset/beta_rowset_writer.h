@@ -143,7 +143,8 @@ protected:
     std::unique_ptr<segment_v2::SegmentWriter> _segment_writer;
 
     mutable SpinLock _lock; // protect following vectors.
-    // record rows number of every segment
+    // record rows number of every segment already written, using for rowid
+    // conversion when compaction in unique key with MoW model
     std::vector<uint32_t> _segment_num_rows;
     std::vector<io::FileWriterPtr> _file_writers;
     // for unique key table with merge-on-write

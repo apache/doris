@@ -267,6 +267,10 @@ Status Merger::vertical_compact_one_group(
     }
     reader_params.tablet_schema = merge_tablet_schema;
 
+    if (tablet->enable_unique_key_merge_on_write()) {
+        reader_params.delete_bitmap = &tablet->tablet_meta()->delete_bitmap();
+    }
+
     reader_params.return_columns = column_group;
     reader_params.origin_return_columns = &reader_params.return_columns;
     RETURN_NOT_OK(reader.init(reader_params));
