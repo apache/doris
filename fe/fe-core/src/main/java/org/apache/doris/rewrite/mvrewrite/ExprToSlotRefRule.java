@@ -18,16 +18,15 @@
 package org.apache.doris.rewrite.mvrewrite;
 
 import org.apache.doris.analysis.Analyzer;
-import org.apache.doris.analysis.ArithmeticExpr;
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableName;
+import org.apache.doris.analysis.TupleId;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
-import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
@@ -38,16 +37,23 @@ import org.apache.doris.rewrite.ExprRewriter;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Rewrite expr to mv_expr
  */
 public class ExprToSlotRefRule implements ExprRewriteRule {
 
-    public static final ExprRewriteRule INSTANCE = new ExprToSlotRefRule();
+    private Set<TupleId> disableTuplesMVRewriter = Sets.newHashSet();
+
+    public void setDisableTuplesMVRewriter(Set<TupleId> disableTuplesMVRewriter) {
+        this.disableTuplesMVRewriter.addAll(disableTuplesMVRewriter);
+    }
 
     private Pair<OlapTable, TableName> getTable(Expr expr) {
         List<SlotRef> slots = new ArrayList<>();
@@ -67,15 +73,29 @@ public class ExprToSlotRefRule implements ExprRewriteRule {
             if (result == null) {
                 result = (OlapTable) table;
                 tableName = slot.getTableName();
-            } else if (!result.getName().equals(table.getName())) {
+            } else if (!tableName.equals(slot.getTableName())) {
                 return null;
             }
         }
         return Pair.of(result, tableName);
     }
 
+    public boolean isDisableTuplesMVRewriter(Expr expr) {
+        boolean result;
+        try {
+            result = expr.isBoundByTupleIds(disableTuplesMVRewriter.stream().collect(Collectors.toList()));
+        } catch (Exception e) {
+            result = true;
+        }
+        return result;
+    }
+
     @Override
     public Expr apply(Expr expr, Analyzer analyzer, ExprRewriter.ClauseType clauseType) throws AnalysisException {
+        if (isDisableTuplesMVRewriter(expr)) {
+            return expr;
+        }
+
         Pair<OlapTable, TableName> info = getTable(expr);
         if (info == null || info.first == null || info.second == null) {
             return expr;
@@ -83,12 +103,8 @@ public class ExprToSlotRefRule implements ExprRewriteRule {
 
         if (expr instanceof FunctionCallExpr && ((FunctionCallExpr) expr).isAggregate()) {
             return matchAggregateExpr((FunctionCallExpr) expr, analyzer, info.first, info.second);
-        } else if (expr instanceof ArithmeticExpr || expr instanceof FunctionCallExpr) {
-            return matchExpr(expr, analyzer, info.first, info.second);
-        } else if (expr instanceof SlotRef) {
-            return matchSlotRef((SlotRef) expr, analyzer, info.first, info.second);
         } else {
-            return expr;
+            return matchExpr(expr, analyzer, info.first, info.second);
         }
     }
 
@@ -223,40 +239,14 @@ public class ExprToSlotRefRule implements ExprRewriteRule {
     private Expr matchExpr(Expr expr, Analyzer analyzer, OlapTable olapTable,
             TableName tableName)
             throws AnalysisException {
-        Column mvColumn = olapTable.getVisibleColumn(expr.toSqlWithoutTbl());
-        if (mvColumn == null) {
-            mvColumn = olapTable.getVisibleColumn(
-                    MaterializedIndexMeta
-                            .normalizeName(CreateMaterializedViewStmt.mvColumnBuilder(expr.toSqlWithoutTbl())));
-        }
-
-        if (mvColumn == null) {
-            mvColumn = olapTable.getVisibleColumn(CreateMaterializedViewStmt.mvColumnBuilder(expr.toSqlWithoutTbl()));
-        }
+        Column mvColumn = olapTable
+                .getVisibleColumn(CreateMaterializedViewStmt.mvColumnBuilder(expr.toSqlWithoutTbl()));
 
         if (mvColumn == null) {
             return expr;
         }
 
         return rewriteExpr(tableName, mvColumn, analyzer);
-    }
-
-    private Expr matchSlotRef(SlotRef slot, Analyzer analyzer, OlapTable olapTable,
-            TableName tableName)
-            throws AnalysisException {
-        Column mvColumn = olapTable
-                .getVisibleColumn(CreateMaterializedViewStmt.mvColumnBuilder(slot.toSqlWithoutTbl()));
-        if (mvColumn == null) {
-            mvColumn = olapTable.getVisibleColumn(
-                    MaterializedIndexMeta
-                            .normalizeName(CreateMaterializedViewStmt.mvColumnBuilder(slot.toSqlWithoutTbl())));
-        }
-
-        if (mvColumn == null) {
-            return slot;
-        }
-
-        return rewriteExpr(slot.getTableName(), mvColumn, analyzer);
     }
 
     private Expr rewriteExpr(TableName tableName, Column mvColumn, Analyzer analyzer) {

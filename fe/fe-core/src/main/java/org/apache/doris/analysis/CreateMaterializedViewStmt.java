@@ -267,7 +267,8 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             if (slotRef.getColumnName() == null) {
                 throw new AnalysisException("slotRef.getColumnName() is null");
             }
-            if (!MaterializedIndexMeta.matchColumnName(mvColumnItem.getName(), slotRef.getColumnName())) {
+            if (!MaterializedIndexMeta.matchColumnName(mvColumnBreaker(mvColumnItem.getName()),
+                    slotRef.getColumnName())) {
                 throw new AnalysisException("The order of columns in order by clause must be same as "
                         + "the order of columns in select list, " + mvColumnItem.getName() + " vs "
                         + slotRef.getColumnName());
@@ -418,7 +419,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         for (SelectListItem selectListItem : selectList.getItems()) {
             Expr selectListItemExpr = selectListItem.getExpr();
             Expr expr = selectListItemExpr;
-            String name = MaterializedIndexMeta.normalizeName(expr.toSql());
+            String name = mvColumnBuilder(MaterializedIndexMeta.normalizeName(expr.toSql()));
             if (selectListItemExpr instanceof FunctionCallExpr) {
                 FunctionCallExpr functionCallExpr = (FunctionCallExpr) selectListItemExpr;
                 switch (functionCallExpr.getFnName().getFunction().toLowerCase()) {
@@ -493,6 +494,18 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             return mvColumnBreaker(name.substring(MATERIALIZED_VIEW_NAME_PREFIX.length()));
         }
         return name;
+    }
+
+    public static boolean isMVColumn(String name) {
+        return isMVColumnAggregate(name) || isMVColumnNormal(name);
+    }
+
+    public static boolean isMVColumnAggregate(String name) {
+        return name.startsWith(MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
+    }
+
+    public static boolean isMVColumnNormal(String name) {
+        return name.startsWith(MATERIALIZED_VIEW_NAME_PREFIX);
     }
 
     @Override
