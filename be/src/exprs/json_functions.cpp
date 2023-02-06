@@ -65,6 +65,12 @@ rapidjson::Value JsonFunctions::parse_str_with_flag(const StringVal& arg, const 
         double number = 0.0;
         ss >> number;
         val.SetDouble(number);
+    } else if (*(flag.ptr + num) == '6') { //int64_t
+        std::stringstream ss;
+        ss << arg.ptr;
+        int64_t number = 0;
+        ss >> number;
+        val.SetInt64(number);
     } else if (*(flag.ptr + num) == '4' || *(flag.ptr + num) == '5') {
         StringPiece str((char*)arg.ptr, arg.len);
         if (*(flag.ptr + num) == '4') {

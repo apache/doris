@@ -395,6 +395,8 @@ public class FunctionCallExpr extends Expr {
             return 0;
         } else if (type.isBoolean()) {
             return 1;
+        } else if (type.isBigIntType()) {
+            return 6;
         } else if (type.isFixedPointType()) {
             return 2;
         } else if (type.isFloatingPointType() || type.isDecimalV2() || type.isDecimalV3()) {
