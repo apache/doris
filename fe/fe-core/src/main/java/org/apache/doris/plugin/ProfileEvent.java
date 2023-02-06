@@ -17,6 +17,8 @@
 
 package org.apache.doris.plugin;
 
+import java.util.function.Supplier;
+
 public class ProfileEvent extends Event {
 
     public String jobId = "";
@@ -30,7 +32,8 @@ public class ProfileEvent extends Event {
     public String totalTime = "";
     public String queryState = "";
     public String traceId = "";
-    public String profile = "";
+    // use a supplier to lazy get profile
+    public Supplier<String> profileSupplier;
 
     public static class ProfileEventBuilder {
         private ProfileEvent profileEvent = new ProfileEvent();
@@ -97,8 +100,8 @@ public class ProfileEvent extends Event {
             return this;
         }
 
-        public ProfileEventBuilder setProfile(String profile) {
-            profileEvent.profile = profile;
+        public ProfileEventBuilder setProfileSupplier(Supplier<String> supplier) {
+            profileEvent.profileSupplier = supplier;
             return this;
         }
 
