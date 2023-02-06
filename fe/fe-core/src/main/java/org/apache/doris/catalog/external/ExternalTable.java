@@ -304,6 +304,17 @@ public class ExternalTable implements TableIf, Writable, GsonPostProcessable {
         throw new NotImplementedException();
     }
 
+    /**
+     * Should only be called in ExternalCatalog's getSchema(),
+     * which is called from schema cache.
+     * If you want to get schema of this table, use getFullSchema()
+     *
+     * @return
+     */
+    public List<Column> initSchema() {
+        throw new NotImplementedException("implement in sub class");
+    }
+
     @Override
     public void write(DataOutput out) throws IOException {
         String json = GsonUtils.GSON.toJson(this);
