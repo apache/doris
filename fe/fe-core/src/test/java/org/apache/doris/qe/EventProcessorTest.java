@@ -22,6 +22,7 @@ import org.apache.doris.common.util.DigitalVersion;
 import org.apache.doris.plugin.AuditEvent;
 import org.apache.doris.plugin.AuditEvent.EventType;
 import org.apache.doris.plugin.PluginInfo;
+import org.apache.doris.plugin.ProfileEvent;
 import org.apache.doris.utframe.UtFrameUtils;
 
 import org.junit.AfterClass;
@@ -33,9 +34,9 @@ import java.io.File;
 import java.io.IOException;
 import java.util.UUID;
 
-public class AuditEventProcessorTest {
+public class EventProcessorTest {
 
-    private static String runningDir = "fe/mocked/AuditProcessorTest/" + UUID.randomUUID().toString() + "/";
+    private static String runningDir = "fe/mocked/ProcessorTest/" + UUID.randomUUID().toString() + "/";
 
     @BeforeClass
     public static void beforeClass() throws Exception {
@@ -113,7 +114,32 @@ public class AuditEventProcessorTest {
                     .setReturnRows(i)
                     .setStmtId(1234)
                     .setStmt("select * from tbl1").build();
-            processor.handleAuditEvent(event);
+            processor.handleEvent(event);
+        }
+        long total = System.currentTimeMillis() - start;
+        System.out.println("total(ms): " + total + ", avg: " + total / 10000.0);
+    }
+
+    @Test
+    public void testProfileEventProcessor() throws IOException {
+        ProfileEventProcessor processor = Env.getCurrentProfileEventProcessor();
+        long start = System.currentTimeMillis();
+        for (int i = 0; i < 10000; i++) {
+            ProfileEvent event = new ProfileEvent.ProfileEventBuilder()
+                    .setJobId("1234")
+                    .setQueryId("1234")
+                    .setUser("test_user")
+                    .setDefaultDb("default:test_db")
+                    .setStartTime("2023-01-19 17:11:00")
+                    .setEndTime("2023-01-19 17:12:00")
+                    .setQueryType("Query")
+                    .setQueryState("N/A")
+                    .setTraceId("test_trace_id")
+                    .setTotalTime("1m")
+                    .setStmt("select k1 from test_db")
+                    .setProfileSupplier(() -> "test_profile")
+                    .build();
+            processor.handleEvent(event);
         }
         long total = System.currentTimeMillis() - start;
         System.out.println("total(ms): " + total + ", avg: " + total / 10000.0);

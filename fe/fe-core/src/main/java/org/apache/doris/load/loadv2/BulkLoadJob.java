@@ -354,7 +354,7 @@ public abstract class BulkLoadJob extends LoadJob {
                     .setScanRows(loadStatistic.getScannedRows()).setScanBytes(loadStatistic.totalFileSizeB)
                     .setFileNumber(loadStatistic.fileNum)
                     .build();
-            Env.getCurrentEnv().getAuditEventProcessor().handleAuditEvent(auditEvent);
+            Env.getCurrentEnv().getAuditEventProcessor().handleEvent(auditEvent);
         } catch (Exception e) {
             LOG.warn("audit finished load job info failed", e);
         }

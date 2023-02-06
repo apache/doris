@@ -52,6 +52,7 @@ public class PluginInfo implements Writable {
     public enum PluginType {
         AUDIT,
         IMPORT,
+        PROFILE,
         STORAGE;
 
         public static int MAX_PLUGIN_TYPE_SIZE = PluginType.values().length;

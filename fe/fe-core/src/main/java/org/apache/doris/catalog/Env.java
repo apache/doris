@@ -208,6 +208,7 @@ import org.apache.doris.qe.AuditEventProcessor;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.GlobalVariable;
 import org.apache.doris.qe.JournalObservable;
+import org.apache.doris.qe.ProfileEventProcessor;
 import org.apache.doris.qe.VariableMgr;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.service.FrontendOptions;
@@ -433,6 +434,8 @@ public class Env {
 
     private AuditEventProcessor auditEventProcessor;
 
+    private ProfileEventProcessor profileEventProcessor;
+
     private RefreshManager refreshManager;
 
     private PolicyMgr policyMgr;
@@ -643,6 +646,7 @@ public class Env {
 
         this.pluginMgr = new PluginMgr();
         this.auditEventProcessor = new AuditEventProcessor(this.pluginMgr);
+        this.profileEventProcessor = new ProfileEventProcessor(this.pluginMgr);
         this.refreshManager = new RefreshManager();
         this.policyMgr = new PolicyMgr();
         this.mtmvJobManager = new MTMVJobManager();
@@ -718,6 +722,10 @@ public class Env {
         return auditEventProcessor;
     }
 
+    public ProfileEventProcessor getProfileEventProcessor() {
+        return profileEventProcessor;
+    }
+
     // use this to get correct ClusterInfoService instance
     public static SystemInfoService getCurrentSystemInfo() {
         return getCurrentEnv().getClusterInfo();
@@ -756,6 +764,10 @@ public class Env {
 
     public static AuditEventProcessor getCurrentAuditEventProcessor() {
         return getCurrentEnv().getAuditEventProcessor();
+    }
+
+    public static ProfileEventProcessor getCurrentProfileEventProcessor() {
+        return getCurrentEnv().getProfileEventProcessor();
     }
 
     // For unit test only
@@ -843,6 +855,7 @@ public class Env {
         // init plugin manager
         pluginMgr.init();
         auditEventProcessor.start();
+        profileEventProcessor.start();
 
         // 2. get cluster id and role (Observer or Follower)
         getClusterIdAndRole();
