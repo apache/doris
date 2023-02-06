@@ -786,6 +786,11 @@ under the License.
                 </exclusion>
             </exclusions>
         </dependency>
+        <dependency>
+            <groupId>com.aliyun</groupId>
+            <artifactId>datalake20200710</artifactId>
+            <version>1.0.0</version>
+        </dependency>
 
     </dependencies>
     <build>
