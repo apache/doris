@@ -82,15 +82,20 @@ public class JoinOrderJob extends Job {
         buildGraph(group, hyperGraph);
         // TODO: Right now, we just hardcode the limit with 10000, maybe we need a better way to set it
         int limit = 1000;
+
+        // The upper bound of enumerate count is clique join graph, that is (3^n-2^(n+1)+1)/2
+        // When the upper bound is less than the limit, the simplifier is not needed
+        int n = hyperGraph.getNodes().size();
+        if (n > 64 || Math.pow(3, n) - Math.pow(2, n + 1) + 1 > 2 * limit) {
+            GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
+            graphSimplifier.simplifyGraph(limit);
+        }
+
         PlanReceiver planReceiver = new PlanReceiver(this.context, limit, hyperGraph,
                 group.getLogicalProperties().getOutputSet());
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(planReceiver, hyperGraph);
         if (!subgraphEnumerator.enumerate()) {
-            GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
-            graphSimplifier.simplifyGraph(limit);
-            if (!subgraphEnumerator.enumerate()) {
-                throw new RuntimeException("DPHyp can not enumerate all sub graphs with limit=" + limit);
-            }
+            throw new RuntimeException("DPHyp can not enumerate all sub graphs with limit=" + limit);
         }
         Group optimized = planReceiver.getBestPlan(hyperGraph.getNodesMap());
 
