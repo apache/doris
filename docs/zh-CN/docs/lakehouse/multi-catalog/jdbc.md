@@ -37,7 +37,11 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 
 ## 创建 Catalog
 
+<version since="1.2.0">
+
 1. MySQL
+
+</version>
 
     ```sql
     CREATE CATALOG jdbc_mysql PROPERTIES (
@@ -49,8 +53,12 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
         "driver_class" = "com.mysql.jdbc.Driver"
     )
     ```
-    
+
+<version since="1.2.2">
+
 2. PostgreSQL
+
+</version>
 
     ```sql
     CREATE CATALOG jdbc_postgresql PROPERTIES (
@@ -71,7 +79,11 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
     | Database | Schema |
     | Table | Table |
 
+<version since="1.2.2">
+
 3. Oracle
+
+</version>
 
     ```sql
     CREATE CATALOG jdbc_oracle PROPERTIES (
@@ -91,9 +103,12 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
     | Catalog | Database | 
     | Database | User |
     | Table | Table |
-    
-    
+
+<version since="1.2.2">
+
 4. Clickhouse
+
+</version>
 
     ```sql
     CREATE CATALOG jdbc_clickhouse PROPERTIES (
@@ -105,8 +120,12 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
         "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"
     );
     ```
+
+<version since="1.2.2">
     
 5. SQLServer
+
+</version>
 
 	```sql
 	CREATE CATALOG sqlserver_catalog PROPERTIES (
