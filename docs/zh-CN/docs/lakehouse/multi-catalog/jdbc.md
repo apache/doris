@@ -164,6 +164,32 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 > 
 > 3. Http 地址。如：`https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-5.1.47.jar`。系统会从这个 http 地址下载 Driver 文件。仅支持无认证的 http 服务。
 
+## 数据查询
+
+```sql
+select * from mysql_table where k1 > 1000 and k3 ='term';
+```
+由于可能存在使用数据库内部的关键字作为字段名，为解决这种状况下仍能正确查询，所以在SQL语句中，会根据各个数据库的标准自动在字段名与表名上加上转义符。例如 MYSQL(``)、PostgreSQL("")、SQLServer([])、ORACLE("")，所以此时可能会造成字段名的大小写敏感，具体可以通过explain sql，查看转义后下发到各个数据库的查询语句。
+
+## 数据写入
+
+在Doris中建立JDBC Catalog后，可以通过insert into语句直接写入数据，也可以将Doris执行完查询之后的结果写入JDBC Catalog，或者是从一个JDBC外表将数据导入另一个JDBC外表。
+
+
+```sql
+insert into mysql_table values(1, "doris");
+insert into mysql_table select * from table;
+```
+### 事务
+
+Doris的数据是由一组batch的方式写入外部表的，如果中途导入中断，之前写入数据可能需要回滚。所以JDBC外表支持数据写入时的事务，事务的支持需要通过设置session variable: `enable_odbc_transcation `(ODBC事务也受此变量控制)。
+
+```sql
+set enable_odbc_transcation = true; 
+```
+
+事务保证了JDBC外表数据写入的原子性，但是一定程度上会降低数据写入的性能，可以考虑酌情开启该功能。
+
 ## 列类型映射
 
 ### MySQL
