@@ -6985,6 +6985,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_THAN:id
     {: RESULT = id; :}
+    | KW_TIME:id
+    {: RESULT = id; :}
     | KW_TIMESTAMP:id
     {: RESULT = id; :}
     | KW_TRANSACTION:id
