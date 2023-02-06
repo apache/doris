@@ -338,10 +338,14 @@ Status NewOlapScanner::_init_tablet_reader_params(
             }
             _tablet_reader_params.read_orderby_key_num_prefix_columns =
                     olap_scan_node.sort_info.is_asc_order.size();
+            _tablet_reader_params.read_orderby_key_limit = _limit;
+            _tablet_reader_params.filter_block_vconjunct_ctx_ptr = &_vconjunct_ctx;
         }
-    }
 
-    _tablet_reader_params.use_topn_opt = ((NewOlapScanNode*)_parent)->_olap_scan_node.use_topn_opt;
+        // runtime predicate push down optimization for topn
+        _tablet_reader_params.use_topn_opt =
+                ((NewOlapScanNode*)_parent)->_olap_scan_node.use_topn_opt;
+    }
 
     return Status::OK();
 }

@@ -461,6 +461,16 @@ public class OlapScanNode extends ScanNode {
         return olapTable;
     }
 
+    public boolean isDupKeysOrMergeOnWrite() {
+        if (olapTable.getKeysType() == KeysType.DUP_KEYS
+                || (olapTable.getKeysType() == KeysType.UNIQUE_KEYS
+                        && olapTable.getEnableUniqueKeyMergeOnWrite())) {
+            return true;
+        } else {
+            return false;
+        }
+    }
+
     @Override
     protected String debugString() {
         MoreObjects.ToStringHelper helper = MoreObjects.toStringHelper(this);
