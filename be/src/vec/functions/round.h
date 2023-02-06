@@ -69,19 +69,19 @@ struct IntegerRoundingComputation {
     static ALWAYS_INLINE T compute_impl(T x, T scale) {
         switch (rounding_mode) {
         case RoundingMode::Trunc: {
-            return x / scale * scale;
+            return x / scale;
         }
         case RoundingMode::Floor: {
             if (x < 0) {
                 x -= scale - 1;
             }
-            return x / scale * scale;
+            return x / scale;
         }
         case RoundingMode::Ceil: {
             if (x >= 0) {
                 x += scale - 1;
             }
-            return x / scale * scale;
+            return x / scale;
         }
         case RoundingMode::Round: {
             if (x < 0) {
@@ -104,7 +104,7 @@ struct IntegerRoundingComputation {
                 break;
             }
             }
-            return x;
+            return x / scale;
         }
         }
 

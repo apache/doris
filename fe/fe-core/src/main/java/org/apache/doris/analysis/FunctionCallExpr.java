@@ -101,21 +101,28 @@ public class FunctionCallExpr extends Expr {
         java.util.function.BiFunction<ArrayList<Expr>, Type, Type> roundRule = (children, returnType) -> {
             Preconditions.checkArgument(children != null && children.size() > 0);
             if (children.size() == 1 && children.get(0).getType().isDecimalV3()) {
-                return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(),
-                        ((ScalarType) children.get(0).getType()).decimalScale());
+                return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(), 0);
             } else if (children.size() == 2) {
                 Preconditions.checkArgument(children.get(1) instanceof IntLiteral
                                 || (children.get(1) instanceof CastExpr
                                 && children.get(1).getChild(0) instanceof IntLiteral),
                         "2nd argument of function round/floor/ceil/truncate must be literal");
+                int scaleArg = 0;
                 if (children.get(1) instanceof CastExpr && children.get(1).getChild(0) instanceof IntLiteral) {
                     children.get(1).getChild(0).setType(children.get(1).getType());
                     children.set(1, children.get(1).getChild(0));
+                    scaleArg = (int) (((IntLiteral) children.get(1).getChild(0)).getValue());
                 } else {
                     children.get(1).setType(Type.INT);
+                    scaleArg = (int) (((IntLiteral) children.get(1)).getValue());
                 }
-                return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(),
-                        ((ScalarType) children.get(0).getType()).decimalScale());
+                if (scaleArg < 0) {
+                    return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision()
+                            - ((ScalarType) children.get(0).getType()).decimalScale(), scaleArg);
+                }
+                int limit = ((ScalarType) children.get(0).getType()).decimalScale() - scaleArg;
+                return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision() - limit,
+                        ((ScalarType) children.get(0).getType()).decimalScale() - limit);
             } else {
                 return returnType;
             }
