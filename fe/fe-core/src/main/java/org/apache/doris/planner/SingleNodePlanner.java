@@ -2667,8 +2667,10 @@ public class SingleNodePlanner {
                     //eg: select distinct c from ( select distinct c from table) t where c > 1;
                     continue;
                 }
-                if (stmt.getGroupByClause().isGroupByExtension()
-                        && stmt.getGroupByClause().getGroupingExprs().contains(sourceExpr)) {
+
+                if (sourceExpr.getFn() instanceof AggregateFunction) {
+                    isAllSlotReferToGroupBys = false;
+                } else if (stmt.getGroupByClause().isGroupByExtension()) {
                     // if grouping type is CUBE or ROLLUP will definitely produce null
                     if (stmt.getGroupByClause().getGroupingType() == GroupByClause.GroupingType.CUBE
                             || stmt.getGroupByClause().getGroupingType() == GroupByClause.GroupingType.ROLLUP) {
@@ -2683,9 +2685,6 @@ public class SingleNodePlanner {
                             }
                         }
                     }
-                }
-                if (sourceExpr.getFn() instanceof AggregateFunction) {
-                    isAllSlotReferToGroupBys = false;
                 }
             }
 
