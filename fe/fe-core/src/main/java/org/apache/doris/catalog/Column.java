@@ -63,6 +63,9 @@ public class Column implements Writable, GsonPostProcessable {
     private static final String COLUMN_ARRAY_CHILDREN = "item";
     public static final int COLUMN_UNIQUE_ID_INIT_VALUE = -1;
 
+    public static final Column UNSUPPORTED_COLUMN = new Column("unknown",
+            Type.UNSUPPORTED, true, null, true, null, "invalid", true, null, -1, null);
+
     @SerializedName(value = "name")
     private String name;
     @SerializedName(value = "type")
