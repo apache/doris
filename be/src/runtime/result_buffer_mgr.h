@@ -48,7 +48,7 @@ public:
     // sender is not used when call cancel or unregister
     Status create_sender(const TUniqueId& query_id, int buffer_size,
                          std::shared_ptr<BufferControlBlock>* sender, bool enable_pipeline,
-                         int query_timeout);
+                         int exec_timeout);
 
     void fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* ctx);
 

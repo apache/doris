@@ -226,7 +226,7 @@ public class Coordinator {
     private final TUniqueId nextInstanceId;
 
     // a timestamp represent the absolute timeout
-    // eg, System.currentTimeMillis() + query_timeout * 1000
+    // eg, System.currentTimeMillis() + executeTimeoutS * 1000
     private long timeoutDeadline;
 
     private boolean enableShareHashTableForBroadcastJoin = false;
@@ -360,6 +360,7 @@ public class Coordinator {
         this.queryOptions.setEnableVectorizedEngine(VectorizedUtil.isVectorized());
         this.queryOptions.setEnablePipelineEngine(VectorizedUtil.isPipeline());
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
+        this.queryOptions.setExecutionTimeout(context.getExecTimeout());
     }
 
     public long getJobId() {
@@ -556,7 +557,7 @@ public class Coordinator {
         PlanFragmentId topId = fragments.get(0).getFragmentId();
         FragmentExecParams topParams = fragmentExecParamsMap.get(topId);
         DataSink topDataSink = topParams.fragment.getSink();
-        this.timeoutDeadline = System.currentTimeMillis() + queryOptions.query_timeout * 1000L;
+        this.timeoutDeadline = System.currentTimeMillis() + queryOptions.getExecutionTimeout() * 1000L;
         if (topDataSink instanceof ResultSink || topDataSink instanceof ResultFileSink) {
             TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
             receiver = new ResultReceiver(topParams.instanceExecParams.get(0).instanceId,

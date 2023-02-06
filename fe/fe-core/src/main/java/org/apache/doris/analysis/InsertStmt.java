@@ -49,7 +49,6 @@ import org.apache.doris.planner.DataSink;
 import org.apache.doris.planner.ExportSink;
 import org.apache.doris.planner.OlapTableSink;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.rewrite.ExprRewriter;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TUniqueId;
@@ -305,9 +304,7 @@ public class InsertStmt extends DdlStmt {
 
         db = analyzer.getEnv().getCatalogMgr().getCatalog(tblName.getCtl()).getDbOrAnalysisException(tblName.getDb());
         // create label and begin transaction
-        SessionVariable sessionVariables = ConnectContext.get().getSessionVariable();
-        // compatible with the query timeout
-        long timeoutSecond = Math.max(sessionVariables.getInsertTimeoutS(), sessionVariables.getQueryTimeoutS());
+        long timeoutSecond = ConnectContext.get().getExecTimeout();
         if (Strings.isNullOrEmpty(label)) {
             label = "insert_" + DebugUtil.printId(analyzer.getContext().queryId()).replace("-", "_");
         }

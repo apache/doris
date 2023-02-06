@@ -19,9 +19,11 @@
 
 #include <bvar/latency_recorder.h>
 #include <gen_cpp/HeartbeatService_types.h>
+#include <glog/logging.h>
 #include <gperftools/profiler.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include <algorithm>
 #include <memory>
 #include <sstream>
 
@@ -192,7 +194,7 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
 
 Status FragmentExecState::prepare(const TExecPlanFragmentParams& params) {
     if (params.__isset.query_options) {
-        _timeout_second = params.query_options.query_timeout;
+        _timeout_second = params.query_options.execution_timeout;
     }
 
     if (_fragments_ctx == nullptr) {
@@ -642,7 +644,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
 
         fragments_ctx->get_shared_hash_table_controller()->set_pipeline_engine_enabled(
                 pipeline_engine_enabled);
-        fragments_ctx->timeout_second = params.query_options.query_timeout;
+        fragments_ctx->timeout_second = params.query_options.execution_timeout;
         _set_scan_concurrency(params, fragments_ctx.get());
 
         bool has_query_mem_tracker =

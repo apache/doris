@@ -196,6 +196,8 @@ struct TQueryOptions {
   60: optional bool enable_file_cache = true
   
   61: optional i32 insert_timeout = 14400
+
+  62: optional i32 execution_timeout = 3600
 }
     
 

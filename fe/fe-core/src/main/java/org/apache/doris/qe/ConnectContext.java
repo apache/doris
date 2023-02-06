@@ -17,8 +17,6 @@
 
 package org.apache.doris.qe;
 
-import org.apache.doris.analysis.InsertStmt;
-import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
@@ -154,6 +152,9 @@ public class ConnectContext {
 
     private long userQueryTimeout;
 
+    //the global execution timeout in seconds
+    private int executionTimeoutS;
+
     public void setUserQueryTimeout(long queryTimeout) {
         this.userQueryTimeout = queryTimeout;
     }
@@ -222,6 +223,7 @@ public class ConnectContext {
         if (Config.use_fuzzy_session_variable) {
             sessionVariable.initFuzzyModeVariables();
         }
+        setExecTimeout();
     }
 
     public boolean isTxnModel() {
@@ -580,25 +582,22 @@ public class ConnectContext {
             }
         } else {
             long timeout;
+            String timeoutTag = "query";
             if (userQueryTimeout > 0) {
                 // user set query_timeout property
-                timeout = userQueryTimeout * 1000;
+                timeout = userQueryTimeout * 1000L;
             } else {
-                // default use session query_timeout
-                timeout = sessionVariable.getQueryTimeoutS() * 1000L;
+                //to ms
+                timeout = executionTimeoutS * 1000L;
             }
-
             //deal with insert stmt particularly
-            if (executor != null) {
-                StatementBase parsedStmt = executor.getParsedStmt();
-                if (parsedStmt instanceof InsertStmt) {
-                    timeout = sessionVariable.getInsertTimeoutS() * 1000L;
-                }
+            if (executor != null && executor.isInsertStmt()) {
+                timeoutTag = "insert";
             }
 
             if (delta > timeout) {
-                LOG.warn("kill query timeout, remote: {}, query timeout: {}",
-                        getMysqlChannel().getRemoteHostPortString(), timeout);
+                LOG.warn("kill {} timeout, remote: {}, query timeout: {}",
+                        timeoutTag, getMysqlChannel().getRemoteHostPortString(), timeout);
                 killFlag = true;
             }
         }
@@ -640,6 +639,21 @@ public class ConnectContext {
 
     public String getRemoteIp() {
         return mysqlChannel == null ? "" : mysqlChannel.getRemoteIp();
+    }
+
+    public void setExecTimeout() {
+        int execTimeout;
+        // default use session query_timeout
+        execTimeout = sessionVariable.getQueryTimeoutS();
+        if (executor != null && executor.isInsertStmt()) {
+            //particular timeout for insert stmt, we can make other particular timeout in the same way.
+            execTimeout = Math.max(sessionVariable.getInsertTimeoutS(), execTimeout);
+        }
+        executionTimeoutS = execTimeout;
+    }
+
+    public int getExecTimeout() {
+        return executionTimeoutS;
     }
 
     public class ThreadInfo {
