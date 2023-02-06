@@ -30,6 +30,7 @@
 #include "olap/field.h"
 #include "olap/options.h"
 #include "olap/rowset/beta_rowset.h"
+#include "olap/schema.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "olap/tablet_meta_manager.h"
@@ -713,9 +714,9 @@ TEST_F(TestDeltaWriter, sequence_col) {
         memset(tuple, 0, tuple_desc->byte_size());
         *(int8_t*)(tuple->get_slot(slots[0]->tuple_offset())) = 123;
         *(int16_t*)(tuple->get_slot(slots[1]->tuple_offset())) = 456;
-        *(int32_t*)(tuple->get_slot(slots[2]->tuple_offset())) = 1;
-        ((DateTimeValue*)(tuple->get_slot(slots[3]->tuple_offset())))
+        ((DateTimeValue*)(tuple->get_slot(slots[2]->tuple_offset())))
                 ->from_date_str("2020-07-16 19:39:43", 19);
+        *(int32_t*)(tuple->get_slot(slots[4]->tuple_offset())) = 1;
 
         res = delta_writer->write(tuple);
         EXPECT_EQ(Status::OK(), res);
