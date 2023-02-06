@@ -425,7 +425,7 @@ public class OlapScanNode extends ScanNode {
                 mvColumn = meta.getColumnByName(CreateMaterializedViewStmt.mvColumnBuilder(baseColumn.getName()));
             }
             if (mvColumn == null) {
-                throw new UserException("Do not found mvColumn " + baseColumn.getName());
+                throw new UserException("updateColumnType: Do not found mvColumn " + baseColumn.getName());
             }
 
             if (mvColumn.getType() != baseColumn.getType()) {
@@ -452,7 +452,7 @@ public class OlapScanNode extends ScanNode {
             Column baseColumn = slotDescriptor.getColumn();
             Column mvColumn = meta.getColumnByName(baseColumn.getName());
             if (mvColumn == null) {
-                throw new UserException("Do not found mvColumn " + baseColumn.getName());
+                throw new UserException("updateSlotUniqueId: Do not found mvColumn " + baseColumn.getName());
             }
             slotDescriptor.setColumn(mvColumn);
         }
