@@ -116,7 +116,7 @@ private:
     static bool _filter_by_min_max(const ColumnValueRange<primitive_type>& col_val_range,
                                    const ScanPredicate& predicate, const FieldSchema* col_schema,
                                    const std::string& encoded_min, const std::string& encoded_max,
-                                   const cctz::time_zone& utc) {
+                                   const cctz::time_zone& ctz) {
         using CppType = typename PrimitiveTypeTraits<primitive_type>::CppType;
         std::vector<CppType> predicate_values;
         for (const void* v : predicate.values) {
@@ -218,8 +218,8 @@ private:
                         static_cast<int64_t>(*reinterpret_cast<const int32_t*>(encoded_max.data()));
                 if constexpr (std::is_same_v<CppType, DateTimeValue> ||
                               std::is_same_v<CppType, DateV2Value<DateV2ValueType>>) {
-                    min_value.from_unixtime(min_date_value * 24 * 60 * 60, utc);
-                    max_value.from_unixtime(max_date_value * 24 * 60 * 60, utc);
+                    min_value.from_unixtime(min_date_value * 24 * 60 * 60, ctz);
+                    max_value.from_unixtime(max_date_value * 24 * 60 * 60, ctz);
                 } else {
                     return false;
                 }
@@ -238,8 +238,8 @@ private:
                 int64_t micros_max = datetime96_max.to_timestamp_micros();
                 if constexpr (std::is_same_v<CppType, DateTimeValue> ||
                               std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
-                    min_value.from_unixtime(micros_min / 1000000, utc);
-                    max_value.from_unixtime(micros_max / 1000000, utc);
+                    min_value.from_unixtime(micros_min / 1000000, ctz);
+                    max_value.from_unixtime(micros_max / 1000000, ctz);
                     if constexpr (std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
                         min_value.set_microsecond(micros_min % 1000000);
                         max_value.set_microsecond(micros_max % 1000000);
@@ -253,13 +253,13 @@ private:
 
                 int64_t second_mask = 1;
                 int64_t scale_to_nano_factor = 1;
-                cctz::time_zone resolved_utc = utc;
+                cctz::time_zone resolved_ctz = ctz;
                 const auto& schema = col_schema->parquet_schema;
                 if (schema.__isset.logicalType && schema.logicalType.__isset.TIMESTAMP) {
                     const auto& timestamp_info = schema.logicalType.TIMESTAMP;
                     if (!timestamp_info.isAdjustedToUTC) {
                         // should set timezone to utc+0
-                        resolved_utc = cctz::utc_time_zone();
+                        resolved_ctz = cctz::utc_time_zone();
                     }
                     const auto& time_unit = timestamp_info.unit;
                     if (time_unit.__isset.MILLIS) {
@@ -285,8 +285,8 @@ private:
 
                 if constexpr (std::is_same_v<CppType, DateTimeValue> ||
                               std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
-                    min_value.from_unixtime(date_value_min / second_mask, resolved_utc);
-                    max_value.from_unixtime(date_value_max / second_mask, resolved_utc);
+                    min_value.from_unixtime(date_value_min / second_mask, resolved_ctz);
+                    max_value.from_unixtime(date_value_max / second_mask, resolved_ctz);
                     if constexpr (std::is_same_v<CppType, DateV2Value<DateTimeV2ValueType>>) {
                         min_value.set_microsecond((date_value_min % second_mask) *
                                                   scale_to_nano_factor / 1000);
@@ -361,14 +361,14 @@ private:
 public:
     static bool filter_by_min_max(const ColumnValueRangeType& col_val_range,
                                   const FieldSchema* col_schema, const std::string& encoded_min,
-                                  const std::string& encoded_max, const cctz::time_zone& utc) {
+                                  const std::string& encoded_max, const cctz::time_zone& ctz) {
         bool need_filter = false;
         std::visit(
                 [&](auto&& range) {
                     std::vector<ScanPredicate> filters = _value_range_to_predicate(range);
                     for (auto& filter : filters) {
                         need_filter |= _filter_by_min_max(range, filter, col_schema, encoded_min,
-                                                          encoded_max, utc);
+                                                          encoded_max, ctz);
                         if (need_filter) {
                             break;
                         }

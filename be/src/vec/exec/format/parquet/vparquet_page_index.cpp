@@ -41,7 +41,7 @@ Status PageIndex::collect_skipped_page_range(tparquet::ColumnIndex* column_index
                                              ColumnValueRangeType& col_val_range,
                                              const FieldSchema* col_schema,
                                              std::vector<int>& skipped_ranges,
-                                             const cctz::time_zone& utc) {
+                                             const cctz::time_zone& ctz) {
     const std::vector<std::string>& encoded_min_vals = column_index->min_values;
     const std::vector<std::string>& encoded_max_vals = column_index->max_values;
     DCHECK_EQ(encoded_min_vals.size(), encoded_max_vals.size());
@@ -50,7 +50,7 @@ Status PageIndex::collect_skipped_page_range(tparquet::ColumnIndex* column_index
     for (int page_id = 0; page_id < num_of_pages; page_id++) {
         if (ParquetPredicate::filter_by_min_max(col_val_range, col_schema,
                                                 encoded_min_vals[page_id],
-                                                encoded_max_vals[page_id], utc)) {
+                                                encoded_max_vals[page_id], ctz)) {
             skipped_ranges.emplace_back(page_id);
         }
     }
