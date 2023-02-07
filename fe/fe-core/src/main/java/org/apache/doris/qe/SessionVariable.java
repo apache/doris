@@ -727,7 +727,7 @@ public class SessionVariable implements Serializable, Writable {
         List<String> res = Lists.newArrayList();
         for (Field field : SessionVariable.class.getDeclaredFields()) {
             VarAttr attr = field.getAnnotation(VarAttr.class);
-            if (attr == null || attr.fuzzy().getSimpleName() == DefaultVarHandler.class.getSimpleName()) {
+            if (attr == null || attr.fuzzy().getSimpleName().equals(DefaultVarHandler.class.getSimpleName())) {
                 continue;
             }
             field.setAccessible(true);
