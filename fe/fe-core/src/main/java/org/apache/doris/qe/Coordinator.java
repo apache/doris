@@ -1130,22 +1130,20 @@ public class Coordinator {
                     // here choose the first instance to build hash table.
                     Map<TNetworkAddress, FInstanceExecParam> destHosts = new HashMap<>();
                     destParams.instanceExecParams.forEach(param -> {
-                        if (destHosts.containsKey(param.host)) {
-                            destHosts.get(param.host).instancesSharingHashTable.add(param.instanceId);
-                            return;
-                        }
-                        destHosts.put(param.host, param);
+                        if (!destHosts.containsKey(param.host)) {
+                            destHosts.put(param.host, param);
 
-                        param.buildHashTableForBroadcastJoin = true;
-                        TPlanFragmentDestination dest = new TPlanFragmentDestination();
-                        dest.fragment_instance_id = param.instanceId;
-                        try {
-                            dest.server = toRpcHost(param.host);
-                            dest.setBrpcServer(toBrpcHost(param.host));
-                        } catch (Exception e) {
-                            throw new RuntimeException(e);
+                            param.buildHashTableForBroadcastJoin = true;
+                            TPlanFragmentDestination dest = new TPlanFragmentDestination();
+                            dest.fragment_instance_id = param.instanceId;
+                            try {
+                                dest.server = toRpcHost(param.host);
+                                dest.setBrpcServer(toBrpcHost(param.host));
+                            } catch (Exception e) {
+                                throw new RuntimeException(e);
+                            }
+                            params.destinations.add(dest);
                         }
-                        params.destinations.add(dest);
                     });
                 } else {
                     // add destination host to this fragment's destination
