@@ -284,6 +284,8 @@ Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr s
 
     std::unique_ptr<OlapReaderStatistics> stat(new OlapReaderStatistics());
     uint64_t merged_row_stat = 0;
+    uint64_t index_size = 0;
+    uint64_t total_index_size = 0;
 
     // ================ begin vcompaction ==================
     auto writer = _create_segcompaction_writer(begin, end);
@@ -319,7 +321,8 @@ Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr s
         RETURN_IF_ERROR(Merger::vertical_compact_one_group(tablet, READER_CUMULATIVE_COMPACTION /*TODO: make our own type*/,
                                                      _context.tablet_schema, is_key,
                                                      column_ids, &row_sources_buf,
-                                                     *reader, *writer, INT_MAX, &stats));
+                                                     *reader, *writer, INT_MAX, &stats, &index_size));
+        total_index_size += index_size;
         if (is_key) {
             row_sources_buf.flush();
         }
@@ -332,7 +335,7 @@ Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr s
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
         _clear_statistics_for_deleting_segments_unsafe(begin, end);
     }
-    RETURN_NOT_OK(_flush_segment_writer(&writer));
+    RETURN_NOT_OK(_flush_segment_writer_for_segcompaction(&writer, total_index_size));
 
     if (_segcompaction_file_writer != nullptr) {
         _segcompaction_file_writer->close();
@@ -958,6 +961,43 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
     if (flush_size) {
         *flush_size = segment_size + index_size;
     }
+    return Status::OK();
+}
+
+Status BetaRowsetWriter::_flush_segment_writer_for_segcompaction(
+        std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size) {
+    uint32_t segid = (*writer)->get_segment_id();
+    uint32_t row_num = (*writer)->num_rows_written();
+    uint64_t segment_size;
+
+    auto s = (*writer)->finalize_footer(&segment_size);
+    if (!s.ok()) {
+        LOG(WARNING) << "failed to finalize segment: " << s.to_string();
+        return Status::Error<WRITER_DATA_WRITE_ERROR>();
+    }
+
+    KeyBoundsPB key_bounds;
+    Slice min_key = (*writer)->min_encoded_key();
+    Slice max_key = (*writer)->max_encoded_key();
+    DCHECK_LE(min_key.compare(max_key), 0);
+    key_bounds.set_min_key(min_key.to_string());
+    key_bounds.set_max_key(max_key.to_string());
+
+    Statistics segstat;
+    segstat.row_num = row_num;
+    segstat.data_size = segment_size;
+    segstat.index_size = index_size;
+    segstat.key_bounds = key_bounds;
+    {
+        std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
+        CHECK_EQ(_segid_statistics_map.find(segid) == _segid_statistics_map.end(), true);
+        _segid_statistics_map.emplace(segid, segstat);
+    }
+    VLOG_DEBUG << "_segid_statistics_map add new record. segid:" << segid << " row_num:" << row_num
+               << " data_size:" << segment_size << " index_size:" << index_size;
+
+    writer->reset();
+
     return Status::OK();
 }
 

@@ -72,7 +72,8 @@ public:
             TabletSharedPtr tablet, ReaderType reader_type, TabletSchemaSPtr tablet_schema, bool is_key,
             const std::vector<uint32_t>& column_group, vectorized::RowSourcesBuffer* row_source_buf,
             vectorized::VerticalBlockReader& src_block_reader,
-            segment_v2::SegmentWriter& dst_segment_writer, int64_t max_rows_per_segment, Statistics* stats_output);
+            segment_v2::SegmentWriter& dst_segment_writer, int64_t max_rows_per_segment,
+            Statistics* stats_output, uint64_t* index_size);
 };
 
 } // namespace doris
