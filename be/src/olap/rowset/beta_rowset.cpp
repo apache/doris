@@ -79,7 +79,7 @@ std::string BetaRowset::remote_tablet_meta_path(int64_t tablet_id, int64_t repli
     return fmt::format("{}/{}.meta", remote_tablet_path(tablet_id), replica_id);
 }
 
-std::string BetaRowset::segment_file_name(const std::string& rowset_id, int segment_id) {
+std::string BetaRowset::segment_dat_name(const std::string& rowset_id, int segment_id) {
     // {rowset_id}_{seg_num}.dat
     return fmt::format("{}_{}.dat", rowset_id, segment_id);
 }
@@ -94,7 +94,7 @@ std::string BetaRowset::remote_segment_path(int64_t tablet_id, const std::string
                                             int segment_id) {
     // data/{tablet_id}/{rowset_id}_{seg_num}.dat
     return fmt::format("{}/{}", remote_tablet_path(tablet_id),
-                       segment_file_name(rowset_id, segment_id));
+                       segment_dat_name(rowset_id, segment_id));
 }
 
 std::string BetaRowset::local_segment_path_segcompacted(const std::string& tablet_path,

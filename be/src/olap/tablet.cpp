@@ -1729,8 +1729,8 @@ Status Tablet::_deal_cooldown_delete_files(const std::shared_ptr<io::RemoteFileS
                 continue;
             }
             for (int i = 0; i < rs_meta->num_segments(); ++i) {
-                remote_segment_name_map.emplace(BetaRowset::segment_file_name(
-                        rs_meta->rowset_id().to_string(), i));
+                remote_segment_name_map.emplace(BetaRowset::segment_dat_name(
+                        rs_meta->rowset_id().to_string(), i), true);
             }
         }
     }
