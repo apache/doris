@@ -1730,7 +1730,7 @@ Status Tablet::_deal_cooldown_delete_files(const std::shared_ptr<io::RemoteFileS
             }
             for (int i = 0; i < rs_meta->num_segments(); ++i) {
                 remote_segment_name_map.emplace(BetaRowset::segment_file_name(
-                        tablet_id(), rs_meta->rowset_id().to_string(), i));
+                        rs_meta->rowset_id().to_string(), i));
             }
         }
     }
