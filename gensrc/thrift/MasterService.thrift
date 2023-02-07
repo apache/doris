@@ -30,7 +30,7 @@ struct TTabletInfo {
     4: required Types.TVersionHash version_hash
     5: required Types.TCount row_count
     // data size on local disk
-    6: required Types.TSize data_sizers_metas
+    6: required Types.TSize data_size
     7: optional Types.TStorageMedium storage_medium
     8: optional list<Types.TTransactionId> transaction_ids
     9: optional i64 version_count
