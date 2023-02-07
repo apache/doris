@@ -683,7 +683,7 @@ Block Block::copy_block(const std::vector<int>& column_offset) const {
 }
 
 void Block::append_block_by_selector(MutableBlock* dst, const IColumn::Selector& selector) const {
-    if (dst->get_block_type() == BlockType::DYNAMIC) {
+    if (UNLIKELY(dst->get_block_type() == BlockType::DYNAMIC)) {
         schema_util::align_append_block_by_selector(dst, this, selector);
         return;
     }
@@ -876,7 +876,7 @@ void MutableBlock::add_row(const Block* block, int row) {
 }
 
 void MutableBlock::add_rows(const Block* block, const int* row_begin, const int* row_end) {
-    if (_type == BlockType::DYNAMIC) {
+    if (UNLIKELY(_type == BlockType::DYNAMIC)) {
         schema_util::align_block_by_name_and_type(this, block, row_begin, row_end);
         return;
     }
@@ -889,7 +889,7 @@ void MutableBlock::add_rows(const Block* block, const int* row_begin, const int*
 }
 
 void MutableBlock::add_rows(const Block* block, size_t row_begin, size_t length) {
-    if (_type == BlockType::DYNAMIC) {
+    if (UNLIKELY(_type == BlockType::DYNAMIC)) {
         schema_util::align_block_by_name_and_type(this, block, row_begin, length);
         return;
     }

@@ -423,7 +423,7 @@ Status VFileScanner::_convert_to_output_block(Block* block) {
 
         vectorized::ColumnPtr column_ptr;
         if (_is_dynamic_schema) {
-            if (slot_desc->type().is_variant()) {
+            if (slot_desc->type().is_variant_type()) {
                 continue;
             }
             // cast column
@@ -811,7 +811,7 @@ Status VFileScanner::_init_expr_ctxes() {
     }
     // If last slot is_variant from stream plan which indicate table is dynamic schema
     _is_dynamic_schema =
-            _output_tuple_desc && _output_tuple_desc->slots().back()->type().is_variant();
+            _output_tuple_desc && _output_tuple_desc->slots().back()->type().is_variant_type();
     if (_is_dynamic_schema) {
         // should not resuse Block since Block is variable
         _src_block_mem_reuse = false;

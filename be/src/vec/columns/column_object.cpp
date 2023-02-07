@@ -591,7 +591,7 @@ Status ColumnObject::try_insert_from(const IColumn& src, size_t n) {
 }
 
 Status ColumnObject::try_insert(const Field& field) {
-    const auto& object = field.get<const Object&>();
+    const auto& object = field.get<const VariantMap&>();
     phmap::flat_hash_set<StringRef, StringRefHash> inserted;
     size_t old_size = size();
     for (const auto& [key_str, value] : object) {
@@ -631,20 +631,20 @@ Field ColumnObject::operator[](size_t n) const {
     if (!is_finalized()) {
         assert(false);
     }
-    Object object;
+    VariantMap map;
     for (const auto& entry : subcolumns) {
-        object[entry->path.get_path()] = (*entry->data.data.back())[n];
+        map[entry->path.get_path()] = (*entry->data.data.back())[n];
     }
-    return object;
+    return map;
 }
 
 void ColumnObject::get(size_t n, Field& res) const {
     if (!is_finalized()) {
         assert(false);
     }
-    auto& object = res.get<Object&>();
+    auto& map = res.get<VariantMap&>();
     for (const auto& entry : subcolumns) {
-        auto it = object.try_emplace(entry->path.get_path()).first;
+        auto it = map.try_emplace(entry->path.get_path()).first;
         entry->data.data.back()->get(n, it->second);
     }
 }

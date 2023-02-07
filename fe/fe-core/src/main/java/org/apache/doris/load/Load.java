@@ -742,7 +742,7 @@ public class Load {
             }
         }
 
-        // add a implict container column "__dynamic__" for dynamic columns
+        // add a implict container column "DORIS_DYNAMIC_COL" for dynamic columns
         if (tbl instanceof OlapTable && ((OlapTable) tbl).isDynamicSchema()) {
             analyzer.getDescTbl().addReferencedTable(tbl);
             SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);

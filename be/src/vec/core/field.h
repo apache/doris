@@ -86,16 +86,15 @@ using FieldVector = std::vector<Field>;
 DEFINE_FIELD_VECTOR(Array);
 DEFINE_FIELD_VECTOR(Tuple);
 DEFINE_FIELD_VECTOR(Map);
+#undef DEFINE_FIELD_VECTOR
 
 using FieldMap = std::map<String, Field, std::less<String>>;
 #define DEFINE_FIELD_MAP(X)       \
     struct X : public FieldMap {  \
         using FieldMap::FieldMap; \
     }
-DEFINE_FIELD_MAP(Object);
+DEFINE_FIELD_MAP(VariantMap);
 #undef DEFINE_FIELD_MAP
-
-#undef DEFINE_FIELD_VECTOR
 
 struct AggregateFunctionStateData {
     String name; /// Name with arguments.
@@ -318,7 +317,7 @@ public:
             JSONB = 23,
             Decimal128I = 24,
             Map = 25,
-            Object = 26,
+            VariantMap = 26,
         };
 
         static const int MIN_NON_POD = 16;
@@ -359,8 +358,8 @@ public:
                 return "AggregateFunctionState";
             case FixedLengthObject:
                 return "FixedLengthObject";
-            case Object:
-                return "Object";
+            case VariantMap:
+                return "VariantMap";
             }
 
             LOG(FATAL) << "Bad type of Field";
@@ -537,8 +536,8 @@ public:
             return get<AggregateFunctionStateData>() < rhs.get<AggregateFunctionStateData>();
         case Types::FixedLengthObject:
             break;
-        case Types::Object:
-            return get<Object>() < rhs.get<Object>();
+        case Types::VariantMap:
+            return get<VariantMap>() < rhs.get<VariantMap>();
         }
 
         LOG(FATAL) << "Bad type of Field";
@@ -586,8 +585,8 @@ public:
             return get<AggregateFunctionStateData>() <= rhs.get<AggregateFunctionStateData>();
         case Types::FixedLengthObject:
             break;
-        case Types::Object:
-            return get<Object>() <= rhs.get<Object>();
+        case Types::VariantMap:
+            return get<VariantMap>() <= rhs.get<VariantMap>();
         }
         LOG(FATAL) << "Bad type of Field";
         return {};
@@ -631,8 +630,8 @@ public:
             return get<AggregateFunctionStateData>() == rhs.get<AggregateFunctionStateData>();
         case Types::FixedLengthObject:
             break;
-        case Types::Object:
-            return get<Object>() == rhs.get<Object>();
+        case Types::VariantMap:
+            return get<VariantMap>() == rhs.get<VariantMap>();
         }
 
         CHECK(false) << "Bad type of Field";
@@ -728,8 +727,8 @@ private:
         case Types::FixedLengthObject:
             LOG(FATAL) << "FixedLengthObject not supported";
             break;
-        case Types::Object:
-            f(field.template get<Object>());
+        case Types::VariantMap:
+            f(field.template get<VariantMap>());
             return;
         }
     }
@@ -791,8 +790,8 @@ private:
         case Types::AggregateFunctionState:
             destroy<AggregateFunctionStateData>();
             break;
-        case Types::Object:
-            destroy<Object>();
+        case Types::VariantMap:
+            destroy<VariantMap>();
             break;
         default:
             break;
@@ -900,8 +899,8 @@ struct Field::TypeToEnum<AggregateFunctionStateData> {
     static constexpr Types::Which value = Types::AggregateFunctionState;
 };
 template <>
-struct Field::TypeToEnum<Object> {
-    static constexpr Types::Which value = Types::Object;
+struct Field::TypeToEnum<VariantMap> {
+    static constexpr Types::Which value = Types::VariantMap;
 };
 
 template <>
@@ -969,8 +968,8 @@ struct Field::EnumToType<Field::Types::AggregateFunctionState> {
     using Type = DecimalField<AggregateFunctionStateData>;
 };
 template <>
-struct Field::EnumToType<Field::Types::Object> {
-    using Type = Object;
+struct Field::EnumToType<Field::Types::VariantMap> {
+    using Type = VariantMap;
 };
 
 template <typename T>
@@ -1003,8 +1002,8 @@ struct TypeName<Tuple> {
 };
 
 template <>
-struct TypeName<Object> {
-    static std::string get() { return "Object"; }
+struct TypeName<VariantMap> {
+    static std::string get() { return "VariantMap"; }
 };
 template <>
 struct TypeName<Map> {
@@ -1055,8 +1054,8 @@ struct NearestFieldTypeImpl<Int32> {
 };
 
 template <>
-struct NearestFieldTypeImpl<Object> {
-    using Type = Object;
+struct NearestFieldTypeImpl<VariantMap> {
+    using Type = VariantMap;
 };
 
 /// long and long long are always different types that may behave identically or not.

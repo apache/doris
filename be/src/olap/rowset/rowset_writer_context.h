@@ -85,8 +85,8 @@ struct RowsetWriterContext {
     bool is_direct_write = false;
     std::shared_ptr<Tablet> tablet = nullptr;
     // for tracing local schema change record
-    std::shared_ptr<vectorized::object_util::LocalSchemaChangeRecorder>
-                                            schema_change_recorder = nullptr;
+    std::shared_ptr<vectorized::schema_util::LocalSchemaChangeRecorder> schema_change_recorder =
+            nullptr;
 };
 
 } // namespace doris

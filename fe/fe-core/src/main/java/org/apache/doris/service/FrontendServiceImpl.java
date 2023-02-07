@@ -287,7 +287,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
                 // prepare columnDefs
                 for (TColumnDef tColumnDef : addColumns) {
-                    if (request.isTypeConflictFree()) {
+                    if (request.isAllowTypeConflict()) {
                         // ignore column with same name
                         boolean hasSameNameColumn = false;
                         for (Column column : olapTable.getBaseSchema()) {
@@ -313,7 +313,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 }
 
                 if (!queryMode && !columnDefs.isEmpty()) {
-                    //3.create AddColumnsClause
+                    // create AddColumnsClause
                     AddColumnsClause addColumnsClause = new AddColumnsClause(columnDefs, null, null);
                     addColumnsClause.analyze(null);
 

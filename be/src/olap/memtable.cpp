@@ -150,8 +150,10 @@ int MemTable::RowInBlockComparator::operator()(const RowInBlock* left,
 void MemTable::insert(const vectorized::Block* input_block, const std::vector<int>& row_idxs) {
     SCOPED_CONSUME_MEM_TRACKER(_insert_mem_tracker_use_hook.get());
     vectorized::Block target_block = *input_block;
-    // maybe rollup tablet, dynamic table's tablet need full columns
     if (!_tablet_schema->is_dynamic_schema()) {
+        // This insert may belong to a rollup tablet, rollup columns is a subset of base table
+        // but for dynamic table, it's need full columns, so input_block should ignore _column_offset
+        // of each column and avoid copy_block
         target_block = input_block->copy_block(_column_offset);
     }
     if (_is_first_insertion) {

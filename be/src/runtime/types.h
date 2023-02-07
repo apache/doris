@@ -202,7 +202,7 @@ struct TypeDescriptor {
 
     bool is_bitmap_type() const { return type == TYPE_OBJECT; }
 
-    bool is_variant() const { return type == TYPE_VARIANT; }
+    bool is_variant_type() const { return type == TYPE_VARIANT; }
 
     int get_slot_size() const { return ::doris::get_slot_size(type); }
 

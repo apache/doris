@@ -349,7 +349,7 @@ Status send_add_columns_rpc(ColumnsWithTypeAndName column_type_names,
     req.__set_db_name(schema_view->db_name);
     req.__set_table_id(schema_view->table_id);
     // TODO(lhy) more configurable
-    req.__set_type_conflict_free(true);
+    req.__set_allow_type_conflict(true);
     for (const auto& column_type_name : column_type_names) {
         TColumnDef col;
         get_column_def(column_type_name.type, column_type_name.name, &col);

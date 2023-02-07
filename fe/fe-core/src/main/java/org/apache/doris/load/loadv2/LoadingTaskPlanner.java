@@ -145,10 +145,11 @@ public class LoadingTaskPlanner {
         }
 
         if (table.isDynamicSchema()) {
+            // Dynamic table for s3load ...
             descTable.addReferencedTable(table);
             // For reference table
             scanTupleDesc.setTableId((int) table.getId());
-            // Add a implict container column "__dynamic__" for dynamic columns
+            // Add a implict container column "DORIS_DYNAMIC_COL" for dynamic columns
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(scanTupleDesc);
             Column col = new Column(Column.DYNAMIC_COLUMN_NAME, Type.VARIANT, false, null, false, "",
                                     "stream load auto dynamic column");

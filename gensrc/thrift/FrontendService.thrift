@@ -723,7 +723,7 @@ struct TAddColumnsRequest {
     2: required list<TColumnDef> addColumns
     3: optional string table_name
     4: optional string db_name
-    5: optional bool type_conflict_free
+    5: optional bool allow_type_conflict 
 }
 
 // Only support base table add columns

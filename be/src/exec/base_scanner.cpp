@@ -105,7 +105,7 @@ Status BaseScanner::init_expr_ctxes() {
         }
         _src_slot_descs.emplace_back(it->second);
 
-        if (it->second->type().is_variant() &&
+        if (it->second->type().is_variant_type() &&
             it->second->col_name() == BeConsts::DYNAMIC_COLUMN_NAME) {
             _is_dynamic_schema = true;
         }
@@ -193,7 +193,7 @@ Status BaseScanner::_materialize_dest_block(vectorized::Block* dest_block) {
         if (!slot_desc->is_materialized()) {
             continue;
         }
-        if (slot_desc->type().is_variant()) {
+        if (slot_desc->type().is_variant_type()) {
             continue;
         }
         int dest_index = ctx_idx++;

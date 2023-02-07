@@ -170,13 +170,14 @@ public class StreamLoadPlanner {
             }
         }
 
+        // Plan scan tuple of dynamic table
         if (destTable.isDynamicSchema()) {
             if (!Config.enable_vectorized_load) {
                 throw new UserException("Only support vectorized load for dyanmic table: " + destTable.getName());
             }
             descTable.addReferencedTable(destTable);
             scanTupleDesc.setTable(destTable);
-            // add a implict container column "__dynamic__" for dynamic columns
+            // add a implict container column "DORIS_DYNAMIC_COL" for dynamic columns
             SlotDescriptor slotDesc = descTable.addSlotDescriptor(scanTupleDesc);
             Column col = new Column(Column.DYNAMIC_COLUMN_NAME, Type.VARIANT, false, null, false, "",
                                     "stream load auto dynamic column");

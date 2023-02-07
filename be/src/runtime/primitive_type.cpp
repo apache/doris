@@ -576,6 +576,14 @@ PrimitiveType get_primitive_type(vectorized::TypeIndex v_type) {
         return PrimitiveType::TYPE_DATETIME;
     case vectorized::TypeIndex::Tuple:
         return PrimitiveType::TYPE_STRUCT;
+    case vectorized::TypeIndex::Decimal128:
+        return PrimitiveType::TYPE_DECIMAL128I;
+    case vectorized::TypeIndex::JSONB:
+        return PrimitiveType::TYPE_JSONB;
+    case vectorized::TypeIndex::DateTimeV2:
+        return PrimitiveType::TYPE_DATETIMEV2;
+    case vectorized::TypeIndex::DateV2:
+        return PrimitiveType::TYPE_DATEV2;
     // TODO add vectorized::more types
     default:
         LOG(FATAL) << "unknow data_type: " << getTypeName(v_type);

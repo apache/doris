@@ -323,7 +323,7 @@ struct WhichDataType {
     bool is_nullable() const { return idx == TypeIndex::Nullable; }
     bool is_function() const { return idx == TypeIndex::Function; }
     bool is_aggregate_function() const { return idx == TypeIndex::AggregateFunction; }
-    bool is_variant() const { return idx == TypeIndex::VARIANT; }
+    bool is_variant_type() const { return idx == TypeIndex::VARIANT; }
     bool is_simple() const { return is_int() || is_uint() || is_float() || is_string(); }
 };
 
