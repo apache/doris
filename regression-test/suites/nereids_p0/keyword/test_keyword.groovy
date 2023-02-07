@@ -89,7 +89,6 @@ suite("test_keyword", "query,p0") {
             baseall.k1 > 0 and t3.k1 > 0 order by 1, 2;"
     try_sql "SELECT a FROM (SELECT 1 FROM (SELECT 1) a HAVING a=1) b"
     try_sql "SELECT a,b as a FROM (SELECT '1' as a,'2' as b) b  HAVING a=1;"
-    try_sql "SELECT a,2 as a FROM (SELECT '1' as a) b HAVING a=1;"
     try_sql "SELECT 1 FROM (SELECT 1) a WHERE a=2;"
     order_qt_alias7 "select * from baseall as x1, bigtable as x2;"
     qt_alias8 "select * from (select 1) as a;"

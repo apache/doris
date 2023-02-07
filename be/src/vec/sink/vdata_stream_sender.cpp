@@ -643,7 +643,7 @@ void VDataStreamSender::_roll_pb_block() {
 }
 
 Status VDataStreamSender::_get_next_available_buffer(BroadcastPBlockHolder** holder) {
-    constexpr int MAX_LOOP = 1000;
+    constexpr int MAX_LOOP = 1000000;
 
     size_t it = 0;
     while (it < MAX_LOOP) {
