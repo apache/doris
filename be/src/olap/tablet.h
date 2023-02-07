@@ -389,6 +389,13 @@ public:
         for (auto& [v, rs] : _stale_rs_version_map) {
             visitor(rs);
         }
+
+    inline void increase_io_error_times() { ++_io_error_times; }
+
+    inline int64_t get_io_error_times() const { return _io_error_times; }
+
+    inline bool is_io_error_too_times() const {
+        return config::max_tablet_io_errors > 0 && _io_error_times >= config::max_tablet_io_errors;
     }
 
     Status write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
@@ -522,6 +529,8 @@ private:
     std::mutex _cold_compaction_lock;
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
+
+    int64_t _io_error_times = 0;
 
 public:
     IntCounter* flush_bytes;

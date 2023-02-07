@@ -134,38 +134,18 @@ Status BetaRowset::get_segments_size(std::vector<size_t>* segments_size) {
     return Status::OK();
 }
 Status BetaRowset::load_segments(std::vector<segment_v2::SegmentSharedPtr>* segments) {
-    auto fs = _rowset_meta->fs();
-    if (!fs || _schema == nullptr) {
-        return Status::Error<INIT_FAILED>();
-    }
-    for (int seg_id = 0; seg_id < num_segments(); ++seg_id) {
-        auto seg_path = segment_file_path(seg_id);
-        std::shared_ptr<segment_v2::Segment> segment;
-        io::SegmentCachePathPolicy cache_policy;
-        cache_policy.set_cache_path(segment_cache_path(seg_id));
-        io::FileReaderOptions reader_options(io::cache_type_from_string(config::file_cache_type),
-                                             cache_policy);
-        auto s = segment_v2::Segment::open(fs, seg_path, seg_id, rowset_id(), _schema,
-                                           reader_options, &segment);
-        if (!s.ok()) {
-            LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset "
-                         << unique_id() << " : " << s.to_string();
-            return Status::Error<ROWSET_LOAD_FAILED>();
-        }
-        segments->push_back(std::move(segment));
-    }
-    return Status::OK();
+    return load_segments(0, num_segments(), segments);
 }
 
 Status BetaRowset::load_segments(int64_t seg_id_begin, int64_t seg_id_end,
                                  std::vector<segment_v2::SegmentSharedPtr>* segments) {
+    auto fs = _rowset_meta->fs();
+    if (!fs || _schema == nullptr) {
+        return Status::Error<INIT_FAILED>();
+    }
     int64_t seg_id = seg_id_begin;
     while (seg_id < seg_id_end) {
         DCHECK(seg_id >= 0);
-        auto fs = _rowset_meta->fs();
-        if (!fs || _schema == nullptr) {
-            return Status::Error<INIT_FAILED>();
-        }
         auto seg_path = segment_file_path(seg_id);
         std::shared_ptr<segment_v2::Segment> segment;
         io::SegmentCachePathPolicy cache_policy;
@@ -177,7 +157,11 @@ Status BetaRowset::load_segments(int64_t seg_id_begin, int64_t seg_id_end,
         if (!s.ok()) {
             LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset "
                          << unique_id() << " : " << s.to_string();
-            return Status::Error<ROWSET_LOAD_FAILED>();
+            if (s.is_io_error()) {
+                return s;
+            } else {
+                return Status::Error<ROWSET_LOAD_FAILED>();
+            }
         }
         segments->push_back(std::move(segment));
         seg_id++;

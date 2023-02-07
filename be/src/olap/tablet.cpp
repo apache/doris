@@ -1434,7 +1434,9 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
         // and perform state modification operations.
     }
 
-    if (has_version_cross && tablet_state() == TABLET_RUNNING) {
+    if ((has_version_cross || is_io_error_too_times()) && tablet_state() == TABLET_RUNNING) {
+        LOG(INFO) << "report " << full_name() << " as bad, version_cross=" << has_version_cross
+                  << ", ioe times=" << get_io_error_times();
         tablet_info->__set_used(false);
     }
 
