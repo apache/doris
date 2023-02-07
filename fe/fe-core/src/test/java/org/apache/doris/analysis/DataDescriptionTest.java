@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.analysis.BinaryPredicate.Operator;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -39,6 +40,8 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -371,5 +374,14 @@ public class DataDescriptionTest {
             }
         };
         desc.analyze("testDb");
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void testHllFunctionArgsNull() throws AnalysisException {
+        String functionName = FunctionSet.HLL_HASH;
+        List<String> args = new ArrayList<>();
+        args.add(null);
+
+        DataDescription.validateMappingFunction(functionName, args, new HashMap<String, String>(), null, false);
     }
 }
