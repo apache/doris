@@ -36,6 +36,7 @@ public class FuzzyVarHandlers {
         }
     }
 
+    // Randomly return true or false
     static class FuzzyRandomBool implements VarHandler {
         @Override
         public void handle(Field f, Object obj, Random random) throws Exception {
@@ -44,6 +45,7 @@ public class FuzzyVarHandlers {
         }
     }
 
+    // For partitioned_hash_join_rows_threshold and partitioned_hash_agg_rows_threshold
     static class FuzzyPartitionedHashNodeRowsThreshold implements VarHandler {
         @Override
         public void handle(Field f, Object obj, Random random) throws Exception {
@@ -52,6 +54,7 @@ public class FuzzyVarHandlers {
         }
     }
 
+    // for parallel_fragment_exec_instance_num
     static class FuzzyParallelExecNum implements VarHandler {
         @Override
         public void handle(Field f, Object obj, Random random) throws Exception {
@@ -66,6 +69,7 @@ public class FuzzyVarHandlers {
         }
     }
 
+    // for external_sort_bytes_threshold
     static class FuzzyExternalSortBytesThreshold implements VarHandler {
         @Override
         public void handle(Field f, Object obj, Random random) throws Exception {
@@ -89,6 +93,7 @@ public class FuzzyVarHandlers {
         }
     }
 
+    // Return true if the config "pull_request_id" is odd
     static class FuzzyPullRequestIdTrue implements VarHandler {
         @Override
         public void handle(Field f, Object obj, Random random) throws Exception {
@@ -97,6 +102,7 @@ public class FuzzyVarHandlers {
         }
     }
 
+    // Return true if the config "pull_request_id" is even
     static class FuzzyPullRequestIdFalse implements VarHandler {
         @Override
         public void handle(Field f, Object obj, Random random) throws Exception {
@@ -105,6 +111,7 @@ public class FuzzyVarHandlers {
         }
     }
 
+    // for rewrite_or_to_in_predicate_threshold
     static class FuzzyRewriteOrToInPredicateThreshold implements VarHandler {
         @Override
         public void handle(Field f, Object obj, Random random) throws Exception {

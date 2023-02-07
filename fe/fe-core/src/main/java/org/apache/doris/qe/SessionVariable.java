@@ -30,6 +30,7 @@ import org.apache.doris.qe.FuzzyVarHandlers.FuzzyPartitionedHashNodeRowsThreshol
 import org.apache.doris.qe.FuzzyVarHandlers.FuzzyPullRequestIdFalse;
 import org.apache.doris.qe.FuzzyVarHandlers.FuzzyPullRequestIdTrue;
 import org.apache.doris.qe.FuzzyVarHandlers.FuzzyRandomBool;
+import org.apache.doris.qe.FuzzyVarHandlers.FuzzyRewriteOrToInPredicateThreshold;
 import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
@@ -575,7 +576,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = NEREIDS_STAR_SCHEMA_SUPPORT)
     private boolean nereidsStarSchemaSupport = true;
 
-    @VariableMgr.VarAttr(name = REWRITE_OR_TO_IN_PREDICATE_THRESHOLD)
+    @VariableMgr.VarAttr(name = REWRITE_OR_TO_IN_PREDICATE_THRESHOLD, fuzzy = FuzzyRewriteOrToInPredicateThreshold.class)
     private int rewriteOrToInPredicateThreshold = 2;
 
     @VariableMgr.VarAttr(name = NEREIDS_CBO_PENALTY_FACTOR)
