@@ -33,7 +33,6 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
     private QuotaType quotaType;
     private String quotaValue;
     private long quota;
-    private String quotaName;
 
     public enum QuotaType {
         NONE,
@@ -75,13 +74,10 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
         dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
         if (quotaType == QuotaType.DATA) {
             quota = ParseUtil.analyzeDataVolumn(quotaValue);
-            quotaName = "DATA";
         } else if (quotaType == QuotaType.REPLICA) {
             quota = ParseUtil.analyzeReplicaNumber(quotaValue);
-            quotaName = "REPLICA";
         } else if (quotaType == QuotaType.TRANSACTION) {
             quota = ParseUtil.analyzeTransactionNumber(quotaValue);
-            quotaName = "TRANSACTION";
         }
 
     }
@@ -89,7 +85,7 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
     @Override
     public String toSql() {
         return "ALTER DATABASE " + dbName + " SET "
-                + quotaName
+                + quotaType.name()
                 + " QUOTA " + quotaValue;
     }
 }
