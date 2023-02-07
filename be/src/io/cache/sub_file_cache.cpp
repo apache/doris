@@ -49,7 +49,8 @@ SubFileCache::SubFileCache(const Path& cache_dir, int64_t alive_time_sec,
 
 SubFileCache::~SubFileCache() {}
 
-Status SubFileCache::read_at(size_t offset, Slice result, const IOContext& io_ctx, size_t* bytes_read) {
+Status SubFileCache::read_at(size_t offset, Slice result, const IOContext& io_ctx,
+                             size_t* bytes_read) {
     if (bthread_self() == 0) {
         return read_at_impl(offset, result, io_ctx, bytes_read);
     }
@@ -60,7 +61,7 @@ Status SubFileCache::read_at(size_t offset, Slice result, const IOContext& io_ct
 }
 
 Status SubFileCache::read_at_impl(size_t offset, Slice result, const IOContext& io_ctx,
-                             size_t* bytes_read) {
+                                  size_t* bytes_read) {
     _init();
     if (io_ctx.reader_type != READER_QUERY) {
         return _remote_file_reader->read_at(offset, result, io_ctx, bytes_read);

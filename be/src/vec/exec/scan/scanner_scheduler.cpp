@@ -18,14 +18,14 @@
 #include "scanner_scheduler.h"
 
 #include "common/config.h"
+#include "util/async_io.h"
 #include "util/priority_thread_pool.hpp"
 #include "util/priority_work_stealing_thread_pool.hpp"
-#include "vec/exec/scan/new_olap_scanner.h"
-#include "util/async_io.h"
 #include "util/telemetry/telemetry.h"
 #include "util/thread.h"
 #include "util/threadpool.h"
 #include "vec/core/block.h"
+#include "vec/exec/scan/new_olap_scanner.h"
 #include "vec/exec/scan/vscanner.h"
 #include "vec/exprs/vexpr.h"
 #include "vfile_scanner.h"
@@ -210,18 +210,17 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
         (*iter)->start_wait_worker_timer();
         AsyncIOCtx io_ctx {.nice = nice};
 
-        auto f = new std::function<void()>(
-                [this, scanner = *iter, ctx, io_ctx] {
-                    AsyncIOCtx* set_io_ctx =
-                            static_cast<AsyncIOCtx*>(bthread_getspecific(AsyncIO::btls_io_ctx_key));
-                    if (set_io_ctx == nullptr) {
-                        set_io_ctx = new AsyncIOCtx(io_ctx);
-                        CHECK_EQ(0, bthread_setspecific(AsyncIO::btls_io_ctx_key, set_io_ctx));
-                    } else {
-                        LOG(WARNING) << "New bthread should not have io_nice_key";
-                    }
-                    this->_scanner_scan(this, ctx, scanner);
-                });
+        auto f = new std::function<void()>([this, scanner = *iter, ctx, io_ctx] {
+            AsyncIOCtx* set_io_ctx =
+                    static_cast<AsyncIOCtx*>(bthread_getspecific(AsyncIO::btls_io_ctx_key));
+            if (set_io_ctx == nullptr) {
+                set_io_ctx = new AsyncIOCtx(io_ctx);
+                CHECK_EQ(0, bthread_setspecific(AsyncIO::btls_io_ctx_key, set_io_ctx));
+            } else {
+                LOG(WARNING) << "New bthread should not have io_nice_key";
+            }
+            this->_scanner_scan(this, ctx, scanner);
+        });
         bthread_t btid;
         int ret = bthread_start_background(&btid, nullptr, run_scanner_bthread, (void*)f);
 

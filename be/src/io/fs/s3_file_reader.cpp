@@ -21,8 +21,8 @@
 #include <aws/s3/model/GetObjectRequest.h>
 
 #include "io/fs/s3_common.h"
-#include "util/doris_metrics.h"
 #include "util/async_io.h"
+#include "util/doris_metrics.h"
 
 namespace doris {
 namespace io {

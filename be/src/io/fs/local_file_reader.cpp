@@ -19,8 +19,8 @@
 
 #include <atomic>
 
-#include "util/doris_metrics.h"
 #include "util/async_io.h"
+#include "util/doris_metrics.h"
 
 namespace doris {
 namespace io {
