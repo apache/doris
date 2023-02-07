@@ -267,18 +267,21 @@ std::string VLiteral::value() const {
                 break;
             }
             case TYPE_DECIMAL32: {
-                write_text<int32_t>(*(reinterpret_cast<const int32_t*>(ref.data)), _type.scale,
-                                    out);
+                auto str =
+                        reinterpret_cast<const Decimal<int32_t>*>(ref.data)->to_string(_type.scale);
+                out << str;
                 break;
             }
             case TYPE_DECIMAL64: {
-                write_text<int64_t>(*(reinterpret_cast<const int64_t*>(ref.data)), _type.scale,
-                                    out);
+                auto str =
+                        reinterpret_cast<const Decimal<int64_t>*>(ref.data)->to_string(_type.scale);
+                out << str;
                 break;
             }
             case TYPE_DECIMAL128I: {
-                write_text<int128_t>(*(reinterpret_cast<const int128_t*>(ref.data)), _type.scale,
-                                     out);
+                auto str = reinterpret_cast<const Decimal<int128_t>*>(ref.data)->to_string(
+                        _type.scale);
+                out << str;
                 break;
             }
             default: {
