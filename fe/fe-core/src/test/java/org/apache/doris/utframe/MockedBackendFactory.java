@@ -40,8 +40,6 @@ import org.apache.doris.thrift.TExecPlanFragmentResult;
 import org.apache.doris.thrift.TExportState;
 import org.apache.doris.thrift.TExportStatusResult;
 import org.apache.doris.thrift.TExportTaskRequest;
-import org.apache.doris.thrift.TFetchDataParams;
-import org.apache.doris.thrift.TFetchDataResult;
 import org.apache.doris.thrift.TFinishTaskRequest;
 import org.apache.doris.thrift.THeartbeatResult;
 import org.apache.doris.thrift.TMasterInfo;
@@ -205,11 +203,6 @@ public class MockedBackendFactory {
 
         @Override
         public TTransmitDataResult transmitData(TTransmitDataParams params) throws TException {
-            return null;
-        }
-
-        @Override
-        public TFetchDataResult fetchData(TFetchDataParams params) throws TException {
             return null;
         }
 
