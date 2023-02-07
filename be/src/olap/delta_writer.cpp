@@ -170,8 +170,9 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
     }
 
     if (_is_closed) {
-        LOG(WARNING) << "write block after closed";
-        return Status::Error<ALREADY_CANCELLED>();
+        LOG(WARNING) << "write block after closed tablet_id=" << _req.tablet_id
+                     << " load_id=" << _req.load_id << " txn_id=" << _req.txn_id;
+        return Status::Error<ALREADY_CLOSED>();
     }
 
     _total_received_rows += row_idxs.size();
@@ -290,8 +291,9 @@ Status DeltaWriter::close() {
     }
 
     if (_is_closed) {
-        LOG(WARNING) << "write block after closed";
-        return Status::Error<ALREADY_CANCELLED>();
+        LOG(WARNING) << "close after closed tablet_id=" << _req.tablet_id
+                     << " load_id=" << _req.load_id << " txn_id=" << _req.txn_id;
+        return Status::Error<ALREADY_CLOSED>();
     }
 
     auto s = _flush_memtable_async();
