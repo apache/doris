@@ -362,6 +362,8 @@ public:
 
     RowsetSharedPtr get_rowset(const RowsetId& rowset_id);
 
+    void enable_cooldown_flag(const TUniqueId& cooldown_delete_id);
+
 private:
     Status _init_once_action();
     void _print_missed_versions(const std::vector<Version>& missed_versions) const;
@@ -402,7 +404,6 @@ private:
     // begin cooldown functions
     ////////////////////////////////////////////////////////////////////////////
     bool get_cooldown_delete_id(TUniqueId* cooldown_delete_id);
-    void enable_cooldown_flag(const TUniqueId& cooldown_delete_id);
     Status _deal_cooldown_delete_files(const std::shared_ptr<io::RemoteFileSystem>& fs);
     Status _cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_fs);
     Status _follow_cooldowned_data(const std::shared_ptr<io::RemoteFileSystem>& dest_fs,
