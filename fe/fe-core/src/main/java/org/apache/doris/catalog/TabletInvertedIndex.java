@@ -361,7 +361,7 @@ public class TabletInvertedIndex {
         Map<Long, Replica> replicaMap = replicaMetaTable.row(beTabletInfo.getTabletId());
         for (Map.Entry<Long, Replica> entry : replicaMap.entrySet()) {
             if (entry.getValue().getCooldownedVersion() <= beTabletInfo.getCooldownedVersion()
-                    && entry.getValue().getCooldownMetaId() != beTabletInfo.getCooldownMetaId()) {
+                    && !entry.getValue().getCooldownMetaId().equals(beTabletInfo.getCooldownMetaId())) {
                 return false;
             }
         }

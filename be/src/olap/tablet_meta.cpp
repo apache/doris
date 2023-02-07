@@ -501,8 +501,9 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     // init _schema
     _schema->init_from_pb(tablet_meta_pb.schema());
 
+    _storage_policy_id = tablet_meta_pb.storage_policy_id();
     _cooldowned_version = -1;
-    // init _rs_metas
+    // init _rs_metas and _cooldowned_version
     for (auto& it : tablet_meta_pb.rs_metas()) {
         RowsetMetaSharedPtr rs_meta(new RowsetMeta());
         rs_meta->init_from_pb(it);
@@ -512,6 +513,8 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
             _cooldowned_version = it.end_version();
         }
     }
+    _cooldown_meta_id.__set_hi(tablet_meta_pb.cooldown_meta_id().hi());
+    _cooldown_meta_id.__set_lo(tablet_meta_pb.cooldown_meta_id().lo());
 
     for (auto& it : tablet_meta_pb.stale_rs_metas()) {
         RowsetMetaSharedPtr rs_meta(new RowsetMeta());
@@ -527,9 +530,6 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         _preferred_rowset_type = tablet_meta_pb.preferred_rowset_type();
     }
 
-    _storage_policy_id = tablet_meta_pb.storage_policy_id();
-    _cooldown_meta_id.__set_hi(tablet_meta_pb.cooldown_meta_id().hi());
-    _cooldown_meta_id.__set_lo(tablet_meta_pb.cooldown_meta_id().lo());
     if (tablet_meta_pb.has_enable_unique_key_merge_on_write()) {
         _enable_unique_key_merge_on_write = tablet_meta_pb.enable_unique_key_merge_on_write();
     }
