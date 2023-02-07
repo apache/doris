@@ -82,18 +82,34 @@ suite("test_subquery_in_disjunction") {
     """
 
     qt_hash_join_with_other_conjuncts1 """
-        SELECT * FROM test_sq_dj1 WHERE c1 IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 > test_sq_dj2.c2) OR c1 < 10;
+        SELECT * FROM test_sq_dj1 WHERE c1 IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 > test_sq_dj2.c2) OR c1 < 10 ORDER BY c1;
     """
 
     qt_hash_join_with_other_conjuncts2 """
-        SELECT * FROM test_sq_dj1 WHERE c1 IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 < test_sq_dj2.c2) OR c1 < 10;
+        SELECT * FROM test_sq_dj1 WHERE c1 IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 < test_sq_dj2.c2) OR c1 < 10 ORDER BY c1;
     """
 
     qt_hash_join_with_other_conjuncts3 """
-        SELECT * FROM test_sq_dj1 WHERE c1 IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 > test_sq_dj2.c2) OR c1 < 11;
+        SELECT * FROM test_sq_dj1 WHERE c1 IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 > test_sq_dj2.c2) OR c1 < 11 ORDER BY c1;
     """
 
     qt_hash_join_with_other_conjuncts4 """
-        SELECT * FROM test_sq_dj1 WHERE c1 IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 < test_sq_dj2.c2) OR c1 < 11;
+        SELECT * FROM test_sq_dj1 WHERE c1 IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 < test_sq_dj2.c2) OR c1 < 11 ORDER BY c1;
+    """
+
+    qt_hash_join_with_other_conjuncts5 """
+        SELECT * FROM test_sq_dj1 WHERE c1 NOT IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 > test_sq_dj2.c2) OR c1 < 10 ORDER BY c1;
+    """
+
+    qt_hash_join_with_other_conjuncts6 """
+        SELECT * FROM test_sq_dj1 WHERE c1 NOT IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 < test_sq_dj2.c2) OR c1 < 10 ORDER BY c1;
+    """
+
+    qt_hash_join_with_other_conjuncts7 """
+        SELECT * FROM test_sq_dj1 WHERE c1 NOT IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 > test_sq_dj2.c2) OR c1 < 11 ORDER BY c1;
+    """
+
+    qt_hash_join_with_other_conjuncts8 """
+        SELECT * FROM test_sq_dj1 WHERE c1 NOT IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 < test_sq_dj2.c2) OR c1 < 11 ORDER BY c1;
     """
 }
