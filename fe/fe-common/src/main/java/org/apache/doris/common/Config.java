@@ -1979,5 +1979,11 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = false)
     public static int topn_two_phase_limit_threshold = 512;
+
+    /**
+     * Used to set session variables randomly to check more issues in github workflow
+     */
+    @ConfField(mutable = true)
+    public static int pull_request_id = 0;
 }
 
