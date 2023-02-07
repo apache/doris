@@ -535,6 +535,19 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                     _build_block_rows.emplace_back(-1);
                 }
                 ++current_offset;
+            } else if constexpr (JoinOpType == TJoinOp::LEFT_SEMI_JOIN) {
+                if (is_mark_join) {
+                    same_to_prev.emplace_back(false);
+                    visited_map.emplace_back(nullptr);
+                    if (LIKELY(current_offset < _build_block_rows.size())) {
+                        _build_block_offsets[current_offset] = -1;
+                        _build_block_rows[current_offset] = -1;
+                    } else {
+                        _build_block_offsets.emplace_back(-1);
+                        _build_block_rows.emplace_back(-1);
+                    }
+                    ++current_offset;
+                }
             } else {
                 // other join, no nothing
             }
@@ -674,18 +687,17 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                 }
 
                 if (is_mark_join) {
-                    auto& matched_map =
-                            assert_cast<doris::vectorized::ColumnVector<UInt8>&>(
-                                    *(output_block->get_by_position(output_block->columns() - 1)
-                                              .column->assume_mutable()))
-                                    .get_data();
+                    auto& matched_map = assert_cast<doris::vectorized::ColumnVector<UInt8>&>(
+                                                *(output_block->get_by_position(num_cols - 1)
+                                                          .column->assume_mutable()))
+                                                .get_data();
                     for (int i = 1; i < same_to_prev.size(); ++i) {
                         if (!same_to_prev[i]) {
                             matched_map.push_back(!filter_map[i - 1]);
                             filter_map[i - 1] = true;
                         }
                     }
-                    matched_map.push_back(filter_map[filter_map.size() - 1]);
+                    matched_map.push_back(!filter_map[filter_map.size() - 1]);
                     filter_map[filter_map.size() - 1] = true;
                 } else {
                     // Same to the semi join, but change the last value to opposite value
