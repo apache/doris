@@ -27,7 +27,7 @@ suite("test_date_exprs") {
     qt_sql1 """ select dt
              from
              (
-             select cast(k1 as datev2) as dt
+             select cast(k1 as date) as dt
              from ${tbName}
              ) r; """
     qt_sql2 """ select dt
