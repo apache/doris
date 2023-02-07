@@ -65,6 +65,8 @@ struct UniqueId {
         from_hex(&lo, lo_str);
     }
 
+    bool initialized() const { return hi != 0 || lo != 0; }
+
     // currently, the implementation is uuid, but it may change in the future
     static UniqueId gen_uid() {
         UniqueId uid(0, 0);

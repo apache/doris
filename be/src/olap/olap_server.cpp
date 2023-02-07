@@ -157,6 +157,12 @@ Status StorageEngine::start_bg_threads() {
     LOG(INFO) << "cooldown tasks producer thread started";
 
     RETURN_IF_ERROR(Thread::create(
+            "StorageEngine", "remove_unused_remote_files_thread",
+            [this]() { this->_remove_unused_remote_files_callback(); },
+            &_remove_unused_remote_files_thread));
+    LOG(INFO) << "remove unused remote files thread started";
+
+    RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "cache_file_cleaner_tasks_producer_thread",
             [this]() { this->_cache_file_cleaner_tasks_producer_callback(); },
             &_cache_file_cleaner_tasks_producer_thread));
@@ -739,6 +745,20 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
             }
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+}
+
+void StorageEngine::_remove_unused_remote_files_callback() {
+    while (!_stop_background_threads_latch.wait_for(
+            std::chrono::seconds(config::remove_unused_files_interbal_sec))) {
+        auto tablets = _tablet_manager->get_all_tablet([](Tablet* t) {
+            return t->tablet_meta()->cooldown_meta_id().initialized() && t->is_used();
+        });
+        for (auto& t : tablets) {
+            if (t.use_count() > 1) {
+                t->remove_unused_remote_files();
+            }
+        }
+    }
 }
 
 void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {

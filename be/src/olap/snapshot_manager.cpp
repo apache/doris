@@ -411,6 +411,14 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                     // find rowset in both rs_meta and stale_rs_meta
                     const RowsetSharedPtr rowset = ref_tablet->get_rowset_by_version(version, true);
                     if (rowset != nullptr) {
+                        if (!rowset->is_local()) {
+                            // MUST make full snapshot to ensure `cooldown_meta_id` is consistent with the cooldowned rowsets after clone.
+                            LOG(INFO) << "missed version is a cooldowned rowset, must make full "
+                                         "snapshot. missed_version="
+                                      << missed_version << " tablet_id=" << ref_tablet->tablet_id();
+                            res = Status::Error<ErrorCode::INTERNAL_ERROR>();
+                            break;
+                        }
                         consistent_rowsets.push_back(rowset);
                     } else {
                         res = Status::InternalError(

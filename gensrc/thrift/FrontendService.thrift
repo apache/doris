@@ -739,6 +739,12 @@ struct TMySqlLoadAcquireTokenResult {
     2: optional string token
 }
 
+struct TConfirmUnusedRemoteFilesRequest {
+  1: optional Types.TTabletId tablet_id
+  2: optional Types.TReplicaId cooldown_replica_id
+  3: optional Types.TUniqueId cooldown_meta_id
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -780,4 +786,6 @@ service FrontendService {
     TFetchSchemaTableDataResult fetchSchemaTableData(1: TFetchSchemaTableDataRequest request)
 
     TMySqlLoadAcquireTokenResult acquireToken()
+
+    Status.TStatus confirmUnusedRemoteFiles(1: TConfirmUnusedRemoteFilesRequest request)
 }
