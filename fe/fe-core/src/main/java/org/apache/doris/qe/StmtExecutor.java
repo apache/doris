@@ -1965,7 +1965,6 @@ public class StmtExecutor implements ProfileWriter {
                     handleCtasRollback(ctasStmt.getCreateTableStmt().getDbTbl());
                 }
             } catch (Exception e) {
-                e.printStackTrace();
                 LOG.warn("CTAS insert data error, stmt={}", ctasStmt.toSql(), e);
                 handleCtasRollback(ctasStmt.getCreateTableStmt().getDbTbl());
             }
@@ -1973,7 +1972,7 @@ public class StmtExecutor implements ProfileWriter {
     }
 
     private void handleCtasRollback(TableName table) {
-        if (context.getSessionVariable().isEnableCtasErrorDropTable()) {
+        if (context.getSessionVariable().isDropTableIfCtasFailed()) {
             // insert error drop table
             DropTableStmt dropTableStmt = new DropTableStmt(true, table, true);
             try {
