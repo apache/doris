@@ -38,8 +38,8 @@ import java.util.Objects;
  * aggregate.
  */
 public class AggregateExpression extends Expression implements UnaryExpression {
-    private final AggregateFunction function;
 
+    private final AggregateFunction function;
     private final AggregateParam aggregateParam;
 
     /** local aggregate */

@@ -918,6 +918,7 @@ public class FunctionSet<T> {
 
     public static final String TO_BITMAP = "to_bitmap";
     public static final String TO_BITMAP_WITH_CHECK = "to_bitmap_with_check";
+    public static final String BITMAP_HASH = "bitmap_hash";
     public static final String BITMAP_UNION = "bitmap_union";
     public static final String BITMAP_UNION_COUNT = "bitmap_union_count";
     public static final String BITMAP_UNION_INT = "bitmap_union_int";
@@ -927,6 +928,8 @@ public class FunctionSet<T> {
     public static final String ORTHOGONAL_BITMAP_INTERSECT = "orthogonal_bitmap_intersect";
     public static final String ORTHOGONAL_BITMAP_INTERSECT_COUNT = "orthogonal_bitmap_intersect_count";
     public static final String ORTHOGONAL_BITMAP_UNION_COUNT = "orthogonal_bitmap_union_count";
+    public static final String APPROX_COUNT_DISTINCT = "approx_count_distinct";
+    public static final String NDV = "ndv";
 
     public static final String QUANTILE_UNION = "quantile_union";
     //TODO(weixiang): is quantile_percent can be replaced by approx_percentile?
@@ -1342,22 +1345,16 @@ public class FunctionSet<T> {
                 symbol, prepareFnSymbol, closeFnSymbol, userVisible));
     }
 
-    public void addScalarAndVectorizedBuiltin(String fnName, String symbol, boolean userVisible,
-                                              String prepareFnSymbol, String closeFnSymbol,
+    public void addScalarAndVectorizedBuiltin(String fnName, boolean userVisible,
                                               Function.NullableMode nullableMode, Type retType,
                                               boolean varArgs, Type ... args) {
         ArrayList<Type> argsType = new ArrayList<Type>();
         for (Type type : args) {
-            // only to prevent olap scan node use array expr to find a fake symbol
-            // TODO: delete the code after we remove origin exec engine
-            if (type.isArrayType()) {
-                symbol = "_ZN5doris19array_fake_functionEPN9doris_udf15FunctionContextE";
-            }
             argsType.add(type);
         }
         addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltin(
                 fnName, retType, nullableMode, argsType, varArgs,
-                symbol, prepareFnSymbol, closeFnSymbol, userVisible));
+                "", "", "", userVisible));
     }
 
     /**

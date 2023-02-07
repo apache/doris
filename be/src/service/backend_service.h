@@ -103,8 +103,6 @@ public:
     virtual void transmit_data(TTransmitDataResult& return_val,
                                const TTransmitDataParams& params) override;
 
-    virtual void fetch_data(TFetchDataResult& return_val, const TFetchDataParams& params) override;
-
     void submit_export_task(TStatus& t_status, const TExportTaskRequest& request) override;
 
     void get_export_status(TExportStatusResult& result, const TUniqueId& task_id) override;

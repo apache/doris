@@ -151,7 +151,7 @@ public:
     /// expr.
     Status get_const_col(VExprContext* context, ColumnPtrWrapper** output);
 
-    int fn_context_index() const { return _fn_context_index; };
+    int fn_context_index() const { return _fn_context_index; }
 
     static const VExpr* expr_without_cast(const VExpr* expr) {
         if (expr->node_type() == doris::TExprNodeType::CAST_EXPR) {
@@ -180,6 +180,7 @@ public:
     }
 
 protected:
+    static FunctionContext::TypeDesc column_type_to_type_desc(const TypeDescriptor& type);
     /// Simple debug string that provides no expr subclass-specific information
     std::string debug_string(const std::string& expr_name) const {
         std::stringstream out;

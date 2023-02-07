@@ -136,24 +136,28 @@ public class CooldownHandler extends MasterDaemon {
     }
 
     public void write(DataOutput out) throws IOException {
-        out.writeInt(runableCooldownJobs.size());
-        for (CooldownJob cooldownJob : runableCooldownJobs.values()) {
-            cooldownJob.write(out);
+        if (Config.cooldown_single_remote_file) {
+            out.writeInt(runableCooldownJobs.size());
+            for (CooldownJob cooldownJob : runableCooldownJobs.values()) {
+                cooldownJob.write(out);
+            }
         }
     }
 
     public void readField(DataInput in) throws IOException {
-        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_115) {
-            int size = in.readInt();
-            for (int i = 0; i < size; i++) {
-                CooldownJob cooldownJob = CooldownJob.read(in);
-                replayCooldownJob(cooldownJob);
+        if (Config.cooldown_single_remote_file) {
+            if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_115) {
+                int size = in.readInt();
+                for (int i = 0; i < size; i++) {
+                    CooldownJob cooldownJob = CooldownJob.read(in);
+                    replayCooldownJob(cooldownJob);
+                }
             }
         }
     }
 
     public void replayCooldownJob(CooldownJob cooldownJob) {
-        CooldownJob replayCooldownJob = null;
+        CooldownJob replayCooldownJob;
         if (!runableCooldownJobs.containsKey(cooldownJob.getJobId())) {
             replayCooldownJob = new CooldownJob(cooldownJob.jobId, cooldownJob.getCooldownConfList(),
                     cooldownJob.timeoutMs);

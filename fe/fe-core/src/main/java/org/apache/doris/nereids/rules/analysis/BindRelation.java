@@ -29,6 +29,7 @@ import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.analyzer.CTEContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.Memo;
@@ -55,10 +56,8 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * Rule to bind relations in query plan.
@@ -162,10 +161,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
         List<Long> partIds = getPartitionIds(table, unboundRelation);
         if (!CollectionUtils.isEmpty(partIds)) {
             scan = new LogicalOlapScan(RelationUtil.newRelationId(),
-                    (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), partIds);
+                    (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), partIds, unboundRelation.getHints());
         } else {
             scan = new LogicalOlapScan(RelationUtil.newRelationId(),
-                    (OlapTable) table, ImmutableList.of(tableQualifier.get(1)));
+                    (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), unboundRelation.getHints());
         }
         if (!Util.showHiddenColumns() && scan.getTable().hasDeleteSign()
                 && !ConnectContext.get().getSessionVariable()
@@ -217,7 +216,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
     private List<Long> getPartitionIds(TableIf t, UnboundRelation unboundRelation) {
         List<String> parts = unboundRelation.getPartNames();
         if (CollectionUtils.isEmpty(parts)) {
-            return Collections.emptyList();
+            return ImmutableList.of();
         }
         if (!t.getType().equals(TableIf.TableType.OLAP)) {
             throw new IllegalStateException(String.format(
@@ -230,6 +229,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 throw new IllegalStateException(String.format("Partition: %s is not exists", name));
             }
             return part.getId();
-        }).collect(Collectors.toList());
+        }).collect(ImmutableList.toImmutableList());
     }
 }

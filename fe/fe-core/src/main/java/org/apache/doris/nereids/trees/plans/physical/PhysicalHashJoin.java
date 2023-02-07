@@ -42,6 +42,7 @@ public class PhysicalHashJoin<
         LEFT_CHILD_TYPE extends Plan,
         RIGHT_CHILD_TYPE extends Plan>
         extends AbstractPhysicalJoin<LEFT_CHILD_TYPE, RIGHT_CHILD_TYPE> {
+
     public PhysicalHashJoin(
             JoinType joinType,
             List<Expression> hashJoinConjuncts,

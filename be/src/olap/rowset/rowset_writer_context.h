@@ -77,6 +77,9 @@ struct RowsetWriterContext {
     int64_t newest_write_timestamp;
     bool enable_unique_key_merge_on_write = false;
     std::set<int32_t> skip_inverted_index;
+    // If it is directly write from load procedure, else
+    // it could be compaction or schema change etc..
+    bool is_direct_write = false;
 };
 
 } // namespace doris

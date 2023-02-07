@@ -39,10 +39,8 @@
 
 namespace doris {
 
-class MemPool;
 class RowDescriptor;
 class Status;
-class Tuple;
 class TupleDescriptor;
 struct TypeDescriptor;
 
@@ -371,9 +369,6 @@ private:
     void erase_impl(size_t position);
     bool is_column_data_null(const doris::TypeDescriptor& type_desc, const StringRef& data_ref,
                              const IColumn* column_with_type_and_name, int row);
-    void deep_copy_slot(void* dst, MemPool* pool, const doris::TypeDescriptor& type_desc,
-                        const StringRef& data_ref, const IColumn* column, int row,
-                        bool padding_char);
 };
 
 using Blocks = std::vector<Block>;
@@ -385,6 +380,10 @@ class MutableBlock {
 private:
     MutableColumns _columns;
     DataTypes _data_types;
+    Names _names;
+
+    using IndexByName = phmap::flat_hash_map<String, size_t>;
+    IndexByName index_by_name;
 
 public:
     static MutableBlock build_mutable_block(Block* block) {
@@ -397,13 +396,23 @@ public:
                  bool igore_trivial_slot = false);
 
     MutableBlock(Block* block)
-            : _columns(block->mutate_columns()), _data_types(block->get_data_types()) {}
+            : _columns(block->mutate_columns()),
+              _data_types(block->get_data_types()),
+              _names(block->get_names()) {
+        initialize_index_by_name();
+    }
     MutableBlock(Block&& block)
-            : _columns(block.mutate_columns()), _data_types(block.get_data_types()) {}
+            : _columns(block.mutate_columns()),
+              _data_types(block.get_data_types()),
+              _names(block.get_names()) {
+        initialize_index_by_name();
+    }
 
     void operator=(MutableBlock&& m_block) {
         _columns = std::move(m_block._columns);
         _data_types = std::move(m_block._data_types);
+        _names = std::move(m_block._names);
+        initialize_index_by_name();
     }
 
     size_t rows() const;
@@ -444,10 +453,30 @@ public:
         }
         return 0;
     }
+
+    int compare_at(size_t n, size_t m, const std::vector<uint32_t>* compare_columns,
+                   const MutableBlock& rhs, int nan_direction_hint) const {
+        DCHECK_GE(columns(), compare_columns->size());
+        DCHECK_GE(rhs.columns(), compare_columns->size());
+
+        DCHECK_LE(n, rows());
+        DCHECK_LE(m, rhs.rows());
+        for (auto i : *compare_columns) {
+            DCHECK(get_datatype_by_position(i)->equals(*rhs.get_datatype_by_position(i)));
+            auto res = get_column_by_position(i)->compare_at(n, m, *(rhs.get_column_by_position(i)),
+                                                             nan_direction_hint);
+            if (res) {
+                return res;
+            }
+        }
+        return 0;
+    }
+
     template <typename T>
     void merge(T&& block) {
         if (_columns.size() == 0 && _data_types.size() == 0) {
             _data_types = block.get_data_types();
+            _names = block.get_names();
             _columns.resize(block.columns());
             for (size_t i = 0; i < block.columns(); ++i) {
                 if (block.get_by_position(i).column) {
@@ -458,6 +487,7 @@ public:
                     _columns[i] = _data_types[i]->create_column();
                 }
             }
+            initialize_index_by_name();
         } else {
             DCHECK_EQ(_columns.size(), block.columns());
             for (int i = 0; i < _columns.size(); ++i) {
@@ -500,6 +530,7 @@ public:
     void clear() {
         _columns.clear();
         _data_types.clear();
+        _names.clear();
     }
 
     void clear_column_data() noexcept;
@@ -514,6 +545,18 @@ public:
 
         return res;
     }
+
+    Names& get_names() { return _names; }
+
+    bool has(const std::string& name) const;
+
+    size_t get_position_by_name(const std::string& name) const;
+
+    /** Get a list of column names separated by commas. */
+    std::string dump_names() const;
+
+private:
+    void initialize_index_by_name();
 };
 
 struct IteratorRowRef {
@@ -534,6 +577,7 @@ struct IteratorRowRef {
 };
 
 using BlockView = std::vector<IteratorRowRef>;
+using BlockUPtr = std::unique_ptr<Block>;
 
 } // namespace vectorized
 } // namespace doris

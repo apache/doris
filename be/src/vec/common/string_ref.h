@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <climits>
 #include <functional>
 #include <ostream>
 #include <string>
@@ -192,6 +193,7 @@ inline int string_compare(const char* s1, int64_t n1, const char* s2, int64_t n2
 
 } // unnamed namespace
 
+using namespace doris_udf;
 /// The thing to avoid creating strings to find substrings in the hash table.
 /// User should make sure data source is const.
 /// maybe considering rewrite it with std::span / std::basic_string_view is meaningful.
@@ -241,8 +243,9 @@ struct StringRef {
     StringRef trim() const;
 
     // support for type_limit
-    static constexpr char MIN_CHAR = 0x00;
-    static constexpr char MAX_CHAR = 0xFF;
+    static constexpr char MIN_CHAR = 0;
+    static constexpr char MAX_CHAR = char(
+            UCHAR_MAX); // We will convert char to uchar and compare, so we define max_char to unsigned char max.
     static StringRef min_string_val();
     static StringRef max_string_val();
 

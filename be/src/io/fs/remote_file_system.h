@@ -24,8 +24,8 @@ namespace io {
 
 class RemoteFileSystem : public FileSystem {
 public:
-    RemoteFileSystem(Path&& root_path, ResourceId&& resource_id, FileSystemType type)
-            : FileSystem(std::move(root_path), std::move(resource_id), type) {}
+    RemoteFileSystem(Path&& root_path, std::string&& id, FileSystemType type)
+            : FileSystem(std::move(root_path), std::move(id), type) {}
     ~RemoteFileSystem() override = default;
 
     // `local_path` should be an absolute path on local filesystem.

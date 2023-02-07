@@ -22,7 +22,7 @@
 
 namespace doris {
 
-SchemaScanner::ColumnDesc SchemaStatisticsScanner::_s_cols_statistics[] = {
+std::vector<SchemaScanner::ColumnDesc> SchemaStatisticsScanner::_s_cols_statistics = {
         //   name,       type,          size,                     is_null
         {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringRef), true},
         {"TABLE_SCHEMA", TYPE_VARCHAR, sizeof(StringRef), false},
@@ -41,9 +41,7 @@ SchemaScanner::ColumnDesc SchemaStatisticsScanner::_s_cols_statistics[] = {
         {"COMMENT", TYPE_VARCHAR, sizeof(StringRef), true},
 };
 
-SchemaStatisticsScanner::SchemaStatisticsScanner()
-        : SchemaScanner(_s_cols_statistics,
-                        sizeof(_s_cols_statistics) / sizeof(SchemaScanner::ColumnDesc)) {}
+SchemaStatisticsScanner::SchemaStatisticsScanner() : SchemaScanner(_s_cols_statistics) {}
 
 SchemaStatisticsScanner::~SchemaStatisticsScanner() {}
 

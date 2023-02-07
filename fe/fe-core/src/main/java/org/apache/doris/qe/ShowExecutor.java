@@ -172,8 +172,6 @@ import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
-import org.apache.doris.load.LoadErrorHub;
-import org.apache.doris.load.LoadErrorHub.HubType;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.routineload.RoutineLoadJob;
@@ -1240,24 +1238,7 @@ public class ShowExecutor {
                 }
             }
         }
-
-        LoadErrorHub.Param param = load.getLoadErrorHubInfo();
-        if (param == null || param.getType() == HubType.NULL_TYPE) {
-            throw new AnalysisException("no load error hub be supplied.");
-        }
-        LoadErrorHub errorHub = LoadErrorHub.createHub(param);
-        List<LoadErrorHub.ErrorMsg> errors = errorHub.fetchLoadError(jobId);
-        errorHub.close();
-
         List<List<String>> rows = Lists.newArrayList();
-        for (LoadErrorHub.ErrorMsg error : errors) {
-            List<String> oneInfo = Lists.newArrayList();
-            oneInfo.add(String.valueOf(jobId));
-            oneInfo.add(label);
-            oneInfo.add(error.getMsg());
-            rows.add(oneInfo);
-        }
-
         long limit = showWarningsStmt.getLimitNum();
         if (limit != -1L && limit < rows.size()) {
             rows = rows.subList(0, (int) limit);
@@ -2327,9 +2308,39 @@ public class ShowExecutor {
         resultSet = Env.getCurrentEnv().getCatalogMgr().showCreateCatalog(showStmt);
     }
 
+    private void handleShowAnalyze() {
+        ShowAnalyzeStmt showStmt = (ShowAnalyzeStmt) stmt;
 
-    private void handleShowAnalyze() throws AnalysisException {
-        // TODO: Support later
+        List<List<Comparable>> results;
+        List<List<String>> resultRows = Lists.newArrayList();
+
+        try {
+            results = Env.getCurrentEnv().getAnalysisManager()
+                    .showAnalysisJob(showStmt);
+        } catch (DdlException e) {
+            resultSet = new ShowResultSet(showStmt.getMetaData(), resultRows);
+            return;
+        }
+
+        // order the result
+        ListComparator<List<Comparable>> comparator;
+        List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
+        if (orderByPairs == null) {
+            // sort by id asc
+            comparator = new ListComparator<>(0);
+        } else {
+            OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
+            comparator = new ListComparator<>(orderByPairs.toArray(orderByPairArr));
+        }
+        results.sort(comparator);
+
+        // convert to result and return it
+        for (List<Comparable> result : results) {
+            List<String> row = result.stream().map(Object::toString).collect(Collectors.toList());
+            resultRows.add(row);
+        }
+
+        resultSet = new ShowResultSet(showStmt.getMetaData(), resultRows);
     }
 
     private void handleCopyTablet() throws AnalysisException {

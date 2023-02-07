@@ -44,9 +44,7 @@ class ExecEnv;
 class TBrokerRangeDesc;
 class TNetworkAddress;
 class RuntimeState;
-class Tuple;
 class SlotDescriptor;
-class MemPool;
 class FileReader;
 
 struct Statistics {
@@ -84,10 +82,7 @@ public:
     virtual ~ArrowReaderWrap();
 
     virtual Status init_reader(const TupleDescriptor* tuple_desc, const std::string& timezone) = 0;
-    // for row
-    virtual Status read(Tuple* tuple, MemPool* mem_pool, bool* eof) {
-        return Status::NotSupported("Not Implemented read");
-    }
+
     // for vec
     Status get_next_block(vectorized::Block* block, size_t* read_row, bool* eof) override;
     // This method should be deprecated once the old scanner is removed.

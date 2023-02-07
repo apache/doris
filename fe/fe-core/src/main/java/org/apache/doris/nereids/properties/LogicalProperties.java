@@ -25,14 +25,13 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Sets;
+import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableSet;
 
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Logical properties used for analysis and optimize in Nereids.
@@ -65,17 +64,18 @@ public class LogicalProperties {
         );
         this.outputExprIdsSupplier = Suppliers.memoize(
                 () -> this.outputSupplier.get().stream().map(NamedExpression::getExprId).map(Id.class::cast)
-                        .collect(Collectors.toList())
+                        .collect(ImmutableList.toImmutableList())
         );
         this.outputSetSupplier = Suppliers.memoize(
-                () -> Sets.newHashSet(this.outputSupplier.get())
+                () -> ImmutableSet.copyOf(this.outputSupplier.get())
         );
         this.outputMapSupplier = Suppliers.memoize(
-                () -> this.outputSetSupplier.get().stream().collect(Collectors.toMap(s -> s, s -> s))
+                () -> this.outputSetSupplier.get().stream().collect(ImmutableMap.toImmutableMap(s -> s, s -> s))
         );
         this.outputExprIdSetSupplier = Suppliers.memoize(
-                () -> this.outputSupplier.get().stream().map(NamedExpression::getExprId)
-                        .collect(Collectors.toCollection(HashSet::new))
+                () -> this.outputSupplier.get().stream()
+                        .map(NamedExpression::getExprId)
+                        .collect(ImmutableSet.toImmutableSet())
         );
     }
 

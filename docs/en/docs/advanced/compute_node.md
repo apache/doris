@@ -96,7 +96,7 @@ HeartbeatFailureCounter: 0
 ```
 
 ### Usage
-When using the [MultiCatalog](https://doris.apache.org/docs/dev/ecosystem/external-table/multi-catalog/) , the query will be preferentially scheduled to the compute node.
+When using the [MultiCatalog](../lakehouse/multi-catalog/multi-catalog) , the query will be preferentially scheduled to the compute node.
 In order to balance task scheduling, FE has a `backend_num_for_federation` configuration item, which defaults to 3.
 When executing a federated query, the optimizer will select `backend_num_for_federation` as an alternative to the scheduler,
 and the scheduler will decide which node to execute on to prevent the task from being skewed.

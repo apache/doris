@@ -44,8 +44,8 @@ class InnerJoinRightAssociateTest implements PatternMatchSupported {
          * +--LogicalOlapScan ( qualified=db.t3, output=[id#4, name#5], candidateIndexIds=[], selectedIndexId=-1, preAgg=ON )
          */
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
-                .hashJoinUsing(scan3, JoinType.INNER_JOIN, Pair.of(2, 0))
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .join(scan3, JoinType.INNER_JOIN, Pair.of(2, 0))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)

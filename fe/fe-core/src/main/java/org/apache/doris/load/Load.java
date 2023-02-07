@@ -33,11 +33,8 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.backup.BlobStorage;
-import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -128,8 +125,6 @@ public class Load {
     private Set<Long> loadingPartitionIds; // loading partition id set
     // dbId -> set of (label, timestamp)
     private Map<Long, Map<String, Long>> dbToMiniLabels; // db to mini uncommitted label
-
-    private volatile LoadErrorHub.Param loadErrorHubParam = new LoadErrorHub.Param();
 
     // lock for load job
     // lock is private and must use after db lock
@@ -608,7 +603,7 @@ public class Load {
                 if (hasSequenceCol && column.isSequenceColumn()) {
                     continue;
                 }
-                ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName());
+                ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName().toLowerCase());
                 LOG.debug("add base column {} to stream load task", column.getName());
                 copiedColumnExprs.add(columnDesc);
             }
@@ -1594,83 +1589,6 @@ public class Load {
         Collections.sort(infos, comparator);
 
         return infos;
-    }
-
-    public LoadErrorHub.Param getLoadErrorHubInfo() {
-        return loadErrorHubParam;
-    }
-
-    public void setLoadErrorHubInfo(LoadErrorHub.Param info) {
-        this.loadErrorHubParam = info;
-    }
-
-    public void setLoadErrorHubInfo(Map<String, String> properties) throws DdlException {
-        String type = properties.get("type");
-        if (type.equalsIgnoreCase("MYSQL")) {
-            String host = properties.get("host");
-            if (Strings.isNullOrEmpty(host)) {
-                throw new DdlException("mysql host is missing");
-            }
-
-            int port = -1;
-            try {
-                port = Integer.valueOf(properties.get("port"));
-            } catch (NumberFormatException e) {
-                throw new DdlException("invalid mysql port: " + properties.get("port"));
-            }
-
-            String user = properties.get("user");
-            if (Strings.isNullOrEmpty(user)) {
-                throw new DdlException("mysql user name is missing");
-            }
-
-            String db = properties.get("database");
-            if (Strings.isNullOrEmpty(db)) {
-                throw new DdlException("mysql database is missing");
-            }
-
-            String tbl = properties.get("table");
-            if (Strings.isNullOrEmpty(tbl)) {
-                throw new DdlException("mysql table is missing");
-            }
-
-            String pwd = Strings.nullToEmpty(properties.get("password"));
-
-            MysqlLoadErrorHub.MysqlParam param = new MysqlLoadErrorHub.MysqlParam(host, port, user, pwd, db, tbl);
-            loadErrorHubParam = LoadErrorHub.Param.createMysqlParam(param);
-        } else if (type.equalsIgnoreCase("BROKER")) {
-            String brokerName = properties.get("name");
-            if (Strings.isNullOrEmpty(brokerName)) {
-                throw new DdlException("broker name is missing");
-            }
-            properties.remove("name");
-
-            if (!Env.getCurrentEnv().getBrokerMgr().containsBroker(brokerName)) {
-                throw new DdlException("broker does not exist: " + brokerName);
-            }
-
-            String path = properties.get("path");
-            if (Strings.isNullOrEmpty(path)) {
-                throw new DdlException("broker path is missing");
-            }
-            properties.remove("path");
-
-            // check if broker info is invalid
-            BlobStorage blobStorage = BlobStorage.create(brokerName, StorageBackend.StorageType.BROKER, properties);
-            Status st = blobStorage.checkPathExist(path);
-            if (!st.ok()) {
-                throw new DdlException("failed to visit path: " + path + ", err: " + st.getErrMsg());
-            }
-
-            BrokerLoadErrorHub.BrokerParam param = new BrokerLoadErrorHub.BrokerParam(brokerName, path, properties);
-            loadErrorHubParam = LoadErrorHub.Param.createBrokerParam(param);
-        } else if (type.equalsIgnoreCase("null")) {
-            loadErrorHubParam = LoadErrorHub.Param.createNullParam();
-        }
-
-        Env.getCurrentEnv().getEditLog().logSetLoadErrorHub(loadErrorHubParam);
-
-        LOG.info("set load error hub info: {}", loadErrorHubParam);
     }
 
     public static class JobInfo {

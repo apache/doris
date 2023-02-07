@@ -744,7 +744,7 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_ALTER_MTMV_JOB: {
+            case OperationType.OP_CHANGE_MTMV_JOB: {
                 data = ChangeMTMVJob.read(in);
                 isRead = true;
                 break;
@@ -759,7 +759,7 @@ public class JournalEntity implements Writable {
                 isRead = true;
                 break;
             }
-            case OperationType.OP_ALTER_MTMV_TASK: {
+            case OperationType.OP_CHANGE_MTMV_TASK: {
                 data = ChangeMTMVTask.read(in);
                 isRead = true;
                 break;

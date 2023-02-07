@@ -35,7 +35,6 @@ set(RUNTIME_FILES
     mem_pool.cpp
     plan_fragment_executor.cpp
     primitive_type.cpp
-    raw_value.cpp
     result_buffer_mgr.cpp
     result_writer.cpp    
     runtime_state.cpp
@@ -43,14 +42,11 @@ set(RUNTIME_FILES
     runtime_predicate.cpp
     jsonb_value.cpp
     thread_context.cpp
-    thread_resource_mgr.cpp
     threadlocal.cc
     decimalv2_value.cpp
     large_int_value.cpp
     collection_value.cpp
-    tuple.cpp
     fragment_mgr.cpp
-    dpp_sink_internal.cpp
     load_path_mgr.cpp
     types.cpp
     tmp_file_mgr.cc

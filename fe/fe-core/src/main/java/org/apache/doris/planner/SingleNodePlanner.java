@@ -1320,8 +1320,14 @@ public class SingleNodePlanner {
                 if (olapScanNode.getSelectedPartitionIds().size() == 0 && !FeConstants.runningUnitTest) {
                     continue;
                 }
-                // select index by the old Rollup selector
-                olapScanNode.selectBestRollupByRollupSelector(analyzer);
+
+                try {
+                    // select index by the old Rollup selector
+                    olapScanNode.selectBestRollupByRollupSelector(analyzer);
+                } catch (UserException e) {
+                    LOG.debug("May no rollup index matched");
+                }
+
                 // select index by the new Materialized selector
                 MaterializedViewSelector.BestIndexInfo bestIndexInfo
                         = materializedViewSelector.selectBestMV(olapScanNode);
@@ -1332,11 +1338,21 @@ public class SingleNodePlanner {
                     LOG.debug("MV rewriter of tuple [] will be disable", tupleId);
                     continue;
                 }
-                // if the new selected index id is different from the old one, scan node will be updated.
-                olapScanNode.updateScanRangeInfoByNewMVSelector(bestIndexInfo.getBestIndexId(),
-                        bestIndexInfo.isPreAggregation(), bestIndexInfo.getReasonOfDisable());
-                if (selectStmt.getAggInfo() != null) {
-                    selectStmt.getAggInfo().updateTypeOfAggregateExprs();
+                try {
+                    // if the new selected index id is different from the old one, scan node will be
+                    // updated.
+                    olapScanNode.updateScanRangeInfoByNewMVSelector(bestIndexInfo.getBestIndexId(),
+                            bestIndexInfo.isPreAggregation(), bestIndexInfo.getReasonOfDisable());
+
+                    if (selectStmt.getAggInfo() != null) {
+                        selectStmt.getAggInfo().updateTypeOfAggregateExprs();
+                    }
+                } catch (Exception e) {
+                    selectFailed = true;
+                    TupleId tupleId = olapScanNode.getTupleId();
+                    selectStmt.updateDisableTuplesMVRewriter(tupleId);
+                    LOG.debug("MV rewriter of tuple [] will be disable", tupleId);
+                    continue;
                 }
             }
 
@@ -1769,7 +1785,7 @@ public class SingleNodePlanner {
             return;
         }
 
-        final List<Expr> newConjuncts = cloneExprs(conjuncts);
+        List<Expr> newConjuncts = cloneExprs(conjuncts);
         final QueryStmt stmt = inlineViewRef.getViewStmt();
         final Analyzer viewAnalyzer = inlineViewRef.getAnalyzer();
         viewAnalyzer.markConjunctsAssigned(conjuncts);
@@ -1778,23 +1794,10 @@ public class SingleNodePlanner {
             if (select.getAggInfo() != null) {
                 viewAnalyzer.registerConjuncts(newConjuncts, select.getAggInfo().getOutputTupleId().asList());
             } else if (select.getTableRefs().size() > 1) {
-                // Conjuncts will be assigned to the lowest outer join node or non-outer join's leaf children.
-                for (int i = select.getTableRefs().size(); i > 1; i--) {
-                    final TableRef joinInnerChild = select.getTableRefs().get(i - 1);
-                    final TableRef joinOuterChild = select.getTableRefs().get(i - 2);
-                    if (!joinInnerChild.getJoinOp().isOuterJoin()) {
-                        // lowest join isn't outer join.
-                        if (i == 2) {
-                            // Register constant for inner.
-                            viewAnalyzer.registerConjuncts(newConjuncts, joinInnerChild.getDesc().getId().asList());
-                            // Register constant for outer.
-                            final List<Expr> cloneConjuncts = cloneExprs(newConjuncts);
-                            viewAnalyzer.registerConjuncts(cloneConjuncts, joinOuterChild.getDesc().getId().asList());
-                        }
-                        continue;
-                    }
-                    viewAnalyzer.registerConjuncts(newConjuncts, joinOuterChild.getId());
-                    break;
+                for (int i = select.getTableRefs().size() - 1; i >= 0; i--) {
+                    viewAnalyzer.registerConjuncts(newConjuncts,
+                            select.getTableRefs().get(i).getDesc().getId().asList());
+                    newConjuncts = cloneExprs(newConjuncts);
                 }
             } else {
                 Preconditions.checkArgument(select.getTableRefs().size() == 1);
@@ -1953,6 +1956,7 @@ public class SingleNodePlanner {
                 scanNode = ((TableValuedFunctionRef) tblRef).getScanNode(ctx.getNextNodeId());
                 break;
             case HMS_EXTERNAL_TABLE:
+            case ICEBERG_EXTERNAL_TABLE:
                 scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc());
                 break;
             case ES_EXTERNAL_TABLE:
@@ -2663,8 +2667,10 @@ public class SingleNodePlanner {
                     //eg: select distinct c from ( select distinct c from table) t where c > 1;
                     continue;
                 }
-                if (stmt.getGroupByClause().isGroupByExtension()
-                        && stmt.getGroupByClause().getGroupingExprs().contains(sourceExpr)) {
+
+                if (sourceExpr.getFn() instanceof AggregateFunction) {
+                    isAllSlotReferToGroupBys = false;
+                } else if (stmt.getGroupByClause().isGroupByExtension()) {
                     // if grouping type is CUBE or ROLLUP will definitely produce null
                     if (stmt.getGroupByClause().getGroupingType() == GroupByClause.GroupingType.CUBE
                             || stmt.getGroupByClause().getGroupingType() == GroupByClause.GroupingType.ROLLUP) {
@@ -2679,9 +2685,6 @@ public class SingleNodePlanner {
                             }
                         }
                     }
-                }
-                if (sourceExpr.getFn() instanceof AggregateFunction) {
-                    isAllSlotReferToGroupBys = false;
                 }
             }
 

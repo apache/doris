@@ -77,12 +77,6 @@ Status VMysqlScanNode::prepare(RuntimeState* state) {
         return Status::InternalError("new a mysql scanner failed.");
     }
 
-    _tuple_pool.reset(new (std::nothrow) MemPool());
-
-    if (_tuple_pool.get() == nullptr) {
-        return Status::InternalError("new a mem pool failed.");
-    }
-
     _text_converter.reset(new (std::nothrow) TextConverter('\\'));
 
     if (_text_converter.get() == nullptr) {
@@ -122,19 +116,6 @@ Status VMysqlScanNode::open(RuntimeState* state) {
 
     if (_mysql_scanner->field_num() != materialize_num) {
         return Status::InternalError("input and output not equal.");
-    }
-
-    return Status::OK();
-}
-
-Status VMysqlScanNode::write_text_slot(char* value, int value_length, SlotDescriptor* slot,
-                                       RuntimeState* state) {
-    if (!_text_converter->write_slot(slot, _tuple, value, value_length, true, false,
-                                     _tuple_pool.get())) {
-        std::stringstream ss;
-        ss << "Fail to convert mysql value:'" << value << "' to " << slot->type() << " on column:`"
-           << slot->col_name() + "`";
-        return Status::InternalError(ss.str());
     }
 
     return Status::OK();
@@ -239,8 +220,6 @@ Status VMysqlScanNode::close(RuntimeState* state) {
     }
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VMysqlScanNode::close");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-
-    _tuple_pool.reset();
 
     return ExecNode::close(state);
 }

@@ -73,6 +73,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Random;
 import java.util.Set;
 import java.util.UUID;
@@ -584,7 +585,10 @@ public class TabletRepairAndBalanceTest {
             try {
                 tbl.checkReplicaAllocation();
                 break;
-            } catch (UserException e) {
+            } catch (UserException | NoSuchElementException e) {
+                // Why do we add no such element exception because hash map is not a thread safe struct.
+                // In this ut using a big loop to iterate the hash map,
+                // it will increase the probability of map to throw NoSuchElementException exception.
                 System.out.println(e.getMessage());
             }
             Thread.sleep(1000);

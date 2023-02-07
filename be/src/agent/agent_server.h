@@ -81,8 +81,7 @@ private:
 
     std::unique_ptr<TaskWorkerPool> _submit_table_compaction_workers;
 
-    std::unique_ptr<TaskWorkerPool> _storage_refresh_policy_workers;
-    std::unique_ptr<TaskWorkerPool> _storage_update_policy_workers;
+    std::unique_ptr<TaskWorkerPool> _push_storage_policy_workers;
     std::unique_ptr<TopicSubscriber> _topic_subscriber;
 };
 

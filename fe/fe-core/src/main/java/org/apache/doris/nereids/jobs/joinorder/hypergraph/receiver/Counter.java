@@ -20,7 +20,6 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.Edge;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.memo.Group;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 
 import com.google.common.base.Preconditions;
 
@@ -52,8 +51,7 @@ public class Counter implements AbstractReceiver {
      * @param edges the join operator
      * @return the left and the right can be connected by the edge
      */
-    public boolean emitCsgCmp(long left, long right, List<Edge> edges,
-            HashMap<Long, NamedExpression> projectExpression) {
+    public boolean emitCsgCmp(long left, long right, List<Edge> edges) {
         Preconditions.checkArgument(counter.containsKey(left));
         Preconditions.checkArgument(counter.containsKey(right));
         emitCount += 1;

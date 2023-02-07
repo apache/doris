@@ -595,15 +595,23 @@ JAVA_OPTS="-Dteamcity.enableStdErr=${enableStdErr}" ./run-regression-test.sh --t
 
 Doris 支持一些外部署数据源的查询。所以回归框架也提供了通过 Docker Compose 搭建外部数据源的功能，以提供 Doris 对外部数据源的 e2e 测试。
 
+0. 准备工作
+
+    在启动 Docker 前，请先修改 `docker/thirdparties/custom_settings.env` 文件中的 `CONTAINER_UID` 变量。
+
+    可以修改为如：`doris-10002-18sda1-`。
+
+    之后的启动脚本会，将 docker compose 中对应的名称进行替换，这样可以保证多套 containers 环境的容器名称和网络不会冲突。
+
 1. 启动 Container
 
-    Doris 目前支持 es, mysql, pg, hive 等数据源的 Docker compose。相关文件存放在 `docker/thirdparties/docker-compose` 目录下。
+    Doris 目前支持 es, mysql, pg, hive, sqlserver, oracle, iceberg 等数据源的 Docker compose。相关文件存放在 `docker/thirdparties/docker-compose` 目录下。
 
     默认情况下，可以直接通过以下命令启动所有外部数据源的 Docker container：
     （注意，hive container 需要下载预制的数据文件，请参阅下面 hive 相关的文档。）
 
     ```
-    cd docker/thirdparties && sh start-thirdparties-docker.sh
+    cd docker/thirdparties && sh run-thirdparties-docker.sh
     ```
 
     该命令需要 root 或 sudo 权限。命令返回成功，则代表所有 container 启动完成。可以通过 `docker ps -a` 命令查看。
@@ -611,45 +619,113 @@ Doris 支持一些外部署数据源的查询。所以回归框架也提供了�
     可以通过以下命令停止所有 container：
 
     ```
-    cd docker/thirdparties && sh stop-thirdparties-docker.sh
+    cd docker/thirdparties && sh run-thirdparties-docker.sh --stop
+    ```
+
+    也可以通过以下命令启动或停止指定的组件：
+
+    ```
+    cd docker/thirdparties
+    # 启动 mysql
+    sh run-thirdparties-docker.sh -c mysql
+    # 启动 mysql,pg,iceberg
+    sh run-thirdparties-docker.sh -c mysql,pg,iceberg
+    # 停止 mysql,pg,iceberg
+    sh run-thirdparties-docker.sh -c mysql,pg,iceberg --stop
     ```
     
     1. MySQL
 
         MySQL 相关的 Docker compose 文件存放在 docker/thirdparties/docker-compose/mysql 下。
 
-        * `mysql-5.7.yaml`：Docker compose 文件，无需修改。默认用户名密码为 root/123456
+        * `mysql-5.7.yaml.tpl`：Docker compose 文件模板，无需修改。默认用户名密码为 root/123456
         * `mysql-5.7.env`：配置文件，其中可以配置 MySQL container 对外暴露的端口，默认为 3316。
         * `init/`：该目录存放的 sql 文件会在 container 创建后自动执行。目前默认会创建库、表并插入少量数据。
-        * `data/`：container 启动后挂载的本地数据目录，`start-thirdparties-docker.sh` 脚本会在每次启动时，自动清空并重建这个目录。
+        * `data/`：container 启动后挂载的本地数据目录，`run-thirdparties-docker.sh` 脚本会在每次启动时，自动清空并重建这个目录。
 
     2. Postgresql
 
         Postgresql 相关的 Docker compose 文件存放在 docker/thirdparties/docker-compose/postgresql 下。
 
-        * `postgresql-14.yaml`：Docker compose 文件，无需修改。默认用户名密码为 postgres/123456
+        * `postgresql-14.yaml.tpl`：Docker compose 文件模板，无需修改。默认用户名密码为 postgres/123456
         * `postgresql-14.env`：配置文件，其中可以配置 Postgresql container 对外暴露的端口，默认为 5442。
         * `init/`：该目录存放的 sql 文件会在 container 创建后自动执行。目前默认会创建库、表并插入少量数据。
-        * `data/`：container 启动后挂载的本地数据目录，`start-thirdparties-docker.sh` 脚本会在每次启动时，自动清空并重建这个目录。
+        * `data/`：container 启动后挂载的本地数据目录，`run-thirdparties-docker.sh` 脚本会在每次启动时，自动清空并重建这个目录。
 
     3. Hive
 
         Hive 相关的 Docker compose 文件存放在 docker/thirdparties/docker-compose/hive 下。
 
-        * `hive-2x.yaml`：Docker compose 文件，无需修改。
+        * `hive-2x.yaml.tpl`：Docker compose 文件模板，无需修改。
         * `hadoop-hive.env.tpl`：配置文件的模板，无需修改。
-        * `gen_env.sh`：初始化配置文件的脚本，可以在其中修改：`FS_PORT` 和 `HMS_PORT` 两个对外端口，分别对应 defaultFs 和 Hive metastore 的端口。默认为 8120 和 9183。`start-thirdparties-docker.sh` 启动时会自动调用这个脚本。
+        * `gen_env.sh`：初始化配置文件的脚本，可以在其中修改：`FS_PORT` 和 `HMS_PORT` 两个对外端口，分别对应 defaultFs 和 Hive metastore 的端口。默认为 8120 和 9183。`run-thirdparties-docker.sh` 启动时会自动调用这个脚本。
         * `scripts/` 目录会在 container 启动后挂载到 container 中。其中的文件内容无需修改。但须注意，在启动 container 之前，需要先下载预制文件：
 
             将 `https://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression/load/tpch1_parquet/tpch1.db.tar.gz` 文件下载到 `scripts/` 目录并解压即可。 
 
     4. Elasticsearch
 
-        包括 ES6，ES7，ES8 三个版本的 docker 镜像。docker/thirdparties/docker-compose/elasticsearch/ 下。
+        包括 ES6，ES7，ES8 三个版本的 docker 镜像，存放在 docker/thirdparties/docker-compose/elasticsearch/ 下。
 
-        * `es.yaml`：Docker compose文件。包括 ES6，ES7，ES8 三个版本。无需修改。
+        * `es.yaml.tpl`：Docker compose 文件模板。包括 ES6，ES7，ES8 三个版本。无需修改。
         * `es.env`：配置文件，需配置 ES 的端口号。
         * `scripts` 目录下存放了启动镜像后的初始化脚本。
+
+    5. Oracle
+
+        提供 Oracle 11 镜像，存放在 docker/thirdparties/docker-compose/oracle/ 下。
+
+        * `oracle-11.yaml.tpl`：Docker compose 文件模板。无需修改。
+        * `oracle-11.env`：配置 Oracle 对外端口，默认为 1521。
+
+    6. SQLServer
+
+        提供 SQLServer 2022 镜像，存放在 docker/thirdparties/docker-compose/sqlserver/ 下。
+
+        * `sqlserver.yaml.tpl`：Docker compose 文件模板。无需修改。
+        * `sqlserver.env`：配置 SQLServer 对外端口，默认为 1433。
+
+    7. Iceberg
+
+        提供 Iceberg + Spark + Minio 镜像组合。存放在 docker/thirdparties/docker-compose/iceberg/ 下。
+
+        * `iceberg.yaml.tpl`：Docker compose 文件模板。无需修改。
+        * `entrypoint.sh.tpl`：镜像启动后的初始化脚本模板。无需修改。
+        * `spark-defaults.conf.tpl`：Spark 的配置文件模板。无需修改。
+        * `iceberg.env`：对外端口配置文件，需修改各个对外端口，避免端口冲突。
+
+        启动后，可以通过如下命令启动 spark-sql
+
+        `docker exec -it doris-xx-spark-iceberg spark-sql`        
+
+        其中 `doris-xx-spark-iceberg` 为 container 名称。
+
+        spark-sql iceberg 操作示例：
+
+        ```
+        create database db1;
+        show databases;
+        create table db1.test1(k1 bigint, k2 bigint, k3 string) partitioned by (k1);
+        insert into db1.test1 values(1,2,'abc');
+        select * from db1.test1;
+        quit;
+        ```
+
+        也可以通过 spark-shell 进行访问：
+
+        ```
+        docker exec -it doris-xx-spark-iceberg spark-shell
+        
+        spark.sql(s"create database db1")
+        spark.sql(s"show databases").show()
+        spark.sql(s"create table db1.test1(k1 bigint, k2 bigint, k3 string) partitioned by (k1)").show()
+        spark.sql(s"show tables from db1").show()
+        spark.sql(s"insert into db1.test1 values(1,2,'abc')").show()
+        spark.sql(s"select * from db1.test1").show()
+        :q
+        ```
+
+        更多使用方式可参阅 [Tabular 官方文档](https://tabular.io/blog/docker-spark-and-iceberg/)。
 
 2. 运行回归测试
 
@@ -663,18 +739,5 @@ Doris 支持一些外部署数据源的查询。所以回归框架也提供了�
     * `es_6_port`：ES6 的端口。
     * `es_7_port`：ES7 的端口。
     * `es_8_port`：ES8 的端口。
-
-3. 如何在同一台机器上启动多套 Container。
-
-    如果需要在同一台机器上启动多套回归测试环境对应的 containers，除了修改上面所述的各种对外端口外，还需要修改 `start-thirdparties-docker.sh` 中的 `CONTAINER_UID` 配置。
-
-    默认为 `doris--`，可以修改为如：`doris-10002-18sda1-`。
-
-    修改后执行 `start-thirdparties-docker.sh`，脚本会将 docker compose 中对应的名称进行替换，这样可以保证多套 containers 环境的容器名称和网络不会冲突。
-
-
-
-
-
 
 

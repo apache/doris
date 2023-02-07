@@ -32,6 +32,7 @@ import org.apache.doris.analysis.FloatLiteral;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
 import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.analysis.LockTablesStmt;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.OutFileClause;
@@ -89,6 +90,8 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.load.EtlJobType;
+import org.apache.doris.load.LoadJobRowResult;
+import org.apache.doris.load.loadv2.LoadManager;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlEofPacket;
@@ -104,6 +107,7 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.Types;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
@@ -510,6 +514,7 @@ public class StmtExecutor implements ProfileWriter {
                         Env.getCurrentEnv().getSqlBlockRuleMgr().matchSql(
                                 originStmt.originStmt, context.getSqlHash(), context.getQualifiedUser());
                     } catch (AnalysisException e) {
+                        e.printStackTrace();
                         LOG.warn(e.getMessage());
                         context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
                         return;
@@ -582,6 +587,8 @@ public class StmtExecutor implements ProfileWriter {
                     // the transaction of this insert may already begin, we will abort it at outer finally block.
                     throw t;
                 }
+            } else if (parsedStmt instanceof LoadStmt) {
+                handleLoadStmt();
             } else if (parsedStmt instanceof DdlStmt) {
                 handleDdlStmt();
             } else if (parsedStmt instanceof ShowStmt) {
@@ -600,18 +607,21 @@ public class StmtExecutor implements ProfileWriter {
                 context.getState().setError(ErrorCode.ERR_NOT_SUPPORTED_YET, "Do not support this query.");
             }
         } catch (IOException e) {
+            e.printStackTrace();
             LOG.warn("execute IOException. {}", context.getQueryIdentifier(), e);
             // the exception happens when interact with client
             // this exception shows the connection is gone
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, e.getMessage());
             throw e;
         } catch (UserException e) {
+            e.printStackTrace();
             // analysis exception only print message, not print the stack
             LOG.warn("execute Exception. {}, {}", context.getQueryIdentifier(),
                                     e.getMessage());
             context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             context.getState().setErrType(QueryState.ErrType.ANALYSIS_ERR);
         } catch (Exception e) {
+            e.printStackTrace();
             LOG.warn("execute Exception. {}", context.getQueryIdentifier(), e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
                     e.getClass().getSimpleName() + ", msg: " + Util.getRootCauseMessage(e));
@@ -628,6 +638,7 @@ public class StmtExecutor implements ProfileWriter {
                 sessionVariable.setIsSingleSetVar(false);
                 sessionVariable.clearSessionOriginValue();
             } catch (DdlException e) {
+                e.printStackTrace();
                 LOG.warn("failed to revert Session value. {}", context.getQueryIdentifier(), e);
                 context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             }
@@ -655,9 +666,13 @@ public class StmtExecutor implements ProfileWriter {
      * @throws DdlException
      */
     private void analyzeVariablesInStmt() throws DdlException {
+        analyzeVariablesInStmt(parsedStmt);
+    }
+
+    private void analyzeVariablesInStmt(StatementBase statement) throws DdlException {
         SessionVariable sessionVariable = context.getSessionVariable();
-        if (parsedStmt != null && parsedStmt instanceof SelectStmt) {
-            SelectStmt selectStmt = (SelectStmt) parsedStmt;
+        if (statement instanceof SelectStmt) {
+            SelectStmt selectStmt = (SelectStmt) statement;
             Map<String, String> optHints = selectStmt.getSelectList().getOptHints();
             if (optHints != null) {
                 sessionVariable.setIsSingleSetVar(true);
@@ -799,6 +814,7 @@ public class StmtExecutor implements ProfileWriter {
                     if (parsedStmt instanceof LogicalPlanAdapter) {
                         throw new NereidsException(new AnalysisException("Unexpected exception: " + e.getMessage(), e));
                     }
+                    e.printStackTrace();
                     throw new AnalysisException("Unexpected exception: " + e.getMessage());
                 } finally {
                     MetaLockUtils.readUnlockTables(tables);
@@ -1020,6 +1036,7 @@ public class StmtExecutor implements ProfileWriter {
             SetExecutor executor = new SetExecutor(context, setStmt);
             executor.execute();
         } catch (DdlException e) {
+            e.printStackTrace();
             // Return error message to client.
             context.getState().setError(ErrorCode.ERR_LOCAL_VARIABLE, e.getMessage());
             return;
@@ -1277,6 +1294,11 @@ public class StmtExecutor implements ProfileWriter {
             context.getState().setEof();
             plannerProfile.setQueryFetchResultFinishTime();
         } catch (Exception e) {
+            // notify all be cancel runing fragment
+            // in some case may block all fragment handle threads
+            // details see issue https://github.com/apache/doris/issues/16203
+            LOG.warn("cancel fragment query_id:{} cause {}", DebugUtil.printId(context.queryId()), e.getMessage());
+            coord.cancel(Types.PPlanFragmentCancelReason.INTERNAL_ERROR);
             fetchResultSpan.recordException(e);
             throw e;
         } finally {
@@ -1507,6 +1529,8 @@ public class StmtExecutor implements ProfileWriter {
             return;
         }
 
+        analyzeVariablesInStmt(insertStmt.getQueryStmt());
+
         long createTime = System.currentTimeMillis();
         Throwable throwable = null;
         long txnId = -1;
@@ -1677,6 +1701,7 @@ public class StmtExecutor implements ProfileWriter {
         try {
             context.getEnv().changeCatalog(context, switchStmt.getCatalogName());
         } catch (DdlException e) {
+            e.printStackTrace();
             context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             return;
         }
@@ -1710,6 +1735,7 @@ public class StmtExecutor implements ProfileWriter {
             }
             context.getEnv().changeDb(context, useStmt.getDatabase());
         } catch (DdlException e) {
+            e.printStackTrace();
             context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             return;
         }
@@ -1836,17 +1862,56 @@ public class StmtExecutor implements ProfileWriter {
         context.getState().setEof();
     }
 
-    private void handleDdlStmt() {
+    private void handleLoadStmt() {
         try {
-            DdlExecutor.execute(context.getEnv(), (DdlStmt) parsedStmt);
-            context.getState().setOk();
-        } catch (QueryStateException e) {
-            context.setState(e.getQueryState());
+            LoadStmt loadStmt = (LoadStmt) parsedStmt;
+            EtlJobType jobType = loadStmt.getEtlJobType();
+            if (jobType == EtlJobType.UNKNOWN) {
+                throw new DdlException("Unknown load job type");
+            }
+            if (jobType == EtlJobType.HADOOP) {
+                throw new DdlException("Load job by hadoop cluster is disabled."
+                        + " Try using broker load. See 'help broker load;'");
+            }
+            LoadManager loadManager = context.getEnv().getLoadManager();
+            if (jobType == EtlJobType.LOCAL_FILE) {
+                if (!context.getCapability().supportClientLocalFile()) {
+                    context.getState().setError(ErrorCode.ERR_NOT_ALLOWED_COMMAND, "This client is not support"
+                            + " to load client local file.");
+                    return;
+                }
+                LoadJobRowResult submitResult = loadManager.executeMySqlLoadJobFromStmt(context, loadStmt);
+                context.getState().setOk(submitResult.getRecords(), submitResult.getWarnings(),
+                        submitResult.toString());
+            } else {
+                loadManager.createLoadJobFromStmt(loadStmt);
+                context.getState().setOk();
+            }
         } catch (UserException e) {
             // Return message to info client what happened.
             LOG.debug("DDL statement({}) process failed.", originStmt.originStmt, e);
             context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
         } catch (Exception e) {
+            // Maybe our bug
+            LOG.warn("DDL statement(" + originStmt.originStmt + ") process failed.", e);
+            context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
+        }
+    }
+
+    private void handleDdlStmt() {
+        try {
+            DdlExecutor.execute(context.getEnv(), (DdlStmt) parsedStmt);
+            context.getState().setOk();
+        } catch (QueryStateException e) {
+            e.printStackTrace();
+            context.setState(e.getQueryState());
+        } catch (UserException e) {
+            e.printStackTrace();
+            // Return message to info client what happened.
+            LOG.debug("DDL statement({}) process failed.", originStmt.originStmt, e);
+            context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
+        } catch (Exception e) {
+            e.printStackTrace();
             // Maybe our bug
             LOG.warn("DDL statement(" + originStmt.originStmt + ") process failed.", e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
@@ -1860,6 +1925,7 @@ public class StmtExecutor implements ProfileWriter {
             context.getEnv().changeCluster(context, enterStmt.getClusterName());
             context.setDatabase("");
         } catch (DdlException e) {
+            e.printStackTrace();
             context.getState().setError(e.getMysqlErrorCode(), e.getMessage());
             return;
         }
@@ -1878,6 +1944,7 @@ public class StmtExecutor implements ProfileWriter {
             DdlExecutor.execute(context.getEnv(), ctasStmt);
             context.getState().setOk();
         } catch (Exception e) {
+            e.printStackTrace();
             // Maybe our bug
             LOG.warn("CTAS create table error, stmt={}", originStmt.originStmt, e);
             context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + e.getMessage());
@@ -1888,6 +1955,7 @@ public class StmtExecutor implements ProfileWriter {
                 parsedStmt = ctasStmt.getInsertStmt();
                 execute();
             } catch (Exception e) {
+                e.printStackTrace();
                 LOG.warn("CTAS insert data error, stmt={}", ctasStmt.toSql(), e);
                 // insert error drop table
                 DropTableStmt dropTableStmt = new DropTableStmt(true, ctasStmt.getCreateTableStmt().getDbTbl(), true);

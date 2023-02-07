@@ -77,7 +77,6 @@ public:
     uint32_t num_rows() const { return _footer.num_rows(); }
 
     Status new_column_iterator(const TabletColumn& tablet_column, ColumnIterator** iter);
-    Status new_row_column_iterator(ColumnIterator** iter);
 
     Status new_bitmap_index_iterator(const TabletColumn& tablet_column, BitmapIndexIterator** iter);
 
@@ -106,11 +105,11 @@ public:
     std::string min_key() {
         DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _footer.has_primary_key_index_meta());
         return _footer.primary_key_index_meta().min_key();
-    };
+    }
     std::string max_key() {
         DCHECK(_tablet_schema->keys_type() == UNIQUE_KEYS && _footer.has_primary_key_index_meta());
         return _footer.primary_key_index_meta().max_key();
-    };
+    }
 
     io::FileReaderSPtr file_reader() { return _file_reader; }
 

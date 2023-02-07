@@ -28,6 +28,7 @@
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 #include "util/runtime_profile.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 
@@ -120,6 +121,10 @@ public:
         bool read_orderby_key_reverse = false;
         // num of columns for orderby key
         size_t read_orderby_key_num_prefix_columns = 0;
+        // limit of rows for read_orderby_key
+        size_t read_orderby_key_limit = 0;
+        // filter_block arguments
+        vectorized::VExprContext** filter_block_vconjunct_ctx_ptr = nullptr;
 
         // for vertical compaction
         bool is_key_column_group = false;
@@ -144,8 +149,7 @@ public:
     // Return OK and set `*eof` to true when no more rows can be read.
     // Return others when unexpected error happens.
     // TODO: Rethink here we still need mem_pool and agg_pool?
-    virtual Status next_block_with_aggregation(vectorized::Block* block, MemPool* mem_pool,
-                                               ObjectPool* agg_pool, bool* eof) {
+    virtual Status next_block_with_aggregation(vectorized::Block* block, bool* eof) {
         return Status::Error<ErrorCode::READER_INITIALIZE_ERROR>();
     }
 

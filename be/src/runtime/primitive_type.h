@@ -96,8 +96,6 @@ constexpr bool has_variable_type(PrimitiveType type) {
            type == TYPE_QUANTILE_STATE || type == TYPE_STRING;
 }
 
-// Returns the byte size of 'type'  Returns 0 for variable length types.
-int get_byte_size(PrimitiveType type);
 // Returns the byte size of type when in a tuple
 int get_slot_size(PrimitiveType type);
 

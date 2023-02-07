@@ -51,7 +51,6 @@ private:
     std::unique_ptr<RuntimeState> _runtime_state;
     std::unique_ptr<MemTracker> _mem_tracker;
     RuntimeProfile* _runtime_profile = nullptr;
-    std::unique_ptr<MemPool> _mem_pool;
     ObjectPool _pool;
     static TUniqueId _dummy_id;
 };

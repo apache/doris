@@ -25,19 +25,17 @@ namespace doris {
 class SchemaSchemaPrivilegesScanner : public SchemaScanner {
 public:
     SchemaSchemaPrivilegesScanner();
-    virtual ~SchemaSchemaPrivilegesScanner();
+    ~SchemaSchemaPrivilegesScanner() override;
 
-    virtual Status start(RuntimeState* state);
-    virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
+    Status start(RuntimeState* state) override;
+    Status get_next_block(vectorized::Block* block, bool* eos) override;
 
 private:
-    Status get_new_table();
-    Status fill_one_row(Tuple* tuple, MemPool* pool);
-    Status fill_one_col(const std::string* src, MemPool* pool, void* slot);
+    Status _get_new_table();
+    Status _fill_block_impl(vectorized::Block* block);
 
-    int _priv_index;
     TListPrivilegesResult _priv_result;
-    static SchemaScanner::ColumnDesc _s_tbls_columns[];
+    static std::vector<SchemaScanner::ColumnDesc> _s_tbls_columns;
 };
 
 } // namespace doris

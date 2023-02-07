@@ -30,12 +30,12 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 import org.apache.doris.nereids.util.Utils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * Merge the correlated predicate and agg in the filter under apply.
@@ -79,7 +79,9 @@ public class ApplyPullFilterOnAgg extends OneRewriteRuleFactory {
             List<Expression> newGroupby = Utils.getCorrelatedSlots(correlatedPredicate,
                     apply.getCorrelationSlot());
             newGroupby.addAll(agg.getGroupByExpressions());
-            newAggOutput.addAll(newGroupby.stream().map(NamedExpression.class::cast).collect(Collectors.toList()));
+            newAggOutput.addAll(newGroupby.stream()
+                    .map(NamedExpression.class::cast)
+                    .collect(ImmutableList.toImmutableList()));
             LogicalAggregate newAgg = new LogicalAggregate<>(
                     newGroupby, newAggOutput,
                     PlanUtils.filterOrSelf(ImmutableSet.copyOf(unCorrelatedPredicate), filter.child()));

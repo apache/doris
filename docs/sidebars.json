@@ -157,6 +157,7 @@
                         "advanced/join-optimization/doris-join-optimization"
                     ]
                 },
+                "advanced/pipeline-execution-engine",
                 "advanced/materialized-view",
                 "advanced/broker",
                 {
@@ -222,18 +223,6 @@
                 "ecosystem/audit-plugin",
                 "ecosystem/cloudcanal",
                 "ecosystem/hive-bitmap-udf",
-                {
-                    "type": "category",
-                    "label": "Doris Manager",
-                    "items": [
-                        "ecosystem/doris-manager/compiling-deploying",
-                        "ecosystem/doris-manager/initializing",
-                        "ecosystem/doris-manager/cluster-managenent",
-                        "ecosystem/doris-manager/space-list",
-                        "ecosystem/doris-manager/space-management",
-                        "ecosystem/doris-manager/system-settings"
-                    ]
-                },
                 {
                     "type": "category",
                     "label": "SeaTunnel",

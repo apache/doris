@@ -31,7 +31,7 @@ namespace vectorized {
 class Block;
 }
 
-class POlapTableIndexSchema;
+struct OlapTableIndexSchema;
 
 class TabletColumn {
 public:
@@ -77,6 +77,8 @@ public:
     int frac() const { return _frac; }
     inline bool visible() const { return _visible; }
 
+    void set_aggregation_method(FieldAggregationMethod agg) { _aggregation = agg; }
+
     /**
      * Add a sub column.
      */
@@ -93,6 +95,7 @@ public:
     static FieldType get_field_type_by_string(const std::string& str);
     static FieldAggregationMethod get_aggregation_type_by_string(const std::string& str);
     static uint32_t get_field_length_by_type(TPrimitiveType::type type, uint32_t string_length);
+    bool is_row_store_column() const;
 
 private:
     int32_t _unique_id;
@@ -133,9 +136,9 @@ public:
     void init_from_pb(const TabletIndexPB& index);
     void to_schema_pb(TabletIndexPB* index) const;
 
-    const int64_t index_id() const { return _index_id; }
+    int64_t index_id() const { return _index_id; }
     const std::string& index_name() const { return _index_name; }
-    const IndexType index_type() const { return _index_type; }
+    IndexType index_type() const { return _index_type; }
     const vector<int32_t>& col_unique_ids() const { return _col_unique_ids; }
     const std::map<string, string>& properties() const { return _properties; }
     int32_t get_gram_size() const {
@@ -174,7 +177,7 @@ public:
     void add_row_column();
     void copy_from(const TabletSchema& tablet_schema);
     std::string to_key() const;
-    int64_t mem_size() const { return _mem_size; };
+    int64_t mem_size() const { return _mem_size; }
 
     size_t row_size() const;
     int32_t field_index(const std::string& field_name) const;
@@ -225,7 +228,7 @@ public:
     vectorized::Block create_block(bool ignore_dropped_col = true) const;
 
     void build_current_tablet_schema(int64_t index_id, int32_t version,
-                                     const POlapTableIndexSchema& index,
+                                     const OlapTableIndexSchema* index,
                                      const TabletSchema& out_tablet_schema);
 
     // Merge columns that not exit in current schema, these column is dropped in current schema
@@ -242,8 +245,6 @@ public:
     void merge_dropped_columns(std::shared_ptr<TabletSchema> src_schema);
 
     bool is_dropped_column(const TabletColumn& col) const;
-
-    static const TabletColumn& row_oriented_column();
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);

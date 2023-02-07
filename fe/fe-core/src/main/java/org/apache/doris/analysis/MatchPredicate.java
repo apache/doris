@@ -107,38 +107,41 @@ public class MatchPredicate extends Predicate {
                     Lists.<Type>newArrayList(new ArrayType(t), t),
                     Type.BOOLEAN));
         }
-        functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                Operator.MATCH_ANY.getName(),
-                symbolNotUsed,
-                Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
-                Type.BOOLEAN));
-        functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                Operator.MATCH_ANY.getName(),
-                symbolNotUsed,
-                Lists.<Type>newArrayList(new ArrayType(Type.VARCHAR), Type.VARCHAR),
-                Type.BOOLEAN));
 
-        functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                Operator.MATCH_ALL.getName(),
-                symbolNotUsed,
-                Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
-                Type.BOOLEAN));
-        functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                Operator.MATCH_ALL.getName(),
-                symbolNotUsed,
-                Lists.<Type>newArrayList(new ArrayType(Type.VARCHAR), Type.VARCHAR),
-                Type.BOOLEAN));
+        for (Type t : Type.getStringTypes()) {
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
+                    Operator.MATCH_ANY.getName(),
+                    symbolNotUsed,
+                    Lists.<Type>newArrayList(t, t),
+                    Type.BOOLEAN));
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
+                    Operator.MATCH_ANY.getName(),
+                    symbolNotUsed,
+                    Lists.<Type>newArrayList(new ArrayType(t), t),
+                    Type.BOOLEAN));
 
-        functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                Operator.MATCH_PHRASE.getName(),
-                symbolNotUsed,
-                Lists.<Type>newArrayList(Type.VARCHAR, Type.VARCHAR),
-                Type.BOOLEAN));
-        functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
-                Operator.MATCH_PHRASE.getName(),
-                symbolNotUsed,
-                Lists.<Type>newArrayList(new ArrayType(Type.VARCHAR), Type.VARCHAR),
-                Type.BOOLEAN));
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
+                    Operator.MATCH_ALL.getName(),
+                    symbolNotUsed,
+                    Lists.<Type>newArrayList(t, t),
+                    Type.BOOLEAN));
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
+                    Operator.MATCH_ALL.getName(),
+                    symbolNotUsed,
+                    Lists.<Type>newArrayList(new ArrayType(t), t),
+                    Type.BOOLEAN));
+
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
+                    Operator.MATCH_PHRASE.getName(),
+                    symbolNotUsed,
+                    Lists.<Type>newArrayList(t, t),
+                    Type.BOOLEAN));
+            functionSet.addBuiltinBothScalaAndVectorized(ScalarFunction.createBuiltinOperator(
+                    Operator.MATCH_PHRASE.getName(),
+                    symbolNotUsed,
+                    Lists.<Type>newArrayList(new ArrayType(t), t),
+                    Type.BOOLEAN));
+        }
     }
 
     private final Operator op;
@@ -219,7 +222,7 @@ public class MatchPredicate extends Predicate {
                 collectChildReturnTypes(), Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
         if (fn == null) {
             throw new AnalysisException(
-                    "no function found for " + op.toString() + " " + toSql());
+                    "no function found for " + op.toString() + "," + toSql());
         }
         Expr e1 = getChild(0);
         Expr e2 = getChild(1);

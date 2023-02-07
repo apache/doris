@@ -23,11 +23,11 @@
 #include "exec/olap_utils.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
-#include "exprs/match_predicate.h"
 #include "olap/bloom_filter_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/comparison_predicate.h"
 #include "olap/in_list_predicate.h"
+#include "olap/match_predicate.h"
 #include "olap/null_predicate.h"
 #include "olap/tablet_schema.h"
 #include "runtime/define_primitive_type.h"
@@ -135,7 +135,7 @@ struct CustomPredicateCreator : public PredicateCreator<ConditionType> {
 public:
     using CppType = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
     CustomPredicateCreator(const std::function<CppType(const std::string& condition)>& convert)
-            : _convert(convert) {};
+            : _convert(convert) {}
 
     ColumnPredicate* create(const TabletColumn& column, int index, const ConditionType& conditions,
                             bool opposite, MemPool* pool) override {

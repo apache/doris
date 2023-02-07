@@ -43,8 +43,7 @@ static int64_t calc_process_max_load_memory(int64_t process_mem_limit) {
         return -1;
     }
     int32_t max_load_memory_percent = config::load_process_max_memory_limit_percent;
-    int64_t max_load_memory_bytes = process_mem_limit * max_load_memory_percent / 100;
-    return std::min<int64_t>(max_load_memory_bytes, config::load_process_max_memory_limit_bytes);
+    return process_mem_limit * max_load_memory_percent / 100;
 }
 
 static int64_t calc_channel_timeout_s(int64_t timeout_in_req_s) {

@@ -20,7 +20,7 @@
 // **Note**: default db will be create if not exist
 defaultDb = "regression_test"
 
-jdbcUrl = "jdbc:mysql://172.19.0.2:9131/?useLocalSessionState=true"
+jdbcUrl = "jdbc:mysql://172.19.0.2:9131/?useLocalSessionState=true&allowLoadLocalInfile=true"
 jdbcUser = "root"
 jdbcPassword = ""
 
@@ -62,7 +62,7 @@ hdfsPasswd = ""
 brokerName = "broker_name"
 
 // broker load test config
-enableBrokerLoad=false
+enableBrokerLoad=true
 
 // jdbc connector test config
 // To enable jdbc test, you need first start mysql/pg container.

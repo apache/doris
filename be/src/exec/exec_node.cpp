@@ -28,7 +28,6 @@
 #include "common/object_pool.h"
 #include "common/status.h"
 #include "runtime/descriptors.h"
-#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
@@ -524,12 +523,6 @@ void ExecNode::reached_limit(vectorized::Block* block, bool* eos) {
 
     _num_rows_returned += block->rows();
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
-}
-
-Status ExecNode::QueryMaintenance(RuntimeState* state, const std::string& msg) {
-    // TODO chenhao , when introduce latest AnalyticEvalNode open it
-    // ScalarExprEvaluator::FreeLocalAllocations(evals_to_free_);
-    return state->check_query_state(msg);
 }
 
 Status ExecNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {

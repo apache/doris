@@ -24,13 +24,17 @@
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/mem_pool.h"
-#include "runtime/tuple.h"
+#include "vec/core/block.h"
 
 namespace doris {
 
 // forehead declare class, because jni function init in DorisServer.
 class DorisServer;
 class RuntimeState;
+
+namespace vectorized {
+class Block;
+}
 
 // scanner parameter from frontend
 struct SchemaScannerParam {
@@ -70,39 +74,33 @@ public:
         int precision = -1;
         int scale = -1;
     };
-    SchemaScanner(ColumnDesc* columns, int column_num);
-    SchemaScanner(ColumnDesc* columns, int column_num, TSchemaTableType::type type);
+    SchemaScanner(const std::vector<ColumnDesc>& columns);
+    SchemaScanner(const std::vector<ColumnDesc>& columns, TSchemaTableType::type type);
     virtual ~SchemaScanner();
 
     // init object need information, schema etc.
     virtual Status init(SchemaScannerParam* param, ObjectPool* pool);
     // Start to work
     virtual Status start(RuntimeState* state);
-    virtual Status get_next_row(Tuple* tuple, MemPool* pool, bool* eos);
+    virtual Status get_next_block(vectorized::Block* block, bool* eos);
+    const std::vector<ColumnDesc>& get_column_desc() const { return _columns; }
     // factory function
     static SchemaScanner* create(TSchemaTableType::type type);
-
     const TupleDescriptor* tuple_desc() const { return _tuple_desc; }
+    TSchemaTableType::type type() const { return _schema_table_type; }
 
     static void set_doris_server(DorisServer* doris_server) { _s_doris_server = doris_server; }
 
 protected:
+    Status fill_dest_column(vectorized::Block* block, void* data, const ColumnDesc& slot_desc);
     Status create_tuple_desc(ObjectPool* pool);
-    Status create_columns(const std::vector<TSchemaTableStructure>* table_structure,
-                          ObjectPool* pool);
 
     bool _is_init;
     // this is used for sub class
     SchemaScannerParam* _param;
-    // pointer to schema table's column desc
-    ColumnDesc* _columns;
-    // num of columns
-    int _column_num;
+    // schema table's column desc
+    std::vector<ColumnDesc> _columns;
     TupleDescriptor* _tuple_desc;
-
-    // _is_create_columns means if ColumnDesc is created from FE.
-    // `_columns` should be deleted if _is_create_columns = true.
-    bool _is_create_columns = false;
 
     static DorisServer* _s_doris_server;
 

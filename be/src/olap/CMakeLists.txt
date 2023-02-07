@@ -41,6 +41,7 @@ add_library(Olap STATIC
     like_column_predicate.cpp
     key_coder.cpp
     lru_cache.cpp
+    match_predicate.cpp
     memtable.cpp
     memtable_flush_executor.cpp
     merger.cpp
@@ -59,7 +60,6 @@ add_library(Olap STATIC
     data_dir.cpp
     short_key_index.cpp
     snapshot_manager.cpp
-    stream_name.cpp
     tablet.cpp
     tablet_manager.cpp
     tablet_meta.cpp
@@ -107,7 +107,7 @@ add_library(Olap STATIC
     task/engine_publish_version_task.cpp
     task/engine_alter_tablet_task.cpp
     segment_loader.cpp
-    storage_policy_mgr.cpp
+    storage_policy.cpp
 )
 
 if (NOT USE_MEM_TRACKER)

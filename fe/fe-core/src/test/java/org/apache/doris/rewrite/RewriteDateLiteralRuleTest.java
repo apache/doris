@@ -122,7 +122,7 @@ public class RewriteDateLiteralRuleTest {
     public void testWithStringFormatDateV2() throws Exception {
         String query = "select * from " + DB_NAME + ".tb2 where k1 > '2021030112334455'";
         String planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 12:33:44.550000'"));
+        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 12:33:44.550'"));
 
         query = "select k1 > '20210301' from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
@@ -130,7 +130,7 @@ public class RewriteDateLiteralRuleTest {
 
         query = "select k1 > '20210301233234.34' from " + DB_NAME + ".tb2";
         planString = dorisAssert.query(query).explainQuery();
-        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 23:32:34.340000'"));
+        Assert.assertTrue(planString.contains("`k1` > '2021-03-01 23:32:34.340'"));
 
         query = "select * from " + DB_NAME + ".tb2 where k1 > '2021-03-01'";
         planString = dorisAssert.query(query).explainQuery();

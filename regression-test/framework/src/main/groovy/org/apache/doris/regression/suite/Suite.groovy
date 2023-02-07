@@ -322,6 +322,20 @@ class Suite implements GroovyInterceptable {
         return remotePath;
     }
 
+    String getLoalFilePath(String fileName) {
+        if (!new File(fileName).isAbsolute()) {
+            fileName = new File(context.dataPath, fileName).getAbsolutePath()
+        }
+        def file = new File(fileName)
+        if (!file.exists()) {
+            log.warn("Stream load input file not exists: ${file}".toString())
+            throw new IllegalStateException("Stream load input file not exists: ${file}");
+        }
+        def localFile = file.canonicalPath
+        log.info("Set stream load input: ${file.canonicalPath}".toString())
+        return localFile;
+    }
+
     boolean enableBrokerLoad() {
         String enableBrokerLoad = context.config.otherConfigs.get("enableBrokerLoad");
         return (enableBrokerLoad != null && enableBrokerLoad.equals("true"));
@@ -452,11 +466,11 @@ class Suite implements GroovyInterceptable {
                     { row ->  OutputUtils.toCsvString(row) },
                     "Check tag '${tag}' failed", meta)
             } catch (Throwable t) {
-                throw new IllegalStateException("Check tag '${tag}' failed, sql:\n${sql}", t)
+                throw new IllegalStateException("Check tag '${tag}' failed, sql:\n${arg}", t)
             }
             if (errorMsg != null) {
                 logger.warn("expect results: " + expectCsvResults + "\nrealResults: " + realResults)
-                throw new IllegalStateException("Check tag '${tag}' failed:\n${errorMsg}\n\nsql:\n${sql}")
+                throw new IllegalStateException("Check tag '${tag}' failed:\n${errorMsg}\n\nsql:\n${arg}")
             }
         }
     }

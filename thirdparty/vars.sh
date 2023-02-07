@@ -368,10 +368,10 @@ KRB5_SOURCE="krb5-1.19"
 KRB5_MD5SUM="aaf18447a5a014aa3b7e81814923f4c9"
 
 # hdfs3
-HDFS3_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libhdfs3-v2.3.6.tar.gz"
-HDFS3_NAME="doris-thirdparty-libhdfs3-v2.3.6.tar.gz"
-HDFS3_SOURCE="doris-thirdparty-libhdfs3-v2.3.6"
-HDFS3_MD5SUM="179e492ee71b6dc484e8f44bc2865de9"
+HDFS3_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libhdfs3-v2.3.7.tar.gz"
+HDFS3_NAME="doris-thirdparty-libhdfs3-v2.3.7.tar.gz"
+HDFS3_SOURCE="doris-thirdparty-libhdfs3-v2.3.7"
+HDFS3_MD5SUM="4c6b272970858214bccd0fc670071fc7"
 
 #libdivide
 LIBDIVIDE_DOWNLOAD="https://github.com/ridiculousfish/libdivide/archive/5.0.tar.gz"
@@ -446,6 +446,12 @@ CONCURRENTQUEUE_NAME=concurrentqueue-1.0.3.tar.gz
 CONCURRENTQUEUE_SOURCE=concurrentqueue-1.0.3
 CONCURRENTQUEUE_MD5SUM="118e5bb661b567634647312991e10222"
 
+# fast_float
+FAST_FLOAT_DOWNLOAD="https://github.com/fastfloat/fast_float/archive/refs/tags/v3.9.0.tar.gz"
+FAST_FLOAT_NAME=fast_float-3.9.0.tar.gz
+FAST_FLOAT_SOURCE=fast_float-3.9.0
+FAST_FLOAT_MD5SUM="5656b0d8b150a3b157cfb092d214f6ea"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
     'CLUCENE'
@@ -511,6 +517,7 @@ export TP_ARCHIVES=(
     'SSE2NEON'
     'XXHASH'
     'CONCURRENTQUEUE'
+    'FAST_FLOAT'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

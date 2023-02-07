@@ -18,14 +18,12 @@
 #pragma once
 
 #include "common/status.h"
-#include "runtime/tuple.h"
 #include "util/runtime_profile.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 
-class Tuple;
 class TupleDescriptor;
 class RowDescriptor;
 class RuntimeState;
@@ -58,11 +56,6 @@ public:
     virtual Status init_expr_ctxes();
     // Open this scanner, will initialize information need to
     virtual Status open();
-
-    // Get next tuple
-    virtual Status get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof, bool* fill_tuple) {
-        return Status::NotSupported("Not Implemented get block");
-    }
 
     // Get next block
     virtual Status get_next(vectorized::Block* block, bool* eof) {

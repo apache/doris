@@ -88,7 +88,7 @@ public class OuterJoinLAsscom extends OneExplorationRuleFactory {
     }
 
     /**
-     * topHashConjunct possiblity: (A B) (A C) (B C) (A B C).
+     * topHashConjunct possibility: (A B) (A C) (B C) (A B C).
      * (A B) is forbidden, because it should be in bottom join.
      * (B C) (A B C) check failed, because it contains B.
      * So, just allow: top (A C), bottom (A B), we can exchange HashConjunct directly.
