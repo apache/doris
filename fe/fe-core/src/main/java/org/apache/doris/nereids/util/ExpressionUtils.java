@@ -473,4 +473,11 @@ public class ExpressionUtils {
         }
         return cls.isInstance(expression);
     }
+
+    public static Expression getExpressionCoveredByCast(Expression expression) {
+        while (expression instanceof Cast) {
+            expression = ((Cast) expression).child();
+        }
+        return expression;
+    }
 }
