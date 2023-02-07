@@ -226,8 +226,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
                     fullQualifiedName, transactionQuotaSize, newQuota);
             this.transactionQuotaSize = newQuota;
             this.dbProperties.put(TRANSACTION_QUOTA_SIZE, String.valueOf(transactionQuotaSize));
-        } catch (Exception e) {
-            LOG.warn("database[{}] try to set transaction quota failed. reason = [{}]" , fullQualifiedName, e)
         } finally {
             writeUnlock();
         }
@@ -631,7 +629,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
                     String.valueOf(Config.max_running_txn_num_per_db));
             transactionQuotaSize = Long.parseLong(txnQuotaStr);
         } else {
-            transactionQuotaSize = (Config.default_db_max_running_txn_num == -1L)
+            transactionQuotaSize = Config.default_db_max_running_txn_num == -1L
                     ? Config.max_running_txn_num_per_db
                     : Config.default_db_max_running_txn_num;
         }
