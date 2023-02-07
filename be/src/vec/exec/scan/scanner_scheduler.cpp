@@ -216,7 +216,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
     // judge if we need to yield. So we record all raw data read in this round
     // scan, if this exceeds row number or bytes threshold, we yield this thread.
     std::vector<vectorized::Block*> blocks;
-    int64_t raw_rows_read = scanner->raw_rows_read();
+    int64_t raw_rows_read = scanner->get_rows_read();
     int64_t raw_rows_threshold = raw_rows_read + config::doris_scanner_row_num;
     int64_t raw_bytes_read = 0;
     int64_t raw_bytes_threshold = config::doris_scanner_row_bytes;
@@ -274,7 +274,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
                 blocks.push_back(block);
             }
         }
-        raw_rows_read = scanner->raw_rows_read();
+        raw_rows_read = scanner->get_rows_read();
     } // end for while
 
     // if we failed, check status.

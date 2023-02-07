@@ -48,7 +48,14 @@ struct FilterPredicates {
 class VScanNode : public ExecNode {
 public:
     VScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
-            : ExecNode(pool, tnode, descs), _runtime_filter_descs(tnode.runtime_filters) {}
+            : ExecNode(pool, tnode, descs), _runtime_filter_descs(tnode.runtime_filters) {
+        if (!tnode.__isset.conjuncts || tnode.conjuncts.empty()) {
+            // Which means the request could be fullfilled in a single segment iterator request.
+            if (tnode.limit > 0 && tnode.limit < 1024) {
+                _should_run_serial = true;
+            }
+        }
+    }
     virtual ~VScanNode() = default;
 
     friend class VScanner;
@@ -93,6 +100,8 @@ public:
     bool runtime_filters_are_ready_or_timeout();
 
     Status try_close();
+
+    bool should_run_serial() { return _should_run_serial; }
 
     enum class PushDownType {
         // The predicate can not be pushed down to data source
@@ -242,6 +251,9 @@ protected:
 
     bool _need_agg_finalize = true;
     bool _blocked_by_rf = false;
+    // If the query like select * from table limit 10; then the query should run in
+    // single scanner to avoid too many scanners which will cause lots of useless read.
+    bool _should_run_serial = false;
 
     // Every time vconjunct_ctx_ptr is updated, the old ctx will be stored in this vector
     // so that it will be destroyed uniformly at the end of the query.
