@@ -51,6 +51,9 @@ OLAPStatus BaseCompaction::prepare_compact() {
 }
 
 OLAPStatus BaseCompaction::execute_compact_impl() {
+    if (config::enable_base_compaction_idle_sched) {
+        Thread::set_idle_sched();
+    }
     MutexLock lock(_tablet->get_base_lock(), TRY_LOCK);
     if (!lock.own_lock()) {
         LOG(WARNING) << "another base compaction is running. tablet=" << _tablet->full_name();
