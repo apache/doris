@@ -203,6 +203,10 @@ void TaskWorkerPool::start() {
         _worker_count = 1;
         cb = std::bind<void>(&TaskWorkerPool::_push_storage_policy_worker_thread_callback, this);
         break;
+    case TaskWorkerType::COOLDOWN_DELETE_FILE:
+        _worker_count = 1;
+        cb = std::bind<void>(&TaskWorkerPool::_cooldown_delete_file_worker_thread_callback, this);
+        break;
     case TaskWorkerType::PUSH_COOLDOWN_CONF:
         _worker_count = 1;
         cb = std::bind<void>(&TaskWorkerPool::_push_cooldown_conf_worker_thread_callback, this);
@@ -268,7 +272,8 @@ void TaskWorkerPool::notify_thread() {
 }
 
 bool TaskWorkerPool::_register_task_info(const TTaskType::type task_type, int64_t signature) {
-    if (task_type == TTaskType::type::PUSH_STORAGE_POLICY) {
+    if (task_type == TTaskType::type::PUSH_STORAGE_POLICY
+            || TTaskType::type::COOLDOWN_DELETE_FILE) {
         // no need to report task of these types
         return true;
     }
@@ -1700,6 +1705,37 @@ void TaskWorkerPool::_push_storage_policy_worker_thread_callback() {
         }
     }
 }
+
+void TaskWorkerPool::_cooldown_delete_file_worker_thread_callback() {
+    while (_is_work) {
+        TAgentTaskRequest agent_task_req;
+        {
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
+            while (_is_work && _tasks.empty()) {
+                _worker_thread_condition_variable.wait(worker_thread_lock);
+            }
+            if (!_is_work) {
+                return;
+            }
+
+            agent_task_req = _tasks.front();
+            _tasks.pop_front();
+        }
+
+        TCooldownDeleteFileReq& cooldown_delete_file_req = agent_task_req.cooldown_delete_file;
+        for (auto& delete_file : cooldown_delete_file_req.cooldown_delete_files) {
+            int64_t tablet_id = delete_file.tablet_id;
+            TabletSharedPtr tablet =
+                    StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
+            if (tablet == nullptr) {
+                LOG(WARNING) << "failed to get tablet. tablet_id=" << tablet_id;
+                continue;
+            }
+            tablet->enable_cooldown_flag(delete_file.delete_id);
+        }
+    }
+}
+
 
 void TaskWorkerPool::_push_cooldown_conf_worker_thread_callback() {
     while (_is_work) {

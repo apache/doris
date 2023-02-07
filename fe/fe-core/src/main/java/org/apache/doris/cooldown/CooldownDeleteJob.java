@@ -98,28 +98,9 @@ public class CooldownDeleteJob implements Writable {
             AgentTaskExecutor.submit(cooldownBatchTask);
         }
 
-        this.jobState = JobState.RUNNING;
-        LOG.info("send cooldown delete job {} state to {}", jobId, this.jobState);
-    }
-
-    protected void runRunningJob() throws CooldownException {
-        if (!cooldownBatchTask.isFinished()) {
-            LOG.info("cooldown tasks not finished. job: {}", jobId);
-            List<AgentTask> tasks = cooldownBatchTask.getUnfinishedTasks(2000);
-            for (AgentTask task : tasks) {
-                if (task.getFailedTimes() >= 3) {
-                    task.setFinished(true);
-                    AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUSH_COOLDOWN_CONF, task.getSignature());
-                    LOG.warn("push cooldown conf task failed after try three times: " + task.getErrorMsg());
-                    throw new CooldownException("cooldown tasks failed on backend: " + task.getBackendId());
-                }
-            }
-            return;
-        }
-        this.jobState = CooldownDeleteJob.JobState.FINISHED;
+        this.jobState = JobState.FINISHED;
         this.finishedTimeMs = System.currentTimeMillis();
-
-        LOG.info("send cooldown delete job finished: {}", jobId);
+        LOG.info("send cooldown delete job {} state to {}", jobId, this.jobState);
     }
 
     public boolean isTimeout() {
@@ -166,9 +147,6 @@ public class CooldownDeleteJob implements Writable {
             switch (jobState) {
                 case SEND_CONF:
                     runSendJob();
-                    break;
-                case RUNNING:
-                    runRunningJob();
                     break;
                 default:
                     break;

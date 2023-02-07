@@ -68,6 +68,7 @@ public:
         SUBMIT_TABLE_COMPACTION,
         PUSH_COOLDOWN_CONF,
         PUSH_STORAGE_POLICY,
+        COOLDOWN_DELETE_FILE,
     };
 
     enum ReportType { TASK, DISK, TABLET };
@@ -127,6 +128,8 @@ public:
             return "PUSH_COOLDOWN_CONF";
         case PUSH_STORAGE_POLICY:
             return "PUSH_STORAGE_POLICY";
+        case COOLDOWN_DELETE_FILE:
+            return "COOLDOWN_DELETE_FILE";
         default:
             return "Unknown";
         }
@@ -192,6 +195,7 @@ private:
     void _submit_table_compaction_worker_thread_callback();
     void _push_cooldown_conf_worker_thread_callback();
     void _push_storage_policy_worker_thread_callback();
+    void _cooldown_delete_file_worker_thread_callback();
 
     void _alter_tablet(const TAgentTaskRequest& alter_tablet_request, int64_t signature,
                        const TTaskType::type task_type, TFinishTaskRequest* finish_task_request);

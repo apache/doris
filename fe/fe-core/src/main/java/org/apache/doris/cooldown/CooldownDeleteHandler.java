@@ -45,7 +45,6 @@ public class CooldownDeleteHandler extends MasterDaemon {
 
     // jobId -> CooldownDeleteJob, it is used to hold CooldownDeleteJob which is used to sent delete_id to be.
     private final Map<Long, CooldownDeleteJob> runableCooldownDeleteJobs = Maps.newConcurrentMap();
-    private final Map<Long, Boolean> deletingTablet = Maps.newConcurrentMap();
     // jobId -> CooldownDeleteJob,
     public final Map<Long, CooldownDeleteJob> activeCooldownDeleteJobs = Maps.newConcurrentMap();
 
@@ -56,9 +55,6 @@ public class CooldownDeleteHandler extends MasterDaemon {
         long jobId = Env.getCurrentEnv().getNextId();
         CooldownDeleteJob deleteJob = new CooldownDeleteJob(jobId, beId, cooldownDeletes, timeoutMs);
         runableCooldownDeleteJobs.put(jobId, deleteJob);
-        for (CooldownDelete delete : cooldownDeletes) {
-            deletingTablet.put(delete.getTabletId(), true);
-        }
     }
 
     // deleteCooldownTabletMap: beId -> CooldownDelete
@@ -67,9 +63,6 @@ public class CooldownDeleteHandler extends MasterDaemon {
             long beId = entry.getKey();
             List<CooldownDelete> cooldownDeletes = new LinkedList<>();
             for (CooldownDelete cooldownDelete : entry.getValue()) {
-                if (deletingTablet.containsKey(cooldownDelete.getTabletId())) {
-                    continue;
-                }
                 cooldownDeletes.add(cooldownDelete);
                 if (cooldownDeletes.size() >= MAX_TABLET_PER_JOB) {
                     createJob(beId, cooldownDeletes);
@@ -114,9 +107,6 @@ public class CooldownDeleteHandler extends MasterDaemon {
             CooldownDeleteJob deleteJob = iterator.next().getValue();
             if (deleteJob.isDone()) {
                 iterator.remove();
-                for (CooldownDelete delete : deleteJob.getCooldownDeleteList()) {
-                    deletingTablet.remove(delete.getTabletId());
-                }
             }
         }
     }

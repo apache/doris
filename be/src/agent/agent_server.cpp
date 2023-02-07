@@ -92,6 +92,7 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
     CREATE_AND_START_THREAD(REPORT_OLAP_TABLE, _report_tablet_workers);
     CREATE_AND_START_POOL(SUBMIT_TABLE_COMPACTION, _submit_table_compaction_workers);
     CREATE_AND_START_POOL(PUSH_STORAGE_POLICY, _push_storage_policy_workers);
+    CREATE_AND_START_POOL(COOLDOWN_DELETE_FILE, _cooldown_delete_file_workers);
 #undef CREATE_AND_START_POOL
 #undef CREATE_AND_START_THREAD
 
@@ -155,6 +156,8 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
                         update_tablet_meta_info_req);
             HANDLE_TYPE(TTaskType::COMPACTION, _submit_table_compaction_workers, compaction_req);
             HANDLE_TYPE(TTaskType::PUSH_STORAGE_POLICY, _push_storage_policy_workers,
+                        push_storage_policy_req);
+            HANDLE_TYPE(TTaskType::COOLDOWN_DELETE_FILE, _cooldown_delete_file_workers,
                         push_storage_policy_req);
 
         case TTaskType::REALTIME_PUSH:
