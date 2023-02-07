@@ -128,6 +128,8 @@ public class SelectStmt extends QueryStmt {
     // For quick get condition for point query
     private Map<SlotRef, Expr> eqPredicates;
 
+    boolean isTwoPhaseOptEnabled = false;
+
     public SelectStmt(ValueList valueList, ArrayList<OrderByElement> orderByElement, LimitElement limitElement) {
         super(orderByElement, limitElement);
         this.valueList = valueList;
@@ -603,6 +605,7 @@ public class SelectStmt extends QueryStmt {
             // rest of resultExprs will be marked as `INVALID`, such columns will
             // be prevent from reading from ScanNode.Those columns will be finally
             // read by the second fetch phase
+            isTwoPhaseOptEnabled = true;
             LOG.debug("two phase read optimize enabled");
             // Expr.analyze(resultExprs, analyzer);
             Set<SlotRef> resultSlots = Sets.newHashSet();
@@ -620,10 +623,12 @@ public class SelectStmt extends QueryStmt {
                 // invalid slots will be pruned from reading from ScanNode
                 slot.setInvalid();
             }
+
             LOG.debug("resultsSlots {}", resultSlots);
             LOG.debug("orderingSlots {}", orderingSlots);
             LOG.debug("conjuntSlots {}", conjuntSlots);
         }
+        checkAndSetPointQuery();
         if (evaluateOrderBy) {
             createSortTupleInfo(analyzer);
         }
@@ -646,6 +651,10 @@ public class SelectStmt extends QueryStmt {
         if (hasOutFileClause()) {
             outFileClause.analyze(analyzer, resultExprs, colLabels);
         }
+    }
+
+    public boolean isTwoPhaseReadOptEnabled() {
+        return isTwoPhaseOptEnabled;
     }
 
     // Check whether enable two phase read optimize, if enabled query will be devieded into two phase read:
@@ -707,11 +716,12 @@ public class SelectStmt extends QueryStmt {
         // Rethink? implement more generic to support all exprs
         LOG.debug("getOrderingExprs {}", sortInfo.getOrderingExprs());
         LOG.debug("getOrderByElements {}", getOrderByElements());
-        for (OrderByElement orderby : getOrderByElements()) {
-            if (!(orderby.getExpr() instanceof SlotRef)) {
+        for (Expr sortExpr : sortInfo.getOrderingExprs()) {
+            if (!(sortExpr instanceof SlotRef)) {
                 return false;
             }
         }
+        isTwoPhaseOptEnabled = true;
         return true;
     }
 
@@ -2374,6 +2384,10 @@ public class SelectStmt extends QueryStmt {
 
     public Map<SlotRef, Expr> getPointQueryEQPredicates() {
         return eqPredicates;
+    }
+
+    public boolean isPointQueryShortCircuit() {
+        return isPointQuery;
     }
 
     // Check if it is a point query and set EQUAL predicates
