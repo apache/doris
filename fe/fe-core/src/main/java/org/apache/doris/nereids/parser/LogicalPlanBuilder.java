@@ -29,9 +29,11 @@ import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
 import org.apache.doris.nereids.DorisParser.BitOperationContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
-import org.apache.doris.nereids.DorisParser.BracketStyleHintContext;
+import org.apache.doris.nereids.DorisParser.BracketJoinHintContext;
+import org.apache.doris.nereids.DorisParser.BracketRelationHintContext;
 import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
-import org.apache.doris.nereids.DorisParser.CommentStyleHintContext;
+import org.apache.doris.nereids.DorisParser.CommentJoinHintContext;
+import org.apache.doris.nereids.DorisParser.CommentRelationHintContext;
 import org.apache.doris.nereids.DorisParser.ComparisonContext;
 import org.apache.doris.nereids.DorisParser.CreateRowPolicyContext;
 import org.apache.doris.nereids.DorisParser.CteContext;
@@ -460,8 +462,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 partitionNames.addAll(visitIdentifierList(ctx.specifiedPartition().identifierList()));
             }
         }
+
+        final List<String> relationHints;
+        if (ctx.relationHint() != null) {
+            relationHints = typedVisit(ctx.relationHint());
+        } else {
+            relationHints = ImmutableList.of();
+        }
+
         LogicalPlan checkedRelation = withCheckPolicy(
-                new UnboundRelation(RelationUtil.newRelationId(), tableId, partitionNames, isTempPart));
+                new UnboundRelation(RelationUtil.newRelationId(), tableId, partitionNames, isTempPart, relationHints));
         LogicalPlan plan = withTableAlias(checkedRelation, ctx.tableAlias());
         for (LateralViewContext lateralViewContext : ctx.lateralView()) {
             plan = withGenerate(plan, lateralViewContext);
@@ -1412,13 +1422,27 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public String visitBracketStyleHint(BracketStyleHintContext ctx) {
+    public String visitBracketJoinHint(BracketJoinHintContext ctx) {
         return ctx.identifier().getText();
     }
 
     @Override
-    public Object visitCommentStyleHint(CommentStyleHintContext ctx) {
+    public String visitCommentJoinHint(CommentJoinHintContext ctx) {
         return ctx.identifier().getText();
+    }
+
+    @Override
+    public List<String> visitBracketRelationHint(BracketRelationHintContext ctx) {
+        return ctx.identifier().stream()
+                .map(RuleContext::getText)
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public Object visitCommentRelationHint(CommentRelationHintContext ctx) {
+        return ctx.identifier().stream()
+                .map(RuleContext::getText)
+                .collect(ImmutableList.toImmutableList());
     }
 
     private LogicalPlan withProjection(LogicalPlan input, SelectColumnClauseContext selectCtx,
