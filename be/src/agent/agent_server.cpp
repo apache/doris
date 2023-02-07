@@ -158,7 +158,7 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
             HANDLE_TYPE(TTaskType::PUSH_STORAGE_POLICY, _push_storage_policy_workers,
                         push_storage_policy_req);
             HANDLE_TYPE(TTaskType::COOLDOWN_DELETE_FILE, _cooldown_delete_file_workers,
-                        push_storage_policy_req);
+                        cooldown_delete_file);
 
         case TTaskType::REALTIME_PUSH:
         case TTaskType::PUSH:
