@@ -322,7 +322,7 @@ Status VNodeChannel::open_wait() {
         }
         // If rpc failed, mark all tablets on this node channel as failed
         _index_channel->mark_as_failed(this->node_id(), this->host(),
-                                       fmt::format("rpc failed, error coed:{}, error text:{}",
+                                       fmt::format("rpc failed, error code:{}, error text:{}",
                                                    _add_block_closure->cntl.ErrorCode(),
                                                    _add_block_closure->cntl.ErrorText()),
                                        -1);
