@@ -1130,9 +1130,10 @@ public class Coordinator {
                     // here choose the first instance to build hash table.
                     Map<TNetworkAddress, FInstanceExecParam> destHosts = new HashMap<>();
                     destParams.instanceExecParams.forEach(param -> {
-                        if (!destHosts.containsKey(param.host)) {
+                        if (destHosts.containsKey(param.host)) {
+                            destHosts.get(param.host).instancesSharingHashTable.add(param.instanceId);
+                        } else {
                             destHosts.put(param.host, param);
-
                             param.buildHashTableForBroadcastJoin = true;
                             TPlanFragmentDestination dest = new TPlanFragmentDestination();
                             dest.fragment_instance_id = param.instanceId;
