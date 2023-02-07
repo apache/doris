@@ -43,7 +43,6 @@
 #include "vec/core/block.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
-#include "vec/olap/olap_data_convertor.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -588,12 +587,15 @@ SchemaChangeForInvertedIndex::SchemaChangeForInvertedIndex(
         const TabletSchemaSPtr& tablet_schema)
         : SchemaChange(),
           _alter_inverted_indexs(alter_inverted_indexs),
-          _tablet_schema(tablet_schema) {}
+          _tablet_schema(tablet_schema) {
+    _olap_data_convertor = std::make_unique<vectorized::OlapBlockDataConvertor>();
+}
 
 SchemaChangeForInvertedIndex::~SchemaChangeForInvertedIndex() {
     VLOG_NOTICE << "~SchemaChangeForInvertedIndex()";
     _inverted_index_builders.clear();
     _index_metas.clear();
+    _olap_data_convertor.reset();
 }
 
 Status SchemaChangeForInvertedIndex::process(RowsetReaderSharedPtr rowset_reader,
@@ -606,26 +608,32 @@ Status SchemaChangeForInvertedIndex::process(RowsetReaderSharedPtr rowset_reader
         return Status::OK();
     }
 
-    std::vector<ColumnId> return_columns;
-    for (auto& inverted_index : _alter_inverted_indexs) {
-        DCHECK_EQ(inverted_index.columns.size(), 1);
-        auto column_name = inverted_index.columns[0];
-        auto idx = _tablet_schema->field_index(column_name);
-        return_columns.emplace_back(idx);
-    }
-
     // create inverted index writer
     auto rowset_meta = rowset_reader->rowset()->rowset_meta();
     std::string segment_dir = base_tablet->tablet_path();
     auto fs = rowset_meta->fs();
-    for (auto i = 0; i < rowset_meta->num_segments(); ++i) {
+    _olap_data_convertor->reserve(_alter_inverted_indexs.size());
+
+    // load segments
+    SegmentCacheHandle segment_cache_handle;
+    RETURN_NOT_OK(SegmentLoader::instance()->load_segments(
+            std::static_pointer_cast<BetaRowset>(rowset_reader->rowset()), &segment_cache_handle,
+            false));
+
+    for (auto& seg_ptr : segment_cache_handle.get_segments()) {
         std::string segment_filename =
-                fmt::format("{}_{}.dat", rowset_meta->rowset_id().to_string(), i);
+                fmt::format("{}_{}.dat", rowset_meta->rowset_id().to_string(), seg_ptr->id());
+        std::vector<ColumnId> return_columns;
+        std::vector<std::pair<int64_t, int64_t>> inverted_index_writer_signs;
+        // create inverted index writer
         for (auto& inverted_index : _alter_inverted_indexs) {
             DCHECK_EQ(inverted_index.columns.size(), 1);
+            auto index_id = inverted_index.index_id;
             auto column_name = inverted_index.columns[0];
             auto column = _tablet_schema->column(column_name);
-            auto index_id = inverted_index.index_id;
+            auto column_idx = _tablet_schema->field_index(column_name);
+            return_columns.emplace_back(column_idx);
+            _olap_data_convertor->add_column_data_convertor(column);
 
             std::unique_ptr<Field> field(FieldFactory::create(column));
             _index_metas.emplace_back(new TabletIndex());
@@ -641,27 +649,20 @@ Status SchemaChangeForInvertedIndex::process(RowsetReaderSharedPtr rowset_reader
             }
 
             if (inverted_index_builder) {
-                std::string writer_sign = fmt::format("{}_{}", i, index_id);
+                auto writer_sign = std::make_pair(seg_ptr->id(), index_id);
                 _inverted_index_builders.insert(
                         std::make_pair(writer_sign, std::move(inverted_index_builder)));
+                inverted_index_writer_signs.push_back(writer_sign);
             }
         }
-    }
 
-    SegmentCacheHandle segment_cache_handle;
-    // load segments
-    RETURN_NOT_OK(SegmentLoader::instance()->load_segments(
-            std::static_pointer_cast<BetaRowset>(rowset_reader->rowset()), &segment_cache_handle,
-            false));
-
-    // create iterator for each segment
-    StorageReadOptions read_options;
-    OlapReaderStatistics stats;
-    read_options.stats = &stats;
-    read_options.tablet_schema = _tablet_schema;
-    std::unique_ptr<Schema> schema =
-            std::make_unique<Schema>(_tablet_schema->columns(), return_columns);
-    for (auto& seg_ptr : segment_cache_handle.get_segments()) {
+        // create iterator for each segment
+        StorageReadOptions read_options;
+        OlapReaderStatistics stats;
+        read_options.stats = &stats;
+        read_options.tablet_schema = _tablet_schema;
+        std::unique_ptr<Schema> schema =
+                std::make_unique<Schema>(_tablet_schema->columns(), return_columns);
         std::unique_ptr<RowwiseIterator> iter;
         res = seg_ptr->new_iterator(*schema, read_options, &iter);
         if (!res.ok()) {
@@ -673,7 +674,6 @@ Status SchemaChangeForInvertedIndex::process(RowsetReaderSharedPtr rowset_reader
         std::shared_ptr<vectorized::Block> block =
                 std::make_shared<vectorized::Block>(_tablet_schema->create_block(return_columns));
         do {
-            block->clear_column_data();
             res = iter->next_batch(block.get());
             if (!res.ok()) {
                 if (res.is<END_OF_FILE>()) {
@@ -683,26 +683,17 @@ Status SchemaChangeForInvertedIndex::process(RowsetReaderSharedPtr rowset_reader
                         res, "failed to read next block when schema change for inverted index.");
             }
 
-            // copy block
-            auto ref_block = *block;
-
             // write inverted index
-            if (_write_inverted_index(iter->data_id(), &ref_block) != Status::OK()) {
+            if (_write_inverted_index(iter->data_id(), block.get()) != Status::OK()) {
                 res = Status::Error<SCHEMA_CHANGE_INFO_INVALID>();
                 LOG(WARNING) << "failed to write block.";
                 return res;
             }
-        } while (block->rows() != 0);
-    }
+            block->clear_column_data();
+        } while (true);
 
-    // finish write inverted index, flush data to compound file
-    for (auto i = 0; i < rowset_meta->num_segments(); ++i) {
-        for (auto& inverted_index : _alter_inverted_indexs) {
-            DCHECK_EQ(inverted_index.columns.size(), 1);
-            auto column_name = inverted_index.columns[0];
-            auto column = _tablet_schema->column(column_name);
-            auto index_id = inverted_index.index_id;
-            std::string writer_sign = fmt::format("{}_{}", i, index_id);
+        // finish write inverted index, flush data to compound file
+        for (auto& writer_sign : inverted_index_writer_signs) {
             try {
                 if (_inverted_index_builders[writer_sign]) {
                     _inverted_index_builders[writer_sign]->finish();
@@ -713,6 +704,7 @@ Status SchemaChangeForInvertedIndex::process(RowsetReaderSharedPtr rowset_reader
             }
         }
     }
+
     _inverted_index_builders.clear();
     _index_metas.clear();
 
@@ -720,10 +712,9 @@ Status SchemaChangeForInvertedIndex::process(RowsetReaderSharedPtr rowset_reader
     return res;
 }
 
-Status SchemaChangeForInvertedIndex::_add_nullable(const std::string& column_name,
-                                                   const std::string& index_writer_sign,
-                                                   Field* field, const uint8_t* null_map,
-                                                   const uint8_t** ptr, size_t num_rows) {
+Status SchemaChangeForInvertedIndex::_add_nullable(
+        const std::string& column_name, const std::pair<int64_t, int64_t>& index_writer_sign,
+        Field* field, const uint8_t* null_map, const uint8_t** ptr, size_t num_rows) {
     size_t offset = 0;
     auto next_run_step = [&]() {
         size_t step = 1;
@@ -764,8 +755,8 @@ Status SchemaChangeForInvertedIndex::_add_nullable(const std::string& column_nam
 }
 
 Status SchemaChangeForInvertedIndex::_add_data(const std::string& column_name,
-                                               const std::string& index_writer_sign, Field* field,
-                                               const uint8_t** ptr, size_t num_rows) {
+                                               const std::pair<int64_t, int64_t>& index_writer_sign,
+                                               Field* field, const uint8_t** ptr, size_t num_rows) {
     try {
         if (field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
             DCHECK(field->get_sub_field_count() == 1);
@@ -786,31 +777,22 @@ Status SchemaChangeForInvertedIndex::_add_data(const std::string& column_name,
 
 Status SchemaChangeForInvertedIndex::_write_inverted_index(int32_t segment_idx,
                                                            vectorized::Block* block) {
-    LOG(INFO) << "begin to write inverted index";
-
+    VLOG_DEBUG << "begin to write inverted index";
     // converter block data
-    vectorized::OlapBlockDataConvertor olap_data_convertor;
-    olap_data_convertor.reserve(block->columns());
-    for (auto& inverted_index : _alter_inverted_indexs) {
-        auto column_name = inverted_index.columns[0];
-        auto column = _tablet_schema->column(column_name);
-        olap_data_convertor.add_column_data_convertor(column);
-    }
-    olap_data_convertor.set_source_content(block, 0, block->rows());
-
+    _olap_data_convertor->set_source_content(block, 0, block->rows());
     int idx = 0;
     for (auto& inverted_index : _alter_inverted_indexs) {
         auto column_name = inverted_index.columns[0];
         auto column = _tablet_schema->column(column_name);
         auto index_id = inverted_index.index_id;
 
-        auto converted_result = olap_data_convertor.convert_column_data(idx++);
+        auto converted_result = _olap_data_convertor->convert_column_data(idx++);
         if (converted_result.first != Status::OK()) {
             LOG(WARNING) << "failed to convert block, errcode: " << converted_result.first;
             return converted_result.first;
         }
 
-        std::string writer_sign = fmt::format("{}_{}", segment_idx, index_id);
+        auto writer_sign = std::make_pair(segment_idx, index_id);
         std::unique_ptr<Field> field(FieldFactory::create(column));
         const auto* ptr = (const uint8_t*)converted_result.second->get_data();
         if (converted_result.second->get_nullmap()) {
@@ -821,6 +803,7 @@ Status SchemaChangeForInvertedIndex::_write_inverted_index(int32_t segment_idx,
             RETURN_IF_ERROR(_add_data(column_name, writer_sign, field.get(), &ptr, block->rows()));
         }
     }
+    _olap_data_convertor->clear_source_content();
 
     return Status::OK();
 }
@@ -1259,15 +1242,13 @@ Status SchemaChangeHandler::_do_process_alter_inverted_index(
 
     // get rowset reader
     std::vector<RowsetReaderSharedPtr> rs_readers;
-    DeleteHandler delete_handler;
-    RETURN_IF_ERROR(
-            _get_rowset_readers(tablet, tablet_schema, request, &rs_readers, &delete_handler));
+    RETURN_IF_ERROR(_get_rowset_readers(tablet, tablet_schema, request, &rs_readers));
     if (request.__isset.is_drop_op && request.is_drop_op) {
         // drop index
         res = _drop_inverted_index(rs_readers, tablet_schema, tablet, request);
     } else {
         // add index
-        res = _add_inverted_index(rs_readers, &delete_handler, tablet_schema, tablet, request);
+        res = _add_inverted_index(rs_readers, tablet_schema, tablet, request);
     }
 
     if (!res.ok()) {
@@ -1281,8 +1262,7 @@ Status SchemaChangeHandler::_do_process_alter_inverted_index(
 Status SchemaChangeHandler::_get_rowset_readers(TabletSharedPtr tablet,
                                                 const TabletSchemaSPtr& tablet_schema,
                                                 const TAlterInvertedIndexReq& request,
-                                                std::vector<RowsetReaderSharedPtr>* rs_readers,
-                                                DeleteHandler* delete_handler) {
+                                                std::vector<RowsetReaderSharedPtr>* rs_readers) {
     Status res = Status::OK();
     std::vector<Version> versions_to_be_changed;
     std::vector<ColumnId> return_columns;
@@ -1338,7 +1318,8 @@ Status SchemaChangeHandler::_get_rowset_readers(TabletSharedPtr tablet,
                 }
                 tablet_schema->merge_dropped_columns(tablet->tablet_schema(delete_pred->version()));
             }
-            res = delete_handler->init(tablet_schema, all_del_preds, end_version);
+            DeleteHandler delete_handler;
+            res = delete_handler.init(tablet_schema, all_del_preds, end_version);
             if (!res) {
                 LOG(WARNING) << "init delete handler failed. tablet=" << tablet->full_name()
                              << ", end_version=" << end_version;
@@ -1359,11 +1340,10 @@ Status SchemaChangeHandler::_get_rowset_readers(TabletSharedPtr tablet,
             RowsetReaderContext reader_context;
             reader_context.reader_type = READER_ALTER_TABLE;
             reader_context.tablet_schema = tablet_schema;
-            reader_context.need_ordered_result = true;
-            reader_context.delete_handler = delete_handler;
+            reader_context.need_ordered_result = false;
+            reader_context.delete_handler = &delete_handler;
             reader_context.return_columns = &return_columns;
             reader_context.sequence_id_idx = reader_context.tablet_schema->sequence_col_idx();
-            reader_context.is_vec = true;
             reader_context.is_unique = tablet->keys_type() == UNIQUE_KEYS;
             reader_context.batch_size = ALTER_TABLE_BATCH_SIZE;
             reader_context.is_vec = config::enable_vectorized_alter_table;
@@ -1430,7 +1410,6 @@ Status SchemaChangeHandler::_drop_inverted_index(std::vector<RowsetReaderSharedP
 }
 
 Status SchemaChangeHandler::_add_inverted_index(std::vector<RowsetReaderSharedPtr> rs_readers,
-                                                DeleteHandler* delete_handler,
                                                 const TabletSchemaSPtr& tablet_schema,
                                                 TabletSharedPtr tablet,
                                                 const TAlterInvertedIndexReq& request) {
@@ -1446,8 +1425,7 @@ Status SchemaChangeHandler::_add_inverted_index(std::vector<RowsetReaderSharedPt
         _tablet_ids_in_converting.insert(tablet->tablet_id());
     }
 
-    res = _rebuild_inverted_index(rs_readers, delete_handler, tablet_schema, tablet,
-                                  alter_inverted_indexs);
+    res = _rebuild_inverted_index(rs_readers, tablet_schema, tablet, alter_inverted_indexs);
 
     {
         std::lock_guard<std::shared_mutex> wrlock(_mutex);
@@ -1467,9 +1445,8 @@ Status SchemaChangeHandler::_add_inverted_index(std::vector<RowsetReaderSharedPt
 }
 
 Status SchemaChangeHandler::_rebuild_inverted_index(
-        const std::vector<RowsetReaderSharedPtr>& rs_readers, DeleteHandler* delete_handler,
-        const TabletSchemaSPtr& tablet_schema, TabletSharedPtr tablet,
-        const std::vector<TOlapTableIndex>& alter_inverted_indexs) {
+        const std::vector<RowsetReaderSharedPtr>& rs_readers, const TabletSchemaSPtr& tablet_schema,
+        TabletSharedPtr tablet, const std::vector<TOlapTableIndex>& alter_inverted_indexs) {
     LOG(INFO) << "begin to rebuild inverted index"
               << ", tablet=" << tablet->full_name();
     Status res = Status::OK();

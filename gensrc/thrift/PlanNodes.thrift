@@ -574,7 +574,7 @@ struct TOlapScanNode {
   11: optional bool enable_unique_key_merge_on_write
   12: optional TPushAggOp push_down_agg_type_opt
   13: optional bool use_topn_opt
-  16: optional list<Descriptors.TOlapTableIndex> indexes_desc
+  14: optional list<Descriptors.TOlapTableIndex> indexes_desc
 }
 
 struct TEqJoinCondition {

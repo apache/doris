@@ -367,6 +367,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
 
     private void addShadowIndexToCatalog(OlapTable tbl) {
         if (invertedIndexChange) {
+            // change inverted index no need create shadow index, it modifies on origin base tablet.
             return;
         }
 

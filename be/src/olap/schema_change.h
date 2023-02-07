@@ -26,6 +26,7 @@
 #include "olap/tablet.h"
 #include "vec/columns/column.h"
 #include "vec/core/block.h"
+#include "vec/olap/olap_data_convertor.h"
 
 namespace doris {
 
@@ -190,20 +191,23 @@ public:
 private:
     DISALLOW_COPY_AND_ASSIGN(SchemaChangeForInvertedIndex);
     Status _write_inverted_index(int32_t segment_idx, vectorized::Block* block);
-    Status _add_data(const std::string& column_name, const std::string& index_writer_sign,
-                     Field* field, const uint8_t** ptr, size_t num_rows);
-    Status _add_nullable(const std::string& column_name, const std::string& index_writer_sign,
-                         Field* field, const uint8_t* null_map, const uint8_t** ptr,
-                         size_t num_rows);
+    Status _add_data(const std::string& column_name,
+                     const std::pair<int64_t, int64_t>& index_writer_sign, Field* field,
+                     const uint8_t** ptr, size_t num_rows);
+    Status _add_nullable(const std::string& column_name,
+                         const std::pair<int64_t, int64_t>& index_writer_sign, Field* field,
+                         const uint8_t* null_map, const uint8_t** ptr, size_t num_rows);
 
 private:
     std::vector<TOlapTableIndex> _alter_inverted_indexs;
     TabletSchemaSPtr _tablet_schema;
 
-    // "segment_id_unique_id" -> InvertedIndexColumnWriter
-    std::unordered_map<std::string, std::unique_ptr<segment_v2::InvertedIndexColumnWriter>>
+    // "<segment_id, index_id>" -> InvertedIndexColumnWriter
+    std::unordered_map<std::pair<int64_t, int64_t>,
+                       std::unique_ptr<segment_v2::InvertedIndexColumnWriter>>
             _inverted_index_builders;
     std::vector<std::unique_ptr<TabletIndex>> _index_metas;
+    std::unique_ptr<vectorized::OlapBlockDataConvertor> _olap_data_convertor;
 };
 
 class SchemaChangeHandler {
@@ -268,10 +272,8 @@ private:
 
     static Status _get_rowset_readers(TabletSharedPtr tablet, const TabletSchemaSPtr& tablet_schema,
                                       const TAlterInvertedIndexReq& request,
-                                      std::vector<RowsetReaderSharedPtr>* rs_readers,
-                                      DeleteHandler* delete_handler);
+                                      std::vector<RowsetReaderSharedPtr>* rs_readers);
     static Status _add_inverted_index(std::vector<RowsetReaderSharedPtr> rs_readers,
-                                      DeleteHandler* delete_handler,
                                       const TabletSchemaSPtr& tablet_schema, TabletSharedPtr tablet,
                                       const TAlterInvertedIndexReq& request);
     static Status _drop_inverted_index(std::vector<RowsetReaderSharedPtr> rs_readers,
@@ -280,7 +282,7 @@ private:
                                        const TAlterInvertedIndexReq& request);
 
     static Status _rebuild_inverted_index(
-            const std::vector<RowsetReaderSharedPtr>& rs_readers, DeleteHandler* delete_handler,
+            const std::vector<RowsetReaderSharedPtr>& rs_readers,
             const TabletSchemaSPtr& tablet_schema, TabletSharedPtr tablet,
             const std::vector<TOlapTableIndex>& alter_inverted_indexs);
 

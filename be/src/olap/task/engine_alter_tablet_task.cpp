@@ -57,7 +57,7 @@ EngineAlterInvertedIndexTask::EngineAlterInvertedIndexTask(
 
 Status EngineAlterInvertedIndexTask::execute() {
     SCOPED_ATTACH_TASK(_mem_tracker);
-    DorisMetrics::instance()->create_rollup_requests_total->increment(1);
+    DorisMetrics::instance()->alter_inverted_index_requests_total->increment(1);
 
     Status res = SchemaChangeHandler::process_alter_inverted_index(_alter_inverted_index_req);
 
@@ -65,7 +65,7 @@ Status EngineAlterInvertedIndexTask::execute() {
         LOG(WARNING) << "failed to do alter inverted index task. res=" << res
                      << " tablet_ud=" << _alter_inverted_index_req.tablet_id
                      << ", schema_hash=" << _alter_inverted_index_req.schema_hash;
-        DorisMetrics::instance()->create_rollup_requests_failed->increment(1);
+        DorisMetrics::instance()->alter_inverted_index_requests_failed->increment(1);
         return res;
     }
 
