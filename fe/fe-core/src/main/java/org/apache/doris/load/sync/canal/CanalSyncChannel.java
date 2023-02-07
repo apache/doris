@@ -124,8 +124,7 @@ public class CanalSyncChannel extends SyncChannel {
             String targetColumn = Joiner.on(",").join(columns) + "," + DELETE_COLUMN;
             GlobalTransactionMgr globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
             DatabaseTransactionMgr databaseTransactionMgr = globalTransactionMgr.getDatabaseTransactionMgr(db.getId());
-            long txnLimit = (Config.default_db_max_running_txn_num == -1L)
-                    ? Config.max_running_txn_num_per_db : Config.default_db_max_running_txn_num;
+            long txnLimit = db.getTransactionQuotaSize();
             if (databaseTransactionMgr.getRunningTxnNums() < txnLimit) {
                 TransactionEntry txnEntry = txnExecutor.getTxnEntry();
                 TTxnParams txnConf = txnEntry.getTxnConf();

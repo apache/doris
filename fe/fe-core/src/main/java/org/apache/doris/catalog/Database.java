@@ -219,9 +219,18 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     }
 
     public void setTransactionQuotaSize(long newQuota) {
-        Preconditions.checkArgument(newQuota >= 0L);
-        LOG.info("database[{}] set transaction quota from {} to {}", fullQualifiedName, transactionQuotaSize, newQuota);
-        this.transactionQuotaSize = newQuota;
+        writeLock();
+        try {
+            Preconditions.checkArgument(newQuota >= 0L);
+            LOG.info("database[{}] try to set transaction quota from {} to {}",
+                    fullQualifiedName, transactionQuotaSize, newQuota);
+            this.transactionQuotaSize = newQuota;
+            this.dbProperties.put(TRANSACTION_QUOTA_SIZE, String.valueOf(transactionQuotaSize));
+        } catch (Exception e) {
+            LOG.warn("database[{}] try to set transaction quota failed. reason = [{}]" , fullQualifiedName, e)
+        } finally {
+            writeUnlock();
+        }
     }
 
     public long getDataQuota() {
@@ -571,7 +580,6 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         dbEncryptKey.write(out);
 
         out.writeLong(replicaQuotaSize);
-        dbProperties.put(TRANSACTION_QUOTA_SIZE, String.valueOf(transactionQuotaSize));
         dbProperties.write(out);
     }
 
@@ -623,7 +631,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
                     String.valueOf(Config.max_running_txn_num_per_db));
             transactionQuotaSize = Long.parseLong(txnQuotaStr);
         } else {
-            transactionQuotaSize = (transactionQuotaSize == -1L)
+            transactionQuotaSize = (Config.default_db_max_running_txn_num == -1L)
                     ? Config.max_running_txn_num_per_db
                     : Config.default_db_max_running_txn_num;
         }
