@@ -703,6 +703,8 @@ public class SessionVariable implements Serializable, Writable {
         this.partitionedHashJoinRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.partitionedHashAggRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
+        this.enableFoldConstantByBe = random.nextBoolean();
+        this.enableTwoPhaseReadOpt = random.nextBoolean();
         int randomInt = random.nextInt(4);
         if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
@@ -725,13 +727,9 @@ public class SessionVariable implements Serializable, Writable {
         }
         // pull_request_id default value is 0
         if (Config.pull_request_id % 2 == 1) {
-            // this.enablePipelineEngine = true;
-            this.enableFoldConstantByBe = true;
-            // this.enableTwoPhaseReadOpt = false;
+            this.enablePipelineEngine = true;
         } else {
             this.enablePipelineEngine = false;
-            this.enableFoldConstantByBe = false;
-            this.enableTwoPhaseReadOpt = true;
         }
     }
 
