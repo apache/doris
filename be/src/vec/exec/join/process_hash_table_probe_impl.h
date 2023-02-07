@@ -814,7 +814,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
 
                     // For mark join, we only filter rows which have duplicate join keys.
                     // And then, we set matched_map to the join result to do the mark join's filtering.
-                    for (size_t i = start_row_idx; i < row_count; ++i) {
+                    for (size_t i = 1; i < row_count; ++i) {
                         if (!same_to_prev[i]) {
                             matched_map.push_back(filter_map[i - 1]);
                             filter_map[i - 1] = true;
@@ -884,7 +884,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                                                 *(output_block->get_by_position(num_cols - 1)
                                                           .column->assume_mutable()))
                                                 .get_data();
-                    for (int i = start_row_idx; i < row_count; ++i) {
+                    for (int i = 1; i < row_count; ++i) {
                         if (!same_to_prev[i]) {
                             matched_map.push_back(!filter_map[i - 1]);
                             filter_map[i - 1] = true;
@@ -954,7 +954,6 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                 auto filter_size = 0;
                 for (int i = 0; i < row_count; ++i) {
                     DCHECK(visited_map[i]);
-                    // TODO: use raw vector data to optimize
                     auto result = column->get_bool(i);
                     *visited_map[i] |= result;
                     filter_size += result;
@@ -1056,7 +1055,6 @@ Status ProcessHashTableProbe<JoinOpType>::process_data_in_hashtable(HashTableTyp
         };
 
         if (visited_iter.ok()) {
-            // DCHECK((std::is_same_v<Mapped, RowRefListWithFlag>));
             for (; visited_iter.ok() && block_size < _batch_size; ++visited_iter) {
                 insert_from_hash_table(visited_iter->block_offset, visited_iter->row_num);
             }
