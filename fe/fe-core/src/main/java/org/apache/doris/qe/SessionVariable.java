@@ -719,6 +719,16 @@ public class SessionVariable implements Serializable, Writable {
                 this.externalSortBytesThreshold = 100 * 1024 * 1024 * 1024;
                 break;
         }
+        // pull_request_id default value is 0
+        if (Config.pull_request_id % 2 == 1) {
+            // this.enablePipelineEngine = true;
+            this.enableFoldConstantByBe = true;
+            // this.enableTwoPhaseReadOpt = false;
+        } else {
+            this.enablePipelineEngine = false;
+            this.enableFoldConstantByBe = false;
+            this.enableTwoPhaseReadOpt = true;
+        }
     }
 
     /**
