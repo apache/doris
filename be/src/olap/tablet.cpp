@@ -1807,7 +1807,7 @@ Status Tablet::_cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_
     TUniqueId cooldown_meta_id = generate_uuid();
 
     // upload cooldowned rowset meta to remote fs
-    RETURN_IF_ERROR(_write_cooldown_meta(dest_fs.get(), cooldown_meta_id, new_rowset_meta.get()));
+    RETURN_IF_ERROR(_write_cooldown_meta(dest_fs, cooldown_meta_id, new_rowset_meta.get()));
 
     RowsetSharedPtr new_rowset;
     RowsetFactory::create_rowset(_schema, _tablet_path, new_rowset_meta, &new_rowset);
@@ -1861,8 +1861,8 @@ Status Tablet::_write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>&
         return Status::InternalError("version not continuous");
     }
     TabletMetaPB tablet_meta_pb;
-    tablet_meta_pb.mutable_cooldown_meta_id()->set_hi(_cooldown_meta_id.hi);
-    tablet_meta_pb.mutable_cooldown_meta_id()->set_lo(_cooldown_meta_id.lo);
+    tablet_meta_pb.mutable_cooldown_meta_id()->set_hi(cooldown_meta_id.hi);
+    tablet_meta_pb.mutable_cooldown_meta_id()->set_lo(cooldown_meta_id.lo);
     auto rs_metas = tablet_meta_pb.mutable_rs_metas();
     rs_metas->Reserve(cooldowned_rs_metas.size() + 1);
     for (auto& rs_meta : cooldowned_rs_metas) {
