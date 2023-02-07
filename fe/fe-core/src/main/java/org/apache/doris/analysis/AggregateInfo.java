@@ -691,6 +691,7 @@ public final class AggregateInfo extends AggregateInfoBase {
                     new SlotRef(inputDesc.getSlots().get(i + getGroupingExprs().size()));
             FunctionCallExpr aggExpr = FunctionCallExpr.createMergeAggCall(
                     inputExpr, Lists.newArrayList(aggExprParam), inputExpr.getFnParams().exprs());
+            aggExpr.setOrderByElements(inputExpr.getOrderByElements());
             secondPhaseAggExprs.add(aggExpr);
         }
         Preconditions.checkState(

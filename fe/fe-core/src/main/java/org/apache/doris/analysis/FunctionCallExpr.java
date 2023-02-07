@@ -248,7 +248,7 @@ public class FunctionCallExpr extends Expr {
     }
 
     public FunctionParams getFnParams() {
-        return fnParams;
+        return aggFnParams != null ? aggFnParams : fnParams;
     }
 
     // only used restore from readFields.
