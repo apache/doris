@@ -255,7 +255,7 @@ There are two ways to configure BE configuration items:
 #### `thrift_rpc_timeout_ms`
 
 * Description: thrift default timeout time
-* Default value: 5000
+* Default value: 10000
 
 #### `thrift_client_retry_interval_ms`
 
