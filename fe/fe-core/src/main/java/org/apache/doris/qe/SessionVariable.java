@@ -704,7 +704,7 @@ public class SessionVariable implements Serializable, Writable {
         this.partitionedHashAggRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
         int randomInt = random.nextInt(4);
-        if(randomInt % 2 == 0) {
+        if (randomInt % 2 == 0) {
             this.rewriteOrToInPredicateThreshold = 100000;
         } else {
             this.rewriteOrToInPredicateThreshold = 2;
