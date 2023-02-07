@@ -297,7 +297,7 @@ public:
     // begin cooldown functions
     ////////////////////////////////////////////////////////////////////////////
     // Cooldown to remote fs.
-    Status cooldown();
+    Status cooldown(io::RemoteFileSystem* fs);
 
     RowsetSharedPtr pick_cooldown_rowset();
 
@@ -403,7 +403,7 @@ private:
     ////////////////////////////////////////////////////////////////////////////
     bool get_cooldown_delete_id(TUniqueId* cooldown_delete_id);
     void enable_cooldown_flag(const TUniqueId& cooldown_delete_id);
-    Status _deal_cooldown_delete_files(const std::shared_ptr<io::RemoteFileSystem>& dest_fs);
+    Status _deal_cooldown_delete_files(const std::shared_ptr<io::RemoteFileSystem>& fs);
     Status _cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_fs);
     Status _follow_cooldowned_data(io::RemoteFileSystem* fs, int64_t cooldown_replica_id);
     Status _read_cooldown_meta(io::RemoteFileSystem* fs, int64_t cooldown_replica_id,

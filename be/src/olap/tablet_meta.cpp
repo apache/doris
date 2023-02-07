@@ -507,7 +507,7 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
         RowsetMetaSharedPtr rs_meta(new RowsetMeta());
         rs_meta->init_from_pb(it);
         _rs_metas.push_back(std::move(rs_meta));
-        if (tablet_meta_pb.storage_policy() != "" &&
+        if (_tablet_meta->storage_policy_id() > 0 &&
                 it.has_resource_id() && it.resource_id() != "" &&
                 it.end_version() > _cooldowned_version) {
             _cooldowned_version = it.end_version();

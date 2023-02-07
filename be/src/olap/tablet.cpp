@@ -1671,8 +1671,7 @@ Status Tablet::cooldown(io::RemoteFileSystem* fs) {
     DCHECK(atol(dest_fs->id().c_str()) == storage_policy->resource_id);
     DCHECK(dest_fs->type() != io::FileSystemType::LOCAL);
 
-    if (_need_deal_cooldown_delete
-            && _tablet_meta->cooldown_replica_id() == _tablet_meta->replica_id()) {
+    if (_need_deal_cooldown_delete && _cooldown_replica_id == _tablet_meta->replica_id()) {
         RETURN_IF_ERROR(_deal_cooldown_delete_files(dest_fs));
     }
 
@@ -1712,7 +1711,7 @@ void Tablet::enable_cooldown_flag(const TUniqueId& cooldown_delete_id) {
 }
 
 bool Tablet::need_deal_cooldown_delete() {
-    if (_tablet_meta->cooldown_replica_id() != _tablet_meta->replica_id()) {
+    if (_cooldown_replica_id != _tablet_meta->replica_id()) {
         _need_deal_cooldown_delete = false;
         return false;
     }
@@ -1721,24 +1720,18 @@ bool Tablet::need_deal_cooldown_delete() {
     return _need_deal_cooldown_delete;
 }
 
-Status Tablet::_deal_cooldown_delete_files(const std::shared_ptr<io::RemoteFileSystem>& dest_fs) {
-    auto fs = io::FileSystemMap::instance()->get(storage_policy());
-    if (!fs) {
-        return Status::Error<UNINITIALIZED>();
-    }
-    if (fs->type() != io::FileSystemType::S3) {
-        return Status::Error<UNINITIALIZED>();
-    }
-
-    TabletMetaPB remote_tablet_meta_pb;
-    _tablet_meta->to_meta_pb(true, &remote_tablet_meta_pb);
+Status Tablet::_deal_cooldown_delete_files(const std::shared_ptr<io::RemoteFileSystem>& fs) {
     std::map<std::string, bool> remote_segment_name_map;
-    for (auto& rowset_meta_pb : remote_tablet_meta_pb.rs_metas()) {
-        for (int i = 0; i < rowset_meta_pb.num_segments(); ++i) {
-            std::string segment_filename = io::Path(BetaRowset::remote_segment_path(
-                    tablet_id(), rowset_meta_pb.rowset_id_v2(), i)).filename();
-            boost::replace_all(segment_filename, "\"", "");
-            remote_segment_name_map.emplace(segment_filename, true);
+    {
+        std::shared_lock meta_rlock(_meta_lock);
+        for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
+            if (rs_meta->is_local()) {
+                continue;
+            }
+            for (int i = 0; i < rs_meta->num_segments(); ++i) {
+                remote_segment_name_map.emplace(BetaRowset::segment_file_name(
+                        tablet_id(), rs_meta->rowset_id().to_string(), i));
+            }
         }
     }
     if (remote_segment_name_map.size() == 0) {
@@ -1782,15 +1775,7 @@ Status Tablet::_deal_cooldown_delete_files(const std::shared_ptr<io::RemoteFileS
     return Status::OK();
 }
 
-Status Tablet::_cooldown_data() {
-    auto dest_fs = io::FileSystemMap::instance()->get(storage_policy());
-    if (!dest_fs) {
-        return Status::Error<UNINITIALIZED>();
-    }
-    if (dest_fs->type() != io::FileSystemType::S3) {
-        return Status::Error<UNINITIALIZED>();
-    }
-
+Status Tablet::_cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_fs) {
     auto old_rowset = pick_cooldown_rowset();
     if (!old_rowset) {
         LOG(WARNING) << "Cannot pick cooldown rowset in tablet " << tablet_id();
@@ -1956,7 +1941,10 @@ Status Tablet::_follow_cooldowned_data(io::RemoteFileSystem* fs, int64_t cooldow
     }
 
     _tablet_meta->modify_rs_metas(to_add, to_delete);
-    _tablet_meta->set_cooldown_meta_id(cooldown_meta_pb.cooldown_meta_id());
+    TUniqueId t_cooldown_meta_id;
+    t_cooldown_meta_id.__set_hi(cooldown_meta_pb.cooldown_meta_id().hi());
+    t_cooldown_meta_id.__set_lo(cooldown_meta_pb.cooldown_meta_id().lo());
+    _tablet_meta->set_cooldown_meta_id(t_cooldown_meta_id);
 
     // TODO(plat1ko): process primary key
 

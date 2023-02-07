@@ -55,6 +55,9 @@ public:
                                                        const RowsetId& rowset_id, int64_t begin,
                                                        int64_t end);
 
+    static std::string segment_file_name(int64_t tablet_id, const std::string& rowset_id,
+                                         int segment_id);
+
     static std::string remote_segment_path(int64_t tablet_id, const RowsetId& rowset_id,
                                            int segment_id);
 
