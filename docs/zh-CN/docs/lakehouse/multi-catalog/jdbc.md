@@ -173,8 +173,11 @@ select * from mysql_table where k1 > 1000 and k3 ='term';
 
 ## 数据写入
 
+<version since="1.2.2">
 在Doris中建立JDBC Catalog后，可以通过insert into语句直接写入数据，也可以将Doris执行完查询之后的结果写入JDBC Catalog，或者是从一个JDBC外表将数据导入另一个JDBC外表。
+</version>
 
+示例：
 
 ```sql
 insert into mysql_table values(1, "doris");
@@ -182,7 +185,7 @@ insert into mysql_table select * from table;
 ```
 ### 事务
 
-Doris的数据是由一组batch的方式写入外部表的，如果中途导入中断，之前写入数据可能需要回滚。所以JDBC外表支持数据写入时的事务，事务的支持需要通过设置session variable: `enable_odbc_transcation `(ODBC事务也受此变量控制)。
+Doris的数据是由一组batch的方式写入外部表的，如果中途导入中断，之前写入数据可能需要回滚。所以JDBC外表支持数据写入时的事务，事务的支持需要通过设置session variable: `enable_odbc_transcation `。
 
 ```sql
 set enable_odbc_transcation = true; 
