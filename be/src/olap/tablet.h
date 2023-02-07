@@ -389,6 +389,7 @@ public:
         for (auto& [v, rs] : _stale_rs_version_map) {
             visitor(rs);
         }
+    }
 
     inline void increase_io_error_times() { ++_io_error_times; }
 
