@@ -29,6 +29,8 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.persist.GlobalVarPersistInfo;
+import org.apache.doris.qe.FuzzyVarHandlers.DefaultVarHandler;
+import org.apache.doris.qe.FuzzyVarHandlers.VarHandler;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -567,7 +569,7 @@ public class VariableMgr {
     }
 
     @Retention(RetentionPolicy.RUNTIME)
-    public static @interface VarAttr {
+    public @interface VarAttr {
         // Name in show variables and set statement;
         String name();
 
@@ -585,6 +587,8 @@ public class VariableMgr {
 
         // Set to true if the variables need to be forwarded along with forward statement.
         boolean needForward() default false;
+
+        Class<? extends VarHandler> fuzzy() default DefaultVarHandler.class;
     }
 
     private static class VarContext {
