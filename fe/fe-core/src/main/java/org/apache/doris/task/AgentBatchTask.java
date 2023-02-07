@@ -30,6 +30,7 @@ import org.apache.doris.thrift.TClearAlterTaskRequest;
 import org.apache.doris.thrift.TClearTransactionTaskRequest;
 import org.apache.doris.thrift.TCloneReq;
 import org.apache.doris.thrift.TCompactionReq;
+import org.apache.doris.thrift.TCooldownDeleteFileReq;
 import org.apache.doris.thrift.TCreateTabletReq;
 import org.apache.doris.thrift.TDownloadReq;
 import org.apache.doris.thrift.TDropTabletReq;
@@ -363,6 +364,15 @@ public class AgentBatchTask implements Runnable {
                     LOG.debug(request.toString());
                 }
                 tAgentTaskRequest.setPushCooldownConf(request);
+                return tAgentTaskRequest;
+            }
+            case COOLDOWN_DELETE_FILE: {
+                SendCooldownDeleteTask sendCooldownDeleteTask = (SendCooldownDeleteTask) task;
+                TCooldownDeleteFileReq request = sendCooldownDeleteTask.toThrift();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
+                tAgentTaskRequest.setCooldownDeleteFile(request);
                 return tAgentTaskRequest;
             }
             default:
