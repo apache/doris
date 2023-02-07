@@ -777,16 +777,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             currentFragment = childFragment;
         }
 
-        // 3. Generate new Tuple
-        TupleDescriptor tupleDesc = generateTupleDesc(outputList, orderKeyList, context, null);
-        // todo: trick; need to confirm its correctness
-        context.setBufferedTupleForWindow(tupleDesc);
-        // 4. Get current slotRef
+        // 3. Generate new Tuple and get current slotRef for newOrderingExprList
         List<Expr> newOrderingExprList = Lists.newArrayList();
-        orderKeyList.forEach(k -> {
-            newOrderingExprList.add(ExpressionTranslator.translate(k.getExpr(), context));
-        });
-        // 5. fill in SortInfo members
+        TupleDescriptor tupleDesc = generateTupleDesc(outputList, orderKeyList, newOrderingExprList, context, null);
+        context.setBufferedTupleForWindow(tupleDesc);
+
+        // 4. fill in SortInfo members
         SortInfo sortInfo = new SortInfo(newOrderingExprList, ascOrderList, nullsFirstParamList, tupleDesc);
         PlanNode childNode = currentFragment.getPlanRoot();
         SortNode sortNode = new SortNode(context.nextPlanNodeId(), childNode, sortInfo, useTopN);
