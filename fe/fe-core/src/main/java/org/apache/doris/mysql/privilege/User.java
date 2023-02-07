@@ -21,8 +21,13 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherException;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
 
+import com.google.common.base.Preconditions;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.NotNull;
@@ -31,16 +36,33 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
-public class User implements Comparable<User>, Writable {
+public class User implements Comparable<User>, Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(User.class);
-
+    @SerializedName(value = "userIdentity")
     private UserIdentity userIdentity;
     private UserIdentity domainUserIdentity;
     private boolean isSetByDomainResolver = false;
     // host is not case sensitive
     protected PatternMatcher hostPattern;
     protected boolean isAnyHost = false;
+    @SerializedName(value = "password")
     private Password password;
+
+    public User() {
+    }
+
+    public User(UserIdentity userIdent, byte[] pwd, boolean setByResolver, UserIdentity domainUserIdent,
+            PatternMatcher hostPattern) {
+        this.isAnyHost = userIdent.getHost().equals(UserManager.ANY_HOST);
+        this.userIdentity = userIdent;
+        this.password = new Password(pwd);
+        this.hostPattern = hostPattern;
+        this.isSetByDomainResolver = setByResolver;
+        if (setByResolver) {
+            Preconditions.checkNotNull(domainUserIdent);
+            this.domainUserIdentity = domainUserIdent;
+        }
+    }
 
 
     public Password getPassword() {
@@ -110,34 +132,32 @@ public class User implements Comparable<User>, Writable {
     }
 
     @Override
-    public void write(DataOutput out) throws IOException {
-        userIdentity.write(out);
-        password.write(out);
-    }
-
-    public static User read(DataInput in) throws IOException {
-        User user = new User();
-        user.readFields(in);
-        return user;
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        userIdentity = UserIdentity.read(in);
-        password = Password.read(in);
-        try {
-            hostPattern = PatternMatcher
-                    .createMysqlPattern(userIdentity.getHost(), CaseSensibility.HOST.getCaseSensibility());
-        } catch (PatternMatcherException e) {
-            LOG.warn("readFields error,", e);
-        }
-        isAnyHost = userIdentity.getHost().equals(UserManager.ANY_HOST);
-    }
-
-    @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
         sb.append("userIdentity: ").append(userIdentity).append(", isSetByDomainResolver: ")
                 .append(isSetByDomainResolver).append(", domainUserIdentity: ").append(domainUserIdentity);
         return sb.toString();
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    public static User read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, User.class);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        try {
+            hostPattern = PatternMatcher
+                    .createMysqlPattern(userIdentity.getHost(), CaseSensibility.HOST.getCaseSensibility());
+        } catch (PatternMatcherException e) {
+            // will not happen
+            LOG.warn("readFields error,", e);
+        }
+        isAnyHost = userIdentity.getHost().equals(UserManager.ANY_HOST);
     }
 }

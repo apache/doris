@@ -17,26 +17,25 @@
 
 package org.apache.doris.mysql.privilege;
 
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
+
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
 public class Password implements Writable {
+    @SerializedName(value = "pwd")
+    private byte[] password;
+
     public Password() {
     }
 
     public Password(byte[] password) {
         this.password = password;
-    }
-
-    private byte[] password;
-
-    public static Password read(DataInput in) throws IOException {
-        Password pwd = new Password();
-        pwd.readFields(in);
-        return pwd;
     }
 
     public byte[] getPassword() {
@@ -49,13 +48,11 @@ public class Password implements Writable {
 
     @Override
     public void write(DataOutput out) throws IOException {
-        out.writeInt(password.length);
-        out.write(password);
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
-    public void readFields(DataInput in) throws IOException {
-        int passwordLen = in.readInt();
-        password = new byte[passwordLen];
-        in.readFully(password);
+    public static Password read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, Password.class);
     }
 }

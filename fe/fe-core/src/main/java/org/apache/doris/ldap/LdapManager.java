@@ -80,7 +80,7 @@ public class LdapManager {
         try {
             return getUserInfoAndUpdateCache(fullName);
         } catch (DdlException e) {
-            LOG.warn("getUserInfo failed,", e);
+            LOG.warn("getUserInfo for {} failed", fullName, e);
             return null;
         }
     }

@@ -28,9 +28,12 @@ import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.MysqlPassword;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -38,9 +41,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -50,9 +51,10 @@ import java.util.Set;
 public class UserManager implements Writable {
     public static final String ANY_HOST = "%";
     private static final Logger LOG = LogManager.getLogger(UserManager.class);
-    //    Set<User> users = new HashSet<>();
+    // Concurrency control is delegated by Auth, so not concurrentMap
     //One name may have multiple User,because host can be different
-    private Map<String, List<User>> nameToUsers = new HashMap<>();
+    @SerializedName(value = "nameToUsers")
+    private Map<String, List<User>> nameToUsers = Maps.newHashMap();
 
     public boolean userIdentityExist(UserIdentity userIdentity, boolean includeByDomain) {
         List<User> users = nameToUsers.get(userIdentity.getQualifiedUser());
@@ -76,13 +78,21 @@ public class UserManager implements Writable {
 
     public void checkPassword(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
             List<UserIdentity> currentUser) throws AuthenticationException {
-        LOG.debug("check password for user: {} from {}, password: {}, random string: {}",
-                remoteUser, remoteHost, remotePasswd, randomString);
+        checkPasswordInternal(remoteUser, remoteHost, remotePasswd, randomString, null, currentUser, false);
+    }
 
+    public void checkPlainPassword(String remoteUser, String remoteHost, String remotePasswd,
+            List<UserIdentity> currentUser) throws AuthenticationException {
+        checkPasswordInternal(remoteUser, remoteHost, null, null, remotePasswd, currentUser, true);
+    }
+
+    private void checkPasswordInternal(String remoteUser, String remoteHost, byte[] remotePasswd, byte[] randomString,
+            String remotePasswdStr, List<UserIdentity> currentUser, boolean plain) throws AuthenticationException {
         PasswordPolicyManager passwdPolicyMgr = Env.getCurrentEnv().getAuth().getPasswdPolicyManager();
         List<User> users = nameToUsers.get(remoteUser);
         if (CollectionUtils.isEmpty(users)) {
-            return;
+            throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
+                    "YES");
         }
 
         for (User user : users) {
@@ -94,14 +104,8 @@ public class UserManager implements Writable {
                 continue;
             }
             UserIdentity curUser = user.getDomainUserIdentity();
-            // check password
-            byte[] saltPassword = MysqlPassword.getSaltFromPassword(user.getPassword().getPassword());
-            // when the length of password is zero, the user has no password
-            if ((remotePasswd.length == saltPassword.length)
-                    && (remotePasswd.length == 0
-                    || MysqlPassword.checkScramble(remotePasswd, randomString, saltPassword))) {
+            if (comparePassword(user.getPassword(), remotePasswd, randomString, remotePasswdStr, plain)) {
                 passwdPolicyMgr.checkAccountLockedAndPasswordExpiration(curUser);
-                // found the matched entry
                 if (currentUser != null) {
                     currentUser.add(curUser);
                 }
@@ -118,42 +122,24 @@ public class UserManager implements Writable {
                         remotePasswd.length == 0 ? "NO" : "YES");
             }
         }
-
-    }
-
-    public void checkPlainPassword(String remoteUser, String remoteHost, String remotePasswd,
-            List<UserIdentity> currentUser) throws AuthenticationException {
-        PasswordPolicyManager passwdPolicyMgr = Env.getCurrentEnv().getAuth().getPasswdPolicyManager();
-        List<User> users = nameToUsers.get(remoteUser);
-        if (CollectionUtils.isEmpty(users)) {
-            throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
-                    "YES");
-        }
-        for (User user : users) {
-            if (user.getUserIdentity().isDomain()) {
-                continue;
-            }
-            // check host
-            if (!user.isAnyHost() && !user.getHostPattern().match(remoteHost)) {
-                continue;
-            }
-            UserIdentity curUser = user.getDomainUserIdentity();
-            if (MysqlPassword.checkPlainPass(user.getPassword().getPassword(), remotePasswd)) {
-                passwdPolicyMgr.checkAccountLockedAndPasswordExpiration(curUser);
-                if (currentUser != null) {
-                    currentUser.add(curUser);
-                }
-                return;
-            } else {
-                // set case A. in checkPassword()
-                passwdPolicyMgr.onFailedLogin(curUser);
-                throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
-                        "YES");
-            }
-        }
         throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
                 "YES");
     }
+
+    private boolean comparePassword(Password curUserPassword, byte[] remotePasswd,
+            byte[] randomString, String remotePasswdStr, boolean plain) {
+        // check password
+        if (plain) {
+            return MysqlPassword.checkPlainPass(curUserPassword.getPassword(), remotePasswdStr);
+        } else {
+            byte[] saltPassword = MysqlPassword.getSaltFromPassword(curUserPassword.getPassword());
+            // when the length of password is zero, the user has no password
+            return ((remotePasswd.length == saltPassword.length)
+                    && (remotePasswd.length == 0
+                    || MysqlPassword.checkScramble(remotePasswd, randomString, saltPassword)));
+        }
+    }
+
 
     public void clearEntriesSetByResolver() {
         Iterator<Entry<String, List<User>>> iterator = nameToUsers.entrySet().iterator();
@@ -186,18 +172,7 @@ public class UserManager implements Writable {
 
         PatternMatcher hostPattern = PatternMatcher
                 .createMysqlPattern(userIdent.getHost(), CaseSensibility.HOST.getCaseSensibility());
-        User user = new User();
-        user.setAnyHost(userIdent.getHost().equals(ANY_HOST));
-        user.setUserIdentity(userIdent);
-        Password password = new Password();
-        password.setPassword(pwd);
-        user.setPassword(password);
-        user.setHostPattern(hostPattern);
-        user.setSetByDomainResolver(setByResolver);
-        if (setByResolver) {
-            Preconditions.checkNotNull(domainUserIdent);
-            user.setDomainUserIdentity(domainUserIdent);
-        }
+        User user = new User(userIdent, pwd, setByResolver, domainUserIdent, hostPattern);
         List<User> nameToLists = nameToUsers.get(userIdent.getQualifiedUser());
         if (CollectionUtils.isEmpty(nameToLists)) {
             nameToLists = Lists.newArrayList(user);
@@ -245,38 +220,6 @@ public class UserManager implements Writable {
 
     public Map<String, List<User>> getNameToUsers() {
         return nameToUsers;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeInt(nameToUsers.size());
-        for (Entry<String, List<User>> entry : nameToUsers.entrySet()) {
-            Text.writeString(out, entry.getKey());
-            out.writeInt(entry.getValue().size());
-            for (User user : entry.getValue()) {
-                user.write(out);
-            }
-        }
-    }
-
-    public static UserManager read(DataInput in) throws IOException {
-        UserManager userManager = new UserManager();
-        userManager.readFields(in);
-        return userManager;
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String name = Text.readString(in);
-            int userIdentSize = in.readInt();
-            List<User> users = new ArrayList<>(userIdentSize);
-            for (int j = 0; j < userIdentSize; j++) {
-                User user = User.read(in);
-                users.add(user);
-            }
-            nameToUsers.put(name, users);
-        }
     }
 
     public void setPassword(UserIdentity userIdentity, byte[] password, boolean errOnNonExist) throws DdlException {
@@ -338,5 +281,15 @@ public class UserManager implements Writable {
     @Override
     public String toString() {
         return nameToUsers.toString();
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    public static UserManager read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, UserManager.class);
     }
 }

@@ -33,14 +33,14 @@ public class CatalogPrivTable extends PrivTable {
     public void getPrivs(String ctl, PrivBitSet savedPrivs) {
         CatalogPrivEntry matchedEntry = null;
         for (PrivEntry entry : entries) {
-            CatalogPrivEntry dsPrivEntry = (CatalogPrivEntry) entry;
+            CatalogPrivEntry ctlPrivEntry = (CatalogPrivEntry) entry;
 
             // check catalog
-            if (!dsPrivEntry.isAnyCtl() && !dsPrivEntry.getCtlPattern().match(ctl)) {
+            if (!ctlPrivEntry.isAnyCtl() && !ctlPrivEntry.getCtlPattern().match(ctl)) {
                 continue;
             }
 
-            matchedEntry = dsPrivEntry;
+            matchedEntry = ctlPrivEntry;
             break;
         }
         if (matchedEntry == null) {

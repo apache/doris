@@ -20,9 +20,12 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 import org.apache.commons.collections.CollectionUtils;
 
 import java.io.DataInput;
@@ -33,9 +36,12 @@ import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
 
-public class UserRoleManager implements Writable {
-    private Map<UserIdentity, Set<String>> userToRoles = Maps.newConcurrentMap();
-    private Map<String, Set<UserIdentity>> roleToUsers = Maps.newConcurrentMap();
+public class UserRoleManager implements Writable, GsonPostProcessable {
+    // Concurrency control is delegated by Auth, so not concurrentMap
+    @SerializedName(value = "userToRoles")
+    private Map<UserIdentity, Set<String>> userToRoles = Maps.newHashMap();
+    // Will not be persisted,generage by userToRoles
+    private Map<String, Set<UserIdentity>> roleToUsers = Maps.newHashMap();
 
     public void addUserRole(UserIdentity userIdentity, String roleName) {
         Set<String> roles = userToRoles.get(userIdentity);
@@ -91,47 +97,37 @@ public class UserRoleManager implements Writable {
         return roles == null ? Collections.EMPTY_SET : roles;
     }
 
-    @Override
-    public void write(DataOutput out) throws IOException {
-        out.writeInt(userToRoles.size());
-        for (Entry<UserIdentity, Set<String>> entry : userToRoles.entrySet()) {
-            entry.getKey().write(out);
-            out.writeInt(entry.getValue().size());
-            for (String role : entry.getValue()) {
-                Text.writeString(out, role);
-            }
-        }
-    }
-
-    public static UserRoleManager read(DataInput in) throws IOException {
-        UserRoleManager userRoleManager = new UserRoleManager();
-        userRoleManager.readFields(in);
-        return userRoleManager;
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            UserIdentity userIdentity = UserIdentity.read(in);
-            int roleSize = in.readInt();
-            Set<String> roles = Sets.newHashSet();
-            for (int j = 0; j < roleSize; j++) {
-                String roleName = Text.readString(in);
-                roles.add(roleName);
-                //init role to user map
-                Set<UserIdentity> userIdentities = roleToUsers.get(roleName);
-                if (CollectionUtils.isEmpty(userIdentities)) {
-                    userIdentities = Sets.newHashSet();
-                }
-                userIdentities.add(userIdentity);
-                roleToUsers.put(roleName, userIdentities);
-            }
-            userToRoles.put(userIdentity, roles);
-        }
+    public Set<UserIdentity> getUsersByRole(String roleName) {
+        Set<UserIdentity> userIdentities = roleToUsers.get(roleName);
+        return userIdentities == null ? Collections.EMPTY_SET : userIdentities;
     }
 
     @Override
     public String toString() {
         return userToRoles.toString();
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    public static UserRoleManager read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, UserRoleManager.class);
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        for (Entry<UserIdentity, Set<String>> entry : userToRoles.entrySet()) {
+            for (String roleName : entry.getValue()) {
+                Set<UserIdentity> userIdentities = roleToUsers.get(roleName);
+                if (CollectionUtils.isEmpty(userIdentities)) {
+                    userIdentities = Sets.newHashSet();
+                }
+                userIdentities.add(entry.getKey());
+                roleToUsers.put(roleName, userIdentities);
+            }
+        }
     }
 }

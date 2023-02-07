@@ -581,6 +581,8 @@ public class UserProperty implements Writable {
         // whiteList
         if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_116) {
             whiteList.readFields(in);
+        } else {
+            whiteList = new WhiteList();
         }
 
         // common properties

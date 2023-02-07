@@ -17,6 +17,8 @@
 
 package org.apache.doris.mysql.privilege;
 
+import com.google.common.base.Preconditions;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -30,17 +32,13 @@ public class GlobalPrivTable extends PrivTable {
     }
 
     public void getPrivs(PrivBitSet savedPrivs) {
-        GlobalPrivEntry matchedEntry = null;
-        for (PrivEntry entry : entries) {
-            GlobalPrivEntry globalPrivEntry = (GlobalPrivEntry) entry;
-
-            matchedEntry = globalPrivEntry;
-            break;
-        }
-        if (matchedEntry == null) {
+        if (CollectionUtils.isEmpty(entries)) {
             return;
         }
-
-        savedPrivs.or(matchedEntry.getPrivSet());
+        // GlobalPrivTable saves global permissions.
+        // Unlike CatalogPrivTable, it needs to save an entry for each catalog,
+        // so the length of entries can only be 1 at most.
+        Preconditions.checkArgument(entries.size() == 1);
+        savedPrivs.or(entries.get(0).getPrivSet());
     }
 }

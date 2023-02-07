@@ -28,10 +28,13 @@ import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
+import org.apache.doris.persist.gson.GsonPostProcessable;
+import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -39,9 +42,10 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 
-public class Role implements Writable {
+public class Role implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(Role.class);
 
     // operator is responsible for operating cluster, such as add/drop node
@@ -56,10 +60,15 @@ public class Role implements Writable {
             TablePattern.ALL, PrivBitSet.of(Privilege.ADMIN_PRIV),
             ResourcePattern.ALL, PrivBitSet.of(Privilege.ADMIN_PRIV));
 
+    @SerializedName(value = "roleName")
     private String roleName;
+    // Will be persisted
+    @SerializedName(value = "tblPatternToPrivs")
     private Map<TablePattern, PrivBitSet> tblPatternToPrivs = Maps.newConcurrentMap();
+    @SerializedName(value = "resourcePatternToPrivs")
     private Map<ResourcePattern, PrivBitSet> resourcePatternToPrivs = Maps.newConcurrentMap();
 
+    // Will not be persisted,generage by tblPatternToPrivs and resourcePatternToPrivs
     private GlobalPrivTable globalPrivTable = new GlobalPrivTable();
     private CatalogPrivTable catalogPrivTable = new CatalogPrivTable();
     private DbPrivTable dbPrivTable = new DbPrivTable();
@@ -146,65 +155,6 @@ public class Role implements Writable {
     public void merge(Role other) throws DdlException {
         Preconditions.checkState(roleName.equalsIgnoreCase(other.getRoleName()));
         mergeNotCheck(other);
-    }
-
-
-    public static Role read(DataInput in) throws IOException {
-        Role role = new Role();
-        try {
-            role.readFields(in);
-        } catch (DdlException e) {
-            LOG.warn("grant failed,", e);
-        }
-        return role;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        Text.writeString(out, roleName);
-        out.writeInt(tblPatternToPrivs.size());
-        for (Map.Entry<TablePattern, PrivBitSet> entry : tblPatternToPrivs.entrySet()) {
-            entry.getKey().write(out);
-            entry.getValue().write(out);
-        }
-        out.writeInt(resourcePatternToPrivs.size());
-        for (Map.Entry<ResourcePattern, PrivBitSet> entry : resourcePatternToPrivs.entrySet()) {
-            entry.getKey().write(out);
-            entry.getValue().write(out);
-        }
-    }
-
-    public void readFields(DataInput in) throws IOException, DdlException {
-        roleName = Text.readString(in);
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            TablePattern tblPattern = TablePattern.read(in);
-            PrivBitSet privs = PrivBitSet.read(in);
-            tblPatternToPrivs.put(tblPattern, privs);
-            grantPrivs(tblPattern, privs.copy());
-        }
-        size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            ResourcePattern resourcePattern = ResourcePattern.read(in);
-            PrivBitSet privs = PrivBitSet.read(in);
-            resourcePatternToPrivs.put(resourcePattern, privs);
-            grantPrivs(resourcePattern, privs.copy());
-        }
-        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_116) {
-            size = in.readInt();
-            for (int i = 0; i < size; i++) {
-                UserIdentity userIdentity = UserIdentity.read(in);
-                users.add(userIdentity);
-            }
-        }
-    }
-
-    @Override
-    public String toString() {
-        StringBuilder sb = new StringBuilder();
-        sb.append("role: ").append(roleName).append(", db table privs: ").append(tblPatternToPrivs);
-        sb.append(", resource privs: ").append(resourcePatternToPrivs);
-        return sb.toString();
     }
 
     public boolean checkGlobalPriv(PrivPredicate wanted) {
@@ -580,5 +530,76 @@ public class Role implements Writable {
             throw new DdlException(e.getMessage());
         }
         tablePrivTable.revoke(entry, false, true);
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("role: ").append(roleName).append(", db table privs: ").append(tblPatternToPrivs);
+        sb.append(", resource privs: ").append(resourcePatternToPrivs);
+        return sb.toString();
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    public static Role read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_116) {
+            Role role = new Role();
+            try {
+                role.readFields(in);
+            } catch (DdlException e) {
+                LOG.warn("grant failed,", e);
+            }
+            return role;
+        } else {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, Role.class);
+        }
+    }
+
+
+    public void readFields(DataInput in) throws IOException, DdlException {
+        roleName = Text.readString(in);
+        int size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            TablePattern tblPattern = TablePattern.read(in);
+            PrivBitSet privs = PrivBitSet.read(in);
+            tblPatternToPrivs.put(tblPattern, privs);
+            grantPrivs(tblPattern, privs.copy());
+        }
+        size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            ResourcePattern resourcePattern = ResourcePattern.read(in);
+            PrivBitSet privs = PrivBitSet.read(in);
+            resourcePatternToPrivs.put(resourcePattern, privs);
+            grantPrivs(resourcePattern, privs.copy());
+        }
+        size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            UserIdentity userIdentity = UserIdentity.read(in);
+            users.add(userIdentity);
+        }
+
+    }
+
+    @Override
+    public void gsonPostProcess() throws IOException {
+        for (Entry<TablePattern, PrivBitSet> entry : tblPatternToPrivs.entrySet()) {
+            try {
+                grantPrivs(entry.getKey(), entry.getValue().copy());
+            } catch (DdlException e) {
+                LOG.warn("grant failed,", e);
+            }
+        }
+        for (Entry<ResourcePattern, PrivBitSet> entry : resourcePatternToPrivs.entrySet()) {
+            try {
+                grantPrivs(entry.getKey(), entry.getValue().copy());
+            } catch (DdlException e) {
+                LOG.warn("grant failed,", e);
+            }
+        }
     }
 }

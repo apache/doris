@@ -35,6 +35,7 @@ import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
@@ -91,6 +92,9 @@ public class Auth implements Writable {
     public static final String UNKNOWN_USER = "unknown";
     public static final String DEFAULT_CATALOG = InternalCatalog.INTERNAL_CATALOG_NAME;
 
+    //There is no concurrency control logic inside roleManager,userManager,userRoleManage and rpropertyMgr,
+    // and it is completely managed by Auth.
+    // Therefore, their methods cannot be directly called outside, and should be called indirectly through Auth.
     private RoleManager roleManager = new RoleManager();
     private UserManager userManager = new UserManager();
     private UserRoleManager userRoleManager = new UserRoleManager();
@@ -595,7 +599,7 @@ public class Auth implements Writable {
                 role = roleManager.getUserDefaultRoleName(userIdent);
             }
             Role newRole = new Role(role, tblPattern, privs);
-            roleManager.addRole(newRole, false /* err on exist */);
+            roleManager.addOrMergeRole(newRole, false /* err on exist */);
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(userIdent, tblPattern, privs, null, role);
                 Env.getCurrentEnv().getEditLog().logGrantPriv(info);
@@ -617,7 +621,7 @@ public class Auth implements Writable {
 
             // grant privs to role, role must exist
             Role newRole = new Role(role, resourcePattern, privs);
-            roleManager.addRole(newRole, false /* err on exist */);
+            roleManager.addOrMergeRole(newRole, false /* err on exist */);
 
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(userIdent, resourcePattern, privs, null, role);
@@ -786,12 +790,15 @@ public class Auth implements Writable {
         Role emptyPrivsRole = new Role(role);
         writeLock();
         try {
+            if (role.startsWith(RoleManager.DEFAULT_ROLE_PREFIX)) {
+                throw new DdlException("Can not create role starts with " + RoleManager.DEFAULT_ROLE_PREFIX);
+            }
             if (ignoreIfExists && roleManager.getRole(role) != null) {
                 LOG.info("role exists, ignored to create role: {}, is replay: {}", role, isReplay);
                 return;
             }
 
-            roleManager.addRole(emptyPrivsRole, true /* err on exist */);
+            roleManager.addOrMergeRole(emptyPrivsRole, true /* err on exist */);
 
             if (!isReplay) {
                 PrivInfo info = new PrivInfo(null, null, null, role, null);
@@ -820,7 +827,7 @@ public class Auth implements Writable {
         writeLock();
         try {
             if (role.startsWith(RoleManager.DEFAULT_ROLE_PREFIX)) {
-                throw new DdlException("Can not drop default role.");
+                throw new DdlException("Can not drop role starts with " + RoleManager.DEFAULT_ROLE_PREFIX);
             }
             if (ignoreIfNonExists && roleManager.getRole(role) == null) {
                 LOG.info("role non exists, ignored to drop role: {}, is replay: {}", role, isReplay);
@@ -837,6 +844,15 @@ public class Auth implements Writable {
             writeUnlock();
         }
         LOG.info("finished to drop role: {}, is replay: {}", role, isReplay);
+    }
+
+    public Set<UserIdentity> getRoleUsers(String roleName) {
+        readLock();
+        try {
+            return userRoleManager.getUsersByRole(roleName);
+        } finally {
+            readUnlock();
+        }
     }
 
     // update user property
@@ -1245,7 +1261,8 @@ public class Auth implements Writable {
                             TablePrivEntry tablePrivEntry = (TablePrivEntry) entry;
                             String dbName = ClusterNamespace.getNameFromFullName(tablePrivEntry.getOrigDb());
                             String tblName = tablePrivEntry.getOrigTbl();
-                            if (dbName.equals("information_schema" /* Don't show privileges in information_schema */)
+                            // Don't show privileges in information_schema
+                            if (InfoSchemaDb.DATABASE_NAME.equals(dbName)
                                     || !checkTblPriv(currentUser, tablePrivEntry.getOrigDb(), tblName,
                                     PrivPredicate.SHOW)) {
                                 continue;
@@ -1295,8 +1312,8 @@ public class Auth implements Writable {
                             DbPrivEntry dbPrivEntry = (DbPrivEntry) entry;
                             String origDb = dbPrivEntry.getOrigDb();
                             String dbName = ClusterNamespace.getNameFromFullName(dbPrivEntry.getOrigDb());
-
-                            if (dbName.equals("information_schema" /* Don't show privileges in information_schema */)
+                            // Don't show privileges in information_schema
+                            if (InfoSchemaDb.DATABASE_NAME.equals(dbName)
                                     || !checkDbPriv(currentUser, origDb, PrivPredicate.SHOW)) {
                                 continue;
                             }
@@ -1545,13 +1562,13 @@ public class Auth implements Writable {
             }
             //grant global auth
             if (globalPrivEntry.privSet.containsResourcePriv()) {
-                roleManager.addRole(new Role(roleManager.getUserDefaultRoleName(user.getUserIdentity()),
+                roleManager.addOrMergeRole(new Role(roleManager.getUserDefaultRoleName(user.getUserIdentity()),
                         ResourcePattern.ALL, PrivBitSet.of(Privilege.USAGE_PRIV)), false);
             }
             PrivBitSet copy = globalPrivEntry.privSet.copy();
             copy.unset(Privilege.USAGE_PRIV.getIdx());
             if (!copy.isEmpty()) {
-                roleManager.addRole(new Role(roleManager.getUserDefaultRoleName(user.getUserIdentity()),
+                roleManager.addOrMergeRole(new Role(roleManager.getUserDefaultRoleName(user.getUserIdentity()),
                         TablePattern.ALL, copy), false);
             }
         }
@@ -1573,7 +1590,7 @@ public class Auth implements Writable {
             tablePattern.analyze(clusterName == null ? SystemInfoService.DEFAULT_CLUSTER : clusterName);
             Role newRole = new Role(roleManager.getUserDefaultRoleName(catalogPrivEntry.userIdentity),
                     tablePattern, catalogPrivEntry.privSet);
-            roleManager.addRole(newRole, false);
+            roleManager.addOrMergeRole(newRole, false);
         }
 
         List<PrivEntry> dbPrivTableEntries = dbPrivTable.getEntries();
@@ -1585,7 +1602,7 @@ public class Auth implements Writable {
             tablePattern.analyze(clusterName == null ? SystemInfoService.DEFAULT_CLUSTER : clusterName);
             Role newRole = new Role(roleManager.getUserDefaultRoleName(dbPrivEntry.userIdentity),
                     tablePattern, dbPrivEntry.privSet);
-            roleManager.addRole(newRole, false);
+            roleManager.addOrMergeRole(newRole, false);
         }
 
         List<PrivEntry> tblPrivTableEntries = tablePrivTable.getEntries();
@@ -1598,7 +1615,7 @@ public class Auth implements Writable {
             tablePattern.analyze(clusterName == null ? SystemInfoService.DEFAULT_CLUSTER : clusterName);
             Role newRole = new Role(roleManager.getUserDefaultRoleName(tblPrivEntry.userIdentity),
                     tablePattern, tblPrivEntry.privSet);
-            roleManager.addRole(newRole, false);
+            roleManager.addOrMergeRole(newRole, false);
         }
 
         List<PrivEntry> resourcePrivTableEntries = resourcePrivTable.getEntries();
@@ -1609,7 +1626,7 @@ public class Auth implements Writable {
             resourcePattern.analyze();
             Role newRole = new Role(roleManager.getUserDefaultRoleName(resourcePrivEntry.userIdentity),
                     resourcePattern, resourcePrivEntry.privSet);
-            roleManager.addRole(newRole, false);
+            roleManager.addOrMergeRole(newRole, false);
         }
 
     }

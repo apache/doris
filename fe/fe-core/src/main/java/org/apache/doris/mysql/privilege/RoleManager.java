@@ -20,6 +20,7 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.analysis.ResourcePattern;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -28,6 +29,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
 import org.apache.doris.system.SystemInfoService;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -48,6 +50,7 @@ public class RoleManager implements Writable {
     //prefix of each user default role
     public static String DEFAULT_ROLE_PREFIX = "default_role_rbac_";
 
+    // Concurrency control is delegated by Auth, so not concurrentMap
     private Map<String, Role> roles = Maps.newHashMap();
 
     public RoleManager() {
@@ -61,7 +64,7 @@ public class RoleManager implements Writable {
         return roles.get(name);
     }
 
-    public Role addRole(Role newRole, boolean errOnExist) throws DdlException {
+    public Role addOrMergeRole(Role newRole, boolean errOnExist) throws DdlException {
         Role existingRole = roles.get(newRole.getRoleName());
         if (existingRole != null) {
             if (errOnExist) {
@@ -122,6 +125,7 @@ public class RoleManager implements Writable {
             }
             List<String> info = Lists.newArrayList();
             info.add(role.getRoleName());
+            info.add(Joiner.on(", ").join(Env.getCurrentEnv().getAuth().getRoleUsers(role.getRoleName())));
             Map<PrivLevel, String> infoMap =
                     Stream.concat(
                             role.getTblPatternToPrivs().entrySet().stream()
