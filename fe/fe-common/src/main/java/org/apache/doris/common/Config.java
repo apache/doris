@@ -1925,11 +1925,10 @@ public class Config extends ConfigBase {
     public static int max_same_name_catalog_trash_num = 3;
 
     /**
-     * The storage policy is still under developement.
-     * Disable it by default.
+     * NOTE: The storage policy is still under developement.
      */
     @ConfField(mutable = false, masterOnly = true)
-    public static boolean enable_storage_policy = false;
+    public static boolean enable_storage_policy = true;
 
     /**
      * This config is mainly used in the k8s cluster environment.
