@@ -1826,13 +1826,13 @@ Status Tablet::_cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_
     return Status::OK();
 }
 
-Status Tablet::_read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& dest_fs,
+Status Tablet::_read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
                                    int64_t cooldown_replica_id, TabletMetaPB* tablet_meta_pb) {
     std::string remote_meta_path =
             BetaRowset::remote_tablet_meta_path(tablet_id(), cooldown_replica_id);
     IOContext io_ctx;
     io::FileReaderSPtr tablet_meta_reader;
-    RETURN_IF_ERROR(dest_fs->open_file(remote_meta_path, &tablet_meta_reader, &io_ctx));
+    RETURN_IF_ERROR(fs->open_file(remote_meta_path, &tablet_meta_reader, &io_ctx));
     auto file_size = tablet_meta_reader->size();
     size_t bytes_read;
     auto buf = std::unique_ptr<uint8_t[]>(new uint8_t[file_size]);
@@ -1844,7 +1844,7 @@ Status Tablet::_read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& 
     return Status::OK();
 }
 
-Status Tablet::_write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& dest_fs,
+Status Tablet::_write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
                                     const TUniqueId& cooldown_meta_id, RowsetMeta* new_rs_meta) {
     std::vector<RowsetMetaSharedPtr> cooldowned_rs_metas;
     {
@@ -1873,7 +1873,7 @@ Status Tablet::_write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>&
     std::string remote_meta_path =
             BetaRowset::remote_tablet_meta_path(tablet_id(), _tablet_meta->replica_id());
     io::FileWriterPtr tablet_meta_writer;
-    RETURN_IF_ERROR(dest_fs->create_file(remote_meta_path, &tablet_meta_writer));
+    RETURN_IF_ERROR(fs->create_file(remote_meta_path, &tablet_meta_writer));
     auto val = tablet_meta_pb.SerializeAsString();
     RETURN_IF_ERROR(tablet_meta_writer->append({val.data(), val.size()}));
     return tablet_meta_writer->close();

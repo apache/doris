@@ -407,9 +407,9 @@ private:
     Status _cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_fs);
     Status _follow_cooldowned_data(const std::shared_ptr<io::RemoteFileSystem>& dest_fs,
                                    int64_t cooldown_replica_id);
-    Status _read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& dest_fs,
+    Status _read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
                                int64_t cooldown_replica_id, TabletMetaPB* tablet_meta_pb);
-    Status _write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& dest_fs,
+    Status _write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
                                 const TUniqueId& cooldown_meta_id, RowsetMeta* new_rs_meta);
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
