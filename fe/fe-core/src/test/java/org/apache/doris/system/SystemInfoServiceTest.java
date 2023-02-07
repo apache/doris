@@ -240,7 +240,7 @@ public class SystemInfoServiceTest {
 
         BeSelectionPolicy policy03 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
                 .setStorageMedium(TStorageMedium.HDD).preferComputeNode().assignCandidateNum(0).build();
-        Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy03, 1).size());
+        Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy03, 1).size());
 
         BeSelectionPolicy policy04 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
                 .setStorageMedium(TStorageMedium.HDD).preferComputeNode().assignCandidateNum(1).build();
@@ -277,7 +277,7 @@ public class SystemInfoServiceTest {
 
         BeSelectionPolicy policy08 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
                 .setStorageMedium(TStorageMedium.HDD).preferComputeNode().assignCandidateNum(0).build();
-        Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy08, 3).size());
+        Assert.assertEquals(3, infoService.selectBackendIdsByPolicy(policy08, 3).size());
 
         BeSelectionPolicy policy09 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
                 .setStorageMedium(TStorageMedium.HDD).preferComputeNode().assignCandidateNum(-1).build();

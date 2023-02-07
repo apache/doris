@@ -102,8 +102,7 @@ When executing a federated query, the optimizer will select `backend_num_for_fed
 and the scheduler will decide which node to execute on to prevent the task from being skewed.
 If the number of compute nodes is less than `backend_num_for_federation`, the mixed nodes will be randomly selected to meet the number.
 If the compute node is greater than `backend_num_for_federation`, the federated query task will only be scheduled on the compute node.
-If `backend_num_for_federation` = 0，will get none be nodes for federated query.
-If `backend_num_for_federation` < 0，will get all be nodes for federated query.
+If `backend_num_for_federation` <= 0，will get all be nodes for federated query.
 
 ### some restrictions
 - The compute node currently only supports the query for Hive MetaStore of `MultiCatalog` and the others are still on the hybrid node.
