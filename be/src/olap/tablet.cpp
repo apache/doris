@@ -1635,7 +1635,7 @@ Status Tablet::create_rowset(RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* r
     return RowsetFactory::create_rowset(tablet_schema(), tablet_path(), rowset_meta, rowset);
 }
 
-Status Tablet::cooldown(io::RemoteFileSystem* fs) {
+Status Tablet::cooldown() {
     std::unique_lock schema_change_lock(_schema_change_lock, std::try_to_lock);
     if (!schema_change_lock.owns_lock()) {
         LOG(WARNING) << "Failed to own schema_change_lock. tablet=" << tablet_id();
@@ -1679,7 +1679,7 @@ Status Tablet::cooldown(io::RemoteFileSystem* fs) {
         if (cooldown_replica_id == replica_id()) {
             RETURN_IF_ERROR(_cooldown_data(dest_fs));
         } else {
-            RETURN_IF_ERROR(_follow_cooldowned_data(dest_fs.get(), cooldown_replica_id));
+            RETURN_IF_ERROR(_follow_cooldowned_data(dest_fs, cooldown_replica_id));
         }
     }
 
@@ -1716,7 +1716,7 @@ bool Tablet::need_deal_cooldown_delete() {
         return false;
     }
     _need_deal_cooldown_delete = _cooldown_delete_flag
-            || time(NULL) - _last_cooldown_delete_time >= config::cooldown_delete_interval_time_sec;
+            || time(nullptr) - _last_cooldown_delete_time >= config::cooldown_delete_interval_time_sec;
     return _need_deal_cooldown_delete;
 }
 
@@ -1751,7 +1751,7 @@ Status Tablet::_deal_cooldown_delete_files(const std::shared_ptr<io::RemoteFileS
         _cooldown_delete_flag = false;
         _cooldown_delete_files.clear();
     } else {
-        if (time(NULL) - _last_cooldown_delete_time < config::cooldown_delete_interval_time_sec) {
+        if (time(nullptr) - _last_cooldown_delete_time < config::cooldown_delete_interval_time_sec) {
             return Status::OK();
         }
         _cooldown_delete_files.clear();
@@ -1770,7 +1770,7 @@ Status Tablet::_deal_cooldown_delete_files(const std::shared_ptr<io::RemoteFileS
                 _cooldown_delete_files.emplace_back(path);
             }
         }
-        _last_cooldown_delete_time = time(NULL);
+        _last_cooldown_delete_time = time(nullptr);
     }
     return Status::OK();
 }
@@ -1826,13 +1826,13 @@ Status Tablet::_cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_
     return Status::OK();
 }
 
-Status Tablet::_read_cooldown_meta(io::RemoteFileSystem* fs, int64_t cooldown_replica_id,
-                                   TabletMetaPB* tablet_meta_pb) {
+Status Tablet::_read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& dest_fs,
+                                   int64_t cooldown_replica_id, TabletMetaPB* tablet_meta_pb) {
     std::string remote_meta_path =
             BetaRowset::remote_tablet_meta_path(tablet_id(), cooldown_replica_id);
     IOContext io_ctx;
     io::FileReaderSPtr tablet_meta_reader;
-    RETURN_IF_ERROR(fs->open_file(remote_meta_path, &tablet_meta_reader, &io_ctx));
+    RETURN_IF_ERROR(dest_fs->open_file(remote_meta_path, &tablet_meta_reader, &io_ctx));
     auto file_size = tablet_meta_reader->size();
     size_t bytes_read;
     auto buf = std::unique_ptr<uint8_t[]>(new uint8_t[file_size]);
@@ -1844,8 +1844,8 @@ Status Tablet::_read_cooldown_meta(io::RemoteFileSystem* fs, int64_t cooldown_re
     return Status::OK();
 }
 
-Status Tablet::_write_cooldown_meta(io::RemoteFileSystem* fs, const TUniqueId& cooldown_meta_id,
-                                    RowsetMeta* new_rs_meta) {
+Status Tablet::_write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& dest_fs,
+                                    const TUniqueId& cooldown_meta_id, RowsetMeta* new_rs_meta) {
     std::vector<RowsetMetaSharedPtr> cooldowned_rs_metas;
     {
         std::shared_lock meta_rlock(_meta_lock);
@@ -1873,15 +1873,16 @@ Status Tablet::_write_cooldown_meta(io::RemoteFileSystem* fs, const TUniqueId& c
     std::string remote_meta_path =
             BetaRowset::remote_tablet_meta_path(tablet_id(), _tablet_meta->replica_id());
     io::FileWriterPtr tablet_meta_writer;
-    RETURN_IF_ERROR(fs->create_file(remote_meta_path, &tablet_meta_writer));
+    RETURN_IF_ERROR(dest_fs->create_file(remote_meta_path, &tablet_meta_writer));
     auto val = tablet_meta_pb.SerializeAsString();
     RETURN_IF_ERROR(tablet_meta_writer->append({val.data(), val.size()}));
     return tablet_meta_writer->close();
 }
 
-Status Tablet::_follow_cooldowned_data(io::RemoteFileSystem* fs, int64_t cooldown_replica_id) {
+Status Tablet::_follow_cooldowned_data(const std::shared_ptr<io::RemoteFileSystem>& dest_fs,
+                                       int64_t cooldown_replica_id) {
     TabletMetaPB cooldown_meta_pb;
-    RETURN_IF_ERROR(_read_cooldown_meta(fs, cooldown_replica_id, &cooldown_meta_pb));
+    RETURN_IF_ERROR(_read_cooldown_meta(dest_fs, cooldown_replica_id, &cooldown_meta_pb));
     DCHECK(cooldown_meta_pb.rs_metas_size() > 0);
     int64_t cooldowned_version = cooldown_meta_pb.rs_metas().rbegin()->end_version();
 
