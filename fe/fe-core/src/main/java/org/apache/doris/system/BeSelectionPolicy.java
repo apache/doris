@@ -143,7 +143,7 @@ public class BeSelectionPolicy {
         List<Backend> filterBackends = backends.stream().filter(this::isMatch).collect(Collectors.toList());
         Collections.shuffle(filterBackends);
         List<Backend> candidates = new ArrayList<>();
-        if (preferComputeNode) {
+        if (preferComputeNode && candidateNum >= 0) {
             int num = 0;
             // pick compute node first
             for (Backend backend : filterBackends) {

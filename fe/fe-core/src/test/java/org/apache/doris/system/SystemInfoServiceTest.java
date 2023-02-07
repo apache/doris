@@ -246,6 +246,10 @@ public class SystemInfoServiceTest {
                 .setStorageMedium(TStorageMedium.HDD).preferComputeNode().assignCandidateNum(1).build();
         Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy04, 1).size());
 
+        BeSelectionPolicy policy10 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
+                .setStorageMedium(TStorageMedium.HDD).preferComputeNode().assignCandidateNum(-1).build();
+        Assert.assertEquals(1, infoService.selectBackendIdsByPolicy(policy10, 1).size());
+
         // one compute node and two mix node
         addBackend(20002, "192.168.2.2", 9051);
         Backend be2 = infoService.getBackend(20002);
@@ -270,6 +274,14 @@ public class SystemInfoServiceTest {
         BeSelectionPolicy policy07 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
                 .setStorageMedium(TStorageMedium.HDD).preferComputeNode().assignCandidateNum(3).build();
         Assert.assertEquals(3, infoService.selectBackendIdsByPolicy(policy07, 3).size());
+
+        BeSelectionPolicy policy08 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
+                .setStorageMedium(TStorageMedium.HDD).preferComputeNode().assignCandidateNum(0).build();
+        Assert.assertEquals(0, infoService.selectBackendIdsByPolicy(policy08, 3).size());
+
+        BeSelectionPolicy policy09 = new BeSelectionPolicy.Builder().addTags(Sets.newHashSet(taga))
+                .setStorageMedium(TStorageMedium.HDD).preferComputeNode().assignCandidateNum(-1).build();
+        Assert.assertEquals(3, infoService.selectBackendIdsByPolicy(policy09, 3).size());
     }
 
     @Test

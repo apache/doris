@@ -96,15 +96,17 @@ HeartbeatFailureCounter: 0
 ```
 
 ### Usage
-When using the [MultiCatalog](../lakehouse/multi-catalog/multi-catalog) , the query will be preferentially scheduled to the compute node.
+When using the [MultiCatalog](https://doris.apache.org/docs/dev/lakehouse/multi-catalog/) , the query will be preferentially scheduled to the compute node.
 In order to balance task scheduling, FE has a `backend_num_for_federation` configuration item, which defaults to 3.
 When executing a federated query, the optimizer will select `backend_num_for_federation` as an alternative to the scheduler,
 and the scheduler will decide which node to execute on to prevent the task from being skewed.
 If the number of compute nodes is less than `backend_num_for_federation`, the mixed nodes will be randomly selected to meet the number.
 If the compute node is greater than `backend_num_for_federation`, the federated query task will only be scheduled on the compute node.
+If `backend_num_for_federation` = 0，will get none be nodes for federated query.
+If `backend_num_for_federation` < 0，will get all be nodes for federated query.
 
 ### some restrictions
-- The compute node currently only supports the query for Hive MetaStore of MultiCatalog and the others are still on the hybrid node.
+- The compute node currently only supports the query for Hive MetaStore of `MultiCatalog` and the others are still on the hybrid node.
 - Compute nodes are controlled by configuration items, so do not configure mixed type nodes, modify the configuration to compute nodes.
   
 ## Unfinished business

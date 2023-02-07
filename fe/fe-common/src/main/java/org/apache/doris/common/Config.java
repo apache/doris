@@ -1812,6 +1812,8 @@ public class Config extends ConfigBase {
      * The candidate of the backend node for federation query such as hive table and es table query.
      * If the backend of computation role is less than this value, it will acquire some mix backend.
      * If the computation backend is enough, federation query will only assign to computation backend.
+     * If value = 0, will get none backends for federation query.
+     * If value < 0, will get all backends for federation query.
      */
     @ConfField(mutable = true, masterOnly = false)
     public static int backend_num_for_federation = 3;
