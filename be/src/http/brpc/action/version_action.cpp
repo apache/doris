@@ -17,6 +17,8 @@
 
 #include "version_action.h"
 
+#include <brpc/http_method.h>
+
 #include "gen_cpp/version.h"
 #include "util/easy_json.h"
 
@@ -42,5 +44,9 @@ void VersionHandler::handle_sync(brpc::Controller* cntl) {
     be_version_info["count"] = 0;
 
     on_succ_json(cntl, be_version_info.ToString());
+}
+
+bool VersionHandler::support_method(brpc::HttpMethod method) const {
+    return method == brpc::HTTP_METHOD_GET;
 }
 } // namespace doris

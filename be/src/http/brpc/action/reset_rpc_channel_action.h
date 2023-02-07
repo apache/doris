@@ -25,5 +25,7 @@ public:
 
 protected:
     void handle_sync(brpc::Controller* cntl) override;
+
+    bool support_method(brpc::HttpMethod method) const override;
 };
 } // namespace doris

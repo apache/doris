@@ -28,7 +28,7 @@ ResetRpcChannelHandler::ResetRpcChannelHandler(ExecEnv* exec_env)
         : BaseHttpHandler("reset_rpc_channel", exec_env) {}
 
 void ResetRpcChannelHandler::handle_sync(brpc::Controller* cntl) {
-    std::string endpoints = *get_param(cntl, "endpoints");
+    std::string endpoints = cntl->http_request().unresolved_path();
     if (iequal(endpoints, "all")) {
         int size = get_exec_env()->brpc_internal_client_cache()->size();
         if (size > 0) {
@@ -62,5 +62,9 @@ void ResetRpcChannelHandler::handle_sync(brpc::Controller* cntl) {
         }
         on_error(cntl, fmt::format("reseted: {0}", join(reseted, ",")));
     }
+}
+
+bool ResetRpcChannelHandler::support_method(brpc::HttpMethod method) const {
+    return method == brpc::HTTP_METHOD_GET;
 }
 } // namespace doris

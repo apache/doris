@@ -17,6 +17,9 @@
 
 #include "tablets_distribution_action.h"
 
+#include <brpc/http_method.h>
+#include <glog/logging.h>
+
 #include "olap/data_dir.h"
 #include "olap/storage_engine.h"
 
@@ -78,16 +81,24 @@ EasyJson TabletsDistributionHandler::get_tablets_distribution_group_by_partition
 }
 
 void TabletsDistributionHandler::handle_sync(brpc::Controller* cntl) {
-    std::string req_group_method = *get_param(cntl, "group_by");
-    if (req_group_method == "partition") {
-        std::string req_partition_id = *get_param(cntl, "partition_id");
+    const std::string* req_group_method = get_param(cntl, "group_by");
+    if (req_group_method == nullptr) {
+        on_bad_req(cntl, "invalid null param: group_by");
+        return;
+    }
+    if (*req_group_method == "partition") {
+        const std::string* req_partition_id = get_param(cntl, "partition_id");
+        if (req_partition_id == nullptr) {
+            on_bad_req(cntl, "invalid null param: partition_id");
+            return;
+        }
         uint64_t partition_id = 0;
-        if (req_partition_id != "") {
+        if (*req_partition_id != "") {
             try {
-                partition_id = std::stoull(req_partition_id);
+                partition_id = std::stoull(*req_partition_id);
             } catch (const std::exception& e) {
-                LOG(WARNING) << "invalid argument. partition_id:" << req_partition_id;
-                Status status = Status::InternalError("invalid argument: {}", req_partition_id);
+                LOG(WARNING) << "invalid argument. partition_id:" << *req_partition_id;
+                Status status = Status::InternalError("invalid argument: {}", *req_partition_id);
                 std::string status_result = status.to_json();
                 on_error_json(cntl, status_result);
                 return;
@@ -97,10 +108,14 @@ void TabletsDistributionHandler::handle_sync(brpc::Controller* cntl) {
                      get_tablets_distribution_group_by_partition(cntl, partition_id).ToString());
         return;
     }
-    LOG(WARNING) << "invalid argument. group_by:" << req_group_method;
+    LOG(WARNING) << "invalid argument. group_by:" << *req_group_method;
     Status status = Status::InternalError(strings::Substitute("invalid argument: group_by"));
     std::string status_result = status.to_json();
     on_error_json(cntl, status_result);
+}
+
+bool TabletsDistributionHandler::support_method(brpc::HttpMethod method) const {
+    return method == brpc::HTTP_METHOD_GET;
 }
 
 } // namespace doris

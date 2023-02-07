@@ -15,13 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "restore_tablet_action.h"
+#include "http/brpc/action/restore_tablet_action.h"
+
+#include <brpc/http_method.h>
+#include <unistd.h>
+
+#include <sstream>
+#include <string>
 
 #include "agent/cgroups_mgr.h"
+#include "env/env.h"
+#include "gutil/strings/substitute.h" // for Substitute
+#include "olap/data_dir.h"
+#include "olap/olap_define.h"
 #include "olap/storage_engine.h"
-#include "olap/tablet.h"
+#include "olap/tablet_meta.h"
+#include "olap/utils.h"
+#include "runtime/exec_env.h"
 #include "util/file_utils.h"
-
+#include "util/json_util.h"
 namespace doris {
 
 using std::filesystem::path;
@@ -29,7 +41,8 @@ using std::filesystem::path;
 const std::string TABLET_ID = "tablet_id";
 const std::string SCHEMA_HASH = "schema_hash";
 
-RestoreTabletHandler::RestoreTabletHandler() : BaseHttpHandler("restore_tablet") {}
+RestoreTabletHandler::RestoreTabletHandler(ExecEnv* exec_env)
+        : BaseHttpHandler("restore_tablet", exec_env) {}
 
 void RestoreTabletHandler::handle_sync(brpc::Controller* cntl) {
     // add tid to cgroup in order to limit read bandwidth
@@ -42,6 +55,10 @@ void RestoreTabletHandler::handle_sync(brpc::Controller* cntl) {
     } else {
         on_error(cntl, result);
     }
+}
+
+bool RestoreTabletHandler::support_method(brpc::HttpMethod method) const {
+    return method == brpc::HTTP_METHOD_POST;
 }
 
 Status RestoreTabletHandler::_handle(brpc::Controller* cntl) {

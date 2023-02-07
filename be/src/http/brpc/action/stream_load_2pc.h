@@ -20,7 +20,7 @@
 #include "http/brpc/brpc_http_handler.h"
 
 namespace doris {
-class StreamLoad2PCHandler : BaseHttpHandler {
+class StreamLoad2PCHandler : public BaseHttpHandler {
 public:
     StreamLoad2PCHandler(ExecEnv* exec_env);
     ~StreamLoad2PCHandler() override = default;
@@ -29,6 +29,8 @@ public:
 
 protected:
     void handle_sync(brpc::Controller* cntl) override;
+
+    bool support_method(brpc::HttpMethod method) const override;
 
 private:
     bool _parse_basic_auth(brpc::Controller* cntl, AuthInfo* auth);

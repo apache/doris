@@ -17,6 +17,8 @@
 
 #include "snapshot_action.h"
 
+#include <brpc/http_method.h>
+
 #include <boost/lexical_cast.hpp>
 
 #include "agent/cgroups_mgr.h"
@@ -33,8 +35,8 @@ void SnapshotHandler::handle_sync(brpc::Controller* cntl) {
     // add tid to cgroup in order to limit read bandwidth
     CgroupsMgr::apply_system_cgroup();
     // Get tablet id
-    const std::string& tablet_id_str = *get_param(cntl, TABLET_ID);
-    if (tablet_id_str.empty()) {
+    const std::string* tablet_id_str = get_param(cntl, TABLET_ID);
+    if (tablet_id_str == nullptr || tablet_id_str->empty()) {
         std::string error_msg = std::string("parameter " + TABLET_ID + " not specified in url.");
 
         on_bad_req(cntl, error_msg);
@@ -42,8 +44,8 @@ void SnapshotHandler::handle_sync(brpc::Controller* cntl) {
     }
 
     // Get schema hash
-    const std::string& schema_hash_str = *get_param(cntl, SCHEMA_HASH);
-    if (schema_hash_str.empty()) {
+    const std::string* schema_hash_str = get_param(cntl, SCHEMA_HASH);
+    if (schema_hash_str == nullptr || schema_hash_str->empty()) {
         std::string error_msg = std::string("parameter " + SCHEMA_HASH + " not specified in url.");
         on_bad_req(cntl, error_msg);
         return;
@@ -53,8 +55,8 @@ void SnapshotHandler::handle_sync(brpc::Controller* cntl) {
     int64_t tablet_id;
     int32_t schema_hash;
     try {
-        tablet_id = boost::lexical_cast<int64_t>(tablet_id_str);
-        schema_hash = boost::lexical_cast<int64_t>(schema_hash_str);
+        tablet_id = boost::lexical_cast<int64_t>(*tablet_id_str);
+        schema_hash = boost::lexical_cast<int64_t>(*schema_hash_str);
     } catch (boost::bad_lexical_cast& e) {
         std::string error_msg = std::string("param format is invalid: ") + std::string(e.what());
         on_bad_req(cntl, error_msg);
@@ -77,6 +79,10 @@ void SnapshotHandler::handle_sync(brpc::Controller* cntl) {
     }
 
     LOG(INFO) << "deal with snapshot request finished! tablet id: " << tablet_id;
+}
+
+bool SnapshotHandler::support_method(brpc::HttpMethod method) const {
+    return method == brpc::HTTP_METHOD_GET;
 }
 
 int64_t SnapshotHandler::_make_snapshot(int64_t tablet_id, int schema_hash,

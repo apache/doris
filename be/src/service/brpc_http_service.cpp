@@ -31,6 +31,15 @@
 #include "http/brpc/action/metrics_action.h"
 #include "http/brpc/action/pad_rowset_action.h"
 #include "http/brpc/action/pprof_action.h"
+#include "http/brpc/action/reload_tablet_action.h"
+#include "http/brpc/action/reset_rpc_channel_action.h"
+#include "http/brpc/action/restore_tablet_action.h"
+#include "http/brpc/action/snapshot_action.h"
+#include "http/brpc/action/stream_load_2pc.h"
+#include "http/brpc/action/tablet_migration_action.h"
+#include "http/brpc/action/tablets_distribution_action.h"
+#include "http/brpc/action/tablets_info_action.h"
+#include "http/brpc/action/version_action.h"
 
 namespace doris {
 
@@ -50,7 +59,7 @@ DEFINE_ENDPOINT(meta)
 DEFINE_ENDPOINT(metrics)
 DEFINE_ENDPOINT(monitor)
 DEFINE_ENDPOINT(pad_rowset)
-DEFINE_ENDPOINT(pprof)
+DEFINE_ENDPOINT(pprofile)
 DEFINE_ENDPOINT(snapshot)
 DEFINE_ENDPOINT(version)
 DEFINE_ENDPOINT(check_tablet_segement)
@@ -77,7 +86,16 @@ BrpcHttpService::BrpcHttpService(ExecEnv* exec_env) : _dispatcher(new HandlerDis
             ->add_handler(new MetaHandler(HEADER))
             ->add_handler(new MetricsHandler(DorisMetrics::instance()->metric_registry()))
             ->add_handler(new PadRowsetHandler())
-            ->add_handler(new PProfHandler(exec_env));
+            ->add_handler(new PProfHandler(exec_env))
+            ->add_handler(new ReloadTabletHandler(exec_env))
+            ->add_handler(new ResetRpcChannelHandler(exec_env))
+            ->add_handler(new RestoreTabletHandler(exec_env))
+            ->add_handler(new SnapshotHandler())
+            ->add_handler(new StreamLoad2PCHandler(exec_env))
+            ->add_handler(new TabletMigrationHandler())
+            ->add_handler(new TabletsDistributionHandler())
+            ->add_handler(new TabletsInfoHandler())
+            ->add_handler(new VersionHandler());
 
     JeProfileHandler::setup(exec_env, _dispatcher.get());
     DownloadHandler::setup(exec_env, _dispatcher.get());
@@ -93,10 +111,19 @@ void add_brpc_http_service(brpc::Server* server, ExecEnv* env) {
                                         "/api/_download_load => download,"
                                         "/api/health => health,"
                                         "/jeheap/dump => jeprofile,"
-                                        "/api/meta/header => meta,"
+                                        "/api/meta/header/* => meta,"
                                         "/metrics => metrics,"
                                         "api/pad_rowset => pad_rowset,"
-                                        "/pprof => pprof");
+                                        "/pprof/* => pprofile,"
+                                        "/api/reload_tablet => reload_tablet,"
+                                        "/api/reset_rpc_channel/* => reset_rpc_channel,"
+                                        "/api/restore_tablet => restore_tablet,"
+                                        "/api/snapshot => snapshot,"
+                                        "/api/*/_stream_load_2pc => stream_load_2pc,"
+                                        "/api/tablet_migration => tablet_migration,"
+                                        "/api/tablets_distribution => tablets_distribution,"
+                                        "/tablets_json => tablets_info,"
+                                        "/api/be_version_info => version");
     if (stat != 0) {
         LOG(WARNING) << "fail to add brpc http service";
     }

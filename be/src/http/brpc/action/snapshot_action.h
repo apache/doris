@@ -19,13 +19,15 @@
 
 namespace doris {
 
-class SnapshotHandler : BaseHttpHandler {
+class SnapshotHandler : public BaseHttpHandler {
 public:
     explicit SnapshotHandler();
     ~SnapshotHandler() override = default;
 
 protected:
     void handle_sync(brpc::Controller* cntl) override;
+
+    bool support_method(brpc::HttpMethod method) const override;
 
 private:
     int64_t _make_snapshot(int64_t tablet_id, int schema_hash, std::string* snapshot_path);

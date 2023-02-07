@@ -15,17 +15,24 @@
 // specific language governing permissions and limitations
 // under the License.
 #pragma once
+
+#include <map>
+#include <mutex>
+
+#include "gen_cpp/AgentService_types.h"
 #include "http/brpc/brpc_http_handler.h"
 
 namespace doris {
 
-class RestoreTabletHandler : BaseHttpHandler {
+class RestoreTabletHandler : public BaseHttpHandler {
 public:
-    RestoreTabletHandler();
+    RestoreTabletHandler(ExecEnv* exec_env);
     ~RestoreTabletHandler() override = default;
 
 protected:
     void handle_sync(brpc::Controller* cntl) override;
+
+    bool support_method(brpc::HttpMethod method) const override;
 
 private:
     Status _handle(brpc::Controller* cntl);

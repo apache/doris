@@ -17,8 +17,12 @@
 
 #include "stream_load_2pc.h"
 
+#include <brpc/http_method.h>
+#include <glog/logging.h>
 #include <rapidjson/prettywriter.h>
 #include <rapidjson/stringbuffer.h>
+
+#include <vector>
 
 #include "http/http_common.h"
 #include "http/http_headers.h"
@@ -54,12 +58,22 @@ void StreamLoad2PCHandler::handle_sync(brpc::Controller* cntl) {
     StreamLoadContext* ctx = new StreamLoadContext(get_exec_env());
     //ctx doesn't need a manually unref
     ctx->ref();
-    ctx->db = *get_param(cntl, HTTP_DB_KEY);
-    std::string req_txn_id = *get_header(cntl, HTTP_TXN_ID_KEY);
+    std::vector<std::string> path_array;
+    get_path_array(cntl, path_array);
+    if (path_array.size() != 3 && path_array.size() != 4) {
+        on_bad_req(cntl, "missing path variable");
+        return;
+    }
+    ctx->db = path_array[1];
+    const std::string* req_txn_id = get_header(cntl, HTTP_TXN_ID_KEY);
+    if (req_txn_id == nullptr) {
+        on_bad_req(cntl, "missing header" + HTTP_TXN_ID_KEY);
+        return;
+    }
     try {
-        ctx->txn_id = std::stoull(req_txn_id);
+        ctx->txn_id = std::stoull(*req_txn_id);
     } catch (const std::exception& e) {
-        status = Status::InternalError("convert txn_id [{}] failed", req_txn_id);
+        status = Status::InternalError("convert txn_id [{}] failed", *req_txn_id);
         status_result = status.to_json();
         on_succ_json(cntl, status_result);
         return;
@@ -82,9 +96,13 @@ void StreamLoad2PCHandler::handle_sync(brpc::Controller* cntl) {
     if (!status.ok()) {
         status_result = status.to_json();
     } else {
-        status_result = get_success_info(req_txn_id, ctx->txn_operation);
+        status_result = get_success_info(*req_txn_id, ctx->txn_operation);
     }
     on_succ_json(cntl, status_result);
+}
+
+bool StreamLoad2PCHandler::support_method(brpc::HttpMethod method) const {
+    return method == brpc::HTTP_METHOD_PUT;
 }
 
 bool StreamLoad2PCHandler::_parse_basic_auth(brpc::Controller* cntl, AuthInfo* auth) {

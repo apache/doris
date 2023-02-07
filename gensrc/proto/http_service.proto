@@ -34,7 +34,7 @@ service PHttpService {
     rpc metrics(PHttpRequest) returns (PHttpResponse);
     rpc monitor(PHttpRequest) returns (PHttpResponse);
     rpc pad_rowset(PHttpRequest) returns (PHttpResponse);
-    rpc pprof(PHttpRequest) returns (PHttpResponse);
+    rpc pprofile(PHttpRequest) returns (PHttpResponse);
     rpc snapshot(PHttpRequest) returns (PHttpResponse);
     rpc version(PHttpRequest) returns (PHttpResponse);
 

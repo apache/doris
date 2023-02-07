@@ -20,7 +20,7 @@
 
 namespace doris {
 
-class TabletMigrationHandler : BaseHttpHandler {
+class TabletMigrationHandler : public BaseHttpHandler {
 public:
     TabletMigrationHandler();
     ~TabletMigrationHandler() override = default;
@@ -33,6 +33,8 @@ public:
 
 protected:
     void handle_sync(brpc::Controller* cntl) override;
+
+    bool support_method(brpc::HttpMethod method) const override;
 
 private:
     std::unique_ptr<ThreadPool> _migration_thread_pool;

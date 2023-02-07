@@ -21,7 +21,7 @@
 
 namespace doris {
 
-class TabletsDistributionHandler : BaseHttpHandler {
+class TabletsDistributionHandler : public BaseHttpHandler {
 public:
     TabletsDistributionHandler();
     ~TabletsDistributionHandler() override = default;
@@ -30,5 +30,7 @@ public:
 
 protected:
     void handle_sync(brpc::Controller* cntl) override;
+
+    bool support_method(brpc::HttpMethod method) const override;
 };
 } // namespace doris

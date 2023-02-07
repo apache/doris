@@ -16,6 +16,7 @@
 // under the License.
 
 #include "pprof_action.h"
+
 #include <brpc/http_method.h>
 
 #include "util/bfd_parser.h"
@@ -26,7 +27,7 @@ namespace doris {
 static const std::string SECOND_KEY = "seconds";
 static const int kPprofDefaultSampleSecs = 30;
 
-PProfHandler::PProfHandler(ExecEnv* exec_env) : BaseHttpHandler("pprof", exec_env) {}
+PProfHandler::PProfHandler(ExecEnv* exec_env) : BaseHttpHandler("pprofile", exec_env) {}
 
 void PProfHandler::handle_sync(brpc::Controller* cntl) {
     const std::string& path = cntl->http_request().unresolved_path();
@@ -50,7 +51,8 @@ void PProfHandler::handle_sync(brpc::Controller* cntl) {
 }
 
 bool PProfHandler::support_method(brpc::HttpMethod method) const {
-    return method == brpc::HTTP_METHOD_GET || method == brpc::HTTP_METHOD_HEAD || method == brpc::HTTP_METHOD_POST;
+    return method == brpc::HTTP_METHOD_GET || method == brpc::HTTP_METHOD_HEAD ||
+           method == brpc::HTTP_METHOD_POST;
 }
 
 // Protect, only one thread can work

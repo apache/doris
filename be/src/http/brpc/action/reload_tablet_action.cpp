@@ -16,6 +16,8 @@
 // under the License.
 #include "reload_tablet_action.h"
 
+#include <brpc/http_method.h>
+
 #include <boost/lexical_cast.hpp>
 
 #include "agent/cgroups_mgr.h"
@@ -35,24 +37,24 @@ void ReloadTabletHandler::handle_sync(brpc::Controller* cntl) {
     CgroupsMgr::apply_system_cgroup();
 
     // Get path
-    const std::string& path = *get_param(cntl, PATH);
-    if (path.empty()) {
+    const std::string* path = get_param(cntl, PATH);
+    if (path == nullptr || path->empty()) {
         std::string error_msg = std::string("parameter " + PATH + " not specified in url.");
         on_bad_req(cntl, error_msg);
         return;
     }
 
     // Get tablet id
-    const std::string& tablet_id_str = *get_param(cntl, TABLET_ID);
-    if (tablet_id_str.empty()) {
+    const std::string* tablet_id_str = get_param(cntl, TABLET_ID);
+    if (tablet_id_str == nullptr || tablet_id_str->empty()) {
         std::string error_msg = std::string("parameter " + TABLET_ID + " not specified in url.");
         on_bad_req(cntl, error_msg);
         return;
     }
 
     // Get schema hash
-    const std::string& schema_hash_str = *get_param(cntl, SCHEMA_HASH);
-    if (schema_hash_str.empty()) {
+    const std::string* schema_hash_str = get_param(cntl, SCHEMA_HASH);
+    if (schema_hash_str == nullptr || schema_hash_str->empty()) {
         std::string error_msg = std::string("parameter " + SCHEMA_HASH + " not specified in url.");
         on_bad_req(cntl, error_msg);
         return;
@@ -72,9 +74,13 @@ void ReloadTabletHandler::handle_sync(brpc::Controller* cntl) {
 
     VLOG_ROW << "get reload tablet request: " << tablet_id << "-" << schema_hash;
 
-    reload(cntl, path, tablet_id, schema_hash);
+    reload(cntl, *path, tablet_id, schema_hash);
 
     LOG(INFO) << "deal with reload tablet request finished! tablet id: " << tablet_id;
+}
+
+bool ReloadTabletHandler::support_method(brpc::HttpMethod method) const {
+    return method == brpc::HTTP_METHOD_GET;
 }
 
 void ReloadTabletHandler::reload(brpc::Controller* cntl, const std::string& path, int64_t tablet_id,
@@ -92,7 +98,7 @@ void ReloadTabletHandler::reload(brpc::Controller* cntl, const std::string& path
         return;
     } else {
         LOG(INFO) << "load header success. status: " << res << ", signature: " << tablet_id;
-        std::string result_msg = std::string("load header succeed");
+        const std::string& result_msg = std::string("load header succeed");
         on_succ(cntl, result_msg);
         return;
     }

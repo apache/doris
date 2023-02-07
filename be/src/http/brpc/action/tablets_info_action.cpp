@@ -16,6 +16,8 @@
 // under the License.
 #include "tablets_info_action.h"
 
+#include <brpc/http_method.h>
+
 #include "olap/storage_engine.h"
 #include "olap/tablet_manager.h"
 
@@ -23,8 +25,16 @@ namespace doris {
 TabletsInfoHandler::TabletsInfoHandler() : BaseHttpHandler("tablets_info") {}
 
 void TabletsInfoHandler::handle_sync(brpc::Controller* cntl) {
-    const std::string& tablet_num_to_return = *get_param(cntl, "limit");
-    on_succ_json(cntl, get_tablets_info(cntl, tablet_num_to_return).ToString());
+    const std::string* tablet_num_to_return = get_param(cntl, "limit");
+    if (tablet_num_to_return == nullptr) {
+        on_bad_req(cntl, "invalid null param: limit");
+        return;
+    }
+    on_succ_json(cntl, get_tablets_info(cntl, *tablet_num_to_return).ToString());
+}
+
+bool TabletsInfoHandler::support_method(brpc::HttpMethod method) const {
+    return method == brpc::HTTP_METHOD_GET;
 }
 
 EasyJson TabletsInfoHandler::get_tablets_info(brpc::Controller* cntl,

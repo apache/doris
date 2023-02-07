@@ -19,13 +19,15 @@
 
 namespace doris {
 
-class ReloadTabletHandler : BaseHttpHandler {
+class ReloadTabletHandler : public BaseHttpHandler {
 public:
     ReloadTabletHandler(ExecEnv* exev_env);
     ~ReloadTabletHandler() override = default;
 
 protected:
     void handle_sync(brpc::Controller* cntl) override;
+
+    bool support_method(brpc::HttpMethod method) const override;
 
 private:
     void reload(brpc::Controller* cntl, const std::string& path, int64_t tablet_id,

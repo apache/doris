@@ -29,7 +29,7 @@ const std::string TABLET_ID = "tablet_id";
 const std::string START_VERSION = "start_version";
 const std::string END_VERSION = "end_version";
 
-Status check_one_param(const std::string& param_val, const std::string& param_name) {
+Status check_uniq_param(const std::string& param_val, const std::string& param_name) {
     if (param_val.empty()) {
         return Status::InternalError("paramater {} not specified in url", param_name);
     }
@@ -76,9 +76,9 @@ Status PadRowsetHandler::_handle(brpc::Controller* cntl) {
 }
 
 Status PadRowsetHandler::check_param(brpc::Controller* cntl) {
-    RETURN_IF_ERROR(check_one_param(*get_param(cntl, TABLET_ID), TABLET_ID));
-    RETURN_IF_ERROR(check_one_param(*get_param(cntl, START_VERSION), START_VERSION));
-    RETURN_IF_ERROR(check_one_param(*get_param(cntl, END_VERSION), END_VERSION));
+    RETURN_IF_ERROR(check_uniq_param(*get_param(cntl, TABLET_ID), TABLET_ID));
+    RETURN_IF_ERROR(check_uniq_param(*get_param(cntl, START_VERSION), START_VERSION));
+    RETURN_IF_ERROR(check_uniq_param(*get_param(cntl, END_VERSION), END_VERSION));
     return Status::OK();
 }
 

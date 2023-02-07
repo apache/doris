@@ -22,7 +22,7 @@
 
 namespace doris {
 
-class PadRowsetHandler :public BaseHttpHandler {
+class PadRowsetHandler : public BaseHttpHandler {
 public:
     PadRowsetHandler();
     ~PadRowsetHandler() override = default;
