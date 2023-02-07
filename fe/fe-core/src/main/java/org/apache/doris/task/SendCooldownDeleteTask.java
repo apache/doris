@@ -33,7 +33,7 @@ public class SendCooldownDeleteTask extends AgentTask {
     private List<CooldownDelete> cooldownDeleteList;
 
     public SendCooldownDeleteTask(long backendId, List<CooldownDelete> cooldownDeleteList) {
-        super(null, backendId, TTaskType.PUSH_COOLDOWN_CONF, -1, -1, -1, -1, -1);
+        super(null, backendId, TTaskType.COOLDOWN_DELETE_FILE, -1, -1, -1, -1, -1);
 
         this.cooldownDeleteList = cooldownDeleteList;
     }
