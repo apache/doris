@@ -24,6 +24,7 @@ import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -33,6 +34,7 @@ import org.apache.doris.common.TreeNode;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.VectorizedUtil;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.rewrite.mvrewrite.MVExprEquivalent;
 import org.apache.doris.statistics.ExprStats;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprNode;
@@ -70,6 +72,8 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     // Name of the function that needs to be implemented by every Expr that
     // supports negation.
     private static final String NEGATE_FN = "negate";
+
+    protected boolean disableTableName = false;
 
     // to be used where we can't come up with a better estimate
     public static final double DEFAULT_SELECTIVITY = 0.1;
@@ -905,6 +909,20 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
 
     public String toSql() {
         return (printSqlInParens) ? "(" + toSqlImpl() + ")" : toSqlImpl();
+    }
+
+    public void setDisableTableName(boolean value) {
+        disableTableName = value;
+        for (Expr child : children) {
+            child.setDisableTableName(value);
+        }
+    }
+
+    public String toSqlWithoutTbl() {
+        setDisableTableName(true);
+        String result = toSql();
+        setDisableTableName(false);
+        return result;
     }
 
     public String toDigest() {
@@ -2122,12 +2140,16 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
-    public boolean matchExprs(List<Expr> exprs) {
+    private boolean matchExprsWithoutAlias(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias) {
         for (Expr expr : exprs) {
             if (expr == null) {
                 continue;
             }
-            if (expr.toSql().equals(toSql())) {
+            if (MaterializedIndexMeta.normalizeName(expr.toSqlWithoutTbl()).equals(CreateMaterializedViewStmt
+                    .mvColumnBreaker(MaterializedIndexMeta.normalizeName(toSqlWithoutTbl())))) {
+                return true;
+            }
+            if (MVExprEquivalent.aggregateArgumentEqual(this, expr)) {
                 return true;
             }
         }
@@ -2137,11 +2159,24 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
 
         for (Expr expr : getChildren()) {
-            if (!expr.matchExprs(exprs)) {
+            if (!expr.matchExprs(exprs, stmt, ignoreAlias)) {
                 return false;
             }
         }
         return true;
+    }
+
+    public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias) {
+        if (this instanceof SlotRef && ((SlotRef) this).getColumnName() == null) {
+            return true; // means this is alias of other expr
+        }
+
+        Expr aliasExpr = stmt.getExprFromAliasSMap(this);
+        if (!ignoreAlias && aliasExpr != null) {
+            return aliasExpr.matchExprsWithoutAlias(exprs, stmt, true);
+        } else {
+            return matchExprsWithoutAlias(exprs, stmt, ignoreAlias);
+        }
     }
 
     protected Type[] getActualArgTypes(Type[] originType) {

@@ -66,8 +66,8 @@ public class InnerJoinLAsscomTest implements PatternMatchSupported {
          */
 
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
-                .hashJoinUsing(scan3, JoinType.INNER_JOIN, Pair.of(1, 1))
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .join(scan3, JoinType.INNER_JOIN, Pair.of(1, 1))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
@@ -98,8 +98,8 @@ public class InnerJoinLAsscomTest implements PatternMatchSupported {
                 new GreaterThan(scan2.getOutput().get(1), scan3.getOutput().get(1)));
 
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
-                .hashJoinUsing(scan3, JoinType.INNER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
+                .join(scan2, JoinType.INNER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
+                .join(scan3, JoinType.INNER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
@@ -130,8 +130,8 @@ public class InnerJoinLAsscomTest implements PatternMatchSupported {
                 new GreaterThan(scan2.getOutput().get(0), new Add(scan1.getOutput().get(0), scan3.getOutput().get(0))));
 
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
-                .hashJoinUsing(scan3, JoinType.INNER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
+                .join(scan2, JoinType.INNER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
+                .join(scan3, JoinType.INNER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
                 .build();
 
         // test for no exception
@@ -157,8 +157,8 @@ public class InnerJoinLAsscomTest implements PatternMatchSupported {
                         Literal.of("abc"))));
 
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
-                .hashJoinUsing(scan3, JoinType.INNER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
+                .join(scan2, JoinType.INNER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
+                .join(scan3, JoinType.INNER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
                 .build();
 
         // test for no exception

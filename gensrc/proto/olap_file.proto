@@ -115,11 +115,16 @@ message RowsetMetaPB {
     optional SegmentsOverlapPB segments_overlap_pb = 51 [default = OVERLAP_UNKNOWN];
 }
 
-// unused remote rowsets garbage collection kv value
+// kv value for reclaiming remote rowset
 message RemoteRowsetGcPB {
     required string resource_id = 1;
     required int64 tablet_id = 2;
     required int64 num_segments = 3;
+}
+
+// kv value for reclaiming all remote rowsets of tablet
+message RemoteTabletGcPB {
+    repeated string resource_ids = 1;
 }
 
 enum DataFileType {

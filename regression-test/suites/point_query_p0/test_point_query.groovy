@@ -22,8 +22,25 @@ suite("test_point_query") {
     def user = context.config.jdbcUser
     def password = context.config.jdbcPassword
     def url = context.config.jdbcUrl + "&useServerPrepStmts=true"
+    // def url = context.config.jdbcUrl
     def result1 = connect(user=user, password=password, url=url) {
     sql """DROP TABLE IF EXISTS ${tableName}"""
+    test {
+        // abnormal case
+        sql """
+              CREATE TABLE IF NOT EXISTS ${tableName} (
+                `k1` int NULL COMMENT ""
+              ) ENGINE=OLAP
+              UNIQUE KEY(`k1`)
+              DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+              PROPERTIES (
+              "replication_allocation" = "tag.location.default: 1",
+              "store_row_column" = "true",
+              "light_schema_change" = "false"
+              )
+          """
+        exception "errCode = 2, detailMessage = Row store column rely on light schema change, enable light schema change first"
+    }
     sql """
               CREATE TABLE IF NOT EXISTS ${tableName} (
                 `k1` int(11) NULL COMMENT "",
@@ -89,6 +106,9 @@ suite("test_point_query") {
       stmt.setBigDecimal(1, new BigDecimal("120939.11130"))
       stmt.setString(2, "a    ddd")
       qe_point_select stmt
+      qe_point_select stmt
+      // invalidate cache
+      sql """ INSERT INTO ${tableName} VALUES(1235, 120939.11130, "a    ddd", "xxxxxx", "2030-01-02", "2020-01-01 12:36:38", 22.822, "7022-01-01 11:30:38", 123) """
       qe_point_select stmt
       qe_point_select stmt
       qe_point_select stmt

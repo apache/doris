@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.catalog.external.ExternalDatabase;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.catalog.external.IcebergExternalDatabase;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
@@ -46,6 +47,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * The abstract class for all types of external catalogs.
@@ -165,7 +167,19 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
         return idToDb.get(dbId);
     }
 
-    public abstract List<Column> getSchema(String dbName, String tblName);
+    public final List<Column> getSchema(String dbName, String tblName) {
+        makeSureInitialized();
+        Optional<ExternalDatabase> db = getDb(dbName);
+        if (db.isPresent()) {
+            Optional table = db.get().getTable(tblName);
+            if (table.isPresent()) {
+                return ((ExternalTable) table.get()).initSchema();
+            }
+        }
+        // return one column with unsupported type.
+        // not return empty to avoid some unexpected issue.
+        return Lists.newArrayList(Column.UNSUPPORTED_COLUMN);
+    }
 
     @Override
     public long getId() {

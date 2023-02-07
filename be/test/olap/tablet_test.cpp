@@ -282,7 +282,7 @@ TEST_F(TestTablet, pad_rowset) {
 TEST_F(TestTablet, cooldown_policy) {
     std::vector<RowsetMetaSharedPtr> rs_metas;
     RowsetMetaSharedPtr ptr1(new RowsetMeta());
-    init_rs_meta(ptr1, 1, 2, 100, 200);
+    init_rs_meta(ptr1, 0, 2, 100, 200);
     rs_metas.push_back(ptr1);
     RowsetSharedPtr rowset1 = make_shared<BetaRowset>(nullptr, "", ptr1);
 

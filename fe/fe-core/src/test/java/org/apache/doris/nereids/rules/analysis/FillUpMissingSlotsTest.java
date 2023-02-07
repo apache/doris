@@ -314,7 +314,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Patt
         ExceptionChecker.expectThrowsWithMsg(
                 AnalysisException.class,
                 "Aggregate functions in having clause can't be nested:"
-                        + " sum(cast((cast(a1 as DOUBLE) + avg(a2)) as SMALLINT)).",
+                        + " sum((cast(a1 as DOUBLE) + avg(a2))).",
                 () -> PlanChecker.from(connectContext).analyze(
                         "SELECT a1 FROM t1 GROUP BY a1 HAVING SUM(a1 + AVG(a2)) > 0"
                 ));
@@ -322,7 +322,7 @@ public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements Patt
         ExceptionChecker.expectThrowsWithMsg(
                 AnalysisException.class,
                 "Aggregate functions in having clause can't be nested:"
-                        + " sum(cast((cast((a1 + a2) as DOUBLE) + avg(a2)) as INT)).",
+                        + " sum((cast((a1 + a2) as DOUBLE) + avg(a2))).",
                 () -> PlanChecker.from(connectContext).analyze(
                         "SELECT a1 FROM t1 GROUP BY a1 HAVING SUM(a1 + a2 + AVG(a2)) > 0"
                 ));

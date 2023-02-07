@@ -44,7 +44,7 @@ public class Subtract extends BinaryArithmetic {
 
     @Override
     public DataType getDataType() {
-        return left().getDataType().promotion();
+        return super.getDataType().promotion();
     }
 
     @Override

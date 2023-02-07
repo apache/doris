@@ -17,8 +17,6 @@
 
 suite("test_array_functions_of_array_difference") {
     def tableName = "test_array_functions_of_array_difference"
-    // open enable_array_type
-    sql "ADMIN SET FRONTEND CONFIG ('enable_array_type' = 'true')"
     // array functions only supported in vectorized engine
     sql """DROP TABLE IF EXISTS ${tableName}"""
     sql """ 

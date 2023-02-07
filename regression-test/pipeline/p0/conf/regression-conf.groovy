@@ -62,7 +62,7 @@ hdfsPasswd = ""
 brokerName = "broker_name"
 
 // broker load test config
-enableBrokerLoad=false
+enableBrokerLoad=true
 
 // jdbc connector test config
 // To enable jdbc test, you need first start mysql/pg container.

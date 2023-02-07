@@ -367,7 +367,7 @@ public:
         }
         set_time(year, month, day, hour, minute, second, microsecond);
         return true;
-    };
+    }
 
     uint64_t daynr() const { return calc_daynr(_year, _month, _day); }
 

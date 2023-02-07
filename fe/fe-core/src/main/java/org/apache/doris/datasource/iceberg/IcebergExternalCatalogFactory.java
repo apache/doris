@@ -32,9 +32,9 @@ public class IcebergExternalCatalogFactory {
         }
         switch (catalogType) {
             case IcebergExternalCatalog.ICEBERG_REST:
-                return new IcebergRestExternalCatalog(catalogId, name, resource, catalogType, props);
+                return new IcebergRestExternalCatalog(catalogId, name, resource, props);
             case IcebergExternalCatalog.ICEBERG_HMS:
-                return new IcebergHMSExternalCatalog(catalogId, name, resource, catalogType, props);
+                return new IcebergHMSExternalCatalog(catalogId, name, resource, props);
             default:
                 throw new DdlException("Unknown " + IcebergExternalCatalog.ICEBERG_CATALOG_TYPE
                     + " value: " + catalogType);

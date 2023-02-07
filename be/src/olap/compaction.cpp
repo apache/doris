@@ -198,6 +198,10 @@ bool Compaction::handle_ordered_data_compaction() {
     if (!config::enable_ordered_data_compaction) {
         return false;
     }
+    if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+        _tablet->enable_unique_key_merge_on_write()) {
+        return false;
+    }
     // check delete version: if compaction type is base compaction and
     // has a delete version, use original compaction
     if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
@@ -274,11 +278,6 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
         stats.rowid_conversion = &_rowid_conversion;
-    }
-
-    if (_cur_tablet_schema->store_row_column()) {
-        // table with row column not support vertical compaction now
-        vertical_compaction = false;
     }
 
     if (use_vectorized_compaction) {

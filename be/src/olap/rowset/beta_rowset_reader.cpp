@@ -178,9 +178,13 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
             LOG(WARNING) << "failed to create iterator[" << seg_ptr->id() << "]: " << s.to_string();
             return Status::Error<ROWSET_READER_INIT>();
         }
+        if (iter->empty()) {
+            continue;
+        }
         seg_iterators.push_back(std::move(iter));
     }
 
+    std::vector<RowwiseIterator*> iterators;
     for (auto& owned_it : seg_iterators) {
         auto st = owned_it->init(_read_options);
         if (!st.ok()) {
@@ -223,6 +227,10 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
 
 Status BetaRowsetReader::next_block(vectorized::Block* block) {
     SCOPED_RAW_TIMER(&_stats->block_fetch_ns);
+    if (_empty) {
+        return Status::Error<END_OF_FILE>();
+    }
+
     do {
         auto s = _iterator->next_batch(block);
         if (!s.ok()) {

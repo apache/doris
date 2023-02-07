@@ -1782,19 +1782,6 @@ public class QueryPlanTest extends TestWithFeService {
     }
 
     @Test
-    public void testNullColumnViewOrderBy() throws Exception {
-        FeConstants.runningUnitTest = true;
-        connectContext.setDatabase("default_cluster:test");
-        String sql = "select * from tbl_null_column_view where add_column is not null;";
-        String explainString1 = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString1.contains("EMPTYSET"));
-
-        String sql2 = "select * from tbl_null_column_view where add_column is not null order by query_id;";
-        String explainString2 = getSQLPlanOrErrorMsg("EXPLAIN " + sql2);
-        Assert.assertTrue(explainString2.contains("EMPTYSET"));
-    }
-
-    @Test
     public void testCompoundPredicateWriteRule() throws Exception {
         connectContext.setDatabase("default_cluster:test");
 

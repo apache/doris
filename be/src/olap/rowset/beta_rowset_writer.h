@@ -124,7 +124,6 @@ private:
     bool _is_segment_overlapping(const std::vector<KeyBoundsPB>& segments_encoded_key_bounds);
 
 protected:
-    Status _append_row_column(vectorized::Block* block, vectorized::Block* dst_block);
     RowsetWriterContext _context;
     std::shared_ptr<RowsetMeta> _rowset_meta;
 
@@ -138,7 +137,8 @@ protected:
     std::unique_ptr<segment_v2::SegmentWriter> _segment_writer;
 
     mutable SpinLock _lock; // protect following vectors.
-    // record rows number of every segment
+    // record rows number of every segment already written, using for rowid
+    // conversion when compaction in unique key with MoW model
     std::vector<uint32_t> _segment_num_rows;
     std::vector<io::FileWriterPtr> _file_writers;
     // for unique key table with merge-on-write

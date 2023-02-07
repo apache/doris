@@ -79,7 +79,10 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
     _reader_context.is_vec = true;
     _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
     for (auto& rs_reader : rs_readers) {
-        RETURN_NOT_OK(rs_reader->init(&_reader_context));
+        // _vcollect_iter.topn_next() will init rs_reader by itself
+        if (!_vcollect_iter.use_topn_next()) {
+            RETURN_NOT_OK(rs_reader->init(&_reader_context));
+        }
         Status res = _vcollect_iter.add_child(rs_reader);
         if (!res.ok() && !res.is<END_OF_FILE>()) {
             LOG(WARNING) << "failed to add child to iterator, err=" << res;
@@ -91,8 +94,11 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
     }
 
     RETURN_IF_ERROR(_vcollect_iter.build_heap(*valid_rs_readers));
-    auto status = _vcollect_iter.current_row(&_next_row);
-    _eof = status.is<END_OF_FILE>();
+    // _vcollect_iter.topn_next() can not use current_row
+    if (!_vcollect_iter.use_topn_next()) {
+        auto status = _vcollect_iter.current_row(&_next_row);
+        _eof = status.is<END_OF_FILE>();
+    }
 
     return Status::OK();
 }

@@ -219,7 +219,6 @@ public class NereidsPlanner extends Planner {
 
     private void dpHypOptimize() {
         Group root = getRoot();
-        boolean changeRoot = false;
         if (root.isJoinGroup()) {
             // If the root group is join group, DPHyp can change the root group.
             // To keep the root group is not changed, we add a project operator above join
@@ -227,16 +226,10 @@ public class NereidsPlanner extends Planner {
             LogicalPlan plan = new LogicalProject(outputs, root.getLogicalExpression().getPlan());
             CopyInResult copyInResult = cascadesContext.getMemo().copyIn(plan, null, false);
             root = copyInResult.correspondingExpression.getOwnerGroup();
-            changeRoot = true;
         }
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
-        if (changeRoot) {
-            cascadesContext.getMemo().setRoot(root.getLogicalExpression().child(0));
-        } else {
-            // if the root is not join, we need to optimize again.
-            optimize();
-        }
+        optimize();
     }
 
     /**

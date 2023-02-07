@@ -3831,13 +3831,13 @@ show_param ::=
         RESULT = new ShowCreateMaterializedViewStmt(mvName, tableName);
     :}
     /* show analyze job */
-    | KW_ANALYZE integer_list:jobIds
-    {:
-        RESULT = new ShowAnalyzeStmt(jobIds);
-    :}
     | KW_ANALYZE opt_table_name:tbl opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
     {:
         RESULT = new ShowAnalyzeStmt(tbl, parser.where, orderByClause, limitClause);
+    :}
+    | KW_ANALYZE INTEGER_LITERAL:jobId opt_wild_where order_by_clause:orderByClause limit_clause:limitClause
+    {:
+        RESULT = new ShowAnalyzeStmt(jobId, parser.where, orderByClause, limitClause);
     :}
     | KW_CATALOG KW_RECYCLE KW_BIN opt_wild_where
     {:
@@ -6985,6 +6985,8 @@ keyword ::=
     {: RESULT = id; :}
     | KW_THAN:id
     {: RESULT = id; :}
+    | KW_TIME:id
+    {: RESULT = id; :}
     | KW_TIMESTAMP:id
     {: RESULT = id; :}
     | KW_TRANSACTION:id
@@ -7076,6 +7078,8 @@ keyword ::=
     | KW_LINES:id
     {: RESULT = id; :}
     | KW_IGNORE:id
+    {: RESULT = id; :}
+    | KW_HISTOGRAM:id
     {: RESULT = id; :}
     ;
 

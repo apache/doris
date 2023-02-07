@@ -33,6 +33,7 @@ import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
@@ -239,6 +240,16 @@ public class MTMVJobManager {
         return taskManager.killTask(job.getId(), clearPending);
     }
 
+    public MTMVUtils.TaskSubmitStatus refreshMTMVTask(String dbName, String mvName) throws DdlException {
+        for (String jobName : nameToJobMap.keySet()) {
+            MTMVJob job = nameToJobMap.get(jobName);
+            if (job.getMVName().equals(mvName) && job.getDBName().equals(dbName)) {
+                return submitJobTask(jobName);
+            }
+        }
+        throw new DdlException("No job find for the MaterializedView " + dbName + "." + mvName + " .");
+    }
+
     public MTMVUtils.TaskSubmitStatus submitJobTask(String jobName) {
         return submitJobTask(jobName, new MTMVTaskExecuteParams());
     }
@@ -292,6 +303,9 @@ public class MTMVJobManager {
                     periodFutureMap.remove(job.getId());
                 }
                 killJobTask(job.getName(), true);
+                if (!Config.keep_scheduler_mtmv_task_when_job_deleted) {
+                    taskManager.clearTasksByJobName(job.getName(), isReplay);
+                }
                 idToJobMap.remove(job.getId());
                 nameToJobMap.remove(job.getName());
             }
@@ -311,7 +325,7 @@ public class MTMVJobManager {
 
     public List<MTMVJob> showJobs(String dbName) {
         List<MTMVJob> jobList = Lists.newArrayList();
-        if (dbName == null) {
+        if (Strings.isNullOrEmpty(dbName)) {
             jobList.addAll(nameToJobMap.values());
         } else {
             jobList.addAll(nameToJobMap.values().stream().filter(u -> u.getDBName().equals(dbName))

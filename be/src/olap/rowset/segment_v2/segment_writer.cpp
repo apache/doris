@@ -30,6 +30,7 @@
 #include "olap/schema.h"
 #include "olap/short_key_index.h"
 #include "runtime/memory/mem_tracker.h"
+#include "service/point_query_executor.h"
 #include "util/crc32c.h"
 #include "util/faststring.h"
 #include "util/key_util.h"
@@ -95,30 +96,6 @@ Status SegmentWriter::init() {
     return init(column_ids, true);
 }
 
-Status SegmentWriter::append_row_column_writer() {
-    ColumnWriterOptions opts;
-    opts.meta = _footer.add_columns();
-
-    init_column_meta(opts.meta, _footer.columns_size(), TabletSchema::row_oriented_column(),
-                     _tablet_schema);
-    opts.need_bloom_filter = false;
-    opts.need_bitmap_index = false;
-    // smaller page size
-    opts.data_page_size = 16 * 1024;
-    opts.need_zone_map = false;
-    opts.need_bloom_filter = false;
-    opts.need_bitmap_index = false;
-
-    std::unique_ptr<ColumnWriter> writer;
-    RETURN_IF_ERROR(ColumnWriter::create(opts, &TabletSchema::row_oriented_column(), _file_writer,
-                                         &writer));
-    RETURN_IF_ERROR(writer->init());
-    _column_ids.push_back(_column_ids.size());
-    _column_writers.push_back(std::move(writer));
-    _olap_data_convertor->add_column_data_convertor(TabletSchema::row_oriented_column());
-    return Status::OK();
-}
-
 Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
     DCHECK(_column_writers.empty());
     DCHECK(_column_ids.empty());
@@ -178,6 +155,11 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
             }
         }
 
+        if (column.is_row_store_column()) {
+            // smaller page size for row store column
+            opts.data_page_size = 16 * 1024;
+        }
+
         std::unique_ptr<ColumnWriter> writer;
         RETURN_IF_ERROR(ColumnWriter::create(opts, &column, _file_writer, &writer));
         RETURN_IF_ERROR(writer->init());
@@ -206,9 +188,23 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key) {
     return Status::OK();
 }
 
+void SegmentWriter::_maybe_invalid_row_cache(const std::string& key) {
+    // Just invalid row cache for simplicity, since the rowset is not visible at present.
+    // If we update/insert cache, if load failed rowset will not be visible but cached data
+    // will be visible, and lead to inconsistency.
+    if (!config::disable_storage_row_cache && _tablet_schema->store_row_column() &&
+        _opts.is_direct_write) {
+        // invalidate cache
+        RowCache::instance()->erase({_opts.rowset_ctx->tablet_id, key});
+    }
+}
+
 Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_pos,
                                    size_t num_rows) {
-    assert(block->columns() == _column_writers.size());
+    CHECK(block->columns() == _column_writers.size())
+            << ", block->columns()=" << block->columns()
+            << ", _column_writers.size()=" << _column_writers.size();
+
     _olap_data_convertor->set_source_content(block, row_pos, num_rows);
 
     // find all row pos for short key indexes
@@ -249,8 +245,9 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
             // create primary indexes
             for (size_t pos = 0; pos < num_rows; pos++) {
-                RETURN_IF_ERROR(
-                        _primary_key_index_builder->add_item(_full_encode_keys(key_columns, pos)));
+                const std::string& key = _full_encode_keys(key_columns, pos);
+                RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
+                _maybe_invalid_row_cache(key);
             }
         } else {
             // create short key indexes'
