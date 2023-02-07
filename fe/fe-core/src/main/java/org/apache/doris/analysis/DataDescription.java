@@ -151,6 +151,7 @@ public class DataDescription {
     private final Map<String, String> properties;
     private boolean trimDoubleQuotes = false;
     private boolean isMysqlLoad = false;
+    private int skipLines = 0;
 
     public DataDescription(String tableName,
                            PartitionNames partitionNames,
@@ -195,6 +196,8 @@ public class DataDescription {
         this.deleteCondition = deleteCondition;
         this.sequenceCol = sequenceColName;
         this.properties = properties;
+        columnsNameToLowerCase(fileFieldNames);
+        columnsNameToLowerCase(columnsFromPath);
     }
 
     // data from table external_hive_table
@@ -232,6 +235,7 @@ public class DataDescription {
                            List<String> columns,
                            Separator columnSeparator,
                            Separator lineDelimiter,
+                           int skipLines,
                            List<Expr> columnMappingList,
                            Map<String, String> properties) {
         this.tableName = tableName.getTbl();
@@ -242,6 +246,7 @@ public class DataDescription {
         this.fileFieldNames = columns;
         this.columnSeparator = columnSeparator;
         this.lineDelimiter = lineDelimiter;
+        this.skipLines = skipLines;
         this.fileFormat = null;
         this.columnsFromPath = null;
         this.isNegative = false;
@@ -253,6 +258,7 @@ public class DataDescription {
         this.deleteCondition = null;
         this.properties = properties;
         this.isMysqlLoad = true;
+        columnsNameToLowerCase(fileFieldNames);
     }
 
     // For stream load using external file scan node.
@@ -288,6 +294,8 @@ public class DataDescription {
         this.numAsString = taskInfo.isNumAsString();
         this.properties = Maps.newHashMap();
         this.trimDoubleQuotes = taskInfo.getTrimDoubleQuotes();
+        this.skipLines = taskInfo.getSkipLines();
+        columnsNameToLowerCase(fileFieldNames);
     }
 
     private void getFileFormatAndCompressType(LoadTaskInfo taskInfo) {
@@ -702,6 +710,10 @@ public class DataDescription {
         return properties;
     }
 
+    public int getSkipLines() {
+        return skipLines;
+    }
+
     /*
      * Analyze parsedExprMap and columnToHadoopFunction from columns, columns from path and columnMappingList
      * Example:
@@ -952,6 +964,17 @@ public class DataDescription {
         }
     }
 
+    // Change all the columns name to lower case, because Doris column is case-insensitive.
+    private void columnsNameToLowerCase(List<String> columns) {
+        if (columns == null || columns.isEmpty()) {
+            return;
+        }
+        for (int i = 0; i < columns.size(); i++) {
+            String column = columns.remove(i);
+            columns.add(i, column.toLowerCase());
+        }
+    }
+
     public String analyzeFullDbName(String labelDbName, Analyzer analyzer) throws AnalysisException {
         if (Strings.isNullOrEmpty(labelDbName)) {
             String dbName = Strings.isNullOrEmpty(getDbName()) ? analyzer.getDefaultDb() : getDbName();
@@ -1052,7 +1075,7 @@ public class DataDescription {
             if (!mappingColNames.contains(column.getName())) {
                 parsedColumnExprList.add(new ImportColumnDesc(column.getName(), null));
             }
-            fileFieldNames.add(column.getName());
+            fileFieldNames.add(column.getName().toLowerCase());
         }
 
         LOG.debug("after fill column info. columns: {}, parsed column exprs: {}", fileFieldNames, parsedColumnExprList);

@@ -259,6 +259,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_TWO_PHASE_READ_OPT = "enable_two_phase_read_opt";
     public static final String TWO_PHASE_READ_OPT_LIMIT_THRESHOLD = "two_phase_read_opt_limit_threshold";
+    public static final String ENABLE_FILE_CACHE = "enable_file_cache";
 
     public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
 
@@ -396,9 +397,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = CODEGEN_LEVEL)
     public int codegenLevel = 0;
 
-    // 1024 minus 16 + 16 bytes padding that in padding pod array
+    // 4096 minus 16 + 16 bytes padding that in padding pod array
     @VariableMgr.VarAttr(name = BATCH_SIZE)
-    public int batchSize = 992;
+    public int batchSize = 4064;
 
     @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS)
     public boolean disableStreamPreaggregations = false;
@@ -551,7 +552,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean checkOverflowForDecimal = false;
 
     @VariableMgr.VarAttr(name = ENABLE_DPHYP_OPTIMIZER)
-    private boolean enableDPHypOptimizer = false;
+    private boolean enableDPHypOptimizer = true;
     /**
      * as the new optimizer is not mature yet, use this var
      * to control whether to use new optimizer, remove it when
@@ -686,6 +687,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = GROUP_BY_AND_HAVING_USE_ALIAS_FIRST)
     public boolean groupByAndHavingUseAliasFirst = false;
 
+    // Whether enable block file cache. Only take effect when BE config item enable_file_cache is true.
+    @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE, needForward = true)
+    public boolean enableFileCache = true;
+
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
     public void initFuzzyModeVariables() {
@@ -713,6 +718,16 @@ public class SessionVariable implements Serializable, Writable {
             default:
                 this.externalSortBytesThreshold = 100 * 1024 * 1024 * 1024;
                 break;
+        }
+        // pull_request_id default value is 0
+        if (Config.pull_request_id % 2 == 1) {
+            // this.enablePipelineEngine = true;
+            this.enableFoldConstantByBe = true;
+            // this.enableTwoPhaseReadOpt = false;
+        } else {
+            this.enablePipelineEngine = false;
+            this.enableFoldConstantByBe = false;
+            this.enableTwoPhaseReadOpt = true;
         }
     }
 
@@ -1388,6 +1403,14 @@ public class SessionVariable implements Serializable, Writable {
         }
     }
 
+    public boolean isEnableFileCache() {
+        return enableFileCache;
+    }
+
+    public void setEnableFileCache(boolean enableFileCache) {
+        this.enableFileCache = enableFileCache;
+    }
+
     /**
      * Serialize to thrift object.
      * Used for rest api.
@@ -1449,6 +1472,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setRepeatMaxNum(repeatMaxNum);
 
         tResult.setExternalSortBytesThreshold(externalSortBytesThreshold);
+
+        tResult.setEnableFileCache(enableFileCache);
 
         return tResult;
     }

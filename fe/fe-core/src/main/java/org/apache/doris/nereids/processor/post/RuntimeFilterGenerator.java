@@ -45,7 +45,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
@@ -89,31 +88,27 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             List<TRuntimeFilterType> legalTypes = Arrays.stream(TRuntimeFilterType.values())
                     .filter(type -> (type.getValue() & ctx.getSessionVariable().getRuntimeFilterType()) > 0)
                     .collect(Collectors.toList());
-            AtomicInteger cnt = new AtomicInteger();
-            join.getHashJoinConjuncts().stream()
-                    .map(EqualTo.class::cast)
-                    // TODO: some complex situation cannot be handled now, see testPushDownThroughJoin.
-                    // TODO: we will support it in later version.
-                    .forEach(expr -> legalTypes.forEach(type -> {
-                        Pair<Expression, Expression> normalizedChildren = checkAndMaybeSwapChild(expr, join);
-                        // aliasTransMap doesn't contain the key, means that the path from the olap scan to the join
-                        // contains join with denied join type. for example: a left join b on a.id = b.id
-                        if (normalizedChildren == null
-                                || !aliasTransferMap.containsKey((Slot) normalizedChildren.first)) {
-                            return;
-                        }
-                        Pair<Slot, Slot> slots = Pair.of(
-                                aliasTransferMap.get((Slot) normalizedChildren.first).second.toSlot(),
-                                ((Slot) normalizedChildren.second));
-                        RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
-                                slots.second, slots.first, type,
-                                cnt.getAndIncrement(), join);
-                        ctx.addJoinToTargetMap(join, slots.first.getExprId());
-                        ctx.setTargetExprIdToFilter(slots.first.getExprId(), filter);
-                        ctx.setTargetsOnScanNode(
-                                aliasTransferMap.get((Slot) normalizedChildren.first).first,
-                                slots.first);
-                    }));
+            // TODO: some complex situation cannot be handled now, see testPushDownThroughJoin.
+            // TODO: we will support it in later version.
+            for (int i = 0; i < join.getHashJoinConjuncts().size(); i++) {
+                EqualTo expr = (EqualTo) join.getHashJoinConjuncts().get(i);
+                for (TRuntimeFilterType type : legalTypes) {
+                    Pair<Expression, Expression> normalizedChildren = checkAndMaybeSwapChild(expr, join);
+                    // aliasTransMap doesn't contain the key, means that the path from the olap scan to the join
+                    // contains join with denied join type. for example: a left join b on a.id = b.id
+                    if (normalizedChildren == null || !aliasTransferMap.containsKey((Slot) normalizedChildren.first)) {
+                        continue;
+                    }
+                    Pair<Slot, Slot> slots = Pair.of(
+                            aliasTransferMap.get((Slot) normalizedChildren.first).second.toSlot(),
+                            ((Slot) normalizedChildren.second));
+                    RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
+                            slots.second, slots.first, type, i, join);
+                    ctx.addJoinToTargetMap(join, slots.first.getExprId());
+                    ctx.setTargetExprIdToFilter(slots.first.getExprId(), filter);
+                    ctx.setTargetsOnScanNode(aliasTransferMap.get((Slot) normalizedChildren.first).first, slots.first);
+                }
+            }
         }
         return join;
     }

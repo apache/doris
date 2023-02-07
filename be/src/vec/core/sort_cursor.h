@@ -112,9 +112,9 @@ public:
         if (_block_view) {
             _block_view->unref();
         }
-    };
+    }
 
-    const size_t row_id() const { return _row_id; }
+    size_t row_id() const { return _row_id; }
 
     const ColumnRawPtrs& sort_columns() const { return _block_view->value().sort_columns; }
 

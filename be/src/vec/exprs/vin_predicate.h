@@ -40,9 +40,9 @@ public:
 
     std::string debug_string() const override;
 
-    const FunctionBasePtr function() { return _function; };
+    const FunctionBasePtr function() { return _function; }
 
-    const bool is_not_in() const { return _is_not_in; };
+    bool is_not_in() const { return _is_not_in; };
 
 private:
     FunctionBasePtr _function;

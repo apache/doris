@@ -84,6 +84,8 @@ private:
     SegmentCacheHandle _segment_cache_handle;
 
     StorageReadOptions _read_options;
+
+    bool _empty = false;
 };
 
 } // namespace doris

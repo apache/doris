@@ -69,7 +69,7 @@ public:
                 get_parser_string_from_properties(_index_meta->properties()));
         _value_key_coder = get_key_coder(field_type);
         _field_name = std::wstring(field_name.begin(), field_name.end());
-    };
+    }
 
     ~InvertedIndexColumnWriterImpl() override = default;
 
@@ -116,7 +116,7 @@ public:
             _CLDELETE(_char_string_reader)
             _char_string_reader = nullptr;
         }
-    };
+    }
 
     Status init_bkd_index() {
         size_t value_length = sizeof(CppType);

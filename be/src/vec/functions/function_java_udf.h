@@ -41,10 +41,10 @@ public:
     }
 
     /// Get the main function name.
-    String get_name() const override { return fn_.name.function_name; };
+    String get_name() const override { return fn_.name.function_name; }
 
-    const DataTypes& get_argument_types() const override { return _argument_types; };
-    const DataTypePtr& get_return_type() const override { return _return_type; };
+    const DataTypes& get_argument_types() const override { return _argument_types; }
+    const DataTypePtr& get_return_type() const override { return _return_type; }
 
     PreparedFunctionPtr prepare(FunctionContext* context, const Block& sample_block,
                                 const ColumnNumbers& arguments, size_t result) const override {

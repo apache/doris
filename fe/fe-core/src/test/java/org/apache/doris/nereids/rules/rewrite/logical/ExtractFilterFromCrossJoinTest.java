@@ -36,7 +36,7 @@ class ExtractFilterFromCrossJoinTest implements PatternMatchSupported {
     @Test
     void testExtract() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.CROSS_JOIN, Pair.of(0, 0))
+                .join(scan2, JoinType.CROSS_JOIN, Pair.of(0, 0))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)

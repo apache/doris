@@ -53,7 +53,7 @@ protected:
     Status _get_next_reader();
 
     // TODO: cast input block columns type to string.
-    Status _cast_src_block(Block* block) { return Status::OK(); };
+    Status _cast_src_block(Block* block) { return Status::OK(); }
 
 protected:
     std::unique_ptr<TextConverter> _text_converter;

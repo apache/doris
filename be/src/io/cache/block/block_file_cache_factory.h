@@ -44,7 +44,7 @@ public:
 
     CloudFileCachePtr get_by_path(const IFileCache::Key& key);
     CloudFileCachePtr get_disposable_cache(const IFileCache::Key& key);
-    std::vector<IFileCache::QueryContextHolderPtr> get_query_context_holders(
+    std::vector<IFileCache::QueryFileCacheContextHolderPtr> get_query_context_holders(
             const TUniqueId& query_id);
     FileCacheFactory() = default;
     FileCacheFactory& operator=(const FileCacheFactory&) = delete;

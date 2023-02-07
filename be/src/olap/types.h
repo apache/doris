@@ -79,7 +79,7 @@ public:
     virtual void set_to_max(void* buf) const = 0;
     virtual void set_to_min(void* buf) const = 0;
 
-    virtual const size_t size() const = 0;
+    virtual size_t size() const = 0;
 
     virtual FieldType type() const = 0;
 };
@@ -107,7 +107,7 @@ public:
 
     void set_to_max(void* buf) const override { _set_to_max(buf); }
     void set_to_min(void* buf) const override { _set_to_min(buf); }
-    const size_t size() const override { return _size; }
+    size_t size() const override { return _size; }
 
     FieldType type() const override { return _field_type; }
 
@@ -127,7 +127,6 @@ public:
 private:
     int (*_cmp)(const void* left, const void* right);
 
-    void (*_shallow_copy)(void* dest, const void* src);
     void (*_deep_copy)(void* dest, const void* src, MemPool* mem_pool);
     void (*_direct_copy)(void* dest, const void* src);
     void (*_direct_copy_may_cut)(void* dest, const void* src);
@@ -312,7 +311,7 @@ public:
         DCHECK(false) << "set_to_min of list is not implemented.";
     }
 
-    const size_t size() const override { return sizeof(CollectionValue); }
+    size_t size() const override { return sizeof(CollectionValue); }
 
     FieldType type() const override { return OLAP_FIELD_TYPE_ARRAY; }
 

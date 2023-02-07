@@ -420,8 +420,8 @@ public:
         int n = -1;
 
         auto res = ColumnString::create();
-        const ColumnString& source_column =
-                assert_cast<const ColumnString&>(*block.get_by_position(arguments[0]).column);
+        auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const ColumnString& source_column = assert_cast<const ColumnString&>(*col);
 
         if (arguments.size() == 2) {
             auto& col = *block.get_by_position(arguments[1]).column;
@@ -435,7 +435,7 @@ public:
             FunctionMask::vector_mask(source_column, *res, FunctionMask::DEFAULT_UPPER_MASK,
                                       FunctionMask::DEFAULT_LOWER_MASK,
                                       FunctionMask::DEFAULT_NUMBER_MASK);
-        } else if (n > 0) {
+        } else if (n >= 0) {
             vector(source_column, n, *res);
         }
 
@@ -731,36 +731,103 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
     }
-    bool use_default_implementation_for_nulls() const override { return true; }
+    bool use_default_implementation_for_nulls() const override { return false; }
     bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         int arguent_size = arguments.size();
-        auto pos_col =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        if (auto* nullable = check_and_get_column<const ColumnNullable>(*pos_col)) {
-            pos_col = nullable->get_nested_column_ptr();
-        }
-        auto& pos_data = assert_cast<const ColumnInt32*>(pos_col.get())->get_data();
-        auto pos = pos_data[0];
         int num_children = arguent_size - 1;
-        if (pos < 1 || num_children == 0 || pos > num_children) {
-            auto null_map = ColumnUInt8::create(input_rows_count, 1);
-            auto res = ColumnString::create();
-            auto& res_data = res->get_chars();
-            auto& res_offset = res->get_offsets();
-            res_offset.resize(input_rows_count);
-            for (size_t i = 0; i < input_rows_count; ++i) {
-                res_offset[i] = res_data.size();
+        auto res = ColumnString::create();
+
+        if (auto const_column = check_and_get_column<ColumnConst>(
+                    *block.get_by_position(arguments[0]).column)) {
+            auto data = const_column->get_data_at(0);
+            // return NULL, pos is null or pos < 0 or pos > num_children
+            auto is_null = data.data == nullptr;
+            auto pos = is_null ? 0 : *(Int32*)data.data;
+            is_null = pos <= 0 || pos > num_children;
+
+            auto null_map = ColumnUInt8::create(input_rows_count, is_null);
+            if (is_null) {
+                res->insert_many_defaults(input_rows_count);
+            } else {
+                auto& target_column = block.get_by_position(arguments[pos]).column;
+                if (auto target_const_column = check_and_get_column<ColumnConst>(*target_column)) {
+                    auto target_data = target_const_column->get_data_at(0);
+                    if (target_data.data == nullptr) {
+                        null_map = ColumnUInt8::create(input_rows_count, is_null);
+                        res->insert_many_defaults(input_rows_count);
+                    } else {
+                        res->insert_many_data(target_data.data, target_data.size, input_rows_count);
+                    }
+                } else if (auto target_nullable_column =
+                                   check_and_get_column<ColumnNullable>(*target_column)) {
+                    auto& target_null_map = target_nullable_column->get_null_map_data();
+                    VectorizedUtils::update_null_map(
+                            assert_cast<ColumnUInt8&>(*null_map).get_data(), target_null_map);
+
+                    auto& target_str_column = assert_cast<const ColumnString&>(
+                            target_nullable_column->get_nested_column());
+                    res->get_chars().assign(target_str_column.get_chars().begin(),
+                                            target_str_column.get_chars().end());
+                    res->get_offsets().assign(target_str_column.get_offsets().begin(),
+                                              target_str_column.get_offsets().end());
+                } else {
+                    auto& target_str_column = assert_cast<const ColumnString&>(*target_column);
+                    res->get_chars().assign(target_str_column.get_chars().begin(),
+                                            target_str_column.get_chars().end());
+                    res->get_offsets().assign(target_str_column.get_offsets().begin(),
+                                              target_str_column.get_offsets().end());
+                }
             }
             block.get_by_position(result).column =
                     ColumnNullable::create(std::move(res), std::move(null_map));
-            return Status::OK();
-        }
+        } else if (auto pos_null_column = check_and_get_column<ColumnNullable>(
+                           *block.get_by_position(arguments[0]).column)) {
+            auto& pos_column =
+                    assert_cast<const ColumnInt32&>(pos_null_column->get_nested_column());
+            auto& pos_null_map = pos_null_column->get_null_map_data();
+            auto null_map = ColumnUInt8::create(input_rows_count, false);
+            auto& res_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
 
-        block.get_by_position(result).column =
-                make_nullable(block.get_by_position(arguments[pos]).column);
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                auto pos = pos_column.get_element(i);
+                res_null_map[i] =
+                        pos_null_map[i] || pos <= 0 || pos > num_children ||
+                        block.get_by_position(arguments[pos]).column->get_data_at(i).data ==
+                                nullptr;
+                if (res_null_map[i]) {
+                    res->insert_default();
+                } else {
+                    auto insert_data = block.get_by_position(arguments[pos]).column->get_data_at(i);
+                    res->insert_data(insert_data.data, insert_data.size);
+                }
+            }
+            block.get_by_position(result).column =
+                    ColumnNullable::create(std::move(res), std::move(null_map));
+        } else {
+            auto& pos_column =
+                    assert_cast<const ColumnInt32&>(*block.get_by_position(arguments[0]).column);
+            auto null_map = ColumnUInt8::create(input_rows_count, false);
+            auto& res_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
+
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                auto pos = pos_column.get_element(i);
+                res_null_map[i] =
+                        pos <= 0 || pos > num_children ||
+                        block.get_by_position(arguments[pos]).column->get_data_at(i).data ==
+                                nullptr;
+                if (res_null_map[i]) {
+                    res->insert_default();
+                } else {
+                    auto insert_data = block.get_by_position(arguments[pos]).column->get_data_at(i);
+                    res->insert_data(insert_data.data, insert_data.size);
+                }
+            }
+            block.get_by_position(result).column =
+                    ColumnNullable::create(std::move(res), std::move(null_map));
+        }
         return Status::OK();
     }
 };

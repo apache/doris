@@ -167,15 +167,15 @@ public:
     [[noreturn]] ColumnPtr filter(const IColumn::Filter& filt,
                                   ssize_t result_size_hint) const override {
         LOG(FATAL) << "filter not supported in ColumnDictionary";
-    };
+    }
 
     [[noreturn]] ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
         LOG(FATAL) << "permute not supported in ColumnDictionary";
-    };
+    }
 
     [[noreturn]] ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override {
         LOG(FATAL) << "replicate not supported in ColumnDictionary";
-    };
+    }
 
     [[noreturn]] MutableColumns scatter(IColumn::ColumnIndex num_columns,
                                         const IColumn::Selector& selector) const override {
@@ -320,7 +320,7 @@ public:
 
     class Dictionary {
     public:
-        Dictionary() : _dict_data(new DictContainer()), _total_str_len(0) {};
+        Dictionary() : _dict_data(new DictContainer()), _total_str_len(0) {}
 
         void reserve(size_t n) { _dict_data->reserve(n); }
 

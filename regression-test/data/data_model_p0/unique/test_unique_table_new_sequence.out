@@ -5,18 +5,18 @@
 3	6	13
 
 -- !all --
-1	2	14
+1	2	15
 2	5	12
 3	6	13
 
 -- !all --
-1	2	14
+1	2	15
 15	8	19
 2	5	12
 3	6	13
 
 -- !all --
-1	10	14	0	14
+1	10	15	0	15
 15	8	19	0	19
 2	5	14	0	12
 3	6	11	0	13
@@ -36,7 +36,7 @@ __DORIS_DELETE_SIGN__	TINYINT	No	false	0	REPLACE
 __DORIS_SEQUENCE_COL__	INT	Yes	false	\N	REPLACE
 
 -- !all --
-1	10	14	0	14
+1	10	15	0	15
 15	8	19	0	19
 2	5	14	0	12
 21	8	22	0	22

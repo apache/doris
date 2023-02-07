@@ -65,7 +65,7 @@ class InvertedIndexReader {
 public:
     explicit InvertedIndexReader(io::FileSystemSPtr fs, const std::string& path,
                                  const uint32_t index_id)
-            : _fs(std::move(fs)), _path(path), _index_id(index_id) {};
+            : _fs(std::move(fs)), _path(path), _index_id(index_id) {}
     virtual ~InvertedIndexReader() = default;
 
     // create a new column iterator. Client should delete returned iterator
@@ -95,7 +95,7 @@ class FullTextIndexReader : public InvertedIndexReader {
 public:
     explicit FullTextIndexReader(io::FileSystemSPtr fs, const std::string& path,
                                  const int64_t uniq_id)
-            : InvertedIndexReader(std::move(fs), path, uniq_id) {};
+            : InvertedIndexReader(std::move(fs), path, uniq_id) {}
     ~FullTextIndexReader() override = default;
 
     Status new_iterator(const TabletIndex* index_meta, InvertedIndexIterator** iterator) override;
@@ -119,7 +119,7 @@ class StringTypeInvertedIndexReader : public InvertedIndexReader {
 public:
     explicit StringTypeInvertedIndexReader(io::FileSystemSPtr fs, const std::string& path,
                                            const int64_t uniq_id)
-            : InvertedIndexReader(std::move(fs), path, uniq_id) {};
+            : InvertedIndexReader(std::move(fs), path, uniq_id) {}
     ~StringTypeInvertedIndexReader() override = default;
 
     Status new_iterator(const TabletIndex* index_meta, InvertedIndexIterator** iterator) override;
@@ -151,8 +151,8 @@ public:
                          bool only_count = false);
     virtual ~InvertedIndexVisitor() = default;
 
-    void set_reader(lucene::util::bkd::bkd_reader* r) { reader = r; };
-    lucene::util::bkd::bkd_reader* get_reader() { return reader; };
+    void set_reader(lucene::util::bkd::bkd_reader* r) { reader = r; }
+    lucene::util::bkd::bkd_reader* get_reader() { return reader; }
 
     void visit(int rowID) override;
     void visit(roaring::Roaring& r) override;

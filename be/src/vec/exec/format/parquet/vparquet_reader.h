@@ -114,6 +114,7 @@ private:
         RuntimeProfile::Counter* filtered_page_rows;
         RuntimeProfile::Counter* lazy_read_filtered_rows;
         RuntimeProfile::Counter* filtered_bytes;
+        RuntimeProfile::Counter* raw_rows_read;
         RuntimeProfile::Counter* to_read_bytes;
         RuntimeProfile::Counter* column_read_time;
         RuntimeProfile::Counter* parse_meta_time;

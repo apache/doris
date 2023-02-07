@@ -77,6 +77,7 @@ Status VFileScanner::prepare(
     _io_ctx.reset(new IOContext());
     _io_ctx->file_cache_stats = _file_cache_statistics.get();
     _io_ctx->query_id = &_state->query_id();
+    _io_ctx->enable_file_cache = _state->query_options().enable_file_cache;
 
     if (vconjunct_ctx_ptr != nullptr) {
         // Copy vconjunct_ctx_ptr from scan node to this scanner's _vconjunct_ctx.

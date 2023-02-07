@@ -1741,6 +1741,18 @@ public class Config extends ConfigBase {
     public static boolean enable_array_type = false;
 
     /**
+     * Support complex data type MAP.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_map_type = false;
+
+    /**
+     * Support complex data type STRUCT.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_struct_type = false;
+
+    /**
      * The timeout of executing async remote fragment.
      * In normal case, the async remote fragment will be executed in a short time. If system are under high load
      * condition，try to set this timeout longer.
@@ -1799,6 +1811,9 @@ public class Config extends ConfigBase {
     /* Remove the finished mtmv task after this expired time. */
     @ConfField(mutable = true, masterOnly = true)
     public static long scheduler_mtmv_task_expired = 24 * 60 * 60L; // 1day
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean keep_scheduler_mtmv_task_when_job_deleted = false;
 
     /**
      * The candidate of the backend node for federation query such as hive table and es table query.
@@ -1964,6 +1979,12 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = false)
     public static int topn_two_phase_limit_threshold = 512;
+
+    /**
+     * Used to set session variables randomly to check more issues in github workflow
+     */
+    @ConfField(mutable = true)
+    public static int pull_request_id = 0;
 
     /**
      * Used to set default db transaction quota num.

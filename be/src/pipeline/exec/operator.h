@@ -89,8 +89,6 @@ public:
 
     std::string get_name() const { return _name; }
 
-    RuntimeState* runtime_state() { return _state; }
-
     virtual const RowDescriptor& row_desc() = 0;
 
     int32_t id() const { return _id; }
@@ -142,13 +140,13 @@ public:
     explicit OperatorBase(OperatorBuilderBase* operator_builder);
     virtual ~OperatorBase() = default;
 
-    virtual std::string get_name() const { return _operator_builder->get_name(); };
+    virtual std::string get_name() const { return _operator_builder->get_name(); }
 
     bool is_sink() const;
 
     bool is_source() const;
 
-    virtual Status init(const TDataSink& tsink) { return Status::OK(); };
+    virtual Status init(const TDataSink& tsink) { return Status::OK(); }
 
     // Prepare for running. (e.g. resource allocation, etc.)
     virtual Status prepare(RuntimeState* state) = 0;
@@ -191,7 +189,7 @@ public:
     virtual Status get_block(RuntimeState* runtime_state, vectorized::Block* block,
                              SourceState& result_state) {
         return Status::OK();
-    };
+    }
 
     /**
      * Push data to the sink operator.
@@ -255,7 +253,7 @@ public:
             std::remove_pointer_t<decltype(std::declval<OperatorBuilderType>().exec_node())>;
 
     DataSinkOperator(OperatorBuilderBase* builder, DataSink* sink)
-            : OperatorBase(builder), _sink(reinterpret_cast<NodeType*>(sink)) {};
+            : OperatorBase(builder), _sink(reinterpret_cast<NodeType*>(sink)) {}
 
     ~DataSinkOperator() override = default;
 
@@ -314,7 +312,7 @@ public:
             std::remove_pointer_t<decltype(std::declval<OperatorBuilderType>().exec_node())>;
 
     StreamingOperator(OperatorBuilderBase* builder, ExecNode* node)
-            : OperatorBase(builder), _node(reinterpret_cast<NodeType*>(node)) {};
+            : OperatorBase(builder), _node(reinterpret_cast<NodeType*>(node)) {}
 
     ~StreamingOperator() override = default;
 
@@ -386,7 +384,7 @@ public:
             std::remove_pointer_t<decltype(std::declval<OperatorBuilderType>().exec_node())>;
 
     SourceOperator(OperatorBuilderBase* builder, ExecNode* node)
-            : StreamingOperator<OperatorBuilderType>(builder, node) {};
+            : StreamingOperator<OperatorBuilderType>(builder, node) {}
 
     ~SourceOperator() override = default;
 
@@ -421,7 +419,7 @@ public:
     StatefulOperator(OperatorBuilderBase* builder, ExecNode* node)
             : StreamingOperator<OperatorBuilderType>(builder, node),
               _child_block(new vectorized::Block),
-              _child_source_state(SourceState::DEPEND_ON_SOURCE) {};
+              _child_source_state(SourceState::DEPEND_ON_SOURCE) {}
 
     virtual ~StatefulOperator() = default;
 

@@ -35,20 +35,20 @@ Clang-Tidy中可以做一些代码分析的配置,配置文件`.clang-tidy`在Do
 ### 在VSCODE中配置Clangd
 
 首先需要安装clangd插件，然后在`settings.json`中编辑或者直接在首选项中更改插件配置。相比于vscode-cpptools，clangd可以为vscode提供更强大和准确的代码转跳，并且集成了clang-tidy的分析和快速修复功能。
+在使用之前，先编译一次`be(RELEASE)`和`be-ut(ASAN)`，以生成对应的`compile_commands.json`文件。
 
 ```json
     "clangd.path": "ldb_toolchain/bin/clangd", //clangd的路径
     "clangd.arguments": [
         "--background-index",
         "--clang-tidy", //开启clang-tidy
-        "--compile-commands-dir=doris/be/build_RELEASE/", //会用到cmake生成的compile_commands.json,所以需要先编译一次生成该文件
+        "--compile-commands-dir=doris/be/build_Release/",
         "--completion-style=detailed",
         "-j=5", //clangd分析文件的并行数
         "--all-scopes-completion",
         "--pch-storage=memory",
         "--pretty",
-        "-log=verbose",
         "--query-driver=ldb_toolchain/bin/*" //编译器路径
     ],
-    "clangd.trace": "/home/disk2/pxl/dev/baidu/bdg/doris/core/output/clangd-server.log" //clangd的日志路径,可以自己设定
+    "clangd.trace": "output/clangd-server.log"
 ```
