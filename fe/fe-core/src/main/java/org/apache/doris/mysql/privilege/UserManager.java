@@ -119,11 +119,18 @@ public class UserManager implements Writable {
                 // if user cmy@'192.168.1.1' try to login with password 'abc', it will be denied.
                 passwdPolicyMgr.onFailedLogin(curUser);
                 throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
-                        remotePasswd.length == 0 ? "NO" : "YES");
+                        hasRemotePasswd(plain, remotePasswd));
             }
         }
         throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
-                "YES");
+                hasRemotePasswd(plain, remotePasswd));
+    }
+
+    private String hasRemotePasswd(boolean plain, byte[] remotePasswd) {
+        if (plain) {
+            return "YES";
+        }
+        return remotePasswd.length == 0 ? "NO" : "YES";
     }
 
     private boolean comparePassword(Password curUserPassword, byte[] remotePasswd,
