@@ -41,15 +41,18 @@ import java.util.Set;
 public class InferFilterNotNull extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalFilter().then(filter -> {
-            Builder<Expression> builder = ImmutableSet.<Expression>builder().addAll(filter.getConjuncts());
-            Set<Expression> predicates = filter.getConjuncts();
-            Set<Expression> isNotNull = ExpressionUtils.inferNotNull(predicates);
-            if (predicates.containsAll(isNotNull)) {
-                return null;
-            }
-            builder.addAll(isNotNull);
-            return PlanUtils.filterOrSelf(builder.build(), filter.child());
-        }).toRule(RuleType.INFER_FILTER_NOT_NULL);
+        return logicalFilter()
+            .when(filter -> filter.getConjuncts().stream().noneMatch(expr -> expr.isGeneratedIsNotNull))
+            .then(filter -> {
+                Set<Expression> predicates = filter.getConjuncts();
+                Set<Expression> isNotNull = ExpressionUtils.inferNotNull(predicates);
+                if (isNotNull.isEmpty() || predicates.containsAll(isNotNull)) {
+                    return null;
+                }
+                Builder<Expression> builder = ImmutableSet.<Expression>builder()
+                        .addAll(predicates)
+                        .addAll(isNotNull);
+                return PlanUtils.filter(builder.build(), filter.child()).get();
+            }).toRule(RuleType.INFER_FILTER_NOT_NULL);
     }
 }

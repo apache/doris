@@ -34,7 +34,6 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Objects;
 
-
 class EliminateOuterJoinTest implements PatternMatchSupported {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);

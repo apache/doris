@@ -386,15 +386,29 @@ public class ExpressionUtils {
         return notNullSlots;
     }
 
+    /**
+     * infer notNulls slot from predicate
+     */
     public static Set<Expression> inferNotNull(Set<Expression> predicates) {
         return inferNotNullSlots(predicates).stream()
-                .map(slot -> new Not(new IsNull(slot))).collect(Collectors.toSet());
+                .map(slot -> {
+                    Not isNotNull = new Not(new IsNull(slot));
+                    isNotNull.isGeneratedIsNotNull = true;
+                    return isNotNull;
+                }).collect(Collectors.toSet());
     }
 
+    /**
+     * infer notNulls slot from predicate but these slots must be in the given slots.
+     */
     public static Set<Expression> inferNotNull(Set<Expression> predicates, Set<Slot> slots) {
         return inferNotNullSlots(predicates).stream()
                 .filter(slots::contains)
-                .map(slot -> new Not(new IsNull(slot))).collect(Collectors.toSet());
+                .map(slot -> {
+                    Not isNotNull = new Not(new IsNull(slot));
+                    isNotNull.isGeneratedIsNotNull = true;
+                    return isNotNull;
+                }).collect(Collectors.toSet());
     }
 
     public static <E extends Expression> List<E> flatExpressions(List<List<E>> expressions) {
