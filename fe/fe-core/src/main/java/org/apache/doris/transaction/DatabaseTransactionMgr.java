@@ -31,7 +31,6 @@ import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.DuplicatedRequestException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -125,7 +124,6 @@ public class DatabaseTransactionMgr {
     // which means if a txn exist in idToRunningTransactionState or idToFinalStatusTransactionState
     // it must exists in dbIdToTxnLabels, and vice versa
     private final Map<String, Set<Long>> labelToTxnIds = Maps.newHashMap();
-
 
     // count the number of running txns of database, except for the routine load txn
     private volatile int runningTxnNums = 0;
@@ -1523,7 +1521,7 @@ public class DatabaseTransactionMgr {
     }
 
     protected void checkRunningTxnExceedLimit(TransactionState.LoadJobSourceType sourceType)
-            throws BeginTransactionException {
+            throws BeginTransactionException, MetaNotFoundException {
         switch (sourceType) {
             case ROUTINE_LOAD_TASK:
                 // no need to check limit for routine load task:
@@ -1532,9 +1530,10 @@ public class DatabaseTransactionMgr {
                 //    load, and other txn may not be able to submitted.
                 break;
             default:
-                if (runningTxnNums >= Config.max_running_txn_num_per_db) {
+                long txnQuota = env.getInternalCatalog().getDbOrMetaException(dbId).getTransactionQuotaSize();
+                if (runningTxnNums >= txnQuota) {
                     throw new BeginTransactionException("current running txns on db " + dbId + " is "
-                            + runningTxnNums + ", larger than limit " + Config.max_running_txn_num_per_db);
+                            + runningTxnNums + ", larger than limit " + txnQuota);
                 }
                 break;
         }

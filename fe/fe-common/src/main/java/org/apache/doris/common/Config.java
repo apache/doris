@@ -1985,5 +1985,11 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static int pull_request_id = 0;
+
+    /**
+     * Used to set default db transaction quota num.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long default_db_max_running_txn_num = -1;
 }
 
