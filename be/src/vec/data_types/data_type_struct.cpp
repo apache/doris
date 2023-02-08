@@ -146,28 +146,28 @@ std::string DataTypeStruct::to_string(const IColumn& column, size_t row_num) con
     auto& struct_column = assert_cast<const ColumnStruct&>(*ptr.get());
 
     std::stringstream ss;
-    ss << "<";
+    ss << "{";
     for (size_t idx = 0; idx < elems.size(); idx++) {
         if (idx != 0) {
             ss << ", ";
         }
         ss << elems[idx]->to_string(struct_column.get_column(idx), row_num);
     }
-    ss << ">";
+    ss << "}";
     return ss.str();
 }
 
 void DataTypeStruct::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
     auto ptr = column.convert_to_full_column_if_const();
     auto& struct_column = assert_cast<const ColumnStruct&>(*ptr.get());
-    ostr.write("<", 1);
+    ostr.write("{", 1);
     for (size_t idx = 0; idx < elems.size(); idx++) {
         if (idx != 0) {
             ostr.write(", ", 2);
         }
         elems[idx]->to_string(struct_column.get_column(idx), row_num, ostr);
     }
-    ostr.write(">", 1);
+    ostr.write("}", 1);
 }
 
 static inline IColumn& extract_element_column(IColumn& column, size_t idx) {

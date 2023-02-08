@@ -126,7 +126,12 @@ public class MapType extends Type {
 
     @Override
     public boolean supportSubType(Type subType) {
-        return true;
+        for (Type supportedType : Type.getMapSubTypes()) {
+            if (subType.getPrimitiveType() == supportedType.getPrimitiveType()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override

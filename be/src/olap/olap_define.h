@@ -66,6 +66,9 @@ static const uint16_t OLAP_STRUCT_MAX_LENGTH = 65535;
 // the max length supported for array
 static const uint16_t OLAP_ARRAY_MAX_LENGTH = 65535;
 
+// the max length supported for map
+static const uint16_t OLAP_MAP_MAX_LENGTH = 65535;
+
 // the max bytes for stored string length
 using StringOffsetType = uint32_t;
 using StringLengthType = uint32_t;

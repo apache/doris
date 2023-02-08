@@ -114,6 +114,7 @@ public abstract class Type {
     private static final ArrayList<ScalarType> numericDateTimeTypes;
     private static final ArrayList<ScalarType> supportedTypes;
     private static final ArrayList<Type> arraySubTypes;
+    private static final ArrayList<Type> mapSubTypes;
     private static final ArrayList<Type> structSubTypes;
     private static final ArrayList<ScalarType> trivialTypes;
 
@@ -169,10 +170,8 @@ public abstract class Type {
         supportedTypes.add(QUANTILE_STATE);
 
         arraySubTypes = Lists.newArrayList();
+        arraySubTypes.addAll(numericTypes);
         arraySubTypes.add(BOOLEAN);
-        arraySubTypes.addAll(integerTypes);
-        arraySubTypes.add(FLOAT);
-        arraySubTypes.add(DOUBLE);
         arraySubTypes.add(DECIMALV2);
         arraySubTypes.add(DATE);
         arraySubTypes.add(DATETIME);
@@ -182,21 +181,29 @@ public abstract class Type {
         arraySubTypes.add(VARCHAR);
         arraySubTypes.add(STRING);
 
+        mapSubTypes = Lists.newArrayList();
+        mapSubTypes.addAll(numericTypes);
+        mapSubTypes.add(BOOLEAN);
+        mapSubTypes.add(DECIMALV2);
+        mapSubTypes.add(DATE);
+        mapSubTypes.add(DATETIME);
+        mapSubTypes.add(DATEV2);
+        mapSubTypes.add(DATETIMEV2);
+        mapSubTypes.add(CHAR);
+        mapSubTypes.add(VARCHAR);
+        mapSubTypes.add(STRING);
+
         structSubTypes = Lists.newArrayList();
         structSubTypes.addAll(numericTypes);
         structSubTypes.add(BOOLEAN);
-        structSubTypes.add(VARCHAR);
-        structSubTypes.add(STRING);
-        structSubTypes.add(CHAR);
+        structSubTypes.add(DECIMALV2);
         structSubTypes.add(DATE);
         structSubTypes.add(DATETIME);
         structSubTypes.add(DATEV2);
         structSubTypes.add(DATETIMEV2);
-        structSubTypes.add(TIME);
-        structSubTypes.add(TIMEV2);
-        structSubTypes.add(DECIMAL32);
-        structSubTypes.add(DECIMAL64);
-        structSubTypes.add(DECIMAL128);
+        structSubTypes.add(CHAR);
+        structSubTypes.add(VARCHAR);
+        structSubTypes.add(STRING);
     }
 
     public static final Set<Class> DATE_SUPPORTED_JAVA_TYPE = Sets.newHashSet(LocalDate.class, java.util.Date.class,
@@ -252,6 +259,10 @@ public abstract class Type {
 
     public static ArrayList<Type> getArraySubTypes() {
         return arraySubTypes;
+    }
+
+    public static ArrayList<Type> getMapSubTypes() {
+        return mapSubTypes;
     }
 
     public static ArrayList<Type> getStructSubTypes() {

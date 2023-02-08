@@ -44,7 +44,6 @@ enum TExprNodeType {
   INFO_FUNC,
   FUNCTION_CALL,
   ARRAY_LITERAL,
-  STRUCT_LITERAL,
   
   // TODO: old style compute functions. this will be deprecated
   COMPUTE_FUNCTION_CALL,
@@ -64,6 +63,9 @@ enum TExprNodeType {
 
   // for map 
   MAP_LITERAL,
+
+  // for struct
+  STRUCT_LITERAL,
 }
 
 //enum TAggregationOp {

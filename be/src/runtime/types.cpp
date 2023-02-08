@@ -94,6 +94,7 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
     //     children.push_back(TypeDescriptor(types, idx));
     //     break;
     case TTypeNodeType::MAP: {
+        //TODO(xy): handle contains_null[0] for key and [1] for value
         DCHECK(!node.__isset.scalar_type);
         DCHECK_LT(*idx, types.size() - 2);
         DCHECK(!node.__isset.contains_null);
@@ -117,6 +118,7 @@ void TypeDescriptor::to_thrift(TTypeDesc* thrift_type) const {
             node.type = TTypeNodeType::ARRAY;
             node.contains_null = contains_nulls[0];
         } else if (type == TYPE_MAP) {
+            //TODO(xy): need to process children for map
             node.type = TTypeNodeType::MAP;
         } else {
             DCHECK_EQ(type, TYPE_STRUCT);

@@ -265,6 +265,24 @@ Status VExpr::open(const std::vector<VExprContext*>& ctxs, RuntimeState* state) 
     return Status::OK();
 }
 
+Status VExpr::clone_if_not_exists(const std::vector<VExprContext*>& ctxs, RuntimeState* state,
+                                  std::vector<VExprContext*>* new_ctxs) {
+    DCHECK(new_ctxs != nullptr);
+    if (!new_ctxs->empty()) {
+        // 'ctxs' was already cloned into '*new_ctxs', nothing to do.
+        DCHECK_EQ(new_ctxs->size(), ctxs.size());
+        for (int i = 0; i < new_ctxs->size(); ++i) {
+            DCHECK((*new_ctxs)[i]->_is_clone);
+        }
+        return Status::OK();
+    }
+    new_ctxs->resize(ctxs.size());
+    for (int i = 0; i < ctxs.size(); ++i) {
+        RETURN_IF_ERROR(ctxs[i]->clone(state, &(*new_ctxs)[i]));
+    }
+    return Status::OK();
+}
+
 FunctionContext::TypeDesc VExpr::column_type_to_type_desc(const TypeDescriptor& type) {
     FunctionContext::TypeDesc out;
     switch (type.type) {
@@ -367,23 +385,6 @@ FunctionContext::TypeDesc VExpr::column_type_to_type_desc(const TypeDescriptor& 
     return out;
 }
 
-Status VExpr::clone_if_not_exists(const std::vector<VExprContext*>& ctxs, RuntimeState* state,
-                                  std::vector<VExprContext*>* new_ctxs) {
-    DCHECK(new_ctxs != nullptr);
-    if (!new_ctxs->empty()) {
-        // 'ctxs' was already cloned into '*new_ctxs', nothing to do.
-        DCHECK_EQ(new_ctxs->size(), ctxs.size());
-        for (int i = 0; i < new_ctxs->size(); ++i) {
-            DCHECK((*new_ctxs)[i]->_is_clone);
-        }
-        return Status::OK();
-    }
-    new_ctxs->resize(ctxs.size());
-    for (int i = 0; i < ctxs.size(); ++i) {
-        RETURN_IF_ERROR(ctxs[i]->clone(state, &(*new_ctxs)[i]));
-    }
-    return Status::OK();
-}
 std::string VExpr::debug_string() const {
     // TODO: implement partial debug string for member vars
     std::stringstream out;

@@ -450,6 +450,20 @@ DataTypePtr DataTypeFactory::create_data_type(const arrow::DataType* type, bool 
                 create_data_type(type->field(0)->type().get(), true),
                 create_data_type(type->field(1)->type().get(), true));
         break;
+    case ::arrow::Type::STRUCT: {
+        size_t field_num = type->num_fields();
+        DCHECK(type->num_fields() >= 1);
+        vectorized::DataTypes dataTypes;
+        vectorized::Strings names;
+        dataTypes.reserve(field_num);
+        names.reserve(field_num);
+        for (size_t i = 0; i < field_num; i++) {
+            dataTypes.push_back(create_data_type(type->field(i)->type().get(), true));
+            names.push_back(type->field(i)->name());
+        }
+        nested = std::make_shared<vectorized::DataTypeStruct>(dataTypes, names);
+        break;
+    }
     default:
         DCHECK(false) << "invalid arrow type:" << (int)(type->id());
         break;

@@ -290,7 +290,8 @@ Status ColumnWriter::create(const ColumnWriterOptions& opts, const TabletColumn*
                 const TabletColumn& inner_column =
                         column->get_sub_column(i); // field_type is true key and value
                 array_column.add_sub_column(const_cast<TabletColumn&>(inner_column));
-                array_column.set_name("map.arr");
+                std::string col_name = i == 0 ? "map.keys" : "map.vals";
+                array_column.set_name(col_name);
                 child_meta->set_type(inner_column.type());
                 child_meta->set_length(inner_column.length());
                 child_meta->set_column_id(arr_opts.meta->column_id() + 1);

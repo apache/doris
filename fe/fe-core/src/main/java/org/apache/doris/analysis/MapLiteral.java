@@ -48,6 +48,7 @@ public class MapLiteral extends LiteralExpr {
         Type valueType = Type.NULL;
         children = new ArrayList<>();
         int idx = 0;
+        // TODO(xy): limit key type to scalar type
         for (LiteralExpr expr : exprs) {
             if (idx % 2 == 0) {
                 if (keyType == Type.NULL) {

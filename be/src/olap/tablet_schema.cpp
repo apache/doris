@@ -318,7 +318,7 @@ uint32_t TabletColumn::get_field_length_by_type(TPrimitiveType::type type, uint3
     case TPrimitiveType::ARRAY:
         return OLAP_ARRAY_MAX_LENGTH;
     case TPrimitiveType::MAP:
-        return OLAP_ARRAY_MAX_LENGTH;
+        return OLAP_MAP_MAX_LENGTH;
     case TPrimitiveType::DECIMAL32:
         return 4;
     case TPrimitiveType::DECIMAL64:

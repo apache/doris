@@ -1354,8 +1354,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     public Expr checkTypeCompatibility(Type targetType) throws AnalysisException {
-        if (targetType.getPrimitiveType() != PrimitiveType.ARRAY && targetType.getPrimitiveType() != PrimitiveType.MAP
-                && targetType.getPrimitiveType() == type.getPrimitiveType()) {
+        if (targetType.isComplexType() && targetType.getPrimitiveType() == type.getPrimitiveType()) {
             if (targetType.isDecimalV2() && type.isDecimalV2()) {
                 return this;
             } else if (!PrimitiveType.typeWithPrecision.contains(type.getPrimitiveType())) {

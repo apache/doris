@@ -332,6 +332,7 @@ public class CastExpr extends Expr {
         }
 
         if (fn == null) {
+            //TODO(xy): check map type
             if (type.isStructType() && childType.isStringType()) {
                 return;
             }
