@@ -448,7 +448,7 @@ public class OriginalPlanner extends Planner {
             SortNode sortNode = (SortNode) node;
             PlanNode child = sortNode.getChild(0);
             if (child instanceof OlapScanNode && sortNode.getLimit() > 0
-                    && sortNode.getLimit() < ConnectContext.get().getSessionVariable().topnOptLimitThreshold
+                    && sortNode.getLimit() <= ConnectContext.get().getSessionVariable().topnOptLimitThreshold
                     && sortNode.getSortInfo().getMaterializedOrderingExprs().size() > 0) {
                 Expr firstSortExpr = sortNode.getSortInfo().getMaterializedOrderingExprs().get(0);
                 if (firstSortExpr instanceof SlotRef && !firstSortExpr.getType().isStringType()
