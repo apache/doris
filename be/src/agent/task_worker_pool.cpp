@@ -272,8 +272,8 @@ void TaskWorkerPool::notify_thread() {
 }
 
 bool TaskWorkerPool::_register_task_info(const TTaskType::type task_type, int64_t signature) {
-    if (task_type == TTaskType::type::PUSH_STORAGE_POLICY
-            || task_type == TTaskType::type::COOLDOWN_DELETE_FILE) {
+    if (task_type == TTaskType::type::PUSH_STORAGE_POLICY ||
+        task_type == TTaskType::type::COOLDOWN_DELETE_FILE) {
         // no need to report task of these types
         return true;
     }

@@ -1715,8 +1715,9 @@ bool Tablet::need_deal_cooldown_delete() {
         _need_deal_cooldown_delete = false;
         return false;
     }
-    _need_deal_cooldown_delete = _cooldown_delete_flag
-            || time(nullptr) - _last_cooldown_delete_time >= config::cooldown_delete_interval_time_sec;
+    _need_deal_cooldown_delete =
+            _cooldown_delete_flag ||
+            time(nullptr) - _last_cooldown_delete_time >= config::cooldown_delete_interval_time_sec;
     return _need_deal_cooldown_delete;
 }
 
@@ -1729,8 +1730,8 @@ Status Tablet::_deal_cooldown_delete_files(const std::shared_ptr<io::RemoteFileS
                 continue;
             }
             for (int i = 0; i < rs_meta->num_segments(); ++i) {
-                remote_segment_name_map.emplace(BetaRowset::segment_dat_name(
-                        rs_meta->rowset_id().to_string(), i), true);
+                remote_segment_name_map.emplace(
+                        BetaRowset::segment_dat_name(rs_meta->rowset_id().to_string(), i), true);
             }
         }
     }
@@ -1751,7 +1752,8 @@ Status Tablet::_deal_cooldown_delete_files(const std::shared_ptr<io::RemoteFileS
         _cooldown_delete_flag = false;
         _cooldown_delete_files.clear();
     } else {
-        if (time(nullptr) - _last_cooldown_delete_time < config::cooldown_delete_interval_time_sec) {
+        if (time(nullptr) - _last_cooldown_delete_time <
+            config::cooldown_delete_interval_time_sec) {
             return Status::OK();
         }
         _cooldown_delete_files.clear();
