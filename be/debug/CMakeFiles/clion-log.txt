@@ -1,0 +1,48 @@
+/Applications/CLion.app/Contents/bin/cmake/mac/bin/cmake -DCMAKE_BUILD_TYPE=Debug -G "CodeBlocks - Unix Makefiles" /Users/mochenhui/projects/doris/be
+-- GLIBC_COMPATIBILITY is OFF
+-- USE_LIBCPP is ON
+-- USE_MEM_TRACKER is 
+-- USE_JEMALLOC is ON
+-- Build type is DEBUG
+-- Build target arch is arm64
+-- THIRDPARTY_DIR is /Users/mochenhui/projects/doris/be/../thirdparty/installed
+-- make test: OFF
+-- build gensrc if necessary
+/Library/Developer/CommandLineTools/usr/bin/make -C script
+/Users/mochenhui/projects/doris/gensrc/script/gen_build_version.sh
+/Library/Developer/CommandLineTools/usr/bin/make -C proto
+make[1]: Nothing to be done for `all'.
+/Library/Developer/CommandLineTools/usr/bin/make -C thrift
+/Users/mochenhui/projects/doris/be/../thirdparty/installed/bin/thrift -I /Users/mochenhui/projects/doris/gensrc/thrift -I /Users/mochenhui/projects/doris/gensrc/thrift/../build//thrift/ --gen cpp -out /Users/mochenhui/projects/doris/gensrc/thrift/../build//gen_cpp --allow-64bit-consts -strict /Users/mochenhui/projects/doris/gensrc/thrift/HeartbeatService.thrift
+-- Found Boost: /Users/mochenhui/projects/doris/thirdparty/installed/lib64/cmake/Boost-1.73.0/BoostConfig.cmake (found suitable version "1.73.0", minimum required is "1.73.0") found components: system date_time 
+-- Found Boost: /Users/mochenhui/projects/doris/thirdparty/installed/lib64/cmake/Boost-1.73.0/BoostConfig.cmake (found suitable version "1.73.0", minimum required is "1.73.0") found components: system container 
+-- Compiler Flags:  -g -Wall -Wextra -pthread -Werror -Wno-unused-parameter -Wno-implicit-fallthrough -Wno-sign-compare -fstrict-aliasing -fno-omit-frame-pointer -std=gnu++17 -D__STDC_FORMAT_MACROS -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG -DBOOST_SYSTEM_NO_DEPRECATED -DBRPC_ENABLE_CPU_PROFILER -DBOOST_UUID_RANDOM_PROVIDER_FORCE_POSIX=1 -DS2_USE_GFLAGS -DS2_USE_GLOG -DDORIS_WITH_MYSQL -DUSE_JEMALLOC -faligned-new  -Og 
+CMake Warning at CMakeLists.txt:694 (find_package):
+  By not providing "Findabsl.cmake" in CMAKE_MODULE_PATH this project has
+  asked CMake to find a package configuration file provided by "absl", but
+  CMake did not find one.
+
+  Could not find a package configuration file provided by "absl" with any of
+  the following names:
+
+    abslConfig.cmake
+    absl-config.cmake
+
+  Add the installation prefix of "absl" to CMAKE_PREFIX_PATH or set
+  "absl_DIR" to a directory containing one of the above files.  If "absl"
+  provides a separate development package or SDK, be sure it has been
+  installed.
+
+
+-- DORIS_DEPENDENCIES is ic;clucene-core;clucene-shared;clucene-contribs-lib;backtrace;rocksdb;cyrus-sasl;libs2;snappy;Boost::date_time;thrift;thriftnb;glog;re2;hyperscan;pprof;lz4;libevent;libevent_pthreads;idn;gsasl;curl;libz;libbz2;gflags;brpc;protobuf;openssl;crypto;leveldb;bitshuffle;roaring;fmt;jemalloc;jemalloc_arrow;brotlicommon;brotlidec;brotlienc;zstd;arrow;parquet;orc;odbc;cctz;minizip;opentelemetry_common;opentelemetry_exporter_zipkin_trace;opentelemetry_resources;opentelemetry_version;opentelemetry_exporter_ostream_span;opentelemetry_trace;opentelemetry_http_client_curl;opentelemetry_exporter_otlp_http;opentelemetry_exporter_otlp_http_client;opentelemetry_otlp_recordable;opentelemetry_proto;aws-sdk-s3;aws-sdk-core;aws-sdk-transfer;aws-checksums;aws-c-io;aws-c-event-stream;aws-c-common;aws-c-cal;aws-c-s3;aws-c-auth;aws-crt-cpp;aws-c-compression;aws-c-http;aws-c-mqtt;aws-sdk-s3-crt;librdkafka_cpp;librdkafka;hdfs3;xml2;lzma;simdjson;Boost::container;bfd;iberty;intl;krb5support;krb5;com_err;gssapi_krb5;k5crypto;mysql
+-- Link Flags: Agent;Common;Env;Exec;Exprs;Gutil;IO;Olap;Rowset;Runtime;Service;Udf;Util;DorisGen;Webserver;Geo;Vec;Pipeline;ic;clucene-core;clucene-shared;clucene-contribs-lib;backtrace;rocksdb;cyrus-sasl;libs2;snappy;Boost::date_time;thrift;thriftnb;glog;re2;hyperscan;pprof;lz4;libevent;libevent_pthreads;idn;gsasl;curl;libz;libbz2;gflags;brpc;protobuf;openssl;crypto;leveldb;bitshuffle;roaring;fmt;jemalloc;jemalloc_arrow;brotlicommon;brotlidec;brotlienc;zstd;arrow;parquet;orc;odbc;cctz;minizip;opentelemetry_common;opentelemetry_exporter_zipkin_trace;opentelemetry_resources;opentelemetry_version;opentelemetry_exporter_ostream_span;opentelemetry_trace;opentelemetry_http_client_curl;opentelemetry_exporter_otlp_http;opentelemetry_exporter_otlp_http_client;opentelemetry_otlp_recordable;opentelemetry_proto;aws-sdk-s3;aws-sdk-core;aws-sdk-transfer;aws-checksums;aws-c-io;aws-c-event-stream;aws-c-common;aws-c-cal;aws-c-s3;aws-c-auth;aws-crt-cpp;aws-c-compression;aws-c-http;aws-c-mqtt;aws-sdk-s3-crt;librdkafka_cpp;librdkafka;hdfs3;xml2;lzma;simdjson;Boost::container;bfd;iberty;intl;krb5support;krb5;com_err;gssapi_krb5;k5crypto;mysql;-lapple_nghttp2;-lresolv;-liconv;jemalloc;-framework CoreFoundation;-framework CoreGraphics;-framework CoreText;-framework Foundation;-framework SystemConfiguration;-framework Security;-Wl,-U,_MallocExtension_ReleaseFreeMemory
+-- dir='/Users/mochenhui/projects/doris/be/src'
+-- dir='/Users/mochenhui/projects/doris/be/test'
+-- dir='/Users/mochenhui/projects/doris/be/../gensrc/build'
+-- dir='/Users/mochenhui/projects/doris/be/../thirdparty/installed/include'
+-- dir='/Users/mochenhui/projects/doris/be/../thirdparty/installed/gperftools/include'
+-- dir='/Library/Java/JavaVirtualMachines/temurin-8.jdk/Contents/Home/include'
+-- dir='/Library/Java/JavaVirtualMachines/temurin-8.jdk/Contents/Home/include/darwin'
+-- Configuring done
+-- Generating done
+-- Build files have been written to: /Users/mochenhui/projects/doris/be/debug

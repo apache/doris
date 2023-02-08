@@ -71,6 +71,58 @@ suite("load") {
         DISTRIBUTED BY HASH(`ktint`) BUCKETS 5
         properties("replication_num" = "1")
     """
+
+    sql """
+        CREATE TABLE IF NOT EXISTS `fn_test_not_nullable` (
+            `kbool` boolean not null,
+            `ktint` tinyint(4) not null,
+            `ksint` smallint(6) not null,
+            `kint` int(11) not null,
+            `kbint` bigint(20) not null,
+            `klint` largeint(40) not null,
+            `kfloat` float not null,
+            `kdbl` double not null,
+            `kdcmls1` decimal(9, 3) not null,
+            `kdcmls2` decimal(15, 5) not null,
+            `kdcmls3` decimal(27, 9) not null,
+            `kdcmlv3s1` decimalv3(9, 3) not null,
+            `kdcmlv3s2` decimalv3(15, 5) not null,
+            `kdcmlv3s3` decimalv3(27, 9) not null,
+            `kchrs1` char(10) not null,
+            `kchrs2` char(20) not null,
+            `kchrs3` char(50) not null,
+            `kvchrs1` varchar(10) not null,
+            `kvchrs2` varchar(20) not null,
+            `kvchrs3` varchar(50) not null,
+            `kstr` string not null,
+            `kdt` date not null,
+            `kdtv2` datev2 not null,
+            `kdtm` datetime not null,
+            `kdtmv2s1` datetimev2(0) not null,
+            `kdtmv2s2` datetimev2(4) not null,
+            `kdtmv2s3` datetimev2(6) not null,
+            `kabool` array<boolean> not null,
+            `katint` array<tinyint(4)> not null,
+            `kasint` array<smallint(6)> not null,
+            `kaint` array<int> not null,
+            `kabint` array<bigint(20)> not null,
+            `kalint` array<largeint(40)> not null,
+            `kafloat` array<float> not null,
+            `kadbl` array<double> not null,
+            `kadt` array<date> not null,
+            `kadtm` array<datetime> not null,
+            `kadtv2` array<datev2> not null,
+            `kadtmv2` array<datetimev2(6)> not null,
+            `kachr` array<char(50)> not null,
+            `kavchr` array<varchar(50)> not null,
+            `kastr` array<string> not null,
+            `kadcml` array<decimal(27, 9)> not null,
+            `st_point_str` string not null,
+            `st_point_vc` varchar(50) not null
+        ) engine=olap
+        DISTRIBUTED BY HASH(`ktint`) BUCKETS 5
+        properties("replication_num" = "1")
+    """
     // ddl end
 
     streamLoad {
@@ -79,4 +131,8 @@ suite("load") {
         set 'column_separator', ';'
         file "fn_test.dat"
     }
+
+    sql """
+        insert into fn_test_not_nullable select * from fn_test where kbool is not null
+    """
 }
