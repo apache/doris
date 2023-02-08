@@ -1595,6 +1595,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             PlanFragment rightFragment, PlanTranslatorContext context) {
         hashJoinNode.setDistributionMode(DistributionMode.BROADCAST);
         leftFragment.setPlanRoot(hashJoinNode);
+        rightFragment.setRightChildOfBroadcastHashJoin(true);
         connectChildFragment(hashJoinNode, 1, leftFragment, rightFragment, context);
         return leftFragment;
     }

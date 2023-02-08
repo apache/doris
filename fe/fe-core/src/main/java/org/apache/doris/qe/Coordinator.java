@@ -1132,20 +1132,19 @@ public class Coordinator {
                     destParams.instanceExecParams.forEach(param -> {
                         if (destHosts.containsKey(param.host)) {
                             destHosts.get(param.host).instancesSharingHashTable.add(param.instanceId);
-                            return;
+                        } else {
+                            destHosts.put(param.host, param);
+                            param.buildHashTableForBroadcastJoin = true;
+                            TPlanFragmentDestination dest = new TPlanFragmentDestination();
+                            dest.fragment_instance_id = param.instanceId;
+                            try {
+                                dest.server = toRpcHost(param.host);
+                                dest.setBrpcServer(toBrpcHost(param.host));
+                            } catch (Exception e) {
+                                throw new RuntimeException(e);
+                            }
+                            params.destinations.add(dest);
                         }
-                        destHosts.put(param.host, param);
-
-                        param.buildHashTableForBroadcastJoin = true;
-                        TPlanFragmentDestination dest = new TPlanFragmentDestination();
-                        dest.fragment_instance_id = param.instanceId;
-                        try {
-                            dest.server = toRpcHost(param.host);
-                            dest.setBrpcServer(toBrpcHost(param.host));
-                        } catch (Exception e) {
-                            throw new RuntimeException(e);
-                        }
-                        params.destinations.add(dest);
                     });
                 } else {
                     // add destination host to this fragment's destination
