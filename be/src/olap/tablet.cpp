@@ -1766,7 +1766,8 @@ Status Tablet::_deal_cooldown_delete_files(const std::shared_ptr<io::RemoteFileS
                 continue;
             }
             if (remote_segment_name_map.find(filename) == remote_segment_name_map.end()) {
-                _cooldown_delete_files.emplace_back(path);
+                _cooldown_delete_files.emplace_back(fmt::format(
+                        "{}/{}", BetaRowset::remote_tablet_path(tablet_id()), filename));
             }
         }
         _last_cooldown_delete_time = time(nullptr);

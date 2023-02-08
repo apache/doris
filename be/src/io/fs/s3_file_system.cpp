@@ -87,7 +87,7 @@ Status S3FileSystem::upload(const Path& local_path, const Path& dest_path) {
     auto start = std::chrono::steady_clock::now();
 
     auto key = get_key(dest_path);
-    auto handle = transfer_manager->UploadFile(local_path.native(), _s3_conf.bucket, key,
+    auto handle = transfer_manager->UploadFile(local_path.string(), _s3_conf.bucket, key,
                                                "text/plain", Aws::Map<Aws::String, Aws::String>());
     handle->WaitUntilFinished();
 
