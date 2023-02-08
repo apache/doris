@@ -1,0 +1,2 @@
+/Library/Developer/CommandLineTools/usr/bin/ar qc libEnv.a CMakeFiles/Env.dir/env.cpp.o CMakeFiles/Env.dir/env_posix.cpp.o CMakeFiles/Env.dir/env_util.cpp.o
+/Library/Developer/CommandLineTools/usr/bin/ranlib libEnv.a

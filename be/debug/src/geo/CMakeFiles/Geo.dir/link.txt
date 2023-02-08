@@ -1,0 +1,2 @@
+/Library/Developer/CommandLineTools/usr/bin/ar qc libGeo.a CMakeFiles/Geo.dir/geo_common.cpp.o CMakeFiles/Geo.dir/geo_types.cpp.o CMakeFiles/Geo.dir/wkt_parse.cpp.o CMakeFiles/Geo.dir/Users/mochenhui/projects/doris/gensrc/build/geo/wkt_lex.l.cpp.o CMakeFiles/Geo.dir/Users/mochenhui/projects/doris/gensrc/build/geo/wkt_yacc.y.cpp.o
+/Library/Developer/CommandLineTools/usr/bin/ranlib libGeo.a

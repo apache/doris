@@ -1,0 +1,116 @@
+# The set of languages for which implicit dependencies are needed:
+set(CMAKE_DEPENDS_LANGUAGES
+  "CXX"
+  )
+# The set of files for implicit dependencies of each language:
+set(CMAKE_DEPENDS_CHECK_CXX
+  "/Users/mochenhui/projects/doris/be/src/util/arrow/block_convertor.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/arrow/block_convertor.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/arrow/row_batch.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/arrow/row_batch.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/arrow/row_block.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/arrow/row_block.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/arrow/utils.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/arrow/utils.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/bfd_parser.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/bfd_parser.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/bitmap.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/bitmap.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/block_compression.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/block_compression.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/broker_storage_backend.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/broker_storage_backend.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/brpc_client_cache.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/brpc_client_cache.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/cgroup_util.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/cgroup_util.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/cidr.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/cidr.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/cityhash102/city.cc" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/cityhash102/city.cc.o"
+  "/Users/mochenhui/projects/doris/be/src/util/coding.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/coding.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/core_local.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/core_local.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/cpu_info.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/cpu_info.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/crc32c.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/crc32c.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/date_func.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/date_func.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/debug_util.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/debug_util.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/disk_info_mac.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/disk_info_mac.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/doris_metrics.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/doris_metrics.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/dynamic_util.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/dynamic_util.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/easy_json.cc" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/easy_json.cc.o"
+  "/Users/mochenhui/projects/doris/be/src/util/encryption_util.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/encryption_util.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/errno.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/errno.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/error_util.cc" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/error_util.cc.o"
+  "/Users/mochenhui/projects/doris/be/src/util/exception.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/exception.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/faststring.cc" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/faststring.cc.o"
+  "/Users/mochenhui/projects/doris/be/src/util/file_cache.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/file_cache.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/file_utils.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/file_utils.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/filesystem_util.cc" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/filesystem_util.cc.o"
+  "/Users/mochenhui/projects/doris/be/src/util/frame_of_reference_coding.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/frame_of_reference_coding.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/hdfs_storage_backend.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/hdfs_storage_backend.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/hdfs_util.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/hdfs_util.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/histogram.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/histogram.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/jni-util.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/jni-util.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/jni_native_method.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/jni_native_method.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/libjvm_loader.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/libjvm_loader.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/md5.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/md5.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/mem_info.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/mem_info.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/metrics.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/metrics.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/murmur_hash3.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/murmur_hash3.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/mustache/mustache.cc" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/mustache/mustache.cc.o"
+  "/Users/mochenhui/projects/doris/be/src/util/mysql_row_buffer.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/mysql_row_buffer.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/network_util.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/network_util.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/os_info.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/os_info.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/os_util.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/os_util.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/parse_util.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/parse_util.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/path_builder.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/path_builder.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/path_util.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/path_util.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/perf_counters_mac.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/perf_counters_mac.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/pprof_utils.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/pprof_utils.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/progress_updater.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/progress_updater.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/quantile_state.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/quantile_state.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/runtime_profile.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/runtime_profile.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/s3_storage_backend.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/s3_storage_backend.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/s3_uri.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/s3_uri.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/s3_util.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/s3_util.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/slice.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/slice.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/sm3.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/sm3.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/stack_util.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/stack_util.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/static_asserts.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/static_asserts.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/string_parser.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/string_parser.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/string_util.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/string_util.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/system_metrics.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/system_metrics.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/telemetry/brpc_carrier.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/telemetry/brpc_carrier.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/telemetry/telemetry.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/telemetry/telemetry.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/thread.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/thread.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/threadpool.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/threadpool.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/thrift_client.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/thrift_client.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/thrift_rpc_helper.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/thrift_rpc_helper.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/thrift_server.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/thrift_server.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/thrift_util.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/thrift_util.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/time.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/time.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/time_lut.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/time_lut.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/timezone_utils.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/timezone_utils.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/trace.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/trace.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/trace_metrics.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/trace_metrics.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/uid_util.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/uid_util.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/url_coding.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/url_coding.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/url_parser.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/url_parser.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/utf8_check.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/utf8_check.cpp.o"
+  "/Users/mochenhui/projects/doris/be/src/util/zlib.cpp" "/Users/mochenhui/projects/doris/be/debug/src/util/CMakeFiles/Util.dir/zlib.cpp.o"
+  )
+set(CMAKE_CXX_COMPILER_ID "AppleClang")
+
+# Preprocessor definitions for this target.
+set(CMAKE_TARGET_DEFINITIONS_CXX
+  "BOOST_STACKTRACE_USE_NOOP"
+  "HAVE_INTTYPES_H"
+  "HAVE_NETINET_IN_H"
+  "USE_LIBCPP"
+  )
+
+# The include file search paths:
+set(CMAKE_CXX_TARGET_INCLUDE_PATH
+  "../src"
+  "../test"
+  "/Library/Java/JavaVirtualMachines/temurin-8.jdk/Contents/Home/include"
+  "/Library/Java/JavaVirtualMachines/temurin-8.jdk/Contents/Home/include/darwin"
+  "../../gensrc/build"
+  "../../thirdparty/installed/include"
+  "../../thirdparty/installed/gperftools/include"
+  )
+
+# Targets to which this target links.
+set(CMAKE_TARGET_LINKED_INFO_FILES
+  )
+
+# Fortran module output directory.
+set(CMAKE_Fortran_TARGET_MODULE_DIR "")

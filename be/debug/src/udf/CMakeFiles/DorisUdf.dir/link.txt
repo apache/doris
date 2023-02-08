@@ -1,0 +1,2 @@
+/Library/Developer/CommandLineTools/usr/bin/ar qc libDorisUdf.a CMakeFiles/DorisUdf.dir/udf.cpp.o
+/Library/Developer/CommandLineTools/usr/bin/ranlib libDorisUdf.a

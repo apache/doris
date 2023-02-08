@@ -1,0 +1,2 @@
+/Library/Developer/CommandLineTools/usr/bin/ar qc libAgent.a CMakeFiles/Agent.dir/agent_server.cpp.o CMakeFiles/Agent.dir/heartbeat_server.cpp.o CMakeFiles/Agent.dir/task_worker_pool.cpp.o CMakeFiles/Agent.dir/utils.cpp.o CMakeFiles/Agent.dir/topic_subscriber.cpp.o CMakeFiles/Agent.dir/cgroups_mgr_mac.cpp.o
+/Library/Developer/CommandLineTools/usr/bin/ranlib libAgent.a
