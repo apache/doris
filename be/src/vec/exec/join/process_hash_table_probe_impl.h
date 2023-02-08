@@ -257,13 +257,15 @@ Status ProcessHashTableProbe<JoinOpType>::do_process(HashTableType& hash_table_c
                     }
                 }
                 int last_offset = current_offset;
-                auto find_result =
-                        !need_null_map_for_probe
-                                ? key_getter.find_key(hash_table_ctx.hash_table, probe_index, *_arena)
-                        : (*null_map)[probe_index]
-                                ? decltype(key_getter.find_key(hash_table_ctx.hash_table, probe_index,
-                                                               *_arena)) {nullptr, false}
-                                : key_getter.find_key(hash_table_ctx.hash_table, probe_index, *_arena);
+                auto find_result = !need_null_map_for_probe
+                                           ? key_getter.find_key(hash_table_ctx.hash_table,
+                                                                 probe_index, *_arena)
+                                   : (*null_map)[probe_index]
+                                           ? decltype(key_getter.find_key(hash_table_ctx.hash_table,
+                                                                          probe_index,
+                                                                          *_arena)) {nullptr, false}
+                                           : key_getter.find_key(hash_table_ctx.hash_table,
+                                                                 probe_index, *_arena);
                 if (probe_index + PREFETCH_STEP < probe_rows) {
                     key_getter.template prefetch<true>(hash_table_ctx.hash_table,
                                                        probe_index + PREFETCH_STEP, *_arena);
@@ -499,13 +501,15 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                 }
 
                 auto last_offset = current_offset;
-                auto find_result =
-                        !need_null_map_for_probe
-                                ? key_getter.find_key(hash_table_ctx.hash_table, probe_index, *_arena)
-                        : (*null_map)[probe_index]
-                                ? decltype(key_getter.find_key(hash_table_ctx.hash_table, probe_index,
-                                                               *_arena)) {nullptr, false}
-                                : key_getter.find_key(hash_table_ctx.hash_table, probe_index, *_arena);
+                auto find_result = !need_null_map_for_probe
+                                           ? key_getter.find_key(hash_table_ctx.hash_table,
+                                                                 probe_index, *_arena)
+                                   : (*null_map)[probe_index]
+                                           ? decltype(key_getter.find_key(hash_table_ctx.hash_table,
+                                                                          probe_index,
+                                                                          *_arena)) {nullptr, false}
+                                           : key_getter.find_key(hash_table_ctx.hash_table,
+                                                                 probe_index, *_arena);
                 if (probe_index + PREFETCH_STEP < probe_rows) {
                     key_getter.template prefetch<true>(hash_table_ctx.hash_table,
                                                        probe_index + PREFETCH_STEP, *_arena);
@@ -665,7 +669,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                     if (join_hit) {
                         *visited_map[i] |= other_hit;
                         filter_map[i] = other_hit || !same_to_prev[i] ||
-                                             (!column->get_bool(i - 1) && filter_map[i - 1]);
+                                        (!column->get_bool(i - 1) && filter_map[i - 1]);
                         // Here to keep only hit join conjunct and other join conjunt is true need to be output.
                         // if not, only some key must keep one row will output will null right table column
                         if (same_to_prev[i] && filter_map[i] && !column->get_bool(i - 1)) {
@@ -804,8 +808,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                             _join_node->_is_any_probe_match_row_output = true;
                             filter_map[row_count_from_last_probe - 1] = false;
                         }
-                        if (is_the_last_sub_block &&
-                            !_join_node->_is_any_probe_match_row_output) {
+                        if (is_the_last_sub_block && !_join_node->_is_any_probe_match_row_output) {
                             // This is the last sub block of splitted block, and no equal-conjuncts-matched tuple
                             // is output in all sub blocks, output a tuple for this probe row
                             filter_map[0] = true;
