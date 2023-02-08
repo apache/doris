@@ -82,6 +82,7 @@ public class JoinTest extends SqlTestBase {
         PlanChecker.from(connectContext)
                 .analyze(sql)
                 .rewrite()
+                .printlnTree()
                 .matchesFromRoot(
                         innerLogicalJoin(
                                 logicalFilter().when(f -> f.getPredicate().toString().equals("((id#0 = 4) OR (id#0 > 4))")),

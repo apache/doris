@@ -59,12 +59,11 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
             }
             boolean canFilterLeftNull = ExpressionUtils.isIntersecting(join.left().getOutputSet(), notNullSlots);
             boolean canFilterRightNull = ExpressionUtils.isIntersecting(join.right().getOutputSet(), notNullSlots);
-
-            JoinType newJoinType = tryEliminateOuterJoin(join.getJoinType(), canFilterLeftNull,
-                    canFilterRightNull);
-            if (newJoinType == join.getJoinType()) {
+            if (!canFilterRightNull && !canFilterLeftNull) {
                 return null;
             }
+
+            JoinType newJoinType = tryEliminateOuterJoin(join.getJoinType(), canFilterLeftNull, canFilterRightNull);
             return filter.withChildren(join.withJoinType(newJoinType));
         }).toRule(RuleType.ELIMINATE_OUTER_JOIN);
     }
