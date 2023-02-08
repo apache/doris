@@ -44,7 +44,10 @@ public class PlanUtils {
     }
 
     public static Optional<LogicalFilter<? extends Plan>> filter(Set<Expression> predicates, Plan plan) {
-        return ExpressionUtils.optionalAnd(predicates).map(opt -> new LogicalFilter<>(predicates, plan));
+        if (predicates.isEmpty()) {
+            return Optional.empty();
+        }
+        return Optional.of(new LogicalFilter<>(predicates, plan));
     }
 
     public static Plan filterOrSelf(Set<Expression> predicates, Plan plan) {
