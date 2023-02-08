@@ -319,8 +319,8 @@ public class JoinUtils {
         return joinConjuncts.stream()
                 .map(expr ->
                         expr.rewriteUp(e -> {
-                            if (e instanceof Slot && replaceMaps.containsKey(e)) {
-                                return replaceMaps.get(e);
+                            if (e instanceof Slot && replaceMaps.containsKey((Slot)e)) {
+                                return replaceMaps.get((Slot)e);
                             } else {
                                 return e;
                             }
