@@ -59,7 +59,10 @@ public class MTMVJobManagerTest extends TestWithFeService {
         MTMVJob job = MTMVUtilsTest.createSchedulerJob();
         jobManager.createJob(job, false);
         Assertions.assertEquals(1, jobManager.showJobs(MTMVUtilsTest.dbName).size());
-        Thread.sleep(5000L);
+        while (jobManager.getTaskManager().getAllHistory().isEmpty()) {
+            Thread.sleep(1000L);
+            System.out.println("Loop    once");
+        }
         Assertions.assertTrue(jobManager.getTaskManager().getAllHistory().size() > 1);
     }
 
@@ -73,7 +76,7 @@ public class MTMVJobManagerTest extends TestWithFeService {
         Assertions.assertEquals(1, jobManager.showJobs(MTMVUtilsTest.dbName).size());
         Assertions.assertEquals(1, jobManager.showJobs(MTMVUtilsTest.dbName, MTMVUtilsTest.MV_NAME).size());
         while (!jobManager.getJob(MTMVUtilsTest.O_JOB).getState().equals(JobState.COMPLETE)) {
-            Thread.sleep(10000);
+            Thread.sleep(1000L);
             System.out.println("Loop    once");
         }
 
