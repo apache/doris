@@ -35,7 +35,7 @@
                     "label": "Construct Docker",
                     "items": [
                         "install/construct-docker/construct-docker-image",
-                        "install/construct-docker/construct-docker-compose"
+                        "install/construct-docker/run-docker-cluster"
                     ]
                 }
             ]
