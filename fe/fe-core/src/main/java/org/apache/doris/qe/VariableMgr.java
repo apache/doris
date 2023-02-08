@@ -585,6 +585,9 @@ public class VariableMgr {
 
         // Set to true if the variables need to be forwarded along with forward statement.
         boolean needForward() default false;
+
+        // Set to true if this variable is fuzzy
+        boolean fuzzy() default false;
     }
 
     private static class VarContext {
