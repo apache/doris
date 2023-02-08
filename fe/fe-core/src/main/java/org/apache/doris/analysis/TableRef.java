@@ -94,8 +94,11 @@ public class TableRef implements ParseNode, Writable {
     // Indicates whether this table ref is given an explicit alias,
     protected boolean hasExplicitAlias;
     protected JoinOperator joinOp;
+    // for mark join
     protected boolean isMark;
+    // we must record mark tuple name for re-analyze
     protected String markTupleName;
+
     protected List<String> usingColNames;
     protected ArrayList<LateralViewRef> lateralViewRefs;
     protected Expr onClause;
