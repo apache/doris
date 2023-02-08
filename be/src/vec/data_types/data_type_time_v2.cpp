@@ -49,7 +49,7 @@ void DataTypeDateV2::to_string(const IColumn& column, size_t row_num, BufferWrit
     ostr.write(buf, pos - buf - 1);
 }
 
-Status DataTypeDateV2::from_string(ReadBuffer& rb, IColumn* column) const{
+Status DataTypeDateV2::from_string(ReadBuffer& rb, IColumn* column) const {
     auto* column_data = static_cast<ColumnUInt32*>(column);
     UInt32 val = 0;
     if (!read_date_v2_text_impl<UInt32>(val, rb)) {
@@ -122,7 +122,7 @@ void DataTypeDateTimeV2::to_string(const IColumn& column, size_t row_num,
     ostr.write(buf, pos - buf - 1);
 }
 
-Status DataTypeDateTimeV2::from_string(ReadBuffer& rb, IColumn* column) const{
+Status DataTypeDateTimeV2::from_string(ReadBuffer& rb, IColumn* column) const {
     auto* column_data = static_cast<ColumnUInt64*>(column);
     UInt64 val = 0;
     if (!read_datetime_v2_text_impl<UInt64>(val, rb)) {
