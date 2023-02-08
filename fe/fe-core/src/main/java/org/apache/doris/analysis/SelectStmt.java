@@ -1303,15 +1303,24 @@ public class SelectStmt extends QueryStmt {
             if (!groupByClause.isGroupByExtension() && !groupingExprs.isEmpty()) {
                 /*
                 For performance reason, we want to remove constant column from groupingExprs.
-                For example: `select 'abc', sum(a) from t group by 'abc'` is equivalent to `select 1, sum(a) from t`
+                For example:
+                `select sum(T.A) from T group by T.B, 'xyz'` is equivalent to `select sum(T.A) from T group by T.B`
                 We can remove constant column `abc` from groupingExprs.
-                But there is an exception:
-                 sql1: `select 'abc' from t group by 'abc'`
-                 sql2: `select 'abc' from t`
-                sql1 is not equivalent to sql2.
-                We need to keep some constant column if all items in groupingExprs are constant columns.
-                Consider sql3 `select a from (select "abc" as a, 'def' as b) T group by b, a;`
-                if the column is in select list, this column should not be removed.
+
+                But there is an exception when all groupingExpr are constant
+                For example:
+                sql1: `select 'abc' from t group by 'abc'`
+                 is not equivalent to
+                sql2: `select 'abc' from t`
+
+                sql3: `select 'abc', sum(a) from t group by 'abc'`
+                 is not equivalent to
+                sql4: `select 1, sum(a) from t`
+                (when t is empty, sql3 returns 0 tuple, sql4 return 1 tuple)
+
+                We need to keep some constant columns if all groupingExpr are constant.
+                Consider sql5 `select a from (select "abc" as a, 'def' as b) T group by b, a;`
+                if the constant column is in select list, this column should not be removed.
                  */
 
                 Expr theFirstConstantGroupingExpr = null;
@@ -1346,9 +1355,9 @@ public class SelectStmt extends QueryStmt {
                 if (someGroupExprRemoved) {
                     groupingExprs.clear();
                     groupingExprs.addAll(tempExprs);
-                    //consider sql1, groupingExprs need at least one expr, it can be
+                    //groupingExprs need at least one expr, it can be
                     //any original grouping expr. we use the first one.
-                    if (groupingExprs.isEmpty() && aggExprs.isEmpty()) {
+                    if (groupingExprs.isEmpty()) {
                         groupingExprs.add(theFirstConstantGroupingExpr);
                     }
                 }

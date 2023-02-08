@@ -15,21 +15,27 @@
 // specific language governing permissions and limitations
 // under the License.
 
-// This suit test the `backends` information_schema table
+// This suit test remove constant group_by_key 
 suite("constant_group_key") {
+    //remove constant key
+    explain {
+        sql("select 'oneline' from nation group by n_nationkey, 'constant1'")
+        contains "group by: `n_nationkey`"
+    }
+
+    //reserve constant key in group by
     explain {
         sql("select 'oneline' from nation group by 'constant1'")
         contains "group by: 'constant1'"
     }
 
     explain {
-        sql("select 'oneline' from nation group by 'constant1', 'constant2'")
+        sql("select 'oneline', sum(n_nationkey) from nation group by 'constant1', 'constant2'")
         contains "group by: 'constant1'"
     }
 
-    //no group by key
     explain {
-        sql("select 'oneline', count(*) from nation group by 'constant1', 'constant2'")
-        contains "group by: \n"
+        sql("select a from (select '1' as b, 'abc' as a) T  group by b, a")
+        contains "group by: 'abc'"
     }
 }
