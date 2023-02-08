@@ -327,8 +327,8 @@ public abstract class BaseExecutor {
                 return true;
             }
             case DECIMALV2: {
-                Preconditions.checkArgument(((BigDecimal) obj).scale() == 9, "Scale of DECIMALV2 must be 9");
-                BigInteger data = ((BigDecimal) obj).unscaledValue();
+                BigDecimal retValue = ((BigDecimal) obj).setScale(9, RoundingMode.HALF_EVEN);
+                BigInteger data = retValue.unscaledValue();
                 byte[] bytes = UdfUtils.convertByteOrder(data.toByteArray());
                 //TODO: here is maybe overflow also, and may find a better way to handle
                 byte[] value = new byte[16];
