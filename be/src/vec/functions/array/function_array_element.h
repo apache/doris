@@ -21,6 +21,7 @@
 
 #include <string_view>
 
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_string.h"
@@ -200,6 +201,14 @@ private:
             res = _execute_number<ColumnDate>(offsets, *nested_column, src_null_map,
                                               *arguments[1].column, nested_null_map, dst_null_map);
         } else if (nested_column->is_datetime_type()) {
+            res = _execute_number<ColumnDateTime>(offsets, *nested_column, src_null_map,
+                                                  *arguments[1].column, nested_null_map,
+                                                  dst_null_map);
+        } else if (check_column<ColumnDateV2>(nested_column)) {
+            res = _execute_number<ColumnDateV2>(offsets, *nested_column, src_null_map,
+                                                *arguments[1].column, nested_null_map,
+                                                dst_null_map);
+        } else if (check_column<ColumnDateTimeV2>(nested_column)) {
             res = _execute_number<ColumnDateTime>(offsets, *nested_column, src_null_map,
                                                   *arguments[1].column, nested_null_map,
                                                   dst_null_map);
