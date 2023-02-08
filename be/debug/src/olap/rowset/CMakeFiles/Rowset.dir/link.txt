@@ -1,2 +1,0 @@
-/Library/Developer/CommandLineTools/usr/bin/ar qc libRowset.a CMakeFiles/Rowset.dir/unique_rowset_id_generator.cpp.o CMakeFiles/Rowset.dir/rowset.cpp.o CMakeFiles/Rowset.dir/rowset_factory.cpp.o CMakeFiles/Rowset.dir/rowset_meta_manager.cpp.o CMakeFiles/Rowset.dir/beta_rowset.cpp.o CMakeFiles/Rowset.dir/beta_rowset_reader.cpp.o CMakeFiles/Rowset.dir/beta_rowset_writer.cpp.o CMakeFiles/Rowset.dir/vertical_beta_rowset_writer.cpp.o CMakeFiles/Rowset.dir/rowset_tree.cpp.o
-/Library/Developer/CommandLineTools/usr/bin/ranlib libRowset.a

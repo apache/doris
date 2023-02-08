@@ -1,2 +1,0 @@
-/Library/Developer/CommandLineTools/usr/bin/ar qc libCommon.a CMakeFiles/Common.dir/daemon.cpp.o CMakeFiles/Common.dir/status.cpp.o CMakeFiles/Common.dir/resource_tls.cpp.o CMakeFiles/Common.dir/logconfig.cpp.o CMakeFiles/Common.dir/configbase.cpp.o
-/Library/Developer/CommandLineTools/usr/bin/ranlib libCommon.a

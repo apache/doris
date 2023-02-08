@@ -1,2 +1,0 @@
-/Library/Developer/CommandLineTools/usr/bin/ar qc libUdf.a CMakeFiles/Udf.dir/udf.cpp.o
-/Library/Developer/CommandLineTools/usr/bin/ranlib libUdf.a
