@@ -60,7 +60,7 @@ public class Statistics {
     /**
      * If the table statistics do not exist, the default statistics will be returned.
      */
-    public TableStats getTableStatsOrDefault(long tableId) throws AnalysisException {
+    public TableStats getTableStatsOrDefault(long tableId) {
         return idToTableStats.getOrDefault(tableId, TableStats.getDefaultTableStats());
     }
 
