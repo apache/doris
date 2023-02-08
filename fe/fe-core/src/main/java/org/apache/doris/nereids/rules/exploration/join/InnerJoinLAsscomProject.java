@@ -98,8 +98,8 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                     List<Expression> newBottomOtherConjuncts = splitOtherConjuncts.get(false);
 
                     /* ********** replace Conjuncts by projects ********** */
-                    Map<ExprId, Expression> inputToOutput = new HashMap<>();
-                    Map<ExprId, Expression> outputToInput = new HashMap<>();
+                    Map<Slot, Expression> inputToOutput = new HashMap<>();
+                    Map<Slot, Expression> outputToInput = new HashMap<>();
                     boolean needNewProject = false;
                     for (NamedExpression expr : projects) {
                         if (expr instanceof Alias) {
@@ -107,11 +107,11 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                             Slot outputSlot = alias.toSlot();
                             if (alias.child() instanceof Slot) {
                                 Slot inputSlot = (Slot) alias.child();
-                                inputToOutput.put(inputSlot.getExprId(), outputSlot);
+                                inputToOutput.put(inputSlot, outputSlot);
                             } else {
                                 needNewProject = true;
                             }
-                            outputToInput.put(outputSlot.getExprId(), alias.child());
+                            outputToInput.put(outputSlot, alias.child());
                         }
                     }
                     // replace hashConjuncts
@@ -147,9 +147,9 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                                 JoinHint.NONE, PlanUtils.project(newLeftProjects, a).get(), c,
                                 bottomJoin.getJoinReorderContext());
                     } else {
-                        newBottomHashJoinConjuncts = JoinUtils.replaceJoinConjunctsUseExpression(
+                        newBottomHashJoinConjuncts = JoinUtils.replaceJoinConjunctsByExpressionMap(
                                 newBottomHashJoinConjuncts, outputToInput);
-                        newBottomOtherJoinConjuncts = JoinUtils.replaceJoinConjunctsUseExpression(
+                        newBottomOtherJoinConjuncts = JoinUtils.replaceJoinConjunctsByExpressionMap(
                                 newBottomOtherJoinConjuncts, outputToInput);
                         newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
                                 newBottomHashJoinConjuncts, newBottomOtherJoinConjuncts,

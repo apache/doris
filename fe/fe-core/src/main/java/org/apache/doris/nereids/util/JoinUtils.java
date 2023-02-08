@@ -312,15 +312,15 @@ public class JoinUtils {
     }
 
     /**
-     * replace JoinConjuncts by using Expression map.
+     * replace JoinConjuncts by Expression map.
      */
-    public static List<Expression> replaceJoinConjunctsUseExpression(List<Expression> joinConjuncts,
-            Map<ExprId, Expression> replaceMaps) {
+    public static List<Expression> replaceJoinConjunctsByExpressionMap(List<Expression> joinConjuncts,
+            Map<Slot, Expression> replaceMaps) {
         return joinConjuncts.stream()
                 .map(expr ->
                         expr.rewriteUp(e -> {
-                            if (e instanceof Slot && replaceMaps.containsKey(((Slot) e).getExprId())) {
-                                return replaceMaps.get(((Slot) e).getExprId());
+                            if (e instanceof Slot && replaceMaps.containsKey(e)) {
+                                return replaceMaps.get(e);
                             } else {
                                 return e;
                             }
