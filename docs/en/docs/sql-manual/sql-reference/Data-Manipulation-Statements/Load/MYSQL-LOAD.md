@@ -53,34 +53,32 @@ This statement is used to import data to the specified table. Unlike normal Load
 
 This import method can still guarantee the atomicity of a batch of import tasks, either all data imports are successful or all fail.
 
-This operation also updates the data of the rollup table associated with this base table.
-
-1. MySQL Load starts with the syntax `LOAD DATA`, without specifying LABEL
-2. Specify  `LOCAL` to read client side files. Not specified to read FE server level local files
-3. Fill in the local file path in `INFILE`, which can be a relative path or an absolute path. Currently only a single file is supported, and multiple files are not supported
-4. The table name of `INTO TABLE` can specify the database name, as shown in the case. It can also be omitted, and the database where the current user is located will be used.
-5. `PARTITION` syntax supports specified partition import
+1. MySQL Load starts with the syntax `LOAD DATA`, without specifying `LABEL`
+2. Specify  `LOCAL` to read client side files. Not specified to read FE server side local files
+3. The local fill path will be filled after `INFILE`, which can be a relative path or an absolute path. Currently only a single file is supported, and multiple files are not supported
+4. The table name after `INTO TABLE` can specify the database name, as shown in the case. It can also be omitted, and the database where the current user is located will be used.
+5. `PARTITION` syntax supports specified partition to import
 6. `COLUMNS TERMINATED BY` specifies the column separator
 7. `LINES TERMINATED BY` specifies the line separator
 8. `IGNORE num LINES` The user skips the header of the CSV and can skip any number of lines. This syntax can also be replaced by'IGNORE num ROWS '
-9. Column mapping syntax, please refer to the column mapping chapter of [Imported Data Transformation] (../../../data-operate/import/import-way/mysql-load-manual.md)
+9. Column mapping syntax, please refer to the column mapping chapter of [Imported Data Transformation](../../../data-operate/import/import-way/mysql-load-manual.md)
 10. `PROPERTIES` parameter configuration, see below for details
 
 ### PROPERTIES
 
-1. max_filter_ratio：Maximum tolerance The proportion of data that can be filtered (for reasons such as non-canonical data). Default zero tolerance.
+1. max_filter_ratio：The maximum tolerable data ratio that can be filtered (for reasons such as data irregularity). Zero tolerance by default. Data irregularities do not include rows filtered out by where conditions.
 
-2. timeout: Specifies the timeout for the import. In seconds. The default is 600 seconds. The range can be set from 1 second to 259200 seconds.
+2. timeout: Specify the import timeout. in seconds. The default is 600 seconds. The setting range is from 1 second to 259200 seconds.
 
-3. strict_mode: The user specifies whether this import is in strict mode, which defaults to off.
+3. strict_mode: The user specifies whether to enable strict mode for this import. The default is off.
 
-4. timezone: Specifies the time zone used for this import. Defaults to East Eighth District. This parameter affects the results of all time zone-related functions involved in the import.
+4. timezone: Specify the time zone used for this import. The default is Dongba District. This parameter affects the results of all time zone-related functions involved in the import.
 
-5. exec_mem_limit: Import memory limit. Default is 2GB. Units are bytes.
+5. exec_mem_limit: Import memory limit. Default is 2GB. The unit is bytes.
 
 ### Example
 
-1. Import the data from the client side local file'testData 'into the table'testTbl' in the database'testDb '. Specify a timeout of 100 seconds
+1. Import the data from the client side local file `testData` into the table `testTbl` in the database `testDb`. Specify a timeout of 100 seconds
 
     ```sql
     LOAD DATA LOCAL
@@ -89,7 +87,7 @@ This operation also updates the data of the rollup table associated with this ba
     PROPERTIES ("timeout"="100")
     ```
 
-2. Import the data from the server level local file '/root/testData' into the table'testTbl 'in the database'testDb'. Specify a timeout of 100 seconds
+2. Import the data from the server side local file `/root/testData` into the table `testTbl` in the database `testDb`. Specify a timeout of 100 seconds
 
         ```sql
         LOAD DATA
@@ -98,7 +96,7 @@ This operation also updates the data of the rollup table associated with this ba
         PROPERTIES ("timeout"="100")
         ```
 
-3. Import data from client side local file'testData 'into table'testTbl' in database'testDb ', allowing 20% error rate
+3. Import data from client side local file `testData` into table `testTbl` in database `testDb`, allowing 20% error rate
 
         ```sql
         LOAD DATA LOCAL
@@ -107,7 +105,7 @@ This operation also updates the data of the rollup table associated with this ba
         PROPERTIES ("max_filter_ratio"="0.2")
         ```
 
-4. Import the data from the client side local file'testData 'into the table'testTbl' in the database'testDb ', allowing a 20% error rate and specifying the column names of the file
+4. Import the data from the client side local file `testData` into the table `testTbl` in the database `testDb`, allowing a 20% error rate and specifying the column names of the file
 
         ```sql
         LOAD DATA LOCAL
@@ -117,7 +115,7 @@ This operation also updates the data of the rollup table associated with this ba
         PROPERTIES ("max_filter_ratio"="0.2")
         ```
 
-5. Import the data in the local file'testData 'into the p1, p2 partitions in the table of'testTbl' in the database'testDb ', allowing a 20% error rate.
+5. Import the data in the local file `testData` into the p1, p2 partitions in the table of `testTbl` in the database `testDb`, allowing a 20% error rate.
 
         ```
         LOAD DATA LOCAL
@@ -127,7 +125,7 @@ This operation also updates the data of the rollup table associated with this ba
         PROPERTIES ("max_filter_ratio"="0.2")
         ```
 
-6. Import the data in the CSV file'testData 'with a local row delimiter of' 0102 'and a column delimiter of' 0304 'into the table'testTbl' in the database'testDb '.
+6. Import the data in the CSV file `testData` with a local row delimiter of `0102` and a column delimiter of `0304` into the table `testTbl` in the database `testDb`.
 
     ```sql
     LOAD DATA LOCAL
@@ -137,7 +135,7 @@ This operation also updates the data of the rollup table associated with this ba
     LINES TERMINATED BY '0102'
     ```
 
-7. Import the data from the local file'testData 'into the p1, p2 partitions in the table of'testTbl' in the database'testDb 'and skip the first 3 lines.
+7. Import the data from the local file `testData` into the p1, p2 partitions in the table of `testTbl` in the database `testDb` and skip the first 3 lines.
 
         ```sql
         LOAD DATA LOCAL

@@ -225,12 +225,12 @@ public class DorisStreamLoader {
 > ```
 
 ## MySql LOAD
-<version since="2.0.0"></version>
+<version since="dev"></version>
 
 ### Import Data
 1. Create a table
 
-   Use the `CREATE TABLE` command to create a table in the `demo` to store the data to be imported. For the specific import method, please refer to the [CREATE TABLE](../../../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md) command manual. An example is as follows:
+   Use the `CREATE TABLE` command to create a table in the `demo` database to store the data to be imported.
 
    ```sql
    CREATE TABLE IF NOT EXISTS load_local_file_test
@@ -253,7 +253,7 @@ public class DorisStreamLoader {
    INTO TABLE demo.load_local_file_test
    ```
 
-   For more advanced operations of the Stream Load command, see [MySQL Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD.md) Command documentation.
+   For more advanced operations of the MySQL Load command, see [MySQL Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD.md) Command documentation.
 
 3. Wait for the import result
 
