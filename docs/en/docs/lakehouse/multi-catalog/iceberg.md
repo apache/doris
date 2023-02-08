@@ -37,6 +37,8 @@ When connecting to Iceberg, Doris:
 
 ## Create Catalog
 
+### Hive Metastore Catalog
+
 Same as creating Hive Catalogs. A simple example is provided here. See [Hive](./hive) for more information.
 
 ```sql
@@ -50,6 +52,52 @@ CREATE CATALOG iceberg PROPERTIES (
     'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
+```
+
+### Iceberg Native Catalog
+
+<version since="dev">
+
+Access metadata with the iceberg API. The Hive, REST, Glue and other services can serve as the iceberg catalog.
+
+</version>
+
+- Using Iceberg Hive Catalog
+
+```sql
+CREATE CATALOG iceberg PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type'='hms',
+    'hive.metastore.uris' = 'thrift://172.21.0.1:7004',
+    'hadoop.username' = 'hive',
+    'dfs.nameservices'='your-nameservice',
+    'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
+    'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
+    'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
+    'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
+);
+```
+
+- Using Iceberg REST Catalog
+
+RESTful service as the server side. Implementing RESTCatalog interface of iceberg to obtain metadata.
+
+```sql
+CREATE CATALOG iceberg PROPERTIES (
+    'type'='iceberg',
+    'iceberg.catalog.type'='rest',
+    'uri' = 'http://172.21.0.1:8181',
+);
+```
+
+If you want to use S3 storage, the following properties need to be set.
+
+```
+"AWS_ACCESS_KEY" = "ak"
+"AWS_SECRET_KEY" = "sk"
+"AWS_REGION" = "region-name"
+"AWS_ENDPOINT" = "http://endpoint-uri"
+"AWS_CREDENTIALS_PROVIDER" = "provider-class-name" // Optional. The default credentials class is based on BasicAWSCredentials.
 ```
 
 ## Column Type Mapping

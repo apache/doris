@@ -54,7 +54,11 @@ CREATE CATALOG iceberg PROPERTIES (
 
 ### 基于Iceberg API创建Catalog
 
+<version since="dev">
+
 使用Iceberg API访问元数据的方式，支持Hive、REST、Glue等服务作为Iceberg的Catalog。
+
+</version>
 
 - Hive Metastore作为元数据服务
 
@@ -86,11 +90,12 @@ CREATE CATALOG iceberg PROPERTIES (
 
 若数据存放在S3上，properties中可以使用以下参数
 
-```sql
-"AWS_ACCESS_KEY" = "username"
-"AWS_SECRET_KEY" = "password"
+```
+"AWS_ACCESS_KEY" = "ak"
+"AWS_SECRET_KEY" = "sk"
 "AWS_REGION" = "region-name"
 "AWS_ENDPOINT" = "http://endpoint-uri"
+"AWS_CREDENTIALS_PROVIDER" = "provider-class-name" // 可选，默认凭证类基于BasicAWSCredentials实现。
 ```
 
 ## 列类型映射
