@@ -497,6 +497,36 @@ public class AuthTest {
         Assert.assertTrue(auth.checkTblPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db2", "tbl2",
                 PrivPredicate.DROP));
 
+        // 13.1 grant external ctl tbl auth to exist user
+        tablePattern = new TablePattern("ext_ctl", "ext_db1", "ext_tbl1");
+        privileges = Lists.newArrayList(AccessPrivilege.SELECT_PRIV);
+        grantStmt = new GrantStmt(new UserIdentity("zhangsan", "192.%"), null, tablePattern, privileges);
+
+        try {
+            grantStmt.analyze(analyzer);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        try {
+            auth.grant(grantStmt);
+        } catch (DdlException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        currentUser2.clear();
+        auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "192.168.1.1", "12345",
+                currentUser2);
+        Assert.assertEquals(1, currentUser2.size());
+        Assert.assertTrue(
+                auth.checkTblPriv(currentUser2.get(0), "ext_ctl", SystemInfoService.DEFAULT_CLUSTER + ":ext_db1",
+                        "ext_tbl1", PrivPredicate.SELECT));
+        Assert.assertFalse(
+                auth.checkTblPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":ext_db1", "ext_tbl1",
+                        PrivPredicate.SELECT));
+
         // 14. grant db auth to zhangsan@['palo.domain1']
         tablePattern = new TablePattern("db3", "*");
         privileges = Lists.newArrayList(AccessPrivilege.ALTER_PRIV, AccessPrivilege.DROP_PRIV);
