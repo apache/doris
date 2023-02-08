@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.stats;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.common.Id;
 import org.apache.doris.nereids.stats.FilterEstimation.EstimationContext;
 import org.apache.doris.nereids.trees.expressions.And;
@@ -44,6 +45,7 @@ import com.google.common.base.Preconditions;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Calculate selectivity of expression that produces boolean value.
@@ -134,7 +136,7 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
                     statsForRight.maxValue,
                     isNot);
         }
-        StatsDeriveResult outputStats = inputStats.withSelectivity(selectivity);
+        StatsDeriveResult outputStats = selectivity == 1.0 ? inputStats : inputStats.withSelectivity(selectivity);
 
         //assumptions
         // 1. func(A) and A have the same stats.
@@ -229,6 +231,9 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
 
     private double updateLeftStatsWhenRightChildIsLiteral(ComparisonPredicate cp,
             ColumnStatisticBuilder statsForLeft, double val, boolean isNot) {
+        if (hasHiddenColumn(cp)) {
+            return 1.0;
+        }
         double selectivity = 1.0;
         double ndv = statsForLeft.getNdv();
         double max = statsForLeft.getMaxValue();
@@ -437,4 +442,17 @@ public class FilterEstimation extends ExpressionVisitor<StatsDeriveResult, Estim
         private boolean isNot;
     }
 
+    /**
+     * Return true if there is a hidden column reference in the expression tree.
+     */
+    private boolean hasHiddenColumn(Expression expression) {
+        return expression.anyMatch(x -> {
+            if (!(x instanceof SlotReference)) {
+                return false;
+            }
+            SlotReference slotRef = (SlotReference) x;
+            Optional<Column> opCol = slotRef.getColumn();
+            return opCol.isPresent() && Column.isHiddenColumn(opCol.get());
+        });
+    }
 }

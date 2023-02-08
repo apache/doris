@@ -782,4 +782,9 @@ public class Column implements Writable, GsonPostProcessable {
             ((ScalarType) type).setLength(ScalarType.MAX_STRING_LENGTH);
         }
     }
+
+    public static boolean isHiddenColumn(Column column) {
+        return column.getName().equals(DELETE_SIGN) || column.getName().equals(SEQUENCE_COL)
+                || column.getName().equals(ROWID_COL) || column.getName().equals(ROW_STORE_COL);
+    }
 }
