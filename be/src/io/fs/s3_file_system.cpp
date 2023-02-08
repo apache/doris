@@ -303,12 +303,12 @@ Status S3FileSystem::list(const Path& path, std::vector<Path>* files) {
 }
 
 std::string S3FileSystem::get_key(const Path& path) const {
-    StringPiece str(path.native());
-    if (str.starts_with(_root_path.native())) {
-        return fmt::format("{}/{}", _s3_conf.prefix, str.data() + _root_path.native().size());
+    StringPiece str(path.string());
+    if (str.starts_with(_root_path.string())) {
+        return fmt::format("{}/{}", _s3_conf.prefix, str.data() + _root_path.string().size());
     }
     // We consider it as a relative path.
-    return fmt::format("{}/{}", _s3_conf.prefix, path.native());
+    return fmt::format("{}/{}", _s3_conf.prefix, path.string());
 }
 
 } // namespace io

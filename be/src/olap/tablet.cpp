@@ -1745,7 +1745,7 @@ Status Tablet::_deal_cooldown_delete_files(const std::shared_ptr<io::RemoteFileS
     }
     if (_cooldown_delete_flag) {
         for (auto& file_path : _cooldown_delete_files) {
-            LOG(INFO) << "delete invalid remote file: " << file_path;
+            LOG(INFO) << "delete invalid remote file: " << file_path.string();
             RETURN_IF_ERROR(fs->delete_file(file_path));
         }
         _cooldown_delete_flag = false;
@@ -1761,8 +1761,7 @@ Status Tablet::_deal_cooldown_delete_files(const std::shared_ptr<io::RemoteFileS
         RETURN_IF_ERROR(fs->list(remote_tablet_path, &segment_files));
 
         for (auto& path : segment_files) {
-            std::string filename = path.filename();
-            boost::replace_all(filename, "\"", "");
+            std::string filename = path.filename().string();
             if (!ends_with(filename, ".dat")) {
                 continue;
             }
