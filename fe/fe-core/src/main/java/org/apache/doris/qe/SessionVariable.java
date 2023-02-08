@@ -25,6 +25,7 @@ import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
 
+import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -388,7 +389,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = BATCH_SIZE)
     public int batchSize = 4064;
 
-    @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS)
+    @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS, fuzzy = true)
     public boolean disableStreamPreaggregations = false;
 
     @VariableMgr.VarAttr(name = DISABLE_COLOCATE_PLAN)
@@ -407,7 +408,7 @@ public class SessionVariable implements Serializable, Writable {
      * the parallel exec instance num for one Fragment in one BE
      * 1 means disable this feature
      */
-    @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM)
+    @VariableMgr.VarAttr(name = PARALLEL_FRAGMENT_EXEC_INSTANCE_NUM, fuzzy = true)
     public int parallelExecInstanceNum = 1;
 
     @VariableMgr.VarAttr(name = ENABLE_INSERT_STRICT, needForward = true)
@@ -495,7 +496,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_COST_BASED_JOIN_REORDER)
     private boolean enableJoinReorderBasedCost = false;
 
-    @VariableMgr.VarAttr(name = ENABLE_FOLD_CONSTANT_BY_BE)
+    @VariableMgr.VarAttr(name = ENABLE_FOLD_CONSTANT_BY_BE, fuzzy = true)
     private boolean enableFoldConstantByBe = false;
 
     @VariableMgr.VarAttr(name = RUNTIME_FILTER_MODE)
@@ -554,7 +555,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = NEREIDS_STAR_SCHEMA_SUPPORT)
     private boolean nereidsStarSchemaSupport = true;
 
-    @VariableMgr.VarAttr(name = REWRITE_OR_TO_IN_PREDICATE_THRESHOLD)
+    @VariableMgr.VarAttr(name = REWRITE_OR_TO_IN_PREDICATE_THRESHOLD, fuzzy = true)
     private int rewriteOrToInPredicateThreshold = 2;
 
     @VariableMgr.VarAttr(name = NEREIDS_CBO_PENALTY_FACTOR)
@@ -594,7 +595,7 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_FUNCTION_PUSHDOWN)
     public boolean enableFunctionPushdown;
 
-    @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE)
+    @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = true)
     public boolean enableLocalExchange = true;
 
     /**
@@ -644,7 +645,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean internalSession = false;
 
     // Use partitioned hash join if build side row count >= the threshold . 0 - the threshold is not set.
-    @VariableMgr.VarAttr(name = PARTITIONED_HASH_JOIN_ROWS_THRESHOLD)
+    @VariableMgr.VarAttr(name = PARTITIONED_HASH_JOIN_ROWS_THRESHOLD, fuzzy = true)
     public int partitionedHashJoinRowsThreshold = 0;
 
     @VariableMgr.VarAttr(name = ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN)
@@ -669,6 +670,33 @@ public class SessionVariable implements Serializable, Writable {
         this.disableStreamPreaggregations = random.nextBoolean();
         this.partitionedHashJoinRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
+        int randomInt = random.nextInt(4);
+        if (randomInt % 2 == 0) {
+            this.rewriteOrToInPredicateThreshold = 100000;
+        } else {
+            this.rewriteOrToInPredicateThreshold = 2;
+        }
+    }
+
+    public String printFuzzyVariables() {
+        if (!Config.use_fuzzy_session_variable) {
+            return "";
+        }
+        List<String> res = Lists.newArrayList();
+        for (Field field : SessionVariable.class.getDeclaredFields()) {
+            VarAttr attr = field.getAnnotation(VarAttr.class);
+            if (attr == null || !attr.fuzzy()) {
+                continue;
+            }
+            field.setAccessible(true);
+            try {
+                Object val = field.get(this);
+                res.add(attr.name() + "=" + val.toString());
+            } catch (IllegalAccessException e) {
+                LOG.warn("failed to get fuzzy session variable {}", attr.name(), e);
+            }
+        }
+        return Joiner.on(",").join(res);
     }
 
     public String getBlockEncryptionMode() {
