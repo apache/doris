@@ -20,6 +20,8 @@
 #include <mutex>
 #include <unordered_map>
 
+#include "util/lock.h"
+
 namespace doris {
 
 struct StoragePolicyMgr {
@@ -58,7 +60,7 @@ std::vector<std::pair<int64_t, int64_t>> get_storage_policy_ids() {
 }
 
 struct StorageResouceMgr {
-    std::mutex mtx;
+    doris::Mutex mtx;
     std::unordered_map<int64_t, StorageResource> map;
 };
 
