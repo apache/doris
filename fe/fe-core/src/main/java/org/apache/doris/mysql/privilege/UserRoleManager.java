@@ -119,6 +119,7 @@ public class UserRoleManager implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() throws IOException {
+        roleToUsers = Maps.newHashMap();
         for (Entry<UserIdentity, Set<String>> entry : userToRoles.entrySet()) {
             for (String roleName : entry.getValue()) {
                 Set<UserIdentity> userIdentities = roleToUsers.get(roleName);

@@ -25,14 +25,18 @@ import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeMetaVersion;
+import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
+import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -51,6 +55,7 @@ public class RoleManager implements Writable {
     public static String DEFAULT_ROLE_PREFIX = "default_role_rbac_";
 
     // Concurrency control is delegated by Auth, so not concurrentMap
+    @SerializedName(value = "roles")
     private Map<String, Role> roles = Maps.newHashMap();
 
     public RoleManager() {
@@ -157,41 +162,6 @@ public class RoleManager implements Writable {
         }
     }
 
-    public static RoleManager read(DataInput in) throws IOException {
-        RoleManager roleManager = new RoleManager();
-        roleManager.readFields(in);
-        return roleManager;
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        // minus 2 to ignore ADMIN and OPERATOR role
-        out.writeInt(roles.size() - 2);
-        for (Role role : roles.values()) {
-            if (role == Role.ADMIN || role == Role.OPERATOR) {
-                continue;
-            }
-            role.write(out);
-        }
-    }
-
-    public void readFields(DataInput in) throws IOException {
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            Role role = Role.read(in);
-            roles.put(role.getRoleName(), role);
-        }
-    }
-
-    @Override
-    public String toString() {
-        StringBuilder sb = new StringBuilder("Roles: ");
-        for (Role role : roles.values()) {
-            sb.append(role).append("\n");
-        }
-        return sb.toString();
-    }
-
     public Role createDefaultRole(UserIdentity userIdent) throws DdlException {
         String userDefaultRoleName = getUserDefaultRoleName(userIdent);
         if (roles.containsKey(userDefaultRoleName)) {
@@ -220,5 +190,39 @@ public class RoleManager implements Writable {
 
     public Map<String, Role> getRoles() {
         return roles;
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder("Roles: ");
+        for (Role role : roles.values()) {
+            sb.append(role).append("\n");
+        }
+        return sb.toString();
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    public static RoleManager read(DataInput in) throws IOException {
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_116) {
+            RoleManager roleManager = new RoleManager();
+            roleManager.readFields(in);
+            return roleManager;
+        } else {
+            String json = Text.readString(in);
+            return GsonUtils.GSON.fromJson(json, RoleManager.class);
+        }
+    }
+
+    @Deprecated
+    private void readFields(DataInput in) throws IOException {
+        int size = in.readInt();
+        for (int i = 0; i < size; i++) {
+            Role role = Role.read(in);
+            roles.put(role.getRoleName(), role);
+        }
     }
 }

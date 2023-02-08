@@ -560,8 +560,8 @@ public class Role implements Writable, GsonPostProcessable {
         }
     }
 
-
-    public void readFields(DataInput in) throws IOException, DdlException {
+    @Deprecated
+    private void readFields(DataInput in) throws IOException, DdlException {
         roleName = Text.readString(in);
         int size = in.readInt();
         for (int i = 0; i < size; i++) {

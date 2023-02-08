@@ -320,7 +320,7 @@ public class Auth implements Writable {
 
     public boolean checkTblPriv(ConnectContext ctx, TableName tableName, PrivPredicate wanted) {
         Preconditions.checkState(tableName.isFullyQualified());
-        return checkTblPriv(ctx, tableName.getDb(), tableName.getTbl(), wanted);
+        return checkTblPriv(ctx, tableName.getCtl(), tableName.getDb(), tableName.getTbl(), wanted);
     }
 
     public boolean checkTblPriv(UserIdentity currentUser, String db, String tbl, PrivPredicate wanted) {
@@ -1274,12 +1274,12 @@ public class Auth implements Writable {
                                     .concat("\'@\'").concat(user.getUserIdentity().getHost()).concat("\'");
                             String isGrantable = tablePrivEntry.getPrivSet().get(2) ? "YES" : "NO"; // GRANT_PRIV
                             for (Privilege paloPriv : tablePrivEntry.getPrivSet().toPrivilegeList()) {
-                                if (!Privilege.privInPaloToMysql.containsKey(paloPriv)) {
+                                if (!Privilege.privInDorisToMysql.containsKey(paloPriv)) {
                                     continue;
                                 }
                                 TPrivilegeStatus status = new TPrivilegeStatus();
                                 status.setTableName(tblName);
-                                status.setPrivilegeType(Privilege.privInPaloToMysql.get(paloPriv));
+                                status.setPrivilegeType(Privilege.privInDorisToMysql.get(paloPriv));
                                 status.setGrantee(grantee);
                                 status.setSchema(dbName);
                                 status.setIsGrantable(isGrantable);
@@ -1324,11 +1324,11 @@ public class Auth implements Writable {
                                     .concat("\'@\'").concat(user.getUserIdentity().getHost()).concat("\'");
                             String isGrantable = dbPrivEntry.getPrivSet().get(2) ? "YES" : "NO"; // GRANT_PRIV
                             for (Privilege paloPriv : dbPrivEntry.getPrivSet().toPrivilegeList()) {
-                                if (!Privilege.privInPaloToMysql.containsKey(paloPriv)) {
+                                if (!Privilege.privInDorisToMysql.containsKey(paloPriv)) {
                                     continue;
                                 }
                                 TPrivilegeStatus status = new TPrivilegeStatus();
-                                status.setPrivilegeType(Privilege.privInPaloToMysql.get(paloPriv));
+                                status.setPrivilegeType(Privilege.privInDorisToMysql.get(paloPriv));
                                 status.setGrantee(grantee);
                                 status.setSchema(dbName);
                                 status.setIsGrantable(isGrantable);
@@ -1371,7 +1371,7 @@ public class Auth implements Writable {
                         for (Privilege paloPriv : privEntry.getPrivSet().toPrivilegeList()) {
                             if (paloPriv == Privilege.ADMIN_PRIV) {
                                 // ADMIN_PRIV includes all privileges of table and resource.
-                                for (String priv : Privilege.privInPaloToMysql.values()) {
+                                for (String priv : Privilege.privInDorisToMysql.values()) {
                                     TPrivilegeStatus status = new TPrivilegeStatus();
                                     status.setPrivilegeType(priv);
                                     status.setGrantee(grantee);
@@ -1380,11 +1380,11 @@ public class Auth implements Writable {
                                 }
                                 break;
                             }
-                            if (!Privilege.privInPaloToMysql.containsKey(paloPriv)) {
+                            if (!Privilege.privInDorisToMysql.containsKey(paloPriv)) {
                                 continue;
                             }
                             TPrivilegeStatus status = new TPrivilegeStatus();
-                            status.setPrivilegeType(Privilege.privInPaloToMysql.get(paloPriv));
+                            status.setPrivilegeType(Privilege.privInDorisToMysql.get(paloPriv));
                             status.setGrantee(grantee);
                             status.setIsGrantable(isGrantable);
                             userPrivResult.add(status);
