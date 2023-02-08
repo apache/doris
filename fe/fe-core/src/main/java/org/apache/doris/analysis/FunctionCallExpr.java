@@ -227,6 +227,10 @@ public class FunctionCallExpr extends Expr {
         this.aggFnParams = aggFnParams;
     }
 
+    public FunctionParams getAggFnParams() {
+        return aggFnParams;
+    }
+
     public void setIsAnalyticFnCall(boolean v) {
         isAnalyticFnCall = v;
     }
@@ -248,7 +252,7 @@ public class FunctionCallExpr extends Expr {
     }
 
     public FunctionParams getFnParams() {
-        return aggFnParams != null ? aggFnParams : fnParams;
+        return fnParams;
     }
 
     // only used restore from readFields.
