@@ -50,26 +50,16 @@ class VExprContext;
 class Channel;
 
 template <typename T>
-struct AtomicWrapper
-{
+struct AtomicWrapper {
     std::atomic<T> _value;
 
-    AtomicWrapper()
-            :_value()
-    {}
+    AtomicWrapper() : _value() {}
 
-    AtomicWrapper(const std::atomic<T> &a)
-            :_value(a.load())
-    {}
+    AtomicWrapper(const std::atomic<T>& a) : _value(a.load()) {}
 
-    AtomicWrapper(const AtomicWrapper &other)
-            :_value(other._value.load())
-    {}
+    AtomicWrapper(const AtomicWrapper& other) : _value(other._value.load()) {}
 
-    AtomicWrapper &operator=(const AtomicWrapper &other)
-    {
-        _value.store(other._a.load());
-    }
+    AtomicWrapper& operator=(const AtomicWrapper& other) { _value.store(other._a.load()); }
 };
 
 // We use BroadcastPBlockHolder to hold a broadcasted PBlock. For broadcast shuffle, one PBlock
