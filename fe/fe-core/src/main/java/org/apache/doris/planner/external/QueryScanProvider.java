@@ -60,7 +60,7 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
     public abstract TFileAttributes getFileAttributes() throws UserException;
 
     @Override
-    public void createScanRangeLocations(ParamCreateContext context, BackendPolicy backendPolicy,
+    public void createScanRangeLocations(ParamCreateContext context, FederationBackendPolicy backendPolicy,
             List<TScanRangeLocations> scanRangeLocations) throws UserException {
         long start = System.currentTimeMillis();
         try {
@@ -162,7 +162,7 @@ public abstract class QueryScanProvider implements FileScanProviderIf {
         return this.inputFileSize;
     }
 
-    private TScanRangeLocations newLocations(TFileScanRangeParams params, BackendPolicy backendPolicy) {
+    private TScanRangeLocations newLocations(TFileScanRangeParams params, FederationBackendPolicy backendPolicy) {
         // Generate on file scan range
         TFileScanRange fileScanRange = new TFileScanRange();
         fileScanRange.setParams(params);

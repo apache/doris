@@ -113,7 +113,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
     }
 
     private Type type = Type.QUERY;
-    private final BackendPolicy backendPolicy = new BackendPolicy();
+    private final FederationBackendPolicy backendPolicy = new FederationBackendPolicy();
 
     // Only for load job.
     // Save all info about load attributes and files.
