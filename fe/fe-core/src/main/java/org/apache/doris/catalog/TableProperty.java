@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.DataSortInfo;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
@@ -39,6 +40,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Random;
 
 /**
  * TableProperty contains additional information about OlapTable
@@ -80,6 +82,8 @@ public class TableProperty implements Writable {
     private boolean storeRowColumn = false;
 
     private DataSortInfo dataSortInfo = new DataSortInfo();
+
+    private Random random = new Random(System.currentTimeMillis());
 
     public TableProperty(Map<String, String> properties) {
         this.properties = properties;
@@ -154,14 +158,22 @@ public class TableProperty implements Writable {
     }
 
     public TableProperty buildEnableLightSchemaChange() {
+        String defaultValue = "false";
+        if (Config.use_fuzzy_session_variable) {
+            defaultValue = random.nextBoolean() ? "false" : "true";
+        }
         enableLightSchemaChange = Boolean.parseBoolean(
-                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE, "false"));
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_ENABLE_LIGHT_SCHEMA_CHANGE, defaultValue));
         return this;
     }
 
     public TableProperty buildDisableAutoCompaction() {
+        String defaultValue = "false";
+        if (Config.use_fuzzy_session_variable) {
+            defaultValue = random.nextBoolean() ? "false" : "true";
+        }
         disableAutoCompaction = Boolean.parseBoolean(
-                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION, "false"));
+                properties.getOrDefault(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION, defaultValue));
         return this;
     }
 
@@ -259,7 +271,11 @@ public class TableProperty implements Writable {
     }
 
     public boolean isAutoBucket() {
-        return Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_AUTO_BUCKET, "false"));
+        String defaultValue = "false";
+        if (Config.use_fuzzy_session_variable) {
+            defaultValue = random.nextBoolean() ? "false" : "true";
+        }
+        return Boolean.parseBoolean(properties.getOrDefault(PropertyAnalyzer.PROPERTIES_AUTO_BUCKET, defaultValue));
     }
 
     public String getEstimatePartitionSize() {
@@ -291,8 +307,12 @@ public class TableProperty implements Writable {
     }
 
     public boolean getEnableUniqueKeyMergeOnWrite() {
+        String defaultValue = "true";
+        if (Config.use_fuzzy_session_variable) {
+            defaultValue = random.nextBoolean() ? "false" : "true";
+        }
         return Boolean.parseBoolean(properties.getOrDefault(
-                PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, "true"));
+                PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE, defaultValue));
     }
 
     public void setSequenceMapCol(String colName) {
