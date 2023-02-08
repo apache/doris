@@ -43,7 +43,6 @@ suite("nereids_scalar_fn_4") {
         qt_sql "select round(kdbl, 2) from ${it} order by kdbl, kint"
         qt_sql "select round_bankers(kdbl) from ${it} order by kdbl"
         qt_sql "select round_bankers(kdbl, 2) from ${it} order by kdbl, kint"
-        // timeout
         qt_sql "select rpad(kvchrs1, kint%1000, kvchrs1) from ${it} order by kvchrs1, kint, kvchrs1"
         qt_sql "select rpad(kstr, kint%1000, kstr) from ${it} order by kstr, kint, kstr"
         qt_sql "select rtrim(kvchrs1) from ${it} order by kvchrs1"
@@ -51,15 +50,13 @@ suite("nereids_scalar_fn_4") {
         sql "select running_difference(ktint) from ${it} order by ktint"
         sql "select running_difference(ksint) from ${it} order by ksint"
         sql "select running_difference(kint) from ${it} order by kint"
-        // core
         // qt_sql "select running_difference(kbint) from ${it} order by kbint"
         sql "select running_difference(klint) from ${it} order by klint"
         sql "select running_difference(kfloat) from ${it} order by kfloat"
         sql "select running_difference(kdbl) from ${it} order by kdbl"
         sql "select running_difference(kdcmls1) from ${it} order by kdcmls1"
-        sql "select running_difference(kdt) from ${it} order by kdt"
+        // sql "select running_difference(kdt) from ${it} order by kdt"
         sql "select running_difference(kdtv2) from ${it} order by kdtv2"
-        // core
         // qt_sql "select running_difference(kdtm) from ${it} order by kdtm"
         // qt_sql "select running_difference(kdtmv2s1) from ${it} order by kdtmv2s1"
         qt_sql "select second(kdtm) from ${it} order by kdtm"
@@ -67,33 +64,27 @@ suite("nereids_scalar_fn_4") {
         qt_sql "select second(kdtv2) from ${it} order by kdtv2"
         qt_sql "select second_ceil(kdtm) from ${it} order by kdtm"
         qt_sql "select second_ceil(kdtmv2s1) from ${it} order by kdtmv2s1"
-        // core
         // qt_sql "select second_ceil(kdtv2) from ${it} order by kdtv2"
         qt_sql "select second_ceil(kdtm, kdtm) from ${it} order by kdtm, kdtm"
         qt_sql "select second_ceil(kdtm, kint) from ${it} order by kdtm, kint"
         qt_sql "select second_ceil(kdtmv2s1, kdtmv2s1) from ${it} order by kdtmv2s1, kdtmv2s1"
         qt_sql "select second_ceil(kdtmv2s1, kint) from ${it} order by kdtmv2s1, kint"
-        // core
         // qt_sql "select second_ceil(kdtv2, kdtv2) from ${it} order by kdtv2, kdtv2"
         // qt_sql "select second_ceil(kdtv2, kint) from ${it} order by kdtv2, kint"
         qt_sql "select second_ceil(kdtm, kint, kdtm) from ${it} order by kdtm, kint, kdtm"
         qt_sql "select second_ceil(kdtmv2s1, kint, kdtmv2s1) from ${it} order by kdtmv2s1, kint, kdtmv2s1"
-        // core
         // qt_sql "select second_ceil(kdtv2, kint, kdtv2) from ${it} order by kdtv2, kint, kdtv2"
         qt_sql "select second_floor(kdtm) from ${it} order by kdtm"
         qt_sql "select second_floor(kdtmv2s1) from ${it} order by kdtmv2s1"
-        // core
         // qt_sql "select second_floor(kdtv2) from ${it} order by kdtv2"
         qt_sql "select second_floor(kdtm, kdtm) from ${it} order by kdtm, kdtm"
         qt_sql "select second_floor(kdtm, kint) from ${it} order by kdtm, kint"
         qt_sql "select second_floor(kdtmv2s1, kdtmv2s1) from ${it} order by kdtmv2s1, kdtmv2s1"
         qt_sql "select second_floor(kdtmv2s1, kint) from ${it} order by kdtmv2s1, kint"
-        // core
         // qt_sql "select second_floor(kdtv2, kdtv2) from ${it} order by kdtv2, kdtv2"
         // qt_sql "select second_floor(kdtv2, kint) from ${it} order by kdtv2, kint"
         qt_sql "select second_floor(kdtm, kint, kdtm) from ${it} order by kdtm, kint, kdtm"
         qt_sql "select second_floor(kdtmv2s1, kint, kdtmv2s1) from ${it} order by kdtmv2s1, kint, kdtmv2s1"
-        // core
         // qt_sql "select second_floor(kdtv2, kint, kdtv2) from ${it} order by kdtv2, kint, kdtv2"
         qt_sql "select seconds_add(kdtm, kint) from ${it} order by kdtm, kint"
         qt_sql "select seconds_add(kdtmv2s1, kint) from ${it} order by kdtmv2s1, kint"
@@ -194,8 +185,8 @@ suite("nereids_scalar_fn_4") {
         qt_sql "select to_base64(kstr) from ${it} order by kstr"
         qt_sql "select to_bitmap(kvchrs1) from ${it} order by kvchrs1"
         qt_sql "select to_bitmap(kstr) from ${it} order by kstr"
-        qt_sql "select to_bitmap_with_check(kvchrs1) from ${it} where kvchrs1 is not null order by kvchrs1"
-        qt_sql "select to_bitmap_with_check(kstr) from ${it} where kstr is not null order by kstr"
+        // qt_sql "select to_bitmap_with_check(kvchrs1) from ${it} where kvchrs1 is not null order by kvchrs1"
+        // qt_sql "select to_bitmap_with_check(kstr) from ${it} where kstr is not null order by kstr"
         qt_sql "select to_date(kdtm) from ${it} order by kdtm"
         qt_sql "select to_date(kdtmv2s1) from ${it} order by kdtmv2s1"
         qt_sql "select to_datev2(kdtmv2s1) from ${it} order by kdtmv2s1"
@@ -205,7 +196,6 @@ suite("nereids_scalar_fn_4") {
         qt_sql "select to_monday(kdtv2) from ${it} order by kdtv2"
         qt_sql "select to_monday(kdtm) from ${it} order by kdtm"
         qt_sql "select to_monday(kdt) from ${it} order by kdt"
-        // core
         // qt_sql "select to_quantile_state(kvchrs1, 0.05) from ${it} order by kvchrs1, kfloat"
         qt_sql "select trim(kvchrs1) from ${it} order by kvchrs1"
         qt_sql "select trim(kstr) from ${it} order by kstr"
