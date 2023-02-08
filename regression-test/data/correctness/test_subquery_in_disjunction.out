@@ -58,3 +58,11 @@
 10	20	30
 100	200	300
 
+-- !same_subquery_in_conjuncts --
+1	2	3
+10	20	30
+
+-- !two_subquery_in_one_conjuncts --
+1	2	3
+10	20	30
+
