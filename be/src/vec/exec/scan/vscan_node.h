@@ -101,7 +101,7 @@ public:
 
     Status try_close();
 
-    bool should_run_serial() { return _should_run_serial; }
+    bool should_run_serial() const { return _should_run_serial; }
 
     enum class PushDownType {
         // The predicate can not be pushed down to data source
