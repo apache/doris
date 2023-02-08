@@ -980,10 +980,10 @@ visible_functions = [
     [['ceil', 'dceil'], 'DECIMAL32', ['DECIMAL32', 'INT'], ''],
     [['ceil', 'dceil'], 'DECIMAL64', ['DECIMAL64', 'INT'], ''],
     [['ceil', 'dceil'], 'DECIMAL128', ['DECIMAL128', 'INT'], ''],
+    [['truncate'], 'DOUBLE', ['DOUBLE', 'INT'], ''],
     [['truncate'], 'DECIMAL32', ['DECIMAL32', 'INT'], ''],
     [['truncate'], 'DECIMAL64', ['DECIMAL64', 'INT'], ''],
     [['truncate'], 'DECIMAL128', ['DECIMAL128', 'INT'], ''],
-    [['truncate'], 'DOUBLE', ['DOUBLE', 'INT'], ''],
 
     [['ln', 'dlog1'], 'DOUBLE', ['DOUBLE'], 'ALWAYS_NULLABLE'],
     [['log'], 'DOUBLE', ['DOUBLE', 'DOUBLE'], 'ALWAYS_NULLABLE'],
