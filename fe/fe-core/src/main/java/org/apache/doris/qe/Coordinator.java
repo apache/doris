@@ -280,7 +280,7 @@ public class Coordinator {
             this.descTable = planner.getDescTable().toThrift();
         }
 
-        for (PlanFragment fragment: fragments) {
+        for (PlanFragment fragment : fragments) {
             if (fragment.hasTargetNode()) {
                 LOG.info("Log for ISSUE-16517: " + this.descTable.toString());
             }

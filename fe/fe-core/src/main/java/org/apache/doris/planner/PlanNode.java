@@ -208,7 +208,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     }
 
     public boolean isTargetNode() {
-        for (PlanNode node: children) {
+        for (PlanNode node : children) {
             if (node.isTargetNode()) {
                 return true;
             }
