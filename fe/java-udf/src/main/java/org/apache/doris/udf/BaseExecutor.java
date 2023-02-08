@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
 import org.apache.doris.udf.UdfUtils.JavaUdfDataType;
 
-import com.google.common.base.Preconditions;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
@@ -386,5 +385,6 @@ public abstract class BaseExecutor {
         }
     }
 
-    protected void updateOutputOffset(long offset) {}
+    protected void updateOutputOffset(long offset) {
+    }
 }
