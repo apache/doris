@@ -27,7 +27,7 @@ under the License.
 
 # Compaction
 
-Doris writes data through a structure similar to LSM-Tree, and continuously merges small files into large ordered files through compaction in background. Compaction handles operations such as delete and update. 
+Doris writes data through a structure similar to LSM-Tree, and continuously merges small files into large ordered files through compaction in the background. Compaction handles operations such as deletion and updating. 
 
 Appropriately adjusting the compaction strategy can greatly improve load and query efficiency. Doris provides the following two compaction strategies for tuning:
 
@@ -36,7 +36,7 @@ Appropriately adjusting the compaction strategy can greatly improve load and que
 
 Vertical compaction is a new compaction algorithm implemented in Doris 2.0, which is used to optimize compaction execution efficiency and resource overhead in large-scale and wide table scenarios. It can effectively reduce the memory overhead of compaction and improve the execution speed of compaction. The test results show that the memory consumption by vertical compaction is only 1/10 of the original compaction algorithm, and the compaction rate is increased by 15%.
 
-In vertical compaction, merging by row is changed to merging by column group. The granularity of each merge is changed to column group, which reduces the amount of data involved in a single compaction and reduces the memory usage during compaction.
+In vertical compaction, merging by row is changed to merging by column group. The granularity of each merge is changed to column group, which reduces the amount of data involved in single compaction and reduces the memory usage during compaction.
 
 BE configuration：
 `enable_vertical_compaction = true` will turn on vertical compaction
@@ -56,13 +56,13 @@ The following features are provided by segment compaction:
 
 BE configuration:
 - `enable_segcompaction=true` turn it on.
-- `segcompaction_threshold_segment_num` is used to configure the interval for merging. The default value 10 means that every 10 segment files will trigger a segment compaction. It is recommended to set between 10 - 30.  Larger value will increase the memory usage of segment compaction.
+- `segcompaction_threshold_segment_num` is used to configure the interval for merging. The default value 10 means that every 10 segment files will trigger a segment compaction. It is recommended to set between 10 - 30. The larger value will increase the memory usage of segment compaction.
 
 Situations where segment compaction is recommended:
 
 - Loading large amounts of data fails at OLAP_ ERR_ TOO_ MANY_ SEGMENTS (errcode - 238) error. Then it is recommended to turn on segment compaction to reduce the quantity of segments during the load process.
-- Too many small files are generated during the load process: although the amount of loading data is reasonable, the generation of a large number of small segment files may also fail the load job because of low-cardinality or memory constraints that trigger memtable to be flushed in advance. Then it is recommended to turn on this function.
-- Query immediately after loading. When the load is just finished and the standard compaction has not finished, large number of segment files will affect the efficiency of subsequent queries. If the user has the need to query immediately after loading, it is recommended to turn on this function.
+- Too many small files are generated during the load process: although the amount of loading data is reasonable, the generation of a large number of small segment files may also fail the load job because of low cardinality or memory constraints that trigger memtable to be flushed in advance. Then it is recommended to turn on this function.
+- Query immediately after loading. When the load is just finished and the standard compaction has not finished, large number of segment files will affect the efficiency of subsequent queries. If the user needs to query immediately after loading, it is recommended to turn on this function.
 - The pressure of normal compaction is high after loading: segment compaction evenly puts part of the pressure of normal compaction on the loading process. At this time, it is recommended to enable this function.
 
 Situations where segment compaction is not recommended:
