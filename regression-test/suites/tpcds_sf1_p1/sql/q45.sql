@@ -1,4 +1,3 @@
-/*
 SELECT
   ca_zip
 , ca_city
@@ -25,4 +24,3 @@ WHERE (ws_bill_customer_sk = c_customer_sk)
 GROUP BY ca_zip, ca_city
 ORDER BY ca_zip ASC, ca_city ASC
 LIMIT 100
-*/
