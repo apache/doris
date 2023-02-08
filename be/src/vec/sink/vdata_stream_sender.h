@@ -370,7 +370,7 @@ public:
         }
         if (eos || block->column_metas_size()) {
             RETURN_IF_ERROR(_buffer->add_block(
-                    {this, block ? std::make_unique<PBlock>(std::move(*block)) : nullptr, eos}));
+                    {this, block ? std::make_unique<PBlock>(*block) : nullptr, eos}));
         }
         return Status::OK();
     }

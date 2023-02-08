@@ -1271,6 +1271,10 @@ alter_stmt ::=
     {:
         RESULT = new AlterDatabaseQuotaStmt(dbName, QuotaType.REPLICA, String.valueOf(number));
     :}
+    | KW_ALTER KW_DATABASE ident:dbName KW_SET KW_TRANSACTION KW_QUOTA INTEGER_LITERAL:number
+    {:
+        RESULT = new AlterDatabaseQuotaStmt(dbName, QuotaType.TRANSACTION, String.valueOf(number));
+    :}
     | KW_ALTER KW_DATABASE ident:dbName KW_RENAME ident:newDbName
     {:
         RESULT = new AlterDatabaseRename(dbName, newDbName);

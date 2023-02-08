@@ -294,6 +294,7 @@ public class HMSExternalTable extends ExternalTable {
 
     @Override
     public List<Column> initSchema() {
+        makeSureInitialized();
         List<Column> columns;
         List<FieldSchema> schema = ((HMSExternalCatalog) catalog).getClient().getSchema(dbName, name);
         if (dlaType.equals(DLAType.ICEBERG)) {
