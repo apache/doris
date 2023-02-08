@@ -935,7 +935,7 @@ suite("test_jdbc_query_mysql", "p0") {
         order_qt_sql111 """ SELECT rank() OVER () FROM (SELECT k8 FROM $jdbcMysql57Table1 LIMIT 10) as t LIMIT 3 """
         order_qt_sql112 """ SELECT k7, count(DISTINCT k8) FROM $jdbcMysql57Table1 WHERE k8 > 110 GROUP BY GROUPING SETS ((), (k7)) """
 
-
+        // test this action result need restart?
         // test alter resource
         // sql """alter resource $jdbcResourceMysql57 properties("password" = "1234567")"""
         // test {

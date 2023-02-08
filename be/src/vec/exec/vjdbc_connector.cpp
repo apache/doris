@@ -606,7 +606,7 @@ Status JdbcConnector::_register_func_id(JNIEnv* env) {
                                 "(Ljava/lang/Object;ZIJJJ)V", _executor_get_string_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchCharResult",
                                 "(Ljava/lang/Object;ZIJJJZ)V", _executor_get_char_result));
-    
+
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchDateResult",
                                 JDBC_EXECUTOR_COPY_BATCH_SIGNATURE, _executor_get_date_result));
     RETURN_IF_ERROR(register_id(_executor_clazz, "copyBatchDateV2Result",
