@@ -66,6 +66,12 @@ struct ProcessHashTableProbe {
                                                 MutableBlock& mutable_block, Block* output_block,
                                                 size_t probe_rows);
 
+    void _process_splited_equal_matched_tuples(int start_row_idx, int row_count,
+                                               const ColumnPtr& other_hit_column,
+                                               std::vector<bool*>& visited_map, int right_col_idx,
+                                               int right_col_len, UInt8* __restrict null_map_data,
+                                               UInt8* __restrict filter_map, Block* output_block);
+
     // Process full outer join/ right join / right semi/anti join to output the join result
     // in hash table
     template <typename HashTableType>
