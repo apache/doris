@@ -1736,7 +1736,6 @@ void TaskWorkerPool::_cooldown_delete_file_worker_thread_callback() {
     }
 }
 
-
 void TaskWorkerPool::_push_cooldown_conf_worker_thread_callback() {
     while (_is_work) {
         TAgentTaskRequest agent_task_req;
