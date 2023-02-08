@@ -132,7 +132,7 @@ docker run -itd \
 apache/doris:1.2.1-be-x86_64
 ```
 
-3FE & 3BE Run command template if needed [click here](https://github.com/apache/doris/tree/master/docker/runtime/docker-compose-demo/build-cluster/rum_command/3fe_3be.sh ) to access Downloads.
+3FE & 3BE Run command template if needed [click here](https://github.com/apache/doris/tree/master/docker/runtime/docker-compose-demo/build-cluster/rum-command/3fe_3be.sh ) to access Downloads.
 
 #### Docker Compose script
 

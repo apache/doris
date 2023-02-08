@@ -132,7 +132,7 @@ docker run -itd \
 apache/doris:1.2.1-be-x86_64
 ```
 
-3FE & 3BE Run 命令模板如有需要[点击此处](https://github.com/apache/doris/tree/master/docker/runtime/docker-compose-demo/build-cluster/rum_command/3fe_3be.sh)访问下载。
+3FE & 3BE Run 命令模板如有需要[点击此处](https://github.com/apache/doris/tree/master/docker/runtime/docker-compose-demo/build-cluster/rum-command/3fe_3be.sh)访问下载。
 
 #### Docker Compose 脚本
 
