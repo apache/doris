@@ -57,7 +57,7 @@ public class EnvOperationTest {
         Env.getCurrentEnv().createDb(createDbStmt);
 
         createTable("create table test.renameTest\n"
-                + "(k1 int)\n"
+                + "(k1 int,k2 int)\n"
                 + "distributed by hash(k1) buckets 1\n"
                 + "properties(\"replication_num\" = \"1\");");
 
@@ -119,7 +119,7 @@ public class EnvOperationTest {
         Assert.assertNotNull(db.getTableNullable("newNewTest"));
 
         // add a rollup and test rename to a rollup name(expect throw exception)
-        String alterStmtStr = "alter table test.newNewTest add rollup r1(k1)";
+        String alterStmtStr = "alter table test.newNewTest add rollup r1(k2,k1)";
         alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmtStr, connectContext);
         Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
         Map<Long, AlterJobV2> alterJobs = Env.getCurrentEnv().getMaterializedViewHandler().getAlterJobsV2();

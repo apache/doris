@@ -597,6 +597,10 @@ public class OlapTable extends Table {
         }
     }
 
+    public List<Column> getBaseSchemaKeyColumns() {
+        return getKeyColumnsByIndexId(baseIndexId);
+    }
+
     public List<Column> getKeyColumnsByIndexId(Long indexId) {
         ArrayList<Column> keyColumns = Lists.newArrayList();
         List<Column> allColumns = this.getSchemaByIndexId(indexId);
