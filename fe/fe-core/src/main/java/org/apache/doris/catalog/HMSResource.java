@@ -97,7 +97,33 @@ public class HMSResource extends Resource {
         }
     }
 
+    private static void getPropertiesFromDLFProps(Map<String, String> props) {
+        // add transformed properties
+        String propsMetastoreType = props.get(HIVE_METASTORE_TYPE);
+        if (!DLF_TYPE.equalsIgnoreCase(propsMetastoreType)) {
+            return;
+        }
+        props.put(S3Resource.S3_ACCESS_KEY, props.getOrDefault("dlf.catalog.accessKeyId", ""));
+        props.put(S3Resource.S3_SECRET_KEY, props.getOrDefault("dlf.catalog.accessKeySecret", ""));
+        String region = props.get("dlf.catalog.region");
+        if (!Strings.isNullOrEmpty(region)) {
+            props.put(S3Resource.S3_REGION, "oss-" + region);
+            String publicAccess = props.getOrDefault("dlf.catalog.accessPublic", "false");
+            props.put(S3Resource.S3_ENDPOINT, getDLFEndpont(region, Boolean.parseBoolean(publicAccess)));
+        }
+    }
+
+    private static String getDLFEndpont(String region, boolean publicAccess) {
+        String prefix = "http://oss-";
+        String suffix = ".aliyuncs.com";
+        if (!publicAccess) {
+            suffix = "-internal" + suffix;
+        }
+        return prefix + region + suffix;
+    }
+
     public static Map<String, String> getPropertiesFromDLF(Map<String, String> res) {
+        getPropertiesFromDLFProps(res);
         if (LOG.isDebugEnabled()) {
             LOG.debug("Get properties from hive-site.xml");
         }

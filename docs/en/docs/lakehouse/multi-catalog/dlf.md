@@ -35,6 +35,8 @@ Doris can access DLF the same way as it accesses Hive Metastore.
 
 ## Connect to DLF
 
+// todo
+
 1. Create `hive-site.xml`
 
    Create the  `hive-site.xml` file, and put it in the `fe/conf`  directory.
