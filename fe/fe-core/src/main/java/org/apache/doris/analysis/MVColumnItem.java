@@ -164,7 +164,7 @@ public class MVColumnItem {
         if (baseColumn != null) {
             result = new Column(baseColumn);
             if (result.getType() == null) {
-                throw new DdlException("base column's type is null");
+                throw new DdlException("base column's type is null, column=" + result.getName());
             }
             result.setIsKey(isKey);
             // If the mv column type is inconsistent with the base column type, the daily
