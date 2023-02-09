@@ -131,6 +131,7 @@ private:
 
     bool _is_init = false;
     bool _is_cancelled = false;
+    bool _is_closed = false;
     Status _cancel_status;
     WriteRequest _req;
     TabletSharedPtr _tablet;

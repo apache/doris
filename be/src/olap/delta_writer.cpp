@@ -218,6 +218,12 @@ Status DeltaWriter::write(const vectorized::Block* block, const std::vector<int>
         return _cancel_status;
     }
 
+    if (_is_closed) {
+        LOG(WARNING) << "write block after closed tablet_id=" << _req.tablet_id
+                     << " load_id=" << _req.load_id << " txn_id=" << _req.txn_id;
+        return Status::InternalError("already closed");
+    }
+
     _total_received_rows += row_idxs.size();
     _mem_table->insert(block, row_idxs);
 
@@ -331,8 +337,15 @@ Status DeltaWriter::close() {
         return _cancel_status;
     }
 
+    if (_is_closed) {
+        LOG(WARNING) << "close after closed tablet_id=" << _req.tablet_id
+                     << " load_id=" << _req.load_id << " txn_id=" << _req.txn_id;
+        return Status::OK();
+    }
+
     auto s = _flush_memtable_async();
     _mem_table.reset();
+    _is_closed = true;
     if (OLAP_UNLIKELY(!s.ok())) {
         return s;
     } else {
