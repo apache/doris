@@ -415,11 +415,11 @@ public class AlterTest {
         alterTable(stmt, false);
         waitSchemaChangeJobDone(false);
 
-        stmt = "alter table test.tbl6 add rollup r1 (k1, k2)";
+        stmt = "alter table test.tbl6 add rollup r1 (k2, k1)";
         alterTable(stmt, false);
         waitSchemaChangeJobDone(true);
 
-        stmt = "alter table test.tbl6 add rollup r2 (k1, k2), r3 (k1, k2)";
+        stmt = "alter table test.tbl6 add rollup r2 (k2, k1), r3 (k2, k1)";
         alterTable(stmt, false);
         waitSchemaChangeJobDone(true);
 
@@ -1125,7 +1125,7 @@ public class AlterTest {
 
     @Test
     public void testShowMV() throws Exception {
-        createMV("CREATE MATERIALIZED VIEW test_mv as select k1 from test.show_test;", false);
+        createMV("CREATE MATERIALIZED VIEW test_mv as select k1 from test.show_test group by k1;", false);
         waitSchemaChangeJobDone(true);
 
         String showMvSql = "SHOW CREATE MATERIALIZED VIEW test_mv on test.show_test;";
@@ -1133,7 +1133,7 @@ public class AlterTest {
                 showMvSql, connectContext);
         ShowExecutor executor = new ShowExecutor(connectContext, showStmt);
         Assert.assertEquals(executor.execute().getResultRows().get(0).get(2),
-                "CREATE MATERIALIZED VIEW test_mv as select k1 from test.show_test;");
+                "CREATE MATERIALIZED VIEW test_mv as select k1 from test.show_test group by k1;");
 
         showMvSql = "SHOW CREATE MATERIALIZED VIEW test_mv_empty on test.show_test;";
         showStmt = (ShowCreateMaterializedViewStmt) UtFrameUtils.parseAndAnalyzeStmt(showMvSql, connectContext);
