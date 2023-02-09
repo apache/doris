@@ -88,3 +88,4 @@ docker run -itd \
     -v /data/be-03/log:/opt/apache-doris/be/log \
     --network=doris-network \
     --ip=172.20.80.7 \
+    apache/doris:1.2.1-be-x86_64
