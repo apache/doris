@@ -257,16 +257,12 @@ date
 
 echo "==========Start to insert data into ssb flat table=========="
 echo "change some session variables before load, and then restore after load."
-origin_query_timeout=$(
-    set -e
-    run_sql 'select @@query_timeout;' | sed -n '3p'
-)
 origin_parallel=$(
     set -e
     run_sql 'select @@parallel_fragment_exec_instance_num;' | sed -n '3p'
 )
 # set parallel_fragment_exec_instance_num=1, loading maybe slow but stable.
-run_sql "set global query_timeout=7200;"
+run_sql "set global insert_timeout=7200;"
 run_sql "set global parallel_fragment_exec_instance_num=1;"
 echo '============================================'
 date
@@ -274,7 +270,6 @@ load_lineitem_flat
 date
 echo '============================================'
 echo "restore session variables"
-run_sql "set global query_timeout=${origin_query_timeout};"
 run_sql "set global parallel_fragment_exec_instance_num=${origin_parallel};"
 echo '============================================'
 
