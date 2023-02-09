@@ -825,9 +825,9 @@ CONF_Bool(enable_simdjson_reader, "false");
 
 CONF_mBool(enable_query_like_bloom_filter, "true");
 // number of s3 scanner thread pool size
-CONF_Int32(doris_remote_scanner_thread_pool_thread_num, "16");
+CONF_Int32(doris_remote_scanner_thread_pool_thread_num, "48");
 // number of s3 scanner thread pool queue size
-CONF_Int32(doris_remote_scanner_thread_pool_queue_size, "10240");
+CONF_Int32(doris_remote_scanner_thread_pool_queue_size, "102400");
 
 // limit the queue of pending batches which will be sent by a single nodechannel
 CONF_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
@@ -875,6 +875,8 @@ CONF_Bool(enable_file_cache, "false");
 CONF_String(file_cache_path, "");
 CONF_String(disposable_file_cache_path, "");
 CONF_Int64(file_cache_max_file_segment_size, "4194304"); // 4MB
+CONF_Validator(file_cache_max_file_segment_size,
+               [](const int64_t config) -> bool { return config >= 4096; }); // 4KB
 CONF_Bool(clear_file_cache, "false");
 CONF_Bool(enable_file_cache_query_limit, "false");
 

@@ -17,6 +17,7 @@
 
 package org.apache.doris.statistics;
 
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.datasource.HMSExternalCatalog;
 import org.apache.doris.qe.AutoCloseConnectContext;
@@ -54,6 +55,7 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
     public static final String NUM_ROWS = "numRows";
     public static final String NUM_FILES = "numFiles";
     public static final String TIMESTAMP = "transient_lastDdlTime";
+    public static final String DELIMITER = "-";
 
     public HiveAnalysisTask(AnalysisTaskScheduler analysisTaskScheduler, AnalysisTaskInfo info) {
         super(analysisTaskScheduler, info);
@@ -85,7 +87,7 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
         Map<String, String> parameters = table.getRemoteTable().getParameters();
         // Collect table level row count, null number and timestamp.
         setParameterData(parameters, params);
-        params.put("id", String.valueOf(tbl.getId()) + "-" + String.valueOf(col.getName()));
+        params.put("id", genColumnStatId(tbl.getId(), -1, col.getName(), null));
         List<ColumnStatisticsObj> tableStats = table.getHiveTableColumnStats(columns);
         // Collect table level ndv, nulls, min and max. tableStats contains at most 1 item;
         for (ColumnStatisticsObj tableStat : tableStats) {
@@ -117,7 +119,7 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
             parameters = partition.getParameters();
             // Collect row count, null number and timestamp.
             setParameterData(parameters, params);
-            params.put("id", String.valueOf(tbl.getId()) + "-" + String.valueOf(col.getName()) + "-" + partName);
+            params.put("id", genColumnStatId(tbl.getId(), -1, col.getName(), partName));
             params.put("partId", partName);
             List<ColumnStatisticsObj> value = entry.getValue();
             Preconditions.checkState(value.size() == 1);
@@ -138,6 +140,7 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
                 this.stmtExecutor.execute();
             }
         }
+        Env.getCurrentEnv().getStatisticsCache().refreshSync(tbl.getId(), -1, col.getName());
     }
 
     private void getStatData(ColumnStatisticsData data, Map<String, String> params) {
@@ -225,5 +228,19 @@ public class HiveAnalysisTask extends HMSAnalysisTask {
         params.put("numRows", String.valueOf(numRows));
         SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
         params.put("update_time", sdf.format(new Date(timestamp * 1000)));
+    }
+
+    private String genColumnStatId(long tableId, long indexId, String columnName, String partitionName) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(tableId);
+        sb.append(DELIMITER);
+        sb.append(indexId);
+        sb.append(DELIMITER);
+        sb.append(columnName);
+        if (partitionName != null) {
+            sb.append(DELIMITER);
+            sb.append(partitionName);
+        }
+        return sb.toString();
     }
 }

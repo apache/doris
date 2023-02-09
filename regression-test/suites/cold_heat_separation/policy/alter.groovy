@@ -16,8 +16,6 @@
 // under the License.
 
 suite("alter_policy") {
-    sql """ADMIN SET FRONTEND CONFIG ("enable_storage_policy" = "true");"""
-
     def has_resouce_policy_alter = sql """
         SHOW RESOURCES WHERE NAME = "has_resouce_policy_alter";
     """

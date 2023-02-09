@@ -263,7 +263,7 @@ public class OriginalPlanner extends Planner {
                 LOG.debug("this isn't block query");
             }
             // Check SelectStatement if optimization condition satisfied
-            if (selectStmt.checkAndSetPointQuery()) {
+            if (selectStmt.isPointQueryShortCircuit()) {
                 // Optimize for point query like: SELECT * FROM t1 WHERE pk1 = 1 and pk2 = 2
                 // such query will use direct RPC to do point query
                 LOG.debug("it's a point query");
@@ -276,7 +276,7 @@ public class OriginalPlanner extends Planner {
                     analyzer.getPrepareStmt().cacheSerializedDescriptorTable(olapScanNode.getDescTable());
                     analyzer.getPrepareStmt().cacheSerializedOutputExprs(rootFragment.getOutputExprs());
                 }
-            } else if (selectStmt.checkEnableTwoPhaseRead(analyzer)) {
+            } else if (selectStmt.isTwoPhaseReadOptEnabled()) {
                 // Optimize query like `SELECT ... FROM <tbl> WHERE ... ORDER BY ... LIMIT ...`
                 injectRowIdColumnSlot();
             }

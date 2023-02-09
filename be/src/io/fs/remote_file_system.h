@@ -39,6 +39,9 @@ public:
     Status open_file(const Path& path, const FileReaderOptions& reader_options,
                      FileReaderSPtr* reader, IOContext* io_ctx) override;
 
+    Status open_file_impl(const Path& path, const FileReaderOptions& reader_options,
+                          FileReaderSPtr* reader, IOContext* io_ctx);
+
     Status open_file(const Path& path, FileReaderSPtr* reader, IOContext* io_ctx) override {
         return Status::NotSupported("implemented in derived classes");
     }

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.physical;
 
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -28,7 +29,7 @@ public class RuntimeFilter {
 
     private final RuntimeFilterId id;
     private final TRuntimeFilterType type;
-    private final Slot srcSlot;
+    private final Expression srcSlot;
     private Slot targetSlot;
     private final int exprOrder;
     private PhysicalHashJoin builderNode;
@@ -36,7 +37,7 @@ public class RuntimeFilter {
     /**
      * constructor
      */
-    public RuntimeFilter(RuntimeFilterId id, Slot src, Slot target, TRuntimeFilterType type,
+    public RuntimeFilter(RuntimeFilterId id, Expression src, Slot target, TRuntimeFilterType type,
             int exprOrder, PhysicalHashJoin builderNode) {
         this.id = id;
         this.srcSlot = src;
@@ -46,7 +47,7 @@ public class RuntimeFilter {
         this.builderNode = builderNode;
     }
 
-    public Slot getSrcExpr() {
+    public Expression getSrcExpr() {
         return srcSlot;
     }
 
