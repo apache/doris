@@ -19,6 +19,14 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_uniq_rollup_schema_change") {
     def tableName = "schema_change_uniq_rollup_regression_test"
+    def getMVJobState = { tableName ->
+         def jobStateResult = sql """  SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1 """
+         return jobStateResult[0][9]
+    }
+    def getJobState = { tableName ->
+         def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+         return jobStateResult[0][9]
+    }
 
     try {
         String[][] backends = sql """ show backends; """
@@ -79,14 +87,17 @@ suite ("test_uniq_rollup_schema_change") {
     def result = "null"
     def rollupName = "rollup_cost"
     sql "ALTER TABLE ${tableName} ADD ROLLUP ${rollupName}(`user_id`,`date`,`city`,`sex`, `age`, cost);"
-    while (!result.contains("FINISHED")){
-        result = sql "SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1;"
-        result = result.toString()
-        logger.info("result: ${result}")
-        if(result.contains("CANCELLED")){
-            return
+    int max_try_time = 1200
+    while (max_try_time--){
+        String result = getMVJobState(tableName)
+        if (result == "FINISHED") {
+            break
+        } else {
+            sleep(100)
+            if (max_try_time < 1){
+                assertEquals(1,2)
+            }
         }
-        Thread.sleep(100)
     }
 
     sql """ INSERT INTO ${tableName} VALUES
@@ -137,16 +148,17 @@ suite ("test_uniq_rollup_schema_change") {
           ALTER TABLE ${tableName} DROP COLUMN cost
           """
 
-    result = "null"
-    while (!result.contains("FINISHED")){
-        result = sql "SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY CreateTime DESC LIMIT 1;"
-        result = result.toString()
-        logger.info("result: ${result}")
-        if(result.contains("CANCELLED")) {
-            log.info("rollup job is cancelled, result: ${result}".toString())
-            return
+    int max_try_time = 1200
+    while (max_try_time--){
+        String result = getJobState(tableName)
+        if (result == "FINISHED") {
+            break
+        } else {
+            sleep(100)
+            if (max_try_time < 1){
+                assertEquals(1,2)
+            }
         }
-        Thread.sleep(100)
     }
 
     qt_sc """ select * from ${tableName} where user_id = 3 """

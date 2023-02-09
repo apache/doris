@@ -18,6 +18,11 @@
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_agg_keys_schema_change") {
+    def getJobState = { tableName ->
+         def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+         return jobStateResult[0][9]
+    }
+    
     def tableName = "schema_change_agg_keys_regression_test"
 
     try {
@@ -96,15 +101,17 @@ suite ("test_agg_keys_schema_change") {
             ALTER table ${tableName} ADD COLUMN new_key_column INT default "2" 
             """
 
-        result = "null"
-        while (!result.contains("FINISHED")){
-            result = sql "SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY CreateTime DESC LIMIT 1;"
-            result = result.toString()
-            logger.info("result: ${result}")
-            if(result.contains("CANCELLED")){
-                return
+        int max_try_time = 1200
+        while (max_try_time--){
+            String result = getJobState(tableName)
+            if (result == "FINISHED") {
+                break
+            } else {
+                sleep(100)
+                if (max_try_time < 1){
+                    assertEquals(1,2)
+                }
             }
-            Thread.sleep(100)
         }
         Thread.sleep(1000)
 
@@ -149,15 +156,17 @@ suite ("test_agg_keys_schema_change") {
         sql """
             ALTER TABLE ${tableName} DROP COLUMN new_key_column
             """
-        result = "null"
-        while (!result.contains("FINISHED")){
-            result = sql "SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY CreateTime DESC LIMIT 1;"
-            result = result.toString()
-            logger.info("result: ${result}")
-            if(result.contains("CANCELLED")){
-                return
+        max_try_time = 1200
+        while (max_try_time--){
+            String result = getJobState(tableName)
+            if (result == "FINISHED") {
+                break
+            } else {
+                sleep(100)
+                if (max_try_time < 1){
+                    assertEquals(1,2)
+                }
             }
-            Thread.sleep(100)
         }
 
         qt_sc """ select * from ${tableName} where user_id = 3 """
