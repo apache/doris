@@ -29,7 +29,6 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
-import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.fs.s3a.Constants;
 import org.apache.hadoop.fs.s3a.S3AFileSystem;
 import org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider;
@@ -262,7 +261,7 @@ public class S3Resource extends Resource {
         s3Properties.put("fs.s3.impl.disable.cache", "true");
         s3Properties.put("fs.s3.impl", S3AFileSystem.class.getName());
 
-        String defaultProviderList = StringUtils.join(',', DEFAULT_CREDENTIALS_PROVIDERS);
+        String defaultProviderList = String.join(",", DEFAULT_CREDENTIALS_PROVIDERS);
         String credentialsProviders = s3Properties
                 .getOrDefault("fs.s3a.aws.credentials.provider", defaultProviderList);
         s3Properties.put("fs.s3a.aws.credentials.provider", credentialsProviders);

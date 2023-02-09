@@ -116,7 +116,6 @@ public class HMSResource extends Resource {
         if (!Strings.isNullOrEmpty(region)) {
             // See: https://help.aliyun.com/document_detail/31837.html
             // And add "-internal" to access oss within vpc
-            // TODO: find to way to access oss on public?
             res.put(S3Resource.S3_REGION, "oss-" + region);
             String publicAccess = hiveConf.get("dlf.catalog.accessPublic", "false");
             res.put(S3Resource.S3_ENDPOINT, getDLFEndpont(region, Boolean.parseBoolean(publicAccess)));
@@ -139,13 +138,18 @@ public class HMSResource extends Resource {
     }
 
     private static void loadPropertiesFromDLFProps(Map<String, String> res, Map<String, String> props) {
-        // add transformed properties
-        res.put(S3Resource.S3_ACCESS_KEY, props.getOrDefault("dlf.catalog.accessKeyId", ""));
-        res.put(S3Resource.S3_SECRET_KEY, props.getOrDefault("dlf.catalog.accessKeySecret", ""));
+        // add rewritten properties
+        String ak = props.get("dlf.catalog.accessKeyId");
+        String sk = props.get("dlf.catalog.accessKeySecret");
+        if (!Strings.isNullOrEmpty(ak) && !Strings.isNullOrEmpty(sk)) {
+            res.put(S3Resource.S3_ACCESS_KEY, ak);
+            res.put(S3Resource.S3_SECRET_KEY, sk);
+        }
+        String ifSetPublic = res.getOrDefault("dlf.catalog.accessPublic", "false");
+        String publicAccess = props.getOrDefault("dlf.catalog.accessPublic", ifSetPublic);
         String region = props.get("dlf.catalog.region");
         if (!Strings.isNullOrEmpty(region)) {
             res.put(S3Resource.S3_REGION, "oss-" + region);
-            String publicAccess = props.getOrDefault("dlf.catalog.accessPublic", "false");
             res.put(S3Resource.S3_ENDPOINT, getDLFEndpont(region, Boolean.parseBoolean(publicAccess)));
         }
         // add remain properties
