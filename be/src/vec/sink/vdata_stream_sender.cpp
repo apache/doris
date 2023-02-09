@@ -476,7 +476,8 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
                 RETURN_IF_ERROR(channel->send_local_block(block));
             }
         } else if (state->enable_pipeline_exec()) {
-            auto block_holder = _get_next_available_buffer();
+            BroadcastPBlockHolder* block_holder = nullptr;
+            RETURN_IF_ERROR(_get_next_available_buffer(&block_holder));
             {
                 SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
                 RETURN_IF_ERROR(
@@ -641,8 +642,11 @@ void VDataStreamSender::_roll_pb_block() {
     _cur_pb_block = (_cur_pb_block == &_pb_block1 ? &_pb_block2 : &_pb_block1);
 }
 
-BroadcastPBlockHolder* VDataStreamSender::_get_next_available_buffer() {
-    while (true) {
+Status VDataStreamSender::_get_next_available_buffer(BroadcastPBlockHolder** holder) {
+    constexpr int MAX_LOOP = 1000;
+
+    size_t it = 0;
+    while (it < MAX_LOOP) {
         if (_broadcast_pb_block_idx == _broadcast_pb_blocks.size()) {
             _broadcast_pb_block_idx = 0;
         }
@@ -650,11 +654,14 @@ BroadcastPBlockHolder* VDataStreamSender::_get_next_available_buffer() {
         for (; _broadcast_pb_block_idx < _broadcast_pb_blocks.size(); _broadcast_pb_block_idx++) {
             if (_broadcast_pb_blocks[_broadcast_pb_block_idx].available()) {
                 _broadcast_pb_block_idx++;
-                return &_broadcast_pb_blocks[_broadcast_pb_block_idx - 1];
+                *holder = &_broadcast_pb_blocks[_broadcast_pb_block_idx - 1];
+                return Status::OK();
             }
         }
+        it++;
     }
-    return nullptr;
+    return Status::InternalError(
+            "Exceed the max loop limit when acquire the next available buffer!");
 }
 
 void VDataStreamSender::registe_channels(pipeline::ExchangeSinkBuffer* buffer) {

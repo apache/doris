@@ -127,7 +127,7 @@ protected:
     friend class pipeline::ExchangeSinkBuffer;
 
     void _roll_pb_block();
-    BroadcastPBlockHolder* _get_next_available_buffer();
+    Status _get_next_available_buffer(BroadcastPBlockHolder** holder);
 
     Status get_partition_column_result(Block* block, int* result) const {
         int counter = 0;
