@@ -350,7 +350,7 @@ public class StmtExecutor implements ProfileWriter {
         }
 
         // mysql load don't format to master.
-        if (parsedStmt instanceof LoadStmt && ((LoadStmt) parsedStmt).getEtlJobType() == EtlJobType.LOCAL_FILE) {
+        if (parsedStmt instanceof LoadStmt && ((LoadStmt) parsedStmt).isMysqlLoad()) {
             return false;
         }
 

@@ -259,6 +259,10 @@ public class LoadStmt extends DdlStmt {
         return etlJobType;
     }
 
+    public boolean isMysqlLoad() {
+        return isMysqlLoad;
+    }
+
     public static void checkProperties(Map<String, String> properties) throws DdlException {
         if (properties == null) {
             return;
