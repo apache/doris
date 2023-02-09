@@ -47,9 +47,6 @@ public:
 
     virtual Status close(RuntimeState* state);
 
-    // Subclass must implement this to return the current rows read
-    virtual int64_t raw_rows_read() { return 0; }
-
 protected:
     // Subclass should implement this to return data.
     virtual Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) = 0;
