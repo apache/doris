@@ -275,6 +275,7 @@ kafkaSource.selectExpr("CAST(key AS STRING)", "CAST(value as STRING)")
 | sink.properties.*     | --               | The stream load parameters.<br /> <br /> eg:<br /> sink.properties.column_separator' = ','<br /> <br /> |
 | doris.sink.task.partition.size | --                | The number of partitions corresponding to the Writing task. After filtering and other operations, the number of partitions written in Spark RDD may be large, but the number of records corresponding to each Partition is relatively small, resulting in increased writing frequency and waste of computing resources. The smaller this value is set, the less Doris write frequency and less Doris merge pressure. It is generally used with doris.sink.task.use.repartition. |
 | doris.sink.task.use.repartition | false             | Whether to use repartition mode to control the number of partitions written by Doris. The default value is false, and coalesce is used (note: if there is no Spark action before the write, the whole computation will be less parallel). If it is set to true, then repartition is used (note: you can set the final number of partitions at the cost of shuffle). |
+| doris.sink.batch.interval.ms | 50 | The interval time of each batch sink, unit ms. |
 
 ### SQL & Dataframe Configuration
 
