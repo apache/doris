@@ -70,7 +70,8 @@ public class PushStoragePolicyTask extends AgentTask {
                 item.setResourceId(resource.getId());
                 long coolDownDatetime = storagePolicy.getCooldownTimestampMs() / 1000;
                 item.setCooldownDatetime(coolDownDatetime);
-                long coolDownTtl = storagePolicy.getCooldownTtlMs() / 1000;
+                // long coolDownTtl = storagePolicy.getCooldownTtlMs() / 1000;
+                long coolDownTtl = storagePolicy.getCooldownTtlMs();
                 item.setCooldownTtl(coolDownTtl);
             } finally {
                 p.readUnlock();

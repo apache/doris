@@ -104,8 +104,6 @@ public class StoragePolicy extends Policy {
     @SerializedName(value = "cooldownTtlMs")
     private long cooldownTtlMs = 0;
 
-    private Map<String, String> props;
-
     // for Gson fromJson
     public StoragePolicy() {
         super(PolicyTypeEnum.STORAGE);
@@ -172,7 +170,7 @@ public class StoragePolicy extends Policy {
         if (props.containsKey(COOLDOWN_TTL)) {
             hasCooldownTtl = true;
             // second
-            this.cooldownTtl = String.valueOf(getMsByCooldownTtl(props.get(COOLDOWN_TTL)) / 1000);
+            this.cooldownTtlMs = (getMsByCooldownTtl(props.get(COOLDOWN_TTL)) / 1000);
         }
         if (hasCooldownDatetime && hasCooldownTtl) {
             throw new AnalysisException(COOLDOWN_DATETIME + " and " + COOLDOWN_TTL + " can't be set together.");
@@ -183,7 +181,7 @@ public class StoragePolicy extends Policy {
 
         // no set ttl use -1
         if (!hasCooldownTtl) {
-            this.cooldownTtl = "-1";
+            this.cooldownTtlMs = -1;
         }
 
         checkIsS3ResourceAndExist(this.storageResource);
@@ -221,11 +219,11 @@ public class StoragePolicy extends Policy {
         try {
             if (cooldownTimestampMs == -1) {
                 return Lists.newArrayList(this.policyName, String.valueOf(this.id), String.valueOf(this.version),
-                        this.type.name(), this.storageResource, "-1", this.cooldownTtl);
+                        this.type.name(), this.storageResource, "-1", String.valueOf(this.cooldownTtlMs));
             }
             return Lists.newArrayList(this.policyName, String.valueOf(this.id), String.valueOf(this.version),
                     this.type.name(), this.storageResource, TimeUtils.longToTimeString(this.cooldownTimestampMs),
-                    this.cooldownTtl);
+                    String.valueof(this.cooldownTtlMs));
         } finally {
             readUnlock();
         }
