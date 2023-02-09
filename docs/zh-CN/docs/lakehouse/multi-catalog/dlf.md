@@ -50,13 +50,7 @@ CREATE CATALOG hive_with_dlf PROPERTIES (
 );
 ```
 
-其中 `type` 固定为 `hms`。
-
-如果需要公网访问阿里云对象存储的数据，可以设置
-
-```
-   "dlf.catalog.accessPublic" = "true"
-```
+其中 `type` 固定为 `hms`。 如果需要公网访问阿里云对象存储的数据，可以设置 `"dlf.catalog.accessPublic"="true"`
 
 * `dlf.catalog.endpoint`：DLF Endpoint，参阅：[DLF Region和Endpoint对照表](https://www.alibabacloud.com/help/zh/data-lake-formation/latest/regions-and-endpoints)
 * `dlf.catalog.region`：DLF Region，参阅：[DLF Region和Endpoint对照表](https://www.alibabacloud.com/help/zh/data-lake-formation/latest/regions-and-endpoints)
@@ -118,7 +112,7 @@ CREATE CATALOG hive_with_dlf PROPERTIES (
 )
 ```
 
-其中 `type` 固定为 `hms`。 `hive.metastore.uris` 的值随意填写即可，实际不会使用。但需要按照标准 hive metastore thrift uri 格式填写。
+其中 `type` 固定为 `hms`。`hive.metastore.uris` 的值随意填写即可，实际不会使用。但需要按照标准 hive metastore thrift uri 格式填写。
    
 
 
