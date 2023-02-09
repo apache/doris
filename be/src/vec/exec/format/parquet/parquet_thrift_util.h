@@ -59,7 +59,6 @@ static Status parse_thrift_footer(io::FileReaderSPtr file,
     }
     tparquet::FileMetaData t_metadata;
     // deserialize footer
-    // TODO: memory reuse
     std::unique_ptr<uint8_t[]> meta_buff(new uint8_t[metadata_size]);
     Slice res(meta_buff.get(), metadata_size);
     RETURN_IF_ERROR(file->read_at(file_size - PARQUET_FOOTER_SIZE - metadata_size, res, io_ctx,
