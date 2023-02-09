@@ -98,7 +98,7 @@ curl http://be_host:webserver_port/metrics?type=json
 |`doris_fe_query_err`| | Num | 错误查询的累积值 | |
 |`doris_fe_query_err_rate`|  | Num/Sec| 每秒错误查询数  | 观察集群是否出现查询错误 | P0 |
 |`doris_fe_query_latency_ms`| | 毫秒| 查询请求延迟的百分位统计。如 {quantile="0.75"} 表示 75 分位的查询延迟 | 详细观察各分位查询延迟 | P0 |
-|| | 毫秒| 各个DB的查询请求延迟的百分位统计。如 {quantile="0.75",db="test"} 表示DB test 75 分位的查询延迟 | 详细观察各DB各分位查询延迟 | P0 |
+|`doris_fe_query_latency_ms_db`| | 毫秒| 各个DB的查询请求延迟的百分位统计。如 {quantile="0.75",db="test"} 表示DB test 75 分位的查询延迟 | 详细观察各DB各分位查询延迟 | P0 |
 |`doris_fe_query_olap_table`| | Num| 查询内部表（OlapTable）的请求个数统计 | |
 |`doris_fe_query_total`| | Num | 所有查询请求的累积计数 | |
 |`doris_fe_report_queue_size`| | Num | BE的各种定期汇报任务在FE端的队列长度 | 该值反映了汇报任务在 Master FE 节点上的阻塞程度，数值越大，表示FE处理能力不足 | P0|
