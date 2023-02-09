@@ -6,8 +6,8 @@ k3	INT	Yes	true	\N
 k4	BIGINT	Yes	false	\N	NONE
 k5	CHAR(1)	Yes	false	\N	NONE
 k6	VARCHAR(1)	Yes	false	\N	NONE
-k7	DATE	Yes	false	\N	NONE
-k8	DATETIME	Yes	false	\N	NONE
+k7	DATEV2	Yes	false	\N	NONE
+k8	DATETIMEV2(0)	Yes	false	\N	NONE
 k9	LARGEINT	Yes	false	\N	NONE
 k10	DECIMAL(9,0)	Yes	false	\N	NONE
 k11	BOOLEAN	Yes	false	\N	NONE
@@ -43,8 +43,8 @@ k3	INT	Yes	true	\N
 k4	BIGINT	Yes	true	\N	
 k5	CHAR(1)	Yes	true	\N	
 k6	VARCHAR(1)	Yes	true	\N	
-k7	DATE	Yes	true	\N	
-k8	DATETIME	Yes	true	\N	
+k7	DATEV2	Yes	true	\N	
+k8	DATETIMEV2(0)	Yes	true	\N	
 k9	LARGEINT	Yes	true	\N	
 k10	DECIMAL(9,0)	Yes	true	\N	
 k11	BOOLEAN	Yes	true	\N	
@@ -81,8 +81,8 @@ k3	INT	Yes	true	\N
 k4	BIGINT	Yes	true	\N	
 k5	CHAR(1)	Yes	true	\N	
 k6	VARCHAR(1)	Yes	true	\N	
-k7	DATE	Yes	true	\N	
-k8	DATETIME	Yes	true	\N	
+k7	DATEV2	Yes	true	\N	
+k8	DATETIMEV2(0)	Yes	true	\N	
 k9	LARGEINT	Yes	true	\N	
 k10	DECIMAL(9,0)	Yes	true	\N	
 k11	BOOLEAN	Yes	true	\N	

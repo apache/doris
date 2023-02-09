@@ -43,7 +43,7 @@ suite("runtime_filter") {
         sql "set runtime_filter_type=${i}"
         test {
             sql "SELECT count(1) FROM datetime_table a, date_v2_table b WHERE a.date = b.date;"
-            result([[2L]])
+            result([[0L]])
         }
     }
 }

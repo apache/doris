@@ -3,7 +3,7 @@
 test_materialized_view1	DUP_KEYS	record_id	INT	Yes	true	\N		true
 		seller_id	INT	Yes	true	\N		true
 		store_id	INT	Yes	true	\N		true
-		sale_date	DATE	Yes	false	\N	NONE	true
+		sale_date	DATEV2	Yes	false	\N	NONE	true
 		sale_amt	BIGINT	Yes	false	\N	NONE	true
 								
 amt_sum	AGG_KEYS	store_id	INT	Yes	true	\N		true
@@ -13,7 +13,7 @@ amt_sum	AGG_KEYS	store_id	INT	Yes	true	\N		true
 test_materialized_view2	DUP_KEYS	record_id	INT	Yes	true	\N		true
 		seller_id	INT	Yes	true	\N		true
 		store_id	INT	Yes	true	\N		true
-		sale_date	DATE	Yes	false	\N	NONE	true
+		sale_date	DATEV2	Yes	false	\N	NONE	true
 		sale_amt	BIGINT	Yes	false	\N	NONE	true
 								
 seller_id_order	DUP_KEYS	store_id	INT	Yes	true	\N		true
@@ -40,7 +40,7 @@ seller_id_order	DUP_KEYS	store_id	INT	Yes	true	\N		true
 		CASE WHEN sale_amt IS NULL THEN 0 ELSE 1 END	BIGINT	No	false	\N	SUM	true
 		sale_amt	BIGINT	Yes	false	\N	NONE	true
 		sale_amt	BIGINT	Yes	false	\N	SUM	true
-		sale_date	DATE	Yes	false	\N	NONE	true
+		sale_date	DATEV2	Yes	false	\N	NONE	true
 		seller_id	INT	Yes	true	\N		true
 		store_id	INT	Yes	true	\N		true
 amt_count	AGG_KEYS	store_id	INT	Yes	true	\N		true

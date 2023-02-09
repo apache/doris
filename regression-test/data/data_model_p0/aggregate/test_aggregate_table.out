@@ -25,10 +25,10 @@ char_value_replace_if_not_null	CHAR(10)	Yes	false	\N	REPLACE_IF_NOT_NULL
 
 -- !desc_date_table --
 k	INT	Yes	true	\N	
-date_value_max	DATE	Yes	false	\N	MAX
-date_value_min	DATE	Yes	false	\N	MIN
-date_value_replace	DATE	Yes	false	\N	REPLACE
-date_value_replace_if_not_null	DATE	Yes	false	\N	REPLACE_IF_NOT_NULL
+date_value_max	DATEV2	Yes	false	\N	MAX
+date_value_min	DATEV2	Yes	false	\N	MIN
+date_value_replace	DATEV2	Yes	false	\N	REPLACE
+date_value_replace_if_not_null	DATEV2	Yes	false	\N	REPLACE_IF_NOT_NULL
 datev2_value_max	DATEV2	Yes	false	\N	MAX
 datev2_value_min	DATEV2	Yes	false	\N	MIN
 datev2_value_replace	DATEV2	Yes	false	\N	REPLACE

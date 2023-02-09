@@ -3,7 +3,7 @@
 k	INT	Yes	true	\N	
 int_value	INT	Yes	false	\N	REPLACE
 char_value	CHAR(10)	Yes	false	\N	REPLACE
-date_value	DATE	Yes	false	\N	REPLACE
+date_value	DATEV2	Yes	false	\N	REPLACE
 __DORIS_DELETE_SIGN__	TINYINT	No	false	0	REPLACE
 __DORIS_SEQUENCE_COL__	INT	Yes	false	\N	REPLACE
 
@@ -11,7 +11,7 @@ __DORIS_SEQUENCE_COL__	INT	Yes	false	\N	REPLACE
 k	INT	Yes	true	\N	
 int_value	INT	Yes	false	\N	REPLACE
 char_value	CHAR(10)	Yes	false	\N	REPLACE
-date_value	DATE	Yes	false	\N	REPLACE
+date_value	DATEV2	Yes	false	\N	REPLACE
 __DORIS_DELETE_SIGN__	TINYINT	No	false	0	REPLACE
 __DORIS_SEQUENCE_COL__	INT	Yes	false	\N	REPLACE
 
