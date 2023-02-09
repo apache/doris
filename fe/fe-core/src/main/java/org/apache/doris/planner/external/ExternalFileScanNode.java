@@ -241,6 +241,29 @@ public class ExternalFileScanNode extends ExternalScanNode {
         }
     }
 
+    /**
+     * Reset required_slots in contexts. This is called after Nereids planner do the projection.
+     * In the projection process, some slots may be removed. So call this to update the slots info.
+     */
+    @Override
+    public void updateRequiredSlots() throws UserException {
+        for (int i = 0; i < contexts.size(); i++) {
+            ParamCreateContext context = contexts.get(i);
+            FileScanProviderIf scanProvider = scanProviders.get(i);
+            context.params.unsetRequiredSlots();
+            for (SlotDescriptor slot : desc.getSlots()) {
+                if (!slot.isMaterialized()) {
+                    continue;
+                }
+
+                TFileScanSlotInfo slotInfo = new TFileScanSlotInfo();
+                slotInfo.setSlotId(slot.getId().asInt());
+                slotInfo.setIsFileSlot(!scanProvider.getPathPartitionKeys().contains(slot.getColumn().getName()));
+                context.params.addToRequiredSlots(slotInfo);
+            }
+        }
+    }
+
     private void initHMSExternalTable(HMSExternalTable hmsTable) throws UserException {
         Preconditions.checkNotNull(hmsTable);
 
