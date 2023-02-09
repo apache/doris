@@ -107,6 +107,9 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multiset;
 import com.google.common.collect.Sets;
+import com.google.common.hash.Funnel;
+import com.google.common.hash.Hashing;
+import com.google.common.hash.PrimitiveSink;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.context.Context;
@@ -118,6 +121,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.jetbrains.annotations.NotNull;
 
+import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
@@ -252,33 +256,23 @@ public class Coordinator {
     private boolean isPointQuery = false;
     private PointQueryExec pointExec = null;
 
-    private static class BackendHash implements ConsistentHash.HashFunction<Backend> {
-        final ConsistentHash.StringHashFunction hashFunction = new ConsistentHash.StringHashFunction();
-
+    private static class BackendHash implements Funnel<Backend> {
         @Override
-        public long hashValue(Backend object) {
-            return hashFunction.hashValue(object.getHost() + ":" + object.getBePort());
+        public void funnel(Backend backend, PrimitiveSink primitiveSink) {
+            primitiveSink.putBytes(backend.getHost().getBytes(StandardCharsets.UTF_8));
+            primitiveSink.putInt(backend.getBePort());
         }
     }
 
-    private static class ScanRangeHash implements ConsistentHash.HashFunction<TScanRangeLocations> {
-        final ConsistentHash.StringHashFunction hashFunction = new ConsistentHash.StringHashFunction();
-
+    private static class ScanRangeHash implements Funnel<TScanRangeLocations> {
         @Override
-        public long hashValue(TScanRangeLocations object) {
-            Preconditions.checkState(object.scan_range.isSetExtScanRange());
-            StringBuilder builder = new StringBuilder();
-            List<TFileRangeDesc> descs = object.scan_range.ext_scan_range.file_scan_range.ranges;
-            int i = 0;
-            for (TFileRangeDesc desc : descs) {
-                if (i != 0) {
-                    builder.append(',');
-                }
-                builder.append(desc.path).append('[').append(desc.start_offset)
-                        .append(':').append(desc.size).append(']');
-                ++i;
+        public void funnel(TScanRangeLocations scanRange, PrimitiveSink primitiveSink) {
+            Preconditions.checkState(scanRange.scan_range.isSetExtScanRange());
+            for (TFileRangeDesc desc : scanRange.scan_range.ext_scan_range.file_scan_range.ranges) {
+                primitiveSink.putBytes(desc.path.getBytes(StandardCharsets.UTF_8));
+                primitiveSink.putLong(desc.start_offset);
+                primitiveSink.putLong(desc.size);
             }
-            return hashFunction.hashValue(builder.toString());
         }
     }
 
@@ -1816,7 +1810,7 @@ public class Coordinator {
         }
         int virtualNumber = Math.max(Math.min(512 / aliveBEs.size(), 32), 2);
         ConsistentHash<TScanRangeLocations, Backend> consistentHash = new ConsistentHash<>(
-                aliveBEs, virtualNumber, new ScanRangeHash(), new BackendHash());
+                Hashing.murmur3_128(), new ScanRangeHash(), new BackendHash(), aliveBEs, virtualNumber);
         for (TScanRangeLocations scanRangeLocations : locations) {
             TScanRangeLocation minLocation = scanRangeLocations.locations.get(0);
             Backend backend = consistentHash.getNode(scanRangeLocations);
