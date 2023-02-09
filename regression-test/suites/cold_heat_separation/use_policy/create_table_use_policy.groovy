@@ -16,8 +16,6 @@
 // under the License.
 
 suite("create_table_use_policy") {
-    sql """ADMIN SET FRONTEND CONFIG ("enable_storage_policy" = "true");"""
-
     def cooldown_ttl = "10"
 
     def create_table_use_not_create_policy = try_sql """

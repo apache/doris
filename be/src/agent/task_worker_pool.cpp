@@ -268,7 +268,8 @@ void TaskWorkerPool::notify_thread() {
 }
 
 bool TaskWorkerPool::_register_task_info(const TTaskType::type task_type, int64_t signature) {
-    if (task_type == TTaskType::type::PUSH_STORAGE_POLICY) {
+    if (task_type == TTaskType::type::PUSH_STORAGE_POLICY ||
+        task_type == TTaskType::type::PUSH_COOLDOWN_CONF) {
         // no need to report task of these types
         return true;
     }
@@ -1716,14 +1717,6 @@ void TaskWorkerPool::_push_cooldown_conf_worker_thread_callback() {
             agent_task_req = _tasks.front();
             _tasks.pop_front();
         }
-        // FIXME(plat1ko): no need to save cooldown conf job state in FE
-        TFinishTaskRequest finish_task_request;
-        finish_task_request.__set_backend(_backend);
-        finish_task_request.__set_task_type(agent_task_req.task_type);
-        finish_task_request.__set_signature(agent_task_req.signature);
-        finish_task_request.__set_task_status(Status::OK().to_thrift());
-        _finish_task(finish_task_request);
-        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
 
         TPushCooldownConfReq& push_cooldown_conf_req = agent_task_req.push_cooldown_conf;
         for (auto& cooldown_conf : push_cooldown_conf_req.cooldown_confs) {
