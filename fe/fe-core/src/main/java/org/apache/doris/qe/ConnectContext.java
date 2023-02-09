@@ -50,8 +50,6 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.nio.channels.SocketChannel;
-import java.security.KeyManagementException;
-import java.security.NoSuchAlgorithmException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -224,11 +222,11 @@ public class ConnectContext {
         return notEvalNondeterministicFunction;
     }
 
-    public ConnectContext() throws NoSuchAlgorithmException, KeyManagementException {
+    public ConnectContext() {
         this(null);
     }
 
-    public ConnectContext(SocketChannel channel) throws NoSuchAlgorithmException, KeyManagementException {
+    public ConnectContext(SocketChannel channel) {
         state = new QueryState();
         returnRows = 0;
         serverCapability = MysqlCapability.DEFAULT_CAPABILITY;

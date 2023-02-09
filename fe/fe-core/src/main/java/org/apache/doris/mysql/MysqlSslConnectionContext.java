@@ -17,15 +17,19 @@
 
 package org.apache.doris.mysql;
 
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+
 import java.nio.ByteBuffer;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
-import javax.net.ssl.SSLEngineResult;
 import javax.net.ssl.SSLEngineResult.HandshakeStatus;
 
 public class MysqlSslConnectionContext {
+
+    private static final Logger LOG = LogManager.getLogger(MysqlSslConnectionContext.class);
     private SSLEngine sslEngine;
     private SSLContext sslContext;
     private String protocol;
@@ -36,17 +40,20 @@ public class MysqlSslConnectionContext {
     private ByteBuffer clientAppDate;
     private ByteBuffer clientNetDate;
 
-    public MysqlSslConnectionContext(String protocol, String[] ciphersuites)
-            throws NoSuchAlgorithmException, KeyManagementException {
+    public MysqlSslConnectionContext(String protocol, String[] ciphersuites) {
         protocol = protocol;
         ciphersuites = ciphersuites;
         initSslContext();
         initSslEngine();
     }
 
-    private void initSslContext() throws NoSuchAlgorithmException, KeyManagementException {
-        sslContext = SSLContext.getInstance(protocol);
-        sslContext.init(null, null, null);
+    private void initSslContext() {
+        try {
+            sslContext = SSLContext.getInstance(protocol);
+            sslContext.init(null, null, null);
+        } catch (NoSuchAlgorithmException | KeyManagementException e) {
+            LOG.error("Failed to initialize SSL because", e);
+        }
     }
 
     private void initSslEngine() {
