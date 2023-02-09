@@ -124,8 +124,7 @@ T QuantileState<T>::get_explicit_value_by_percentile(float percentile) const {
     if (intIdx == n - 1) {
         return sorted_data[intIdx];
     }
-    return sorted_data[intIdx + 1] * (index - intIdx) +
-           sorted_data[intIdx] * (intIdx + 1 - index);
+    return sorted_data[intIdx + 1] * (index - intIdx) + sorted_data[intIdx] * (intIdx + 1 - index);
 }
 
 template <typename T>

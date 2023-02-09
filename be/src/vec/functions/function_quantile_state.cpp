@@ -18,7 +18,6 @@
 // https://github.com/ClickHouse/ClickHouse/blob/master/src/Functions/FunctionBitmap.h
 // and modified by Doris
 
-
 #include "util/string_parser.hpp"
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
@@ -32,21 +31,25 @@
 
 namespace doris::vectorized {
 
-template<typename InternalType>
+template <typename InternalType>
 struct QuantileStateEmpty {
     static constexpr auto name = "quantile_state_empty";
     using ReturnColVec = ColumnQuantileState<InternalType>;
-    static DataTypePtr get_return_type() { return std::make_shared<DataTypeQuantileState<InternalType>>(); }
+    static DataTypePtr get_return_type() {
+        return std::make_shared<DataTypeQuantileState<InternalType>>();
+    }
     static auto init_value() { return QuantileState<InternalType> {}; }
 };
 
-template<typename InternalType>
+template <typename InternalType>
 class FunctionToQuantileState : public IFunction {
 public:
     static constexpr auto name = "to_quantile_state";
     String get_name() const override { return name; }
 
-    static FunctionPtr create() { return std::make_shared<FunctionToQuantileState<InternalType>>(); }
+    static FunctionPtr create() {
+        return std::make_shared<FunctionToQuantileState<InternalType>>();
+    }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeQuantileState<InternalType>>();
@@ -82,7 +85,8 @@ public:
         } else {
             col = check_and_get_column<ColumnType>(column.get());
         }
-        auto* res_column = reinterpret_cast<ColumnQuantileState<InternalType>*>(column_result.get());
+        auto* res_column =
+                reinterpret_cast<ColumnQuantileState<InternalType>*>(column_result.get());
         auto& res_data = res_column->get_data();
 
         size_t size = col->size();
@@ -100,8 +104,8 @@ public:
                 const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
                 size_t str_size = offsets[i] - offsets[i - 1];
                 StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-                InternalType value = StringParser::string_to_float<InternalType>(
-                        raw_str, str_size, &parse_result);
+                InternalType value = StringParser::string_to_float<InternalType>(raw_str, str_size,
+                                                                                 &parse_result);
                 if (LIKELY(parse_result == StringParser::PARSE_SUCCESS)) {
                     res_data[i].add_value(value);
                 } else {
@@ -111,10 +115,11 @@ public:
                     LOG(WARNING) << ss.str();
                     return Status::InternalError(ss.str());
                 }
-            } else if constexpr (std::is_same_v<ColumnType, ColumnInt64> || std::is_same_v<ColumnType, ColumnFloat32>
-                                 || std:: is_same_v<ColumnType, ColumnFloat64>) {
+            } else if constexpr (std::is_same_v<ColumnType, ColumnInt64> ||
+                                 std::is_same_v<ColumnType, ColumnFloat32> ||
+                                 std::is_same_v<ColumnType, ColumnFloat64>) {
                 // InternalType only can be double or float, so we can cast directly
-                InternalType value = (InternalType) col->get_data()[i];
+                InternalType value = (InternalType)col->get_data()[i];
                 res_data[i].set_compression(compression);
                 res_data[i].add_value(value);
             } else {
@@ -126,7 +131,8 @@ public:
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
-        if constexpr (!(std::is_same_v<InternalType, float> || std::is_same_v<InternalType, double>)) {
+        if constexpr (!(std::is_same_v<InternalType, float> ||
+                        std::is_same_v<InternalType, double>)) {
             std::stringstream ss;
             ss << "The InternalType of quantile_state must be float or double";
 
@@ -139,8 +145,8 @@ public:
                 block.get_by_position(arguments.back()).column);
         if (compression_arg) {
             auto compression_arg_val = compression_arg->get_value<Float32>();
-            if (compression_arg_val && compression_arg_val >= QUANTILE_STATE_COMPRESSION_MIN
-                && compression_arg_val <= QUANTILE_STATE_COMPRESSION_MAX) {
+            if (compression_arg_val && compression_arg_val >= QUANTILE_STATE_COMPRESSION_MIN &&
+                compression_arg_val <= QUANTILE_STATE_COMPRESSION_MAX) {
                 this->compression = compression_arg_val;
             }
         }
@@ -187,18 +193,20 @@ public:
         }
         return status;
     }
+
 private:
     float compression = 2048;
 };
 
-
-template<typename InternalType>
+template <typename InternalType>
 class FunctionQuantileStatePercent : public IFunction {
 public:
     static constexpr auto name = "quantile_percent";
     String get_name() const override { return name; }
 
-    static FunctionPtr create() { return std::make_shared<FunctionQuantileStatePercent<InternalType>>(); }
+    static FunctionPtr create() {
+        return std::make_shared<FunctionQuantileStatePercent<InternalType>>();
+    }
 
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return std::make_shared<DataTypeFloat64>();
@@ -266,4 +274,4 @@ void register_function_quantile_state(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionToQuantileStateDouble>();
 }
 
-}
+} // namespace doris::vectorized

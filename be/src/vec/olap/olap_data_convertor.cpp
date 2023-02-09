@@ -311,7 +311,8 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorQuantileState::convert_to_
         column_quantile_state = assert_cast<const vectorized::ColumnQuantileStateDouble*>(
                 nullable_column->get_nested_column_ptr().get());
     } else {
-        column_quantile_state = assert_cast<const vectorized::ColumnQuantileStateDouble*>(_typed_column.column.get());
+        column_quantile_state = assert_cast<const vectorized::ColumnQuantileStateDouble*>(
+                _typed_column.column.get());
     }
 
     assert(column_quantile_state);
@@ -347,7 +348,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorQuantileState::convert_to_
         while (quantile_state_cur != quantile_state_end) {
             if (!*nullmap_cur) {
                 slice_size = quantile_state_cur->get_serialized_size();
-                quantile_state_cur->serialize((uint8_t *)raw_data);
+                quantile_state_cur->serialize((uint8_t*)raw_data);
 
                 slice->data = raw_data;
                 slice->size = slice_size;
@@ -365,7 +366,7 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorQuantileState::convert_to_
     } else {
         while (quantile_state_cur != quantile_state_end) {
             slice_size = quantile_state_cur->get_serialized_size();
-            quantile_state_cur->serialize((uint8_t *)raw_data);
+            quantile_state_cur->serialize((uint8_t*)raw_data);
 
             slice->data = raw_data;
             slice->size = slice_size;
@@ -378,7 +379,6 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorQuantileState::convert_to_
     }
     return Status::OK();
 }
-
 
 Status OlapBlockDataConvertor::OlapColumnDataConvertorHLL::convert_to_olap() {
     assert(_typed_column.column);

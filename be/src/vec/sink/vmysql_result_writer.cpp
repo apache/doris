@@ -126,7 +126,7 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                     QuantileStateDouble quantileValue = pColumnComplexType->get_element(i);
                     size_t size = quantileValue.get_serialized_size();
                     std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
-                    quantileValue.serialize((uint8_t *)buf.get());
+                    quantileValue.serialize((uint8_t*)buf.get());
                     buf_ret = rows_buffer[i].push_string(buf.get(), size);
                 } else {
                     buf_ret = rows_buffer[i].push_null();

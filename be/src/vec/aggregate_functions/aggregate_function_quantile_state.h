@@ -22,9 +22,9 @@
 #include "vec/columns/column_complex.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
-#include "vec/data_types/data_type_quantilestate.h"
 #include "vec/data_types/data_type_nullable.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/data_type_quantilestate.h"
 
 namespace doris::vectorized {
 
@@ -55,7 +55,6 @@ struct AggregateFunctionQuantileStateUnionOp {
             res.merge(data);
         }
     }
-
 };
 
 template <typename Op, typename InternalType>
@@ -65,21 +64,24 @@ struct AggregateFunctionQuantileStateData {
     bool is_first = true;
 
     template <typename T>
-    void add(const T& data) { Op::add(value, data, is_first); }
+    void add(const T& data) {
+        Op::add(value, data, is_first);
+    }
 
     void merge(const DataType& data) { Op::merge(value, data, is_first); }
 
-    void write(BufferWritable& buf) const { DataTypeQuantileState<InternalType>::serialize_as_stream(value, buf); }
+    void write(BufferWritable& buf) const {
+        DataTypeQuantileState<InternalType>::serialize_as_stream(value, buf);
+    }
 
-    void read(BufferReadable& buf) { DataTypeQuantileState<InternalType>::deserialize_as_stream(value, buf); }
+    void read(BufferReadable& buf) {
+        DataTypeQuantileState<InternalType>::deserialize_as_stream(value, buf);
+    }
 
     void reset() { is_first = true; }
 
     DataType& get() { return value; }
-
-
 };
-
 
 template <typename Op, typename InternalType>
 class AggregateFunctionQuantileStateOp final
@@ -94,9 +96,12 @@ public:
 
     AggregateFunctionQuantileStateOp(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<AggregateFunctionQuantileStateData<Op, InternalType>,
-                                           AggregateFunctionQuantileStateOp<Op, InternalType>>(argument_types_, {}) {}
+                                           AggregateFunctionQuantileStateOp<Op, InternalType>>(
+                      argument_types_, {}) {}
 
-    DataTypePtr get_return_type() const override { return std::make_shared<DataTypeQuantileState<InternalType>>(); }
+    DataTypePtr get_return_type() const override {
+        return std::make_shared<DataTypeQuantileState<InternalType>>();
+    }
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {
@@ -104,11 +109,11 @@ public:
         this->data(place).add(column.get_data()[row_num]);
     }
 
-
     void merge(AggregateDataPtr __restrict place, ConstAggregateDataPtr rhs,
                Arena*) const override {
         this->data(place).merge(
-                const_cast<AggregateFunctionQuantileStateData<Op, InternalType>&>(this->data(rhs)).get());
+                const_cast<AggregateFunctionQuantileStateData<Op, InternalType>&>(this->data(rhs))
+                        .get());
     }
 
     void serialize(ConstAggregateDataPtr __restrict place, BufferWritable& buf) const override {
@@ -123,19 +128,16 @@ public:
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         auto& column = static_cast<ColVecResult&>(to);
         column.get_data().push_back(
-                const_cast<AggregateFunctionQuantileStateData<Op, InternalType>&>(this->data(place)).get());
+                const_cast<AggregateFunctionQuantileStateData<Op, InternalType>&>(this->data(place))
+                        .get());
     }
 
     void reset(AggregateDataPtr __restrict place) const override { this->data(place).reset(); }
-
 };
 
 AggregateFunctionPtr create_aggregate_function_quantile_state_union(const std::string& name,
-                                                            const DataTypes& argument_types,
-                                                            const Array& parameters,
-                                                            const bool result_is_nullable);
-
+                                                                    const DataTypes& argument_types,
+                                                                    const Array& parameters,
+                                                                    const bool result_is_nullable);
 
 } // namespace doris::vectorized
-
-

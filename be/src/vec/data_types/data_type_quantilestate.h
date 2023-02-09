@@ -22,7 +22,7 @@
 #include "vec/core/types.h"
 #include "vec/data_types/data_type.h"
 namespace doris::vectorized {
-template<typename T>
+template <typename T>
 class DataTypeQuantileState : public IDataType {
 public:
     DataTypeQuantileState() = default;
@@ -81,5 +81,4 @@ public:
 };
 using DataTypeQuantileStateDouble = DataTypeQuantileState<double>;
 
-
-}
+} // namespace doris::vectorized

@@ -16,6 +16,7 @@
 // under the License.
 
 #include "vec/aggregate_functions/aggregate_function_quantile_state.h"
+
 #include "vec/aggregate_functions//aggregate_function_simple_factory.h"
 
 namespace doris::vectorized {
@@ -24,8 +25,9 @@ AggregateFunctionPtr create_aggregate_function_quantile_state_union(const std::s
                                                                     const DataTypes& argument_types,
                                                                     const Array& parameters,
                                                                     const bool result_is_nullable) {
-    return std::make_shared<AggregateFunctionQuantileStateOp<AggregateFunctionQuantileStateUnionOp, double>>(
-                            argument_types);
+    return std::make_shared<
+            AggregateFunctionQuantileStateOp<AggregateFunctionQuantileStateUnionOp, double>>(
+            argument_types);
 }
 
 void register_aggregate_function_quantile_state(AggregateFunctionSimpleFactory& factory) {

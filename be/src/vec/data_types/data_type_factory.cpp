@@ -267,7 +267,7 @@ DataTypePtr DataTypeFactory::_create_primitive_data_type(const FieldType& type, 
         result = std::make_shared<vectorized::DataTypeDecimal<vectorized::Decimal128>>(27, 9);
         break;
     case OLAP_FIELD_TYPE_QUANTILE_STATE:
-        result = std::make_shared <vectorized::DataTypeQuantileStateDouble>();
+        result = std::make_shared<vectorized::DataTypeQuantileStateDouble>();
         break;
     case OLAP_FIELD_TYPE_DECIMAL32:
     case OLAP_FIELD_TYPE_DECIMAL64:
