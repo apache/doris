@@ -110,11 +110,10 @@ Status FullTextIndexReader::new_iterator(const TabletIndex* index_meta,
 
 Status FullTextIndexReader::query(const std::string& column_name, const void* query_value,
                                   InvertedIndexQueryType query_type,
-                                  InvertedIndexParserType analyser_type, roaring::Roaring* bit_map,
-                                  const void* additional_value) {
+                                  InvertedIndexParserType analyser_type, roaring::Roaring* bit_map) {
     SCOPED_RAW_TIMER(&_stats->inverted_index_query_timer);
 
-    std::string search_str = reinterpret_cast<const StringValue*>(query_value)->to_string();
+    std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
     LOG(INFO) << column_name
               << " begin to search the fulltext index from clucene, query_str [" << search_str << "]";
 
@@ -172,9 +171,7 @@ Status FullTextIndexReader::query(const std::string& column_name, const void* qu
                         });
                 } catch (const CLuceneError& e) {
                     LOG(WARNING) << "CLuceneError occured: " << e.what();
-                    return Status::OLAPInternalError(
-                            OLAP_ERR_INVERTED_INDEX_CLUCENE_ERROR,
-                            fmt::format("CLuceneError occured, error msg: {}", e.what()));
+                    return Status::Error<ErrorCode::INVERTED_INDEX_CLUCENE_ERROR>();
                 }
                 
                 {
@@ -204,25 +201,12 @@ Status FullTextIndexReader::query(const std::string& column_name, const void* qu
                 break;
             }
             case InvertedIndexQueryType::MATCH_PHRASE_QUERY: {
-            return Status::OLAPInternalError(
-                    OLAP_ERR_INVERTED_INDEX_NOT_SUPPORTED,
-                    fmt::format("match phrase of fulltext is not supported"));
-            // query.reset(_CLNEW lucene::search::PhraseQuery());
-            // for(auto token : analyse_result) {
-            //     std::wstring token_ws = std::wstring(token.begin(), token.end());
-            //     lucene::index::Term* term = _CLNEW lucene::index::Term(field_ws.c_str(), token_ws.c_str());
-            //     static_cast<lucene::search::PhraseQuery*>(query.get())->add(term);
-            //     _CLDECDELETE(term);
-            // }
-            break;
+                return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
+                break;
             }
             default: {
                 LOG(ERROR) << "fulltext query do not support query type other than match.";
-                return Status::OLAPInternalError(
-                        OLAP_ERR_INVERTED_INDEX_NOT_SUPPORTED,
-                        fmt::format(
-                                "fulltext query do not support query type other than match, column: {}",
-                                column_name));
+                return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
             }
             }
         }
@@ -250,14 +234,13 @@ Status StringTypeInvertedIndexReader::new_iterator(const TabletIndex* index_meta
 Status StringTypeInvertedIndexReader::query(const std::string& column_name, const void* query_value,
                                             InvertedIndexQueryType query_type,
                                             InvertedIndexParserType analyser_type,
-                                            roaring::Roaring* bit_map,
-                                            const void* additional_value) {
+                                            roaring::Roaring* bit_map) {
     SCOPED_RAW_TIMER(&_stats->inverted_index_query_timer);
 
-    const StringValue* search_query = reinterpret_cast<const StringValue*>(query_value);
-    auto act_len = strnlen(search_query->ptr, search_query->len);
-    std::string search_str(search_query->ptr, act_len);
-    // std::string search_str = reinterpret_cast<const StringValue*>(query_value)->to_string();
+    const StringRef* search_query = reinterpret_cast<const StringRef*>(query_value);
+    auto act_len = strnlen(search_query->data, search_query->size);
+    std::string search_str(search_query->data, act_len);
+    // std::string search_str = reinterpret_cast<const StringRef*>(query_value)->to_string();
     VLOG_DEBUG << "begin to query the inverted index from clucene"
               << ", column_name: " << column_name << ", search_str: " << search_str;
     std::wstring column_name_ws = std::wstring(column_name.begin(), column_name.end());
