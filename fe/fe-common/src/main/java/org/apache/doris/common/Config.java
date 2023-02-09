@@ -802,13 +802,6 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static int alter_table_timeout_second = 86400 * 30; // 1month
-    /**
-     * Maximal timeout of push cooldown conf request.
-     */
-    @ConfField(mutable = false, masterOnly = true)
-    public static boolean cooldown_single_remote_file = false;
-    @ConfField(mutable = false, masterOnly = true)
-    public static int push_cooldown_conf_timeout_second = 600; // 10 min
 
     @ConfField(mutable = false, masterOnly = true)
     public static int send_cooldown_delete_timeout_second = 600; // 10 min
@@ -1935,11 +1928,10 @@ public class Config extends ConfigBase {
     public static int max_same_name_catalog_trash_num = 3;
 
     /**
-     * The storage policy is still under developement.
-     * Disable it by default.
+     * NOTE: The storage policy is still under developement.
      */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_storage_policy = false;
+    @ConfField(mutable = false, masterOnly = true)
+    public static boolean enable_storage_policy = true;
 
     /**
      * This config is mainly used in the k8s cluster environment.

@@ -1395,9 +1395,9 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     tablet_info->__set_is_in_memory(_tablet_meta->tablet_schema()->is_in_memory());
     tablet_info->__set_replica_id(replica_id());
     tablet_info->__set_remote_data_size(_tablet_meta->tablet_remote_size());
-    tablet_info->__set_is_cooldown(_tablet_meta->storage_policy_id() > 0);
-    if (tablet_info->is_cooldown) {
+    if (tablet_state() == TABLET_RUNNING && _tablet_meta->storage_policy_id() > 0) {
         tablet_info->__set_cooldown_replica_id(_cooldown_replica_id);
+        tablet_info->__set_cooldown_term(_cooldown_term);
         TUniqueId cooldown_delete_id;
         if (get_cooldown_delete_id(&cooldown_delete_id)) {
             tablet_info->__set_cooldown_delete_id(cooldown_delete_id);
@@ -1655,7 +1655,7 @@ Status Tablet::cooldown() {
 
     int64_t cooldown_replica_id = _cooldown_replica_id;
     if (cooldown_replica_id <= 0) { // wait for FE to push cooldown conf
-        return Status::OK();
+        return Status::InternalError("invalid cooldown_replica_id");
     }
     auto storage_policy = get_storage_policy(storage_policy_id());
     if (storage_policy == nullptr) {
@@ -1883,6 +1883,8 @@ Status Tablet::_write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>&
 
 Status Tablet::_follow_cooldowned_data(const std::shared_ptr<io::RemoteFileSystem>& dest_fs,
                                        int64_t cooldown_replica_id) {
+    LOG(INFO) << "try to follow cooldowned data. tablet_id=" << tablet_id()
+              << " cooldown_replica_id=" << cooldown_replica_id;
     TabletMetaPB cooldown_meta_pb;
     RETURN_IF_ERROR(_read_cooldown_meta(dest_fs, cooldown_replica_id, &cooldown_meta_pb));
     DCHECK(cooldown_meta_pb.rs_metas_size() > 0);
@@ -1903,12 +1905,13 @@ Status Tablet::_follow_cooldowned_data(const std::shared_ptr<io::RemoteFileSyste
         }
     }
     if (!version_aligned) {
-        LOG(INFO) << "cooldowned version is not aligned";
-        return Status::OK();
+        return Status::InternalError("cooldowned version is not aligned");
     }
     for (auto& [v, rs] : _rs_version_map) {
         if (v.second <= cooldowned_version) {
             overlap_rowsets.push_back(rs);
+        } else if (!rs->is_local()) {
+            return Status::InternalError("cooldowned version larger than that to follow");
         }
     }
     std::sort(overlap_rowsets.begin(), overlap_rowsets.end(), Rowset::comparator);
@@ -1972,6 +1975,9 @@ RowsetSharedPtr Tablet::pick_cooldown_rowset() {
                 rowset = rs;
             }
         }
+    }
+    if (!rowset) {
+        return nullptr;
     }
     if (min_local_version != cooldowned_version + 1) { // ensure version continuity
         if (UNLIKELY(cooldowned_version != -1)) {

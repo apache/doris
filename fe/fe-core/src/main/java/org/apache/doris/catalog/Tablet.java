@@ -37,6 +37,7 @@ import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.Sets;
 import com.google.gson.annotations.SerializedName;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -90,10 +91,13 @@ public class Tablet extends MetaObject implements Writable {
     private long checkedVersionHash;
     @SerializedName(value = "isConsistent")
     private boolean isConsistent;
+
+    // cooldown conf
     @SerializedName(value = "cooldownReplicaId")
-    private long cooldownReplicaId;
+    private long cooldownReplicaId = -1;
     @SerializedName(value = "cooldownTerm")
-    private long cooldownTerm;
+    private long cooldownTerm = -1;
+    private ReentrantReadWriteLock cooldownConfLock = new ReentrantReadWriteLock();
 
     // last time that the tablet checker checks this tablet.
     // no need to persist
@@ -143,20 +147,20 @@ public class Tablet extends MetaObject implements Writable {
         return isConsistent;
     }
 
-    public long getCooldownReplicaId() {
-        return cooldownReplicaId;
-    }
-
-    public void setCooldownReplicaId(long cooldownReplicaId) {
+    public void setCooldownConf(long cooldownReplicaId, long cooldownTerm) {
+        cooldownConfLock.writeLock().lock();
         this.cooldownReplicaId = cooldownReplicaId;
-    }
-
-    public long getCooldownTerm() {
-        return cooldownTerm;
-    }
-
-    public void setCooldownTerm(long cooldownTerm) {
         this.cooldownTerm = cooldownTerm;
+        cooldownConfLock.writeLock().unlock();
+    }
+
+    public Pair<Long, Long> getCooldownConf() {
+        cooldownConfLock.readLock().lock();
+        try {
+            return Pair.of(cooldownReplicaId, cooldownTerm);
+        } finally {
+            cooldownConfLock.readLock().unlock();
+        }
     }
 
     private boolean deleteRedundantReplica(long backendId, long version) {

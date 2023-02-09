@@ -19,6 +19,8 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.Pair;
+import org.apache.doris.cooldown.CooldownConf;
 import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.thrift.TPartitionVersionInfo;
 import org.apache.doris.thrift.TStorageMedium;
@@ -67,7 +69,7 @@ public class TabletInvertedIndex {
     public static final int NOT_EXIST_VALUE = -1;
 
     public static final TabletMeta NOT_EXIST_TABLET_META = new TabletMeta(NOT_EXIST_VALUE, NOT_EXIST_VALUE,
-            NOT_EXIST_VALUE, NOT_EXIST_VALUE, NOT_EXIST_VALUE, TStorageMedium.HDD, -1, -1);
+            NOT_EXIST_VALUE, NOT_EXIST_VALUE, NOT_EXIST_VALUE, TStorageMedium.HDD);
 
     private StampedLock lock = new StampedLock();
 
@@ -127,7 +129,8 @@ public class TabletInvertedIndex {
                              ListMultimap<Long, Long> transactionsToClear,
                              ListMultimap<Long, Long> tabletRecoveryMap,
                              List<Triple<Long, Integer, Boolean>> tabletToInMemory,
-                             Map<Long, TabletMeta> syncCooldownTabletMap,
+                             List<CooldownConf> cooldownConfToPush,
+                             List<CooldownConf> cooldownConfToUpdate,
                              Map<Long, List<CooldownDelete>> deleteCooldownTabletMap) {
         long stamp = readLock();
         long start = System.currentTimeMillis();
@@ -190,9 +193,9 @@ public class TabletInvertedIndex {
                                 }
                             }
 
-                            if (Config.cooldown_single_remote_file
-                                    && needChangeCooldownConf(tabletMeta, backendTabletInfo)) {
-                                syncCooldownTabletMap.put(backendTabletInfo.getTabletId(), tabletMeta);
+                            if (Config.enable_storage_policy) {
+                                handleCooldownConf(tabletMeta, backendTabletInfo, cooldownConfToPush,
+                                        cooldownConfToUpdate);
                             }
 
                             if (backendTabletInfo.isIsCooldown()) {
@@ -368,43 +371,81 @@ public class TabletInvertedIndex {
         return true;
     }
 
-    private boolean needChangeCooldownConf(TabletMeta tabletMeta, TTabletInfo beTabletInfo) {
-        if (!beTabletInfo.isIsCooldown()) {
-            return false;
+    private void handleCooldownConf(TabletMeta tabletMeta, TTabletInfo beTabletInfo,
+                                    List<CooldownConf> cooldownConfToPush, List<CooldownConf> cooldownConfToUpdate) {
+        if (!beTabletInfo.isSetCooldownReplicaId()) {
+            return;
         }
-        // check cooldown type in fe and be, they need to be the same.
-        if (tabletMeta.getCooldownReplicaId() != beTabletInfo.getCooldownReplicaId()) {
-            LOG.warn("cooldownReplicaId is wrong for tablet: {}, Fe: {}, Be: {}", beTabletInfo.getTabletId(),
-                    tabletMeta.getCooldownReplicaId(), beTabletInfo.getCooldownReplicaId());
-            return true;
-        }
-        // check cooldown type in one tablet, cooldownReplicaId must be one of the ids in the replicas.
-        long stamp = readLock();
+        Tablet tablet;
         try {
-            Map<Long, Replica> replicaMap = replicaMetaTable.row(beTabletInfo.getTabletId());
-            for (Map.Entry<Long, Replica> entry : replicaMap.entrySet()) {
-                if (entry.getValue().getId() == beTabletInfo.getCooldownReplicaId()) {
-                    return false;
-                }
+            OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId())
+                    .getTable(tabletMeta.getTableId())
+                    .get();
+            table.readLock();
+            try {
+                tablet = table.getPartition(tabletMeta.getPartitionId()).getIndex(tabletMeta.getIndexId())
+                        .getTablet(beTabletInfo.tablet_id);
+            } finally {
+                table.readUnlock();
             }
-            return true;
-        } finally {
-            readUnlock(stamp);
+        } catch (RuntimeException e) {
+            LOG.warn("failed to get tablet. tabletId={}", beTabletInfo.tablet_id);
+            return;
+        }
+        Pair<Long, Long> cooldownConf = tablet.getCooldownConf();
+        if (beTabletInfo.getCooldownTerm() > cooldownConf.second) { // should not be here
+            LOG.warn("report cooldownTerm({}) > cooldownTerm in TabletMeta({}), tabletId={}",
+                    beTabletInfo.getCooldownTerm(), cooldownConf.second, beTabletInfo.tablet_id);
+            return;
+        }
+
+        if (cooldownConf.first <= 0) { // invalid cooldownReplicaId
+            CooldownConf conf = new CooldownConf(tabletMeta.getDbId(), tabletMeta.getTableId(),
+                    tabletMeta.getPartitionId(), tabletMeta.getIndexId(), beTabletInfo.tablet_id, cooldownConf.second);
+            synchronized (cooldownConfToUpdate) {
+                cooldownConfToUpdate.add(conf);
+            }
+            return;
+        }
+
+        // validate replica is active
+        Map<Long, Replica> replicaMap = replicaMetaTable.row(beTabletInfo.getTabletId());
+        if (replicaMap.isEmpty()) {
+            return;
+        }
+        boolean replicaInvalid = true;
+        for (Replica replica : replicaMap.values()) {
+            if (replica.getId() == cooldownConf.first) {
+                replicaInvalid = false;
+                break;
+            }
+        }
+        if (replicaInvalid) {
+            CooldownConf conf = new CooldownConf(tabletMeta.getDbId(), tabletMeta.getTableId(),
+                    tabletMeta.getPartitionId(), tabletMeta.getIndexId(), beTabletInfo.tablet_id, cooldownConf.second);
+            synchronized (cooldownConfToUpdate) {
+                cooldownConfToUpdate.add(conf);
+            }
+            return;
+        }
+
+        if (cooldownConf.first != beTabletInfo.getCooldownReplicaId()) {
+            CooldownConf conf = new CooldownConf(beTabletInfo.tablet_id, cooldownConf.first, cooldownConf.second);
+            synchronized (cooldownConfToPush) {
+                cooldownConfToPush.add(conf);
+            }
+            return;
         }
     }
 
     public List<Replica> getReplicas(Long tabletId) {
-        List<Replica> replicas = new LinkedList<>();
         long stamp = readLock();
         try {
             Map<Long, Replica> replicaMap = replicaMetaTable.row(tabletId);
-            for (Map.Entry<Long, Replica> entry : replicaMap.entrySet()) {
-                replicas.add(entry.getValue());
-            }
+            return replicaMap.values().stream().collect(Collectors.toList());
         } finally {
             readUnlock(stamp);
         }
-        return replicas;
     }
 
     /**
