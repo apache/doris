@@ -157,6 +157,7 @@ public class ConnectContext {
 
     private SessionContext sessionContext;
 
+    // This context is used for SSL connection between server and mysql client.
     private final MysqlSslConnectionContext mysqlSslConnectionContext = new MysqlSslConnectionContext(SSL_PROTOCOL,
             SSL_CIPHER_SUITES);
 
@@ -182,7 +183,6 @@ public class ConnectContext {
         return sessionContext;
     }
 
-    // This context is used for SSL connection between server and mysql client.
     public MysqlSslConnectionContext getMysqlSslConnectionContext() {
         return mysqlSslConnectionContext;
     }
