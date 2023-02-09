@@ -63,6 +63,7 @@ doris::Status VectorizedFnCall::prepare(doris::RuntimeState* state,
     }
     VExpr::register_function_context(state, context);
     _expr_name = fmt::format("{}({})", _fn.name.function_name, child_expr_name);
+    _can_fast_execute = _function->can_fast_execute();
 
     return Status::OK();
 }
@@ -93,10 +94,11 @@ doris::Status VectorizedFnCall::execute(VExprContext* context, doris::vectorized
     size_t num_columns_without_result = block->columns();
     // prepare a column to save result
     block->insert({nullptr, _data_type, _expr_name});
-    if (_function->can_fast_execute()) {
-        bool ok = fast_execute(context->fn_context(_fn_context_index), *block, arguments,
-                               num_columns_without_result, block->rows());
-        if (ok) {
+    if (_can_fast_execute) {
+        // if not find fast execute result column, means do not need check fast execute again
+        _can_fast_execute = fast_execute(context->fn_context(_fn_context_index), *block, arguments,
+                                         num_columns_without_result, block->rows());
+        if (_can_fast_execute) {
             *result_column_id = num_columns_without_result;
             return Status::OK();
         }
