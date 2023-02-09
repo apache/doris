@@ -393,8 +393,10 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
                 bool sign = (delete_data[i] == 0);
                 filter_data[i] = sign;
                 if (UNLIKELY(!sign)) {
-                    _row_sources_buffer->set_agg_flag(row_source_idx + i, true);
+                    _row_sources_buffer->set_agg_flag(row_source_idx, true);
                 }
+                // skip same rows filtered in vertical_merge_iterator
+                row_source_idx += _row_sources_buffer->continuous_agg_count(row_source_idx);
             }
 
             ColumnWithTypeAndName column_with_type_and_name {_delete_filter_column,
