@@ -45,6 +45,8 @@ public class StatisticAction extends RestBaseController {
 
     @RequestMapping(path = "/api/cluster_overview", method = RequestMethod.GET)
     public Object clusterOverview(HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
+
         if (!Env.getCurrentEnv().isMaster()) {
             return redirectToMaster(request, response);
         }

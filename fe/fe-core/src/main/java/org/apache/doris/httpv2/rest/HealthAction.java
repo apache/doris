@@ -26,12 +26,16 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.HashMap;
 import java.util.Map;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
 @RestController
 public class HealthAction extends RestBaseController {
 
     @RequestMapping(path = "/api/health", method = RequestMethod.GET)
-    public Object execute() {
+    public Object execute(HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
+
         Map<String, Object> result = new HashMap<>();
         result.put("total_backend_num", Env.getCurrentSystemInfo().getBackendIds(false).size());
         result.put("online_backend_num", Env.getCurrentSystemInfo().getBackendIds(true).size());

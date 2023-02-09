@@ -86,7 +86,7 @@ public class MetaInfoAction extends RestBaseController {
     public Object getAllDatabases(
             @PathVariable(value = NS_KEY) String ns,
             HttpServletRequest request, HttpServletResponse response) {
-        checkWithCookie(request, response, false);
+        checkWithCookie(request, response, true);
 
         // use NS_KEY as catalog, but NS_KEY's default value is 'default_cluster'.
         if (ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
@@ -132,7 +132,7 @@ public class MetaInfoAction extends RestBaseController {
     public Object getTables(
             @PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
             HttpServletRequest request, HttpServletResponse response) {
-        checkWithCookie(request, response, false);
+        checkWithCookie(request, response, true);
 
         if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");
@@ -208,7 +208,7 @@ public class MetaInfoAction extends RestBaseController {
             @PathVariable(value = NS_KEY) String ns, @PathVariable(value = DB_KEY) String dbName,
             @PathVariable(value = TABLE_KEY) String tblName,
             HttpServletRequest request, HttpServletResponse response) throws UserException {
-        checkWithCookie(request, response, false);
+        checkWithCookie(request, response, true);
 
         if (!ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             return ResponseEntityBuilder.badRequest("Only support 'default_cluster' now");

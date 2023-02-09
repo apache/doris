@@ -34,12 +34,14 @@ import javax.servlet.http.HttpServletResponse;
 //fehost:port/metrics
 //fehost:port/metrics?type=core
 @RestController
-public class MetricsAction {
+public class MetricsAction extends RestBaseController {
 
     private static final String TYPE_PARAM = "type";
 
     @RequestMapping(path = "/metrics")
     public void execute(HttpServletRequest request, HttpServletResponse response) {
+        executeCheckPassword(request, response);
+
         String type = request.getParameter(TYPE_PARAM);
         MetricVisitor visitor = null;
         if (!Strings.isNullOrEmpty(type) && type.equalsIgnoreCase("core")) {

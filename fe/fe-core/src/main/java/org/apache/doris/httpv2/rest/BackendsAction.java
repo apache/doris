@@ -19,6 +19,8 @@ package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
+import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -67,6 +69,7 @@ public class BackendsAction extends RestBaseController {
     @RequestMapping(path = "/api/backends", method = {RequestMethod.GET})
     public Object getBackends(HttpServletRequest request, HttpServletResponse response) {
         executeCheckPassword(request, response);
+        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
 
         boolean needAlive = false;
         String isAlive = request.getParameter(IS_ALIVE);
