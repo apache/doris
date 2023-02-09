@@ -132,7 +132,7 @@ void ExchangeSinkBuffer::register_sink(TUniqueId fragment_instance_id) {
     _instance_to_seq[low_id] = 0;
     _instance_to_package_queue[low_id] = std::queue<TransmitInfo, std::list<TransmitInfo>>();
     _instance_to_broadcast_package_queue[low_id] =
-            std::queue<TransmitInfo, std::list<TransmitInfo>>();
+            std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>();
     PUniqueId finst_id;
     finst_id.set_hi(fragment_instance_id.hi);
     finst_id.set_lo(fragment_instance_id.lo);
