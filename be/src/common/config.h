@@ -875,6 +875,8 @@ CONF_Bool(enable_file_cache, "false");
 CONF_String(file_cache_path, "");
 CONF_String(disposable_file_cache_path, "");
 CONF_Int64(file_cache_max_file_segment_size, "4194304"); // 4MB
+CONF_Validator(file_cache_max_file_segment_size,
+               [](const int64_t config) -> bool { return config >= 4096; }); // 4KB
 CONF_Bool(clear_file_cache, "false");
 CONF_Bool(enable_file_cache_query_limit, "false");
 

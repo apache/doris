@@ -159,7 +159,8 @@ Status FileFactory::create_file_reader(RuntimeProfile* /*profile*/,
     if (config::enable_file_cache && io_ctx->enable_file_cache) {
         cache_policy = io::FileCachePolicy::FILE_BLOCK_CACHE;
     }
-    io::FileReaderOptions reader_options(cache_policy, io::FileBlockCachePathPolicy());
+    io::FileBlockCachePathPolicy file_block_cache;
+    io::FileReaderOptions reader_options(cache_policy, file_block_cache);
     switch (type) {
     case TFileType::FILE_LOCAL: {
         RETURN_IF_ERROR(io::global_local_filesystem()->open_file(
