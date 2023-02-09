@@ -29,7 +29,6 @@ import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.hadoop.fs.s3a.Constants;
 import org.apache.hadoop.fs.s3a.S3AFileSystem;
-import org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -251,8 +250,6 @@ public class S3Resource extends Resource {
         s3Properties.put("fs.s3.impl", S3AFileSystem.class.getName());
 
         s3Properties.put(Constants.PATH_STYLE_ACCESS, properties.getOrDefault(S3Resource.USE_PATH_STYLE, "false"));
-        s3Properties.put(Constants.AWS_CREDENTIALS_PROVIDER, properties.getOrDefault(S3Resource.S3_CREDENTIALS_PROVIDER,
-                TemporaryAWSCredentialsProvider.class.getName()));
         if (properties.containsKey(S3Resource.S3_TOKEN)) {
             s3Properties.put(Constants.SESSION_TOKEN, properties.get(S3_TOKEN));
             s3Properties.put("fs.s3a.aws.credentials.provider",
