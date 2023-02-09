@@ -15,18 +15,25 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.cooldown;
+package org.apache.doris.nereids.trees.expressions.functions;
 
-import org.apache.doris.common.DdlException;
+import org.apache.doris.nereids.trees.expressions.Expression;
 
-/*
- * This exception will be thrown when the cooldown job(v2) running failed.
+import java.util.List;
+
+/**
+ * some function PropagateNullable when args are datev2 or datetimev2
+ * and AlwaysNullable when other type parameters
  */
-public class CooldownException extends DdlException {
-
-    private static final long serialVersionUID = 4844951783432954268L;
-
-    public CooldownException(String msg) {
-        super(msg);
+public interface PropagateNullableOnDateLikeV2Args extends PropagateNullable, AlwaysNullable {
+    @Override
+    default boolean nullable() {
+        if (children().stream().anyMatch(e -> e.getDataType().isDateLikeV2Type())) {
+            return PropagateNullable.super.nullable();
+        } else {
+            return AlwaysNullable.super.nullable();
+        }
     }
+
+    List<Expression> children();
 }

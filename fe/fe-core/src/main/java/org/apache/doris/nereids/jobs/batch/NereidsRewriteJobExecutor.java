@@ -75,7 +75,6 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 // AdjustApplyFromCorrelateToUnCorrelateJob and ConvertApplyToJoinJob
                 // and SelectMaterializedIndexWithAggregate depends on this rule
                 .add(topDownBatch(ImmutableList.of(new MergeProjects())))
-                .add(bottomUpBatch(ImmutableList.of(new AdjustAggregateNullableForEmptySet())))
                 .add(topDownBatch(ImmutableList.of(new ExpressionNormalization(cascadesContext.getConnectContext()))))
                 .add(topDownBatch(ImmutableList.of(new ExpressionOptimization())))
                 .add(topDownBatch(ImmutableList.of(new ExtractSingleTableExpressionFromDisjunction())))
@@ -88,6 +87,7 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                  */
                 .addAll(new AdjustApplyFromCorrelateToUnCorrelateJob(cascadesContext).rulesJob)
                 .addAll(new ConvertApplyToJoinJob(cascadesContext).rulesJob)
+                .add(bottomUpBatch(ImmutableList.of(new AdjustAggregateNullableForEmptySet())))
                 .add(topDownBatch(ImmutableList.of(new EliminateGroupByConstant())))
                 .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
                 .add(topDownBatch(RuleSet.PUSH_DOWN_FILTERS, false))

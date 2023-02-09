@@ -804,7 +804,7 @@ suite("test_join", "query,p0") {
 
     qt_right_anti_join_null_1 "select b.k1 from ${tbName1} t right anti join ${tbName2} b on b.k1 > t.k1 order by b.k1"
 
-    qt_right_anti_join_null_2 "select b.k1 from ${empty_name} t right anti join ${tbName2} b on b.k1 > t.k1 order by b.k1"
+    qt_right_anti_join_null_2 "select /*+SET_VAR(batch_size=3) */ b.k1 from ${empty_name} t right anti join ${tbName2} b on b.k1 > t.k1 order by b.k1"
 
     // join with no join keyword
     for (s in selected){

@@ -41,7 +41,8 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
-import org.apache.doris.cooldown.CooldownJob;
+import org.apache.doris.cooldown.CooldownConfHandler;
+import org.apache.doris.cooldown.CooldownConfList;
 import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -720,11 +721,9 @@ public class EditLog {
                     }
                     break;
                 }
-                case OperationType.OP_PUSH_COOLDOWN_CONF:
-                    if (Config.cooldown_single_remote_file) {
-                        CooldownJob cooldownJob = (CooldownJob) journal.getData();
-                        env.getCooldownHandler().replayCooldownJob(cooldownJob);
-                    }
+                case OperationType.OP_UPDATE_COOLDOWN_CONF:
+                    CooldownConfList cooldownConfList = (CooldownConfList) journal.getData();
+                    CooldownConfHandler.replayUpdateCooldownConf(cooldownConfList);
                     break;
                 case OperationType.OP_BATCH_ADD_ROLLUP: {
                     BatchAlterJobPersistInfo batchAlterJobV2 = (BatchAlterJobPersistInfo) journal.getData();
@@ -1517,8 +1516,8 @@ public class EditLog {
         logEdit(OperationType.OP_ALTER_JOB_V2, alterJob);
     }
 
-    public void logCooldownJob(CooldownJob cooldownJob) {
-        logEdit(OperationType.OP_PUSH_COOLDOWN_CONF, cooldownJob);
+    public void logUpdateCooldownConf(CooldownConfList cooldownConf) {
+        logEdit(OperationType.OP_UPDATE_COOLDOWN_CONF, cooldownConf);
     }
 
     public void logBatchAlterJob(BatchAlterJobPersistInfo batchAlterJobV2) {
