@@ -1667,7 +1667,7 @@ public abstract class Type {
         } else if (t2.isDateV2() || t1.isDateV2()) {
             return Type.DATETIMEV2;
         } else {
-            return Type.INVALID;
+            return Type.DATETIME;
         }
     }
 
