@@ -93,6 +93,9 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .add(topDownBatch(ImmutableList.of(new EliminateGroupByConstant())))
                 .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
                 .add(topDownBatch(ImmutableList.of(new ExtractAndNormalizeWindowExpression())))
+                //execute NormalizeAggregate() again to resolve nested AggregateFunctions in WindowExpression,
+                //e.g. sum(sum(c1)) over(partition by avg(c1))
+                .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
                 .add(topDownBatch(ImmutableList.of(new CheckAndStandardizeWindowFunctionAndFrame())))
                 .add(topDownBatch(RuleSet.PUSH_DOWN_FILTERS, false))
                 .add(visitorJob(RuleType.INFER_PREDICATES, new InferPredicates()))

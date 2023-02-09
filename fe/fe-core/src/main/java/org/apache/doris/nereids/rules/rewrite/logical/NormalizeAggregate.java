@@ -87,6 +87,7 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
                         }
                         return groupByAndArgumentToSlotContext.normalizeToUseSlotRef(expr);
                     }).collect(Collectors.toList());
+
             Set<AggregateFunction> normalizedAggregateFunctions =
                     collectNonWindowedAggregateFunctions(normalizeOutputPhase1);
 
@@ -155,12 +156,11 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
         return needPushDown;
     }
 
-    private Set<AggregateFunction> collectNonWindowedAggregateFunctions(List<NamedExpression> expressions) {
-        List<Expression> expressionsWithoutWindow = expressions.stream()
+    private Set<AggregateFunction> collectNonWindowedAggregateFunctions(List<NamedExpression> aggOutput) {
+        List<Expression> expressionsWithoutWindow = aggOutput.stream()
                 .filter(expr -> !expr.anyMatch(WindowExpression.class::isInstance))
                 .collect(Collectors.toList());
 
-        return ExpressionUtils.collect(
-            expressionsWithoutWindow, AggregateFunction.class::isInstance);
+        return ExpressionUtils.collect(expressionsWithoutWindow, AggregateFunction.class::isInstance);
     }
 }

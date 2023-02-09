@@ -59,7 +59,7 @@ public class ResolveWindowFunctionTest extends TestWithFeService implements Patt
         // String sql = "select s_address, rank() over(order by s_suppkey), row_number() over(order by s_city) from supplier";
         // String sql2 = "select s_address, rank() over(partition by s_nation), row_number() over(partition by s_city order by s_nation) from supplier";
         // String sql = "select ntile(5) over(partition by s_city) from supplier";
-        String sql = "select rank() over(partition by s_city) + row_number() over(partition by s_suppkey+1 order by s_nation) from supplier";
+        String sql = "select sum(sum(s_suppkey)) over(partition by avg(s_suppkey)) from supplier";
         PlanChecker.from(connectContext).checkPlannerResult(sql);
     }
 

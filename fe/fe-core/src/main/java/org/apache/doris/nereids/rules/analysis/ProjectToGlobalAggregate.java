@@ -61,7 +61,7 @@ public class ProjectToGlobalAggregate extends OneAnalysisRuleFactory {
 
     private boolean hasNonWindowedAggregateFunction(Expression expression) {
         return expression.anyMatch(WindowExpression.class::isInstance)
-                ? false
-                : expression.anyMatch(AggregateFunction.class::isInstance);
+            ? false
+            : expression.anyMatch(AggregateFunction.class::isInstance);
     }
 }

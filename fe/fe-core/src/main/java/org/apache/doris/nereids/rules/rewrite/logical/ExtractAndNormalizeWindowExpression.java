@@ -24,7 +24,9 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -53,9 +55,19 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
             NormalizeToSlotContext context = NormalizeToSlotContext.buildContext(existedAlias, toBePushedDown);
             // set toBePushedDown exprs as NamedExpression, e.g. (a+1) -> Alias(a+1)
             Set<NamedExpression> bottomProjects = context.pushDownToNamedExpression(toBePushedDown);
-            Plan normalizedChild = bottomProjects.isEmpty()
-                    ? project.child()
-                    : new LogicalProject<>(ImmutableList.copyOf(bottomProjects), project.child());
+            Plan normalizedChild;
+            if (bottomProjects.isEmpty()) {
+                normalizedChild = project.child();
+            } else {
+                boolean needAggregate = bottomProjects.stream().anyMatch(expr ->
+                        expr.anyMatch(AggregateFunction.class::isInstance));
+                if (needAggregate) {
+                    normalizedChild = new LogicalAggregate<>(
+                            ImmutableList.of(), ImmutableList.copyOf(bottomProjects), project.child());
+                } else {
+                    normalizedChild = new LogicalProject<>(ImmutableList.copyOf(bottomProjects), project.child());
+                }
+            }
 
             // 2. handle window's outputs and windowExprs
             // need to replace exprs with SlotReference in WindowSpec, due to LogicalWindow.getExpressions()
