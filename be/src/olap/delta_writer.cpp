@@ -293,7 +293,7 @@ Status DeltaWriter::close() {
     if (_is_closed) {
         LOG(WARNING) << "close after closed tablet_id=" << _req.tablet_id
                      << " load_id=" << _req.load_id << " txn_id=" << _req.txn_id;
-        return Status::Error<ALREADY_CLOSED>();
+        return Status::OK();
     }
 
     auto s = _flush_memtable_async();
