@@ -57,7 +57,7 @@ public class JdbcExecutor {
     private List<String> resultColumnTypeNames = null;
     private int baseTypeInt = 0;
     private List<Object[]> block = null;
-    private int bacthSizeNum = 0;
+    private int batchSizeNum = 0;
     private int curBlockRows = 0;
     private static final byte[] emptyBytes = new byte[0];
     private DruidDataSource druidDataSource = null;
@@ -98,7 +98,7 @@ public class JdbcExecutor {
             block = new ArrayList<>(columnCount);
             for (int i = 0; i < columnCount; ++i) {
                 resultColumnTypeNames.add(resultSetMetaData.getColumnClassName(i + 1));
-                block.add((Object[]) Array.newInstance(Object.class, bacthSizeNum));
+                block.add((Object[]) Array.newInstance(Object.class, batchSizeNum));
             }
             return columnCount;
         } catch (SQLException e) {
@@ -228,7 +228,7 @@ public class JdbcExecutor {
                 stmt = conn.prepareStatement(sql, ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY,
                         ResultSet.FETCH_FORWARD);
                 stmt.setFetchSize(batchSize);
-                bacthSizeNum = batchSize;
+                batchSizeNum = batchSize;
             } else {
                 stmt = conn.createStatement();
             }
@@ -259,132 +259,246 @@ public class JdbcExecutor {
         }
     }
 
-    public byte convertTinyIntToByte(Object obj) {
-        byte res = 0;
-        if (obj instanceof Integer) {
-            res = ((Integer) obj).byteValue();
-        } else if (obj instanceof Short) {
-            res = ((Short) obj).byteValue();
-        } else if (obj instanceof BigDecimal) {
-            res = new Short(((BigDecimal) obj).shortValueExact()).byteValue();
+    private void bigDecimalPutToByte(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr) {
+        if (isNullable) {
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    Short res = ((BigDecimal) column[i]).shortValueExact();
+                    UdfUtils.UNSAFE.putByte(columnAddr + i, res.byteValue());
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                Short res = ((BigDecimal) column[i]).shortValueExact();
+                UdfUtils.UNSAFE.putByte(columnAddr + i, res.byteValue());
+            }
         }
-        return res;
+    }
+
+    private void integerPutToByte(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr) {
+        if (isNullable) {
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    UdfUtils.UNSAFE.putByte(columnAddr + i, ((Integer) column[i]).byteValue());
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                UdfUtils.UNSAFE.putByte(columnAddr + i, ((Integer) column[i]).byteValue());
+            }
+        }
+    }
+
+    private void shortPutToByte(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr) {
+        if (isNullable) {
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    UdfUtils.UNSAFE.putByte(columnAddr + i, ((Short) column[i]).byteValue());
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                UdfUtils.UNSAFE.putByte(columnAddr + i, ((Short) column[i]).byteValue());
+            }
+        }
     }
 
     public void copyBatchTinyIntResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
+        if (column[0] instanceof BigDecimal) {
+            bigDecimalPutToByte(column, isNullable, numRows, nullMapAddr, columnAddr);
+        } else if (column[0] instanceof Integer) {
+            integerPutToByte(column, isNullable, numRows, nullMapAddr, columnAddr);
+        } else if (column[0] instanceof Short) {
+            shortPutToByte(column, isNullable, numRows, nullMapAddr, columnAddr);
+        }
+    }
+
+    private void bigDecimalPutToShort(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr) {
         if (isNullable) {
             for (int i = 0; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
-                    UdfUtils.UNSAFE.putByte(columnAddr + i, convertTinyIntToByte(column[i]));
+                    UdfUtils.UNSAFE.putShort(columnAddr + (i * 2L), ((BigDecimal) column[i]).shortValueExact());
                 }
             }
         } else {
             for (int i = 0; i < numRows; i++) {
-                UdfUtils.UNSAFE.putByte(columnAddr + i, convertTinyIntToByte(column[i]));
+                UdfUtils.UNSAFE.putShort(columnAddr + (i * 2L), ((BigDecimal) column[i]).shortValueExact());
             }
         }
     }
 
-    public short convertSmallIntToShort(Object obj) {
-        short res = 0;
-        if (obj instanceof Integer) {
-            res = ((Integer) obj).shortValue();
-        } else if (obj instanceof Short) {
-            res = (short) obj;
-        } else if (obj instanceof BigDecimal) {
-            res = ((BigDecimal) obj).shortValueExact();
+    private void integerPutToShort(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr) {
+        if (isNullable) {
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    UdfUtils.UNSAFE.putShort(columnAddr + (i * 2L), ((Integer) column[i]).shortValue());
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                short res = 32767;
+                UdfUtils.UNSAFE.putShort(columnAddr + (i * 2L), ((Integer) column[i]).shortValue());
+            }
         }
-        return res;
+    }
+
+    private void shortPutToShort(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr) {
+        if (isNullable) {
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    UdfUtils.UNSAFE.putShort(columnAddr + (i * 2L), (Short) column[i]);
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                UdfUtils.UNSAFE.putShort(columnAddr + (i * 2L), (Short) column[i]);
+            }
+        }
     }
 
     public void copyBatchSmallIntResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
+        if (column[0] instanceof BigDecimal) {
+            bigDecimalPutToShort(column, isNullable, numRows, nullMapAddr, columnAddr);
+        } else if (column[0] instanceof Integer) {
+            integerPutToShort(column, isNullable, numRows, nullMapAddr, columnAddr);
+        } else if (column[0] instanceof Short) {
+            shortPutToShort(column, isNullable, numRows, nullMapAddr, columnAddr);
+        }
+    }
+
+
+    private void bigDecimalPutToInt(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr) {
         if (isNullable) {
             for (int i = 0; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
-                    UdfUtils.UNSAFE.putShort(columnAddr + (i * 2), convertSmallIntToShort(column[i]));
+                    UdfUtils.UNSAFE.putInt(columnAddr + (i * 4L), ((BigDecimal) column[i]).intValueExact());
                 }
             }
         } else {
             for (int i = 0; i < numRows; i++) {
-                UdfUtils.UNSAFE.putShort(columnAddr + (i * 2), convertSmallIntToShort(column[i]));
+                UdfUtils.UNSAFE.putInt(columnAddr + (i * 4L), ((BigDecimal) column[i]).intValueExact());
             }
         }
     }
 
-    public Integer convertIntToInteger(Object obj) {
-        if (obj instanceof BigDecimal) {
-            return ((BigDecimal) obj).intValueExact();
+    private void integerPutToInt(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr) {
+        if (isNullable) {
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    UdfUtils.UNSAFE.putInt(columnAddr + (i * 4L), (Integer) column[i]);
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                UdfUtils.UNSAFE.putInt(columnAddr + (i * 4L), (Integer) column[i]);
+            }
         }
-        return (Integer) obj;
     }
 
     public void copyBatchIntResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
+        if (column[0] instanceof BigDecimal) {
+            bigDecimalPutToInt(column, isNullable, numRows, nullMapAddr, columnAddr);
+        } else if (column[0] instanceof Integer) {
+            integerPutToInt(column, isNullable, numRows, nullMapAddr, columnAddr);
+        }
+    }
+
+    private void bigDecimalPutToLong(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr) {
         if (isNullable) {
             for (int i = 0; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
-                    UdfUtils.UNSAFE.putInt(columnAddr + (i * 4), (int) convertIntToInteger(column[i]));
+                    UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L), ((BigDecimal) column[i]).longValueExact());
                 }
             }
         } else {
             for (int i = 0; i < numRows; i++) {
-                UdfUtils.UNSAFE.putInt(columnAddr + (i * 4), (int) convertIntToInteger(column[i]));
+                UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L), ((BigDecimal) column[i]).longValueExact());
             }
         }
     }
 
-    public Long convertBigIntToLong(Object obj) {
-        if (obj instanceof BigDecimal) {
-            return ((BigDecimal) obj).longValueExact();
+    private void longPutToLong(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr) {
+        if (isNullable) {
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L), (Long) column[i]);
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L), (Long) column[i]);
+            }
         }
-        return (Long) obj;
     }
 
     public void copyBatchBigIntResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
-        if (isNullable) {
-            for (int i = 0; i < numRows; i++) {
-                if (column[i] == null) {
-                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
-                } else {
-                    UdfUtils.UNSAFE.putLong(columnAddr + (i * 8), (long) convertBigIntToLong(column[i]));
-                }
-            }
-        } else {
-            for (int i = 0; i < numRows; i++) {
-                UdfUtils.UNSAFE.putLong(columnAddr + (i * 8), (long) convertBigIntToLong(column[i]));
-            }
+        if (column[0] instanceof BigDecimal) {
+            bigDecimalPutToLong(column, isNullable, numRows, nullMapAddr, columnAddr);
+        } else if (column[0] instanceof Long) {
+            longPutToLong(column, isNullable, numRows, nullMapAddr, columnAddr);
         }
     }
 
-    public BigInteger convertLargeIntToBigInteger(Object obj) {
-        if (obj instanceof BigDecimal) {
-            return ((BigDecimal) obj).toBigInteger();
-        }
-        return (BigInteger) obj;
-    }
-
-    public void copyBatchLargeIntResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
+    private void bigDecimalPutToBigInteger(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
-        Object[] column = (Object[]) columnObj;
+        BigInteger[] data = new BigInteger[numRows];
+        for (int i = 0; i < numRows; i++) {
+            if (column[i] == null) {
+                data[i] = null;
+                UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+            } else {
+                data[i] = ((BigDecimal) column[i]).toBigInteger();
+            }
+        }
+        copyBatchDecimalResult(data, isNullable, numRows, columnAddr, 16);
+    }
+
+    private void bigIntegerPutToByte(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr) {
         if (isNullable == true) {
             for (int i = 0; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
-                    BigInteger columnValue = convertLargeIntToBigInteger(column[i]);
+                    BigInteger columnValue = (BigInteger) column[i];
                     byte[] bytes = UdfUtils.convertByteOrder(columnValue.toByteArray());
                     byte[] value = new byte[16];
                     if (columnValue.signum() == -1) {
@@ -393,12 +507,12 @@ public class JdbcExecutor {
                     for (int index = 0; index < Math.min(bytes.length, value.length); ++index) {
                         value[index] = bytes[index];
                     }
-                    UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null, columnAddr + (i * 16), 16);
+                    UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null, columnAddr + (i * 16L), 16);
                 }
             }
         } else {
             for (int i = 0; i < numRows; i++) {
-                BigInteger columnValue = convertLargeIntToBigInteger(column[i]);
+                BigInteger columnValue = (BigInteger) column[i];
                 byte[] bytes = UdfUtils.convertByteOrder(columnValue.toByteArray());
                 byte[] value = new byte[16];
                 if (columnValue.signum() == -1) {
@@ -407,8 +521,18 @@ public class JdbcExecutor {
                 for (int index = 0; index < Math.min(bytes.length, value.length); ++index) {
                     value[index] = bytes[index];
                 }
-                UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null, columnAddr + (i * 16), 16);
+                UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null, columnAddr + (i * 16L), 16);
             }
+        }
+    }
+
+    public void copyBatchLargeIntResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr) {
+        Object[] column = (Object[]) columnObj;
+        if (column[0] instanceof BigDecimal) {
+            bigDecimalPutToBigInteger(column, isNullable, numRows, nullMapAddr, columnAddr);
+        } else if (column[0] instanceof BigInteger) {
+            bigIntegerPutToByte(column, isNullable, numRows, nullMapAddr, columnAddr);
         }
     }
 
@@ -420,12 +544,47 @@ public class JdbcExecutor {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
-                    UdfUtils.UNSAFE.putFloat(columnAddr + (i * 4), (Float) column[i]);
+                    UdfUtils.UNSAFE.putFloat(columnAddr + (i * 4L), (Float) column[i]);
                 }
             }
         } else {
             for (int i = 0; i < numRows; i++) {
-                UdfUtils.UNSAFE.putFloat(columnAddr + (i * 4), (Float) column[i]);
+                UdfUtils.UNSAFE.putFloat(columnAddr + (i * 4L), (Float) column[i]);
+            }
+        }
+    }
+
+    private void bigDecimalPutToDouble(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr) {
+        if (isNullable) {
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    UdfUtils.UNSAFE.putDouble(columnAddr + (i * 8L), ((BigDecimal) column[i]).doubleValue());
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                UdfUtils.UNSAFE.putDouble(columnAddr + (i * 8L), ((BigDecimal) column[i]).doubleValue());
+            }
+        }
+    }
+
+
+    private void doublePutToDouble(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr) {
+        if (isNullable) {
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    UdfUtils.UNSAFE.putDouble(columnAddr + (i * 8L), (Double) column[i]);
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                UdfUtils.UNSAFE.putDouble(columnAddr + (i * 8L), (Double) column[i]);
             }
         }
     }
@@ -433,21 +592,14 @@ public class JdbcExecutor {
     public void copyBatchDoubleResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
-        if (isNullable) {
-            for (int i = 0; i < numRows; i++) {
-                if (column[i] == null) {
-                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
-                } else {
-                    UdfUtils.UNSAFE.putDouble(columnAddr + (i * 8), (Double) column[i]);
-                }
-            }
-        } else {
-            for (int i = 0; i < numRows; i++) {
-                UdfUtils.UNSAFE.putDouble(columnAddr + (i * 8), (Double) column[i]);
-            }
+        if (column[0] instanceof BigDecimal) {
+            bigDecimalPutToDouble(column, isNullable, numRows, nullMapAddr, columnAddr);
+        } else if (column[0] instanceof Double) {
+            doublePutToDouble(column, isNullable, numRows, nullMapAddr, columnAddr);
         }
     }
 
+    //TODO: now array type need this function, can remove after refactor read array type
     public long convertDateToLong(Object obj, boolean isDateV2) {
         LocalDate date;
         if (obj instanceof LocalDate) {
@@ -462,20 +614,102 @@ public class JdbcExecutor {
                 0, 0, 0, true);
     }
 
-    public void copyBatchDateResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
+    private void localDatePutToLong(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
-        Object[] column = (Object[]) columnObj;
         if (isNullable) {
             for (int i = 0; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
-                    UdfUtils.UNSAFE.putLong(columnAddr + (i * 8), convertDateToLong(column[i], false));
+                    LocalDate date = (LocalDate) column[i];
+                    UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
+                            UdfUtils.convertToDateTime(date.getYear(), date.getMonthValue(),
+                                    date.getDayOfMonth(), 0, 0, 0, true));
                 }
             }
         } else {
             for (int i = 0; i < numRows; i++) {
-                UdfUtils.UNSAFE.putLong(columnAddr + (i * 8), convertDateToLong(column[i], false));
+                LocalDate date = (LocalDate) column[i];
+                UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
+                        UdfUtils.convertToDateTime(date.getYear(), date.getMonthValue(),
+                                date.getDayOfMonth(), 0, 0, 0, true));
+            }
+        }
+    }
+
+    private void datePutToLong(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr) {
+        if (isNullable) {
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    LocalDate date = ((Date) column[i]).toLocalDate();
+                    UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
+                            UdfUtils.convertToDateTime(date.getYear(), date.getMonthValue(),
+                                    date.getDayOfMonth(), 0, 0, 0, true));
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                LocalDate date = ((Date) column[i]).toLocalDate();
+                UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
+                        UdfUtils.convertToDateTime(date.getYear(), date.getMonthValue(),
+                                date.getDayOfMonth(), 0, 0, 0, true));
+            }
+        }
+    }
+
+    public void copyBatchDateResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr) {
+        Object[] column = (Object[]) columnObj;
+        if (column[0] instanceof LocalDate) {
+            localDatePutToLong(column, isNullable, numRows, nullMapAddr, columnAddr);
+        } else if (column[0] instanceof Date) {
+            datePutToLong(column, isNullable, numRows, nullMapAddr, columnAddr);
+        }
+    }
+
+    private void localDatePutToInt(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr) {
+        if (isNullable) {
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    LocalDate date = (LocalDate) column[i];
+                    UdfUtils.UNSAFE.putInt(columnAddr + (i * 4L),
+                            UdfUtils.convertToDateV2(date.getYear(), date.getMonthValue(),
+                                    date.getDayOfMonth()));
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                LocalDate date = (LocalDate) column[i];
+                UdfUtils.UNSAFE.putInt(columnAddr + (i * 4L),
+                        UdfUtils.convertToDateV2(date.getYear(), date.getMonthValue(),
+                                date.getDayOfMonth()));
+            }
+        }
+    }
+
+    private void datePutToInt(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr) {
+        if (isNullable) {
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    LocalDate date = ((Date) column[i]).toLocalDate();
+                    UdfUtils.UNSAFE.putInt(columnAddr + (i * 4L),
+                            UdfUtils.convertToDateV2(date.getYear(), date.getMonthValue(), date.getDayOfMonth()));
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                LocalDate date = ((Date) column[i]).toLocalDate();
+                UdfUtils.UNSAFE.putInt(columnAddr + (i * 4L),
+                        UdfUtils.convertToDateV2(date.getYear(), date.getMonthValue(), date.getDayOfMonth()));
             }
         }
     }
@@ -483,21 +717,14 @@ public class JdbcExecutor {
     public void copyBatchDateV2Result(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
             long columnAddr) {
         Object[] column = (Object[]) columnObj;
-        if (isNullable) {
-            for (int i = 0; i < numRows; i++) {
-                if (column[i] == null) {
-                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
-                } else {
-                    UdfUtils.UNSAFE.putInt(columnAddr + (i * 4), (int) convertDateToLong(column[i], true));
-                }
-            }
-        } else {
-            for (int i = 0; i < numRows; i++) {
-                UdfUtils.UNSAFE.putInt(columnAddr + (i * 4), (int) convertDateToLong(column[i], true));
-            }
+        if (column[0] instanceof LocalDate) {
+            localDatePutToInt(column, isNullable, numRows, nullMapAddr, columnAddr);
+        } else if (column[0] instanceof Date) {
+            datePutToInt(column, isNullable, numRows, nullMapAddr, columnAddr);
         }
     }
 
+    //TODO: now array type need this function, can remove after refactor read array type
     public long convertDateTimeToLong(Object obj, boolean isDateTimeV2) throws UdfRuntimeException {
         LocalDateTime date = null;
         // TODO: not for sure: https://bugs.mysql.com/bug.php?id=101413
@@ -521,45 +748,179 @@ public class JdbcExecutor {
                 date.getHour(), date.getMinute(), date.getSecond(), false);
     }
 
-    public void copyBatchDateTimeResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) throws UdfRuntimeException {
-        Object[] column = (Object[]) columnObj;
+    private void localDateTimePutToLong(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr) {
         if (isNullable) {
             for (int i = 0; i < numRows; i++) {
                 if (column[i] == null) {
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
-                    UdfUtils.UNSAFE.putLong(columnAddr + (i * 8), convertDateTimeToLong(column[i], false));
+                    LocalDateTime date = (LocalDateTime) column[i];
+                    UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
+                            UdfUtils.convertToDateTime(date.getYear(), date.getMonthValue(),
+                                    date.getDayOfMonth(), date.getHour(), date.getMinute(),
+                                    date.getSecond(), false));
                 }
             }
         } else {
             for (int i = 0; i < numRows; i++) {
-                UdfUtils.UNSAFE.putLong(columnAddr + (i * 8), convertDateTimeToLong(column[i], false));
+                LocalDateTime date = (LocalDateTime) column[i];
+                UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
+                        UdfUtils.convertToDateTime(date.getYear(), date.getMonthValue(),
+                                date.getDayOfMonth(), date.getHour(), date.getMinute(),
+                                date.getSecond(), false));
+            }
+        }
+    }
+
+    private void timestampPutToLong(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr) {
+        if (isNullable) {
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    LocalDateTime date = ((java.sql.Timestamp) column[i]).toLocalDateTime();
+                    UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
+                            UdfUtils.convertToDateTime(date.getYear(), date.getMonthValue(),
+                                    date.getDayOfMonth(), date.getHour(), date.getMinute(), date.getSecond(), false));
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                LocalDateTime date = ((java.sql.Timestamp) column[i]).toLocalDateTime();
+                UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
+                        UdfUtils.convertToDateTime(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
+                                date.getHour(), date.getMinute(), date.getSecond(), false));
+            }
+        }
+    }
+
+    private void oracleTimetampPutToLong(Object[] column, boolean isNullable, int numRows,
+            long nullMapAddr,
+            long columnAddr) throws SQLException {
+        if (isNullable) {
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    LocalDateTime date = ((oracle.sql.TIMESTAMP) column[i]).timestampValue().toLocalDateTime();
+                    UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
+                            UdfUtils.convertToDateTime(date.getYear(), date.getMonthValue(),
+                                    date.getDayOfMonth(), date.getHour(), date.getMinute(), date.getSecond(), false));
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                LocalDateTime date = ((oracle.sql.TIMESTAMP) column[i]).timestampValue().toLocalDateTime();
+                UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
+                        UdfUtils.convertToDateTime(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
+                                date.getHour(), date.getMinute(), date.getSecond(), false));
+            }
+        }
+    }
+
+    public void copyBatchDateTimeResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr) throws SQLException {
+        Object[] column = (Object[]) columnObj;
+        if (column[0] instanceof LocalDateTime) {
+            localDateTimePutToLong(column, isNullable, numRows, nullMapAddr, columnAddr);
+        } else if (column[0] instanceof java.sql.Timestamp) {
+            timestampPutToLong(column, isNullable, numRows, nullMapAddr, columnAddr);
+        } else if (column[0] instanceof oracle.sql.TIMESTAMP) {
+            oracleTimetampPutToLong(column, isNullable, numRows, nullMapAddr, columnAddr);
+        }
+    }
+
+    private void localDateTimePutToLongV2(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr) {
+        if (isNullable) {
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    LocalDateTime date = (LocalDateTime) column[i];
+                    UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
+                            UdfUtils.convertToDateTimeV2(date.getYear(), date.getMonthValue(),
+                                    date.getDayOfMonth(), date.getHour(), date.getMinute(),
+                                    date.getSecond()));
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                LocalDateTime date = (LocalDateTime) column[i];
+                UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
+                        UdfUtils.convertToDateTimeV2(date.getYear(), date.getMonthValue(),
+                                date.getDayOfMonth(), date.getHour(), date.getMinute(),
+                                date.getSecond()));
+            }
+        }
+    }
+
+    private void timestampPutToLongV2(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long columnAddr) {
+        if (isNullable) {
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    LocalDateTime date = ((java.sql.Timestamp) column[i]).toLocalDateTime();
+                    UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
+                            UdfUtils.convertToDateTimeV2(date.getYear(), date.getMonthValue(),
+                                    date.getDayOfMonth(), date.getHour(), date.getMinute(), date.getSecond()));
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                LocalDateTime date = ((java.sql.Timestamp) column[i]).toLocalDateTime();
+                UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
+                        UdfUtils.convertToDateTimeV2(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
+                                date.getHour(), date.getMinute(), date.getSecond()));
+            }
+        }
+    }
+
+    private void oracleTimetampPutToLongV2(Object[] column, boolean isNullable, int numRows,
+            long nullMapAddr, long columnAddr) throws SQLException {
+        if (isNullable) {
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] == null) {
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    LocalDateTime date = ((oracle.sql.TIMESTAMP) column[i]).timestampValue().toLocalDateTime();
+                    UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
+                            UdfUtils.convertToDateTimeV2(date.getYear(), date.getMonthValue(),
+                                    date.getDayOfMonth(), date.getHour(), date.getMinute(), date.getSecond()));
+                }
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                LocalDateTime date = ((oracle.sql.TIMESTAMP) column[i]).timestampValue().toLocalDateTime();
+                UdfUtils.UNSAFE.putLong(columnAddr + (i * 8L),
+                        UdfUtils.convertToDateTimeV2(date.getYear(), date.getMonthValue(), date.getDayOfMonth(),
+                                date.getHour(), date.getMinute(), date.getSecond()));
             }
         }
     }
 
     public void copyBatchDateTimeV2Result(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
-            long columnAddr) throws UdfRuntimeException {
+            long columnAddr) throws SQLException {
         Object[] column = (Object[]) columnObj;
-        if (isNullable) {
-            for (int i = 0; i < numRows; i++) {
-                if (column[i] == null) {
-                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
-                } else {
-                    UdfUtils.UNSAFE.putLong(columnAddr + (i * 8), convertDateTimeToLong(column[i], true));
-                }
-            }
-        } else {
-            for (int i = 0; i < numRows; i++) {
-                UdfUtils.UNSAFE.putLong(columnAddr + (i * 8), convertDateTimeToLong(column[i], true));
-            }
+        if (column[0] instanceof LocalDateTime) {
+            localDateTimePutToLongV2(column, isNullable, numRows, nullMapAddr, columnAddr);
+        } else if (column[0] instanceof java.sql.Timestamp) {
+            timestampPutToLongV2(column, isNullable, numRows, nullMapAddr, columnAddr);
+        } else if (column[0] instanceof oracle.sql.TIMESTAMP) {
+            oracleTimetampPutToLongV2(column, isNullable, numRows, nullMapAddr, columnAddr);
         }
     }
 
     public String trimSpaces(String str) {
-        String a = str.trim();
-        return str.substring(0, str.indexOf(a) + a.length());
+        int end = str.length() - 1;
+        while (end >= 0 && str.charAt(end) == ' ') {
+            end--;
+        }
+        return str.substring(0, end + 1);
     }
 
     public void copyBatchCharResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
@@ -577,16 +938,8 @@ public class JdbcExecutor {
         }
     }
 
-    public String convertObjectToString(Object obj) {
-        if (obj instanceof String) {
-            return (String) obj;
-        }
-        return obj.toString();
-    }
-
-    public void copyBatchStringResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
+    private void objectPutToString(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
             long offsetsAddr, long charsAddr) {
-        Object[] column = (Object[]) columnObj;
         int[] offsets = new int[numRows];
         byte[][] byteRes = new byte[numRows][];
         int offset = 0;
@@ -596,14 +949,14 @@ public class JdbcExecutor {
                     byteRes[i] = emptyBytes;
                     UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
                 } else {
-                    byteRes[i] = convertObjectToString(column[i]).getBytes(StandardCharsets.UTF_8);
+                    byteRes[i] = column[i].toString().getBytes(StandardCharsets.UTF_8);
                 }
                 offset += byteRes[i].length;
                 offsets[i] = offset;
             }
         } else {
             for (int i = 0; i < numRows; i++) {
-                byteRes[i] = convertObjectToString(column[i]).getBytes(StandardCharsets.UTF_8);
+                byteRes[i] = column[i].toString().getBytes(StandardCharsets.UTF_8);
                 offset += byteRes[i].length;
                 offsets[i] = offset;
             }
@@ -618,6 +971,53 @@ public class JdbcExecutor {
         }
         UdfUtils.copyMemory(offsets, UdfUtils.INT_ARRAY_OFFSET, null, offsetsAddr, numRows * 4L);
         UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null, bytesAddr, offsets[numRows - 1]);
+    }
+
+    private void stringPutToString(Object[] column, boolean isNullable, int numRows, long nullMapAddr,
+            long offsetsAddr, long charsAddr) {
+        int[] offsets = new int[numRows];
+        byte[][] byteRes = new byte[numRows][];
+        int offset = 0;
+        if (isNullable == true) {
+            for (int i = 0; i < numRows; i++) {
+                if (column[i] == null) {
+                    byteRes[i] = emptyBytes;
+                    UdfUtils.UNSAFE.putByte(nullMapAddr + i, (byte) 1);
+                } else {
+                    byteRes[i] = ((String) column[i]).getBytes(StandardCharsets.UTF_8);
+                }
+                offset += byteRes[i].length;
+                offsets[i] = offset;
+            }
+        } else {
+            for (int i = 0; i < numRows; i++) {
+                byteRes[i] = ((String) column[i]).getBytes(StandardCharsets.UTF_8);
+                offset += byteRes[i].length;
+                offsets[i] = offset;
+            }
+        }
+        byte[] bytes = new byte[offsets[numRows - 1]];
+        long bytesAddr = JNINativeMethod.resizeColumn(charsAddr, offsets[numRows - 1]);
+        int dst = 0;
+        for (int i = 0; i < numRows; i++) {
+            for (int j = 0; j < byteRes[i].length; j++) {
+                bytes[dst++] = byteRes[i][j];
+            }
+        }
+        UdfUtils.copyMemory(offsets, UdfUtils.INT_ARRAY_OFFSET, null, offsetsAddr, numRows * 4L);
+        UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null, bytesAddr, offsets[numRows - 1]);
+    }
+
+    public void copyBatchStringResult(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
+            long offsetsAddr, long charsAddr) {
+        Object[] column = (Object[]) columnObj;
+        if (column[0] instanceof String) {
+            stringPutToString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
+        } else {
+            //object like in pg type point, polygon, jsonb..... get object is org.postgresql.util.PGobject.....
+            //here object put to string, so the object must have impl toString() function
+            objectPutToString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
+        }
     }
 
     public void copyBatchDecimalV2Result(Object columnObj, boolean isNullable, int numRows, long nullMapAddr,
@@ -680,9 +1080,8 @@ public class JdbcExecutor {
         copyBatchDecimalResult(data, isNullable, numRows, columnAddr, 16);
     }
 
-    public void copyBatchDecimalResult(Object columnObj, boolean isNullable, int numRows,
+    private void copyBatchDecimalResult(BigInteger[] column, boolean isNullable, int numRows,
             long columnAddr, int typeLen) {
-        BigInteger[] column = (BigInteger[]) columnObj;
         if (isNullable == true) {
             for (int i = 0; i < numRows; i++) {
                 if (column[i] != null) {
@@ -694,7 +1093,8 @@ public class JdbcExecutor {
                     for (int index = 0; index < Math.min(bytes.length, value.length); ++index) {
                         value[index] = bytes[index];
                     }
-                    UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null, columnAddr + (i * typeLen), typeLen);
+                    UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null, columnAddr + ((long) i * typeLen),
+                            typeLen);
                 }
             }
         } else {
@@ -707,7 +1107,8 @@ public class JdbcExecutor {
                 for (int index = 0; index < Math.min(bytes.length, value.length); ++index) {
                     value[index] = bytes[index];
                 }
-                UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null, columnAddr + (i * typeLen), typeLen);
+                UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null, columnAddr + ((long) i * typeLen),
+                        typeLen);
             }
         }
     }

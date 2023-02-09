@@ -70,7 +70,7 @@ suite("test_jdbc_query_pg", "p0") {
             );
             """
         order_qt_sql1 """select count(*) from $jdbcPg14Table1"""
-        order_qt_sql2 """select * from $jdbcPg14Table1"""
+        order_qt_sql2 """select * from $jdbcPg14Table1 order by k1,k2,k3,k4,k5,k6,k7,k8,k9,k10;"""
 
 
         // test for : doris query external table which is pg table's view
@@ -498,9 +498,9 @@ suite("test_jdbc_query_pg", "p0") {
                                 FROM ( SELECT id AS a, id % 3 AS b FROM ${dorisExTable1}) t1
                             JOIN ${dorisExTable1} t2 ON t1.a = t2.id GROUP BY t1.a) o
                             ON l.b = o.d AND l.a = o.a order by l.a desc limit 3"""
-        // need check plan: ERROR 1105 (HY000): errCode = 2, detailMessage = select list expression not produced by aggregation output (missing from GROUP BY clause?): `x`                    
-        // order_qt_sql48 """ SELECT x, y, COUNT(*) as c FROM (SELECT k8, 0 AS x FROM $jdbcPg14Table1) a
-                            // JOIN (SELECT k8, 1 AS y FROM $jdbcPg14Table1) b ON a.k8 = b.k8 group by x, y order by c desc limit 3 """
+        // this pr fixed, wait for merge: https://github.com/apache/doris/pull/16442   
+        order_qt_sql48 """ SELECT x, y, COUNT(*) as c FROM (SELECT k8, 0 AS x FROM $jdbcPg14Table1) a
+                            JOIN (SELECT k8, 1 AS y FROM $jdbcPg14Table1) b ON a.k8 = b.k8 group by x, y order by c desc limit 3 """
         order_qt_sql49 """ SELECT * FROM (SELECT * FROM $jdbcPg14Table1 WHERE k8 % 120 > 110) l
                             JOIN (SELECT *, COUNT(1) OVER (PARTITION BY id ORDER BY id) FROM ${dorisExTable1}) o ON l.k8 = o.id """
         order_qt_sql50 """ SELECT COUNT(*) FROM $jdbcPg14Table1 as a LEFT OUTER JOIN ${dorisExTable1} as b ON a.k8 = b.id AND a.k8 > 111 WHERE a.k8 < 114 """
