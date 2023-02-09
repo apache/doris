@@ -32,9 +32,12 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -52,6 +55,7 @@ import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.HMSExternalCatalog;
@@ -76,6 +80,7 @@ import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnDef;
 import org.apache.doris.thrift.TColumnDesc;
+import org.apache.doris.thrift.TConfirmUnusedRemoteFilesRequest;
 import org.apache.doris.thrift.TDescribeTableParams;
 import org.apache.doris.thrift.TDescribeTableResult;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
@@ -172,6 +177,60 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public FrontendServiceImpl(ExecuteEnv exeEnv) {
         masterImpl = new MasterImpl();
         this.exeEnv = exeEnv;
+    }
+
+    @Override
+    public TStatus confirmUnusedRemoteFiles(TConfirmUnusedRemoteFilesRequest request) throws TException {
+        TStatus res = new TStatus(TStatusCode.OK);
+        if (!request.isSetCooldownMetaId()) {
+            res.setStatusCode(TStatusCode.INVALID_ARGUMENT);
+            res.addToErrorMsgs("cooldown_meta_id is null");
+            return res;
+        }
+        TabletMeta tabletMeta = Env.getCurrentEnv().getTabletInvertedIndex().getTabletMeta(request.tablet_id);
+        if (tabletMeta == null) {
+            res.setStatusCode(TStatusCode.NOT_FOUND);
+            res.addToErrorMsgs("tablet not found");
+            return res;
+        }
+        Tablet tablet;
+        try {
+            OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId())
+                    .getTable(tabletMeta.getTableId())
+                    .get();
+            table.readLock();
+            try {
+                tablet = table.getPartition(tabletMeta.getPartitionId()).getIndex(tabletMeta.getIndexId())
+                        .getTablet(request.tablet_id);
+            } finally {
+                table.readUnlock();
+            }
+        } catch (RuntimeException e) {
+            res.setStatusCode(TStatusCode.NOT_FOUND);
+            res.addToErrorMsgs("tablet not found");
+            return res;
+        }
+        // check cooldownReplicaId
+        long cooldownReplicaId = tablet.getCooldownConf().first;
+        if (cooldownReplicaId != request.cooldown_replica_id) {
+            res.setStatusCode(TStatusCode.ABORTED);
+            res.addToErrorMsgs(
+                    "cooldown replica id not match(" + cooldownReplicaId + " vs " + request.cooldown_replica_id + ')');
+            return res;
+        }
+        // check cooldownMetaId of all replicas are the same
+        List<Replica> replicas = Env.getCurrentEnv().getTabletInvertedIndex().getReplicas(request.tablet_id);
+        for (Replica replica : replicas) {
+            if (!request.cooldown_meta_id.equals(replica.getCooldownMetaId())) {
+                res.setStatusCode(TStatusCode.ABORTED);
+                res.addToErrorMsgs("cooldown meta id are not same");
+                return res;
+            }
+        }
+        // ensure FE is master
+        Env.getCurrentEnv().getEditLog().logCooldownDelete(new CooldownDelete());
+
+        return res;
     }
 
     @Override
