@@ -144,10 +144,8 @@ set(RUNTIME_TEST_FILES
     runtime/string_value_test.cpp
     runtime/fragment_mgr_test.cpp
     runtime/mem_limit_test.cpp
-    runtime/stream_load_pipe_test.cpp
     runtime/snapshot_loader_test.cpp
     runtime/user_function_cache_test.cpp
-    runtime/kafka_consumer_pipe_test.cpp
     runtime/routine_load_task_executor_test.cpp
     runtime/small_file_mgr_test.cpp
     runtime/heartbeat_flags_test.cpp
