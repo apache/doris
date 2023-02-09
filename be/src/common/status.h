@@ -253,7 +253,7 @@ E(INVERTED_INDEX_CLUCENE_ERROR, -6002);
 E(INVERTED_INDEX_FILE_NOT_FOUND, -6003);
 E(INVERTED_INDEX_FILE_HIT_LIMIT, -6004);
 #undef E
-}; // namespace ErrorCode
+} // namespace ErrorCode
 
 // clang-format off
 // whether to capture stacktrace

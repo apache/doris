@@ -30,6 +30,7 @@
 #include "olap/olap_tuple.h"
 #include "runtime/primitive_type.h"
 #include "runtime/type_limit.h"
+#include "vec/core/types.h"
 #include "vec/io/io_helper.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -38,17 +39,11 @@ namespace doris {
 template <PrimitiveType primitive_type, class T>
 std::string cast_to_string(T value, int scale) {
     if constexpr (primitive_type == TYPE_DECIMAL32) {
-        std::stringstream ss;
-        vectorized::write_text<int32_t>((int32_t)value, scale, ss);
-        return ss.str();
+        return ((vectorized::Decimal<int32_t>)value).to_string(scale);
     } else if constexpr (primitive_type == TYPE_DECIMAL64) {
-        std::stringstream ss;
-        vectorized::write_text<int64_t>((int64_t)value, scale, ss);
-        return ss.str();
+        return ((vectorized::Decimal<int64_t>)value).to_string(scale);
     } else if constexpr (primitive_type == TYPE_DECIMAL128I) {
-        std::stringstream ss;
-        vectorized::write_text<int128_t>((int128_t)value, scale, ss);
-        return ss.str();
+        return ((vectorized::Decimal<int128_t>)value).to_string(scale);
     } else if constexpr (primitive_type == TYPE_TINYINT) {
         return std::to_string(static_cast<int>(value));
     } else if constexpr (primitive_type == TYPE_LARGEINT) {
@@ -336,7 +331,7 @@ public:
             set_whole_value_range();
         }
         _contain_null = contain_null;
-    };
+    }
 
     int precision() const { return _precision; }
 

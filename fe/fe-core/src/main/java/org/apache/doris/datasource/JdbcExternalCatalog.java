@@ -17,7 +17,6 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.JdbcResource;
 import org.apache.doris.catalog.external.ExternalDatabase;
@@ -162,11 +161,5 @@ public class JdbcExternalCatalog extends ExternalCatalog {
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         makeSureInitialized();
         return jdbcClient.isTableExist(dbName, tblName);
-    }
-
-    @Override
-    public List<Column> getSchema(String dbName, String tblName) {
-        makeSureInitialized();
-        return jdbcClient.getColumnsFromJdbc(dbName, tblName);
     }
 }

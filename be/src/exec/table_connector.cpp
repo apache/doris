@@ -226,8 +226,13 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
     case TYPE_VARCHAR:
     case TYPE_CHAR:
     case TYPE_STRING: {
-        // here need check the ' is used, now for pg array string must be "
-        fmt::format_to(_insert_stmt_buffer, "\"{}\"", fmt::basic_string_view(item, size));
+        // TODO(zhangstar333): check array data type of postgresql
+        // for oracle/pg database string must be '
+        if (table_type == TOdbcTableType::ORACLE || table_type == TOdbcTableType::POSTGRESQL) {
+            fmt::format_to(_insert_stmt_buffer, "'{}'", fmt::basic_string_view(item, size));
+        } else {
+            fmt::format_to(_insert_stmt_buffer, "\"{}\"", fmt::basic_string_view(item, size));
+        }
         break;
     }
     case TYPE_ARRAY: {
@@ -274,7 +279,8 @@ Status TableConnector::convert_column_data(const vectorized::ColumnPtr& column_p
     case TYPE_DECIMAL32:
     case TYPE_DECIMAL64:
     case TYPE_DECIMAL128I: {
-        auto val = type_ptr->to_string(*column, row);
+        auto decimal_type = remove_nullable(type_ptr);
+        auto val = decimal_type->to_string(*column, row);
         fmt::format_to(_insert_stmt_buffer, "{}", val);
         break;
     }

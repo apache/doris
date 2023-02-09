@@ -62,7 +62,7 @@ public:
     FieldType type() const { return _type; }
     EncodingTypePB encoding() const { return _encoding; }
 
-    DataPagePreDecoder* get_data_page_pre_decoder() const { return _data_page_pre_decoder.get(); };
+    DataPagePreDecoder* get_data_page_pre_decoder() const { return _data_page_pre_decoder.get(); }
 
 private:
     friend class EncodingInfoResolver;

@@ -290,6 +290,10 @@ void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block&
         for (int j = 0; j < num_cols; ++j) {
             const auto& column = block.get_by_position(j).column;
             const auto& tablet_column = schema.columns()[j];
+            if (tablet_column.is_row_store_column()) {
+                // ignore dst row store column
+                continue;
+            }
             const auto& data_ref =
                     !tablet_column.is_array_type() ? column->get_data_at(i) : StringRef();
             serialize_column(&pool, tablet_column, column.get(), data_ref, i, jsonb_writer);
@@ -299,23 +303,30 @@ void JsonbSerializeUtil::block_to_jsonb(const TabletSchema& schema, const Block&
     }
 }
 
+// batch rows
 void JsonbSerializeUtil::jsonb_to_block(const TupleDescriptor& desc,
                                         const ColumnString& jsonb_column, Block& dst) {
     for (int i = 0; i < jsonb_column.size(); ++i) {
         StringRef jsonb_data = jsonb_column.get_data_at(i);
-        auto pdoc = JsonbDocument::createDocument(jsonb_data.data, jsonb_data.size);
-        JsonbDocument& doc = *pdoc;
-        for (int j = 0; j < desc.slots().size(); ++j) {
-            SlotDescriptor* slot = desc.slots()[j];
-            JsonbValue* slot_value = doc->find(slot->col_unique_id());
-            MutableColumnPtr dst_column = dst.get_by_position(j).column->assume_mutable();
-            if (!slot_value || slot_value->isNull()) {
-                // null or not exist
-                dst_column->insert_default();
-                continue;
-            }
-            deserialize_column(slot->type().type, slot_value, dst_column);
+        jsonb_to_block(desc, jsonb_data.data, jsonb_data.size, dst);
+    }
+}
+
+// single row
+void JsonbSerializeUtil::jsonb_to_block(const TupleDescriptor& desc, const char* data, size_t size,
+                                        Block& dst) {
+    auto pdoc = JsonbDocument::createDocument(data, size);
+    JsonbDocument& doc = *pdoc;
+    for (int j = 0; j < desc.slots().size(); ++j) {
+        SlotDescriptor* slot = desc.slots()[j];
+        JsonbValue* slot_value = doc->find(slot->col_unique_id());
+        MutableColumnPtr dst_column = dst.get_by_position(j).column->assume_mutable();
+        if (!slot_value || slot_value->isNull()) {
+            // null or not exist
+            dst_column->insert_default();
+            continue;
         }
+        deserialize_column(slot->type().type, slot_value, dst_column);
     }
 }
 

@@ -31,7 +31,7 @@ public class BrokerFileSystem {
     private ReentrantLock lock;
     private FileSystemIdentity identity;
     private FileSystem dfsFileSystem;
-    private long lastAccessTimestamp;
+    private volatile long lastAccessTimestamp;
     private long createTimestamp;
     private UUID fileSystemId;
 

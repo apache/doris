@@ -226,7 +226,7 @@ Status PlanFragmentExecutor::open() {
     // may block
     // TODO: if no report thread is started, make sure to send a final profile
     // at end, otherwise the coordinator hangs in case we finish w/ an error
-    if (_is_report_success && _report_status_cb && config::status_report_interval > 0) {
+    if (_is_report_success && config::status_report_interval > 0) {
         std::unique_lock<std::mutex> l(_report_thread_lock);
         _report_thread = std::thread(&PlanFragmentExecutor::report_profile, this);
         // make sure the thread started up, otherwise report_profile() might get into a race
@@ -251,7 +251,20 @@ Status PlanFragmentExecutor::open() {
         }
     }
 
-    update_status(status);
+    {
+        std::lock_guard<std::mutex> l(_status_lock);
+        _status = status;
+        if (status.is<MEM_LIMIT_EXCEEDED>()) {
+            _runtime_state->set_mem_limit_exceeded(status.to_string());
+        }
+        if (_runtime_state->query_type() == TQueryType::EXTERNAL) {
+            TUniqueId fragment_instance_id = _runtime_state->fragment_instance_id();
+            _exec_env->result_queue_mgr()->update_queue_status(fragment_instance_id, status);
+        }
+    }
+
+    stop_report_thread();
+    send_report(true);
     return status;
 }
 
@@ -315,9 +328,6 @@ Status PlanFragmentExecutor::open_vectorized_internal() {
     _sink.reset(nullptr);
     _done = true;
 
-    stop_report_thread();
-    send_report(true);
-
     return Status::OK();
 }
 
@@ -363,7 +373,6 @@ void PlanFragmentExecutor::_collect_node_statistics() {
 void PlanFragmentExecutor::report_profile() {
     SCOPED_ATTACH_TASK(_runtime_state.get());
     VLOG_FILE << "report_profile(): instance_id=" << _runtime_state->fragment_instance_id();
-    DCHECK(_report_status_cb);
 
     _report_thread_active = true;
 
@@ -413,10 +422,6 @@ void PlanFragmentExecutor::report_profile() {
 }
 
 void PlanFragmentExecutor::send_report(bool done) {
-    if (!_report_status_cb) {
-        return;
-    }
-
     Status status;
     {
         std::lock_guard<std::mutex> l(_status_lock);
@@ -456,31 +461,6 @@ void PlanFragmentExecutor::stop_report_thread() {
 
     _stop_report_thread_cv.notify_one();
     _report_thread.join();
-}
-
-void PlanFragmentExecutor::update_status(const Status& new_status) {
-    if (new_status.ok()) {
-        return;
-    }
-
-    {
-        std::lock_guard<std::mutex> l(_status_lock);
-        // if current `_status` is ok, set it to `new_status` to record the error.
-        if (_status.ok()) {
-            if (new_status.is<MEM_LIMIT_EXCEEDED>()) {
-                _runtime_state->set_mem_limit_exceeded(new_status.to_string());
-            }
-            _status = new_status;
-            if (_runtime_state->query_type() == TQueryType::EXTERNAL) {
-                TUniqueId fragment_instance_id = _runtime_state->fragment_instance_id();
-                _exec_env->result_queue_mgr()->update_queue_status(fragment_instance_id,
-                                                                   new_status);
-            }
-        }
-    }
-
-    stop_report_thread();
-    send_report(true);
 }
 
 void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const std::string& msg) {

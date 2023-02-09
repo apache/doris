@@ -45,7 +45,7 @@ public class HistogramTask extends BaseAnalysisTask {
             + "    ${idxId} AS idx_id, "
             + "    '${colId}' AS col_id, "
             + "    ${sampleRate} AS sample_rate, "
-            + "    `HISTOGRAM`(`${colName}`, 1, ${maxBucketNum}) AS buckets, "
+            + "    HISTOGRAM(`${colName}`, 1, ${maxBucketNum}) AS buckets, "
             + "    NOW() AS create_time "
             + "FROM "
             + "    `${dbName}`.`${tblName}` TABLESAMPLE (${percentValue} PERCENT)";

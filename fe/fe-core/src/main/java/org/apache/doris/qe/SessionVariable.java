@@ -397,9 +397,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = CODEGEN_LEVEL)
     public int codegenLevel = 0;
 
-    // 1024 minus 16 + 16 bytes padding that in padding pod array
+    // 4096 minus 16 + 16 bytes padding that in padding pod array
     @VariableMgr.VarAttr(name = BATCH_SIZE)
-    public int batchSize = 992;
+    public int batchSize = 4064;
 
     @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS)
     public boolean disableStreamPreaggregations = false;
@@ -552,7 +552,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean checkOverflowForDecimal = false;
 
     @VariableMgr.VarAttr(name = ENABLE_DPHYP_OPTIMIZER)
-    private boolean enableDPHypOptimizer = false;
+    private boolean enableDPHypOptimizer = true;
     /**
      * as the new optimizer is not mature yet, use this var
      * to control whether to use new optimizer, remove it when
@@ -703,8 +703,12 @@ public class SessionVariable implements Serializable, Writable {
         this.partitionedHashJoinRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.partitionedHashAggRowsThreshold = random.nextBoolean() ? 8 : 1048576;
         this.enableShareHashTableForBroadcastJoin = random.nextBoolean();
-        this.rewriteOrToInPredicateThreshold = random.nextInt(100) + 2;
         int randomInt = random.nextInt(4);
+        if (randomInt % 2 == 0) {
+            this.rewriteOrToInPredicateThreshold = 100000;
+        } else {
+            this.rewriteOrToInPredicateThreshold = 2;
+        }
         switch (randomInt) {
             case 0:
                 this.externalSortBytesThreshold = 0;
@@ -718,6 +722,16 @@ public class SessionVariable implements Serializable, Writable {
             default:
                 this.externalSortBytesThreshold = 100 * 1024 * 1024 * 1024;
                 break;
+        }
+        // pull_request_id default value is 0
+        if (Config.pull_request_id % 2 == 1) {
+            // this.enablePipelineEngine = true;
+            this.enableFoldConstantByBe = true;
+            // this.enableTwoPhaseReadOpt = false;
+        } else {
+            this.enablePipelineEngine = false;
+            this.enableFoldConstantByBe = false;
+            this.enableTwoPhaseReadOpt = true;
         }
     }
 

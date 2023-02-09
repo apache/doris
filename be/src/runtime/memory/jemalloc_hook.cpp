@@ -28,6 +28,9 @@
 
 extern "C" {
 void* doris_malloc(size_t size) __THROW {
+    // Both je_nallocx and je_malloc will use the lock je_malloc_mutex_lock_slow,
+    // so enabling the jemalloc hook will double the lock usage.
+    // In extreme cases this will affect performance, consider turning off mem hook
     TRY_CONSUME_MEM_TRACKER(je_nallocx(size, 0), nullptr);
     void* ptr = je_malloc(size);
     if (UNLIKELY(ptr == nullptr)) {

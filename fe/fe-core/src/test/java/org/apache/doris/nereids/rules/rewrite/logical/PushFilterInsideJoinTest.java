@@ -40,12 +40,12 @@ class PushFilterInsideJoinTest implements PatternMatchSupported {
         Expression predicates = new GreaterThan(scan1.getOutput().get(1), scan2.getOutput().get(1));
 
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinEmptyOn(scan2, JoinType.CROSS_JOIN)
+                .joinEmptyOn(scan2, JoinType.CROSS_JOIN)
                 .filter(predicates)
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
-                .applyTopDown(PushFilterInsideJoin.INSTANCE)
+                .applyTopDown(new PushFilterInsideJoin())
                 .printlnTree()
                 .matchesFromRoot(
                         logicalJoin().when(join -> join.getOtherJoinConjuncts().get(0).equals(predicates))

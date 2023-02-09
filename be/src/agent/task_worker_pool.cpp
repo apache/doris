@@ -1135,9 +1135,6 @@ void TaskWorkerPool::_report_task_worker_thread_callback() {
 void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
     StorageEngine::instance()->register_report_listener(this);
 
-    TReportRequest request;
-    request.__set_backend(_backend);
-
     while (_is_work) {
         _is_doing_work = false;
         {
@@ -1164,10 +1161,13 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
         // and can not be processed.
         _random_sleep(5);
 
+        TReportRequest request;
+        request.__set_backend(_backend);
+        request.__isset.disks = true;
+
         std::vector<DataDirInfo> data_dir_infos;
         _env->storage_engine()->get_all_data_dir_info(&data_dir_infos, true /* update */);
 
-        std::map<string, TDisk> disks;
         for (auto& root_path_info : data_dir_infos) {
             TDisk disk;
             disk.__set_root_path(root_path_info.path);
@@ -1178,9 +1178,9 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
             disk.__set_remote_used_capacity(root_path_info.remote_used_capacity);
             disk.__set_disk_available_capacity(root_path_info.available);
             disk.__set_used(root_path_info.is_used);
-            disks[root_path_info.path] = disk;
+            request.disks[root_path_info.path] = disk;
         }
-        request.__set_disks(disks);
+
         _handle_report(request, ReportType::DISK);
     }
     StorageEngine::instance()->deregister_report_listener(this);
@@ -1189,9 +1189,6 @@ void TaskWorkerPool::_report_disk_state_worker_thread_callback() {
 void TaskWorkerPool::_report_tablet_worker_thread_callback() {
     StorageEngine::instance()->register_report_listener(this);
 
-    TReportRequest request;
-    request.__set_backend(_backend);
-    request.__isset.tablets = true;
     while (_is_work) {
         _is_doing_work = false;
 
@@ -1216,7 +1213,11 @@ void TaskWorkerPool::_report_tablet_worker_thread_callback() {
         _is_doing_work = true;
         // See _random_sleep() comment in _report_disk_state_worker_thread_callback
         _random_sleep(5);
-        request.tablets.clear();
+
+        TReportRequest request;
+        request.__set_backend(_backend);
+        request.__isset.tablets = true;
+
         uint64_t report_version = _s_report_version;
         StorageEngine::instance()->tablet_manager()->build_all_report_tablets_info(
                 &request.tablets);
@@ -1703,7 +1704,6 @@ void TaskWorkerPool::_push_storage_policy_worker_thread_callback() {
 void TaskWorkerPool::_push_cooldown_conf_worker_thread_callback() {
     while (_is_work) {
         TAgentTaskRequest agent_task_req;
-        TPushCooldownConfReq push_cooldown_conf_req;
         {
             std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
             while (_is_work && _tasks.empty()) {
@@ -1714,32 +1714,29 @@ void TaskWorkerPool::_push_cooldown_conf_worker_thread_callback() {
             }
 
             agent_task_req = _tasks.front();
-            push_cooldown_conf_req = agent_task_req.push_cooldown_conf;
             _tasks.pop_front();
         }
-        for (auto cooldown_conf : push_cooldown_conf_req.cooldown_confs) {
+        // FIXME(plat1ko): no need to save cooldown conf job state in FE
+        TFinishTaskRequest finish_task_request;
+        finish_task_request.__set_backend(_backend);
+        finish_task_request.__set_task_type(agent_task_req.task_type);
+        finish_task_request.__set_signature(agent_task_req.signature);
+        finish_task_request.__set_task_status(Status::OK().to_thrift());
+        _finish_task(finish_task_request);
+        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
+
+        TPushCooldownConfReq& push_cooldown_conf_req = agent_task_req.push_cooldown_conf;
+        for (auto& cooldown_conf : push_cooldown_conf_req.cooldown_confs) {
             int64_t tablet_id = cooldown_conf.tablet_id;
             TabletSharedPtr tablet =
                     StorageEngine::instance()->tablet_manager()->get_tablet(tablet_id);
-            if (tablet.get() == nullptr) {
-                std::stringstream ss;
-                ss << "failed to get tablet. tablet_id=" << tablet_id;
-                LOG(WARNING) << ss.str();
+            if (tablet == nullptr) {
+                LOG(WARNING) << "failed to get tablet. tablet_id=" << tablet_id;
                 continue;
             }
-            if (cooldown_conf.cooldown_term > tablet->tablet_meta()->cooldown_term()) {
-                tablet->tablet_meta()->set_cooldown_replica_id_and_term(
-                        cooldown_conf.cooldown_replica_id, cooldown_conf.cooldown_term);
-                LOG(INFO) << "push_cooldown_conf successfully. tablet_id=" << tablet_id
-                          << ", cooldown_conf: " << cooldown_conf.cooldown_replica_id << "("
-                          << cooldown_conf.cooldown_term << ")";
-            } else {
-                LOG(WARNING) << "push_cooldown_conf failed. tablet_id=" << tablet_id
-                             << ", cooldown_term: " << tablet->tablet_meta()->cooldown_term()
-                             << " -> " << cooldown_conf.cooldown_term;
-            }
+            tablet->update_cooldown_conf(cooldown_conf.cooldown_term,
+                                         cooldown_conf.cooldown_replica_id);
         }
-        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
     }
 }
 

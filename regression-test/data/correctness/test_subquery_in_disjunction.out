@@ -25,13 +25,36 @@
 100	200	300
 
 -- !hash_join_with_other_conjuncts1 --
+1	2	3
 
 -- !hash_join_with_other_conjuncts2 --
+1	2	3
 10	20	30
 
 -- !hash_join_with_other_conjuncts3 --
+1	2	3
 10	20	30
 
 -- !hash_join_with_other_conjuncts4 --
+1	2	3
 10	20	30
+
+-- !hash_join_with_other_conjuncts5 --
+1	2	3
+10	20	30
+100	200	300
+
+-- !hash_join_with_other_conjuncts6 --
+1	2	3
+100	200	300
+
+-- !hash_join_with_other_conjuncts7 --
+1	2	3
+10	20	30
+100	200	300
+
+-- !hash_join_with_other_conjuncts8 --
+1	2	3
+10	20	30
+100	200	300
 

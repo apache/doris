@@ -349,7 +349,7 @@ public:
     virtual void update_hashes_with_value(std::vector<SipHash>& hashes,
                                           const uint8_t* __restrict null_data = nullptr) const {
         LOG(FATAL) << "update_hashes_with_value siphash not supported";
-    };
+    }
 
     /// Update state of hash function with value of n elements to avoid the virtual function call
     /// null_data to mark whether need to do hash compute, null_data == nullptr
@@ -358,7 +358,7 @@ public:
     virtual void update_hashes_with_value(uint64_t* __restrict hashes,
                                           const uint8_t* __restrict null_data = nullptr) const {
         LOG(FATAL) << "update_hashes_with_value xxhash not supported";
-    };
+    }
 
     /// Update state of crc32 hash function with value of n elements to avoid the virtual function call
     /// null_data to mark whether need to do hash compute, null_data == nullptr
@@ -366,7 +366,7 @@ public:
     virtual void update_crcs_with_value(std::vector<uint64_t>& hash, PrimitiveType type,
                                         const uint8_t* __restrict null_data = nullptr) const {
         LOG(FATAL) << "update_crcs_with_value not supported";
-    };
+    }
 
     /** Removes elements that don't match the filter.
       * Is used in WHERE and HAVING operations.
@@ -388,7 +388,7 @@ public:
     virtual Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
         LOG(FATAL) << "column not support filter_by_selector";
         __builtin_unreachable();
-    };
+    }
 
     /// Permutes elements using specified permutation. Is used in sortings.
     /// limit - if it isn't 0, puts only first limit elements in the result.
@@ -446,7 +446,7 @@ public:
     virtual void replicate(const uint32_t* counts, size_t target_size, IColumn& column,
                            size_t begin = 0, int count_sz = -1) const {
         LOG(FATAL) << "not support";
-    };
+    }
 
     /** Split column to smaller columns. Each value goes to column index, selected by corresponding element of 'selector'.
       * Selector must contain values from 0 to num_columns - 1.
@@ -539,7 +539,7 @@ public:
     virtual bool is_dummy() const { return false; }
 
     /// Clear data of column, just like vector clear
-    virtual void clear() {};
+    virtual void clear() {}
 
     /** Memory layout properties.
       *
@@ -704,6 +704,6 @@ namespace doris {
 struct ColumnPtrWrapper {
     vectorized::ColumnPtr column_ptr;
 
-    ColumnPtrWrapper(vectorized::ColumnPtr col) : column_ptr(col) {};
+    ColumnPtrWrapper(vectorized::ColumnPtr col) : column_ptr(col) {}
 };
 } // namespace doris

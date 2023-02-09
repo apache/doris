@@ -24,17 +24,18 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 
+import com.google.common.base.Strings;
 import org.junit.Assert;
 import org.junit.Test;
 
 public class ShowMTMVTaskStmtTest {
     @Test
     public void testNormal() throws UserException, AnalysisException {
-        final Analyzer analyzer =  AccessTestUtil.fetchBlockAnalyzer();
+        final Analyzer analyzer =  AccessTestUtil.fetchEmptyDbAnalyzer();
         ShowMTMVTaskStmt stmt = new ShowMTMVTaskStmt();
         stmt.analyze(analyzer);
         Assert.assertNull(stmt.getTaskId());
-        Assert.assertNull(stmt.getDbName());
+        Assert.assertTrue(Strings.isNullOrEmpty(stmt.getDbName()));
         Assert.assertNull(stmt.getMVName());
         Assert.assertEquals(14, stmt.getMetaData().getColumnCount());
         Assert.assertEquals("SHOW MTMV TASK", stmt.toSql());
@@ -42,14 +43,14 @@ public class ShowMTMVTaskStmtTest {
         stmt = new ShowMTMVTaskStmt("task1");
         stmt.analyze(analyzer);
         Assert.assertNotNull(stmt.getTaskId());
-        Assert.assertNull(stmt.getDbName());
+        Assert.assertTrue(Strings.isNullOrEmpty(stmt.getDbName()));
         Assert.assertNull(stmt.getMVName());
         Assert.assertEquals("SHOW MTMV TASK FOR task1", stmt.toSql());
 
         stmt = new ShowMTMVTaskStmt("db1", null);
         stmt.analyze(analyzer);
         Assert.assertNull(stmt.getTaskId());
-        Assert.assertNotNull(stmt.getDbName());
+        Assert.assertFalse(Strings.isNullOrEmpty(stmt.getDbName()));
         Assert.assertNull(stmt.getMVName());
         Assert.assertEquals("SHOW MTMV TASK FROM db1", stmt.toSql());
 
@@ -57,7 +58,7 @@ public class ShowMTMVTaskStmtTest {
         stmt = new ShowMTMVTaskStmt(null, tableName);
         stmt.analyze(analyzer);
         Assert.assertNull(stmt.getTaskId());
-        Assert.assertNull(stmt.getDbName());
+        Assert.assertTrue(Strings.isNullOrEmpty(stmt.getDbName()));
         Assert.assertNotNull(stmt.getMVName());
         Assert.assertEquals("SHOW MTMV TASK ON `mv1`", stmt.toSql());
 
@@ -65,7 +66,7 @@ public class ShowMTMVTaskStmtTest {
         stmt = new ShowMTMVTaskStmt(null, tableName);
         stmt.analyze(analyzer);
         Assert.assertNull(stmt.getTaskId());
-        Assert.assertNotNull(stmt.getDbName());
+        Assert.assertFalse(Strings.isNullOrEmpty(stmt.getDbName()));
         Assert.assertNotNull(stmt.getMVName());
         Assert.assertEquals("SHOW MTMV TASK ON `db2`.`mv1`", stmt.toSql());
 
@@ -73,7 +74,7 @@ public class ShowMTMVTaskStmtTest {
         stmt = new ShowMTMVTaskStmt("db1", tableName);
         stmt.analyze(analyzer);
         Assert.assertNull(stmt.getTaskId());
-        Assert.assertNotNull(stmt.getDbName());
+        Assert.assertFalse(Strings.isNullOrEmpty(stmt.getDbName()));
         Assert.assertNotNull(stmt.getMVName());
         Assert.assertEquals("SHOW MTMV TASK FROM db1 ON `mv1`", stmt.toSql());
     }
@@ -85,5 +86,19 @@ public class ShowMTMVTaskStmtTest {
 
         ShowMTMVTaskStmt stmt = new ShowMTMVTaskStmt("db1", tableName);
         stmt.analyze(analyzer);
+    }
+
+    @Test
+    public void testDefaultDb() throws UserException {
+        final Analyzer analyzer =  AccessTestUtil.fetchBlockAnalyzer();
+        ShowMTMVTaskStmt stmt = new ShowMTMVTaskStmt();
+        stmt.analyze(analyzer);
+        Assert.assertNull(stmt.getTaskId());
+        Assert.assertEquals("testCluster:testDb", stmt.getDbName());
+        Assert.assertNull(stmt.getMVName());
+        Assert.assertEquals(14, stmt.getMetaData().getColumnCount());
+        Assert.assertEquals("SHOW MTMV TASK", stmt.toSql());
+        Assert.assertFalse(stmt.isShowAllTasks());
+        Assert.assertTrue(stmt.isShowAllTasksFromDb());
     }
 }

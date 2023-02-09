@@ -46,7 +46,7 @@ public:
 
     virtual Status close() override;
 
-    const ResultList& results() { return _results; };
+    const ResultList& results() { return _results; }
 
 private:
     void _init_profile();

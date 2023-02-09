@@ -46,6 +46,7 @@
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
 #include "runtime/tmp_file_mgr.h"
+#include "service/point_query_executor.h"
 #include "util/bfd_parser.h"
 #include "util/brpc_client_cache.h"
 #include "util/doris_metrics.h"
@@ -191,6 +192,19 @@ Status ExecEnv::_init_mem_env() {
     LOG(INFO) << "Storage page cache memory limit: "
               << PrettyPrinter::print(storage_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::storage_page_cache_limit;
+
+    // Init row cache
+    int64_t row_cache_mem_limit =
+            ParseUtil::parse_mem_spec(config::row_cache_mem_limit, MemInfo::mem_limit(),
+                                      MemInfo::physical_mem(), &is_percent);
+    while (!is_percent && row_cache_mem_limit > MemInfo::mem_limit() / 2) {
+        // Reason same as buffer_pool_limit
+        row_cache_mem_limit = row_cache_mem_limit / 2;
+    }
+    RowCache::create_global_cache(row_cache_mem_limit);
+    LOG(INFO) << "Row cache memory limit: "
+              << PrettyPrinter::print(row_cache_mem_limit, TUnit::BYTES)
+              << ", origin config value: " << config::row_cache_mem_limit;
 
     uint64_t fd_number = config::min_file_descriptor_number;
     struct rlimit l;

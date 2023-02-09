@@ -29,6 +29,7 @@ import org.apache.doris.analysis.CreateMultiTableMaterializedViewStmt;
 import org.apache.doris.analysis.DropMaterializedViewStmt;
 import org.apache.doris.analysis.DropPartitionClause;
 import org.apache.doris.analysis.DropTableStmt;
+import org.apache.doris.analysis.MVRefreshInfo.RefreshMethod;
 import org.apache.doris.analysis.ModifyColumnCommentClause;
 import org.apache.doris.analysis.ModifyDistributionClause;
 import org.apache.doris.analysis.ModifyEngineClause;
@@ -65,6 +66,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.mtmv.MTMVUtils.TaskSubmitStatus;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.ModifyCommentOperationLog;
@@ -157,7 +159,15 @@ public class Alter {
     }
 
     public void processRefreshMaterializedView(RefreshMaterializedViewStmt stmt) throws DdlException {
-        throw new DdlException("Refresh materialized view is not implemented: " + stmt.toSql());
+        if (stmt.getRefreshMethod() != RefreshMethod.COMPLETE) {
+            throw new DdlException("Now only support REFRESH COMPLETE.");
+        }
+        String db = stmt.getMvName().getDb();
+        String tbl = stmt.getMvName().getTbl();
+        TaskSubmitStatus status = Env.getCurrentEnv().getMTMVJobManager().refreshMTMVTask(db, tbl);
+        if (status != TaskSubmitStatus.SUBMITTED) {
+            throw new DdlException("Refresh MaterializedView with " + status.toString());
+        }
     }
 
     private boolean processAlterOlapTable(AlterTableStmt stmt, OlapTable olapTable, List<AlterClause> alterClauses,
@@ -497,6 +507,8 @@ public class Alter {
     }
 
     public void processAlterMaterializedView(AlterMaterializedViewStmt stmt) throws UserException {
+        TableName tbl = stmt.getTable();
+        Env.getCurrentEnv().getInternalCatalog().getDb(tbl.getDb());
         throw new DdlException("ALTER MATERIALIZED VIEW is not implemented: " + stmt.toSql());
     }
 

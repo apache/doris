@@ -20,6 +20,8 @@ package org.apache.doris.catalog.external;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.datasource.EsExternalCatalog;
+import org.apache.doris.external.elasticsearch.EsRestClient;
+import org.apache.doris.external.elasticsearch.EsUtil;
 import org.apache.doris.thrift.TEsTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
@@ -74,6 +76,12 @@ public class EsExternalTable extends ExternalTable {
                 getName(), "");
         tTableDescriptor.setEsTable(tEsTable);
         return tTableDescriptor;
+    }
+
+    @Override
+    public List<Column> initSchema() {
+        EsRestClient restClient = ((EsExternalCatalog) catalog).getEsRestClient();
+        return EsUtil.genColumnsFromEs(restClient, name, null, ((EsExternalCatalog) catalog).enableMappingEsId());
     }
 
     private EsTable toEsTable() {

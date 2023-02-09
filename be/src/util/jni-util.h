@@ -68,6 +68,7 @@ private:
 
     static bool jvm_inited_;
     static jclass internal_exc_cl_;
+    static jclass jni_native_method_exc_cl_;
     static jclass jni_util_cl_;
     static jmethodID throwable_to_string_id_;
     static jmethodID throwable_to_stack_trace_id_;
