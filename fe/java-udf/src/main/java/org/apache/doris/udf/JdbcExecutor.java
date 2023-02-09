@@ -353,7 +353,6 @@ public class JdbcExecutor {
             }
         } else {
             for (int i = 0; i < numRows; i++) {
-                short res = 32767;
                 UdfUtils.UNSAFE.putShort(columnAddr + (i * 2L), ((Integer) column[i]).shortValue());
             }
         }
