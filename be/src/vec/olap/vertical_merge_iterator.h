@@ -103,6 +103,9 @@ public:
 
     size_t same_source_count(uint16_t source, size_t limit);
 
+    // return continous agg_flag=true count from index
+    size_t continuous_agg_count(uint64_t index);
+
 private:
     Status _create_buffer_file();
     Status _serialize();
