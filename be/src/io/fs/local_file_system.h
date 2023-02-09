@@ -30,6 +30,8 @@ public:
 
     Status create_file(const Path& path, FileWriterPtr* writer) override;
 
+    Status create_file_impl(const Path& path, FileWriterPtr* writer);
+
     Status open_file(const Path& path, const FileReaderOptions& reader_options,
                      FileReaderSPtr* reader, IOContext* io_ctx) override {
         return open_file(path, reader, io_ctx);
@@ -37,19 +39,35 @@ public:
 
     Status open_file(const Path& path, FileReaderSPtr* reader, IOContext* io_ctx) override;
 
+    Status open_file_impl(const Path& path, FileReaderSPtr* reader, IOContext* io_ctx);
+
     Status delete_file(const Path& path) override;
+
+    Status delete_file_impl(const Path& path);
 
     Status create_directory(const Path& path) override;
 
+    Status create_directory_impl(const Path& path);
+
     Status delete_directory(const Path& path) override;
+
+    Status delete_directory_impl(const Path& path);
 
     Status link_file(const Path& src, const Path& dest) override;
 
+    Status link_file_impl(const Path& src, const Path& dest);
+
     Status exists(const Path& path, bool* res) const override;
+
+    Status exists_impl(const Path& path, bool* res) const;
 
     Status file_size(const Path& path, size_t* file_size) const override;
 
+    Status file_size_impl(const Path& path, size_t* file_size) const;
+
     Status list(const Path& path, std::vector<Path>* files) override;
+
+    Status list_impl(const Path& path, std::vector<Path>* files);
 
 private:
     LocalFileSystem(Path&& root_path, std::string&& id = "");
