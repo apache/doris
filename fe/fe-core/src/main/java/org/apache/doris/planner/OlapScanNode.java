@@ -989,6 +989,7 @@ public class OlapScanNode extends ScanNode {
         scanBackendIds.clear();
         scanTabletIds.clear();
         result.clear();
+        bucketSeq2locations.clear();
         try {
             getScanRangeLocations();
         } catch (AnalysisException e) {

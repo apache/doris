@@ -152,7 +152,10 @@ public:
     uint64_t num_rows() const { return _num_rows; }
 
     void set_dict_encoding_type(DictEncodingType type) {
-        std::call_once(_set_dict_encoding_type_flag, [&] { _dict_encoding_type = type; });
+        _set_dict_encoding_type_once.call([&] {
+            _dict_encoding_type = type;
+            return Status::OK();
+        });
     }
 
     DictEncodingType get_dict_encoding_type() { return _dict_encoding_type; }
@@ -236,6 +239,7 @@ private:
     std::vector<std::unique_ptr<ColumnReader>> _sub_readers;
 
     std::once_flag _set_dict_encoding_type_flag;
+    DorisCallOnce<Status> _set_dict_encoding_type_once;
 };
 
 // Base iterator to read one column data

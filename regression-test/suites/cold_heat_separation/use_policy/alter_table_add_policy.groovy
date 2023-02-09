@@ -16,8 +16,6 @@
 // under the License.
 
 suite("add_table_policy_by_alter_table") {
-    sql """ADMIN SET FRONTEND CONFIG ("enable_storage_policy" = "true");"""
-
     def create_table_not_have_policy_result = try_sql """
         CREATE TABLE IF NOT EXISTS create_table_not_have_policy
         (

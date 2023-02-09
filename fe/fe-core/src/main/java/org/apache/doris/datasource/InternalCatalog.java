@@ -260,6 +260,11 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (fullName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
                 String clusterName = ClusterNamespace.getClusterNameFromFullName(dbName);
                 fullName = ClusterNamespace.getFullName(clusterName, fullName.toLowerCase());
+                // If the fullname is not valid, ClusterNamespace.getFullName may return null
+                // and fullNameToDb.get(fullName) may throw null pointer exception
+                if (fullName == null) {
+                    return null;
+                }
                 return fullNameToDb.get(fullName);
             }
         }
@@ -361,7 +366,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                         for (Tablet tablet : index.getTablets()) {
                             TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash,
-                                    medium, tablet.getCooldownReplicaId(), tablet.getCooldownTerm());
+                                    medium);
                             long tabletId = tablet.getId();
                             invertedIndex.addTablet(tabletId, tabletMeta);
                             for (Replica replica : tablet.getReplicas()) {
@@ -1290,7 +1295,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                         for (Tablet tablet : mIndex.getTablets()) {
                             TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash,
-                                    medium, tablet.getCooldownReplicaId(), tablet.getCooldownTerm());
+                                    medium);
                             long tabletId = tablet.getId();
                             invertedIndex.addTablet(tabletId, tabletMeta);
                             for (Replica replica : tablet.getReplicas()) {
@@ -1557,8 +1562,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                     int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                     for (Tablet tablet : index.getTablets()) {
                         TabletMeta tabletMeta = new TabletMeta(info.getDbId(), info.getTableId(), partition.getId(),
-                                index.getId(), schemaHash, info.getDataProperty().getStorageMedium(),
-                                tablet.getCooldownReplicaId(), tablet.getCooldownTerm());
+                                index.getId(), schemaHash, info.getDataProperty().getStorageMedium());
                         long tabletId = tablet.getId();
                         invertedIndex.addTablet(tabletId, tabletMeta);
                         for (Replica replica : tablet.getReplicas()) {
@@ -1709,8 +1713,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
             // create tablets
             int schemaHash = indexMeta.getSchemaHash();
-            TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, storageMedium, -1,
-                    -1);
+            TabletMeta tabletMeta = new TabletMeta(dbId, tableId, partitionId, indexId, schemaHash, storageMedium);
             createTablets(clusterName, index, ReplicaState.NORMAL, distributionInfo, version, replicaAlloc, tabletMeta,
                     tabletIdSet, idGeneratorBuffer);
 
@@ -2710,7 +2713,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                         int schemaHash = olapTable.getSchemaHashByIndexId(indexId);
                         for (Tablet tablet : mIndex.getTablets()) {
                             TabletMeta tabletMeta = new TabletMeta(db.getId(), olapTable.getId(), partitionId, indexId,
-                                    schemaHash, medium, tablet.getCooldownReplicaId(), tablet.getCooldownTerm());
+                                    schemaHash, medium);
                             long tabletId = tablet.getId();
                             invertedIndex.addTablet(tabletId, tabletMeta);
                             for (Replica replica : tablet.getReplicas()) {

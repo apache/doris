@@ -40,6 +40,7 @@ public:
 
 private:
     FunctionBasePtr _function;
+    bool _can_fast_execute = false;
     std::string _expr_name;
 };
 } // namespace doris::vectorized
