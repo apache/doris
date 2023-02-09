@@ -1647,13 +1647,13 @@ public abstract class Type {
 
     private static Type getDateComparisonResultType(ScalarType t1, ScalarType t2) {
         if (t1.isDate() && t2.isDate()) {
-            return ScalarType.getDefaultDateType(Type.DATE);
+            return Type.DATE;
         } else if ((t1.isDateV2() && t2.isDate()) || t1.isDate() && t2.isDateV2()) {
             return Type.DATEV2;
         } else if (t1.isDateV2() && t2.isDateV2()) {
             return Type.DATEV2;
         } else if (t1.isDatetime() && t2.isDatetime()) {
-            return ScalarType.getDefaultDateType(Type.DATETIME);
+            return Type.DATETIME;
         } else if (t1.isDatetime() && t2.isDatetimeV2()) {
             return t2;
         } else if (t1.isDatetimeV2() && t2.isDatetime()) {
@@ -1667,7 +1667,7 @@ public abstract class Type {
         } else if (t2.isDateV2() || t1.isDateV2()) {
             return Type.DATETIMEV2;
         } else {
-            return ScalarType.getDefaultDateType(Type.DATETIME);
+            return Type.INVALID;
         }
     }
 
