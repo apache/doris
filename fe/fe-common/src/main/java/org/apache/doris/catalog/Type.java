@@ -170,8 +170,10 @@ public abstract class Type {
         supportedTypes.add(QUANTILE_STATE);
 
         arraySubTypes = Lists.newArrayList();
-        arraySubTypes.addAll(numericTypes);
         arraySubTypes.add(BOOLEAN);
+        arraySubTypes.addAll(integerTypes);
+        arraySubTypes.add(FLOAT);
+        arraySubTypes.add(DOUBLE);
         arraySubTypes.add(DECIMALV2);
         arraySubTypes.add(DATE);
         arraySubTypes.add(DATETIME);
@@ -182,8 +184,10 @@ public abstract class Type {
         arraySubTypes.add(STRING);
 
         mapSubTypes = Lists.newArrayList();
-        mapSubTypes.addAll(numericTypes);
         mapSubTypes.add(BOOLEAN);
+        mapSubTypes.addAll(integerTypes);
+        mapSubTypes.add(FLOAT);
+        mapSubTypes.add(DOUBLE);
         mapSubTypes.add(DECIMALV2);
         mapSubTypes.add(DATE);
         mapSubTypes.add(DATETIME);
@@ -194,8 +198,10 @@ public abstract class Type {
         mapSubTypes.add(STRING);
 
         structSubTypes = Lists.newArrayList();
-        structSubTypes.addAll(numericTypes);
         structSubTypes.add(BOOLEAN);
+        structSubTypes.addAll(integerTypes);
+        structSubTypes.add(FLOAT);
+        structSubTypes.add(DOUBLE);
         structSubTypes.add(DECIMALV2);
         structSubTypes.add(DATE);
         structSubTypes.add(DATETIME);
