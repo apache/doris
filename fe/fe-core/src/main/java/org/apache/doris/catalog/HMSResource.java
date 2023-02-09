@@ -30,6 +30,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -97,43 +98,18 @@ public class HMSResource extends Resource {
         }
     }
 
-    private static void getPropertiesFromDLFProps(Map<String, String> props) {
-        // add transformed properties
-        String propsMetastoreType = props.get(HIVE_METASTORE_TYPE);
-        if (!DLF_TYPE.equalsIgnoreCase(propsMetastoreType)) {
-            return;
-        }
-        props.put(S3Resource.S3_ACCESS_KEY, props.getOrDefault("dlf.catalog.accessKeyId", ""));
-        props.put(S3Resource.S3_SECRET_KEY, props.getOrDefault("dlf.catalog.accessKeySecret", ""));
-        String region = props.get("dlf.catalog.region");
-        if (!Strings.isNullOrEmpty(region)) {
-            props.put(S3Resource.S3_REGION, "oss-" + region);
-            String publicAccess = props.getOrDefault("dlf.catalog.accessPublic", "false");
-            props.put(S3Resource.S3_ENDPOINT, getDLFEndpont(region, Boolean.parseBoolean(publicAccess)));
-        }
-    }
-
-    private static String getDLFEndpont(String region, boolean publicAccess) {
-        String prefix = "http://oss-";
-        String suffix = ".aliyuncs.com";
-        if (!publicAccess) {
-            suffix = "-internal" + suffix;
-        }
-        return prefix + region + suffix;
-    }
-
-    public static Map<String, String> getPropertiesFromDLF(Map<String, String> res) {
-        getPropertiesFromDLFProps(res);
+    public static Map<String, String> getPropertiesFromDLF(Map<String, String> props) {
+        Map<String, String> res = new HashMap<>();
         if (LOG.isDebugEnabled()) {
             LOG.debug("Get properties from hive-site.xml");
         }
         // read properties from hive-site.xml.
         HiveConf hiveConf = new HiveConf();
         String metastoreType = hiveConf.get(HIVE_METASTORE_TYPE);
-        if (!DLF_TYPE.equalsIgnoreCase(metastoreType)) {
-            return res;
+        String propsMetastoreType = props.get(HIVE_METASTORE_TYPE);
+        if (!DLF_TYPE.equalsIgnoreCase(metastoreType) && !DLF_TYPE.equalsIgnoreCase(propsMetastoreType)) {
+            return props;
         }
-
         // get following properties from hive-site.xml
         // 1. region and endpoint. eg: cn-beijing
         String region = hiveConf.get("dlf.catalog.region");
@@ -142,7 +118,8 @@ public class HMSResource extends Resource {
             // And add "-internal" to access oss within vpc
             // TODO: find to way to access oss on public?
             res.put(S3Resource.S3_REGION, "oss-" + region);
-            res.put(S3Resource.S3_ENDPOINT, "http://oss-" + region + "-internal.aliyuncs.com");
+            String publicAccess = hiveConf.get("dlf.catalog.accessPublic", "false");
+            res.put(S3Resource.S3_ENDPOINT, getDLFEndpont(region, Boolean.parseBoolean(publicAccess)));
         }
 
         // 2. ak and sk
@@ -157,7 +134,31 @@ public class HMSResource extends Resource {
         if (LOG.isDebugEnabled()) {
             LOG.debug("Get properties for oss in hive-site.xml: {}", res);
         }
+        loadPropertiesFromDLFProps(res, props);
         return res;
+    }
+
+    private static void loadPropertiesFromDLFProps(Map<String, String> res, Map<String, String> props) {
+        // add transformed properties
+        res.put(S3Resource.S3_ACCESS_KEY, props.getOrDefault("dlf.catalog.accessKeyId", ""));
+        res.put(S3Resource.S3_SECRET_KEY, props.getOrDefault("dlf.catalog.accessKeySecret", ""));
+        String region = props.get("dlf.catalog.region");
+        if (!Strings.isNullOrEmpty(region)) {
+            res.put(S3Resource.S3_REGION, "oss-" + region);
+            String publicAccess = props.getOrDefault("dlf.catalog.accessPublic", "false");
+            res.put(S3Resource.S3_ENDPOINT, getDLFEndpont(region, Boolean.parseBoolean(publicAccess)));
+        }
+        // add remain properties
+        res.putAll(props);
+    }
+
+    private static String getDLFEndpont(String region, boolean publicAccess) {
+        String prefix = "http://oss-";
+        String suffix = ".aliyuncs.com";
+        if (!publicAccess) {
+            suffix = "-internal" + suffix;
+        }
+        return prefix + region + suffix;
     }
 
     public static Map<String, String> getPropertiesFromGlue(Map<String, String> res) {
