@@ -21,6 +21,7 @@
 #include "exec/olap_common.h"
 #include "exprs/function_filter.h"
 #include "exprs/runtime_filter.h"
+#include "util/lock.h"
 #include "vec/exec/scan/scanner_context.h"
 #include "vec/exprs/vectorized_fn_call.h"
 #include "vec/exprs/vexpr.h"
@@ -192,7 +193,7 @@ protected:
     std::vector<TRuntimeFilterDesc> _runtime_filter_descs;
     // Set to true if the runtime filter is ready.
     std::vector<bool> _runtime_filter_ready_flag;
-    std::mutex _rf_locks;
+    doris::Mutex _rf_locks;
     std::map<int, RuntimeFilterContext*> _conjunct_id_to_runtime_filter_ctxs;
     phmap::flat_hash_set<VExpr*> _rf_vexpr_set;
     // True means all runtime filters are applied to scanners

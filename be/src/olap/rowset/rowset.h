@@ -28,6 +28,7 @@
 #include "io/fs/remote_file_system.h"
 #include "olap/rowset/rowset_meta.h"
 #include "olap/tablet_schema.h"
+#include "util/lock.h"
 
 namespace doris {
 
@@ -166,7 +167,7 @@ public:
         }
         Status st = Status::OK();
         {
-            std::lock_guard<std::mutex> close_lock(_lock);
+            std::lock_guard close_lock(_lock);
             uint64_t current_refs = _refs_by_reader;
             old_state = _rowset_state_machine.rowset_state();
             if (old_state != ROWSET_LOADED) {
@@ -233,7 +234,7 @@ public:
         uint64_t current_refs = --_refs_by_reader;
         if (current_refs == 0 && _rowset_state_machine.rowset_state() == ROWSET_UNLOADING) {
             {
-                std::lock_guard<std::mutex> release_lock(_lock);
+                std::lock_guard release_lock(_lock);
                 // rejudge _refs_by_reader because we do not add lock in create reader
                 if (_refs_by_reader == 0 &&
                     _rowset_state_machine.rowset_state() == ROWSET_UNLOADING) {
@@ -308,7 +309,7 @@ protected:
     bool _is_cumulative; // rowset is cumulative iff it's visible and start version < end version
 
     // mutex lock for load/close api because it is costly
-    std::mutex _lock;
+    doris::Mutex _lock;
     bool _need_delete_file = false;
     // variable to indicate how many rowset readers owned this rowset
     std::atomic<uint64_t> _refs_by_reader;

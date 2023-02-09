@@ -22,6 +22,7 @@
 #include "io/fs/file_reader.h"
 #include "olap/iterators.h"
 #include "olap/olap_common.h"
+#include "util/async_io.h"
 
 namespace doris {
 namespace io {
@@ -60,7 +61,10 @@ Status CachedRemoteFileReader::read_at(size_t offset, Slice result, const IOCont
     if (bthread_self() == 0) {
         return read_at_impl(offset, result, io_ctx, bytes_read);
     }
-    return Status::NotSupported("Not Support bthread");
+    Status s;
+    auto task = [&] { s = read_at_impl(offset, result, io_ctx, bytes_read); };
+    AsyncIO::run_task(task, io::FileSystemType::S3);
+    return s;
 }
 
 Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result,
