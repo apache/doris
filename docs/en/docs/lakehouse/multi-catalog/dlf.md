@@ -50,7 +50,7 @@ CREATE CATALOG hive_with_dlf PROPERTIES (
 );
 ```
 
-`type` should always be `hms`. If you need to access Aliyun object storage on the public network, can add `"dlf.catalog.accessPublic"="true"`.
+`type` should always be `hms`. If you need to access Alibaba Cloud OSS on the public network, can add `"dlf.catalog.accessPublic"="true"`.
 
 * `dlf.catalog.endpoint`: DLF Endpoint. See [Regions and Endpoints of DLF](https://www.alibabacloud.com/help/en/data-lake-formation/latest/regions-and-endpoints).
 * `dlf.catalog.region`: DLF Region. See [Regions and Endpoints of DLF](https://www.alibabacloud.com/help/en/data-lake-formation/latest/regions-and-endpoints).
