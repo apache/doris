@@ -42,7 +42,6 @@
 #include "runtime/result_queue_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
 #include "runtime/small_file_mgr.h"
-#include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
 #include "runtime/tmp_file_mgr.h"
@@ -116,7 +115,6 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _bfd_parser = BfdParser::create();
     _broker_mgr = new BrokerMgr(this);
     _load_channel_mgr = new LoadChannelMgr();
-    _load_stream_mgr = new LoadStreamMgr();
     _new_load_stream_mgr = new NewLoadStreamMgr();
     _internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
     _function_client_cache = new BrpcClientCache<PFunctionService_Stub>();

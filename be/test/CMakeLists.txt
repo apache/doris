@@ -66,7 +66,6 @@ set(HTTP_TEST_FILES
     http/http_utils_test.cpp
     http/http_client_test.cpp
     # TODO this will overide HttpChannel and make other test failed
-    # http/stream_load_test.cpp
     # http/metrics_action_test.cpp
 )
 set(IO_TEST_FILES
