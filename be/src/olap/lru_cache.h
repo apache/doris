@@ -17,6 +17,7 @@
 #include "olap/olap_common.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/thread_context.h"
+#include "util/lock.h"
 #include "util/metrics.h"
 #include "util/slice.h"
 
@@ -356,7 +357,7 @@ private:
     size_t _capacity = 0;
 
     // _mutex protects the following state.
-    std::mutex _mutex;
+    doris::Mutex _mutex;
     size_t _usage = 0;
 
     // Dummy head of LRU list.

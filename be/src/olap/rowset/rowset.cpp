@@ -45,7 +45,7 @@ Status Rowset::load(bool use_cache) {
     }
     {
         // before lock, if rowset state is ROWSET_UNLOADING, maybe it is doing do_close in release
-        std::lock_guard<std::mutex> load_lock(_lock);
+        std::lock_guard load_lock(_lock);
         // after lock, if rowset state is ROWSET_UNLOADING, it is ok to return
         if (_rowset_state_machine.rowset_state() == ROWSET_UNLOADED) {
             // first do load, then change the state
@@ -77,7 +77,7 @@ void Rowset::make_visible(Version version) {
 }
 
 bool Rowset::check_rowset_segment() {
-    std::lock_guard<std::mutex> load_lock(_lock);
+    std::lock_guard load_lock(_lock);
     return check_current_rowset_segment();
 }
 
