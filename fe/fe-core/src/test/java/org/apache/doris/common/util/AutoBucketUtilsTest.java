@@ -103,6 +103,10 @@ public class AutoBucketUtilsTest {
             ImmutableMap<Long, Backend> backends) {
         new Expectations() {
             {
+                Env.getServingEnv();
+                minTimes = 0;
+                result = env;
+
                 Env.getCurrentSystemInfo();
                 minTimes = 0;
                 result = systemInfoService;
