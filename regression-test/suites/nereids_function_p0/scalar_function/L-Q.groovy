@@ -31,6 +31,8 @@ suite("nereids_scalar_fn_3") {
     qt_sql "select least(klint) from fn_test order by klint"
     qt_sql "select least(kfloat) from fn_test order by kfloat"
     qt_sql "select least(kdbl) from fn_test order by kdbl"
+    qt_sql "select least(kdt) from fn_test order by kdt"
+    qt_sql "select least(kdtv2) from fn_test order by kdtv2"
     qt_sql "select least(kdtm) from fn_test order by kdtm"
     qt_sql "select least(kdcmls1) from fn_test order by kdcmls1"
     qt_sql "select least(kvchrs1) from fn_test order by kvchrs1"
