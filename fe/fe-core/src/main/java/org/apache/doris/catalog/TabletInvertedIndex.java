@@ -192,23 +192,21 @@ public class TabletInvertedIndex {
                                 }
                             }
 
-                            if (Config.enable_storage_policy) {
+                            if (Config.enable_storage_policy && beTabletInfo.isSetCooldownReplicaId()) {
                                 handleCooldownConf(tabletMeta, backendTabletInfo, cooldownConfToPush,
                                         cooldownConfToUpdate);
-                            }
 
-                            if (backendTabletInfo.isIsCooldown()) {
                                 replica.setCooldownMetaId(backendTabletInfo.getCooldownMetaId());
                                 replica.setCooldownedVersion(backendTabletInfo.getCooldownedVersion());
-                            }
 
-                            if (hasCooldownDeleteId(tabletMeta, backendTabletInfo)) {
-                                CooldownDelete cooldownDelete = new CooldownDelete(backendId, tabletId,
-                                        backendTabletInfo.getCooldownDeleteId());
-                                if (!deleteCooldownTabletMap.containsKey(backendId)) {
-                                    deleteCooldownTabletMap.put(backendId, new LinkedList<>());
+                                if (hasCooldownDeleteId(tabletMeta, backendTabletInfo)) {
+                                    CooldownDelete cooldownDelete = new CooldownDelete(backendId, tabletId,
+                                            backendTabletInfo.getCooldownDeleteId());
+                                    if (!deleteCooldownTabletMap.containsKey(backendId)) {
+                                        deleteCooldownTabletMap.put(backendId, new LinkedList<>());
+                                    }
+                                    deleteCooldownTabletMap.get(backendId).add(cooldownDelete);
                                 }
-                                deleteCooldownTabletMap.get(backendId).add(cooldownDelete);
                             }
 
                             long partitionId = tabletMeta.getPartitionId();
@@ -354,10 +352,7 @@ public class TabletInvertedIndex {
     }
 
     private boolean hasCooldownDeleteId(TabletMeta tabletMeta, TTabletInfo beTabletInfo) {
-        if (!beTabletInfo.isIsCooldown()
-                || tabletMeta.getCooldownReplicaId() != beTabletInfo.getCooldownReplicaId()
-                || tabletMeta.getCooldownReplicaId() != beTabletInfo.getReplicaId()
-                || !beTabletInfo.isSetCooldownDeleteId()) {
+        if (!beTabletInfo.isSetCooldownDeleteId()) {
             return false;
         }
         Map<Long, Replica> replicaMap = replicaMetaTable.row(beTabletInfo.getTabletId());
@@ -372,9 +367,6 @@ public class TabletInvertedIndex {
 
     private void handleCooldownConf(TabletMeta tabletMeta, TTabletInfo beTabletInfo,
             List<CooldownConf> cooldownConfToPush, List<CooldownConf> cooldownConfToUpdate) {
-        if (!beTabletInfo.isSetCooldownReplicaId()) {
-            return;
-        }
         Tablet tablet;
         try {
             OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId())
