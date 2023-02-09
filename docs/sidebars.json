@@ -166,7 +166,8 @@
                     "items": [
                         "advanced/best-practice/query-analysis",
                         "advanced/best-practice/import-analysis",
-                        "advanced/best-practice/debug-log"
+                        "advanced/best-practice/debug-log",
+                        "advanced/best-practice/compaction"
                     ]
                 },
                 "advanced/resource",
