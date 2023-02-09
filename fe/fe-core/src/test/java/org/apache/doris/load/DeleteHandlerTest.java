@@ -116,7 +116,7 @@ public class DeleteHandlerTest {
         auth = AccessTestUtil.fetchAdminAccess();
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         db = CatalogMocker.mockDb();
-        TabletMeta tabletMeta = new TabletMeta(DB_ID, TBL_ID, PARTITION_ID, TBL_ID, 0, null, -1, -1);
+        TabletMeta tabletMeta = new TabletMeta(DB_ID, TBL_ID, PARTITION_ID, TBL_ID, 0, null);
         invertedIndex.addTablet(TABLET_ID, tabletMeta);
         invertedIndex.addReplica(TABLET_ID, new Replica(REPLICA_ID_1, BACKEND_ID_1, 0, Replica.ReplicaState.NORMAL));
         invertedIndex.addReplica(TABLET_ID, new Replica(REPLICA_ID_2, BACKEND_ID_2, 0, Replica.ReplicaState.NORMAL));
