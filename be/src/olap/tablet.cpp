@@ -1395,10 +1395,12 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     tablet_info->__set_replica_id(replica_id());
     tablet_info->__set_remote_data_size(_tablet_meta->tablet_remote_size());
     if (tablet_state() == TABLET_RUNNING && _tablet_meta->storage_policy_id() > 0) {
+        tablet_info->__isset.cooldown_replica_id = true;
         tablet_info->__set_cooldown_replica_id(_cooldown_replica_id);
         tablet_info->__set_cooldown_term(_cooldown_term);
         TUniqueId cooldown_delete_id;
         if (get_cooldown_delete_id(&cooldown_delete_id)) {
+            tablet_info->__isset.cooldown_delete_id = true;
             tablet_info->__set_cooldown_delete_id(cooldown_delete_id);
         }
         tablet_info->__set_cooldown_meta_id(_tablet_meta->cooldown_meta_id());
