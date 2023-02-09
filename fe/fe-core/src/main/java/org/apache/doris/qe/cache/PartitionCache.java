@@ -108,7 +108,6 @@ public class PartitionCache extends Cache {
             MetricRepo.COUNTER_CACHE_HIT_PARTITION.increase(1L);
         }
 
-        range.setTooNewByID(latestTable.latestPartitionId);
         //build rewrite sql
         this.hitRange = range.buildDiskPartitionRange(newRangeList);
         if (newRangeList != null && newRangeList.size() > 0) {

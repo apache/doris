@@ -61,6 +61,12 @@ public class PartitionRange {
         private long partitionId;
         private PartitionKeyType cacheKey;
         private boolean fromCache;
+        // Use the tooNew field to mark that the data in the partition field is too new,
+        // and do not update the cached data to avoid resource waste caused by frequent updates.
+        // But when a partition contains multiple partition values, it will cause various
+        // strange problems. For example, the partition name is p202205, and the partition range is
+        // [types: [DATE]; keys: [2022-05-01]; ..types: [DATE]; keys: [2022-06-01]
+        // Therefore, this field is not used temporarily
         private boolean tooNew;
 
         public Partition getPartition() {
