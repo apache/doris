@@ -102,6 +102,7 @@ public:
 
         std::vector<RowsetReaderSharedPtr> rs_readers;
         std::vector<uint32_t> return_columns;
+        std::set<int32_t> output_columns;
         RuntimeProfile* profile = nullptr;
         RuntimeState* runtime_state = nullptr;
 
