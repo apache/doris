@@ -19,6 +19,7 @@
 
 #include "runtime/large_int_value.h"
 #include "runtime/runtime_state.h"
+#include "util/lock.h"
 #include "util/runtime_profile.h"
 #include "util/time.h"
 #include "util/uid_util.h"
@@ -320,8 +321,8 @@ protected:
     // expr index
     int _expr_order;
     // used for await or signal
-    std::mutex _inner_mutex;
-    std::condition_variable _inner_cv;
+    doris::Mutex _inner_mutex;
+    doris::ConditionVariable _inner_cv;
 
     bool _is_push_down = false;
 

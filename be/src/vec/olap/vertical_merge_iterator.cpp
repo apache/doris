@@ -98,6 +98,21 @@ void RowSourcesBuffer::set_agg_flag(uint64_t index, bool agg) {
     _buffer->get_data()[index] = ori.data();
 }
 
+size_t RowSourcesBuffer::continuous_agg_count(uint64_t index) {
+    size_t result = 1;
+    int start = index + 1;
+    int end = _buffer->size();
+    while (index < end) {
+        RowSource next(_buffer->get_element(start++));
+        if (next.agg_flag()) {
+            ++result;
+        } else {
+            break;
+        }
+    }
+    return result;
+}
+
 size_t RowSourcesBuffer::same_source_count(uint16_t source, size_t limit) {
     int result = 1;
     int start = _buf_idx + 1;

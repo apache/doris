@@ -406,6 +406,10 @@ public class PlanFragment extends TreeNode<PlanFragment> {
         return fragmentId;
     }
 
+    public boolean hasTargetNode() {
+        return planRoot.isTargetNode();
+    }
+
     public Set<RuntimeFilterId> getBuilderRuntimeFilterIds() {
         return builderRuntimeFilterIds;
     }
