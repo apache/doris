@@ -162,6 +162,7 @@ public class MysqlProto {
             throws IOException, NoSuchAlgorithmException, KeyManagementException {
         MysqlSerializer serializer = context.getSerializer();
         MysqlChannel channel = context.getMysqlChannel();
+        MysqlSslConnectionContext mysqlSslConnectionContext = context.getMysqlSslConnectionContext();
         context.getState().setOk();
 
         // Server send handshake packet to client.
@@ -199,7 +200,7 @@ public class MysqlProto {
                     return false;
                 }
 
-                if (!MysqlSslExchange.sslExchange()) {
+                if (!mysqlSslConnectionContext.sslExchange(channel)) {
                     ErrorReport.report(ErrorCode.ERR_NOT_SUPPORTED_AUTH_MODE);
                     sendResponsePacket(context);
                     return false;

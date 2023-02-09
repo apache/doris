@@ -21,34 +21,48 @@ import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
-import javax.net.ssl.SSLException;
 
-public class MysqlSslExchange {
-    private static final String[] CIPHER_SUITES = {"TLS_DHE_RSA_WITH_AES_128_CBC_SHA256"};
+public class MysqlSslConnectionContext {
+    private SSLEngine sslEngine;
+    private SSLContext sslContext;
+    private String protocol;
+    private String[] ciphersuites;
 
-    public static boolean sslExchange() throws NoSuchAlgorithmException, KeyManagementException {
-        // TODO: TLS protocol
-        SSLContext sslCtx = initSSLCtx();
-        SSLEngine sslEngine = sslCtx.createSSLEngine();
-        try {
-            sslEngine.beginHandshake();
-        } catch (SSLException e) {
-            throw new RuntimeException(e);
-        }
+    public MysqlSslConnectionContext(String protocol, String[] ciphersuites)
+            throws NoSuchAlgorithmException, KeyManagementException {
+        protocol = protocol;
+        ciphersuites = ciphersuites;
+        initSslContext();
+        initSslEngine();
+    }
+
+    private void initSslContext() throws NoSuchAlgorithmException, KeyManagementException {
+        sslContext = SSLContext.getInstance(protocol);
+        sslContext.init(null, null, null);
+    }
+
+    private void initSslEngine() {
+        sslEngine = sslContext.createSSLEngine();
+        // set to server mode
+        sslEngine.setUseClientMode(false);
+        sslEngine.setEnabledCipherSuites(ciphersuites);
+    }
+
+    public SSLEngine getSslEngine() {
+        return sslEngine;
+    }
+
+    public String getProtocol() {
+        return protocol;
+    }
+
+    public String[] getCiphersuites() {
+        return ciphersuites;
+    }
+
+    public boolean sslExchange(MysqlChannel channel) {
+
         return true;
     }
 
-    private static SSLContext initSSLCtx() throws NoSuchAlgorithmException, KeyManagementException {
-        SSLContext sslCtx = SSLContext.getInstance("TLSv1.2");
-        sslCtx.init(null, null, null);
-        return sslCtx;
-    }
-
-    private static SSLEngine initSSLEngine(SSLContext sslCtx) {
-        SSLEngine sslEngine = sslCtx.createSSLEngine();
-        // set to server mode
-        sslEngine.setUseClientMode(false);
-        sslEngine.setEnabledCipherSuites(CIPHER_SUITES);
-        return sslEngine;
-    }
 }

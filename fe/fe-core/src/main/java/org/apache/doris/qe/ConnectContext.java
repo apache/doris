@@ -32,6 +32,7 @@ import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.mysql.MysqlSslConnectionContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
@@ -49,6 +50,8 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.nio.channels.SocketChannel;
+import java.security.KeyManagementException;
+import java.security.NoSuchAlgorithmException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -61,6 +64,10 @@ import java.util.Set;
 public class ConnectContext {
     private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
     protected static ThreadLocal<ConnectContext> threadLocalInfo = new ThreadLocal<ConnectContext>();
+
+    private static final String[] SSL_CIPHER_SUITES = {"TLS_DHE_RSA_WITH_AES_128_CBC_SHA256"};
+
+    private static final String SSL_PROTOCOL= "TLSv1.2";
 
     // set this id before analyze
     protected volatile long stmtId;
@@ -150,6 +157,9 @@ public class ConnectContext {
 
     private SessionContext sessionContext;
 
+    private final MysqlSslConnectionContext mysqlSslConnectionContext = new MysqlSslConnectionContext(SSL_PROTOCOL,
+            SSL_CIPHER_SUITES);
+
     private long userQueryTimeout;
 
     /**
@@ -170,6 +180,10 @@ public class ConnectContext {
 
     public SessionContext getSessionContext() {
         return sessionContext;
+    }
+
+    public MysqlSslConnectionContext getMysqlSslConnectionContext() {
+        return mysqlSslConnectionContext;
     }
 
     public void setOrUpdateInsertResult(long txnId, String label, String db, String tbl,
@@ -209,11 +223,11 @@ public class ConnectContext {
         return notEvalNondeterministicFunction;
     }
 
-    public ConnectContext() {
+    public ConnectContext() throws NoSuchAlgorithmException, KeyManagementException {
         this(null);
     }
 
-    public ConnectContext(SocketChannel channel) {
+    public ConnectContext(SocketChannel channel) throws NoSuchAlgorithmException, KeyManagementException {
         state = new QueryState();
         returnRows = 0;
         serverCapability = MysqlCapability.DEFAULT_CAPABILITY;
