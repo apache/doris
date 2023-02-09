@@ -23,11 +23,10 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <roaring/roaring.hh>
 #include <vector>
 
 #include "io/fs/file_system.h"
-#include <roaring/roaring.hh>
-
 #include "olap/lru_cache.h"
 #include "runtime/memory/mem_tracker.h"
 #include "util/time.h"
@@ -165,8 +164,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(InvertedIndexCacheHandle);
 };
 
-
-
 enum class InvertedIndexQueryType;
 
 class InvertedIndexQueryCacheHandle;
@@ -175,10 +172,10 @@ class InvertedIndexQueryCache {
 public:
     // cache key
     struct CacheKey {
-        io::Path index_path; // index file path
-        std::string column_name; // column name
+        io::Path index_path;               // index file path
+        std::string column_name;           // column name
         InvertedIndexQueryType query_type; // query type
-        std::wstring value; // query value
+        std::wstring value;                // query value
 
         // Encode to a flat binary which can be used as LRUCache's key
         std::string encode() const {
@@ -229,7 +226,7 @@ public:
     InvertedIndexQueryCacheHandle() {}
 
     InvertedIndexQueryCacheHandle(Cache* cache, Cache::Handle* handle)
-        : _cache(cache), _handle(handle) {}
+            : _cache(cache), _handle(handle) {}
 
     ~InvertedIndexQueryCacheHandle() {
         if (_handle != nullptr) {
@@ -262,7 +259,6 @@ private:
 
     // Don't allow copy and assign
     DISALLOW_COPY_AND_ASSIGN(InvertedIndexQueryCacheHandle);
-
 };
 
 } // namespace segment_v2

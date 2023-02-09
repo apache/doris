@@ -306,8 +306,8 @@ Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
                                             InvertedIndexIterator** iter) {
     auto col_unique_id = tablet_column.unique_id();
     if (_column_readers.count(col_unique_id) > 0 && index_meta) {
-        return _column_readers.at(col_unique_id)->new_inverted_index_iterator(
-            index_meta, stats, iter);
+        return _column_readers.at(col_unique_id)
+                ->new_inverted_index_iterator(index_meta, stats, iter);
     }
     return Status::OK();
 }

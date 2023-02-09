@@ -237,8 +237,8 @@ Status ExecEnv::_init_mem_env() {
 
     // use memory limit
     int64_t inverted_index_query_cache_limit =
-            ParseUtil::parse_mem_spec(config::inverted_index_query_cache_limit, MemInfo::mem_limit(),
-                                      MemInfo::physical_mem(), &is_percent);
+            ParseUtil::parse_mem_spec(config::inverted_index_query_cache_limit,
+                                      MemInfo::mem_limit(), MemInfo::physical_mem(), &is_percent);
     while (!is_percent && inverted_index_query_cache_limit > MemInfo::mem_limit() / 2) {
         // Reason same as buffer_pool_limit
         inverted_index_query_cache_limit = inverted_index_query_cache_limit / 2;

@@ -69,16 +69,13 @@ public:
     virtual ~InvertedIndexReader() = default;
 
     // create a new column iterator. Client should delete returned iterator
-    virtual Status new_iterator(const TabletIndex* index_meta,
-                                OlapReaderStatistics* stats,
+    virtual Status new_iterator(const TabletIndex* index_meta, OlapReaderStatistics* stats,
                                 InvertedIndexIterator** iterator) = 0;
-    virtual Status query(OlapReaderStatistics* stats,
-                         const std::string& column_name, const void* query_value,
-                         InvertedIndexQueryType query_type, InvertedIndexParserType analyser_type,
-                         roaring::Roaring* bit_map) = 0;
-    virtual Status try_query(OlapReaderStatistics* stats,
-                             const std::string& column_name, const void* query_value,
-                             InvertedIndexQueryType query_type,
+    virtual Status query(OlapReaderStatistics* stats, const std::string& column_name,
+                         const void* query_value, InvertedIndexQueryType query_type,
+                         InvertedIndexParserType analyser_type, roaring::Roaring* bit_map) = 0;
+    virtual Status try_query(OlapReaderStatistics* stats, const std::string& column_name,
+                             const void* query_value, InvertedIndexQueryType query_type,
                              InvertedIndexParserType analyser_type, uint32_t* count) = 0;
 
     virtual InvertedIndexReaderType type() = 0;
@@ -103,14 +100,12 @@ public:
 
     Status new_iterator(const TabletIndex* index_meta, OlapReaderStatistics* stats,
                         InvertedIndexIterator** iterator) override;
-    Status query(OlapReaderStatistics* stats,
-                 const std::string& column_name, const void* query_value,
-                 InvertedIndexQueryType query_type, InvertedIndexParserType analyser_type,
-                 roaring::Roaring* bit_map) override;
-    Status try_query(OlapReaderStatistics* stats,
-                     const std::string& column_name, const void* query_value,
-                     InvertedIndexQueryType query_type, InvertedIndexParserType analyser_type,
-                     uint32_t* count) override {
+    Status query(OlapReaderStatistics* stats, const std::string& column_name,
+                 const void* query_value, InvertedIndexQueryType query_type,
+                 InvertedIndexParserType analyser_type, roaring::Roaring* bit_map) override;
+    Status try_query(OlapReaderStatistics* stats, const std::string& column_name,
+                     const void* query_value, InvertedIndexQueryType query_type,
+                     InvertedIndexParserType analyser_type, uint32_t* count) override {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
     }
 
@@ -130,14 +125,12 @@ public:
 
     Status new_iterator(const TabletIndex* index_meta, OlapReaderStatistics* stats,
                         InvertedIndexIterator** iterator) override;
-    Status query(OlapReaderStatistics* stats,
-                 const std::string& column_name, const void* query_value,
-                 InvertedIndexQueryType query_type, InvertedIndexParserType analyser_type,
-                 roaring::Roaring* bit_map) override;
-    Status try_query(OlapReaderStatistics* stats,
-                     const std::string& column_name, const void* query_value,
-                     InvertedIndexQueryType query_type, InvertedIndexParserType analyser_type,
-                     uint32_t* count) override {
+    Status query(OlapReaderStatistics* stats, const std::string& column_name,
+                 const void* query_value, InvertedIndexQueryType query_type,
+                 InvertedIndexParserType analyser_type, roaring::Roaring* bit_map) override;
+    Status try_query(OlapReaderStatistics* stats, const std::string& column_name,
+                     const void* query_value, InvertedIndexQueryType query_type,
+                     InvertedIndexParserType analyser_type, uint32_t* count) override {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
     }
     InvertedIndexReaderType type() override;
@@ -191,17 +184,14 @@ public:
     Status new_iterator(const TabletIndex* index_meta, OlapReaderStatistics* stats,
                         InvertedIndexIterator** iterator) override;
 
-    Status query(OlapReaderStatistics* stats,
-                 const std::string& column_name, const void* query_value,
-                 InvertedIndexQueryType query_type, InvertedIndexParserType analyser_type,
-                 roaring::Roaring* bit_map) override;
-    Status try_query(OlapReaderStatistics* stats,
-                     const std::string& column_name, const void* query_value,
-                     InvertedIndexQueryType query_type, InvertedIndexParserType analyser_type,
-                     uint32_t* count) override;
-    Status bkd_query(OlapReaderStatistics* stats,
-                     const std::string& column_name, const void* query_value,
-                     InvertedIndexQueryType query_type,
+    Status query(OlapReaderStatistics* stats, const std::string& column_name,
+                 const void* query_value, InvertedIndexQueryType query_type,
+                 InvertedIndexParserType analyser_type, roaring::Roaring* bit_map) override;
+    Status try_query(OlapReaderStatistics* stats, const std::string& column_name,
+                     const void* query_value, InvertedIndexQueryType query_type,
+                     InvertedIndexParserType analyser_type, uint32_t* count) override;
+    Status bkd_query(OlapReaderStatistics* stats, const std::string& column_name,
+                     const void* query_value, InvertedIndexQueryType query_type,
                      std::shared_ptr<lucene::util::bkd::bkd_reader>&& r,
                      InvertedIndexVisitor* visitor);
 

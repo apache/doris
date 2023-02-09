@@ -70,8 +70,7 @@ Status InvertedIndexSearcherCache::get_index_searcher(const io::FileSystemSPtr& 
                                                       const std::string& index_dir,
                                                       const std::string& file_name,
                                                       InvertedIndexCacheHandle* cache_handle,
-                                                      OlapReaderStatistics* stats,
-                                                      bool use_cache) {
+                                                      OlapReaderStatistics* stats, bool use_cache) {
     auto file_path = index_dir + "/" + file_name;
 
     using namespace std::chrono;
@@ -184,13 +183,11 @@ bool InvertedIndexQueryCache::lookup(const CacheKey& key, InvertedIndexQueryCach
 }
 
 void InvertedIndexQueryCache::insert(const CacheKey& key, roaring::Roaring* bitmap,
-            InvertedIndexQueryCacheHandle* handle) {
-    auto deleter = [](const doris::CacheKey& key, void* value) {
-        delete (roaring::Roaring*)value;
-    };
+                                     InvertedIndexQueryCacheHandle* handle) {
+    auto deleter = [](const doris::CacheKey& key, void* value) { delete (roaring::Roaring*)value; };
 
-    auto lru_handle = _cache->insert(key.encode(), (void *)bitmap, bitmap->getSizeInBytes(),
-                                        deleter, CachePriority::NORMAL);
+    auto lru_handle = _cache->insert(key.encode(), (void*)bitmap, bitmap->getSizeInBytes(), deleter,
+                                     CachePriority::NORMAL);
     *handle = InvertedIndexQueryCacheHandle(_cache.get(), lru_handle);
 }
 
