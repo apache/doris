@@ -1974,5 +1974,17 @@ public class Config extends ConfigBase {
 
     @ConfField(mutable = false)
     public static int topn_two_phase_limit_threshold = 512;
+
+    /**
+     * Used to set session variables randomly to check more issues in github workflow
+     */
+    @ConfField(mutable = true)
+    public static int pull_request_id = 0;
+
+    /**
+     * Used to set default db transaction quota num.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long default_db_max_running_txn_num = -1;
 }
 

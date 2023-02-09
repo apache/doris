@@ -225,7 +225,7 @@ Status MergeSorterState::_create_intermediate_merger(int num_blocks,
                 stream_id, spilled_block_reader, block_spill_profile_));
         child_block_suppliers.emplace_back(std::bind(std::mem_fn(&BlockSpillReader::read),
                                                      spilled_block_reader.get(),
-                                                     std::placeholders::_1));
+                                                     std::placeholders::_1, std::placeholders::_2));
         spilled_block_readers_.emplace_back(std::move(spilled_block_reader));
 
         spilled_sorted_block_streams_.pop_front();

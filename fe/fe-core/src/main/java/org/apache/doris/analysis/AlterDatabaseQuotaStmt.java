@@ -37,7 +37,8 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
     public enum QuotaType {
         NONE,
         DATA,
-        REPLICA
+        REPLICA,
+        TRANSACTION
     }
 
     public AlterDatabaseQuotaStmt(String dbName, QuotaType quotaType, String quotaValue) {
@@ -75,6 +76,8 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
             quota = ParseUtil.analyzeDataVolumn(quotaValue);
         } else if (quotaType == QuotaType.REPLICA) {
             quota = ParseUtil.analyzeReplicaNumber(quotaValue);
+        } else if (quotaType == QuotaType.TRANSACTION) {
+            quota = ParseUtil.analyzeTransactionNumber(quotaValue);
         }
 
     }
@@ -82,7 +85,7 @@ public class AlterDatabaseQuotaStmt extends DdlStmt {
     @Override
     public String toSql() {
         return "ALTER DATABASE " + dbName + " SET "
-                + (quotaType == QuotaType.DATA ? "DATA" : "REPLICA")
+                + quotaType.name()
                 + " QUOTA " + quotaValue;
     }
 }

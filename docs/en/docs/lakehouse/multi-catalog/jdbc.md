@@ -164,6 +164,38 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
 >
 > 3. HTTP address. For example, `https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-5.1.47.jar`. The system will download the Driver file from the HTTP address. This only supports HTTP services with no authentication requirements.
 
+
+## Query
+
+```
+select * from mysql_table where k1 > 1000 and k3 ='term';
+```
+
+In some cases, the keywords in the database might be used as the field names. For queries to function normally in these cases, Doris will add escape characters to the field names and tables names in SQL statements based on the rules of different databases, such as (``) for MySQL, ([]) for SQLServer, and ("") for PostgreSQL and Oracle. This might require extra attention on case sensitivity. You can view the query statements sent to these various databases via ```explain sql```.
+
+## Write Data
+
+<version since="1.2.2">
+After creating a JDBC Catalog in Doris, you can write data or query results to it using the `insert into` statement. You can also ingest data from one JDBC Catalog Table to another JDBC Catalog Table.
+</version>
+
+Example:
+
+```
+insert into mysql_table values(1, "doris");
+insert into mysql_table select * from table;
+```
+
+### Transaction
+
+In Doris, data is written to External Tables in batches. If the ingestion process is interrupted, rollbacks might be required. That's why JDBC Catalog Tables support data writing transactions. You can utilize this feature by setting the session variable: `enable_odbc_transcation `.
+
+```
+set enable_odbc_transcation = true; 
+```
+
+The transaction mechanism ensures the atomicity of data writing to JDBC External Tables, but it reduces performance to a certain extent. You may decide whether to enable transactions based on your own tradeoff.
+
 ## Column Type Mapping
 
 ### MySQL

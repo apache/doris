@@ -82,13 +82,7 @@ public:
     FragmentExecState(const TUniqueId& query_id, const TUniqueId& instance_id, int backend_num,
                       ExecEnv* exec_env, std::shared_ptr<QueryFragmentsCtx> fragments_ctx);
 
-    FragmentExecState(const TUniqueId& query_id, const TUniqueId& instance_id, int backend_num,
-                      ExecEnv* exec_env, const TNetworkAddress& coord_addr);
-
     Status prepare(const TExecPlanFragmentParams& params);
-
-    // just no use now
-    void callback(const Status& status, RuntimeProfile* profile, bool done);
 
     std::string to_http_path(const std::string& file_name);
 
@@ -196,21 +190,6 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
     _coord_addr = _fragments_ctx->coord_addr;
 }
 
-FragmentExecState::FragmentExecState(const TUniqueId& query_id,
-                                     const TUniqueId& fragment_instance_id, int backend_num,
-                                     ExecEnv* exec_env, const TNetworkAddress& coord_addr)
-        : _query_id(query_id),
-          _fragment_instance_id(fragment_instance_id),
-          _backend_num(backend_num),
-          _exec_env(exec_env),
-          _coord_addr(coord_addr),
-          _executor(exec_env, std::bind<void>(std::mem_fn(&FragmentExecState::coordinator_callback),
-                                              this, std::placeholders::_1, std::placeholders::_2,
-                                              std::placeholders::_3)),
-          _timeout_second(-1) {
-    _start_time = DateTimeValue::local_time();
-}
-
 Status FragmentExecState::prepare(const TExecPlanFragmentParams& params) {
     if (params.__isset.query_options) {
         _timeout_second = params.query_options.query_timeout;
@@ -272,8 +251,6 @@ Status FragmentExecState::cancel(const PPlanFragmentCancelReason& reason, const 
     }
     return Status::OK();
 }
-
-void FragmentExecState::callback(const Status& status, RuntimeProfile* profile, bool done) {}
 
 std::string FragmentExecState::to_http_path(const std::string& file_name) {
     std::stringstream url;

@@ -183,6 +183,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             return property.getBuckets();
         }
 
+        // auto bucket
+        // get all history partitions
         List<Partition> partitions = Lists.newArrayList();
         RangePartitionInfo info = (RangePartitionInfo) (table.getPartitionInfo());
         List<Map.Entry<Long, PartitionItem>> idToItems = new ArrayList<>(info.getIdToItem(false).entrySet());
@@ -194,7 +196,7 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             }
         }
 
-        // auto bucket
+        // no exist history partition
         if (partitions.size() == 0) {
             return property.getBuckets();
         }
@@ -206,7 +208,12 @@ public class DynamicPartitionScheduler extends MasterDaemon {
             }
         }
 
-        // * 5 for uncompressed data
+        // no exist history partition data
+        if (partitionSizeArray.size() == 0) {
+            return property.getBuckets();
+        }
+
+        // plus 5 for uncompressed data
         long uncompressedPartitionSize = getNextPartitionSize(partitionSizeArray) * 5;
         return AutoBucketUtils.getBucketsNum(uncompressedPartitionSize);
     }

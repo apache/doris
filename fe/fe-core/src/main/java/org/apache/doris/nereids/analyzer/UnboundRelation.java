@@ -32,6 +32,8 @@ import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.List;
@@ -46,21 +48,29 @@ public class UnboundRelation extends LogicalRelation implements Unbound {
     private final List<String> nameParts;
     private final List<String> partNames;
     private final boolean isTempPart;
+    private final List<String> hints;
 
     public UnboundRelation(RelationId id, List<String> nameParts) {
-        this(id, nameParts, Optional.empty(), Optional.empty(), ImmutableList.of(), false);
+        this(id, nameParts, Optional.empty(), Optional.empty(), ImmutableList.of(), false, ImmutableList.of());
     }
 
     public UnboundRelation(RelationId id, List<String> nameParts, List<String> partNames, boolean isTempPart) {
-        this(id, nameParts, Optional.empty(), Optional.empty(), partNames, isTempPart);
+        this(id, nameParts, Optional.empty(), Optional.empty(), partNames, isTempPart, ImmutableList.of());
+    }
+
+    public UnboundRelation(RelationId id, List<String> nameParts, List<String> partNames, boolean isTempPart,
+            List<String> hints) {
+        this(id, nameParts, Optional.empty(), Optional.empty(), partNames, isTempPart, hints);
     }
 
     public UnboundRelation(RelationId id, List<String> nameParts, Optional<GroupExpression> groupExpression,
-            Optional<LogicalProperties> logicalProperties, List<String> partNames, boolean isTempPart) {
+            Optional<LogicalProperties> logicalProperties, List<String> partNames, boolean isTempPart,
+            List<String> hints) {
         super(id, PlanType.LOGICAL_UNBOUND_RELATION, groupExpression, logicalProperties);
         this.nameParts = ImmutableList.copyOf(Objects.requireNonNull(nameParts, "nameParts should not null"));
         this.partNames = ImmutableList.copyOf(Objects.requireNonNull(partNames, "partNames should not null"));
         this.isTempPart = isTempPart;
+        this.hints = ImmutableList.copyOf(Objects.requireNonNull(hints, "hints should not be null."));
     }
 
     @Override
@@ -84,13 +94,14 @@ public class UnboundRelation extends LogicalRelation implements Unbound {
 
     @Override
     public Plan withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new UnboundRelation(id, nameParts, groupExpression, Optional.of(getLogicalProperties()),
-                partNames, isTempPart);
+        return new UnboundRelation(id, nameParts, groupExpression, Optional.of(getLogicalProperties()), partNames,
+                isTempPart, hints);
     }
 
     @Override
     public Plan withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new UnboundRelation(id, nameParts, Optional.empty(), logicalProperties, partNames, isTempPart);
+        return new UnboundRelation(id, nameParts, Optional.empty(), logicalProperties, partNames,
+                isTempPart, hints);
     }
 
     @Override
@@ -100,10 +111,15 @@ public class UnboundRelation extends LogicalRelation implements Unbound {
 
     @Override
     public String toString() {
-        return Utils.toSqlString("UnboundRelation",
+        List<Object> args = Lists.newArrayList(
                 "id", id,
                 "nameParts", StringUtils.join(nameParts, ".")
         );
+        if (CollectionUtils.isNotEmpty(hints)) {
+            args.add("hints");
+            args.add(StringUtils.join(hints, ", "));
+        }
+        return Utils.toSqlString("UnboundRelation", args.toArray());
     }
 
     @Override
@@ -146,5 +162,9 @@ public class UnboundRelation extends LogicalRelation implements Unbound {
 
     public boolean isTempPart() {
         return isTempPart;
+    }
+
+    public List<String> getHints() {
+        return hints;
     }
 }

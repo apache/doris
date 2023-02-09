@@ -43,7 +43,6 @@ struct TTabletInfo {
     // data size on remote storage
     16: optional Types.TSize remote_data_size
     17: optional Types.TReplicaId cooldown_replica_id
-    18: optional bool is_cooldown = false
     19: optional i64 cooldown_term = -1
     20: optional Types.TUniqueId cooldown_delete_id
     21: optional Types.TUniqueId cooldown_meta_id

@@ -826,9 +826,9 @@ CONF_Bool(enable_simdjson_reader, "false");
 
 CONF_mBool(enable_query_like_bloom_filter, "true");
 // number of s3 scanner thread pool size
-CONF_Int32(doris_remote_scanner_thread_pool_thread_num, "16");
+CONF_Int32(doris_remote_scanner_thread_pool_thread_num, "48");
 // number of s3 scanner thread pool queue size
-CONF_Int32(doris_remote_scanner_thread_pool_queue_size, "10240");
+CONF_Int32(doris_remote_scanner_thread_pool_queue_size, "102400");
 
 // limit the queue of pending batches which will be sent by a single nodechannel
 CONF_mInt64(nodechannel_pending_queue_max_bytes, "67108864");

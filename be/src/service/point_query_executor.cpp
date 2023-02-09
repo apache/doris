@@ -63,6 +63,7 @@ std::unique_ptr<vectorized::Block> Reusable::get_block() {
         return std::make_unique<vectorized::Block>(tuple_desc()->slots(), 4);
     }
     auto block = std::move(_block_pool.back());
+    CHECK(block != nullptr);
     _block_pool.pop_back();
     return block;
 }
@@ -149,9 +150,9 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
                 &t_output_exprs));
         _reusable = reusable_ptr;
         if (uuid != 0) {
-            LookupCache::instance().add(uuid, reusable_ptr);
             // could be reused by requests after, pre allocte more blocks
             RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, 128));
+            LookupCache::instance().add(uuid, reusable_ptr);
         } else {
             RETURN_IF_ERROR(reusable_ptr->init(t_desc_tbl, t_output_exprs.exprs, 1));
         }
@@ -164,7 +165,7 @@ Status PointQueryExecutor::init(const PTabletKeyLookupRequest* request,
     }
     RETURN_IF_ERROR(_init_keys(request));
     _result_block = _reusable->get_block();
-    DCHECK(_result_block != nullptr);
+    CHECK(_result_block != nullptr);
     return Status::OK();
 }
 

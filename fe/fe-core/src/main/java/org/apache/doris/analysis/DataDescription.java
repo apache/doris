@@ -196,6 +196,8 @@ public class DataDescription {
         this.deleteCondition = deleteCondition;
         this.sequenceCol = sequenceColName;
         this.properties = properties;
+        columnsNameToLowerCase(fileFieldNames);
+        columnsNameToLowerCase(columnsFromPath);
     }
 
     // data from table external_hive_table
@@ -256,6 +258,7 @@ public class DataDescription {
         this.deleteCondition = null;
         this.properties = properties;
         this.isMysqlLoad = true;
+        columnsNameToLowerCase(fileFieldNames);
     }
 
     // For stream load using external file scan node.
@@ -292,6 +295,7 @@ public class DataDescription {
         this.properties = Maps.newHashMap();
         this.trimDoubleQuotes = taskInfo.getTrimDoubleQuotes();
         this.skipLines = taskInfo.getSkipLines();
+        columnsNameToLowerCase(fileFieldNames);
     }
 
     private void getFileFormatAndCompressType(LoadTaskInfo taskInfo) {
@@ -486,7 +490,7 @@ public class DataDescription {
     private static void validateHllHash(List<String> args, Map<String, String> columnNameMap) throws AnalysisException {
         for (int i = 0; i < args.size(); ++i) {
             String argColumn = args.get(i);
-            if (!columnNameMap.containsKey(argColumn)) {
+            if (argColumn == null || !columnNameMap.containsKey(argColumn)) {
                 throw new AnalysisException("Column is not in sources, column: " + argColumn);
             }
             args.set(i, columnNameMap.get(argColumn));
@@ -960,6 +964,17 @@ public class DataDescription {
         }
     }
 
+    // Change all the columns name to lower case, because Doris column is case-insensitive.
+    private void columnsNameToLowerCase(List<String> columns) {
+        if (columns == null || columns.isEmpty()) {
+            return;
+        }
+        for (int i = 0; i < columns.size(); i++) {
+            String column = columns.remove(i);
+            columns.add(i, column.toLowerCase());
+        }
+    }
+
     public String analyzeFullDbName(String labelDbName, Analyzer analyzer) throws AnalysisException {
         if (Strings.isNullOrEmpty(labelDbName)) {
             String dbName = Strings.isNullOrEmpty(getDbName()) ? analyzer.getDefaultDb() : getDbName();
@@ -1060,7 +1075,7 @@ public class DataDescription {
             if (!mappingColNames.contains(column.getName())) {
                 parsedColumnExprList.add(new ImportColumnDesc(column.getName(), null));
             }
-            fileFieldNames.add(column.getName());
+            fileFieldNames.add(column.getName().toLowerCase());
         }
 
         LOG.debug("after fill column info. columns: {}, parsed column exprs: {}", fileFieldNames, parsedColumnExprList);

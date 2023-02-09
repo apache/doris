@@ -31,6 +31,7 @@ import java.io.IOException;
 /**
  * This class represents the olap replica related metadata.
  */
+@Data
 public class CooldownConf implements Writable {
     @SerializedName(value = "dbId")
     protected long dbId;
@@ -45,7 +46,7 @@ public class CooldownConf implements Writable {
     @SerializedName(value = "cooldownReplicaId")
     protected long cooldownReplicaId = -1;
     @SerializedName(value = "cooldownTerm")
-    protected long cooldownTerm -1;
+    protected long cooldownTerm = -1;
 
     public CooldownConf() {
     }
@@ -53,12 +54,10 @@ public class CooldownConf implements Writable {
     // for update
     public CooldownConf(long dbId, long tableId, long partitionId, long indexId, long tabletId, long cooldownTerm) {
         this.dbId = dbId;
-        this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;
         this.indexId = indexId;
         this.tabletId = tabletId;
-        this.cooldownReplicaId = cooldownReplicaId;
         this.cooldownTerm = cooldownTerm;
     }
 
@@ -80,3 +79,4 @@ public class CooldownConf implements Writable {
         return GsonUtils.GSON.fromJson(json, CooldownConf.class);
     }
 }
+

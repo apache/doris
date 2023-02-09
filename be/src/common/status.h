@@ -105,6 +105,7 @@ E(TOO_MANY_VERSION, -235);
 E(NOT_INITIALIZED, -236);
 E(ALREADY_CANCELLED, -237);
 E(TOO_MANY_SEGMENTS, -238);
+E(ALREADY_CLOSED, -239);
 E(CE_CMD_PARAMS_ERROR, -300);
 E(CE_BUFFER_TOO_SMALL, -301);
 E(CE_CMD_NOT_VALID, -302);
@@ -266,6 +267,7 @@ static constexpr bool capture_stacktrace() {
         && code != ErrorCode::TOO_MANY_SEGMENTS
         && code != ErrorCode::TOO_MANY_VERSION
         && code != ErrorCode::ALREADY_CANCELLED
+        && code != ErrorCode::ALREADY_CLOSED
         && code != ErrorCode::PUSH_TRANSACTION_ALREADY_EXIST
         && code != ErrorCode::BE_NO_SUITABLE_VERSION
         && code != ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION

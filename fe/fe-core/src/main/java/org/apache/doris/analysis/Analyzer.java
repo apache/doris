@@ -396,6 +396,8 @@ public class Analyzer {
 
         private final Map<TableRef, TupleId> markTupleIdByInnerRef = Maps.newHashMap();
 
+        private final Set<TupleId> markTupleIdsNotProcessed = Sets.newHashSet();
+
         public GlobalState(Env env, ConnectContext context) {
             this.env = env;
             this.context = context;
@@ -672,12 +674,18 @@ public class Analyzer {
 
         tableRefMap.put(result.getId(), ref);
 
-        // for mark join
+        // for mark join, init three context
+        //   1. markTuples to records all tuples belong to mark slot
+        //   2. markTupleIdByInnerRef to records relationship between inner table of mark join and the mark tuple
+        //   3. markTupleIdsNotProcessed to records un-process mark tuple id. if an expr contains slot belong to
+        //        the un-process mark tuple, it should not assign to current join node and should pop up its
+        //        mark slot until all mark tuples in this expr has been processed.
         if (ref.getJoinOp() != null && ref.isMark()) {
             TupleDescriptor markTuple = getDescTbl().createTupleDescriptor();
             markTuple.setAliases(new String[]{ref.getMarkTupleName()}, true);
             globalState.markTuples.put(ref.getMarkTupleName(), markTuple);
             globalState.markTupleIdByInnerRef.put(ref, markTuple.getId());
+            globalState.markTupleIdsNotProcessed.add(markTuple.getId());
         }
 
         return result;
@@ -1592,12 +1600,38 @@ public class Analyzer {
         return result;
     }
 
+    public boolean needPopUpMarkTuple(TableRef ref) {
+        TupleId id = globalState.markTupleIdByInnerRef.get(ref);
+        if (id == null) {
+            return false;
+        }
+        List<Expr> exprs = getAllConjuncts(id);
+        for (Expr expr : exprs) {
+            List<TupleId> tupleIds = Lists.newArrayList();
+            expr.getIds(tupleIds, null);
+            if (tupleIds.stream().anyMatch(globalState.markTupleIdsNotProcessed::contains)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public List<Expr> getMarkConjuncts(TableRef ref) {
         TupleId id = globalState.markTupleIdByInnerRef.get(ref);
         if (id == null) {
             return Collections.emptyList();
         }
-        return getAllConjuncts(id);
+        globalState.markTupleIdsNotProcessed.remove(id);
+        List<Expr> retExprs = Lists.newArrayList();
+        List<Expr> exprs = getAllConjuncts(id);
+        for (Expr expr : exprs) {
+            List<TupleId> tupleIds = Lists.newArrayList();
+            expr.getIds(tupleIds, null);
+            if (tupleIds.stream().noneMatch(globalState.markTupleIdsNotProcessed::contains)) {
+                retExprs.add(expr);
+            }
+        }
+        return retExprs;
     }
 
     public TupleDescriptor getMarkTuple(TableRef ref) {

@@ -2592,3 +2592,25 @@ SmallFileMgr 中存储的最大文件数
 是否为 Master FE 节点独有的配置项：true
 
 broker load job 保存的失败tablet 信息的最大数量
+
+#### `default_db_max_running_txn_num`
+
+默认值：-1
+
+是否可以动态配置：true
+
+是否为 Master FE 节点独有的配置项：true
+
+用于设置默认数据库事务配额大小。
+
+默认值设置为 -1 意味着使用 `max_running_txn_num_per_db` 而不是 `default_db_max_running_txn_num`。
+
+设置单个数据库的配额大小可以使用：
+
+```
+设置数据库事务量配额
+ALTER DATABASE db_name SET TRANSACTION QUOTA quota;
+查看配置
+show data （其他用法：HELP SHOW DATA）
+```
+
