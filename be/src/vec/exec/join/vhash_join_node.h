@@ -268,7 +268,6 @@ private:
 
     // for full/right outer join
     HashTableIteratorVariants _outer_join_pull_visited_iter;
-
     HashTableIteratorVariants _probe_row_match_iter;
 
     std::shared_ptr<std::vector<Block>> _build_blocks;
@@ -298,7 +297,6 @@ private:
 
     // for cases when a probe row matches more than batch size build rows.
     bool _is_any_probe_match_row_output = false;
-
     SharedHashTableContextPtr _shared_hash_table_context = nullptr;
 
     Status _materialize_build_side(RuntimeState* state) override;

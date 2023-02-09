@@ -515,14 +515,15 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
                                                      need_null_map_for_probe
                                                              ? &_null_map_column->get_data()
                                                              : nullptr,
-                                                     mutable_join_block, &temp_block, probe_rows);
+                                                     mutable_join_block, &temp_block, probe_rows,
+                                                     _is_mark_join);
                             } else {
                                 st = process_hashtable_ctx.template do_process<
                                         need_null_map_for_probe, ignore_null>(
                                         arg,
                                         need_null_map_for_probe ? &_null_map_column->get_data()
                                                                 : nullptr,
-                                        mutable_join_block, &temp_block, probe_rows);
+                                        mutable_join_block, &temp_block, probe_rows, _is_mark_join);
                             }
                         } else {
                             LOG(FATAL) << "FATAL: uninited hash table";

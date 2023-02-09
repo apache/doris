@@ -176,7 +176,7 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         if (vJoinConjunct != null) {
             msg.nested_loop_join_node.setVjoinConjunct(vJoinConjunct.treeToThrift());
         }
-        msg.nested_loop_join_node.setIsMark(innerRef != null && innerRef.isMark());
+        msg.nested_loop_join_node.setIsMark(isMarkJoin());
         if (vSrcToOutputSMap != null) {
             for (int i = 0; i < vSrcToOutputSMap.size(); i++) {
                 // TODO: Enable it after we support new optimizers
@@ -228,6 +228,7 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         StringBuilder output =
                 new StringBuilder().append(detailPrefix).append("join op: ").append(joinOp.toString()).append("(")
                         .append(distrModeStr).append(")\n");
+        output.append(detailPrefix).append("is mark: ").append(isMarkJoin()).append("\n");
 
         if (detailLevel == TExplainLevel.BRIEF) {
             output.append(detailPrefix).append(

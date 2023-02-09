@@ -80,4 +80,44 @@ suite("test_subquery_in_disjunction") {
     order_qt_not_in_covered """
         SELECT * FROM test_sq_dj1 WHERE c1 NOT IN (SELECT c1 FROM test_sq_dj2) OR c1 = 100;
     """
+
+    qt_hash_join_with_other_conjuncts1 """
+        SELECT * FROM test_sq_dj1 WHERE c1 IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 > test_sq_dj2.c2) OR c1 < 10 ORDER BY c1;
+    """
+
+    qt_hash_join_with_other_conjuncts2 """
+        SELECT * FROM test_sq_dj1 WHERE c1 IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 < test_sq_dj2.c2) OR c1 < 10 ORDER BY c1;
+    """
+
+    qt_hash_join_with_other_conjuncts3 """
+        SELECT * FROM test_sq_dj1 WHERE c1 IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 > test_sq_dj2.c2) OR c1 < 11 ORDER BY c1;
+    """
+
+    qt_hash_join_with_other_conjuncts4 """
+        SELECT * FROM test_sq_dj1 WHERE c1 IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 < test_sq_dj2.c2) OR c1 < 11 ORDER BY c1;
+    """
+
+    qt_hash_join_with_other_conjuncts5 """
+        SELECT * FROM test_sq_dj1 WHERE c1 NOT IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 > test_sq_dj2.c2) OR c1 < 10 ORDER BY c1;
+    """
+
+    qt_hash_join_with_other_conjuncts6 """
+        SELECT * FROM test_sq_dj1 WHERE c1 NOT IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 < test_sq_dj2.c2) OR c1 < 10 ORDER BY c1;
+    """
+
+    qt_hash_join_with_other_conjuncts7 """
+        SELECT * FROM test_sq_dj1 WHERE c1 NOT IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 > test_sq_dj2.c2) OR c1 < 11 ORDER BY c1;
+    """
+
+    qt_hash_join_with_other_conjuncts8 """
+        SELECT * FROM test_sq_dj1 WHERE c1 NOT IN (SELECT c1 FROM test_sq_dj2 WHERE test_sq_dj1.c1 < test_sq_dj2.c2) OR c1 < 11 ORDER BY c1;
+    """
+
+    qt_same_subquery_in_conjuncts """
+        SELECT * FROM test_sq_dj1 WHERE c1 IN (SELECT c1 FROM test_sq_dj2) OR c1 IN (SELECT c1 FROM test_sq_dj2) OR c1 < 10 ORDER BY c1;
+    """
+
+    qt_two_subquery_in_one_conjuncts """
+        SELECT * FROM test_sq_dj1 WHERE c1 IN (SELECT c1 FROM test_sq_dj2) OR c1 IN (SELECT c2 FROM test_sq_dj2) OR c1 < 10 ORDER BY c1;
+    """
 }
