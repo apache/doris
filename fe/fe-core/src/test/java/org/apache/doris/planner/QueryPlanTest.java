@@ -1587,11 +1587,14 @@ public class QueryPlanTest extends TestWithFeService {
         //valid date
         String sql = "select day from tbl_int_date where day in ('2020-10-30')";
         String explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `day` IN ('2020-10-30')"));
+        Assert.assertTrue(explainString.contains(Config.enable_date_conversion ? "PREDICATES: `day` IN ('2020-10-30')"
+                : "PREDICATES: `day` IN ('2020-10-30 00:00:00')"));
         //valid date
         sql = "select day from tbl_int_date where day in ('2020-10-30','2020-10-29')";
         explainString = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainString.contains("PREDICATES: `day` IN ('2020-10-30', '2020-10-29')"));
+        Assert.assertTrue(explainString.contains(Config.enable_date_conversion
+                ? "PREDICATES: `day` IN ('2020-10-30', '2020-10-29')"
+                : "PREDICATES: `day` IN ('2020-10-30 00:00:00', '2020-10-29 00:00:00')"));
 
         //valid datetime
         sql = "select day from tbl_int_date where date in ('2020-10-30 12:12:30')";
@@ -1858,8 +1861,13 @@ public class QueryPlanTest extends TestWithFeService {
                 + "     \"line_delimiter\" = \"\\n\","
                 + "     \"max_file_size\" = \"500MB\" );";
         String explainStr = getSQLPlanOrErrorMsg("EXPLAIN " + sql);
-        Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07',"
-                            + " `date` <= '2021-10-11'"));
+        if (Config.enable_date_conversion) {
+            Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07',"
+                    + " `date` <= '2021-10-11'"));
+        } else {
+            Assert.assertTrue(explainStr.contains("PREDICATES: `date` >= '2021-10-07 00:00:00',"
+                    + " `date` <= '2021-10-11 00:00:00'"));
+        }
     }
 
     // Fix: issue-#7929
