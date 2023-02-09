@@ -480,6 +480,7 @@ void PlanFragmentExecutor::cancel(const PPlanFragmentCancelReason& reason, const
     auto env = _runtime_state->exec_env();
     auto id = _runtime_state->fragment_instance_id();
     env->vstream_mgr()->cancel(id);
+    env->result_mgr()->cancel(id);
     // Cancel the result queue manager used by spark doris connector
     _exec_env->result_queue_mgr()->update_queue_status(id, Status::Aborted(msg));
 }
