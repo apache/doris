@@ -67,7 +67,7 @@ public class ConnectContext {
 
     private static final String[] SSL_CIPHER_SUITES = {"TLS_DHE_RSA_WITH_AES_128_CBC_SHA256"};
 
-    private static final String SSL_PROTOCOL= "TLSv1.2";
+    private static final String SSL_PROTOCOL = "TLSv1.2";
 
     // set this id before analyze
     protected volatile long stmtId;
@@ -182,6 +182,7 @@ public class ConnectContext {
         return sessionContext;
     }
 
+    // This context is used for SSL connection between server and mysql client.
     public MysqlSslConnectionContext getMysqlSslConnectionContext() {
         return mysqlSslConnectionContext;
     }

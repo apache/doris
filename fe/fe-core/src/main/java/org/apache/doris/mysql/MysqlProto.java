@@ -159,7 +159,7 @@ public class MysqlProto {
      * IOException:
      */
     public static boolean negotiate(ConnectContext context)
-            throws IOException, NoSuchAlgorithmException, KeyManagementException {
+            throws IOException {
         MysqlSerializer serializer = context.getSerializer();
         MysqlChannel channel = context.getMysqlChannel();
         MysqlSslConnectionContext mysqlSslConnectionContext = context.getMysqlSslConnectionContext();
@@ -199,11 +199,16 @@ public class MysqlProto {
                     sendResponsePacket(context);
                     return false;
                 }
-
-                if (!mysqlSslConnectionContext.sslExchange(channel)) {
-                    ErrorReport.report(ErrorCode.ERR_NOT_SUPPORTED_AUTH_MODE);
-                    sendResponsePacket(context);
-                    return false;
+                // try to establish ssl connection
+                try {
+                    // todo: return false or throw exception ?
+                    if (!mysqlSslConnectionContext.sslExchange(channel)) {
+                        ErrorReport.report(ErrorCode.ERR_NOT_SUPPORTED_AUTH_MODE);
+                        sendResponsePacket(context);
+                        return false;
+                    }
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
                 }
                 handshakeResponse = channel.fetchOnePacket();
             } else {

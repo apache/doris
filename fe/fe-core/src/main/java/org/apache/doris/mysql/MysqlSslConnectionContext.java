@@ -17,16 +17,24 @@
 
 package org.apache.doris.mysql;
 
+import java.nio.ByteBuffer;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
+import javax.net.ssl.SSLEngineResult;
+import javax.net.ssl.SSLEngineResult.HandshakeStatus;
 
 public class MysqlSslConnectionContext {
     private SSLEngine sslEngine;
     private SSLContext sslContext;
     private String protocol;
     private String[] ciphersuites;
+
+    private ByteBuffer serverAppDate;
+    private ByteBuffer serverNetDate;
+    private ByteBuffer clientAppDate;
+    private ByteBuffer clientNetDate;
 
     public MysqlSslConnectionContext(String protocol, String[] ciphersuites)
             throws NoSuchAlgorithmException, KeyManagementException {
@@ -60,9 +68,52 @@ public class MysqlSslConnectionContext {
         return ciphersuites;
     }
 
-    public boolean sslExchange(MysqlChannel channel) {
-
+    public boolean sslExchange(MysqlChannel channel) throws Exception {
+        long startTime = System.currentTimeMillis();
+        while (sslEngine.getHandshakeStatus() != HandshakeStatus.FINISHED
+                && sslEngine.getHandshakeStatus() != HandshakeStatus.NOT_HANDSHAKING) {
+            if ((System.currentTimeMillis() - startTime) > 10000) {
+                throw new Exception("try to establish SSL connection failed, timeout!");
+            }
+            switch (sslEngine.getHandshakeStatus()) {
+                case NEED_WRAP:
+                    handleNeedWrap(channel);
+                    break;
+                case NEED_UNWRAP:
+                    handleNeedUnwrap(channel);
+                    break;
+                case NEED_TASK:
+                    handleNeedTask();
+                    break;
+                // Under normal circumstances, the following states will not appear
+                case NOT_HANDSHAKING:
+                    throw new Exception("impossible HandshakeStatus: " + HandshakeStatus.NOT_HANDSHAKING);
+                case FINISHED:
+                    throw new Exception("impossible HandshakeStatus: " + HandshakeStatus.FINISHED);
+                default:
+                    throw new IllegalStateException("invalid HandshakeStatus: " + sslEngine.getHandshakeStatus());
+            }
+        }
         return true;
     }
 
+    private void handleNeedTask() throws Exception {
+        Runnable runnable;
+        while ((runnable = sslEngine.getDelegatedTask()) != null) {
+            runnable.run();
+        }
+        HandshakeStatus hsStatus = sslEngine.getHandshakeStatus();
+        if (hsStatus == HandshakeStatus.NEED_TASK) {
+            throw new Exception(
+                    "handshake shouldn't need additional tasks");
+        }
+    }
+
+    private void handleNeedWrap(MysqlChannel channel) {
+        // todo
+    }
+
+    private void handleNeedUnwrap(MysqlChannel channel) {
+        // todo
+    }
 }
