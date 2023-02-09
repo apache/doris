@@ -40,6 +40,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.security.KeyManagementException;
+import java.security.NoSuchAlgorithmException;
 import java.util.List;
 
 // MySQL protocol util
@@ -156,7 +158,8 @@ public class MysqlProto {
      * Exception:
      * IOException:
      */
-    public static boolean negotiate(ConnectContext context) throws IOException {
+    public static boolean negotiate(ConnectContext context)
+            throws IOException, NoSuchAlgorithmException, KeyManagementException {
         MysqlSerializer serializer = context.getSerializer();
         MysqlChannel channel = context.getMysqlChannel();
         context.getState().setOk();

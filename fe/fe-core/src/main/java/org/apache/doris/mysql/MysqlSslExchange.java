@@ -17,9 +17,38 @@
 
 package org.apache.doris.mysql;
 
+import java.security.KeyManagementException;
+import java.security.NoSuchAlgorithmException;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLEngine;
+import javax.net.ssl.SSLException;
+
 public class MysqlSslExchange {
-    public static final boolean sslExchange() {
+    private static final String[] CIPHER_SUITES = {"TLS_DHE_RSA_WITH_AES_128_CBC_SHA256"};
+
+    public static boolean sslExchange() throws NoSuchAlgorithmException, KeyManagementException {
         // TODO: TLS protocol
+        SSLContext sslCtx = initSSLCtx();
+        SSLEngine sslEngine = sslCtx.createSSLEngine();
+        try {
+            sslEngine.beginHandshake();
+        } catch (SSLException e) {
+            throw new RuntimeException(e);
+        }
         return true;
+    }
+
+    private static SSLContext initSSLCtx() throws NoSuchAlgorithmException, KeyManagementException {
+        SSLContext sslCtx = SSLContext.getInstance("TLSv1.2");
+        sslCtx.init(null, null, null);
+        return sslCtx;
+    }
+
+    private static SSLEngine initSSLEngine(SSLContext sslCtx) {
+        SSLEngine sslEngine = sslCtx.createSSLEngine();
+        // set to server mode
+        sslEngine.setUseClientMode(false);
+        sslEngine.setEnabledCipherSuites(CIPHER_SUITES);
+        return sslEngine;
     }
 }
