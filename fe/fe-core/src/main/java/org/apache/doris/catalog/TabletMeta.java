@@ -22,8 +22,6 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.concurrent.locks.ReentrantReadWriteLock;
-
 public class TabletMeta {
     private static final Logger LOG = LogManager.getLogger(TabletMeta.class);
 
@@ -37,14 +35,8 @@ public class TabletMeta {
 
     private TStorageMedium storageMedium;
 
-    private long cooldownReplicaId;
-
-    private long cooldownTerm;
-
-    private ReentrantReadWriteLock lock;
-
     public TabletMeta(long dbId, long tableId, long partitionId, long indexId, int schemaHash,
-            TStorageMedium storageMedium, long cooldownReplicaId, long cooldownTerm) {
+            TStorageMedium storageMedium) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;
@@ -54,10 +46,6 @@ public class TabletMeta {
         this.newSchemaHash = -1;
 
         this.storageMedium = storageMedium;
-        this.cooldownReplicaId = cooldownReplicaId;
-        this.cooldownTerm = cooldownTerm;
-
-        lock = new ReentrantReadWriteLock();
     }
 
     public long getDbId() {
@@ -84,46 +72,20 @@ public class TabletMeta {
         this.storageMedium = storageMedium;
     }
 
-    public long getCooldownReplicaId() {
-        return cooldownReplicaId;
-    }
-
-    public void setCooldownReplicaId(long cooldownReplicaId) {
-        this.cooldownReplicaId = cooldownReplicaId;
-    }
-
-    public long getCooldownTerm() {
-        return cooldownTerm;
-    }
-
-    public void setCooldownTerm(long cooldownTerm) {
-        this.cooldownTerm = cooldownTerm;
-    }
-
     public int getOldSchemaHash() {
-        lock.readLock().lock();
-        try {
-            return this.oldSchemaHash;
-        } finally {
-            lock.readLock().unlock();
-        }
+        return this.oldSchemaHash;
     }
 
     @Override
     public String toString() {
-        lock.readLock().lock();
-        try {
-            StringBuilder sb = new StringBuilder();
-            sb.append("dbId=").append(dbId);
-            sb.append(" tableId=").append(tableId);
-            sb.append(" partitionId=").append(partitionId);
-            sb.append(" indexId=").append(indexId);
-            sb.append(" oldSchemaHash=").append(oldSchemaHash);
-            sb.append(" newSchemaHash=").append(newSchemaHash);
+        StringBuilder sb = new StringBuilder();
+        sb.append("dbId=").append(dbId);
+        sb.append(" tableId=").append(tableId);
+        sb.append(" partitionId=").append(partitionId);
+        sb.append(" indexId=").append(indexId);
+        sb.append(" oldSchemaHash=").append(oldSchemaHash);
+        sb.append(" newSchemaHash=").append(newSchemaHash);
 
-            return sb.toString();
-        } finally {
-            lock.readLock().unlock();
-        }
+        return sb.toString();
     }
 }
