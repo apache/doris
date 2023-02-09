@@ -506,7 +506,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
         stream_load_ctx->need_commit_self = true;
         stream_load_ctx->need_rollback = true;
         auto pipe = std::make_shared<io::StreamLoadPipe>(
-                kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
+                io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
                 -1 /* total_length */, true /* use_proto */);
         stream_load_ctx->body_sink = pipe;
         stream_load_ctx->max_filter_ratio = params.txn_conf.max_filter_ratio;

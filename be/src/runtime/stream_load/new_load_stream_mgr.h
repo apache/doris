@@ -28,7 +28,6 @@
 namespace doris {
 
 // used to register all streams in process so that other module can get this stream
-// TODO(ftw): should be renamed to `LoadStreamMgr` after new file reader is ready.
 class NewLoadStreamMgr {
 public:
     NewLoadStreamMgr();
