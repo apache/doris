@@ -40,10 +40,6 @@ public abstract class WindowFunction extends BoundFunction {
         super(name, children);
     }
 
-    protected List<DataType> intermediateTypes() {
-        return ImmutableList.of(VarcharType.SYSTEM_DEFAULT);
-    }
-
     @Override
     public boolean equals(Object o) {
         if (this == o) {

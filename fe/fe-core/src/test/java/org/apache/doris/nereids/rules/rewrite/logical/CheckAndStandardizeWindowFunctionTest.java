@@ -27,6 +27,8 @@ import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameBoundary;
 import org.apache.doris.nereids.trees.expressions.WindowFrame.FrameUnitsType;
 import org.apache.doris.nereids.trees.expressions.functions.window.DenseRank;
+import org.apache.doris.nereids.trees.expressions.functions.window.Lag;
+import org.apache.doris.nereids.trees.expressions.functions.window.Lead;
 import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunction;
@@ -117,6 +119,50 @@ public class CheckAndStandardizeWindowFunctionTest implements PatternMatchSuppor
                                     WindowExpression newWindow = (WindowExpression) logicalWindow.getWindowExpressions().get(0).child(0);
                                     return newWindow.getWindowFrame().get().equals(requiredFrame);
                                 })
+                );
+    }
+
+    @Test
+    public void testLead() {
+        WindowFrame requiredFrame = new WindowFrame(FrameUnitsType.ROWS,
+                FrameBoundary.newPrecedingBoundary(), FrameBoundary.newFollowingBoundary(new IntegerLiteral(5)));
+        WindowExpression window = new WindowExpression(new Lead(age, new IntegerLiteral(5), new IntegerLiteral(0)),
+                partitionKeyList, orderKeyList);
+        Alias windowAlias = new Alias(window, window.toSql());
+        List<NamedExpression> outputExpressions = Lists.newArrayList(windowAlias);
+        Plan root = new LogicalWindow<>(outputExpressions, rStudent);
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+                .applyTopDown(new ExtractAndNormalizeWindowExpression())
+                .applyTopDown(new CheckAndStandardizeWindowFunctionAndFrame())
+                .matches(
+                        logicalWindow()
+                        .when(logicalWindow -> {
+                            WindowExpression newWindow = (WindowExpression) logicalWindow.getWindowExpressions().get(0).child(0);
+                            return newWindow.getWindowFrame().get().equals(requiredFrame);
+                        })
+                );
+    }
+
+    @Test
+    public void testLag() {
+        WindowFrame requiredFrame = new WindowFrame(FrameUnitsType.ROWS,
+                FrameBoundary.newPrecedingBoundary(), FrameBoundary.newPrecedingBoundary(new IntegerLiteral(5)));
+        WindowExpression window = new WindowExpression(new Lag(age, new IntegerLiteral(5), new IntegerLiteral(0)),
+                partitionKeyList, orderKeyList);
+        Alias windowAlias = new Alias(window, window.toSql());
+        List<NamedExpression> outputExpressions = Lists.newArrayList(windowAlias);
+        Plan root = new LogicalWindow<>(outputExpressions, rStudent);
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), root)
+                .applyTopDown(new ExtractAndNormalizeWindowExpression())
+                .applyTopDown(new CheckAndStandardizeWindowFunctionAndFrame())
+                .matches(
+                        logicalWindow()
+                        .when(logicalWindow -> {
+                            WindowExpression newWindow = (WindowExpression) logicalWindow.getWindowExpressions().get(0).child(0);
+                            return newWindow.getWindowFrame().get().equals(requiredFrame);
+                        })
                 );
     }
 

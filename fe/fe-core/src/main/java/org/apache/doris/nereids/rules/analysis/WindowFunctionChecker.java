@@ -32,6 +32,7 @@ import org.apache.doris.nereids.trees.expressions.functions.window.FirstValue;
 import org.apache.doris.nereids.trees.expressions.functions.window.Lag;
 import org.apache.doris.nereids.trees.expressions.functions.window.LastValue;
 import org.apache.doris.nereids.trees.expressions.functions.window.Lead;
+import org.apache.doris.nereids.trees.expressions.functions.window.Ntile;
 import org.apache.doris.nereids.trees.expressions.functions.window.Rank;
 import org.apache.doris.nereids.trees.expressions.functions.window.RowNumber;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -209,8 +210,8 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
         boolean isPositive = ((Literal) offset).getDouble() > 0;
         Preconditions.checkArgument(isPositive, "BoundOffset of WindowFrame must be positive");
 
-        FrameUnitsType frameUnits = windowExpression.getWindowFrame().get().getFrameUnits();
         // case 3
+        FrameUnitsType frameUnits = windowExpression.getWindowFrame().get().getFrameUnits();
         if (frameUnits == FrameUnitsType.ROWS) {
             Preconditions.checkArgument(offset.getDataType().isIntegralType(),
                     "BoundOffset of ROWS WindowFrame must be an Integer");
@@ -237,6 +238,9 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
         windowExpression.getWindowFrame().ifPresent(wf -> {
             throw new AnalysisException("WindowFrame for LAG() must be null");
         });
+        if (lag.children().size() != 3) {
+            throw new AnalysisException("Lag must have three parameters");
+        }
 
         Expression column = lag.child(0);
         Expression offset = lag.getOffset();
@@ -263,6 +267,9 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
         windowExpression.getWindowFrame().ifPresent(wf -> {
             throw new AnalysisException("WindowFrame for LEAD() must be null");
         });
+        if (lead.children().size() != 3) {
+            throw new AnalysisException("Lead must have three parameters");
+        }
 
         Expression column = lead.child(0);
         Expression offset = lead.getOffset();
@@ -329,7 +336,7 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
     }
 
     /**
-     * required WindowFrame: (UNBOUNDED PRECEDING, CURRENT ROW)
+     * required WindowFrame: (RANGE, UNBOUNDED PRECEDING, CURRENT ROW)
      */
     @Override
     public Rank visitRank(Rank rank, Void ctx) {
@@ -341,7 +348,7 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
     }
 
     /**
-     * required WindowFrame: (UNBOUNDED PRECEDING, CURRENT ROW)
+     * required WindowFrame: (RANGE, UNBOUNDED PRECEDING, CURRENT ROW)
      */
     @Override
     public DenseRank visitDenseRank(DenseRank denseRank, Void ctx) {
@@ -353,7 +360,7 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
     }
 
     /**
-     * required WindowFrame: (UNBOUNDED PRECEDING, CURRENT ROW)
+     * required WindowFrame: (ROWS, UNBOUNDED PRECEDING, CURRENT ROW)
      */
     @Override
     public RowNumber visitRowNumber(RowNumber rowNumber, Void ctx) {
@@ -363,6 +370,18 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
 
         checkAndCompleteWindowFrame(requiredFrame, rowNumber.getName());
         return rowNumber;
+    }
+
+    /**
+     * required WindowFrame: (ROWS, UNBOUNDED PRECEDING, CURRENT ROW)
+     */
+    @Override
+    public Ntile visitNtile(Ntile ntile, Void ctx) {
+        WindowFrame requiredFrame = new WindowFrame(FrameUnitsType.ROWS,
+                FrameBoundary.newPrecedingBoundary(), FrameBoundary.newCurrentRowBoundary());
+
+        checkAndCompleteWindowFrame(requiredFrame, ntile.getName());
+        return ntile;
     }
 
     /**

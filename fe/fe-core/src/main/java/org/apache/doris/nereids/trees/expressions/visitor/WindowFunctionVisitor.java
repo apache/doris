@@ -53,7 +53,7 @@ public interface WindowFunctionVisitor<R, C> {
     }
 
     default R visitNtile(Ntile ntile, C context) {
-        return visitNtile(ntile, context);
+        return visitWindowFunction(ntile, context);
     }
 
     default R visitRank(Rank rank, C context) {

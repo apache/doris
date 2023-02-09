@@ -20,12 +20,17 @@ package org.apache.doris.nereids.trees.expressions.functions.window;
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
+import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.IntegerType;
+import org.apache.doris.nereids.types.LargeIntType;
+import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TinyIntType;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
@@ -33,7 +38,15 @@ import java.util.List;
 /**
  * window function: Ntile()
  */
-public class Ntile extends WindowFunction implements LeafExpression, AlwaysNotNullable {
+public class Ntile extends WindowFunction implements LeafExpression, AlwaysNotNullable, ExplicitlyCastableSignature {
+
+    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
+            FunctionSignature.ret(BigIntType.INSTANCE).args(TinyIntType.INSTANCE),
+            FunctionSignature.ret(BigIntType.INSTANCE).args(SmallIntType.INSTANCE),
+            FunctionSignature.ret(BigIntType.INSTANCE).args(IntegerType.INSTANCE),
+            FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE),
+            FunctionSignature.ret(LargeIntType.INSTANCE).args(LargeIntType.INSTANCE)
+    );
 
     private Expression buckets;
 
@@ -47,13 +60,14 @@ public class Ntile extends WindowFunction implements LeafExpression, AlwaysNotNu
     }
 
     @Override
-    public List<FunctionSignature> getSignatures() {
-        return ImmutableList.of(FunctionSignature.ret(BigIntType.INSTANCE).args(IntegerType.INSTANCE));
+    public Ntile withChildren(List<Expression> children) {
+        Preconditions.checkArgument(children.size() == 1);
+        return new Ntile(children.get(0));
     }
 
     @Override
-    public FunctionSignature searchSignature(List<FunctionSignature> signatures) {
-        return signatures.get(0);
+    public List<FunctionSignature> getSignatures() {
+        return SIGNATURES;
     }
 
     @Override

@@ -27,6 +27,8 @@ import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 
+import com.google.common.base.Preconditions;
+
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -52,7 +54,10 @@ public class CheckAndStandardizeWindowFunctionAndFrame extends OneRewriteRuleFac
                     checker.checkWindowBeforeFunc();
                     checker.checkWindowFunction();
                     checker.checkWindowAfterFunc();
-                    return (Alias) expr.withChildren(checker.getWindow());
+                    WindowExpression newWindow = checker.getWindow();
+                    Preconditions.checkArgument(newWindow.getWindowFrame().isPresent(),
+                            "WindowFrame shouldn't be null after checkAndStandardize");
+                    return (Alias) expr.withChildren(newWindow);
                 })
                 .collect(Collectors.toList());
         return logicalWindow.withChecked(newOutputExpressions, logicalWindow.child());

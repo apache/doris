@@ -85,10 +85,7 @@ public class ExtractAndNormalizeWindowExpressionTest implements PatternMatchSupp
                                                 && projects.get(1).equals(gender)
                                                 && projects.get(2).equals(age);
                                         })
-                                ).when(logicalWindow -> {
-                                    List<NamedExpression> outputs = logicalWindow.getWindowExpressions();
-                                    return outputs.get(0).equals(windowAlias);
-                                })
+                                ).when(logicalWindow -> logicalWindow.getWindowExpressions().get(0).equals(windowAlias))
                         ).when(project -> {
                             List<NamedExpression> projects = project.getProjects();
                             return projects.get(0).equals(id)
@@ -104,7 +101,7 @@ public class ExtractAndNormalizeWindowExpressionTest implements PatternMatchSupp
      *
      * after rewrite:
      * LogicalProject ( projects=[id#0, `Window.toSql()`#4] )
-     * +--LogicalWindow (output: [id#0, rank() over(partition by (id + 2)#5 order by (age3 + 2)#6 AS `Window.toSql()`#4)
+     * +--LogicalWindow (windowExpressions: [rank() over(partition by (id + 2)#5 order by (age3 + 2)#6 AS `Window.toSql()`#4)
      *    +--LogicalProject( projects=[id#0, (id#0 + 2) AS `(id + 2)`#5, (age#3 + 2) AS `(age + 2)`#6] )
      *       +--ScanOlapTable (student.student, output: [id#0, gender#1, name#2, age#3])
      */
@@ -166,7 +163,7 @@ public class ExtractAndNormalizeWindowExpressionTest implements PatternMatchSupp
      *
      * after rewrite:
      * LogicalProject ( projects=[gender#1, sum#4, Window.toSql()#5 AS `Window.toSql()`#5] )
-     * +--LogicalWindow (output: [gender#1, sum#4, sum((id + 1)#7) over(partition by gender#1 order by (id + 1)#7 AS `Window.toSql()`#5)
+     * +--LogicalWindow (windowExpressions: [sum((id + 1)#7) over(partition by gender#1 order by (id + 1)#7 AS `Window.toSql()`#5)
      *    +--LogicalProject( projects=[gender#1, sum#4 AS `sum`#4, (id#0 + 1) AS `(id + 1)`#7] )
      *       +--LogicalAggregate (output: [gender#1, id#0, sum((id + 1)#6) As `sum`#4],
      *                  groupBy: [gender#1, id#0])

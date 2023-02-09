@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
-import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
 import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
@@ -50,61 +49,6 @@ public class ResolveWindowFunctionTest extends TestWithFeService implements Patt
                 + ")");
     }
 
-    @Override
-    protected void runBeforeEach() throws Exception {
-        NamedExpressionUtil.clear();
-    }
-
-    /* ********************************************************************************************
-     * Test WindowFrame and different WindowFunction
-     * ******************************************************************************************** */
-
-    public void testRankLikeFunctions() {
-        //        String rank = "SELECT rank() over() as uni FROM supplier";
-        //        String rank2 = "SELECT rank() over(ROWS BETWEEN unbounded preceding and current row) as uni FROM supplier";
-        //        String denseRank = "SELECT dense_rank() over() as uni FROM supplier";
-        //        String rowNumber = "SELECT row_number() over() as uni FROM supplier";
-        //        List<String> sqls = ImmutableList.of(
-        //                rank, rank2, denseRank, rowNumber
-        //        );
-        //        List<BoundFunction> functions = ImmutableList.of(
-        //            new Rank(), new Rank(), new DenseRank(), new RowNumber()
-        //        );
-        //
-        //        WindowFrame windowFrame = new WindowFrame(FrameUnitsType.ROWS,
-        //                FrameBoundary.newPrecedingBoundary(), FrameBoundary.newCurrentRowBoundary());
-
-        //        for (int i = 0; i < sqls.size(); i++) {
-        //            Window window = new Window(functions.get(i), Optional.empty(), Optional.empty(),
-        //                    Optional.of(windowFrame));
-        //            Alias alias = new Alias(new ExprId(7), window, unifiedAlias);
-        //
-        //            System.out.println(functions.get(i).toSql() + " " + functions.get(i).toString());
-        //            System.out.println(window.toSql());
-        //
-        //            PlanChecker.from(connectContext)
-        //                    .analyze(sqls.get(i))
-        //                    .applyTopDown(new ExtractWindowExpression())
-        //                    .applyTopDown(new CheckAndStandardizeWindowFunctionAndFrame())
-        //                    .matches(
-        //                        logicalWindow()
-        //                            .when(FieldChecker.check("windowExpressions", ImmutableList.of(alias)))
-        //                    );
-        //        }
-
-        /*Window window = new Window(new Rank(), windowSpec);
-        Alias alias = new Alias(new ExprId(7), window, new Window(new Rank()).toSql());
-        connectContext.getSessionVariable().setEnableNereidsPlanner(true);
-        connectContext.getSessionVariable().setEnableNereidsTrace(true);
-        PlanChecker.from(connectContext)
-                .analyze(sql)
-                .applyTopDown(new ExtractWindowExpression())
-                .matches(
-                    logicalWindow()
-                    .when(FieldChecker.check("windowExpressions", ImmutableList.of(alias)))
-                );*/
-    }
-
     @Test
     public void testAnalyze() {
         // String sql = "SELECT sum(s_suppkey) OVER(PARTITION BY s_nation ORDER BY s_name) FROM supplier";
@@ -114,8 +58,9 @@ public class ResolveWindowFunctionTest extends TestWithFeService implements Patt
         // String sql2 = "SELECT s_city FROM supplier ORDER BY s_city limit 10";
         // String sql = "select s_address, rank() over(order by s_suppkey), row_number() over(order by s_city) from supplier";
         // String sql2 = "select s_address, rank() over(partition by s_nation), row_number() over(partition by s_city order by s_nation) from supplier";
-        String sql3 = "select rank() over() rk from supplier";
-        PlanChecker.from(connectContext).checkPlannerResult(sql3);
+        // String sql = "select ntile(5) over(partition by s_city) from supplier";
+        String sql = "select rank() over(partition by s_city) + row_number() over(partition by s_suppkey+1 order by s_nation) from supplier";
+        PlanChecker.from(connectContext).checkPlannerResult(sql);
     }
 
     public void testWindowFunctionChecker() {
@@ -136,9 +81,8 @@ public class ResolveWindowFunctionTest extends TestWithFeService implements Patt
         // String sql = "select sum(s_suppkey+2) over(partition by s_suppkey+3 order by s_city) from supplier group by s_city, s_suppkey";
         // String sql3 = "select rank() over(partition by s_suppkey+3 order by s_city) from supplier group by s_city, s_suppkey";
         // String sql = "select sum(s_suppkey) over(partition by s_city) from supplier";
-        // String sql2 = "select s_suppkey+1, s_city, sum(s_suppkey), sum(s_suppkey+1) over(partition by s_city order by s_suppkey + 1) from supplier group by s_city, s_suppkey";
-        String sql = "select version()";
-        PlanChecker.from(connectContext).checkPlannerResult(sql);
+        String sql2 = "select s_suppkey+1, s_city, sum(s_suppkey), sum(s_suppkey+1) over(partition by s_city order by s_suppkey + 1) from supplier group by s_city, s_suppkey";
+        PlanChecker.from(connectContext).checkPlannerResult(sql2);
     }
 
     @Test

@@ -66,6 +66,7 @@ import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
+import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -630,9 +631,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // 1. translate to old optimizer variable
         // variable in Nereids
         WindowFrameGroup windowFrameGroup = physicalWindow.getWindowFrameGroup();
-        List<Expression> partitionKeyList = windowFrameGroup.getPartitionKeys();
+        List<Expression> partitionKeyList = Lists.newArrayList(windowFrameGroup.getPartitionKeys());
         List<OrderExpression> orderKeyList = windowFrameGroup.getOrderKeys();
         List<NamedExpression> windowFunctionList = windowFrameGroup.getGroups();
+        WindowFrame windowFrame = windowFrameGroup.getWindowFrame();
 
         // partition by clause
         List<Expr> partitionExprs = partitionKeyList.stream()
@@ -665,7 +667,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .collect(Collectors.toList());
 
         // analytic window
-        AnalyticWindow analyticWindow = physicalWindow.translateWindowFrame(windowFrameGroup.getWindowFrame(), context);
+        AnalyticWindow analyticWindow = physicalWindow.translateWindowFrame(windowFrame, context);
 
         // 2. get bufferedTupleDesc from SortNode and compute isNullableMatched
         Map<ExprId, SlotRef> bufferedSlotRefForWindow = getBufferedSlotRefForWindow(windowFrameGroup, context);
@@ -674,10 +676,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         // generate predicates to check if the exprs of partitionKeys and orderKeys have matched isNullable between
         // sortNode and analyticNode
         Expr partitionExprsIsNullableMatched = partitionExprs.isEmpty() ? null : windowExprsHaveMatchedNullable(
-                windowFrameGroup.getPartitionKeys(), partitionExprs, bufferedSlotRefForWindow);
+                partitionKeyList, partitionExprs, bufferedSlotRefForWindow);
 
         Expr orderElementsIsNullableMatched = orderByElements.isEmpty() ? null : windowExprsHaveMatchedNullable(
-                windowFrameGroup.getOrderKeys().stream().map(order -> order.child()).collect(Collectors.toList()),
+                orderKeyList.stream().map(order -> order.child()).collect(Collectors.toList()),
                 orderByElements.stream().map(order -> order.getExpr()).collect(Collectors.toList()),
                 bufferedSlotRefForWindow);
 
@@ -685,8 +687,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         List<Slot> windowSlotList = windowFunctionList.stream()
                 .map(NamedExpression::toSlot)
                 .collect(Collectors.toList());
-        TupleDescriptor intermediateTupleDesc = generateTupleDesc(windowSlotList, null, context);
-        TupleDescriptor outputTupleDesc = intermediateTupleDesc;
+        TupleDescriptor outputTupleDesc = generateTupleDesc(windowSlotList, null, context);
+        TupleDescriptor intermediateTupleDesc = outputTupleDesc;
 
         // 4. generate AnalyticEvalNode
         AnalyticEvalNode analyticEvalNode = new AnalyticEvalNode(

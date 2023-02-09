@@ -38,7 +38,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * extract window expressions from LogicalWindow.outputExpressions
+ * extract window expressions from LogicalProject.projects and Normalize LogicalWindow
  */
 public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory implements NormalizeToSlot {
 
@@ -85,7 +85,12 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
         return expressions.stream()
             .flatMap(expression -> {
                 if (expression.anyMatch(WindowExpression.class::isInstance)) {
-                    return ((WindowExpression) expression.child(0)).getExpressionsInWindowSpec().stream();
+                    Set<WindowExpression> collects = expression.collect(WindowExpression.class::isInstance);
+                    return collects.stream().flatMap(windowExpression ->
+                        windowExpression.getExpressionsInWindowSpec().stream()
+                            // constant arguments may in WindowFunctions(e.g. Lead, Lag), which shouldn't be pushed down
+                            .filter(expr -> !expr.isConstant())
+                    );
                 }
                 return ImmutableList.of(expression).stream();
             })
@@ -93,6 +98,8 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
     }
 
     private boolean containsWindowExpression(List<NamedExpression> expressions) {
+        // WindowExpression in top LogicalProject will be normalized as Alias(SlotReference) after this rule,
+        // so it will not be normalized infinitely
         return expressions.stream().anyMatch(expr -> expr.anyMatch(WindowExpression.class::isInstance));
     }
 }
