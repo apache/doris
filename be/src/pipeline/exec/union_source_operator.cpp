@@ -49,14 +49,13 @@ bool UnionSourceOperator::can_read() {
     return _need_read_for_const_expr || _data_queue->remaining_has_data();
 }
 
-Status UnionSourceOperator::get_block(RuntimeState* state, vectorized::Block* block,
-                                      SourceState& source_state) {
+Status UnionSourceOperator::pull_data(RuntimeState* state, vectorized::Block* block, bool* eos) {
     // here we precess const expr firstly
     if (_need_read_for_const_expr) {
-        if (this->_node->has_more_const(state)) {
-            this->_node->get_next_const(state, block);
+        if (_node->has_more_const(state)) {
+            _node->get_next_const(state, block);
         }
-        _need_read_for_const_expr = this->_node->has_more_const(state);
+        _need_read_for_const_expr = _node->has_more_const(state);
     } else {
         std::unique_ptr<vectorized::Block> output_block;
         int child_idx = 0;
@@ -69,12 +68,21 @@ Status UnionSourceOperator::get_block(RuntimeState* state, vectorized::Block* bl
         _data_queue->push_free_block(std::move(output_block), child_idx);
     }
 
-    bool reached_limit = false;
-    this->_node->reached_limit(block, &reached_limit);
+    _node->reached_limit(block, eos);
+    return Status::OK();
+}
+
+Status UnionSourceOperator::get_block(RuntimeState* state, vectorized::Block* block,
+                                      SourceState& source_state) {
+    bool eos = false;
+    RETURN_IF_ERROR(_node->get_next_after_projects(
+            state, block, &eos,
+            std::bind(&UnionSourceOperator::pull_data, this, std::placeholders::_1,
+                      std::placeholders::_2, std::placeholders::_3)));
     //have exectue const expr, queue have no data any more, and child could be colsed
     source_state = ((!_need_read_for_const_expr && !_data_queue->remaining_has_data() &&
                      _data_queue->is_all_finish()) ||
-                    reached_limit)
+                    eos)
                            ? SourceState::FINISHED
                            : SourceState::DEPEND_ON_SOURCE;
     return Status::OK();
