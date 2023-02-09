@@ -260,8 +260,8 @@ public class InternalCatalog implements CatalogIf<Database> {
             if (fullName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {
                 String clusterName = ClusterNamespace.getClusterNameFromFullName(dbName);
                 fullName = ClusterNamespace.getFullName(clusterName, fullName.toLowerCase());
-                // If the fullname is not valid, ClusterNamespace.getFullName may return null and fullNameToDb.get(fullName)
-                // may throw null pointer exception
+                // If the fullname is not valid, ClusterNamespace.getFullName may return null 
+                // and fullNameToDb.get(fullName) may throw null pointer exception
                 if (fullName == null) {
                     return null;
                 }
