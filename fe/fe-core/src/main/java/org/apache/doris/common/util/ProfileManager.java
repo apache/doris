@@ -170,8 +170,8 @@ public class ProfileManager {
         ProfileElement element = createElement(profile);
 
         ProfileEventProcessor processor = Env.getCurrentProfileEventProcessor();
-        // we don't need to handle running profile
-        // we don't need to handle it if there isn't any installed ProfilePlugin
+        // 1. skip running profiles
+        // 2. no need to handle if there isn't any installed ProfilePlugin
         if (!isRunningProfile(element) && processor.needHandle()) {
             processor.handleEvent(buildProfileEvent(element));
         }

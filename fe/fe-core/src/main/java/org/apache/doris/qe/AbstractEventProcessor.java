@@ -90,6 +90,17 @@ public abstract class AbstractEventProcessor<T extends Event> {
         return needHandle;
     }
 
+    // should return a not null value
+    protected abstract @NotNull List<Plugin> getPlugins();
+
+    protected abstract ProcessorType getType();
+
+    protected abstract void handle(Plugin plugin, T event);
+
+    protected int getEventQueueSize() {
+        return DEFAULT_EVENT_QUEUE_SIZE;
+    }
+
     public class Worker implements Runnable {
         @Override
         public void run() {
@@ -137,17 +148,6 @@ public abstract class AbstractEventProcessor<T extends Event> {
             }
         }
 
-    }
-
-    // should return a not null value
-    protected abstract @NotNull List<Plugin> getPlugins();
-
-    protected abstract ProcessorType getType();
-
-    protected abstract void handle(Plugin plugin, T event);
-
-    protected int getEventQueueSize() {
-        return DEFAULT_EVENT_QUEUE_SIZE;
     }
 
 }
