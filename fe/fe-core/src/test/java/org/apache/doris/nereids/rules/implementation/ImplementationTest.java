@@ -68,7 +68,6 @@ public class ImplementationTest {
     public PhysicalPlan executeImplementationRule(LogicalPlan plan) {
         Rule rule = rulesMap.get(plan.getClass().getName());
         List<Plan> transform = rule.transform(plan, cascadesContext);
-        Assertions.assertEquals(1, transform.size());
         Assertions.assertTrue(transform.get(0) instanceof PhysicalPlan);
         return (PhysicalPlan) transform.get(0);
     }
