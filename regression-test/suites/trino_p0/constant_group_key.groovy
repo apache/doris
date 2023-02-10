@@ -38,4 +38,16 @@ suite("constant_group_key") {
         sql("select a from (select '1' as b, 'abc' as a) T  group by b, a")
         contains "group by: 'abc'"
     }
+
+    sql "drop table if exists cgk_tbl"
+    sql """
+    create table cgk_tbl (a int null) 
+    engine=olap duplicate key(a) 
+    distributed by hash(a) buckets 1 
+    properties ('replication_num'='1');"""
+
+    qt_scalar_count 'select count(*) from cgk_tbl';
+    qt_agg_count "select count(*) from cgk_tbl group by 'any const str'"
+    qt_scalar_sum 'select sum(a) from cgk_tbl';
+    qt_agg_sum "select sum(a) from cgk_tbl group by 'any const str'"
 }
