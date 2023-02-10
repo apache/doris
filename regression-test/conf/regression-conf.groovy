@@ -50,7 +50,7 @@ testDirectories = ""
 // this groups will not be executed
 excludeGroups = ""
 // this suites will not be executed
-excludeSuites = "test_broker_load"
+excludeSuites = ""
 // this directories will not be executed
 excludeDirectories = ""
 
@@ -115,7 +115,10 @@ extPgUser = "****"
 extPgPassword = "***********"
 
 // elasticsearch external test config for bigdata
-enableExternalEsTest = false
+enableEsTest = true
+es_6_port=19200
+es_7_port=29200
+es_8_port=39200
 extEsHost = "***********"
 extEsPort = 9200
 extEsUser = "*******"
