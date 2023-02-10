@@ -123,7 +123,7 @@ INSERT INTO test WITH LABEL `label1` (c1, c2) SELECT * from test2;
    INSERT 操作是一个同步操作，返回结果即表示操作结束。用户需要根据返回结果的不同，进行对应的处理。
 
    1. 执行成功，结果集为空
-insert
+
       如果 insert 对应 select 语句的结果集为空，则返回如下：
 
       

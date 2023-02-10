@@ -58,12 +58,12 @@ SET variable_assignment [, variable_assignment] ...
 - `sql_mode`
 - `enable_profile`
 - `query_timeout`
+- `insert_timeout`
 - `exec_mem_limit`
 - `batch_size`
 - `allow_partition_column_nullable`
 - `insert_visible_timeout_ms`
 - `enable_fold_constant_by_be`
-- `insert_timeout`
 
 只支持全局生效的变量包括：
 

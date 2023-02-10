@@ -21,9 +21,7 @@
 #include "runtime/runtime_state.h"
 
 #include <fmt/format.h>
-#include <gen_cpp/PaloInternalService_types.h>
 
-#include <algorithm>
 #include <boost/algorithm/string/join.hpp>
 #include <sstream>
 #include <string>

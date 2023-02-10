@@ -69,6 +69,7 @@ Variables that support both session-level and global-level setting include:
 * `sql_mode`
 * `enable_profile`
 * `query_timeout`
+* `insert_timeout`
 * `exec_mem_limit`
 * `batch_size`
 * `parallel_fragment_exec_instance_num`
@@ -76,7 +77,6 @@ Variables that support both session-level and global-level setting include:
 * `allow_partition_column_nullable`
 * `insert_visible_timeout_ms`
 * `enable_fold_constant_by_be`
-* `insert_timeout`
 
 Variables that support only global-level setting include:
 
@@ -363,7 +363,7 @@ Translated with www.DeepL.com/Translator (free version)
 
 * `insert_timeout`
     Used to set the insert timeout. This variable applies to INSERT statements particularly in the current connection, and is recommended to manage long-duration INSERT action. The default is 4 hours, in seconds. It will lose effect when query_timeout is
-    greater than it self.
+    greater than itself to make it compatible with the habits of older version users to use query_timeout to control the timeout of INSERT statements.
 
 * `resource_group`
 

@@ -1567,7 +1567,7 @@ public class StmtExecutor implements ProfileWriter {
 
                 coord.exec();
                 int execTimeout = context.getExecTimeout();
-                LOG.info("Insert execution timeout:{}", execTimeout);
+                LOG.debug("Insert execution timeout:{}", execTimeout);
                 boolean notTimeout = coord.join(execTimeout);
                 if (!coord.isDone()) {
                     coord.cancel();

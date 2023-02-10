@@ -152,7 +152,13 @@ public class ConnectContext {
 
     private long userQueryTimeout;
 
-    //the global execution timeout in seconds
+    /**
+     * the global execution timeout in seconds, currently set according to query_timeout and insert_timeout.
+     * <p>
+     * when a connection is established, exec_timeout is set by query_timeout, when the statement is an insert stmt,
+     * then it is set to max(query_timeout, insert_timeout) with {@link #resetExecTimeout()} in
+     * {@link ConnectProcessor#handleQuery()} after the StmtExecutor is specified.
+     */
     private int executionTimeoutS;
 
     public void setUserQueryTimeout(long queryTimeout) {
@@ -223,7 +229,8 @@ public class ConnectContext {
         if (Config.use_fuzzy_session_variable) {
             sessionVariable.initFuzzyModeVariables();
         }
-        setExecTimeout();
+        // initialize executionTimeoutS to default to queryTimeout
+        executionTimeoutS = sessionVariable.getQueryTimeoutS();
     }
 
     public boolean isTxnModel() {
@@ -641,15 +648,12 @@ public class ConnectContext {
         return mysqlChannel == null ? "" : mysqlChannel.getRemoteIp();
     }
 
-    public void setExecTimeout() {
-        int execTimeout;
-        // default use session query_timeout
-        execTimeout = sessionVariable.getQueryTimeoutS();
+    public void resetExecTimeout() {
         if (executor != null && executor.isInsertStmt()) {
-            //particular timeout for insert stmt, we can make other particular timeout in the same way.
-            execTimeout = Math.max(sessionVariable.getInsertTimeoutS(), execTimeout);
+            // particular timeout for insert stmt, we can make other particular timeout in the same way.
+            // set the execution timeout as max(insert_timeout,query_timeout) to be compatible with older versions
+            executionTimeoutS = Math.max(sessionVariable.getInsertTimeoutS(), executionTimeoutS);
         }
-        executionTimeoutS = execTimeout;
     }
 
     public int getExecTimeout() {

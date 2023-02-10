@@ -58,12 +58,12 @@ Variables that support both the current session and the global effect include:
 - `sql_mode`
 - `enable_profile`
 - `query_timeout`
+- `insert_timeout`
 - `exec_mem_limit`
 - `batch_size`
 - `allow_partition_column_nullable`
 - `insert_visible_timeout_ms`
 - `enable_fold_constant_by_be`
-- `insert_timeout`
 
 Variables that only support global effects include:
 

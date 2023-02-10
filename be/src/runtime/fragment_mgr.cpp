@@ -19,11 +19,9 @@
 
 #include <bvar/latency_recorder.h>
 #include <gen_cpp/HeartbeatService_types.h>
-#include <glog/logging.h>
 #include <gperftools/profiler.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
-#include <algorithm>
 #include <memory>
 #include <sstream>
 
