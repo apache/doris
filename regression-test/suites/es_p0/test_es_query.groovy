@@ -66,11 +66,13 @@ suite("test_es_query", "p0") {
         order_qt_sql72 """select * from test1 where test2='text#1'"""
         order_qt_sql73 """select * from test2_20220808 where test4='2022-08-08'"""
         order_qt_sql74 """select * from test2_20220808 where substring(test2, 2) = 'ext2'"""
-        // es8 has some problem, need fix
-        // sql """switch es8"""
-        // order_qt_sql1 """select * from test1 where test2='text'"""
-        // order_qt_sql2 """select * from test2_20220808 where test4='2022-08-08'"""
-
+        sql """switch es8"""
+        order_qt_sql81 """select * from test1 where test2='text#1'"""
+        order_qt_sql82 """select * from test2_20220808 where test4='2022-08-08'"""
+        explain {
+            sql("select * from test1 order by test1 limit 2,2")
+            contains "limit: 4"
+        }
         sql """drop catalog if exists es6;"""
         sql """drop catalog if exists es7;"""
         sql """drop catalog if exists es8;"""

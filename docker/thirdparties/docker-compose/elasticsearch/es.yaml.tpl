@@ -29,7 +29,7 @@ services:
       discovery.type: "single-node"
       ELASTICSEARCH_XPACK_SECURITY_ENABLED: "false"
     volumes:
-      - ./data/es6/:/usr/share/elasticsearch/data
+      - ./data/es6/:/var/lib/elasticsearch/data
     networks:
       - doris--es
     healthcheck:

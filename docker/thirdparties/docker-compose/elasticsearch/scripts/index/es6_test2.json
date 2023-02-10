@@ -25,7 +25,12 @@
           "type": "double"
         },
         "test4": {
-          "type": "date"
+          "type": "date",
+          "format": "yyyy-MM-dd"
+        },
+        "test5": {
+          "type": "date",
+          "format": "yyyy-MM-dd HH:mm:ss"
         }
       }
     }
