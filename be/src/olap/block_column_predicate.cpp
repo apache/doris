@@ -187,4 +187,11 @@ void AndBlockColumnPredicate::evaluate_vec(vectorized::MutableColumns& block, ui
     }
 }
 
+Status AndBlockColumnPredicate::evaluate(const std::string& column_name,
+                                         InvertedIndexIterator* iterator, uint32_t num_rows,
+                                         roaring::Roaring* bitmap) const {
+    return Status::NotSupported(
+            "Not Implemented evaluate with inverted index, please check the predicate");
+}
+
 } // namespace doris
