@@ -539,6 +539,12 @@ public class SlotRef extends Expr {
     }
 
     @Override
+    public boolean haveMvSlot() {
+        String name = MaterializedIndexMeta.normalizeName(toSqlWithoutTbl());
+        return CreateMaterializedViewStmt.isMVColumn(name);
+    }
+
+    @Override
     public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, String tableName)
             throws AnalysisException {
         SlotRef aliasExpr = (SlotRef) stmt.getExprFromAliasSMap(this);

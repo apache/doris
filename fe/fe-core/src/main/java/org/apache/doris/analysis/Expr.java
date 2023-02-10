@@ -2154,6 +2154,15 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
+    public boolean haveMvSlot() {
+        for (Expr expr : getChildren()) {
+            if (expr.haveMvSlot()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, String tableName)
             throws AnalysisException {
         String name = MaterializedIndexMeta.normalizeName(toSqlWithoutTbl());
