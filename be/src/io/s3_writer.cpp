@@ -17,6 +17,7 @@
 
 #include "io/s3_writer.h"
 
+#include <aws/core/http/URI.h>
 #include <aws/core/utils/FileSystemUtils.h>
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/HeadObjectRequest.h>
@@ -52,6 +53,8 @@ S3Writer::S3Writer(const std::map<std::string, std::string>& properties, const s
             tmp_path.c_str(), ".doris_tmp",
             std::ios_base::binary | std::ios_base::trunc | std::ios_base::in | std::ios_base::out);
     DCHECK(_client) << "init aws s3 client error.";
+
+    Aws::Http::SetCompliantRfc3986Encoding(true);
 }
 
 S3Writer::~S3Writer() {

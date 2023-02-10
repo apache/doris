@@ -17,6 +17,7 @@
 
 #include "io/s3_reader.h"
 
+#include <aws/core/http/URI.h>
 #include <aws/s3/S3Client.h>
 #include <aws/s3/model/GetObjectRequest.h>
 #include <aws/s3/model/HeadObjectRequest.h>
@@ -45,6 +46,7 @@ S3Reader::S3Reader(const std::map<std::string, std::string>& properties, const s
           _closed(false),
           _client(ClientFactory::instance().create(_properties)) {
     DCHECK(_client) << "init aws s3 client error.";
+    Aws::Http::SetCompliantRfc3986Encoding(true);
 }
 
 S3Reader::~S3Reader() {}
