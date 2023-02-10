@@ -22,7 +22,9 @@ suite("test_unique_table_new_sequence") {
     CREATE TABLE IF NOT EXISTS ${tableName} (
       `k1` int NULL,
       `v1` tinyint NULL,
-      `v2` int
+      `v2` int,
+      `v3` int,
+      `v4` int
     ) ENGINE=OLAP
     UNIQUE KEY(k1)
     DISTRIBUTED BY HASH(`k1`) BUCKETS 3
@@ -37,7 +39,7 @@ suite("test_unique_table_new_sequence") {
         table "${tableName}"
 
         set 'column_separator', ','
-        set 'columns', 'k1,v1,v2'
+        set 'columns', 'k1,v1,v2,v3,v4'
 
         file 'unique_key_data1.csv'
         time 10000 // limit inflight 10s
@@ -63,7 +65,7 @@ suite("test_unique_table_new_sequence") {
         table "${tableName}"
 
         set 'column_separator', ','
-        set 'columns', 'k1,v1,v2'
+        set 'columns', 'k1,v1,v2,v3,v4'
 
         file 'unique_key_data2.csv'
         time 10000 // limit inflight 10s
@@ -83,13 +85,9 @@ suite("test_unique_table_new_sequence") {
     }
     sql "sync"
 
-    order_qt_all "SELECT * from ${tableName}"
+    qt_count "SELECT COUNT(*) from ${tableName}"
 
-    sql "INSERT INTO ${tableName} values(15, 8, 19)"
-
-    sql "INSERT INTO ${tableName} values(15, 9, 18)"
-
-    sql "sync"
+    order_qt_part "SELECT k1, v1, v2 from ${tableName}"
 
     order_qt_all "SELECT * from ${tableName}"
 
@@ -99,23 +97,25 @@ suite("test_unique_table_new_sequence") {
 
     sql "UPDATE ${tableName} SET v2 = 11 WHERE k1 = 3"
 
+    sql "sync"
+
+    qt_count "SELECT COUNT(*) from ${tableName}"
+
+    order_qt_part "SELECT k1, v1, v2 from ${tableName}"
+
+    order_qt_all "SELECT * from ${tableName}"
+
+    sql "INSERT INTO ${tableName} values(15, 8, 19, 20, 21)"
+
+    sql "INSERT INTO ${tableName} values(15, 9, 18, 21, 22)"
+
     sql "SET show_hidden_columns=true"
 
     sql "sync"
 
-    order_qt_all "SELECT * from ${tableName}"
+    qt_count "SELECT COUNT(*) from ${tableName}"
 
-    qt_desc "desc ${tableName}"
-
-    sql "ALTER TABLE ${tableName} RENAME COLUMN v2 vv2"
-
-    qt_desc "desc ${tableName}"
-
-    sql "INSERT INTO ${tableName} values(21, 8, 22)"
-
-    sql "INSERT INTO ${tableName} values(23, 9, 24)"
-
-    sql "sync"
+    order_qt_part "SELECT k1, v1, v2 from ${tableName}"
 
     order_qt_all "SELECT * from ${tableName}"
 

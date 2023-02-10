@@ -202,8 +202,17 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
     if (config::enable_storage_vectorization && read_context->is_vec) {
         if (read_context->need_ordered_result &&
             _rowset->rowset_meta()->is_segments_overlapping()) {
+            auto sequence_loc = -1;
+            if (read_context->sequence_id_idx != -1) {
+                for (size_t loc = 0; loc < read_context->return_columns->size(); loc++) {
+                    if (read_context->return_columns->at(loc) == read_context->sequence_id_idx) {
+                        sequence_loc = loc;
+                        break;
+                    }
+                }
+            }
             final_iterator = vectorized::new_merge_iterator(
-                    iterators, read_context->sequence_id_idx, read_context->is_unique,
+                    iterators, sequence_loc, read_context->is_unique,
                     read_context->read_orderby_key_reverse, read_context->merged_rows);
         } else {
             if (read_context->read_orderby_key_reverse) {
