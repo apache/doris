@@ -439,7 +439,7 @@ BlockRowPos VAnalyticEvalNode::_compare_row_to_find_end(int idx, BlockRowPos sta
 
     //check whether need get column again, maybe same as first init
     // if the start_block_num have move to forword, so need update start block num and compare it from row_num=0
-    if (start_column.get() != start_next_block_column.get()) {
+    if (start_block_num != start.block_num) {
         start_init_row_num = 0;
         start.block_num = start_block_num;
         start_column = _input_blocks[start.block_num].get_by_position(idx).column;
@@ -448,7 +448,7 @@ BlockRowPos VAnalyticEvalNode::_compare_row_to_find_end(int idx, BlockRowPos sta
     int64_t start_pos = start_init_row_num;
     int64_t end_pos = _input_blocks[start.block_num].rows() - 1;
     //if end_block_num haven't moved, only start_block_num go to the end block
-    //so could used the end.row_num for binary search
+    //so could use the end.row_num for binary search
     if (start.block_num == end.block_num) {
         end_pos = end.row_num;
     }
@@ -460,7 +460,7 @@ BlockRowPos VAnalyticEvalNode::_compare_row_to_find_end(int idx, BlockRowPos sta
             start_pos = mid_pos + 1;
         }
     }
-    start.row_num = start_pos; //upadte row num, return the find end
+    start.row_num = start_pos; //update row num, return the find end
     return start;
 }
 
@@ -635,6 +635,12 @@ void VAnalyticEvalNode::_update_order_by_range() {
             input_block_first_row_positions[_order_by_start.block_num] + _order_by_start.row_num;
     _order_by_end.pos =
             input_block_first_row_positions[_order_by_end.block_num] + _order_by_end.row_num;
+    // `_order_by_end` will be assigned to `_order_by_start` next time,
+    // so make it a valid position.
+    if (_order_by_end.row_num == _input_blocks[_order_by_end.block_num].rows()) {
+        _order_by_end.block_num++;
+        _order_by_end.row_num = 0;
+    }
 }
 
 Status VAnalyticEvalNode::_init_result_columns() {
