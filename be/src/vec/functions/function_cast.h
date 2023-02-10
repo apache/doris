@@ -1541,6 +1541,16 @@ private:
             return &ConvertImplGenericToJsonb::execute;
         }
     }
+    // check struct value type and get to_type value
+    // TODO: need handle another type to cast struct
+    WrapperType create_struct_wrapper(const DataTypePtr& from_type,
+                                      const DataTypeStruct& to_type) const {
+        switch (from_type->get_type_id()) {
+        case TypeIndex::String:
+        default:
+            return &ConvertImplGenericFromString<ColumnString>::execute;
+        }
+    }
 
     WrapperType prepare_unpack_dictionaries(FunctionContext* context, const DataTypePtr& from_type,
                                             const DataTypePtr& to_type) const {
@@ -1715,6 +1725,8 @@ private:
         case TypeIndex::Array:
             return create_array_wrapper(context, from_type,
                                         static_cast<const DataTypeArray&>(*to_type));
+        case TypeIndex::Struct:
+            return create_struct_wrapper(from_type, static_cast<const DataTypeStruct&>(*to_type));
         default:
             break;
         }
@@ -1757,9 +1769,9 @@ protected:
             LOG(FATAL) << fmt::format(
                     "Second argument to {} must be a constant string describing type", get_name());
         }
+        // TODO(xy): support return struct type for factory
         auto type = DataTypeFactory::instance().get(type_col->get_value<String>());
         DCHECK(type != nullptr);
-
         bool need_to_be_nullable = false;
         // 1. from_type is nullable
         need_to_be_nullable |= arguments[0].type->is_nullable();

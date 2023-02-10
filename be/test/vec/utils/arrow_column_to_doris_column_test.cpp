@@ -702,6 +702,7 @@ void test_array(const std::vector<std::string>& test_cases, size_t num_elements,
                 std::shared_ptr<arrow::DataType> value_type) {
     TypeDescriptor type(TYPE_ARRAY);
     type.children.push_back(TYPE_VARCHAR);
+    type.contains_nulls.push_back(true);
     DataTypePtr data_type = DataTypeFactory::instance().create_data_type(type, true);
     for (auto& value : test_cases) {
         MutableColumnPtr data_column = data_type->create_column();

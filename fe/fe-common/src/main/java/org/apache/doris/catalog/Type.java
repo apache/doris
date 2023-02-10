@@ -114,6 +114,8 @@ public abstract class Type {
     private static final ArrayList<ScalarType> numericDateTimeTypes;
     private static final ArrayList<ScalarType> supportedTypes;
     private static final ArrayList<Type> arraySubTypes;
+    private static final ArrayList<Type> mapSubTypes;
+    private static final ArrayList<Type> structSubTypes;
     private static final ArrayList<ScalarType> trivialTypes;
 
     static {
@@ -180,6 +182,34 @@ public abstract class Type {
         arraySubTypes.add(CHAR);
         arraySubTypes.add(VARCHAR);
         arraySubTypes.add(STRING);
+
+        mapSubTypes = Lists.newArrayList();
+        mapSubTypes.add(BOOLEAN);
+        mapSubTypes.addAll(integerTypes);
+        mapSubTypes.add(FLOAT);
+        mapSubTypes.add(DOUBLE);
+        mapSubTypes.add(DECIMALV2);
+        mapSubTypes.add(DATE);
+        mapSubTypes.add(DATETIME);
+        mapSubTypes.add(DATEV2);
+        mapSubTypes.add(DATETIMEV2);
+        mapSubTypes.add(CHAR);
+        mapSubTypes.add(VARCHAR);
+        mapSubTypes.add(STRING);
+
+        structSubTypes = Lists.newArrayList();
+        structSubTypes.add(BOOLEAN);
+        structSubTypes.addAll(integerTypes);
+        structSubTypes.add(FLOAT);
+        structSubTypes.add(DOUBLE);
+        structSubTypes.add(DECIMALV2);
+        structSubTypes.add(DATE);
+        structSubTypes.add(DATETIME);
+        structSubTypes.add(DATEV2);
+        structSubTypes.add(DATETIMEV2);
+        structSubTypes.add(CHAR);
+        structSubTypes.add(VARCHAR);
+        structSubTypes.add(STRING);
     }
 
     public static final Set<Class> DATE_SUPPORTED_JAVA_TYPE = Sets.newHashSet(LocalDate.class, java.util.Date.class,
@@ -235,6 +265,21 @@ public abstract class Type {
 
     public static ArrayList<Type> getArraySubTypes() {
         return arraySubTypes;
+    }
+
+    public static ArrayList<Type> getMapSubTypes() {
+        return mapSubTypes;
+    }
+
+    public static ArrayList<Type> getStructSubTypes() {
+        return structSubTypes;
+    }
+
+    /**
+     * Return true if this is complex type and support subType
+     */
+    public boolean supportSubType(Type subType) {
+        return false;
     }
 
     /**
@@ -430,7 +475,7 @@ public abstract class Type {
     }
 
     public boolean isCollectionType() {
-        return isMapType() || isArrayType() || isMultiRowType();
+        return isMapType() || isArrayType() || isMultiRowType() || isStructType();
     }
 
     public boolean isMapType() {
@@ -551,10 +596,16 @@ public abstract class Type {
             return ScalarType.canCastTo((ScalarType) sourceType, (ScalarType) targetType);
         } else if (sourceType.isArrayType() && targetType.isArrayType()) {
             return ArrayType.canCastTo((ArrayType) sourceType, (ArrayType) targetType);
+        } else if (sourceType.isMapType() && targetType.isMapType()) {
+            return MapType.canCastTo((MapType) sourceType, (MapType) targetType);
         } else if (targetType.isArrayType() && !((ArrayType) targetType).getItemType().isScalarType()
                 && !sourceType.isNull()) {
             // TODO: current not support cast any non-array type(except for null) to nested array type.
             return false;
+        } else if (targetType.isStructType() && sourceType.isStringType()) {
+            return true;
+        } else if (sourceType.isStructType() && targetType.isStructType()) {
+            return StructType.canCastTo((StructType) sourceType, (StructType) targetType);
         }
         return sourceType.isNull() || sourceType.getPrimitiveType().isCharFamily();
     }
@@ -841,7 +892,7 @@ public abstract class Type {
                     }
                     Pair<Type, Integer> res = fromThrift(col, tmpNodeIdx);
                     tmpNodeIdx = res.second.intValue();
-                    structFields.add(new StructField(name, res.first, comment));
+                    structFields.add(new StructField(name, res.first, comment, true));
                 }
                 type = new StructType(structFields);
                 break;

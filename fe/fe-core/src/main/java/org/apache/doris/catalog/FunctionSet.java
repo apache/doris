@@ -1275,10 +1275,9 @@ public class FunctionSet<T> {
         final Type[] candicateArgTypes = candicate.getArgs();
         if (!(descArgTypes[0] instanceof ScalarType)
                 || !(candicateArgTypes[0] instanceof ScalarType)) {
-            if (candicateArgTypes[0] instanceof ArrayType) {
+            if (candicateArgTypes[0] instanceof ArrayType || candicateArgTypes[0] instanceof MapType) {
                 return descArgTypes[0].matchesType(candicateArgTypes[0]);
             }
-
             return false;
         }
         final ScalarType descArgType = (ScalarType) descArgTypes[0];
