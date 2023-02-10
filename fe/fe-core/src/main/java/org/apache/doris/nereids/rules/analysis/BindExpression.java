@@ -583,6 +583,7 @@ public class BindExpression implements AnalysisRuleFactory {
     private <E extends Expression> E bindSlot(E expr, List<Plan> inputs, CascadesContext cascadesContext) {
         return bindSlot(expr, inputs, cascadesContext, true);
     }
+
     @SuppressWarnings("unchecked")
     private <E extends Expression> E bindFunction(E expr, CascadesContext cascadesContext) {
         return (E) FunctionBinder.INSTANCE.bind(expr, cascadesContext);

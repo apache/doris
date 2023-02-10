@@ -48,6 +48,7 @@ class SlotBinder extends SubExprAnalyzer {
     TODO after remove original planner, always enable exact match mode.
      */
     private boolean enableExactMatch = true;
+
     public SlotBinder(Scope scope, CascadesContext cascadesContext) {
         this(scope, cascadesContext, true);
     }
