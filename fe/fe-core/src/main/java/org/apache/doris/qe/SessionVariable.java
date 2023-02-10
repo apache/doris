@@ -254,6 +254,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String GROUP_CONCAT_MAX_LEN = "group_concat_max_len";
 
+    public static final String TOPN_OPT_LIMIT_THRESHOLD = "topn_opt_limit_threshold";
+
     public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
 
     // fix replica to query. If num = 1, query the smallest replica, if 2 is the second smallest replica.
@@ -671,6 +673,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
     public long groupConcatMaxLen = 2147483646;
 
+    @VariableMgr.VarAttr(name = TOPN_OPT_LIMIT_THRESHOLD)
+    public long topnOptLimitThreshold = 1024;
+
     // Default value is false, which means the group by and having clause
     // should first use column name not alias. According to mysql.
     @VariableMgr.VarAttr(name = GROUP_BY_AND_HAVING_USE_ALIAS_FIRST)
@@ -697,6 +702,8 @@ public class SessionVariable implements Serializable, Writable {
         } else {
             this.rewriteOrToInPredicateThreshold = 2;
         }
+        // set random 1, 10, 100, 1000, 10000
+        this.topnOptLimitThreshold = (int) Math.pow(10, random.nextInt(5));
     }
 
     public String printFuzzyVariables() {

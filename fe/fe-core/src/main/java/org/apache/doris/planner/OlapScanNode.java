@@ -928,6 +928,12 @@ public class OlapScanNode extends ScanNode {
      * Check Parent sort node can push down to child olap scan.
      */
     public boolean checkPushSort(SortNode sortNode) {
+        // Ensure limit is less then threshold
+        if (sortNode.getLimit() <= 0
+                || sortNode.getLimit() > ConnectContext.get().getSessionVariable().topnOptLimitThreshold) {
+            return false;
+        }
+
         // Ensure all isAscOrder is same, ande length != 0.
         // Can't be zorder.
         if (sortNode.getSortInfo().getIsAscOrder().stream().distinct().count() != 1
