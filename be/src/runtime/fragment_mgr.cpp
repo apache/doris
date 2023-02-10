@@ -502,7 +502,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
         stream_load_ctx->label = params.import_label;
         stream_load_ctx->format = TFileFormatType::FORMAT_CSV_PLAIN;
         stream_load_ctx->timeout_second = 3600;
-        stream_load_ctx->auth.auth_code_uuid = params.txn_conf.auth_code_uuid;
+        stream_load_ctx->auth.token = params.txn_conf.token;
         stream_load_ctx->need_commit_self = true;
         stream_load_ctx->need_rollback = true;
         auto pipe = std::make_shared<io::StreamLoadPipe>(

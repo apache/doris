@@ -299,7 +299,7 @@ enum PaloInternalServiceVersion {
 
 struct TTxnParams {
   1: optional bool need_txn
-  2: optional string auth_code_uuid
+  2: optional string token
   3: optional i64 thrift_rpc_timeout_ms
   4: optional string db
   5: optional string tbl

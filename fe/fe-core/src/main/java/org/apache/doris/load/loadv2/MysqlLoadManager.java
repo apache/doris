@@ -23,6 +23,7 @@ import org.apache.doris.analysis.LoadStmt;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.ThreadPoolManager;
@@ -70,68 +71,17 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
 
 public class MysqlLoadManager {
     private static final Logger LOG = LogManager.getLogger(MysqlLoadManager.class);
 
     private final ThreadPoolExecutor mysqlLoadPool;
-    private final ConcurrentHashMap<String, Long> mysqlAuthTokens = new ConcurrentHashMap<>();
-    private final ScheduledExecutorService authCleaner;
+    private final TokenManager tokenManager;
 
-    public MysqlLoadManager() {
+    public MysqlLoadManager(TokenManager tokenManager) {
         this.mysqlLoadPool = ThreadPoolManager.newDaemonCacheThreadPool(4, "Mysql Load", true);
-        this.authCleaner = Executors.newScheduledThreadPool(1);
-        this.authCleaner.scheduleAtFixedRate(() -> {
-            synchronized (mysqlAuthTokens) {
-                for (String key : mysqlAuthTokens.keySet()) {
-                    if (System.currentTimeMillis() - mysqlAuthTokens.get(key) >= 3600 * 1000) {
-                        mysqlAuthTokens.remove(key);
-                    }
-                }
-            }
-        }, 1, 1, TimeUnit.DAYS);
-    }
-
-    // this method only will be called in master node, since stream load only send message to master.
-    public boolean checkAuthToken(String token) {
-        return mysqlAuthTokens.containsKey(token);
-    }
-
-    // context only use in no master branch.
-    public String acquireToken(ConnectContext context) {
-        if (Env.getCurrentEnv().isMaster()) {
-            String token = UUID.randomUUID().toString();
-            long createTime = System.currentTimeMillis();
-            mysqlAuthTokens.put(token, createTime);
-            return token;
-        } else {
-            MasterTxnExecutor masterTxnExecutor = new MasterTxnExecutor(context);
-            try {
-                return masterTxnExecutor.acquireToken();
-            } catch (TException e) {
-                LOG.error("acquire token error", e);
-                return null;
-            }
-        }
-    }
-
-    // context only use in no master branch.
-    public void releaseToken(ConnectContext context, String token) {
-        if (Env.getCurrentEnv().isMaster()) {
-            mysqlAuthTokens.remove(token);
-        } else {
-            MasterTxnExecutor masterTxnExecutor = new MasterTxnExecutor(context);
-            try {
-                masterTxnExecutor.releaseToken(token);
-            } catch (TException e) {
-                LOG.error("release token error", e);
-            }
-        }
+        this.tokenManager = tokenManager;
     }
 
     public LoadJobRowResult executeMySqlLoadJobFromStmt(ConnectContext context, LoadStmt stmt)
@@ -141,9 +91,9 @@ public class MysqlLoadManager {
         DataDescription dataDesc = stmt.getDataDescriptions().get(0);
         List<String> filePaths = dataDesc.getFilePaths();
         if (Config.use_http_mysql_load_job) {
-            String database = dataDesc.getDbName();
+            String database = ClusterNamespace.getNameFromFullName(dataDesc.getDbName());
             String table = dataDesc.getTableName();
-            String token = acquireToken(context);
+            String token = tokenManager.acquireToken(context);
             if (token == null) {
                 throw new LoadException("Can't get the load token in mysql load");
             }
@@ -163,15 +113,14 @@ public class MysqlLoadManager {
                     }
                 }
             }
-            releaseToken(context, token);
         } else {
             StreamLoadTxnExecutor executor = null;
             try {
-                String database = dataDesc.getFullDatabaseName();
+                String database = dataDesc.getDbName();
                 String table = dataDesc.getTableName();
                 TransactionEntry entry = prepareTransactionEntry(database, table);
-                openTxn(context, entry);
-                executor = beginTxn(context, entry, dataDesc);
+                beginTnx(context, entry);
+                executor = executeTxn(context, entry, dataDesc);
                 // sendData
                 for (String file : filePaths) {
                     sendData(context, executor, file);
@@ -211,7 +160,7 @@ public class MysqlLoadManager {
         return txnEntry;
     }
 
-    private void openTxn(ConnectContext context, TransactionEntry txnEntry) throws Exception {
+    private void beginTnx(ConnectContext context, TransactionEntry txnEntry) throws Exception {
         TTxnParams txnParams = txnEntry.getTxnConf();
         long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
         TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
@@ -222,23 +171,23 @@ public class MysqlLoadManager {
                             TransactionState.TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                     sourceType, timeoutSecond);
             txnParams.setTxnId(txnId);
-            String authCodeUuid = Env.getCurrentGlobalTransactionMgr().getTransactionState(
+            String token = Env.getCurrentGlobalTransactionMgr().getTransactionState(
                     txnParams.getDbId(), txnParams.getTxnId()).getAuthCode();
-            txnParams.setAuthCodeUuid(authCodeUuid);
+            txnParams.setToken(token);
         } else {
-            String authCodeUuid = UUID.randomUUID().toString();
+            String token = UUID.randomUUID().toString();
             MasterTxnExecutor masterTxnExecutor = new MasterTxnExecutor(context);
             TLoadTxnBeginRequest request = new TLoadTxnBeginRequest();
-            request.setDb(txnParams.getDb()).setTbl(txnParams.getTbl()).setAuthCodeUuid(authCodeUuid)
+            request.setDb(txnParams.getDb()).setTbl(txnParams.getTbl()).setToken(token)
                     .setCluster(txnEntry.getDb().getClusterName()).setLabel(txnEntry.getLabel())
                     .setUser("").setUserIp("").setPasswd("");
             TLoadTxnBeginResult result = masterTxnExecutor.beginTxn(request);
             txnParams.setTxnId(result.getTxnId());
-            txnParams.setAuthCodeUuid(authCodeUuid);
+            txnParams.setToken(token);
         }
     }
 
-    private StreamLoadTxnExecutor beginTxn(ConnectContext context, TransactionEntry txnEntry, DataDescription desc)
+    private StreamLoadTxnExecutor executeTxn(ConnectContext context, TransactionEntry txnEntry, DataDescription desc)
             throws Exception {
         TTxnParams txnParams = txnEntry.getTxnConf();
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();

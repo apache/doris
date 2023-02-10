@@ -1489,18 +1489,18 @@ public class StmtExecutor implements ProfileWriter {
                             TransactionState.TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                     sourceType, timeoutSecond);
             txnConf.setTxnId(txnId);
-            String authCodeUuid = Env.getCurrentGlobalTransactionMgr().getTransactionState(
+            String token = Env.getCurrentGlobalTransactionMgr().getTransactionState(
                     txnConf.getDbId(), txnConf.getTxnId()).getAuthCode();
-            txnConf.setAuthCodeUuid(authCodeUuid);
+            txnConf.setToken(token);
         } else {
-            String authCodeUuid = UUID.randomUUID().toString();
+            String token = UUID.randomUUID().toString();
             MasterTxnExecutor masterTxnExecutor = new MasterTxnExecutor(context);
             TLoadTxnBeginRequest request = new TLoadTxnBeginRequest();
-            request.setDb(txnConf.getDb()).setTbl(txnConf.getTbl()).setAuthCodeUuid(authCodeUuid)
+            request.setDb(txnConf.getDb()).setTbl(txnConf.getTbl()).setToken(token)
                     .setCluster(dbObj.getClusterName()).setLabel(label).setUser("").setUserIp("").setPasswd("");
             TLoadTxnBeginResult result = masterTxnExecutor.beginTxn(request);
             txnConf.setTxnId(result.getTxnId());
-            txnConf.setAuthCodeUuid(authCodeUuid);
+            txnConf.setToken(token);
         }
 
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();

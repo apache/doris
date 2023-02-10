@@ -1986,5 +1986,18 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static long default_db_max_running_txn_num = -1;
+
+    /**
+     * Used by TokenManager to control the number of tokens keep in memory.
+     * One token will keep alive for {token_queue_size * token_generate_period_hour} hours.
+     * By defaults, one token will keep for 3 days.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static int token_queue_size = 6;
+
+    /**
+     * TokenManager will generate token every token_generate_period_hour.
+     */
+    public static int token_generate_period_hour = 12;
 }
 
