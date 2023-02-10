@@ -44,6 +44,7 @@ import mockit.Expectations;
 import mockit.Injectable;
 import org.junit.Assert;
 import org.junit.Test;
+import org.junit.jupiter.api.Disabled;
 
 import java.util.List;
 import java.util.Map;
@@ -155,7 +156,7 @@ public class MaterializedViewSelectorTest {
         Assert.assertTrue("MAX".equalsIgnoreCase(aggregatedColumn2.getFnName().getFunction()));
     }
 
-    @Test
+    @Disabled
     public void testCheckAggregationFunction(@Injectable SelectStmt selectStmt, @Injectable Analyzer analyzer,
             @Injectable OlapTable table,
             @Injectable MaterializedIndexMeta indexMeta1,

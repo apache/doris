@@ -111,20 +111,35 @@ public class ExprToSlotRefRule implements ExprRewriteRule {
     private Expr matchAggregateExprCount(FunctionCallExpr expr, Analyzer analyzer, OlapTable olapTable,
             TableName tableName)
             throws AnalysisException {
-        if (!expr.isDistinct()) {
-            return expr;
-        }
+        if (expr.isDistinct()) {
+            FunctionCallExpr toBitmap = new FunctionCallExpr(FunctionSet.TO_BITMAP, expr.getChildren());
+            toBitmap.setType(Type.BITMAP);
+            List<Expr> params = Lists.newArrayList();
+            params.add(toBitmap);
+            FunctionCallExpr newCount = new FunctionCallExpr(FunctionSet.BITMAP_UNION_COUNT, params);
+            Expr result = matchAggregateExprBitmap(newCount, analyzer, olapTable, tableName);
+            if (result != newCount) {
+                result.analyzeNoThrow(analyzer);
+                return result;
+            }
+        } else {
+            if (expr.getChildren().size() != 1) {
+                return expr;
+            }
+            Expr caseWhen = CountFieldToSum.slotToCaseWhen(expr.getChildren().get(0));
+            List<Expr> params = Lists.newArrayList();
+            params.add(caseWhen);
+            FunctionCallExpr newCount = new FunctionCallExpr("sum", params);
 
-        FunctionCallExpr toBitmap = new FunctionCallExpr(FunctionSet.TO_BITMAP, expr.getChildren());
-        toBitmap.setType(Type.BITMAP);
-        List<Expr> params = Lists.newArrayList();
-        params.add(toBitmap);
-        FunctionCallExpr newCount = new FunctionCallExpr(FunctionSet.BITMAP_UNION_COUNT, params);
+            String mvColumnName = CreateMaterializedViewStmt
+                    .mvColumnBuilder(AggregateType.SUM, caseWhen.toSqlWithoutTbl());
+            Column mvColumn = olapTable.getVisibleColumn(mvColumnName);
 
-        Expr result = matchAggregateExprBitmap(newCount, analyzer, olapTable, tableName);
-        if (result != newCount) {
-            result.analyzeNoThrow(analyzer);
-            return result;
+            if (mvColumn != null) {
+                newCount.setChild(0, new SlotRef(null, mvColumnName));
+                newCount.analyzeNoThrow(analyzer);
+                return newCount;
+            }
         }
         return expr;
     }
