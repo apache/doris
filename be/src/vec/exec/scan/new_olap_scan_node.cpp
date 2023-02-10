@@ -403,7 +403,7 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
 
             NewOlapScanner* scanner = new NewOlapScanner(
                     _state, this, _limit_per_scanner, _olap_scan_node.is_preaggregation,
-                    _need_agg_finalize, *scan_range, _scanner_profile.get());
+                    _need_agg_finalize, _scanner_profile.get());
 
             scanner->set_compound_filters(_compound_filters);
             // add scanner to pool before doing prepare.
