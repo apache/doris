@@ -528,6 +528,33 @@ void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
     }
 }
 
+void TabletIndex::init_from_thrift(const TOlapTableIndex& index,
+                                   const std::vector<int32_t>& column_uids) {
+    _index_id = index.index_id;
+    _index_name = index.index_name;
+    _col_unique_ids = std::move(column_uids);
+
+    switch (index.index_type) {
+    case TIndexType::BITMAP:
+        _index_type = IndexType::BITMAP;
+        break;
+    case TIndexType::INVERTED:
+        _index_type = IndexType::INVERTED;
+        break;
+    case TIndexType::BLOOMFILTER:
+        _index_type = IndexType::BLOOMFILTER;
+        break;
+    case TIndexType::NGRAM_BF:
+        _index_type = IndexType::NGRAM_BF;
+        break;
+    }
+    if (index.__isset.properties) {
+        for (auto kv : index.properties) {
+            _properties[kv.first] = kv.second;
+        }
+    }
+}
+
 void TabletIndex::init_from_pb(const TabletIndexPB& index) {
     _index_id = index.index_id();
     _index_name = index.index_name();
@@ -592,6 +619,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _num_key_columns = 0;
     _num_null_columns = 0;
     _cols.clear();
+    _indexes.clear();
     _field_name_to_index.clear();
     _field_id_to_index.clear();
     for (auto& column_pb : schema.column()) {
@@ -671,6 +699,7 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
     _num_null_columns = 0;
     bool has_bf_columns = false;
     _cols.clear();
+    _indexes.clear();
     _field_name_to_index.clear();
     _field_id_to_index.clear();
 
@@ -693,6 +722,10 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
         _field_id_to_index[column->unique_id()] = _num_columns;
         _cols.emplace_back(*column);
         _num_columns++;
+    }
+
+    for (auto& index : index->indexes) {
+        _indexes.emplace_back(*index);
     }
 
     if (has_bf_columns) {
