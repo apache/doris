@@ -193,6 +193,7 @@ public:
         return _tablet_publish_txn_thread_pool;
     }
     bool stopped() { return _stopped; }
+    ThreadPool* get_bg_multiget_threadpool() { return _bg_multi_get_thread_pool.get(); }
 
 private:
     // Instance should be inited from `static open()`
@@ -374,6 +375,7 @@ private:
     std::unique_ptr<ThreadPool> _tablet_publish_txn_thread_pool;
 
     std::unique_ptr<ThreadPool> _tablet_meta_checkpoint_thread_pool;
+    std::unique_ptr<ThreadPool> _bg_multi_get_thread_pool;
 
     CompactionPermitLimiter _permit_limiter;
 
