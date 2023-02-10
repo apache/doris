@@ -1190,6 +1190,22 @@ public class SingleNodePlanner {
             root = createCheapestJoinPlan(analyzer, refPlans);
             Preconditions.checkState(root != null);
         } else {
+            if (selectStmt.getSelectList().getItems().size() == 1) {
+                final List<SlotId> slotIds = Lists.newArrayList();
+                final List<TupleId> tupleIds = Lists.newArrayList();
+                Expr resultExprSelected = selectStmt.getSelectList().getItems().get(0).getExpr();
+
+                resultExprSelected.getIds(tupleIds, slotIds);
+                for (SlotId id : slotIds) {
+                    final SlotDescriptor slot = analyzer.getDescTbl().getSlotDesc(id);
+                    slot.setIsMaterialized(true);
+                    slot.materializeSrcExpr();
+                }
+                for (TupleId id : tupleIds) {
+                    final TupleDescriptor tuple = analyzer.getDescTbl().getTupleDesc(id);
+                    tuple.setIsMaterialized(true);
+                }
+            }
             // create left-deep sequence of binary hash joins; assign node ids as we go along
             TableRef tblRef = selectStmt.getTableRefs().get(0);
             materializeTableResultForCrossJoinOrCountStar(tblRef, analyzer);

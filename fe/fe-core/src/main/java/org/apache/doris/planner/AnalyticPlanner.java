@@ -682,43 +682,10 @@ public class AnalyticPlanner {
         List<WindowGroup> groups = Lists.newArrayList();
         for (int i = 0; i < analyticExprs.size(); ++i) {
             AnalyticExpr analyticExpr = (AnalyticExpr) analyticExprs.get(i);
-            /*
-            TODO: re-design rule for count(*)
-            In previous version, if the output slot of analyticExpr is not materialized, the analyticExpr is pruned.
-            But there are some cases that it cannot be pruned.
-            For example:
-                    SELECT
-                        count(*)
-                    FROM T1,
-                        (SELECT dd
-                        FROM (
-                            SELECT
-                                1.1 as cc,
-                                ROW_NUMBER() OVER() as dd
-                            FROM T2
-                            ) V1
-                        ORDER BY cc DESC
-                        limit 1
-                        ) V2;
-             analyticExpr(ROW_NUMBER() OVER() as dd) is not materialized, but we have to generate
-             WindowGroup for it.
-             tmp.dd is used by upper count(*), we have to generate data for tmp.dd
-
-             In order to prune 'ROW_NUMBER() OVER() as dd', we need to rethink the rule of choosing a column
-             for count(*). (refer to SingleNodePlanner.materializeTableResultForCrossJoinOrCountStar)
-             V2 can be transformed to
-                        SELECT cc
-                        FROM (
-                            SELECT
-                                1.1 as cc,
-                                ROW_NUMBER() OVER() as dd
-                            FROM T2
-                            ) V1
-                        ORDER BY cc DESC
-                        limit 1
-                        ) V2;
-             Except the byte size of cc and dd, we need to consider the cost to generate cc and dd.
-             */
+            // Do not generate the plan for non-materialized analytic exprs.
+            if (!analyticInfo.getOutputTupleDesc().getSlots().get(i).isMaterialized()) {
+                continue;
+            }
             boolean match = false;
             for (WindowGroup group : groups) {
                 if (group.isCompatible(analyticExpr)) {
