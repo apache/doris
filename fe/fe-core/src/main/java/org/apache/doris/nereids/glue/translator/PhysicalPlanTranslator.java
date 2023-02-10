@@ -38,6 +38,8 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.properties.DistributionSpecAny;
 import org.apache.doris.nereids.properties.DistributionSpecGather;
@@ -128,8 +130,8 @@ import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -153,7 +155,7 @@ import java.util.stream.Stream;
  * </STRONG>
  */
 public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, PlanTranslatorContext> {
-    private static final Logger LOG = LoggerFactory.getLogger(PhysicalPlanTranslator.class);
+    private static final Logger LOG = LogManager.getLogger(PhysicalPlanTranslator.class);
 
     /**
      * Translate Nereids Physical Plan tree to Stale Planner PlanFragment tree.
@@ -1098,7 +1100,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         inputPlanNode.setProjectList(execExprList);
         inputPlanNode.setOutputTupleDesc(tupleDescriptor);
 
-        if (inputPlanNode instanceof OlapScanNode) {
+        if (inputPlanNode instanceof ScanNode) {
             updateChildSlotsMaterialization(inputPlanNode, requiredSlotIdList, context);
             return inputFragment;
         }
@@ -1125,6 +1127,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         if (noneMaterialized) {
             context.getDescTable()
                     .getTupleDesc(execPlan.getTupleIds().get(0)).getSlots().get(0).setIsMaterialized(true);
+        }
+        if (execPlan instanceof ScanNode) {
+            try {
+                ((ScanNode) execPlan).updateRequiredSlots();
+            } catch (UserException e) {
+                Util.logAndThrowRuntimeException(LOG,
+                        "User Exception while reset external file scan node contexts.", e);
+            }
         }
     }
 
