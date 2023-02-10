@@ -1049,6 +1049,29 @@ void Tablet::calc_missed_versions_unlocked(int64_t spec_version,
     }
 }
 
+// check if there exist holes in tablet versions.
+// if tablet versions are continuous return true, else false
+bool Tablet::check_version_continuous_unlocked() const {
+    std::list<Version> existing_versions;
+    for (auto& rs : _tablet_meta->all_rs_metas()) {
+        existing_versions.emplace_back(rs->version());
+    }
+    // sort the existing versions in ascending order
+    existing_versions.sort([](const Version& a, const Version& b) {
+        // simple because 2 versions are certainly not overlapping
+        return a.first < b.first;
+    });
+    int64_t last_version = -1;
+    for (Version& version : existing_versions) {
+        if ((last_version + 1) != version.first) {
+            return false;
+        } else {
+            last_version = version.second;
+        }
+    }
+    return true;
+}
+
 void Tablet::max_continuous_version_from_beginning(Version* version, Version* max_version) {
     bool has_version_cross;
     std::shared_lock rdlock(_meta_lock);

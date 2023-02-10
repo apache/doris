@@ -276,6 +276,8 @@ CONF_Bool(enable_low_cardinality_optimize, "true");
 CONF_mBool(enable_compaction_checksum, "false");
 // whether disable automatic compaction task
 CONF_mBool(disable_auto_compaction, "false");
+// when tablet versions are discontinuous, keep the latest `(this ratio) * max_tablet_version_num` rowsets
+CONF_mDouble(compact_keep_latest_rowset_num_ratio_when_version_incomplete, "0.4");
 // whether enable vertical compaction
 CONF_mBool(enable_vertical_compaction, "true");
 // whether enable ordered data compaction

@@ -190,6 +190,7 @@ public:
     void calc_missed_versions(int64_t spec_version, std::vector<Version>* missed_versions);
     void calc_missed_versions_unlocked(int64_t spec_version,
                                        std::vector<Version>* missed_versions) const;
+    bool check_version_continuous_unlocked() const;
 
     // This function to find max continuous version from the beginning.
     // For example: If there are 1, 2, 3, 5, 6, 7 versions belongs tablet, then 3 is target.

@@ -231,9 +231,16 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         size_t* compaction_score) {
     size_t promotion_size = tablet->cumulative_promotion_size();
     auto max_version = tablet->max_version().first;
+    // check version continuity of tablet, there may exist version missing before cumulative_point in some bad cases.
+    bool version_continuous = tablet->check_version_continuous_unlocked();
+    int keep_latest_rowset_num =
+            config::max_tablet_version_num *
+            config::compact_keep_latest_rowset_num_ratio_when_version_incomplete;
+
     int transient_size = 0;
     *compaction_score = 0;
     int64_t total_size = 0;
+
     for (auto& rowset : candidate_rowsets) {
         // check whether this rowset is delete version
         if (rowset->rowset_meta()->has_delete_predicate()) {
@@ -250,11 +257,14 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
                 continue;
             }
         }
-        if (tablet->tablet_state() == TABLET_NOTREADY) {
-            // If tablet under alter, keep latest 10 version so that base tablet max version
-            // not merged in new tablet, and then we can copy data from base tablet
-            if (rowset->version().second < max_version - 10) {
-                continue;
+        if (!version_continuous) {
+            // If tablet exists holes, keep the latest versions so that tablet new versions will not be merged, and
+            // then we can copy data from base/healthy tablet
+            if (rowset->version().second > (max_version - keep_latest_rowset_num)) {
+                LOG(INFO) << "tablet " << tablet->tablet_id()
+                          << " exist version holes, will not compact latest "
+                          << keep_latest_rowset_num << " rowsets.";
+                break;
             }
         }
         if (*compaction_score >= max_compaction_score) {
