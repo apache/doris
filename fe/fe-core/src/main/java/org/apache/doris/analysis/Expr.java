@@ -45,6 +45,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -2119,6 +2120,31 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                     }
                     return type;
                 }).toArray(Type[]::new);
+    }
+
+    public boolean refToCountStar() {
+        if (this instanceof SlotRef) {
+            SlotRef slotRef = (SlotRef) this;
+            SlotDescriptor desc = slotRef.getDesc();
+            List<Expr> exprs = desc.getSourceExprs();
+            return CollectionUtils.isNotEmpty(exprs) && exprs.stream().anyMatch(e -> {
+                if (e instanceof FunctionCallExpr) {
+                    FunctionCallExpr funcExpr = (FunctionCallExpr) e;
+                    Function f = funcExpr.fn;
+                    if (f.getFunctionName().getFunction().equals("count")
+                            && funcExpr.children.stream().anyMatch(Expr::isConstant)) {
+                        return true;
+                    }
+                }
+                return false;
+            });
+        }
+        for (Expr expr : children) {
+            if (expr.refToCountStar()) {
+                return true;
+            }
+        }
+        return false;
     }
 }
 
