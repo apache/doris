@@ -308,6 +308,7 @@ Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr s
         bool is_key = (i == 0);
         std::vector<uint32_t> column_ids = column_groups[i];
 
+        writer->reset();
         writer->init(column_ids, is_key);
         auto schema = std::make_shared<Schema>(_context.tablet_schema->columns(), column_ids);
         auto reader = _get_segcompaction_reader(segments, tablet, schema, stat.get(), &merged_row_stat, row_sources_buf, is_key, column_ids);
@@ -328,8 +329,6 @@ Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr s
             row_sources_buf.flush();
         }
         row_sources_buf.seek_to_begin();
-
-        writer->reset();
     }
 
     // TODO  RETURN_NOT_OK_LOG(_check_correctness(std::move(stat), merged_row_stat, row_count, begin, end),
@@ -970,7 +969,7 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
 Status BetaRowsetWriter::_flush_segment_writer_for_segcompaction(
         std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size, KeyBoundsPB& key_bounds) {
     uint32_t segid = (*writer)->get_segment_id();
-    uint32_t row_num = (*writer)->num_rows_written();
+    uint32_t row_num = (*writer)->row_count();
     uint64_t segment_size;
 
     auto s = (*writer)->finalize_footer(&segment_size);
