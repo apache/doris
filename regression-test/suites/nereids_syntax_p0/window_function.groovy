@@ -89,12 +89,13 @@ suite("test_window_function") {
         GROUP BY ROLLUP (c2, c3)
     """
 
-    order_qt_subquery_1 """
+    qt_subquery_1 """
         SELECT *, row_number() over(partition by c1)
         FROM (
             SELECT *, row_number() over(partition by c2)
             FROM window_test
         ) t
+        ORDER BY c1, c2, c3
     """
 
     order_qt_subquery_2 """
