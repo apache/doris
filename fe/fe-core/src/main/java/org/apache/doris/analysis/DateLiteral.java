@@ -24,7 +24,6 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.InvalidFormatException;
 import org.apache.doris.thrift.TDateLiteral;
 import org.apache.doris.thrift.TExprNode;
@@ -668,10 +667,10 @@ public class DateLiteral extends LiteralExpr {
     }
 
     public void castToDate() {
-        if (Config.enable_date_conversion) {
-            this.type = Type.DATEV2;
-        } else {
+        if (this.type.isDateOrDateTime()) {
             this.type = Type.DATE;
+        } else {
+            this.type = Type.DATEV2;
         }
         hour = 0;
         minute = 0;
