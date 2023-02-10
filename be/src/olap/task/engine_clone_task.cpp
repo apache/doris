@@ -119,7 +119,8 @@ Status EngineCloneTask::_do_clone() {
     } else {
         LOG(INFO) << "clone tablet not exist, begin clone a new tablet from remote be. "
                   << "signature=" << _signature << ", tablet_id=" << _clone_req.tablet_id
-                  << ", committed_version=" << _clone_req.committed_version;
+                  << ", committed_version=" << _clone_req.committed_version
+                  << ", req replica=" << _clone_req.replica_id;
         // create a new tablet in this be
         // Get local disk from olap
         string local_shard_root_path;
@@ -194,6 +195,7 @@ Status EngineCloneTask::_set_tablet_info(bool is_new_tablet) {
     }
     LOG(INFO) << "clone get tablet info success. tablet_id:" << _clone_req.tablet_id
               << ", schema_hash:" << _clone_req.schema_hash << ", signature:" << _signature
+              << ", replica id:" << _clone_req.replica_id
               << ", version:" << tablet_info.version;
     _tablet_infos->push_back(tablet_info);
     return Status::OK();

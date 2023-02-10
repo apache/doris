@@ -771,6 +771,7 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
         return Status::Error<HEADER_PB_PARSE_FAILED>();
     }
 
+    LOG_INFO("load tablet {} from meta, replica id {}", tablet_id, tablet_meta->replica_id());
     if (restore) {
         // we're restoring tablet from trash, tablet state should be changed from shutdown back to running
         tablet_meta->set_tablet_state(TABLET_RUNNING);
