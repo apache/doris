@@ -46,26 +46,7 @@ under the License.
 
 ## Request body
 
-```
-Request body:
-{
-    "fileInfo":
-    {
-        "columnSeparator": ",",
-        "fileUrl": "hdfs://127.0.0.1:50070/file/test/text*",
-        "format": "TXT" // TXT or PARQUET
-    },
-    "connectInfo": 
-    {  // Optional
-        "brokerName" : "my_broker",
-        "brokerProps" : 
-        {
-            "username" : "yyy",
-            "password" : "xxx"
-        }
-    }
-}
-```
+TO DO
 
 ## Response
 
