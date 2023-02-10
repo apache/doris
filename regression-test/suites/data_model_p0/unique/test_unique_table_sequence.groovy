@@ -22,7 +22,9 @@ suite("test_unique_table_sequence") {
         CREATE TABLE IF NOT EXISTS ${tableName} (
           `k1` int NULL,
           `v1` tinyint NULL,
-          `v2` int
+          `v2` int,
+          `v3` int,
+          `v4` int
         ) ENGINE=OLAP
         UNIQUE KEY(k1)
         DISTRIBUTED BY HASH(`k1`) BUCKETS 3
@@ -36,7 +38,7 @@ suite("test_unique_table_sequence") {
         table "${tableName}"
 
         set 'column_separator', ','
-        set 'columns', 'k1,v1,v2'
+        set 'columns', 'k1,v1,v2,v3,v4'
         set 'function_column.sequence_col', 'v2'
 
         file 'unique_key_data1.csv'
@@ -63,7 +65,7 @@ suite("test_unique_table_sequence") {
         table "${tableName}"
 
         set 'column_separator', ','
-        set 'columns', 'k1,v1,v2'
+        set 'columns', 'k1,v1,v2,v3,v4'
         set 'function_column.sequence_col', 'v2'
 
         file 'unique_key_data2.csv'
@@ -84,6 +86,10 @@ suite("test_unique_table_sequence") {
     }
     sql "sync"
 
+    qt_count "SELECT COUNT(*) from ${tableName}"
+
+    order_qt_part "SELECT k1, v1, v2 from ${tableName}"
+
     order_qt_all "SELECT * from ${tableName}"
 
     sql "UPDATE ${tableName} SET v1 = 10 WHERE k1 = 1"
@@ -94,15 +100,23 @@ suite("test_unique_table_sequence") {
 
     sql "sync"
 
+    qt_count "SELECT COUNT(*) from ${tableName}"
+
+    order_qt_part "SELECT k1, v1, v2 from ${tableName}"
+
     order_qt_all "SELECT * from ${tableName}"
 
-    sql "INSERT INTO ${tableName} values(15, 8, 19)"
+    sql "INSERT INTO ${tableName} values(15, 8, 19, 20, 21)"
 
-    sql "INSERT INTO ${tableName} values(15, 9, 18)"
+    sql "INSERT INTO ${tableName} values(15, 9, 18, 21, 22)"
 
     sql "SET show_hidden_columns=true"
 
     sql "sync"
+
+    qt_count "SELECT COUNT(*) from ${tableName}"
+
+    order_qt_part "SELECT k1, v1, v2 from ${tableName}"
 
     order_qt_all "SELECT * from ${tableName}"
 
