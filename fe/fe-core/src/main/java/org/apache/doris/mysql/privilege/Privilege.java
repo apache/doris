@@ -21,7 +21,7 @@ import com.google.common.collect.ImmutableMap;
 
 import java.util.Map;
 
-public enum PaloPrivilege {
+public enum Privilege {
     NODE_PRIV("Node_priv", 0, "Privilege for cluster node operations"),
     ADMIN_PRIV("Admin_priv", 1, "Privilege for admin user"),
     GRANT_PRIV("Grant_priv", 2, "Privilege for granting privilege"),
@@ -32,7 +32,7 @@ public enum PaloPrivilege {
     DROP_PRIV("Drop_priv", 7, "Privilege for dropping database or table"),
     USAGE_PRIV("Usage_priv", 8, "Privilege for using resource");
 
-    public static PaloPrivilege[] privileges = {
+    public static Privilege[] privileges = {
             NODE_PRIV,
             ADMIN_PRIV,
             GRANT_PRIV,
@@ -44,8 +44,8 @@ public enum PaloPrivilege {
             USAGE_PRIV
     };
 
-    public static Map<PaloPrivilege, String> privInPaloToMysql =
-            ImmutableMap.<PaloPrivilege, String>builder() // No NODE_PRIV and ADMIN_PRIV in the mysql
+    public static Map<Privilege, String> privInDorisToMysql =
+            ImmutableMap.<Privilege, String>builder() // No NODE_PRIV and ADMIN_PRIV in the mysql
                     .put(SELECT_PRIV, "SELECT")
                     .put(LOAD_PRIV, "INSERT")
                     .put(ALTER_PRIV, "ALTER")
@@ -58,7 +58,7 @@ public enum PaloPrivilege {
     private int idx;
     private String desc;
 
-    private PaloPrivilege(String name, int index, String desc) {
+    private Privilege(String name, int index, String desc) {
         this.name = name;
         this.idx = index;
         this.desc = desc;
@@ -76,8 +76,8 @@ public enum PaloPrivilege {
         return desc;
     }
 
-    public static PaloPrivilege getPriv(int index) {
-        if (index < 0 || index > PaloPrivilege.values().length - 1) {
+    public static Privilege getPriv(int index) {
+        if (index < 0 || index > Privilege.values().length - 1) {
             return null;
         }
         return privileges[index];

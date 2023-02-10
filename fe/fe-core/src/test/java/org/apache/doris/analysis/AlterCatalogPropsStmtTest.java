@@ -21,8 +21,8 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.MockedAuth;
-import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Maps;
@@ -36,7 +36,7 @@ import java.util.Map;
 public class AlterCatalogPropsStmtTest {
     private Analyzer analyzer;
     @Mocked
-    private PaloAuth auth;
+    private Auth auth;
     @Mocked
     private ConnectContext ctx;
 

@@ -18,7 +18,7 @@
 package org.apache.doris.ldap;
 
 import org.apache.doris.common.LdapConfig;
-import org.apache.doris.mysql.privilege.PaloRole;
+import org.apache.doris.mysql.privilege.Role;
 
 import java.util.Objects;
 
@@ -26,7 +26,7 @@ import java.util.Objects;
  * Used to cache LDAP information of user, such as password and privileges.
  */
 public class LdapUserInfo {
-    public LdapUserInfo(String userName, boolean isSetPasswd, String passwd, PaloRole role) {
+    public LdapUserInfo(String userName, boolean isSetPasswd, String passwd, Role role) {
         this.userName = userName;
         this.isSetPasswd = isSetPasswd;
         this.passwd = passwd;
@@ -34,7 +34,7 @@ public class LdapUserInfo {
         this.lastTimeStamp = System.currentTimeMillis();
     }
 
-    private LdapUserInfo(String userName, boolean isSetPasswd, String passwd, PaloRole role, long lastTimeStamp) {
+    private LdapUserInfo(String userName, boolean isSetPasswd, String passwd, Role role, long lastTimeStamp) {
         this.userName = userName;
         this.isSetPasswd = isSetPasswd;
         this.passwd = passwd;
@@ -48,7 +48,7 @@ public class LdapUserInfo {
 
     private final String passwd;
 
-    private final PaloRole role;
+    private final Role role;
 
     private final long lastTimeStamp;
 
@@ -65,7 +65,7 @@ public class LdapUserInfo {
         return passwd;
     }
 
-    public PaloRole getPaloRole() {
+    public Role getPaloRole() {
         return role;
     }
 

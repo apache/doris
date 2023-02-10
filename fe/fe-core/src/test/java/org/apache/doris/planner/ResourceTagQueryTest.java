@@ -35,7 +35,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.DdlExecutor;
 import org.apache.doris.resource.Tag;
@@ -194,13 +194,13 @@ public class ResourceTagQueryTest {
         Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
         OlapTable tbl = (OlapTable) db.getTableNullable("tbl1");
 
-        Set<Tag> userTags = Env.getCurrentEnv().getAuth().getResourceTags(PaloAuth.ROOT_USER);
+        Set<Tag> userTags = Env.getCurrentEnv().getAuth().getResourceTags(Auth.ROOT_USER);
         Assert.assertEquals(0, userTags.size());
 
         // set default tag for root
         String setPropStr = "set property for 'root' 'resource_tags.location' = 'default';";
         ExceptionChecker.expectThrowsNoException(() -> setProperty(setPropStr));
-        userTags = Env.getCurrentEnv().getAuth().getResourceTags(PaloAuth.ROOT_USER);
+        userTags = Env.getCurrentEnv().getAuth().getResourceTags(Auth.ROOT_USER);
         Assert.assertEquals(1, userTags.size());
 
         // update connection context and query
@@ -213,7 +213,7 @@ public class ResourceTagQueryTest {
         // set zone1 tag for root
         String setPropStr2 = "set property for 'root' 'resource_tags.location' = 'zone1';";
         ExceptionChecker.expectThrowsNoException(() -> setProperty(setPropStr2));
-        userTags = Env.getCurrentEnv().getAuth().getResourceTags(PaloAuth.ROOT_USER);
+        userTags = Env.getCurrentEnv().getAuth().getResourceTags(Auth.ROOT_USER);
         Assert.assertEquals(1, userTags.size());
         for (Tag tag : userTags) {
             Assert.assertEquals(tag1, tag);
@@ -275,10 +275,10 @@ public class ResourceTagQueryTest {
         // set user exec mem limit
         String setExecMemLimitStr = "set property for 'root' 'exec_mem_limit' = '1000000';";
         ExceptionChecker.expectThrowsNoException(() -> setProperty(setExecMemLimitStr));
-        long execMemLimit = Env.getCurrentEnv().getAuth().getExecMemLimit(PaloAuth.ROOT_USER);
+        long execMemLimit = Env.getCurrentEnv().getAuth().getExecMemLimit(Auth.ROOT_USER);
         Assert.assertEquals(1000000, execMemLimit);
 
-        List<List<String>> userProps = Env.getCurrentEnv().getAuth().getUserProperties(PaloAuth.ROOT_USER);
+        List<List<String>> userProps = Env.getCurrentEnv().getAuth().getUserProperties(Auth.ROOT_USER);
         Assert.assertEquals(17, userProps.size());
     }
 
