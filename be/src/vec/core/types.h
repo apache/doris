@@ -82,6 +82,8 @@ enum class TypeIndex {
     FixedLengthObject,
     JSONB,
     Decimal128I,
+    Map,
+    Struct,
 };
 
 struct Consted {
@@ -571,6 +573,8 @@ inline const char* getTypeName(TypeIndex idx) {
         return "Array";
     case TypeIndex::Tuple:
         return "Tuple";
+    case TypeIndex::Map:
+        return "Map";
     case TypeIndex::Set:
         return "Set";
     case TypeIndex::Interval:
@@ -591,6 +595,8 @@ inline const char* getTypeName(TypeIndex idx) {
         return "FixedLengthObject";
     case TypeIndex::JSONB:
         return "JSONB";
+    case TypeIndex::Struct:
+        return "Struct";
     }
 
     __builtin_unreachable();

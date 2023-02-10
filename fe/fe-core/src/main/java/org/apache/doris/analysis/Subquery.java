@@ -172,7 +172,7 @@ public class Subquery extends Expr {
                 fieldName = "_" + Integer.toString(i);
             }
             Preconditions.checkNotNull(fieldName);
-            structFields.add(new StructField(fieldName, expr.getType(), null));
+            structFields.add(new StructField(fieldName, expr.getType()));
         }
         Preconditions.checkState(structFields.size() != 0);
         return new StructType(structFields);
