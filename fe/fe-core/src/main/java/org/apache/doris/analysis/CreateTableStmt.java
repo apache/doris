@@ -372,7 +372,7 @@ public class CreateTableStmt extends DdlStmt {
                         if (columnDef.getType().getPrimitiveType() == PrimitiveType.JSONB) {
                             break;
                         }
-                        if (columnDef.getType().isCollectionType()) {
+                        if (columnDef.getType().isComplexType()) {
                             break;
                         }
                         if (columnDef.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {
