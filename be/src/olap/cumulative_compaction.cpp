@@ -110,10 +110,11 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
     // do compaction.
     // ******************
     if (candidate_rowsets[0]->start_version() != _tablet->cumulative_layer_point()) {
-        LOG(WARNING) << "There are missed versions among rowsets. "
-                     << "the version of all rowsets to cumulative must begin with '_cumulative_point'."
-                     << "_cumulative_point is " << _tablet->cumulative_layer_point()
-                     << ", but now begin version is " << candidate_rowsets[0]->start_version();
+        LOG(WARNING)
+                << "There are missed versions among rowsets. "
+                << "the version of all rowsets to cumulative must begin with '_cumulative_point'."
+                << "_cumulative_point is " << _tablet->cumulative_layer_point()
+                << ", but now begin version is " << candidate_rowsets[0]->start_version();
         return Status::Error<CUMULATIVE_MISS_VERSION>();
     }
 
