@@ -52,7 +52,8 @@ suite("test_window_function") {
     order_qt_with_star "SELECT *, rank() over(partition by c3 order by c2) FROM window_test"
     order_qt_multi_window_1 "SELECT rank() over(), row_number() over() FROM window_test"
     order_qt_multi_window_2 """
-        SELECT sum(c1) over(), count(c2) over(), rank() over(partition by c3   order by c2) FROM window_test"
+        SELECT sum(c1) over(), count(c2) over(), rank() over(partition by c3   order by c2) 
+        FROM window_test
     """
 
     // todo: fix unknown bug of dense_rank(), ntile() in Nereids
