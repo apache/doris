@@ -39,6 +39,7 @@ struct OlapTableIndexSchema {
     std::vector<SlotDescriptor*> slots;
     int32_t schema_hash;
     std::vector<TabletColumn*> columns;
+    std::vector<TabletIndex*> indexes;
 
     void to_protobuf(POlapTableIndexSchema* pindex) const;
 };

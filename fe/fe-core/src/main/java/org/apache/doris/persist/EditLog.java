@@ -870,6 +870,12 @@ public class EditLog {
                     env.getSchemaChangeHandler().replayModifyTableAddOrDropColumns(info);
                     break;
                 }
+                case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES: {
+                    final TableAddOrDropInvertedIndicesInfo info =
+                            (TableAddOrDropInvertedIndicesInfo) journal.getData();
+                    env.getSchemaChangeHandler().replaymodifyTableAddOrDropInvertedIndices(info);
+                    break;
+                }
                 case OperationType.OP_CLEAN_LABEL: {
                     final CleanLabelOperationLog log = (CleanLabelOperationLog) journal.getData();
                     env.getLoadManager().replayCleanLabel(log);
@@ -1686,6 +1692,10 @@ public class EditLog {
 
     public void logModifyTableAddOrDropColumns(TableAddOrDropColumnsInfo info) {
         logEdit(OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS, info);
+    }
+
+    public void logModifyTableAddOrDropInvertedIndices(TableAddOrDropInvertedIndicesInfo info) {
+        logEdit(OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES, info);
     }
 
     public void logCleanLabel(CleanLabelOperationLog log) {

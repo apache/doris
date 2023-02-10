@@ -38,6 +38,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndexMeta;
@@ -64,6 +65,7 @@ import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TOlapScanNode;
+import org.apache.doris.thrift.TOlapTableIndex;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPlanNode;
 import org.apache.doris.thrift.TPlanNodeType;
@@ -1100,6 +1102,7 @@ public class OlapScanNode extends ScanNode {
         List<String> keyColumnNames = new ArrayList<String>();
         List<TPrimitiveType> keyColumnTypes = new ArrayList<TPrimitiveType>();
         List<TColumn> columnsDesc = new ArrayList<TColumn>();
+        List<TOlapTableIndex> indexDesc = Lists.newArrayList();
 
         if (selectedIndexId != -1) {
             for (Column col : olapTable.getSchemaByIndexId(selectedIndexId, true)) {
@@ -1113,9 +1116,15 @@ public class OlapScanNode extends ScanNode {
             }
         }
 
+        for (Index index : olapTable.getIndexes()) {
+            TOlapTableIndex tIndex = index.toThrift();
+            indexDesc.add(tIndex);
+        }
+
         msg.node_type = TPlanNodeType.OLAP_SCAN_NODE;
         msg.olap_scan_node = new TOlapScanNode(desc.getId().asInt(), keyColumnNames, keyColumnTypes, isPreAggregation);
         msg.olap_scan_node.setColumnsDesc(columnsDesc);
+        msg.olap_scan_node.setIndexesDesc(indexDesc);
         if (null != sortColumn) {
             msg.olap_scan_node.setSortColumn(sortColumn);
         }
