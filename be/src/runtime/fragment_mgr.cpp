@@ -729,6 +729,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
                     _exec_actual(exec_state, cb);
                 });
         if (!st.ok()) {
+            LOG(WARNING) << "submit fragment fail " << st;
             {
                 // Remove the exec state added
                 std::lock_guard<std::mutex> lock(_lock);
