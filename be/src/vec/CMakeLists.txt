@@ -235,6 +235,7 @@ set(VEC_FILES
   functions/function_java_udf.cpp
   functions/function_rpc.cpp
   functions/function_convert_tz.cpp
+  functions/function_nonnullable.cpp
   functions/least_greast.cpp
   functions/function_fake.cpp
   functions/url/function_url.cpp
