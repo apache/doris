@@ -61,9 +61,10 @@ private:
     /// Size of i-th element, including terminating zero.
     size_t ALWAYS_INLINE size_at(ssize_t i) const { return offsets[i] - offsets[i - 1]; }
 
-    void ALWAYS_INLINE check_chars_length(size_t length) const {
-        if (UNLIKELY(length > MAX_STRING_SIZE)) {
-            LOG(FATAL) << "string column length is too large: " << length;
+    void ALWAYS_INLINE check_chars_length(size_t total_length, size_t element_number) const {
+        if (UNLIKELY(total_length > MAX_STRING_SIZE)) {
+            LOG(FATAL) << "string column length is too large: total_length=" << total_length
+                       << " ,element_number=" << element_number;
         }
     }
 
@@ -123,7 +124,7 @@ public:
         const size_t size_to_append = s.size();
         const size_t new_size = old_size + size_to_append;
 
-        check_chars_length(new_size);
+        check_chars_length(new_size, old_size + 1);
 
         chars.resize(new_size);
         memcpy(chars.data() + old_size, s.c_str(), size_to_append);
@@ -147,7 +148,7 @@ public:
             const size_t offset = src.offsets[n - 1];
             const size_t new_size = old_size + size_to_append;
 
-            check_chars_length(new_size);
+            check_chars_length(new_size, offsets.size() + 1);
 
             chars.resize(new_size);
             memcpy_small_allow_read_write_overflow15(chars.data() + old_size, &src.chars[offset],
@@ -161,7 +162,7 @@ public:
         const size_t new_size = old_size + length;
 
         if (length) {
-            check_chars_length(new_size);
+            check_chars_length(new_size, offsets.size() + 1);
             chars.resize(new_size);
             memcpy(chars.data() + old_size, pos, length);
         }
@@ -173,7 +174,7 @@ public:
         const size_t new_size = old_size + length;
 
         if (length) {
-            check_chars_length(new_size);
+            check_chars_length(new_size, offsets.size() + 1);
             chars.resize(new_size);
             memcpy(chars.data() + old_size, pos, length);
         }
@@ -204,7 +205,7 @@ public:
                 length = 0;
             }
         }
-        check_chars_length(offset);
+        check_chars_length(offset, offsets.size());
         chars.resize(offset);
     }
 
@@ -218,7 +219,7 @@ public:
         const auto begin_offset = offsets_[0];
         const size_t total_mem_size = offsets_[num] - begin_offset;
         if (LIKELY(total_mem_size > 0)) {
-            check_chars_length(total_mem_size + old_size);
+            check_chars_length(total_mem_size + old_size, offsets.size() + num);
             chars.resize(total_mem_size + old_size);
             memcpy(chars.data() + old_size, data + begin_offset, total_mem_size);
         }
@@ -242,7 +243,7 @@ public:
         }
 
         const size_t old_size = chars.size();
-        check_chars_length(old_size + new_size);
+        check_chars_length(old_size + new_size, offsets.size() + num);
         chars.resize(old_size + new_size);
 
         Char* data = chars.data();
@@ -264,7 +265,7 @@ public:
         }
 
         const size_t old_size = chars.size();
-        check_chars_length(old_size + new_size);
+        check_chars_length(old_size + new_size, offsets.size() + num);
         chars.resize(old_size + new_size);
 
         Char* data = chars.data();
@@ -292,7 +293,7 @@ public:
             offsets[offset_size + i] = new_size;
         }
 
-        check_chars_length(new_size);
+        check_chars_length(new_size, offsets.size());
         chars.resize(new_size);
 
         for (size_t i = start_index; i < start_index + num; i++) {
@@ -449,8 +450,8 @@ public:
             chars.clear();
             offsets[self_row] = data.size;
         } else {
-            check_chars_length(chars.size() + data.size);
             offsets[self_row] = offsets[self_row - 1] + data.size;
+            check_chars_length(offsets[self_row], self_row);
         }
 
         chars.insert(data.data, data.data + data.size);
