@@ -266,6 +266,7 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowset
 }
 
 RowsetSharedPtr Tablet::get_rowset(const RowsetId& rowset_id) {
+    std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
     for (auto& version_rowset : _rs_version_map) {
         if (version_rowset.second->rowset_id() == rowset_id) {
             return version_rowset.second;
