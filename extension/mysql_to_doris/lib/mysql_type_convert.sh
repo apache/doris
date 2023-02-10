@@ -18,6 +18,7 @@
 path=$1
 sed -i 's/AUTO_INCREMENT//g' $path
 sed -i 's/CHARACTER SET utf8 COLLATE utf8_bin//g' $path
+sed -i 's/CHARACTER SET utf8mb3 COLLATE utf8mb3_bin//g' $path
 sed -i 's/CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci//g' $path
 sed -i 's/CHARACTER SET utf8mb4 COLLATE utf8mb4_bin//g' $path
 sed -i 's/CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci//g'  $path
@@ -69,7 +70,7 @@ sed -i 's/\<varbinary\>/varchar(65533)/g' $path
 sed -i 's/\<mediumint/int/g' $path
 sed -i 's/float([^)]*)/float/g' $path
 sed -i 's/double([^)]*)/double/g' $path
-sed -i 's/time([^)]*)/varchar(64)/g' $path
+sed -i 's/\<time([^)]*)/varchar(64)/g' $path
 sed -i 's/\<time\>/varchar(64)/g' $path
 sed -i 's/year([^)]*)/varchar(64)/g' $path
 sed -i 's/\<year\>/varchar(64)/g' $path
