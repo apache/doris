@@ -90,6 +90,7 @@ public class UserProperty implements Writable {
      *  Each frontend will periodically resolve the domain name to ip, and update the privilege table.
      *  We never persist the resolved IPs.
      */
+    @Deprecated
     private WhiteList whiteList = new WhiteList();
 
     public static final Set<Tag> INVALID_RESOURCE_TAGS;
@@ -148,6 +149,7 @@ public class UserProperty implements Writable {
         return commonProperties.getCpuResourceLimit();
     }
 
+    @Deprecated
     public WhiteList getWhiteList() {
         return whiteList;
     }
@@ -158,20 +160,6 @@ public class UserProperty implements Writable {
 
     public long getExecMemLimit() {
         return commonProperties.getExecMemLimit();
-    }
-
-    public void setPasswordForDomain(String domain, byte[] password, boolean errOnExist) throws DdlException {
-        if (errOnExist && whiteList.containsDomain(domain)) {
-            throw new DdlException("Domain " + domain + " of user " + qualifiedUser + " already exists");
-        }
-
-        if (password != null) {
-            whiteList.setPassword(domain, password);
-        }
-    }
-
-    public void removeDomain(String domain) {
-        whiteList.removeDomain(domain);
     }
 
     public void update(List<Pair<String, String>> properties) throws UserException {
@@ -524,16 +512,6 @@ public class UserProperty implements Writable {
                     String.valueOf(dppConfig.getPriority())));
         }
 
-        // get resolved ips if user has domain
-        Map<String, Set<String>> resolvedIPs = whiteList.getResolvedIPs();
-        List<String> ips = Lists.newArrayList();
-        for (Map.Entry<String, Set<String>> entry : resolvedIPs.entrySet()) {
-            ips.add(entry.getKey() + ":" + Joiner.on(",").join(entry.getValue()));
-        }
-        if (!ips.isEmpty()) {
-            result.add(Lists.newArrayList("resolved IPs", Joiner.on(";").join(ips)));
-        }
-
         // sort
         Collections.sort(result, new Comparator<List<String>>() {
             @Override
@@ -572,9 +550,6 @@ public class UserProperty implements Writable {
             entry.getValue().write(out);
         }
 
-        // whiteList
-        whiteList.write(out);
-
         // common properties
         commonProperties.write(out);
     }
@@ -604,7 +579,11 @@ public class UserProperty implements Writable {
         }
 
         // whiteList
-        whiteList.readFields(in);
+        if (Env.getCurrentEnvJournalVersion() < FeMetaVersion.VERSION_116) {
+            whiteList.readFields(in);
+        } else {
+            whiteList = new WhiteList();
+        }
 
         // common properties
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_100) {

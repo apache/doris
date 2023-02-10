@@ -18,34 +18,41 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.io.Writable;
+import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.common.collect.Maps;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import com.google.gson.annotations.SerializedName;
 
 import java.io.DataInput;
+import java.io.DataOutput;
 import java.io.IOException;
-import java.util.Map;
 
-//only for compatible version before VERSION_116
-@Deprecated
-public class WhiteList {
-    private static final Logger LOG = LogManager.getLogger(WhiteList.class);
+public class Password implements Writable {
+    @SerializedName(value = "pwd")
+    private byte[] password;
 
-    private Map<String, byte[]> passwordMap = Maps.newConcurrentMap();
-
-    public Map<String, byte[]> getPasswordMap() {
-        return passwordMap;
+    public Password() {
     }
 
-    public void readFields(DataInput in) throws IOException {
-        int size = in.readInt();
-        for (int i = 0; i < size; i++) {
-            String domain = Text.readString(in);
-            int passLen = in.readInt();
-            byte[] password = new byte[passLen];
-            in.readFully(password);
-            passwordMap.put(domain, password);
-        }
+    public Password(byte[] password) {
+        this.password = password;
+    }
+
+    public byte[] getPassword() {
+        return password;
+    }
+
+    public void setPassword(byte[] password) {
+        this.password = password;
+    }
+
+    @Override
+    public void write(DataOutput out) throws IOException {
+        Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    public static Password read(DataInput in) throws IOException {
+        String json = Text.readString(in);
+        return GsonUtils.GSON.fromJson(json, Password.class);
     }
 }

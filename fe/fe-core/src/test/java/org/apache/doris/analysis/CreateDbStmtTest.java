@@ -19,8 +19,8 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.MockedAuth;
-import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 
 import mockit.Mocked;
@@ -35,7 +35,7 @@ public class CreateDbStmtTest {
     private Analyzer analyzer;
 
     @Mocked
-    private PaloAuth auth;
+    private Auth auth;
     @Mocked
     private ConnectContext ctx;
 

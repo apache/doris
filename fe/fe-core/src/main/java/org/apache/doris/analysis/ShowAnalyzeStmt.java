@@ -25,7 +25,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.OrderByPair;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -233,7 +233,7 @@ public class ShowAnalyzeStmt extends ShowStmt {
     }
 
     private void checkShowAnalyzePriv(String dbName, String tblName) throws AnalysisException {
-        PaloAuth auth = Env.getCurrentEnv().getAuth();
+        Auth auth = Env.getCurrentEnv().getAuth();
         if (!auth.checkTblPriv(ConnectContext.get(), dbName, tblName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(
                     ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
