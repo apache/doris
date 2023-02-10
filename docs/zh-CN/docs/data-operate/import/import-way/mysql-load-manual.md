@@ -61,7 +61,7 @@ CREATE TABLE testdb.t1 (pk INT, v1 INT SUM) AGGREGATE KEY (pk) DISTRIBUTED BY ha
 ```
 
 ### 导入客户端文件
-假设在客户端本地当前路径上有一个CSV文件, 名为`client_local.csv`, 使用MySQL LOAD语法讲表导入到测试表`testdb.t1`中.
+假设在客户端本地当前路径上有一个CSV文件, 名为`client_local.csv`, 使用MySQL LOAD语法将表导入到测试表`testdb.t1`中.
 
 ```sql
 LOAD DATA LOCAL
