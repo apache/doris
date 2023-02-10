@@ -134,7 +134,10 @@ public:
     virtual void set_rowset_segment_id(std::pair<RowsetId, uint32_t> rowset_segment_id) {}
 
     virtual std::pair<RowsetId, uint32_t> get_rowset_segment_id() const { return {}; }
-    virtual TypeIndex get_data_type() const = 0;
+    virtual TypeIndex get_data_type() const {
+        LOG(FATAL) << "Cannot get_data_type() column " << get_name();
+        __builtin_unreachable();
+    }
 
     /// Returns number of values in column.
     virtual size_t size() const = 0;
@@ -398,7 +401,10 @@ public:
 
     /// Creates new column with values column[indexes[:limit]]. If limit is 0, all indexes are used.
     /// Indexes must be one of the ColumnUInt. For default implementation, see select_index_impl from ColumnsCommon.h
-    virtual Ptr index(const IColumn& indexes, size_t limit) const = 0;
+    virtual Ptr index(const IColumn& indexes, size_t limit) const {
+        LOG(FATAL) << "column not support index";
+        __builtin_unreachable();
+    }
 
     /** Compares (*this)[n] and rhs[m]. Column rhs should have the same type.
       * Returns negative number, 0, or positive number (*this)[n] is less, equal, greater than rhs[m] respectively.
@@ -457,7 +463,10 @@ public:
     }
     /// Returns indices of values in column, that not equal to default value of column.
     virtual void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
-                                                 size_t limit) const = 0;
+                                                 size_t limit) const {
+        LOG(FATAL) << "column not support get_indices_of_non_default_rows";
+        __builtin_unreachable();
+    }
 
     template <typename Derived>
     void get_indices_of_non_default_rows_impl(IColumn::Offsets64& indices, size_t from,

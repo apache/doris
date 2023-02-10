@@ -1772,10 +1772,9 @@ protected:
             // since not all types are in the DatatypeFactory
             type = arguments[1].type;
         } else {
+            // TODO(xy): support return struct type for factory
             type = DataTypeFactory::instance().get(type_col->get_value<String>());
         }
-        // TODO(xy): support return struct type for factory
-        auto type = DataTypeFactory::instance().get(type_col->get_value<String>());
         DCHECK(type != nullptr);
         bool need_to_be_nullable = false;
         // 1. from_type is nullable
