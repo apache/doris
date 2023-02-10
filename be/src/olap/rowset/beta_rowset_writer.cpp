@@ -94,7 +94,6 @@ Status BetaRowsetWriter::init(const RowsetWriterContext& rowset_writer_context) 
         _rowset_meta->set_load_id(_context.load_id);
     } else {
         _rowset_meta->set_version(_context.version);
-        _rowset_meta->set_oldest_write_timestamp(_context.oldest_write_timestamp);
         _rowset_meta->set_newest_write_timestamp(_context.newest_write_timestamp);
     }
     _rowset_meta->set_tablet_uid(_context.tablet_uid);
@@ -646,10 +645,6 @@ Status BetaRowsetWriter::_wait_flying_segcompaction() {
 }
 
 RowsetSharedPtr BetaRowsetWriter::manual_build(const RowsetMetaSharedPtr& spec_rowset_meta) {
-    if (_rowset_meta->oldest_write_timestamp() == -1) {
-        _rowset_meta->set_oldest_write_timestamp(UnixSeconds());
-    }
-
     if (_rowset_meta->newest_write_timestamp() == -1) {
         _rowset_meta->set_newest_write_timestamp(UnixSeconds());
     }
@@ -700,10 +695,6 @@ RowsetSharedPtr BetaRowsetWriter::build() {
     // flushed, that is, the current _segment_writer is nullptr
     DCHECK(_segment_writer == nullptr) << "segment must be null when build rowset";
     _build_rowset_meta(_rowset_meta);
-
-    if (_rowset_meta->oldest_write_timestamp() == -1) {
-        _rowset_meta->set_oldest_write_timestamp(UnixSeconds());
-    }
 
     if (_rowset_meta->newest_write_timestamp() == -1) {
         _rowset_meta->set_newest_write_timestamp(UnixSeconds());
