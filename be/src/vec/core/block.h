@@ -373,6 +373,8 @@ public:
         return row_same_bit[position];
     }
 
+    void clear_same_bit() { row_same_bit.clear(); }
+
 private:
     void erase_impl(size_t position);
     bool is_column_data_null(const doris::TypeDescriptor& type_desc, const StringRef& data_ref,
