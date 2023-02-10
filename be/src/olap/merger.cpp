@@ -247,7 +247,7 @@ Status Merger::vertical_compact_one_group(
         const std::vector<uint32_t>& column_group, vectorized::RowSourcesBuffer* row_source_buf,
         vectorized::VerticalBlockReader& src_block_reader,
         segment_v2::SegmentWriter& dst_segment_writer, int64_t max_rows_per_segment,
-        Statistics* stats_output, uint64_t* index_size) {
+        Statistics* stats_output, uint64_t* index_size, KeyBoundsPB& key_bounds) {
     // build tablet reader
     VLOG_NOTICE << "vertical compact one group, max_rows_per_segment=" << max_rows_per_segment;
     // TODO: record_rowids
@@ -281,10 +281,15 @@ Status Merger::vertical_compact_one_group(
         stats_output->filtered_rows = src_block_reader.filtered_rows();
     }
 
+    // segcompaction produce only one segment at once
     RETURN_IF_ERROR(dst_segment_writer.finalize_columns(index_size));
 
     if (is_key) {
-        //TODO: keybounds
+        Slice min_key = dst_segment_writer.min_encoded_key();
+        Slice max_key = dst_segment_writer.max_encoded_key();
+        DCHECK_LE(min_key.compare(max_key), 0);
+        key_bounds.set_min_key(min_key.to_string());
+        key_bounds.set_max_key(max_key.to_string());
     }
 
     return Status::OK();

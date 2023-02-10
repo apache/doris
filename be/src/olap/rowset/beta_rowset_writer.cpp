@@ -301,13 +301,13 @@ Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr s
     Merger::vertical_split_columns(_context.tablet_schema, &column_groups);
     vectorized::RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(), READER_CUMULATIVE_COMPACTION/*TODO:make our own type*/);
 
+    KeyBoundsPB key_bounds;
     // compact group one by one
     for (auto i = 0; i < column_groups.size(); ++i) {
         VLOG_NOTICE << "row source size: " << row_sources_buf.total_size();
         bool is_key = (i == 0);
         std::vector<uint32_t> column_ids = column_groups[i];
 
-        writer->reset();
         writer->init(column_ids, is_key);
         auto schema = std::make_shared<Schema>(_context.tablet_schema->columns(), column_ids);
         auto reader = _get_segcompaction_reader(segments, tablet, schema, stat.get(), &merged_row_stat, row_sources_buf, is_key, column_ids);
@@ -318,15 +318,18 @@ Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr s
 
         // ========= Merger Compaction
         Merger::Statistics stats;
+
         RETURN_IF_ERROR(Merger::vertical_compact_one_group(tablet, READER_CUMULATIVE_COMPACTION /*TODO: make our own type*/,
                                                      _context.tablet_schema, is_key,
                                                      column_ids, &row_sources_buf,
-                                                     *reader, *writer, INT_MAX, &stats, &index_size));
+                                                     *reader, *writer, INT_MAX, &stats, &index_size, key_bounds));
         total_index_size += index_size;
         if (is_key) {
             row_sources_buf.flush();
         }
         row_sources_buf.seek_to_begin();
+
+        writer->reset();
     }
 
     // TODO  RETURN_NOT_OK_LOG(_check_correctness(std::move(stat), merged_row_stat, row_count, begin, end),
@@ -335,7 +338,7 @@ Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr s
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);
         _clear_statistics_for_deleting_segments_unsafe(begin, end);
     }
-    RETURN_NOT_OK(_flush_segment_writer_for_segcompaction(&writer, total_index_size));
+    RETURN_NOT_OK(_flush_segment_writer_for_segcompaction(&writer, total_index_size, key_bounds));
 
     if (_segcompaction_file_writer != nullptr) {
         _segcompaction_file_writer->close();
@@ -887,14 +890,14 @@ Status BetaRowsetWriter::_do_create_segment_writer(
             std::lock_guard<SpinLock> l(_lock);
             _file_writers.push_back(std::move(file_writer));
         }
+        auto s = (*writer)->init(block);
+        if (!s.ok()) {
+            LOG(WARNING) << "failed to init segment writer: " << s.to_string();
+            writer->reset(nullptr);
+            return s;
+        }
     }
 
-    auto s = (*writer)->init(block);
-    if (!s.ok()) {
-        LOG(WARNING) << "failed to init segment writer: " << s.to_string();
-        writer->reset(nullptr);
-        return s;
-    }
     return Status::OK();
 }
 
@@ -965,7 +968,7 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
 }
 
 Status BetaRowsetWriter::_flush_segment_writer_for_segcompaction(
-        std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size) {
+        std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size, KeyBoundsPB& key_bounds) {
     uint32_t segid = (*writer)->get_segment_id();
     uint32_t row_num = (*writer)->num_rows_written();
     uint64_t segment_size;
@@ -976,12 +979,12 @@ Status BetaRowsetWriter::_flush_segment_writer_for_segcompaction(
         return Status::Error<WRITER_DATA_WRITE_ERROR>();
     }
 
-    KeyBoundsPB key_bounds;
+    // KeyBoundsPB key_bounds;
     Slice min_key = (*writer)->min_encoded_key();
     Slice max_key = (*writer)->max_encoded_key();
     DCHECK_LE(min_key.compare(max_key), 0);
-    key_bounds.set_min_key(min_key.to_string());
-    key_bounds.set_max_key(max_key.to_string());
+    // key_bounds.set_min_key(min_key.to_string());
+    // key_bounds.set_max_key(max_key.to_string());
 
     Statistics segstat;
     segstat.row_num = row_num;

@@ -73,7 +73,7 @@ public:
             const std::vector<uint32_t>& column_group, vectorized::RowSourcesBuffer* row_source_buf,
             vectorized::VerticalBlockReader& src_block_reader,
             segment_v2::SegmentWriter& dst_segment_writer, int64_t max_rows_per_segment,
-            Statistics* stats_output, uint64_t* index_size);
+            Statistics* stats_output, uint64_t* index_size, KeyBoundsPB& key_bounds);
 };
 
 } // namespace doris
