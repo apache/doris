@@ -226,8 +226,8 @@ public:
                                  true);
             } else {
                 return _operator(
-                        *reinterpret_cast<const T*>(statistic.first->cell_ptr()) <= _value &&
-                                *reinterpret_cast<const T*>(statistic.second->cell_ptr()) >= _value,
+                        _get_zone_map_value<T>(statistic.first->cell_ptr()) <= _value &&
+                                _get_zone_map_value<T>(statistic.second->cell_ptr()) >= _value,
                         true);
             }
         } else if constexpr (PT == PredicateType::NE) {
@@ -242,8 +242,8 @@ public:
                                  true);
             } else {
                 return _operator(
-                        *reinterpret_cast<const T*>(statistic.first->cell_ptr()) == _value &&
-                                *reinterpret_cast<const T*>(statistic.second->cell_ptr()) == _value,
+                        _get_zone_map_value<T>(statistic.first->cell_ptr()) == _value &&
+                                _get_zone_map_value<T>(statistic.second->cell_ptr()) == _value,
                         true);
             }
         } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
@@ -269,8 +269,8 @@ public:
                 return _operator(tmp_min_uint32_value == _value && tmp_max_uint32_value == _value,
                                  true);
             } else {
-                return *reinterpret_cast<const T*>(statistic.first->cell_ptr()) == _value &&
-                       *reinterpret_cast<const T*>(statistic.second->cell_ptr()) == _value;
+                return _get_zone_map_value<T>(statistic.first->cell_ptr()) == _value &&
+                       _get_zone_map_value<T>(statistic.second->cell_ptr()) == _value;
             }
         } else if constexpr (PT == PredicateType::NE) {
             if constexpr (Type == TYPE_DATE) {
@@ -282,8 +282,8 @@ public:
                        sizeof(uint24_t));
                 return tmp_min_uint32_value > _value || tmp_max_uint32_value < _value;
             } else {
-                return *reinterpret_cast<const T*>(statistic.first->cell_ptr()) > _value ||
-                       *reinterpret_cast<const T*>(statistic.second->cell_ptr()) < _value;
+                return _get_zone_map_value<T>(statistic.first->cell_ptr()) > _value ||
+                       _get_zone_map_value<T>(statistic.second->cell_ptr()) < _value;
             }
         } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
             COMPARE_TO_MIN_OR_MAX(second)
