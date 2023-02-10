@@ -356,6 +356,27 @@ public class TabletInvertedIndex {
         if (!beTabletInfo.isSetCooldownDeleteId()) {
             return false;
         }
+        try {
+            OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId())
+                    .getTable(tabletMeta.getTableId()).get();
+            table.readLock();
+            try {
+                Tablet tablet = table.getPartition(tabletMeta.getPartitionId()).getIndex(tabletMeta.getIndexId())
+                        .getTablet(beTabletInfo.tablet_id);
+                long cooldownReplicaId = tablet.getCooldownConf().first;
+                if (cooldownReplicaId != beTabletInfo.getCooldownReplicaId()
+                        || cooldownReplicaId != beTabletInfo.getReplicaId()) {
+                    LOG.warn("Invalid cooldownReplicaId: {} vs {}",
+                            cooldownReplicaId, beTabletInfo.getCooldownReplicaId());
+                    return false;
+                }
+            } finally {
+                table.readUnlock();
+            }
+        } catch (RuntimeException e) {
+            LOG.warn("failed to get tablet. tabletId={}", beTabletInfo.tablet_id);
+            return false;
+        }
         Map<Long, Replica> replicaMap = replicaMetaTable.row(beTabletInfo.getTabletId());
         for (Map.Entry<Long, Replica> entry : replicaMap.entrySet()) {
             if (entry.getValue().getCooldownedVersion() <= beTabletInfo.getCooldownedVersion()
