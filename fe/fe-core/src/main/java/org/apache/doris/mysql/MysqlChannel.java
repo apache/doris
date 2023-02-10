@@ -51,6 +51,8 @@ public class MysqlChannel {
     protected String remoteHostPortString;
     protected String remoteIp;
     protected boolean isSend;
+    protected boolean isSslMode;
+
 
     protected MysqlChannel() {
         this.sequenceId = 0;
@@ -92,6 +94,13 @@ public class MysqlChannel {
 
     public String getRemoteIp() {
         return remoteIp;
+    }
+
+    public void setSslMode(boolean SslMode){
+        isSslMode = SslMode;
+    }
+    public boolean isSslMode() {
+        return isSslMode;
     }
 
     private int packetId() {

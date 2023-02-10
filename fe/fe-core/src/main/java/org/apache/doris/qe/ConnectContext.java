@@ -32,7 +32,7 @@ import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlSerializer;
-import org.apache.doris.mysql.MysqlSslConnectionContext;
+import org.apache.doris.mysql.MysqlSslContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
@@ -156,7 +156,7 @@ public class ConnectContext {
     private SessionContext sessionContext;
 
     // This context is used for SSL connection between server and mysql client.
-    private final MysqlSslConnectionContext mysqlSslConnectionContext = new MysqlSslConnectionContext(SSL_PROTOCOL,
+    private final MysqlSslContext mysqlSslContext = new MysqlSslContext(SSL_PROTOCOL,
             SSL_CIPHER_SUITES);
 
     private long userQueryTimeout;
@@ -181,8 +181,8 @@ public class ConnectContext {
         return sessionContext;
     }
 
-    public MysqlSslConnectionContext getMysqlSslConnectionContext() {
-        return mysqlSslConnectionContext;
+    public MysqlSslContext getMysqlSslConnectionContext() {
+        return mysqlSslContext;
     }
 
     public void setOrUpdateInsertResult(long txnId, String label, String db, String tbl,

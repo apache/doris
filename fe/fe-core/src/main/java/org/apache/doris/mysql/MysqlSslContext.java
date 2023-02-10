@@ -20,16 +20,19 @@ package org.apache.doris.mysql;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.security.KeyManagementException;
 import java.security.NoSuchAlgorithmException;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
+import javax.net.ssl.SSLEngineResult;
 import javax.net.ssl.SSLEngineResult.HandshakeStatus;
+import javax.net.ssl.SSLException;
 
-public class MysqlSslConnectionContext {
+public class MysqlSslContext {
 
-    private static final Logger LOG = LogManager.getLogger(MysqlSslConnectionContext.class);
+    private static final Logger LOG = LogManager.getLogger(MysqlSslContext.class);
     private SSLEngine sslEngine;
     private SSLContext sslContext;
     private String protocol;
@@ -40,7 +43,7 @@ public class MysqlSslConnectionContext {
     private ByteBuffer clientAppDate;
     private ByteBuffer clientNetDate;
 
-    public MysqlSslConnectionContext(String protocol, String[] ciphersuites) {
+    public MysqlSslContext(String protocol, String[] ciphersuites) {
         protocol = protocol;
         ciphersuites = ciphersuites;
         initSslContext();
@@ -75,8 +78,32 @@ public class MysqlSslConnectionContext {
         return ciphersuites;
     }
 
-    public boolean sslExchange(MysqlChannel channel) throws Exception {
-        long startTime = System.currentTimeMillis();
+        /*
+          There may several steps for a successful handshake,
+          so it's typical to see the following series of operations:
+
+               client          server          message
+               ======          ======          =======
+               wrap()          ...             ClientHello
+               ...             unwrap()        ClientHello
+               ...             wrap()          ServerHello/Certificate
+               unwrap()        ...             ServerHello/Certificate
+               wrap()          ...             ClientKeyExchange
+               wrap()          ...             ChangeCipherSpec
+               wrap()          ...             Finished
+               ...             unwrap()        ClientKeyExchange
+               ...             unwrap()        ChangeCipherSpec
+               ...             unwrap()        Finished
+               ...             wrap()          ChangeCipherSpec
+               ...             wrap()          Finished
+               unwrap()        ...             ChangeCipherSpec
+               unwrap()        ...             Finished
+           reference: https://docs.oracle.com/javase/10/security/java-secure-socket-extension-jsse-reference-guide.htm#JSSEC-GUID-7FCC21CB-158B-440C-B5E4-E4E5A2D7352B
+         */
+        public boolean sslExchange(MysqlChannel channel) throws Exception {
+            long startTime = System.currentTimeMillis();
+        // begin handshake.
+        sslEngine.beginHandshake();
         while (sslEngine.getHandshakeStatus() != HandshakeStatus.FINISHED
                 && sslEngine.getHandshakeStatus() != HandshakeStatus.NOT_HANDSHAKING) {
             if ((System.currentTimeMillis() - startTime) > 10000) {
@@ -118,9 +145,36 @@ public class MysqlSslConnectionContext {
 
     private void handleNeedWrap(MysqlChannel channel) {
         // todo
+        serverAppDate.clear();
+        try {
+            SSLEngineResult sslEngineResult = sslEngine.wrap(serverAppDate, serverNetDate);
+            if(handleWrapResult(sslEngineResult)){
+                channel.sendAndFlush(serverNetDate);
+                serverNetDate.clear();
+            }else{
+                // todo
+            }
+        } catch (SSLException e) {
+            throw new RuntimeException(e);
+        } catch (IOException e) {
+            throw new RuntimeException("send failed");
+        }
     }
 
     private void handleNeedUnwrap(MysqlChannel channel) {
         // todo
+    }
+
+    private boolean handleWrapResult(SSLEngineResult sslEngineResult){
+            switch(sslEngineResult.getStatus()){
+                case OK:
+                    return true;
+                case CLOSED:
+                    // todo
+                case BUFFER_OVERFLOW:
+                case BUFFER_UNDERFLOW:
+                default:
+                    throw new IllegalStateException("invalid wrap status: " + sslEngineResult.getStatus());
+            }
     }
 }

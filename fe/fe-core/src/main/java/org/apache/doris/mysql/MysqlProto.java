@@ -160,7 +160,7 @@ public class MysqlProto {
             throws IOException {
         MysqlSerializer serializer = context.getSerializer();
         MysqlChannel channel = context.getMysqlChannel();
-        MysqlSslConnectionContext mysqlSslConnectionContext = context.getMysqlSslConnectionContext();
+        MysqlSslContext mysqlSslContext = context.getMysqlSslConnectionContext();
         context.getState().setOk();
 
         // Server send handshake packet to client.
@@ -184,8 +184,10 @@ public class MysqlProto {
         ByteBuffer handshakeResponse;
 
         if (capability.isSsl()) {
-            // During development, we set SSL mode to true by default
+            // During development, we set SSL mode to true by default.
             if (USE_SSL) {
+                // Set channel mode to ssl mode to handle socket packet in ssl format.
+                channel.setSslMode(true);
                 sslConnectionRequest = clientRequestPacket;
                 if (sslConnectionRequest == null) {
                     // receive response failed.
@@ -197,10 +199,10 @@ public class MysqlProto {
                     sendResponsePacket(context);
                     return false;
                 }
-                // try to establish ssl connection
+                // try to establish ssl connection.
                 try {
                     // todo: return false or throw exception ?
-                    if (!mysqlSslConnectionContext.sslExchange(channel)) {
+                    if (!mysqlSslContext.sslExchange(channel)) {
                         ErrorReport.report(ErrorCode.ERR_NOT_SUPPORTED_AUTH_MODE);
                         sendResponsePacket(context);
                         return false;
