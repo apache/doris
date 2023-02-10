@@ -109,6 +109,7 @@ TEST(BlockSerializeTest, Array) {
     tslot1.__set_colName("k1");
     TypeDescriptor type_desc(TYPE_ARRAY);
     type_desc.children.push_back(TypeDescriptor(TYPE_INT));
+    type_desc.contains_nulls.push_back(true);
     tslot1.__set_slotType(type_desc.to_thrift());
     tslot1.__set_col_unique_id(1);
     SlotDescriptor* slot = new SlotDescriptor(tslot1);
@@ -119,6 +120,7 @@ TEST(BlockSerializeTest, Array) {
     tslot2.__set_colName("k2");
     TypeDescriptor type_desc2(TYPE_ARRAY);
     type_desc2.children.push_back(TypeDescriptor(TYPE_STRING));
+    type_desc2.contains_nulls.push_back(true);
     tslot2.__set_slotType(type_desc2.to_thrift());
     tslot2.__set_col_unique_id(2);
     SlotDescriptor* slot2 = new SlotDescriptor(tslot2);
