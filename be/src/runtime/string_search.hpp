@@ -41,11 +41,13 @@ public:
             return -1;
         }
 
-        char* occurence = std::strstr(str->ptr, _pattern->ptr);
-        if (occurence == nullptr) {
+        auto it = std::search(str->ptr, str->ptr + str->len,
+                              std::default_searcher(_pattern->ptr, _pattern->ptr + _pattern->len));
+        if (it == str->ptr + str->len) {
             return -1;
+        } else {
+            return it - str->ptr;
         }
-        return occurence - str->ptr;
     }
 
 private:
