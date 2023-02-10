@@ -63,7 +63,6 @@ public:
 
     virtual RowsetTypePB type() const = 0;
 
-    virtual int64_t oldest_write_timestamp() = 0;
     virtual int64_t newest_write_timestamp() = 0;
     virtual Status current_block_row_locations(std::vector<RowLocation>* locations) {
         return Status::NotSupported("to be implemented");

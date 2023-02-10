@@ -460,7 +460,6 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
 
     RowsetSharedPtr rowset = rowset_reader->rowset();
     SegmentsOverlapPB segments_overlap = rowset->rowset_meta()->segments_overlap();
-    int64_t oldest_write_timestamp = rowset->oldest_write_timestamp();
     int64_t newest_write_timestamp = rowset->newest_write_timestamp();
     _temp_delta_versions.first = _temp_delta_versions.second;
 
@@ -472,8 +471,7 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
         RowsetSharedPtr rowset;
         RETURN_IF_ERROR(_internal_sorting(
                 blocks, Version(_temp_delta_versions.second, _temp_delta_versions.second),
-                oldest_write_timestamp, newest_write_timestamp, new_tablet, BETA_ROWSET,
-                segments_overlap, &rowset));
+                newest_write_timestamp, new_tablet, BETA_ROWSET, segments_overlap, &rowset));
         src_rowsets.push_back(rowset);
 
         for (auto& block : blocks) {
@@ -529,8 +527,8 @@ Status VSchemaChangeWithSorting::_inner_process(RowsetReaderSharedPtr rowset_rea
 
 Status VSchemaChangeWithSorting::_internal_sorting(
         const std::vector<std::unique_ptr<vectorized::Block>>& blocks, const Version& version,
-        int64_t oldest_write_timestamp, int64_t newest_write_timestamp, TabletSharedPtr new_tablet,
-        RowsetTypePB new_rowset_type, SegmentsOverlapPB segments_overlap, RowsetSharedPtr* rowset) {
+        int64_t newest_write_timestamp, TabletSharedPtr new_tablet, RowsetTypePB new_rowset_type,
+        SegmentsOverlapPB segments_overlap, RowsetSharedPtr* rowset) {
     uint64_t merged_rows = 0;
     MultiBlockMerger merger(new_tablet);
 
@@ -540,7 +538,6 @@ Status VSchemaChangeWithSorting::_internal_sorting(
     context.rowset_state = VISIBLE;
     context.segments_overlap = segments_overlap;
     context.tablet_schema = new_tablet->tablet_schema();
-    context.oldest_write_timestamp = oldest_write_timestamp;
     context.newest_write_timestamp = newest_write_timestamp;
     RETURN_IF_ERROR(new_tablet->create_rowset_writer(context, &rowset_writer));
 
@@ -1051,7 +1048,6 @@ Status SchemaChangeHandler::_convert_historical_rowsets(const SchemaChangeParams
         context.rowset_state = VISIBLE;
         context.segments_overlap = rs_reader->rowset()->rowset_meta()->segments_overlap();
         context.tablet_schema = new_tablet->tablet_schema();
-        context.oldest_write_timestamp = rs_reader->oldest_write_timestamp();
         context.newest_write_timestamp = rs_reader->newest_write_timestamp();
         context.fs = rs_reader->rowset()->rowset_meta()->fs();
         Status status = new_tablet->create_rowset_writer(context, &rowset_writer);

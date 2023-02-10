@@ -1556,7 +1556,6 @@ Status Tablet::create_initial_rowset(const int64_t req_version) {
         context.rowset_state = VISIBLE;
         context.segments_overlap = OVERLAP_UNKNOWN;
         context.tablet_schema = tablet_schema();
-        context.oldest_write_timestamp = UnixSeconds();
         context.newest_write_timestamp = UnixSeconds();
         res = create_rowset_writer(context, &rs_writer);
 
@@ -1890,14 +1889,6 @@ bool Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
         return false;
     }
 
-    int64_t oldest_cooldown_time = std::numeric_limits<int64_t>::max();
-    if (cooldown_ttl_sec >= 0) {
-        oldest_cooldown_time = rowset->oldest_write_timestamp() + cooldown_ttl_sec;
-    }
-    if (cooldown_datetime > 0) {
-        oldest_cooldown_time = std::min(oldest_cooldown_time, cooldown_datetime);
-    }
-
     int64_t newest_cooldown_time = std::numeric_limits<int64_t>::max();
     if (cooldown_ttl_sec >= 0) {
         newest_cooldown_time = rowset->newest_write_timestamp() + cooldown_ttl_sec;
@@ -1906,14 +1897,10 @@ bool Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
         newest_cooldown_time = std::min(newest_cooldown_time, cooldown_datetime);
     }
 
-    if (oldest_cooldown_time + config::cooldown_lag_time_sec < UnixSeconds()) {
-        *cooldown_timestamp = oldest_cooldown_time;
-        VLOG_DEBUG << "tablet need cooldown, tablet id: " << tablet_id()
-                   << " cooldown_timestamp: " << *cooldown_timestamp;
-        return true;
-    }
-
+    // the rowset should do cooldown job only if it's cooldown ttl plus newest write time is less than
+    // current time or it's datatime is less than current time
     if (newest_cooldown_time < UnixSeconds()) {
+        *cooldown_timestamp = newest_cooldown_time;
         *file_size = rowset->data_disk_size();
         VLOG_DEBUG << "tablet need cooldown, tablet id: " << tablet_id()
                    << " file_size: " << *file_size;
@@ -1922,7 +1909,6 @@ bool Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
 
     VLOG_DEBUG << "tablet does not need cooldown, tablet id: " << tablet_id()
                << " ttl sec: " << cooldown_ttl_sec << " cooldown datetime: " << cooldown_datetime
-               << " oldest write time: " << rowset->oldest_write_timestamp()
                << " newest write time: " << rowset->newest_write_timestamp();
     return false;
 }
