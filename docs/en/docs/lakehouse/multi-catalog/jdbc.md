@@ -146,7 +146,7 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
    | Database | Schema    |
    | Table    | Table     |
 
-<version since="1.2.2">
+<version since="dev">
     
 6. Doris
 

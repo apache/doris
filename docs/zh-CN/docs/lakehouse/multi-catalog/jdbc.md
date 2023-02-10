@@ -146,7 +146,7 @@ CREATE CATALOG sqlserver_catalog PROPERTIES (
 | Database | Schema |
 | Table | Table |
 
-<version since="1.2.2">
+<version since="dev">
     
 6. Doris
 
