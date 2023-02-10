@@ -442,8 +442,17 @@ public class OriginalPlanner extends Planner {
     }
 
     /**
-     * outputColumnUniqueIds contain columns in OrderByExprs and outputExprs
+     * outputColumnUniqueIds contain columns in OrderByExprs and outputExprs,
      * push output column unique id set to olap scan.
+     *
+     * when query to storage layer, there are need read raw data
+     * for columns which in outputColumnUniqueIds
+     *
+     * for example:
+     * select A from tb where B = 1 and C > 'hello' order by B;
+     *
+     * column unique id for `A` and `B` will put into outputColumnUniqueIds.
+     *
     */
     private void pushOutColumnUniqueIdsToOlapScan(PlanFragment rootFragment, Analyzer analyzer) {
         HashSet<Integer> outputColumnUniqueIds =  new HashSet<>();

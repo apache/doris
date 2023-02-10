@@ -52,16 +52,16 @@ class ColumnIterator;
 struct ColumnPredicateInfo {
     ColumnPredicateInfo() = default;
 
-    std::string debug_string() {
+    std::string debug_string() const {
         std::stringstream ss;
         ss << "column_name=" << column_name << ", query_op=" << query_op
            << ", query_value=" << query_value;
         return ss.str();
     }
 
-    bool is_empty() { return column_name.empty() && query_value.empty() && query_op.empty(); }
+    bool is_empty() const { return column_name.empty() && query_value.empty() && query_op.empty(); }
 
-    bool is_equal(const ColumnPredicateInfo& column_pred_info) {
+    bool is_equal(const ColumnPredicateInfo& column_pred_info) const {
         if (column_pred_info.column_name != column_name) {
             return false;
         }
@@ -235,8 +235,7 @@ private:
 
     // return true means one column's predicates all pushed down
     bool _check_column_pred_all_push_down(const std::string& column_name, bool in_compound = false);
-    void _find_pred_in_remaining_vconjunct_root(const vectorized::VExpr* expr,
-                                                std::vector<ColumnPredicateInfo>* pred_infos);
+    void _calculate_pred_in_remaining_vconjunct_root(const vectorized::VExpr* expr);
 
 private:
     // todo(wb) remove this method after RowCursor is removed
@@ -356,6 +355,8 @@ private:
     doris::vectorized::VExpr* _remaining_vconjunct_root;
     std::vector<roaring::Roaring> _pred_except_leafnode_of_andnode_evaluate_result;
     std::unique_ptr<ColumnPredicateInfo> _column_predicate_info;
+    std::unordered_map<std::string, std::vector<ColumnPredicateInfo>>
+            _column_pred_in_remaining_vconjunct;
     std::set<ColumnId> _not_apply_index_pred;
 
     std::shared_ptr<ColumnPredicate> _runtime_predicate {nullptr};

@@ -182,6 +182,8 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     }
 
     _remaining_vconjunct_root = opts.remaining_vconjunct_root;
+    _column_predicate_info.reset(new ColumnPredicateInfo());
+    _calculate_pred_in_remaining_vconjunct_root(_remaining_vconjunct_root);
 
     _column_predicate_info.reset(new ColumnPredicateInfo());
     if (_schema.rowid_col_idx() > 0) {
@@ -1744,14 +1746,9 @@ bool SegmentIterator::_check_column_pred_all_push_down(const std::string& column
     if (_remaining_vconjunct_root == nullptr) {
         return true;
     }
-    std::unordered_map<std::string, std::vector<ColumnPredicateInfo>>
-            column_pred_in_remaining_vconjunct;
-    _column_predicate_info.reset(new ColumnPredicateInfo());
-    _find_pred_in_remaining_vconjunct_root(_remaining_vconjunct_root,
-                                           &column_pred_in_remaining_vconjunct[column_name]);
 
     if (in_compound) {
-        auto preds_in_remaining_vconjuct = column_pred_in_remaining_vconjunct[column_name];
+        auto preds_in_remaining_vconjuct = _column_pred_in_remaining_vconjunct[column_name];
         for (auto pred_info : preds_in_remaining_vconjuct) {
             auto column_sign = _gen_predicate_result_sign(&pred_info);
             if (_rowid_result_for_index.count(column_sign) < 1) {
@@ -1759,22 +1756,21 @@ bool SegmentIterator::_check_column_pred_all_push_down(const std::string& column
             }
         }
     } else {
-        if (column_pred_in_remaining_vconjunct[column_name].size() != 0) {
+        if (_column_pred_in_remaining_vconjunct[column_name].size() != 0) {
             return false;
         }
     }
     return true;
 }
 
-void SegmentIterator::_find_pred_in_remaining_vconjunct_root(
-        const vectorized::VExpr* expr, std::vector<ColumnPredicateInfo>* pred_infos) {
+void SegmentIterator::_calculate_pred_in_remaining_vconjunct_root(const vectorized::VExpr* expr) {
     if (expr == nullptr) {
         return;
     }
 
     auto children = expr->children();
     for (int i = 0; i < children.size(); ++i) {
-        _find_pred_in_remaining_vconjunct_root(children[i], pred_infos);
+        _calculate_pred_in_remaining_vconjunct_root(children[i]);
     }
 
     auto node_type = expr->node_type();
@@ -1791,7 +1787,8 @@ void SegmentIterator::_find_pred_in_remaining_vconjunct_root(
         }
 
         if (!_column_predicate_info->is_empty()) {
-            pred_infos->push_back(*_column_predicate_info);
+            _column_pred_in_remaining_vconjunct[_column_predicate_info->column_name].push_back(
+                    *_column_predicate_info);
             _column_predicate_info.reset(new ColumnPredicateInfo());
         }
     }
