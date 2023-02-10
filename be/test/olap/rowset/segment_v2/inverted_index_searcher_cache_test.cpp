@@ -94,8 +94,8 @@ TEST_F(InvertedIndexSearcherCacheTest, insert_lookup) {
         // use cache
         {
             InvertedIndexCacheHandle inverted_index_cache_handle_1;
-            status = index_searcher_cache->get_index_searcher(fs, kTestDir, file_name_not_exist_1,
-                                                              &inverted_index_cache_handle_1, &stats);
+            status = index_searcher_cache->get_index_searcher(
+                    fs, kTestDir, file_name_not_exist_1, &inverted_index_cache_handle_1, &stats);
             EXPECT_EQ(Status::OK(), status);
             EXPECT_FALSE(inverted_index_cache_handle_1.owned);
         }
@@ -103,8 +103,8 @@ TEST_F(InvertedIndexSearcherCacheTest, insert_lookup) {
         // lookup again
         {
             InvertedIndexCacheHandle inverted_index_cache_handle_1;
-            status = index_searcher_cache->get_index_searcher(fs, kTestDir, file_name_not_exist_1,
-                                                              &inverted_index_cache_handle_1, &stats);
+            status = index_searcher_cache->get_index_searcher(
+                    fs, kTestDir, file_name_not_exist_1, &inverted_index_cache_handle_1, &stats);
             EXPECT_EQ(Status::OK(), status);
             EXPECT_FALSE(inverted_index_cache_handle_1.owned);
 
@@ -116,8 +116,8 @@ TEST_F(InvertedIndexSearcherCacheTest, insert_lookup) {
 
         // not use cache
         InvertedIndexCacheHandle inverted_index_cache_handle_2;
-        status = index_searcher_cache->get_index_searcher(fs, kTestDir, file_name_not_exist_2,
-                                                          &inverted_index_cache_handle_2, &stats, false);
+        status = index_searcher_cache->get_index_searcher(
+                fs, kTestDir, file_name_not_exist_2, &inverted_index_cache_handle_2, &stats, false);
         EXPECT_EQ(Status::OK(), status);
         EXPECT_TRUE(inverted_index_cache_handle_2.owned);
         EXPECT_EQ(nullptr, inverted_index_cache_handle_2._cache);
