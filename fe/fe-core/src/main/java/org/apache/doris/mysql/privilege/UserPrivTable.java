@@ -205,21 +205,18 @@ public class UserPrivTable extends PrivTable {
                     && !globalPrivEntry.match(UserIdentity.ADMIN, true)
                     && !globalPrivEntry.privSet.isEmpty()) {
                 try {
-                    // USAGE_PRIV is no need to degrade.
-                    PrivBitSet removeUsagePriv = globalPrivEntry.privSet.copy();
-                    removeUsagePriv.unset(PaloPrivilege.USAGE_PRIV.getIdx());
-                    removeUsagePriv.unset(PaloPrivilege.NODE_PRIV.getIdx());
+                    // USAGE_PRIV, NODE_PRIV and ADMIN_PRIV are no need to degrade.
+                    PrivBitSet privsAfterRemoved = globalPrivEntry.privSet.copy();
+                    privsAfterRemoved.unset(PaloPrivilege.USAGE_PRIV.getIdx());
+                    privsAfterRemoved.unset(PaloPrivilege.NODE_PRIV.getIdx());
+                    privsAfterRemoved.unset(PaloPrivilege.ADMIN_PRIV.getIdx());
                     CatalogPrivEntry entry = CatalogPrivEntry.create(globalPrivEntry.origUser, globalPrivEntry.origHost,
-                            InternalCatalog.INTERNAL_CATALOG_NAME, globalPrivEntry.isDomain, removeUsagePriv);
+                            InternalCatalog.INTERNAL_CATALOG_NAME, globalPrivEntry.isDomain, privsAfterRemoved);
                     entry.setSetByDomainResolver(false);
                     catalogPrivTable.addEntry(entry, false, false);
-                    if (globalPrivEntry.privSet.containsResourcePriv()) {
-                        // Should only keep the USAGE_PRIV in userPrivTable, and remove other privs and entries.
-                        globalPrivEntry.privSet.and(PrivBitSet.of(PaloPrivilege.USAGE_PRIV));
-                    } else {
-                        // Remove all other privs
-                        globalPrivEntry.privSet.clean();
-                    }
+                    // in global entry, only keey USAGE_PRIV, NODE_PRIV and ADMIN_PRIV, if they exist before.
+                    globalPrivEntry.privSet.and(PrivBitSet.of(PaloPrivilege.USAGE_PRIV, PaloPrivilege.NODE_PRIV,
+                            PaloPrivilege.ADMIN_PRIV));
                 } catch (Exception e) {
                     throw new IOException(e.getMessage());
                 }
