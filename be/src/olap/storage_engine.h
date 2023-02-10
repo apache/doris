@@ -395,10 +395,9 @@ private:
 
     scoped_refptr<Thread> _cache_file_cleaner_tasks_producer_thread;
 
-    std::unique_ptr<ThreadPool> _cooldown_thread_pool;
+    std::unique_ptr<PriorityThreadPool> _cooldown_thread_pool;
 
     std::mutex _running_cooldown_mutex;
-    std::unordered_map<DataDir*, int64_t> _running_cooldown_tasks_cnt;
     std::unordered_set<int64_t> _running_cooldown_tablets;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);
