@@ -21,7 +21,9 @@ import org.apache.doris.backup.S3Storage;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.proc.BaseProcResult;
+import org.apache.doris.datasource.credentials.DataLakeAWSCredentialsProvider;
 
+import com.amazonaws.auth.EnvironmentVariableCredentialsProvider;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
@@ -29,6 +31,9 @@ import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import org.apache.hadoop.fs.s3a.Constants;
 import org.apache.hadoop.fs.s3a.S3AFileSystem;
+import org.apache.hadoop.fs.s3a.SimpleAWSCredentialsProvider;
+import org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider;
+import org.apache.hadoop.fs.s3a.auth.IAMInstanceCredentialsProvider;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -90,6 +95,13 @@ public class S3Resource extends Resource {
     public static final String DEFAULT_S3_MAX_CONNECTIONS = "50";
     public static final String DEFAULT_S3_REQUEST_TIMEOUT_MS = "3000";
     public static final String DEFAULT_S3_CONNECTION_TIMEOUT_MS = "1000";
+
+    public static final List<String> DEFAULT_CREDENTIALS_PROVIDERS = Arrays.asList(
+            DataLakeAWSCredentialsProvider.class.getName(),
+            TemporaryAWSCredentialsProvider.class.getName(),
+            SimpleAWSCredentialsProvider.class.getName(),
+            EnvironmentVariableCredentialsProvider.class.getName(),
+            IAMInstanceCredentialsProvider.class.getName());
 
     @SerializedName(value = "properties")
     private Map<String, String> properties;
@@ -249,11 +261,15 @@ public class S3Resource extends Resource {
         s3Properties.put("fs.s3.impl.disable.cache", "true");
         s3Properties.put("fs.s3.impl", S3AFileSystem.class.getName());
 
+        String defaultProviderList = String.join(",", DEFAULT_CREDENTIALS_PROVIDERS);
+        String credentialsProviders = s3Properties
+                .getOrDefault("fs.s3a.aws.credentials.provider", defaultProviderList);
+        s3Properties.put("fs.s3a.aws.credentials.provider", credentialsProviders);
+
         s3Properties.put(Constants.PATH_STYLE_ACCESS, properties.getOrDefault(S3Resource.USE_PATH_STYLE, "false"));
         if (properties.containsKey(S3Resource.S3_TOKEN)) {
             s3Properties.put(Constants.SESSION_TOKEN, properties.get(S3_TOKEN));
-            s3Properties.put("fs.s3a.aws.credentials.provider",
-                    "org.apache.hadoop.fs.s3a.TemporaryAWSCredentialsProvider");
+            s3Properties.put("fs.s3a.aws.credentials.provider", TemporaryAWSCredentialsProvider.class.getName());
             s3Properties.put("fs.s3.impl.disable.cache", "true");
             s3Properties.put("fs.s3a.impl.disable.cache", "true");
         }
