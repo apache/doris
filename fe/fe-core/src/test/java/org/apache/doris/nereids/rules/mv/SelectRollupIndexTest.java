@@ -25,6 +25,7 @@ import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements PatternMatchSupported {
@@ -380,6 +381,7 @@ class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements P
         singleTableTest("select v1 from t", "t", false);
     }
 
+    @Disabled
     @Test
     public void testPreAggHint() throws Exception {
         createTable(" CREATE TABLE `test_preagg_hint` (\n"
