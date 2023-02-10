@@ -2168,8 +2168,15 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
                         loc.row_id = row_id;
                     }
 
-                    delete_bitmap->add({loc.rowset_id, loc.segment_id, dummy_version.first},
-                                       loc.row_id);
+                    // delete bitmap will be calculate when memtable flush and
+                    // publish. The two stages may see different versions.
+                    // When there is sequence column, the currently imported data
+                    // of rowset may be marked for deletion at memtablet flush or
+                    // publish because the seq column is smaller than the previous
+                    // rowset.
+                    // just set 0 as a unified temporary version number, and update to
+                    // the real version number later.
+                    delete_bitmap->add({loc.rowset_id, loc.segment_id, 0}, loc.row_id);
                 }
                 ++row_id;
             }
@@ -2236,6 +2243,11 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
         int ret = _tablet_meta->delete_bitmap().set(
                 {std::get<0>(iter->first), std::get<1>(iter->first), cur_version}, iter->second);
         DCHECK(ret == 1);
+        if (ret != 1) {
+            LOG(INFO) << "failed to set delete bimap, key is: |" << std::get<0>(iter->first) << "|"
+                      << std::get<1>(iter->first) << "|" << cur_version;
+            return Status::InternalError("failed to set delete bimap");
+        }
     }
 
     return Status::OK();
@@ -2281,6 +2293,11 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapP
         int ret = _tablet_meta->delete_bitmap().set(
                 {std::get<0>(iter->first), std::get<1>(iter->first), cur_version}, iter->second);
         DCHECK(ret == 1);
+        if (ret != 1) {
+            LOG(INFO) << "failed to set delete bimap, key is: |" << std::get<0>(iter->first) << "|"
+                      << std::get<1>(iter->first) << "|" << cur_version;
+            return Status::InternalError("failed to set delete bimap");
+        }
     }
 
     return Status::OK();
