@@ -15,22 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/stream_load/load_stream_mgr.h"
+#include "map_value.h"
 
 namespace doris {
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(stream_load_pipe_count, MetricUnit::NOUNIT);
-
-LoadStreamMgr::LoadStreamMgr() {
-    // Each StreamLoadPipe has a limited buffer size (default 1M), it's not needed to count the
-    // actual size of all StreamLoadPipe.
-    REGISTER_HOOK_METRIC(stream_load_pipe_count, [this]() {
-        // std::lock_guard<std::mutex> l(_lock);
-        return _stream_map.size();
-    });
+///====================== map-value funcs ======================///
+void MapValue::shallow_copy(const MapValue* value) {
+    _length = value->_length;
+    _key_data = value->_key_data;
+    _value_data = value->_value_data;
 }
 
-LoadStreamMgr::~LoadStreamMgr() {
-    DEREGISTER_HOOK_METRIC(stream_load_pipe_count);
-}
 } // namespace doris

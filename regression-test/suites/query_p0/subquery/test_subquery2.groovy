@@ -31,6 +31,8 @@ suite("test_subquery2") {
 
     qt_sql_2 """select substring(i, 2) from (select 'abc' as i, sum(birth) as j from  subquerytest2) as tmp"""
 
+    qt_sql_3 """select count(1) from (select 'abc' as i, sum(birth) as j from  subquerytest2) as tmp"""
+
     sql """DROP TABLE subquerytest2"""
     
 }

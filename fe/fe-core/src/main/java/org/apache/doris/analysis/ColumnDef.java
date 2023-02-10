@@ -305,12 +305,20 @@ public class ColumnDef {
         }
 
         if (type.getPrimitiveType() == PrimitiveType.MAP) {
+            if (isKey()) {
+                throw new AnalysisException("Map can only be used in the non-key column of"
+                        + " the duplicate table at present.");
+            }
             if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE) {
                 throw new AnalysisException("Map type column default value just support null");
             }
         }
 
         if (type.getPrimitiveType() == PrimitiveType.STRUCT) {
+            if (isKey()) {
+                throw new AnalysisException("Struct can only be used in the non-key column of"
+                        + " the duplicate table at present.");
+            }
             if (defaultValue.isSet && defaultValue != DefaultValue.NULL_DEFAULT_VALUE) {
                 throw new AnalysisException("Struct type column default value just support null");
             }

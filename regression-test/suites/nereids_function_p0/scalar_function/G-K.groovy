@@ -34,6 +34,8 @@ suite("nereids_scalar_fn_2") {
     qt_sql "select greatest(kfloat) from fn_test order by kfloat"
     qt_sql "select greatest(kdbl) from fn_test order by kdbl"
     qt_sql "select greatest(kdcmls1) from fn_test order by kdcmls1"
+    qt_sql "select greatest(kdt) from fn_test order by kdt"
+    qt_sql "select greatest(kdtv2) from fn_test order by kdtv2"
     qt_sql "select greatest(kdtm) from fn_test order by kdtm"
     qt_sql "select greatest(kdtmv2s1) from fn_test order by kdtmv2s1"
     qt_sql "select greatest(kvchrs1) from fn_test order by kvchrs1"
