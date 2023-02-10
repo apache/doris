@@ -560,6 +560,9 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
     }
 
     public Expr getExprFromAliasSMap(Expr expr) throws AnalysisException {
+        if (!analyzer.getContext().getSessionVariable().isGroupByAndHavingUseAliasFirst()) {
+            return expr;
+        }
         return expr.trySubstitute(aliasSMap, analyzer, false);
     }
 

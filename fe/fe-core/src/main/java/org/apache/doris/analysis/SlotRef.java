@@ -547,7 +547,11 @@ public class SlotRef extends Expr {
     @Override
     public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, String tableName)
             throws AnalysisException {
-        SlotRef aliasExpr = (SlotRef) stmt.getExprFromAliasSMap(this);
+        Expr originExpr = stmt.getExprFromAliasSMap(this);
+        if (!(originExpr instanceof SlotRef)) {
+            return true; // means this is alias of other expr.
+        }
+        SlotRef aliasExpr = (SlotRef) originExpr;
         if (aliasExpr.getColumnName() == null) {
             return true; // means this is alias of other expr.
         }
