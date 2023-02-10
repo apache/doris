@@ -1,7 +1,7 @@
 ---
 {
-    "title": "CONNECTION",
-    "language": "en"
+    "title": "Meta Info Action",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,19 +24,49 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# CONNECTION
+# Meta Info Action
 
-To get current query_id from connection
+## Request
 
-```
-curl -X GET http://fe_host:fe_http_port/api/connection?connection_id=123
-```
+`GET /api/meta/namespaces/<ns>/databases`
+`GET /api/meta/namespaces/<ns>/databases/<db>/tables`
+`GET /api/meta/namespaces/<ns>/databases/<db>/tables/<tbl>/schema`
 
-If connection_id does not exist, return 404 NOT FOUND ERROR
 
-If connection_id exists, return last query_id belongs to connection_id
+## Description
+
+获取集群内的元数据信息，包括数据库列表、表列表以及表结构等。
+
+    
+## Path parameters
+
+* `ns`
+
+    指定集群名。
+
+* `db`
+
+    指定数据库。
+
+* `tbl`
+
+    指定数据表。
+
+## Query parameters
+
+无
+
+## Request body
+
+无
+
+## Response
+
 ```
 {
-    "query_id" : 9133b7efa92a44c8-8ed4b44772ec2a0c
+    "msg":"success",
+    "code":0,
+    "data":["数据库列表" / "数据表列表" /"表结构"],
+    "count":0
 }
 ```

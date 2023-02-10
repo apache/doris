@@ -1,7 +1,7 @@
 ---
 {
-    "title": "Cancel Load Action",
-    "language": "en"
+    "title": "Help Action",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,73 +24,38 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Cancel Load Action
+# Help Action
 
 ## Request
 
-`POST /api/<db>/_cancel`
+`GET /rest/v1/help`
 
 ## Description
 
-Used to cancel the load transaction of the specified label.
+用于通过模糊查询获取帮助。
     
 ## Path parameters
 
-* `<db>`
-
-    Specify the database name
+无
 
 ## Query parameters
 
-* `<label>`
+* `query`
 
-    Specify the load label
+    需要进行匹配的关键词，如array、select等。
 
 ## Request body
 
-None
+无
 
 ## Response
 
-* Cancel success
-
-    ```
-    {
-    	"msg": "OK",
-    	"code": 0,
-    	"data": null,
-    	"count": 0
-    }
-    ```
-
-* Cancel failed
-
-    ```
-    {
-    	"msg": "Error msg...",
-    	"code": 1,
-    	"data": null,
-    	"count": 0
-    }
-    ```
-    
-## Examples
-
-1. Cancel the load transaction of the specified label
-
-    ```
-    POST /api/example_db/_cancel?label=my_label1
-
-    Response:
-    {
-    	"msg": "OK",
-    	"code": 0,
-    	"data": null,
-    	"count": 0
-    }
-    ```
-    
-
-
-
+```
+{
+    "msg":"success",
+    "code":0,
+    "data":{"fuzzy":"No Fuzzy Matching Topic","matching":"No Matching Category"},
+    "count":0
+}
+```
 

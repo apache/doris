@@ -1,7 +1,7 @@
 ---
 {
-    "title": "CONNECTION",
-    "language": "zh-CN"
+    "title": "Colocate Meta Action",
+    "language": "en"
 }
 ---
 
@@ -24,19 +24,30 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# CONNECTION
-   
-通过connection_id, 获取当前连接的query_id
+# Colocate Meta Action
 
-```
-curl -X GET http://fe_host:fe_http_port/api/connection?connection_id=123
-```
+## Request
 
-如果connection_id不存在，直接返回404 NOT FOUND错误
+`GET /api/colocate`
+`POST/DELETE /api/colocate/group_stable`
+`POST /api/colocate/bucketseq`
 
-如果connection_id存在，会返回当前connection_id上一个进行的query_id
-```
-{
-    "query_id" : 9133b7efa92a44c8-8ed4b44772ec2a0c
-}
-```
+## Description
+
+Used to obtain or modify colocate group information.
+    
+## Path parameters
+
+None
+
+## Query parameters
+
+None
+
+## Request body
+
+None
+
+## Response
+
+TO DO

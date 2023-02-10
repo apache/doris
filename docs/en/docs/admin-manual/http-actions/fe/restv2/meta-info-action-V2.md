@@ -1,6 +1,6 @@
 ---
 {
-    "title": "SHOW DATA",
+    "title": "Meta Info Action",
     "language": "en"
 }
 ---
@@ -24,12 +24,49 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# SHOW DATA
-   
-To all size occupied by cluster
+# Meta Info Action
+
+## Request
+
+`GET /api/meta/namespaces/<ns>/databases`
+`GET /api/meta/namespaces/<ns>/databases/<db>/tables`
+`GET /api/meta/namespaces/<ns>/databases/<db>/tables/<tbl>/schema`
+
+
+## Description
+
+Used to obtain metadata information about the cluster, including the database list, table list, and table schema.
+
+    
+## Path parameters
+
+* `ns`
+
+    Specify cluster name.
+
+* `db`
+
+    Specify database name.
+
+* `tbl`
+
+    Specify table name.
+
+## Query parameters
+
+None
+
+## Request body
+
+None
+
+## Response
 
 ```
-curl -X GET http://fe_host:fe_http_port/api/show_data
+{
+    "msg":"success",
+    "code":0,
+    "data":["databese list" / "table list" / "table schema"],
+    "count":0
+}
 ```
-
-The return value is the total size of the cluster

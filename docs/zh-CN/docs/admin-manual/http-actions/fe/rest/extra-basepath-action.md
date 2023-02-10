@@ -1,6 +1,6 @@
 ---
 {
-    "title": "CANCEL LABEL",
+    "title": "Extra Basepath Action",
     "language": "zh-CN"
 }
 ---
@@ -24,36 +24,35 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# CANCEL LABEL
-## description
-    NAME:
-        cancel_label: cancel a transaction with label
-        
-    SYNOPSIS
-        curl -u user:passwd -XPOST http://host:port/api/{db}/_cancel?label={label}
+# Extra Basepath Action
 
-    DESCRIPTION
-        该命令用于cancel一个指定Label对应的事务，事务在Prepare阶段能够被成功cancel
+## Request
 
-    RETURN VALUES
-        执行完成后，会以Json格式返回这次导入的相关内容。当前包括以下字段
-        Status: 是否成功cancel
-            Success: 成功cancel事务
-            其他: cancel失败
-        Message: 具体的失败信息
-           
-    ERRORS
+`GET /api/basepath`
+
+## Description
+
+获取http 的basepath。
     
-## example
+## Path parameters
 
-    1. cancel testDb, testLabel的作业
-        curl -u root -XPOST http://host:port/api/testDb/_cancel?label=testLabel
- 
-## keyword
-    CANCEL，LABEL
+无
 
+## Query parameters
 
+无
 
+## Request body
 
+无
 
+## Response
 
+```
+{
+    "msg":"success",
+    "code":0,
+    "data":{"enable":false,"path":""},
+    "count":0
+}
+```

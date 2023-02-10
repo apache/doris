@@ -1,6 +1,6 @@
 ---
 {
-    "title": "PROFILE",
+    "title": "Profile Action",
     "language": "en"
 }
 ---
@@ -24,17 +24,18 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# PROFILE 
-   
-To get query profile using query_id
+# Profile Action
 
-```
-curl -X GET http://fe_host:fe_http_port/api/profile?query_id=123
-```
+## Request
 
+`GET /api/profile`
+
+## Description
+
+Used to obtain the query profile of the specified query id.
 If query_id is not exists, return 404 NOT FOUND ERROR
-
 If query_id exists, return query profile like this
+
 ```
 Query:
   Summary:
@@ -118,3 +119,48 @@ Query:
            - BlockConvertTime: 97.539us
            - BlockSeekCount: 0
 ```
+    
+## Path parameters
+
+None
+
+## Query parameters
+
+* query_id
+
+    Specify query id
+
+## Request body
+
+None
+
+## Response
+
+```
+{
+	"msg": "success",
+	"code": 0,
+	"data": {
+		"profile": "query profile ..."
+	},
+	"count": 0
+}
+```
+    
+## Examples
+
+1. Get the query profile of the specified query id
+
+    ```
+    GET /api/profile?query_id=f732084bc8e74f39-8313581c9c3c0b58
+    
+    Response:
+    {
+    	"msg": "success",
+    	"code": 0,
+    	"data": {
+    		"profile": "query profile ..."
+    	},
+    	"count": 0
+    }
+    ```

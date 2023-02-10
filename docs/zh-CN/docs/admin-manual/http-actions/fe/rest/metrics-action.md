@@ -1,7 +1,7 @@
 ---
 {
-    "title": "Profile Action",
-    "language": "en"
+    "title": "Metrics Action",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,57 +24,25 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Profile Action
+# Metrics Action
 
 ## Request
 
-`GET /api/profile`
+`GET /api/metrics`
 
 ## Description
 
-Used to obtain the query profile of the specified query id.
+获取doris metrics信息。
     
 ## Path parameters
 
-None
+无
 
 ## Query parameters
 
-* query_id
-
-    Specify query id
+无
 
 ## Request body
 
-None
+无
 
-## Response
-
-```
-{
-	"msg": "success",
-	"code": 0,
-	"data": {
-		"profile": "query profile ..."
-	},
-	"count": 0
-}
-```
-    
-## Examples
-
-1. Get the query profile of the specified query id
-
-    ```
-    GET /api/profile?query_id=f732084bc8e74f39-8313581c9c3c0b58
-    
-    Response:
-    {
-    	"msg": "success",
-    	"code": 0,
-    	"data": {
-    		"profile": "query profile ..."
-    	},
-    	"count": 0
-    }
-    ```

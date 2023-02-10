@@ -1,6 +1,6 @@
 ---
 {
-    "title": "GET LABEL STATE",
+    "title": "Import Action",
     "language": "en"
 }
 ---
@@ -24,36 +24,49 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# GET LABEL STATE
-## description
-    NAME:
-        get_load_state: get load's state of label
-        
-    SYNOPSIS
-        curl -u user:passwd http://host:port/api/{db}/get_load_state?label=xxx
+# Import Action
 
-    DESCRIPTION
+## Request
 
-        Check the status of a transaction
-        
-    RETURN VALUES
+`POST /api/import/file_review`
 
-        Return of JSON format string of the status of specified transaction:
-        Label: The specified label.
-        Status: Success or not of this request.
-        Message: Error messages
-        State: 
-           UNKNOWN/PREPARE/COMMITTED/VISIBLE/ABORTED
-        
-    ERRORS
+
+## Description
+
+View the contents of the file in CSV or PARQUET format.
+
     
-## example
+## Path parameters
 
-    1. Get status of label "testLabel" on database "testDb"
+None
 
-        curl -u root http://host:port/api/testDb/get_load_state?label=testLabel
- 
-## keyword
+## Query parameters
 
-    GET, LOAD, STATE
+None
 
+## Request body
+
+```
+Request body:
+{
+    "fileInfo":
+    {
+        "columnSeparator": ",",
+        "fileUrl": "hdfs://127.0.0.1:50070/file/test/text*",
+        "format": "TXT" // TXT or PARQUET
+    },
+    "connectInfo": 
+    {  // Optional
+        "brokerName" : "my_broker",
+        "brokerProps" : 
+        {
+            "username" : "yyy",
+            "password" : "xxx"
+        }
+    }
+}
+```
+
+## Response
+
+TO DO

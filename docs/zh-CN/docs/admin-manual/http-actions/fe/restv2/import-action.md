@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Profile Action",
+    "title": "Import Action",
     "language": "zh-CN"
 }
 ---
@@ -24,15 +24,17 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Profile Action
+# Import Action
 
 ## Request
 
-`GET /api/profile`
+`POST /api/import/file_review`
+
 
 ## Description
 
-用于获取指定 query id 的 query profile
+查看格式为CSV或PARQUET的文件内容。
+
     
 ## Path parameters
 
@@ -40,41 +42,31 @@ under the License.
 
 ## Query parameters
 
-* query_id
-
-    指定的 query id
+无
 
 ## Request body
 
-无
+```
+Request body:
+{
+    "fileInfo":
+    {
+        "columnSeparator": ",",
+        "fileUrl": "hdfs://127.0.0.1:50070/file/test/text*",
+        "format": "TXT" // TXT or PARQUET
+    },
+    "connectInfo": 
+    {  // Optional
+        "brokerName" : "my_broker",
+        "brokerProps" : 
+        {
+            "username" : "yyy",
+            "password" : "xxx"
+        }
+    }
+}
+```
 
 ## Response
 
-```
-{
-	"msg": "success",
-	"code": 0,
-	"data": {
-		"profile": "query profile ..."
-	},
-	"count": 0
-}
-```
-    
-## Examples
-
-1. 获取指定 query_id 的 query profile
-
-    ```
-    GET /api/profile?query_id=f732084bc8e74f39-8313581c9c3c0b58
-    
-    Response:
-    {
-    	"msg": "success",
-    	"code": 0,
-    	"data": {
-    		"profile": "query profile ..."
-    	},
-    	"count": 0
-    }
-    ```
+TO DO

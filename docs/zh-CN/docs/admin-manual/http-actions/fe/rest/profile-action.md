@@ -1,6 +1,6 @@
 ---
 {
-    "title": "PROFILE",
+    "title": "Profile Action",
     "language": "zh-CN"
 }
 ---
@@ -24,17 +24,18 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# PROFILE 
+# Profile Action
 
-通过query_id获取query profile
+## Request
 
-```
-curl -X GET http://fe_host:fe_http_port/api/profile?query_id=123
-```
+`GET /api/profile`
 
+## Description
+
+用于获取指定 query id 的 query profile
 如果query_id不存在, 直接返回404 NOT FOUND错误
+如果query_id存在，返回下列文本的profile:
 
-如果query_id存在，返回下列文本的profile
 ```
 Query:
   Summary:
@@ -118,3 +119,48 @@ Query:
            - BlockConvertTime: 97.539us
            - BlockSeekCount: 0
 ```
+    
+## Path parameters
+
+无
+
+## Query parameters
+
+* query_id
+
+    指定的 query id
+
+## Request body
+
+无
+
+## Response
+
+```
+{
+	"msg": "success",
+	"code": 0,
+	"data": {
+		"profile": "query profile ..."
+	},
+	"count": 0
+}
+```
+    
+## Examples
+
+1. 获取指定 query_id 的 query profile
+
+    ```
+    GET /api/profile?query_id=f732084bc8e74f39-8313581c9c3c0b58
+    
+    Response:
+    {
+    	"msg": "success",
+    	"code": 0,
+    	"data": {
+    		"profile": "query profile ..."
+    	},
+    	"count": 0
+    }
+    ```

@@ -1,7 +1,7 @@
 ---
 {
-    "title": "CANCEL LABEL",
-    "language": "en"
+    "title": "Statistic Action",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,41 +24,35 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# CANCEL LABEL
-## description
-    NAME:
-        cancel_label: cancel a transaction with label
-        
-    SYNOPSIS
-        curl -u user:passwd -XPOST http://host:port/api/{db}/_cancel?label={label}
+# Statistic Action
 
-    DESCRIPTION
+## Request
 
-        This is to cancel a transaction with specified label.
+`GET /rest/v2/api/cluster_overview`
 
-    RETURN VALUES
+## Description
 
-        Return a JSON format string:
-
-        Status: 
-            Success: cancel succeed
-            Others: cancel failed
-        Message: Error message if cancel failed
-           
-    ERRORS
+获取集群统计信息、库表数量等。
     
-## example
+## Path parameters
 
-    1. Cancel the transaction with label "testLabel" on database "testDb"
+无
 
-        curl -u root -XPOST http://host:port/api/testDb/_cancel?label=testLabel
- 
-## keyword
+## Query parameters
 
-    CANCEL, LABEL
+无
 
+## Request body
 
+无
 
+## Response
 
-
-
+```
+{
+    "msg":"success",
+    "code":0,
+    "data":{"diskOccupancy":0,"remainDisk":5701197971457,"feCount":1,"tblCount":27,"beCount":1,"dbCount":2},
+    "count":0
+}
+```
