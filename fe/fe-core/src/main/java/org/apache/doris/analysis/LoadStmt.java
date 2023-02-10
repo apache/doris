@@ -118,6 +118,7 @@ public class LoadStmt extends DdlStmt {
     public static final String KEY_IN_PARAM_SEQUENCE_COL = "sequence_col";
     public static final String KEY_IN_PARAM_BACKEND_ID = "backend_id";
     public static final String KEY_SKIP_LINES = "skip_lines";
+    public static final String KEY_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
 
     private final LabelName label;
     private final List<DataDescription> dataDescriptions;

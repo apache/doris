@@ -186,6 +186,14 @@ WITH BROKER broker_name
   
     Boolean type, True means that one task can only load data to one tablet in the corresponding partition at a time. The default value is false. The number of tasks for the job depends on the overall concurrency. This parameter can only be set when loading data into the OLAP table with random partition.
 
+  - `trim_double_quotes`
+
+    Boolean type, The default value is false. True means that the outermost double quotes of each field in the csv file are trimmed.
+
+  - `skip_lines`
+
+    <version since="dev" type="inline"> Integer type, the default value is 0. It will skip some lines in the head of csv file. It will be disabled when format is `csv_with_names` or `csv_with_names_and_types`. </version>
+
 ### Example
 
 1. Import a batch of data from HDFS

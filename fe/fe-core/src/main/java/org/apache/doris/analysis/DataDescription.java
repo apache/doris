@@ -938,6 +938,13 @@ public class DataDescription {
         if (analysisMap.containsKey(LoadStmt.KEY_IN_PARAM_NUM_AS_STRING)) {
             numAsString = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_IN_PARAM_NUM_AS_STRING));
         }
+
+        if (analysisMap.containsKey(LoadStmt.KEY_TRIM_DOUBLE_QUOTES)) {
+            trimDoubleQuotes = Boolean.parseBoolean(analysisMap.get(LoadStmt.KEY_TRIM_DOUBLE_QUOTES));
+        }
+        if (analysisMap.containsKey(LoadStmt.KEY_SKIP_LINES)) {
+            skipLines = Integer.parseInt(analysisMap.get(LoadStmt.KEY_SKIP_LINES));
+        }
     }
 
     private void checkLoadPriv(String fullDbName) throws AnalysisException {
