@@ -1940,6 +1940,7 @@ public class SingleNodePlanner {
                 throw new RuntimeException("Broker external table is not supported, try to use table function please");
             case ELASTICSEARCH:
                 scanNode = new EsScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "EsScanNode");
+                // push down limit to elasticsearch
                 scanNode.setLimit(selectStmt.getLimit() + selectStmt.getOffset());
                 break;
             case HIVE:
@@ -1962,6 +1963,7 @@ public class SingleNodePlanner {
                 break;
             case ES_EXTERNAL_TABLE:
                 scanNode = new EsScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "EsScanNode", true);
+                // push down limit to elasticsearch
                 scanNode.setLimit(selectStmt.getLimit() + selectStmt.getOffset());
                 break;
             case JDBC_EXTERNAL_TABLE:
