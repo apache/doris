@@ -154,7 +154,7 @@ done
 if [[ "${RUN_ES}" -eq 1 ]]; then
     # elasticsearch
     cp "${ROOT}"/docker-compose/elasticsearch/es.yaml.tpl "${ROOT}"/docker-compose/elasticsearch/es.yaml
-    sed -i "" "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/elasticsearch/es.yaml
+    sed -i "s/doris--/${CONTAINER_UID}/g" "${ROOT}"/docker-compose/elasticsearch/es.yaml
     sudo docker compose -f "${ROOT}"/docker-compose/elasticsearch/es.yaml --env-file "${ROOT}"/docker-compose/elasticsearch/es.env down
     if [[ "${STOP}" -ne 1 ]]; then
         sudo mkdir -p "${ROOT}"/docker-compose/elasticsearch/data/es6/
