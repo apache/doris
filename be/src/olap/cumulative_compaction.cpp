@@ -100,6 +100,22 @@ Status CumulativeCompaction::pick_rowsets_to_compact() {
     if (candidate_rowsets.empty()) {
         return Status::Error<CUMULATIVE_NO_SUITABLE_VERSION>();
     }
+    // reason by : be/src/olap/task/engine_clone_task.cpp
+    // ******************
+    // if local version cross src latest, clone failed
+    // if local version is : 0-0, 1-1, 2-10, 12-14, 15-15,16-16
+    // cloned max version is 13-13, this clone is failed, because could not
+    // fill local data by using cloned data.
+    // It should not happen because if there is a hole, the following delta will not
+    // do compaction.
+    // ******************
+    if (candidate_rowsets[0]->start_version() != _tablet->cumulative_layer_point()) {
+        LOG(WARNING) << "There are missed versions among rowsets. "
+                     << "the version of all rowsets to cumulative must begin with '_cumulative_point'."
+                     << "_cumulative_point is " << _tablet->cumulative_layer_point()
+                     << ", but now begin version is " << candidate_rowsets[0]->start_version();
+        return Status::Error<CUMULATIVE_MISS_VERSION>();
+    }
 
     // candidate_rowsets may not be continuous
     // So we need to choose the longest continuous path from it.
