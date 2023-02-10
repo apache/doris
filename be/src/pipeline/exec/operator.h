@@ -324,6 +324,7 @@ public:
                 std::make_unique<MemTracker>(get_name() + ": " + _runtime_profile->name(),
                                              _runtime_profile.get(), nullptr, "PeakMemoryUsage");
         _node->increase_ref();
+        _use_projection = _node->has_output_row_descriptor();
         return Status::OK();
     }
 
@@ -355,12 +356,14 @@ public:
                      SourceState& source_state) override {
         SCOPED_TIMER(_runtime_profile->total_time_counter());
         DCHECK(_child);
-        RETURN_IF_ERROR(_child->get_block(state, block, source_state));
+        auto input_block = _use_projection ? _node->get_clear_input_block() : block;
+        RETURN_IF_ERROR(_child->get_block(state, input_block, source_state));
         bool eos = false;
         RETURN_IF_ERROR(_node->get_next_after_projects(
                 state, block, &eos,
                 std::bind(&ExecNode::pull, _node, std::placeholders::_1, std::placeholders::_2,
-                          std::placeholders::_3)));
+                          std::placeholders::_3),
+                false));
         return Status::OK();
     }
 
@@ -375,6 +378,7 @@ protected:
     }
 
     NodeType* _node;
+    bool _use_projection;
 };
 
 template <typename OperatorBuilderType>
