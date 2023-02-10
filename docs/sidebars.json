@@ -1165,7 +1165,7 @@
                                     "label": "RESTV2",
                                     "items": [
                                         "admin-manual/http-actions/fe/restv2/import-action",
-                                        "admin-manual/http-actions/fe/restv2/meta-info-action",
+                                        "admin-manual/http-actions/fe/restv2/meta-info-action-V2",
                                         "admin-manual/http-actions/fe/restv2/statistic-action"
                                     ]
                                 }
