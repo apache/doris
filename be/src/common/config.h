@@ -322,6 +322,9 @@ CONF_mInt64(cumulative_compaction_max_deltas, "100");
 // This config can be set to limit thread number in  segcompaction thread pool.
 CONF_mInt32(seg_compaction_max_threads, "10");
 
+// This config can be set to limit thread number in  multiget thread pool.
+CONF_mInt32(multi_get_max_threads, "10");
+
 // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
 CONF_mInt64(total_permits_for_compaction_score, "10000");
 
