@@ -156,7 +156,7 @@ public class MaterializedViewSelector {
                 tableName);
         // Step3: group by list in query is the subset of group by list in view or view
         // contains no aggregation
-        checkGrouping(table, columnNamesInGrouping.get(tableId), candidateIndexIdToMeta, selectBaseIndex, tableName);
+        checkGrouping(table, columnNamesInGrouping.get(tableId), candidateIndexIdToMeta, selectBaseIndex);
         // Step4: aggregation functions are available in the view output
         checkAggregationFunction(table, aggColumnsInQuery.get(tableId), candidateIndexIdToMeta);
         // Step5: columns required to compute output expr are available in the view
@@ -360,7 +360,7 @@ public class MaterializedViewSelector {
     // Step3: group by list in query is the subset of group by list in view or view
     // contains no aggregation
     private void checkGrouping(OlapTable table, Set<String> columnsInGrouping,
-            Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta, boolean selectBaseIndex, String tableName)
+            Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta, boolean selectBaseIndex)
             throws AnalysisException {
         Iterator<Map.Entry<Long, MaterializedIndexMeta>> iterator = candidateIndexIdToMeta.entrySet().iterator();
         while (iterator.hasNext()) {
@@ -429,7 +429,7 @@ public class MaterializedViewSelector {
                 continue;
             }
 
-            if (!matchAllExpr(groupingExprs, indexExprs, tableName)) {
+            if (!matchAllExpr(groupingExprs, indexExprs, table.getName())) {
                 iterator.remove();
             }
         }
@@ -440,6 +440,15 @@ public class MaterializedViewSelector {
     // Step4: aggregation functions are available in the view output
     private void checkAggregationFunction(OlapTable table, Set<FunctionCallExpr> aggregatedColumnsInQueryOutput,
             Map<Long, MaterializedIndexMeta> candidateIndexIdToMeta) throws AnalysisException {
+        boolean haveMvSlot = false;
+        if (aggregatedColumnsInQueryOutput != null) {
+            for (FunctionCallExpr expr : aggregatedColumnsInQueryOutput) {
+                if (expr.haveMvSlot()) {
+                    haveMvSlot = true;
+                }
+            }
+        }
+
         Iterator<Map.Entry<Long, MaterializedIndexMeta>> iterator = candidateIndexIdToMeta.entrySet().iterator();
         while (iterator.hasNext()) {
             Map.Entry<Long, MaterializedIndexMeta> entry = iterator.next();
@@ -471,16 +480,24 @@ public class MaterializedViewSelector {
                 }
             }
 
-            if (indexAggColumnExpsList.isEmpty() && noNeedAggregation) {
+            List<Expr> indexExprs = new ArrayList<Expr>();
+            candidateIndexMeta.getSchema().forEach(column -> indexExprs.add(column.getDefineExpr()));
+            indexExprs.removeIf(Objects::isNull);
+
+            if (indexExprs.isEmpty() && !haveMvSlot && noNeedAggregation) {
                 continue;
             }
-
             // When the query is SPJ type but the candidate index is SPJG type, it will not
             // pass directly.
             if (isSPJQuery || disableSPJGView) {
                 iterator.remove();
                 continue;
             }
+            if (aggregatedColumnsInQueryOutput != null
+                    && matchAllExpr(new ArrayList<>(aggregatedColumnsInQueryOutput), indexExprs, table.getName())) {
+                continue;
+            }
+
             // The query is SPJG. The candidate index is SPJG too.
             /*
              * Situation1: The query is deduplicate SPJG when aggregatedColumnsInQueryOutput
@@ -552,8 +569,17 @@ public class MaterializedViewSelector {
             candidateIndexSchema.forEach(column -> indexExprs.add(column.getDefineExpr()));
             indexExprs.removeIf(Objects::isNull);
 
+            Set<String> indexColumnNames = new TreeSet<>(String.CASE_INSENSITIVE_ORDER);
+            candidateIndexSchema
+                    .forEach(column -> indexColumnNames.add(CreateMaterializedViewStmt
+                            .mvColumnBreaker(MaterializedIndexMeta.normalizeName(column.getName()))));
+            // Rollup index have no define expr.
+            if (indexExprs.isEmpty() && !indexColumnNames.containsAll(queryColumnNames)) {
+                iterator.remove();
+            }
+
             if (selectBaseIndex) {
-                // Base index have no define expr.
+                // Base index or rollup index have no define expr.
                 if (!indexExprs.isEmpty()) {
                     iterator.remove();
                 }
