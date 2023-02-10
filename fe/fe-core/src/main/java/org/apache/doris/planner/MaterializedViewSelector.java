@@ -458,28 +458,6 @@ public class MaterializedViewSelector {
             boolean noNeedAggregation = candidateIndexMeta.getKeysType() == KeysType.DUP_KEYS
                     || (candidateIndexMeta.getKeysType() == KeysType.UNIQUE_KEYS
                             && table.getTableProperty().getEnableUniqueKeyMergeOnWrite());
-            if (!indexAggColumnExpsList.isEmpty() && selectStmt != null && selectStmt.getAggInfo() != null) {
-                List<FunctionCallExpr> exprs;
-                if (selectStmt.getAggInfo().getSecondPhaseDistinctAggInfo() != null) {
-                    exprs = selectStmt.getAggInfo().getSecondPhaseDistinctAggInfo()
-                            .getAggregateExprs();
-                } else {
-                    exprs = selectStmt.getAggInfo().getAggregateExprs();
-                }
-                boolean match = false;
-                for (Expr expr : exprs) {
-                    for (Expr indexExpr : indexAggColumnExpsList) {
-                        if (expr.toSqlWithoutTbl() == indexExpr.toSqlWithoutTbl()) {
-                            match = true;
-                        }
-                    }
-                }
-                if (match) {
-                    iterator.remove();
-                    continue;
-                }
-            }
-
             List<Expr> indexExprs = new ArrayList<Expr>();
             candidateIndexMeta.getSchema().forEach(column -> indexExprs.add(column.getDefineExpr()));
             indexExprs.removeIf(Objects::isNull);
@@ -489,7 +467,7 @@ public class MaterializedViewSelector {
             }
             // When the query is SPJ type but the candidate index is SPJG type, it will not
             // pass directly.
-            if (isSPJQuery || disableSPJGView) {
+            if (isSPJQuery && !indexAggColumnExpsList.isEmpty() || disableSPJGView) {
                 iterator.remove();
                 continue;
             }
@@ -576,6 +554,7 @@ public class MaterializedViewSelector {
             // Rollup index have no define expr.
             if (indexExprs.isEmpty() && !indexColumnNames.containsAll(queryColumnNames)) {
                 iterator.remove();
+                continue;
             }
 
             if (selectBaseIndex) {

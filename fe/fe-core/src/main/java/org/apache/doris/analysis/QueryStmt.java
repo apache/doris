@@ -275,7 +275,7 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
     }
 
     protected Expr rewriteQueryExprByMvColumnExpr(Expr expr, Analyzer analyzer) throws AnalysisException {
-        if (forbiddenMVRewrite) {
+        if (analyzer == null || analyzer.getMVExprRewriter() == null || forbiddenMVRewrite) {
             return expr;
         }
         ExprRewriter rewriter = analyzer.getMVExprRewriter();
