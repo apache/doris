@@ -54,7 +54,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlCommand;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageType;
 
@@ -169,7 +169,7 @@ public class ShowExecutorTest {
         };
 
         // mock auth
-        PaloAuth auth = AccessTestUtil.fetchAdminAccess();
+        Auth auth = AccessTestUtil.fetchAdminAccess();
 
         // mock catalog
         catalog = Deencapsulation.newInstance(InternalCatalog.class);

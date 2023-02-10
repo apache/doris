@@ -146,7 +146,7 @@ import org.apache.doris.external.iceberg.IcebergCatalogMgr;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecordMgr;
 import org.apache.doris.mtmv.MTMVJobFactory;
 import org.apache.doris.mtmv.metadata.MTMVJob;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.ClusterInfo;
 import org.apache.doris.persist.ColocatePersistInfo;
@@ -2791,7 +2791,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         }
 
         // create super user for this cluster
-        UserIdentity adminUser = new UserIdentity(PaloAuth.ADMIN_USER, "%");
+        UserIdentity adminUser = new UserIdentity(Auth.ADMIN_USER, "%");
         try {
             adminUser.analyze(stmt.getClusterName());
         } catch (AnalysisException e) {

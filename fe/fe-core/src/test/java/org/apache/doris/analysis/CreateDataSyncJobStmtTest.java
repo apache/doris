@@ -24,7 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.sync.DataSyncJobType;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -57,7 +57,7 @@ public class CreateDataSyncJobStmtTest {
     @Mocked
     Analyzer analyzer;
     @Mocked
-    PaloAuth auth;
+    Auth auth;
     @Injectable
     Database database;
     @Injectable

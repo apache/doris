@@ -28,7 +28,7 @@ import org.apache.doris.analysis.SetVar;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 
 import com.google.common.collect.Lists;
@@ -44,7 +44,7 @@ public class SetExecutorTest {
     private ConnectContext ctx;
 
     @Mocked
-    private PaloAuth auth;
+    private Auth auth;
 
     @Before
     public void setUp() throws DdlException {
