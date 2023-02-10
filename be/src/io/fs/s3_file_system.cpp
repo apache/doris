@@ -394,7 +394,7 @@ Status S3FileSystem::list(const Path& path, std::vector<Path>* files) {
                                    outcome.GetError().GetMessage());
         }
         for (const auto& obj : outcome.GetResult().GetContents()) {
-            files->push_back(obj.GetKey().substr(_s3_conf.prefix.size()));
+            files->push_back(obj.GetKey().substr(prefix.size()));
         }
         is_trucated = outcome.GetResult().GetIsTruncated();
     } while (is_trucated);

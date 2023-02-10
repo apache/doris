@@ -809,7 +809,7 @@ CONF_mInt32(bloom_filter_predicate_check_row_num, "204800");
 // cooldown task configs
 CONF_Int32(cooldown_thread_num, "5");
 CONF_mInt64(generate_cooldown_task_interval_sec, "20");
-CONF_mInt32(remove_unused_files_interbal_sec, "21600");         // 6h
+CONF_mInt32(remove_unused_remote_files_interval_sec, "21600");  // 6h
 CONF_mInt64(generate_cache_cleaner_task_interval_sec, "43200"); // 12 h
 CONF_Int32(concurrency_per_dir, "2");
 CONF_mInt64(cooldown_lag_time_sec, "10800");       // 3h

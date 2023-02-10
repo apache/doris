@@ -749,7 +749,7 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
 
 void StorageEngine::_remove_unused_remote_files_callback() {
     while (!_stop_background_threads_latch.wait_for(
-            std::chrono::seconds(config::remove_unused_files_interbal_sec))) {
+            std::chrono::seconds(config::remove_unused_remote_files_interval_sec))) {
         auto tablets = _tablet_manager->get_all_tablet([](Tablet* t) {
             return t->tablet_meta()->cooldown_meta_id().initialized() && t->is_used();
         });

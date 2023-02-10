@@ -853,6 +853,8 @@ void DataDir::perform_remote_rowset_gc() {
         for (int i = 0; i < gc_pb.num_segments(); ++i) {
             seg_paths.push_back(BetaRowset::remote_segment_path(gc_pb.tablet_id(), rowset_id, i));
         }
+        LOG(INFO) << "delete remote rowset. root_path=" << fs->root_path()
+                  << ", rowset_id=" << rowset_id;
         auto st = std::static_pointer_cast<io::RemoteFileSystem>(fs)->batch_delete(seg_paths);
         if (st.ok()) {
             deleted_keys.push_back(std::move(key));
@@ -890,6 +892,8 @@ void DataDir::perform_remote_tablet_gc() {
                 success = false;
                 continue;
             }
+            LOG(INFO) << "delete remote rowsets of tablet. root_path=" << fs->root_path()
+                      << ", tablet_id=" << tablet_id;
             auto st = fs->delete_directory(DATA_PREFIX + '/' + tablet_id);
             if (!st.ok()) {
                 LOG(WARNING) << "failed to delete all remote rowset in tablet. err=" << st;

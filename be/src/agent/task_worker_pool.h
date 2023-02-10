@@ -34,6 +34,7 @@ namespace doris {
 
 class ExecEnv;
 class ThreadPool;
+class AgentUtils;
 
 class TaskWorkerPool {
 public:

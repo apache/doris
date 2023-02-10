@@ -551,7 +551,7 @@ Status EngineCloneTask::_finish_incremental_clone(Tablet* tablet,
                                                   int64_t committed_version) {
     LOG(INFO) << "begin to finish incremental clone. tablet=" << tablet->full_name()
               << ", committed_version=" << committed_version
-              << ", cloned_tablet_replica_id=" << cloned_tablet_meta.replica_id();
+              << ", cloned_tablet_replica_id=" << cloned_tablet_meta->replica_id();
 
     /// Get missing versions again from local tablet.
     /// We got it before outside the lock, so it has to be got again.
@@ -564,7 +564,7 @@ Status EngineCloneTask::_finish_incremental_clone(Tablet* tablet,
     // check missing versions exist in clone src
     std::vector<RowsetMetaSharedPtr> rowsets_to_clone;
     for (Version version : missed_versions) {
-        RowsetMetaSharedPtr rs_meta = cloned_tablet_meta.acquire_rs_meta_by_version(version);
+        RowsetMetaSharedPtr rs_meta = cloned_tablet_meta->acquire_rs_meta_by_version(version);
         if (rs_meta == nullptr) {
             return Status::InternalError("missed version {} is not found in cloned tablet meta",
                                          version.to_string());

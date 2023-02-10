@@ -1401,7 +1401,7 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
         tablet_info->__set_cooldown_replica_id(_cooldown_replica_id);
         tablet_info->__set_cooldown_term(_cooldown_term);
     }
-    if (!_tablet_meta->cooldown_meta_id().initialized()) {
+    if (_tablet_meta->cooldown_meta_id().initialized()) {
         tablet_info->__set_cooldown_meta_id(_tablet_meta->cooldown_meta_id().to_thrift());
     }
 }
@@ -1713,7 +1713,7 @@ Status Tablet::_cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_
     UniqueId cooldown_meta_id = UniqueId::gen_uid();
 
     // upload cooldowned rowset meta to remote fs
-    RETURN_IF_ERROR(_write_cooldown_meta(dest_fs.get(), new_rowset_meta.get()));
+    RETURN_IF_ERROR(_write_cooldown_meta(dest_fs.get(), cooldown_meta_id, new_rowset_meta.get()));
 
     RowsetSharedPtr new_rowset;
     RowsetFactory::create_rowset(_schema, _tablet_path, new_rowset_meta, &new_rowset);
@@ -1988,12 +1988,13 @@ void Tablet::remove_unused_remote_files() {
     auto dest_fs = std::static_pointer_cast<io::RemoteFileSystem>(resource.fs);
     if (dest_fs == nullptr) {
         LOG(WARNING) << "could not find resource, resouce_id=" << storage_policy->resource_id;
+        return;
     }
     DCHECK(atol(dest_fs->id().c_str()) == storage_policy->resource_id);
     DCHECK(dest_fs->type() != io::FileSystemType::LOCAL);
 
     Status st;
-    std::vector<io::Path> paths;
+    std::vector<io::Path> files;
     {
         std::unique_lock xlock(_remote_files_lock, std::try_to_lock);
         if (!xlock.owns_lock()) {
@@ -2002,17 +2003,18 @@ void Tablet::remove_unused_remote_files() {
         }
         // FIXME(plat1ko): What if user reset resource in storage policy to another resource?
         //  Maybe we should also list files in previously uploaded resources.
-        auto st = dest_fs->list(BetaRowset::remote_tablet_path(tablet_id()), &paths);
+        st = dest_fs->list(BetaRowset::remote_tablet_path(tablet_id()), &files);
     }
     if (!st.ok()) {
         LOG(WARNING) << "encounter error when remove unused remote files, tablet_id=" << tablet_id()
                      << " : " << st;
     }
-    if (paths.empty()) {
+    if (files.empty()) {
         return;
     }
     // get all cooldowned rowsets
     std::unordered_set<std::string> cooldowned_rowsets;
+    UniqueId cooldown_meta_id;
     {
         std::shared_lock rlock(_meta_lock);
         for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
@@ -2020,47 +2022,58 @@ void Tablet::remove_unused_remote_files() {
                 cooldowned_rowsets.insert(rs_meta->rowset_id().to_string());
             }
         }
+        cooldown_meta_id = _tablet_meta->cooldown_meta_id();
     }
-    std::string remote_meta_path =
-            BetaRowset::remote_tablet_meta_path(tablet_id(), _tablet_meta->replica_id());
+    // {replica_id}.meta
+    std::string remote_meta_path = std::to_string(replica_id()) + ".meta";
     // filter out the paths that should be reserved
-    paths.erase(std::remove_if(paths.begin(), paths.end(), [&](io::Path& path) {
-        auto& path_str = path.native();
+    // clang-format off
+    files.erase(std::remove_if(files.begin(), files.end(), [&](io::Path& path) {
+        const std::string& path_str = path.native();
         if (StringPiece(path_str).ends_with(".meta")) {
-            if (path_str == remote_meta_path) {
-                return true;
-            }
-            return false;
+            return path_str == remote_meta_path;
         }
         if (StringPiece(path_str).ends_with(".dat")) {
-            // extract rowset id. path format: .../{rowset_id}_{segment_num}.dat
-            auto begin = path_str.rfind('/');
+            // extract rowset id. filename format: {rowset_id}_{segment_num}.dat
             auto end = path_str.rfind('_');
-            if (UNLIKELY(begin == std::string::npos || end == std::string::npos || begin > end)) {
+            if (UNLIKELY(end == std::string::npos)) {
                 return false;
             }
-            ++begin;
-            if (cooldowned_rowsets.count(path_str.substr(begin, end - begin))) {
-                return true;
-            }
+            return !!cooldowned_rowsets.count(path_str.substr(0, end)); 
         }
-        // FIXME(plat1ko): process invert index
+        if (StringPiece(path_str).ends_with(".idx")) {
+            // extract rowset id. filename format: {rowset_id}_{segment_num}_{index_id}.idx
+            auto end = path_str.find('_');
+            if (UNLIKELY(end == std::string::npos)) {
+                return false;
+            }
+            return !!cooldowned_rowsets.count(path_str.substr(0, end));
+        }
         return false;
-    }));
-    if (paths.empty()) {
+    }), files.end());
+    // clang-format on
+    if (files.empty()) {
         return;
     }
     // ask FE to confirm
     TConfirmUnusedRemoteFilesRequest req;
     req.__set_tablet_id(tablet_id());
     req.__set_cooldown_replica_id(_cooldown_replica_id);
-    req.__set_cooldown_meta_id(_tablet_meta->cooldown_meta_id().to_thrift());
+    req.__set_cooldown_meta_id(cooldown_meta_id.to_thrift());
     st = MasterServerClient::instance()->confirm_unused_remote_files(req);
     if (!st.ok()) {
         LOG(WARNING) << "failed to delete unused files, tablet_id=" << tablet_id() << " : " << st;
+        return;
     }
     // delete unused files
-    st = dest_fs->batch_delete(paths);
+    LOG(INFO) << "delete unused files. root_path=" << dest_fs->root_path()
+              << " tablet_id=" << tablet_id();
+    io::Path dir("data/" + std::to_string(tablet_id()));
+    for (auto& file : files) {
+        file = dir / file;
+        LOG(INFO) << "delete unused file: " << file.native();
+    }
+    st = dest_fs->batch_delete(files);
     if (!st.ok()) {
         LOG(WARNING) << "failed to delete unused files, tablet_id=" << tablet_id() << " : " << st;
     }

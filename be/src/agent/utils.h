@@ -28,7 +28,7 @@ namespace doris {
 
 class MasterServerClient {
 public:
-    static MasterServerClient* create(const TMasterInfo& master_info); 
+    static MasterServerClient* create(const TMasterInfo& master_info);
     static MasterServerClient* instance();
 
     ~MasterServerClient() = default;
