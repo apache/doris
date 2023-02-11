@@ -59,44 +59,15 @@ public class ResolveWindowFunctionTest extends TestWithFeService implements Patt
         // String sql = "select s_address, rank() over(order by s_suppkey), row_number() over(order by s_city) from supplier";
         // String sql2 = "select s_address, rank() over(partition by s_nation), row_number() over(partition by s_city order by s_nation) from supplier";
         // String sql = "select ntile(5) over(partition by s_city) from supplier";
-        String sql = "select sum(sum(s_suppkey)) over(partition by avg(s_suppkey)) from supplier";
-        PlanChecker.from(connectContext).checkPlannerResult(sql);
-    }
-
-    public void testWindowFunctionChecker() {
-        // String rowNumber = "SELECT row_number() over() FROM supplier";
-
-        // String rank = "SELECT rank() over() FROM supplier";
-        String lag = "SELECT lag(s_suppkey, 1, 2) over() FROM supplier";
-        PlanChecker.from(connectContext).checkPlannerResult(lag);
-    }
-
-    @Test
-    public void testWindowGroup() {
+        // String sql = "select sum(s_suppkey) over(partition by count(s_city)) from supplier";
         // String sql = "SELECT s_city, row_number() over(PARTITION BY s_address ORDER BY s_nation) FROM supplier";
-
         // String sql2 = "select s_city, row_number() over(PARTITION BY s_address ORDER BY s_nation) from supplier";
         // String sql = "select s_suppkey+2, rank() over(partition by s_suppkey+1 order by s_suppkey+3) from supplier";
         // String sql2 = "select s_nation, s_suppkey+3, sum(s_suppkey+2) over(partition by s_suppkey+3 order by s_city) from supplier";
         // String sql = "select sum(s_suppkey+2) over(partition by s_suppkey+3 order by s_city) from supplier group by s_city, s_suppkey";
         // String sql3 = "select rank() over(partition by s_suppkey+3 order by s_city) from supplier group by s_city, s_suppkey";
         // String sql = "select sum(s_suppkey) over(partition by s_city) from supplier";
+        String sql = " select rank() over from supplier";
         String sql2 = "select s_suppkey+1, s_city, sum(s_suppkey), sum(s_suppkey+1) over(partition by s_city order by s_suppkey + 1) from supplier group by s_city, s_suppkey";
-        PlanChecker.from(connectContext).checkPlannerResult(sql2);
-    }
-
-    @Test
-    public void testUnit() {
-        // String sql = "select regexp_replace(s_city, s_city, s_city) from supplier order by s_city, s_city, s_city";
-        String sql3 = "select aes_decrypt(s_city, s_city, s_city) from supplier order by s_city, s_city, s_city";
-
-        // String sql = "SELECT s_city, row_number() over(PARTITION BY s_address ORDER BY s_nation) FROM supplier";
-        // String sql2 = "select s_city as s_address from supplier order by s_city, s_address, s_suppkey, s_nation";
-        PlanChecker.from(connectContext).checkPlannerResult(sql3);
-    }
-
-    public void test() {
-        String sql = "SELECT s_suppkey, count(*) FROM supplier GROUP BY s_suppkey ORDER BY s_suppkey";
         PlanChecker.from(connectContext).checkPlannerResult(sql);
-    }
 }

@@ -115,6 +115,13 @@ public class WindowExpression extends Expression implements PropagateNullable {
         return new WindowExpression(function, partitionKeys, orderKeyList);
     }
 
+    public WindowExpression withFunction(Expression function) {
+        if (windowFrame.isPresent()) {
+            return new WindowExpression(function, partitionKeys, orderKeys, windowFrame.get());
+        }
+        return new WindowExpression(function, partitionKeys, orderKeys);
+    }
+
     @Override
     public WindowExpression withChildren(List<Expression> children) {
         Preconditions.checkArgument(children.size() >= 1);

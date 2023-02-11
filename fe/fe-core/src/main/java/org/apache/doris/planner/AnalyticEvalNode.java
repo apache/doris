@@ -99,6 +99,32 @@ public class AnalyticEvalNode extends PlanNode {
         nullableTupleIds = Sets.newHashSet(input.getNullableTupleIds());
     }
 
+    // constructor used in Nereids
+    public AnalyticEvalNode(
+            PlanNodeId id, PlanNode input, List<Expr> analyticFnCalls,
+            List<Expr> partitionExprs, List<OrderByElement> orderByElements,
+            AnalyticWindow analyticWindow, TupleDescriptor intermediateTupleDesc,
+            TupleDescriptor outputTupleDesc, Expr partitionByEq, Expr orderByEq,
+            TupleDescriptor bufferedTupleDesc) {
+        super(id, input.getTupleIds(), "ANALYTIC", StatisticalType.ANALYTIC_EVAL_NODE);
+        Preconditions.checkState(!tupleIds.contains(outputTupleDesc.getId()));
+        // we're materializing the input row augmented with the analytic output tuple
+        tupleIds.add(outputTupleDesc.getId());
+        this.analyticFnCalls = analyticFnCalls;
+        this.partitionExprs = partitionExprs;
+        this.substitutedPartitionExprs = partitionExprs;
+        this.orderByElements = orderByElements;
+        this.analyticWindow = analyticWindow;
+        this.intermediateTupleDesc = intermediateTupleDesc;
+        this.outputTupleDesc = outputTupleDesc;
+        this.logicalToPhysicalSmap = new ExprSubstitutionMap();
+        this.partitionByEq = partitionByEq;
+        this.orderByEq = orderByEq;
+        this.bufferedTupleDesc = bufferedTupleDesc;
+        children.add(input);
+        nullableTupleIds = Sets.newHashSet(input.getNullableTupleIds());
+    }
+
     public List<Expr> getPartitionExprs() {
         return partitionExprs;
     }
@@ -259,9 +285,5 @@ public class AnalyticEvalNode extends PlanNode {
         }
 
         return output.toString();
-    }
-
-    public void finalizeForNereids() {
-        this.substitutedPartitionExprs = partitionExprs;
     }
 }

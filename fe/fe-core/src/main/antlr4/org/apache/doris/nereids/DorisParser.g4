@@ -339,9 +339,9 @@ functionIdentifier
 
 windowSpec
     // todo: name for windowRef; we haven't support it
-    : name=identifier
-    | LEFT_PAREN name=identifier RIGHT_PAREN
-    | LEFT_PAREN
+    // : name=identifier
+    // | LEFT_PAREN name=identifier RIGHT_PAREN
+    : LEFT_PAREN
         partitionClause?
         sortClause?
         windowFrame?
@@ -601,7 +601,6 @@ nonReserved
     | OUT
     | OUTER
     | OUTPUTFORMAT
-    | OVER
     | OVERLAPS
     | OVERLAY
     | OVERWRITE

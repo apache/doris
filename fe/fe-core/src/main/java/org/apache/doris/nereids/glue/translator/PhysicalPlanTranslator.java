@@ -24,7 +24,6 @@ import org.apache.doris.analysis.BinaryPredicate;
 import org.apache.doris.analysis.BoolLiteral;
 import org.apache.doris.analysis.CompoundPredicate;
 import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.ExprSubstitutionMap;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.GroupByClause.GroupingType;
 import org.apache.doris.analysis.GroupingInfo;
@@ -700,12 +699,10 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 analyticWindow,
                 intermediateTupleDesc,
                 outputTupleDesc,
-                new ExprSubstitutionMap(),
                 partitionExprsIsNullableMatched,
                 orderElementsIsNullableMatched,
                 bufferedTupleDesc
         );
-        analyticEvalNode.finalizeForNereids();
 
         if (partitionExprs.isEmpty() && orderByElements.isEmpty()) {
             if (inputPlanFragment.isPartitioned()) {

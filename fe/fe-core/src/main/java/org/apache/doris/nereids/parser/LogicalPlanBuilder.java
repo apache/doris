@@ -985,10 +985,6 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
      * deal with window function definition
      */
     private WindowExpression withWindowSpec(WindowSpecContext ctx, Expression function) {
-        if (ctx.name != null) {
-            // todo: modify this exception after we support window reference
-            throw new ParseException("window function need OVER clause.", ctx);
-        }
         List<Expression> partitionKeyList = Lists.newArrayList();
         if (ctx.partitionClause() != null) {
             partitionKeyList = visit(ctx.partitionClause().expression(), Expression.class);

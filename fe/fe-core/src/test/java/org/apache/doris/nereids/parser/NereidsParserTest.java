@@ -122,7 +122,7 @@ public class NereidsParserTest extends ParserTestBase {
 
         String windowSql3 = "select rank() over from t1";
         parsePlan(windowSql3).assertThrowsExactly(ParseException.class)
-                    .assertMessageContains("window function need OVER clause.");
+                    .assertMessageContains("mismatched input 'from' expecting '('");
     }
 
     @Test

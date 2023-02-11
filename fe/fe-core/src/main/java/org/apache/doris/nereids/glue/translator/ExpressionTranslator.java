@@ -335,7 +335,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
 
     }
 
-    // TODO: Supports for `distinct`
     @Override
     public Expr visitScalarFunction(ScalarFunction function, PlanTranslatorContext context) {
         List<Expression> nereidsArguments = adaptFunctionArgumentsForBackends(function);

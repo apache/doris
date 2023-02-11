@@ -29,11 +29,11 @@ import java.util.Optional;
  */
 public class WindowFrame extends Expression implements PropagateNullable, LeafExpression {
 
-    private FrameUnitsType frameUnits;
+    private final FrameUnitsType frameUnits;
 
-    private FrameBoundary leftBoundary;
+    private final FrameBoundary leftBoundary;
 
-    private FrameBoundary rightBoundary;
+    private final FrameBoundary rightBoundary;
 
     public WindowFrame(FrameUnitsType frameUnits, FrameBoundary leftBoundary) {
         this(frameUnits, leftBoundary, new FrameBoundary(FrameBoundType.EMPTY_BOUNDARY));
@@ -55,10 +55,6 @@ public class WindowFrame extends Expression implements PropagateNullable, LeafEx
 
     public FrameBoundary getRightBoundary() {
         return rightBoundary;
-    }
-
-    public void setRightBoundary(FrameBoundary rightBoundary) {
-        this.rightBoundary = rightBoundary;
     }
 
     /**
@@ -125,8 +121,8 @@ public class WindowFrame extends Expression implements PropagateNullable, LeafEx
      * frame units types
      */
     public enum FrameUnitsType {
-        ROWS(),
-        RANGE()
+        ROWS,
+        RANGE
     }
 
     /**
@@ -134,8 +130,8 @@ public class WindowFrame extends Expression implements PropagateNullable, LeafEx
      */
     public static class FrameBoundary {
 
-        private Optional<Expression> boundOffset;
-        private FrameBoundType frameBoundType;
+        private final Optional<Expression> boundOffset;
+        private final FrameBoundType frameBoundType;
 
         public FrameBoundary(FrameBoundType frameBoundType) {
             this.boundOffset = Optional.empty();
@@ -236,21 +232,15 @@ public class WindowFrame extends Expression implements PropagateNullable, LeafEx
      */
     public enum FrameBoundType {
 
-        UNBOUNDED_PRECEDING("UNBOUNDED_PRECEDING"),
-        UNBOUNDED_FOLLOWING("UNBOUNDED_FOLLOWING"),
-        CURRENT_ROW("CURRENT_ROW"),
-        PRECEDING("PRECEDING"),
-        FOLLOWING("FOLLOWING"),
+        UNBOUNDED_PRECEDING,
+        UNBOUNDED_FOLLOWING,
+        CURRENT_ROW,
+        PRECEDING,
+        FOLLOWING,
 
         // represents that the boundary is null. We use this value as default
         // to avoid checking if a boundary is null frequently.
-        EMPTY_BOUNDARY("EMPTY_BOUNDARY");
-
-        private final String description;
-
-        FrameBoundType(String description) {
-            this.description = description;
-        }
+        EMPTY_BOUNDARY;
 
         /**
          * reverse current FrameBoundType

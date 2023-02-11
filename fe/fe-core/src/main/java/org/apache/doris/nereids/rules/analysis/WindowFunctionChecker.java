@@ -423,8 +423,9 @@ public class WindowFunctionChecker extends DefaultExpressionVisitor<Expression, 
             // reverse WindowFunction, which is used only for first_value() and last_value()
             Expression windowFunction = windowExpression.getFunction();
             if (windowFunction instanceof FirstOrLastValue) {
-                windowExpression = windowExpression.withChildren(
-                        ImmutableList.of(((FirstOrLastValue) windowFunction).reverse()));
+                // windowExpression = windowExpression.withChildren(
+                //         ImmutableList.of(((FirstOrLastValue) windowFunction).reverse()));
+                windowExpression = windowExpression.withFunction(((FirstOrLastValue) windowFunction).reverse());
             }
         }
     }
