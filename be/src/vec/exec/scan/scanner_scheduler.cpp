@@ -325,7 +325,11 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
         if (UNLIKELY(block->rows() == 0)) {
             ctx->return_free_block(block);
         } else {
-            if (!blocks.empty() && blocks.back()->rows() + block->rows() <= state->batch_size()) {
+            if (!blocks.empty() &&
+                blocks.back()->rows() + block->rows() <= state->batch_size()
+                // block may miss match bettween dynamic blocks
+                // merge is not supported by dynamic block
+                && blocks.back()->get_block_type() != BlockType::DYNAMIC) {
                 vectorized::MutableBlock(blocks.back()).merge(*block);
                 ctx->return_free_block(block);
             } else {

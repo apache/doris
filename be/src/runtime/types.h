@@ -192,7 +192,8 @@ struct TypeDescriptor {
     }
 
     bool is_complex_type() const {
-        return type == TYPE_STRUCT || type == TYPE_ARRAY || type == TYPE_MAP;
+        return type == TYPE_STRUCT || type == TYPE_ARRAY || type == TYPE_MAP ||
+               type == TYPE_VARIANT;
     }
 
     bool is_collection_type() const { return type == TYPE_ARRAY || type == TYPE_MAP; }
@@ -200,6 +201,8 @@ struct TypeDescriptor {
     bool is_array_type() const { return type == TYPE_ARRAY; }
 
     bool is_bitmap_type() const { return type == TYPE_OBJECT; }
+
+    bool is_variant_type() const { return type == TYPE_VARIANT; }
 
     int get_slot_size() const { return ::doris::get_slot_size(type); }
 

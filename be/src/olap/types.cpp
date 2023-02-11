@@ -33,6 +33,7 @@ bool is_scalar_type(FieldType field_type) {
     case OLAP_FIELD_TYPE_STRUCT:
     case OLAP_FIELD_TYPE_ARRAY:
     case OLAP_FIELD_TYPE_MAP:
+    case OLAP_FIELD_TYPE_VARIANT:
         return false;
     default:
         return true;
