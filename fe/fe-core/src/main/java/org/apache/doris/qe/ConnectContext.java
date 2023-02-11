@@ -181,7 +181,7 @@ public class ConnectContext {
         return sessionContext;
     }
 
-    public MysqlSslContext getMysqlSslConnectionContext() {
+    public MysqlSslContext getMysqlSslContext() {
         return mysqlSslContext;
     }
 

@@ -160,7 +160,7 @@ public class MysqlProto {
             throws IOException {
         MysqlSerializer serializer = context.getSerializer();
         MysqlChannel channel = context.getMysqlChannel();
-        MysqlSslContext mysqlSslContext = context.getMysqlSslConnectionContext();
+        MysqlSslContext mysqlSslContext = context.getMysqlSslContext();
         context.getState().setOk();
 
         // Server send handshake packet to client.
