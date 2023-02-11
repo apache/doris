@@ -49,7 +49,6 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
                      << ", version:" << read_params.version;
         return res;
     }
-    _reader_context.batch_size = _batch_size;
     _reader_context.is_vec = true;
     _reader_context.is_vertical_compaction = true;
     for (auto& rs_reader : rs_readers) {
@@ -125,7 +124,8 @@ void VerticalBlockReader::_init_agg_state(const ReaderParams& read_params) {
         return;
     }
     DCHECK(_return_columns.size() == _next_row.block->columns());
-    _stored_data_columns = _next_row.block->create_same_struct_block(_batch_size)->mutate_columns();
+    _stored_data_columns =
+            _next_row.block->create_same_struct_block(_reader_context.batch_size)->mutate_columns();
 
     _stored_has_null_tag.resize(_stored_data_columns.size());
     _stored_has_string_tag.resize(_stored_data_columns.size());
@@ -155,7 +155,7 @@ void VerticalBlockReader::_init_agg_state(const ReaderParams& read_params) {
 
 Status VerticalBlockReader::init(const ReaderParams& read_params) {
     StorageReadOptions opts;
-    _batch_size = opts.block_row_max;
+    _reader_context.batch_size = opts.block_row_max;
     RETURN_NOT_OK(TabletReader::init(read_params));
 
     auto status = _init_collect_iter(read_params);
@@ -209,7 +209,7 @@ void VerticalBlockReader::_append_agg_data(MutableColumns& columns) {
 
     // execute aggregate when have `batch_size` column or some ref invalid soon
     bool is_last = (_next_row.block->rows() == _next_row.row_pos + 1);
-    if (is_last || _stored_row_ref.size() == _batch_size) {
+    if (is_last || _stored_row_ref.size() == _reader_context.batch_size) {
         _update_agg_data(columns);
     }
 }
@@ -332,7 +332,7 @@ Status VerticalBlockReader::_agg_key_next_block(Block* block, bool* eof) {
         }
         DCHECK(_next_row.block->columns() == block->columns());
         if (!_next_row.is_same) {
-            if (target_block_row == _batch_size) {
+            if (target_block_row == _reader_context.batch_size) {
                 break;
             }
             _agg_data_counters.push_back(_last_agg_data_counter);
@@ -432,7 +432,7 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
                                            _next_row.row_pos);
         }
         ++target_block_row;
-    } while (target_block_row < _batch_size);
+    } while (target_block_row < _reader_context.batch_size);
     return Status::OK();
 }
 
