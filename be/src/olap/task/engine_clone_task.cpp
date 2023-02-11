@@ -97,8 +97,7 @@ Status EngineCloneTask::_do_clone() {
         // completed. Or remote be will just return header not the rowset files. clone will failed.
         if (missed_versions.empty()) {
             LOG(INFO) << "missed version size = 0, skip clone and return success. tablet_id="
-                      << _clone_req.tablet_id
-                      << " req replica=" << _clone_req.replica_id;
+                      << _clone_req.tablet_id << " req replica=" << _clone_req.replica_id;
             _set_tablet_info(is_new_tablet);
             return Status::OK();
         }
@@ -197,8 +196,7 @@ Status EngineCloneTask::_set_tablet_info(bool is_new_tablet) {
     }
     LOG(INFO) << "clone get tablet info success. tablet_id:" << _clone_req.tablet_id
               << ", schema_hash:" << _clone_req.schema_hash << ", signature:" << _signature
-              << ", replica id:" << _clone_req.replica_id
-              << ", version:" << tablet_info.version;
+              << ", replica id:" << _clone_req.replica_id << ", version:" << tablet_info.version;
     _tablet_infos->push_back(tablet_info);
     return Status::OK();
 }
