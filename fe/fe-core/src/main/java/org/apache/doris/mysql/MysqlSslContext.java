@@ -38,10 +38,10 @@ public class MysqlSslContext {
     private String protocol;
     private String[] ciphersuites;
 
-    private ByteBuffer serverAppDate;
-    private ByteBuffer serverNetDate;
-    private ByteBuffer clientAppDate;
-    private ByteBuffer clientNetDate;
+    private ByteBuffer serverAppData;
+    private ByteBuffer serverNetData;
+    private ByteBuffer clientAppData;
+    private ByteBuffer clientNetData;
 
     public MysqlSslContext(String protocol, String[] ciphersuites) {
         protocol = protocol;
@@ -78,30 +78,30 @@ public class MysqlSslContext {
         return ciphersuites;
     }
 
-        /*
-          There may several steps for a successful handshake,
-          so it's typical to see the following series of operations:
+    /*
+      There may several steps for a successful handshake,
+      so it's typical to see the following series of operations:
 
-               client          server          message
-               ======          ======          =======
-               wrap()          ...             ClientHello
-               ...             unwrap()        ClientHello
-               ...             wrap()          ServerHello/Certificate
-               unwrap()        ...             ServerHello/Certificate
-               wrap()          ...             ClientKeyExchange
-               wrap()          ...             ChangeCipherSpec
-               wrap()          ...             Finished
-               ...             unwrap()        ClientKeyExchange
-               ...             unwrap()        ChangeCipherSpec
-               ...             unwrap()        Finished
-               ...             wrap()          ChangeCipherSpec
-               ...             wrap()          Finished
-               unwrap()        ...             ChangeCipherSpec
-               unwrap()        ...             Finished
-           reference: https://docs.oracle.com/javase/10/security/java-secure-socket-extension-jsse-reference-guide.htm#JSSEC-GUID-7FCC21CB-158B-440C-B5E4-E4E5A2D7352B
-         */
-        public boolean sslExchange(MysqlChannel channel) throws Exception {
-            long startTime = System.currentTimeMillis();
+           client          server          message
+           ======          ======          =======
+           wrap()          ...             ClientHello
+           ...             unwrap()        ClientHello
+           ...             wrap()          ServerHello/Certificate
+           unwrap()        ...             ServerHello/Certificate
+           wrap()          ...             ClientKeyExchange
+           wrap()          ...             ChangeCipherSpec
+           wrap()          ...             Finished
+           ...             unwrap()        ClientKeyExchange
+           ...             unwrap()        ChangeCipherSpec
+           ...             unwrap()        Finished
+           ...             wrap()          ChangeCipherSpec
+           ...             wrap()          Finished
+           unwrap()        ...             ChangeCipherSpec
+           unwrap()        ...             Finished
+       reference: https://docs.oracle.com/javase/10/security/java-secure-socket-extension-jsse-reference-guide.htm#JSSEC-GUID-7FCC21CB-158B-440C-B5E4-E4E5A2D7352B
+     */
+    public boolean sslExchange(MysqlChannel channel) throws Exception {
+        long startTime = System.currentTimeMillis();
         // begin handshake.
         sslEngine.beginHandshake();
         while (sslEngine.getHandshakeStatus() != HandshakeStatus.FINISHED
@@ -138,43 +138,106 @@ public class MysqlSslContext {
         }
         HandshakeStatus hsStatus = sslEngine.getHandshakeStatus();
         if (hsStatus == HandshakeStatus.NEED_TASK) {
-            throw new Exception(
-                    "handshake shouldn't need additional tasks");
+            throw new Exception("handshake shouldn't need additional tasks");
         }
     }
 
     private void handleNeedWrap(MysqlChannel channel) {
-        // todo
-        serverAppDate.clear();
         try {
-            SSLEngineResult sslEngineResult = sslEngine.wrap(serverAppDate, serverNetDate);
-            if(handleWrapResult(sslEngineResult)){
-                channel.sendAndFlush(serverNetDate);
-                serverNetDate.clear();
-            }else{
-                // todo
+            while (true) {
+                SSLEngineResult sslEngineResult = sslEngine.wrap(serverAppData, serverNetData);
+                if (handleWrapResult(sslEngineResult)) {
+                    // if wrap normal, send packet.
+                    // todo: refactor sendAndFlush.
+                    channel.sendAndFlush(serverNetData);
+                    break;
+                }
+                // if BUFFER_OVERFLOW, need to wrap again, so we do nothing.
             }
         } catch (SSLException e) {
-            throw new RuntimeException(e);
+            sslEngine.closeOutbound();
         } catch (IOException e) {
             throw new RuntimeException("send failed");
         }
     }
 
     private void handleNeedUnwrap(MysqlChannel channel) {
-        // todo
+        try {
+            // todo: refactor readAll.
+            channel.readAll(clientNetData);
+            while (true) {
+                SSLEngineResult sslEngineResult = sslEngine.unwrap(clientNetData, clientAppData);
+                if (handleUnwrapResult(sslEngineResult)) {
+                    break;
+                }
+                // if BUFFER_OVERFLOW or BUFFER_UNDERFLOW, need to unwrap again, so we do nothing.
+            }
+        } catch (SSLException e) {
+            sslEngine.closeOutbound();
+        } catch (IOException e) {
+            throw new RuntimeException("send failed");
+        }
     }
 
-    private boolean handleWrapResult(SSLEngineResult sslEngineResult){
-            switch(sslEngineResult.getStatus()){
-                case OK:
-                    return true;
-                case CLOSED:
-                    // todo
-                case BUFFER_OVERFLOW:
-                case BUFFER_UNDERFLOW:
-                default:
-                    throw new IllegalStateException("invalid wrap status: " + sslEngineResult.getStatus());
-            }
+
+    private boolean handleWrapResult(SSLEngineResult sslEngineResult) {
+        switch (sslEngineResult.getStatus()) {
+            // normal status.
+            case OK:
+                return true;
+            case CLOSED:
+                sslEngine.closeOutbound();
+                return true;
+            case BUFFER_OVERFLOW:
+                // Could attempt to drain the serverNetData buffer of any already obtained
+                // data, but we'll just increase it to the size needed.
+                int appSize = sslEngine.getSession().getApplicationBufferSize();
+                ByteBuffer newBuffer = ByteBuffer.allocate(appSize + serverNetData.position());
+                serverNetData.flip();
+                newBuffer.put(serverNetData);
+                serverNetData = newBuffer;
+                // retry the operation.
+                return false;
+            // when wrap BUFFER_UNDERFLOW and other status will not appear.
+            case BUFFER_UNDERFLOW:
+            default:
+                throw new IllegalStateException("invalid wrap status: " + sslEngineResult.getStatus());
+        }
+    }
+
+    private boolean handleUnwrapResult(SSLEngineResult sslEngineResult) {
+        switch (sslEngineResult.getStatus()) {
+            // normal status.
+            case OK:
+                return true;
+            case CLOSED:
+                sslEngine.closeOutbound();
+                return true;
+            case BUFFER_OVERFLOW:
+                // Could attempt to drain the clientAppData buffer of any already obtained
+                // data, but we'll just increase it to the size needed.
+                int appSize = sslEngine.getSession().getApplicationBufferSize();
+                ByteBuffer newAppBuffer = ByteBuffer.allocate(appSize + clientAppData.position());
+                clientAppData.flip();
+                newAppBuffer.put(clientAppData);
+                clientAppData = newAppBuffer;
+                // retry the operation.
+                return false;
+            case BUFFER_UNDERFLOW:
+                int netSize = sslEngine.getSession().getPacketBufferSize();
+                // Resize buffer if needed.
+                if (netSize > clientAppData.capacity()) {
+                    ByteBuffer newNetBuffer = ByteBuffer.allocateDirect(netSize);
+                    clientNetData.flip();
+                    newNetBuffer.put(clientNetData);
+                    clientNetData = newNetBuffer;
+                }
+                // Obtain more inbound network data for clientNetData,
+                // then retry the operation.
+                return false;
+            default:
+                throw new IllegalStateException("invalid wrap status: " + sslEngineResult.getStatus());
+        }
+
     }
 }
