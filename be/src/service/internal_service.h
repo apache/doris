@@ -190,8 +190,13 @@ private:
 
 private:
     ExecEnv* _exec_env;
-    PriorityThreadPool _tablet_worker_pool;
-    PriorityThreadPool _slave_replica_worker_pool;
+
+    // every brpc service request should put into thread pool
+    // the reason see issue #16634
+    // define the interface for reading and writing data as heavy interface
+    // otherwise as light interface
+    PriorityThreadPool _heavy_work_pool;
+    PriorityThreadPool _light_work_pool;
 };
 
 } // namespace doris
