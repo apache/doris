@@ -338,8 +338,6 @@ Status TabletMeta::create_from_file(const string& file_path) {
     }
 
     init_from_pb(tablet_meta_pb);
-    LOG_INFO("create from file, file's tablet id: {}, replica id{}", tablet_meta_pb.tablet_id(),
-             tablet_meta_pb.replica_id());
     return Status::OK();
 }
 
