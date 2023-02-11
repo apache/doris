@@ -791,7 +791,7 @@ void PInternalServiceImpl::check_rpc_channel(google::protobuf::RpcController* co
                                              PCheckRPCChannelResponse* response,
                                              google::protobuf::Closure* done) {
     DorisMetrics::instance()->check_rpc_channel->increment(1);
-    _light_work_pool.offer([ request, response, done]() {
+    _light_work_pool.offer([request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         response->mutable_status()->set_status_code(0);
         if (request->data().size() != request->size()) {
@@ -821,7 +821,7 @@ void PInternalServiceImpl::reset_rpc_channel(google::protobuf::RpcController* co
                                              PResetRPCChannelResponse* response,
                                              google::protobuf::Closure* done) {
     DorisMetrics::instance()->reset_rpc_channel->increment(1);
-    _light_work_pool.offer([ controller, request, response, done]() {
+    _light_work_pool.offer([controller, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         response->mutable_status()->set_status_code(0);
         if (request->all()) {
@@ -857,7 +857,7 @@ void PInternalServiceImpl::hand_shake(google::protobuf::RpcController* controlle
                                       PHandShakeResponse* response,
                                       google::protobuf::Closure* done) {
     DorisMetrics::instance()->hand_shake->increment(1);
-    _light_work_pool.offer([ request, response, done]() {
+    _light_work_pool.offer([request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         if (request->has_hello()) {
             response->set_hello(request->hello());
