@@ -255,8 +255,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             if (!env.isMaster()) {
                 status.setStatusCode(TStatusCode.ILLEGAL_STATE);
                 status.addToErrorMsgs("retry rpc request to master.");
-                TAddColumnsResult result = new TAddColumnsResult(status, request.getTableId(), allColumns, 0);
-                LOG.debug("result: {}", result);
+                TAddColumnsResult result = new TAddColumnsResult();
+                result.setStatus(status);
                 return result;
             }
             TableName tableName = new TableName("", request.getDbName(), request.getTableName());
@@ -378,7 +378,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             status.addToErrorMsgs(e.getMessage());
         }
 
-        TAddColumnsResult result = new TAddColumnsResult(status, request.getTableId(), allColumns, schemaVersion);
+        TAddColumnsResult result = new TAddColumnsResult();
+        result.setStatus(status);
+        result.setTableId(request.getTableId());
+        result.setAllColumns(allColumns);
+        result.setSchemaVersion(schemaVersion);
         LOG.debug("result: {}", result);
         return result;
     }
