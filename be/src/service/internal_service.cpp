@@ -173,7 +173,7 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
                                               PTabletWriterOpenResult* response,
                                               google::protobuf::Closure* done) {
     DorisMetrics::instance()->tablet_writer_open->increment(1);
-    _light_work_pool.offer([this, controller, request, response, done]() {
+    _light_work_pool.offer([this, request, response, done]() {
         VLOG_RPC << "tablet writer open, id=" << request->id()
                  << ", index_id=" << request->index_id() << ", txn_id=" << request->txn_id();
         brpc::ClosureGuard closure_guard(done);
@@ -595,7 +595,7 @@ void PInternalServiceImpl::send_data(google::protobuf::RpcController* controller
                                      const PSendDataRequest* request, PSendDataResult* response,
                                      google::protobuf::Closure* done) {
     DorisMetrics::instance()->send_data->increment(1);
-    _heavy_work_pool.offer([this, controller, request, response, done]() {
+    _heavy_work_pool.offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         TUniqueId fragment_instance_id;
         fragment_instance_id.hi = request->fragment_instance_id().hi();
@@ -621,7 +621,7 @@ void PInternalServiceImpl::commit(google::protobuf::RpcController* controller,
                                   const PCommitRequest* request, PCommitResult* response,
                                   google::protobuf::Closure* done) {
     DorisMetrics::instance()->commit->increment(1);
-    _light_work_pool.offer([this, controller, request, response, done]() {
+    _light_work_pool.offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         TUniqueId fragment_instance_id;
         fragment_instance_id.hi = request->fragment_instance_id().hi();
@@ -642,7 +642,7 @@ void PInternalServiceImpl::rollback(google::protobuf::RpcController* controller,
                                     const PRollbackRequest* request, PRollbackResult* response,
                                     google::protobuf::Closure* done) {
     DorisMetrics::instance()->rollback->increment(1);
-    _light_work_pool.offer([this, controller, request, response, done]() {
+    _light_work_pool.offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         TUniqueId fragment_instance_id;
         fragment_instance_id.hi = request->fragment_instance_id().hi();
@@ -714,7 +714,7 @@ void PInternalServiceImpl::transmit_block_by_http(google::protobuf::RpcControlle
                                                   PTransmitDataResult* response,
                                                   google::protobuf::Closure* done) {
     DorisMetrics::instance()->transmit_block_by_http->increment(1);
-    _heavy_work_pool.offer([this, controller, request, response, done]() {
+    _heavy_work_pool.offer([this, controller, response, done]() {
         PTransmitDataParams* new_request = new PTransmitDataParams();
         google::protobuf::Closure* new_done =
                 new NewHttpClosure<PTransmitDataParams>(new_request, done);
@@ -764,7 +764,7 @@ void PInternalServiceImpl::check_rpc_channel(google::protobuf::RpcController* co
                                              PCheckRPCChannelResponse* response,
                                              google::protobuf::Closure* done) {
     DorisMetrics::instance()->check_rpc_channel->increment(1);
-    _light_work_pool.offer([this, controller, request, response, done]() {
+    _light_work_pool.offer([controller, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         response->mutable_status()->set_status_code(0);
         if (request->data().size() != request->size()) {
