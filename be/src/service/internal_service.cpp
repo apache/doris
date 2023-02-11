@@ -857,7 +857,7 @@ void PInternalServiceImpl::hand_shake(google::protobuf::RpcController* controlle
                                       PHandShakeResponse* response,
                                       google::protobuf::Closure* done) {
     DorisMetrics::instance()->hand_shake->increment(1);
-    _light_work_pool.offer([this, request, response, done]() {
+    _light_work_pool.offer([ request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         if (request->has_hello()) {
             response->set_hello(request->hello());
