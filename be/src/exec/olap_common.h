@@ -710,13 +710,6 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
             max_value.set_type(TimeType::TIME_DATE);
         }
 
-        if (contain_null()) {
-            begin_scan_keys.emplace_back();
-            begin_scan_keys.back().add_null();
-            end_scan_keys.emplace_back();
-            end_scan_keys.back().add_null();
-        }
-
         if (min_value > max_value || max_scan_key_num == 1) {
             return no_split();
         }
@@ -740,6 +733,13 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
             return no_split();
         }
 
+        // Add null key if contain null, must do after no_split check
+        if (contain_null()) {
+            begin_scan_keys.emplace_back();
+            begin_scan_keys.back().add_null();
+            end_scan_keys.emplace_back();
+            end_scan_keys.back().add_null();
+        }
         while (true) {
             begin_scan_keys.emplace_back();
             begin_scan_keys.back().add_value(
