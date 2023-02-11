@@ -143,12 +143,27 @@ public:
 
     bool is_dummy() const override { return true; }
 
+    [[noreturn]] TypeIndex get_data_type() const override {
+        LOG(FATAL) << "IColumnDummy get_data_type not implemeted";
+    }
+
     void replace_column_data(const IColumn& rhs, size_t row, size_t self_row = 0) override {
         LOG(FATAL) << "should not call the method in column dummy";
     }
 
     void replace_column_data_default(size_t self_row = 0) override {
         LOG(FATAL) << "should not call the method in column dummy";
+    }
+
+    void get_indices_of_non_default_rows(Offsets64&, size_t, size_t) const override {
+        LOG(FATAL) << "should not call the method in column dummy";
+    }
+
+    ColumnPtr index(const IColumn& indexes, size_t limit) const override {
+        if (indexes.size() < limit) {
+            LOG(FATAL) << "Size of indexes is less than required.";
+        }
+        return clone_dummy(limit ? limit : s);
     }
 
 protected:

@@ -123,6 +123,7 @@ std::string SlotDescriptor::debug_string() const {
 TableDescriptor::TableDescriptor(const TTableDescriptor& tdesc)
         : _name(tdesc.tableName),
           _database(tdesc.dbName),
+          _table_id(tdesc.id),
           _num_cols(tdesc.numCols),
           _num_clustering_cols(tdesc.numClusteringCols) {}
 
