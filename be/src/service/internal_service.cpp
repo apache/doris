@@ -493,7 +493,7 @@ void PInternalServiceImpl::get_info(google::protobuf::RpcController* controller,
                                     const PProxyRequest* request, PProxyResult* response,
                                     google::protobuf::Closure* done) {
     DorisMetrics::instance()->get_info->increment(1);
-    _light_work_pool.offer([this, controller, request, response, done]() {
+    _light_work_pool.offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         // PProxyRequest is defined in gensrc/proto/internal_service.proto
         // Currently it supports 2 kinds of requests:
