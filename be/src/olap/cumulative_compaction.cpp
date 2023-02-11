@@ -25,7 +25,7 @@ namespace doris {
 using namespace ErrorCode;
 
 CumulativeCompaction::CumulativeCompaction(TabletSharedPtr tablet)
-        : Compaction(tablet, "CumulativeCompaction:" + std::to_string(tablet->tablet_id())) {}
+        : Compaction(std::move(tablet), "CumulativeCompaction:" + std::to_string(tablet->tablet_id())) {}
 
 CumulativeCompaction::~CumulativeCompaction() {}
 
