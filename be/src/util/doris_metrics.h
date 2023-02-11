@@ -53,9 +53,10 @@ public:
     IntCounter* exec_plan_fragment_start;
     IntCounter* cancel_plan_fragment;
     IntCounter* fetch_data;
+    IntCounter* fetch_table_schema;
     IntCounter* tablet_writer_open;
-    IntCounter* tablet_writer_add_batch;
-    IntCounter* tablet_writer_add_batch_by_http;
+    IntCounter* tablet_writer_add_block;
+    IntCounter* tablet_writer_add_block_by_http;
     IntCounter* tablet_writer_cancel;
     IntCounter* get_info;
     IntCounter* update_cache;
@@ -72,11 +73,9 @@ public:
     IntCounter* check_rpc_channel;
     IntCounter* reset_rpc_channel;
     IntCounter* hand_shake;
-    IntCounter* response_slave_tablet_pull_rowset;
     IntCounter* request_slave_tablet_pull_rowset;
-    IntCounter* fetch_table_schema;
-    IntCounter* tablet_writer_add_block;
-    IntCounter* tablet_writer_add_block_by_http;
+    IntCounter* response_slave_tablet_pull_rowset;
+    IntCounter* multiget_data;
 
     IntCounter* fragment_request_duration_us;
     IntCounter* query_scan_bytes;

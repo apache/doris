@@ -55,7 +55,7 @@ public:
     //     queue exceeds this size, subsequent calls to Offer will block until there is
     //     capacity available.
     PriorityThreadPool(uint32_t num_threads, uint32_t queue_size, const std::string& name)
-            : _work_queue(queue_size), _shutdown(false), _name(name) {
+            : _work_queue(queue_size), _shutdown(false), _name(name),_active_threads(0) {
         for (int i = 0; i < num_threads; ++i) {
             _threads.create_thread(
                     std::bind<void>(std::mem_fn(&PriorityThreadPool::work_thread), this, i));
@@ -101,7 +101,7 @@ public:
     virtual void join() { _threads.join_all(); }
 
     virtual uint32_t get_queue_size() const { return _work_queue.get_size(); }
-    virtual uint32_t get_active_threads() const { return active_threads; }
+    virtual uint32_t get_active_threads() const { return _active_threads; }
 
     // Blocks until the work queue is empty, and then calls shutdown to stop the worker
     // threads and Join to wait until they are finished.
@@ -137,9 +137,9 @@ private:
         while (!is_shutdown()) {
             Task task;
             if (_work_queue.blocking_get(&task)) {
-                active_threads++;
+                _active_threads++;
                 task.work_function();
-                active_threads--;
+                _active_threads--;
             }
             if (_work_queue.get_size() == 0) {
                 _empty_cv.notify_all();
@@ -156,7 +156,7 @@ private:
     std::string _name;
 
     //static active thread
-    std::atomic<int> active_threads;
+    std::atomic<int> _active_threads;
 };
 
 } // namespace doris
