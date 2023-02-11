@@ -903,6 +903,8 @@ CONF_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 CONF_Int32(max_depth_in_bkd_tree, "32");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 CONF_Int32(num_broadcast_buffer, "32");
+// semi-structure configs
+CONF_Bool(enable_parse_multi_dimession_array, "true");
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");
