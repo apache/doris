@@ -35,8 +35,10 @@ CONF_Int32(be_port, "9060");
 // port for brpc
 CONF_Int32(brpc_port, "8060");
 
-// the number of bthreads for brpc, the default value is set to 16
-CONF_Int32(brpc_num_threads, "16");
+// the number of bthreads for brpc, the default value is set to 32
+// brpc only for network service send or accept request
+// no more  process any logic 
+CONF_Int32(brpc_num_threads, "32");
 
 // port to brpc server for single replica load
 CONF_Int32(single_replica_load_brpc_port, "8070");
@@ -389,9 +391,10 @@ CONF_mInt64(load_error_log_reserve_hours, "48");
 // be brpc interface is classified into two categories: light and heavy
 // each category has diffrent thread number 
 // threads to handle heavy api interface, such as transmit_data/transmit_block etc
-CONF_Int32(brpc_heavy_work_pool_threads, "240");
+// 
+CONF_Int32(brpc_heavy_work_pool_threads, "192");
 // threads to handle light api interface, such as exec_plan_fragment_prepare/exec_plan_fragment_start
-CONF_Int32(brpc_light_work_pool_threads, "16");
+CONF_Int32(brpc_light_work_pool_threads, "32");
 
 // The maximum amount of data that can be processed by a stream load
 CONF_mInt64(streaming_load_max_mb, "10240");

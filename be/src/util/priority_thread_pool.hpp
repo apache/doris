@@ -101,6 +101,7 @@ public:
     virtual void join() { _threads.join_all(); }
 
     virtual uint32_t get_queue_size() const { return _work_queue.get_size(); }
+    virtual uint32_t get_active_threads() const { return active_threads; }
 
     // Blocks until the work queue is empty, and then calls shutdown to stop the worker
     // threads and Join to wait until they are finished.
@@ -136,7 +137,9 @@ private:
         while (!is_shutdown()) {
             Task task;
             if (_work_queue.blocking_get(&task)) {
+                active_threads++;
                 task.work_function();
+                active_threads--;
             }
             if (_work_queue.get_size() == 0) {
                 _empty_cv.notify_all();
@@ -151,6 +154,9 @@ private:
     // Set to true when threads should stop doing work and terminate.
     std::atomic<bool> _shutdown;
     std::string _name;
+
+    //static active thread
+    std::atomic<int> active_threads;
 };
 
 } // namespace doris

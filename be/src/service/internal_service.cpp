@@ -70,7 +70,10 @@ using namespace ErrorCode;
 
 const uint32_t DOWNLOAD_FILE_MAX_RETRY = 3;
 
-DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(add_batch_task_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_pool_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_active_threads, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_active_threads, MetricUnit::NOUNIT);
 
 bthread_key_t btls_key;
 
@@ -106,16 +109,23 @@ PInternalServiceImpl::PInternalServiceImpl(ExecEnv* exec_env)
         : _exec_env(exec_env),
           _heavy_work_pool(config::brpc_heavy_work_pool_threads, 10240, "brpc_heavy"),
           _light_work_pool(config::brpc_light_work_pool_threads, 10240, "brpc_light") {
-    // REGISTER_HOOK_METRIC(heavy_work_pool_queue_size,
-    //                      [this]() { return _heavy_work_pool.get_queue_size(); });
-    // REGISTER_HOOK_METRIC(light_work_pool_queue_size,
-    //                      [this]() { return _light_work_pool.get_queue_size(); });
+    REGISTER_HOOK_METRIC(heavy_work_pool_queue_size,
+                         [this]() { return _heavy_work_pool.get_queue_size(); });
+    REGISTER_HOOK_METRIC(light_work_pool_queue_size,
+                         [this]() { return _light_work_pool.get_queue_size(); });
+    REGISTER_HOOK_METRIC(heavy_work_active_threads,
+                         [this]() { return _heavy_work_pool.get_active_threads(); });
+    REGISTER_HOOK_METRIC(light_work_active_threads,
+                         [this]() { return _light_work_pool.get_active_threads(); });
     CHECK_EQ(0, bthread_key_create(&btls_key, thread_context_deleter));
     CHECK_EQ(0, bthread_key_create(&AsyncIO::btls_io_ctx_key, AsyncIO::io_ctx_key_deleter));
 }
 
 PInternalServiceImpl::~PInternalServiceImpl() {
-    DEREGISTER_HOOK_METRIC(add_batch_task_queue_size);
+    DEREGISTER_HOOK_METRIC(heavy_work_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(light_work_pool_queue_size);
+    DEREGISTER_HOOK_METRIC(heavy_work_active_threads);
+    DEREGISTER_HOOK_METRIC(light_work_active_threads);
     CHECK_EQ(0, bthread_key_delete(btls_key));
     CHECK_EQ(0, bthread_key_delete(AsyncIO::btls_io_ctx_key));
 }
@@ -140,6 +150,7 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
                                               const PTabletWriterOpenRequest* request,
                                               PTabletWriterOpenResult* response,
                                               google::protobuf::Closure* done) {
+    DorisMetrics::instance()->tablet_writer_open->increment(1);
     _light_work_pool.offer([this, controller, request, response, done](){
         VLOG_RPC << "tablet writer open, id=" << request->id() << ", index_id=" << request->index_id()
                 << ", txn_id=" << request->txn_id();
@@ -157,6 +168,7 @@ void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* c
                                               const PExecPlanFragmentRequest* request,
                                               PExecPlanFragmentResult* response,
                                               google::protobuf::Closure* done) {
+    DorisMetrics::instance()->exec_plan_fragment->increment(1);
     _light_work_pool.offer([this, cntl_base, request, response, done](){
         auto span = telemetry::start_rpc_server_span("exec_plan_fragment", cntl_base);
         auto scope = OpentelemetryScope {span};
@@ -177,6 +189,7 @@ void PInternalServiceImpl::exec_plan_fragment_prepare(google::protobuf::RpcContr
                                                       const PExecPlanFragmentRequest* request,
                                                       PExecPlanFragmentResult* response,
                                                       google::protobuf::Closure* done) {
+    DorisMetrics::instance()->exec_plan_fragment_prepare->increment(1);
     _light_work_pool.offer([this, cntl_base, request, response, done](){
         exec_plan_fragment(cntl_base, request, response, done);
     });
@@ -186,6 +199,7 @@ void PInternalServiceImpl::exec_plan_fragment_start(google::protobuf::RpcControl
                                                     const PExecPlanFragmentStartRequest* request,
                                                     PExecPlanFragmentResult* result,
                                                     google::protobuf::Closure* done) {
+    DorisMetrics::instance()->exec_plan_fragment_start->increment(1);
     _light_work_pool.offer([this, controller, request, result, done](){
         auto span = telemetry::start_rpc_server_span("exec_plan_fragment_start", controller);
         auto scope = OpentelemetryScope {span};
@@ -200,6 +214,7 @@ void PInternalServiceImpl::tablet_writer_add_block(google::protobuf::RpcControll
                                                    PTabletWriterAddBlockResult* response,
                                                    google::protobuf::Closure* done) {
     // TODO(zxy) delete in 1.2 version
+    DorisMetrics::instance()->tablet_writer_add_block->increment(1);
     _heavy_work_pool.offer([this, cntl_base, request, response, done](){
         google::protobuf::Closure* new_done = new NewHttpClosure<PTransmitDataParams>(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
@@ -211,6 +226,7 @@ void PInternalServiceImpl::tablet_writer_add_block(google::protobuf::RpcControll
 void PInternalServiceImpl::tablet_writer_add_block_by_http(
         google::protobuf::RpcController* cntl_base, const ::doris::PEmptyRequest* request,
         PTabletWriterAddBlockResult* response, google::protobuf::Closure* done) {
+    DorisMetrics::instance()->tablet_writer_add_block_by_http->increment(1);
     _heavy_work_pool.offer([this, cntl_base, request, response, done](){
         PTabletWriterAddBlockRequest* new_request = new PTabletWriterAddBlockRequest();
         google::protobuf::Closure* new_done =
@@ -230,32 +246,31 @@ void PInternalServiceImpl::_tablet_writer_add_block(google::protobuf::RpcControl
                                                     const PTabletWriterAddBlockRequest* request,
                                                     PTabletWriterAddBlockResult* response,
                                                     google::protobuf::Closure* done) {
-    _heavy_work_pool.offer([this,cntl_base, request, response, done]() {
-        int64_t submit_task_time_ns = MonotonicNanos();
-        int64_t wait_execution_time_ns = MonotonicNanos() - submit_task_time_ns;
-        brpc::ClosureGuard closure_guard(done);
-        int64_t execution_time_ns = 0;
-        {
-            SCOPED_RAW_TIMER(&execution_time_ns);
+    int64_t submit_task_time_ns = MonotonicNanos();
+    int64_t wait_execution_time_ns = MonotonicNanos() - submit_task_time_ns;
+    brpc::ClosureGuard closure_guard(done);
+    int64_t execution_time_ns = 0;
+    {
+        SCOPED_RAW_TIMER(&execution_time_ns);
 
-            auto st = _exec_env->load_channel_mgr()->add_batch(*request, response);
-            if (!st.ok()) {
-                LOG(WARNING) << "tablet writer add block failed, message=" << st
-                             << ", id=" << request->id() << ", index_id=" << request->index_id()
-                             << ", sender_id=" << request->sender_id()
-                             << ", backend id=" << request->backend_id();
-            }
-            st.to_protobuf(response->mutable_status());
+        auto st = _exec_env->load_channel_mgr()->add_batch(*request, response);
+        if (!st.ok()) {
+            LOG(WARNING) << "tablet writer add block failed, message=" << st
+                            << ", id=" << request->id() << ", index_id=" << request->index_id()
+                            << ", sender_id=" << request->sender_id()
+                            << ", backend id=" << request->backend_id();
         }
-        response->set_execution_time_us(execution_time_ns / NANOS_PER_MICRO);
-        response->set_wait_execution_time_us(wait_execution_time_ns / NANOS_PER_MICRO);
-    });
+        st.to_protobuf(response->mutable_status());
+    }
+    response->set_execution_time_us(execution_time_ns / NANOS_PER_MICRO);
+    response->set_wait_execution_time_us(wait_execution_time_ns / NANOS_PER_MICRO);
 }
 
 void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController* controller,
                                                 const PTabletWriterCancelRequest* request,
                                                 PTabletWriterCancelResult* response,
                                                 google::protobuf::Closure* done) {
+    DorisMetrics::instance()->tablet_writer_cancel->increment(1);
     _light_work_pool.offer([this, controller, request, response, done]() {
         VLOG_RPC << "tablet writer cancel, id=" << request->id() << ", index_id=" << request->index_id()
                 << ", sender_id=" << request->sender_id();
@@ -301,6 +316,7 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
                                                 const PCancelPlanFragmentRequest* request,
                                                 PCancelPlanFragmentResult* result,
                                                 google::protobuf::Closure* done) {
+    DorisMetrics::instance()->cancel_plan_fragment->increment(1);
     _light_work_pool.offer([this, cntl_base, request, result, done]() {
         auto span = telemetry::start_rpc_server_span("exec_plan_fragment_start", cntl_base);
         auto scope = OpentelemetryScope {span};
@@ -327,6 +343,7 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
 void PInternalServiceImpl::fetch_data(google::protobuf::RpcController* cntl_base,
                                       const PFetchDataRequest* request, PFetchDataResult* result,
                                       google::protobuf::Closure* done) {
+    DorisMetrics::instance()->fetch_data->increment(1);
     _heavy_work_pool.offer([this, cntl_base, request, result, done]() {
         brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
         GetResultBatchCtx* ctx = new GetResultBatchCtx(cntl, result, done);
@@ -338,6 +355,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
                                               const PFetchTableSchemaRequest* request,
                                               PFetchTableSchemaResult* result,
                                               google::protobuf::Closure* done) {
+    DorisMetrics::instance()->fetch_table_schema->increment(1);
     _light_work_pool.offer([this, controller, request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
         TFileScanRange file_scan_range;
@@ -425,7 +443,8 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
 void PInternalServiceImpl::get_info(google::protobuf::RpcController* controller,
                                     const PProxyRequest* request, PProxyResult* response,
                                     google::protobuf::Closure* done) {
-     _light_work_pool.offer([this, controller, request, response, done]() {
+    DorisMetrics::instance()->get_info->increment(1);
+    _light_work_pool.offer([this, controller, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         // PProxyRequest is defined in gensrc/proto/internal_service.proto
         // Currently it supports 2 kinds of requests:
@@ -487,6 +506,7 @@ void PInternalServiceImpl::get_info(google::protobuf::RpcController* controller,
 void PInternalServiceImpl::update_cache(google::protobuf::RpcController* controller,
                                         const PUpdateCacheRequest* request,
                                         PCacheResponse* response, google::protobuf::Closure* done) {
+    DorisMetrics::instance()->update_cache->increment(1);
     _light_work_pool.offer([this, controller, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         _exec_env->result_cache()->update(request, response);
@@ -496,6 +516,7 @@ void PInternalServiceImpl::update_cache(google::protobuf::RpcController* control
 void PInternalServiceImpl::fetch_cache(google::protobuf::RpcController* controller,
                                        const PFetchCacheRequest* request, PFetchCacheResult* result,
                                        google::protobuf::Closure* done) {
+    DorisMetrics::instance()->fetch_cache->increment(1);
     _light_work_pool.offer([this, controller, request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
         _exec_env->result_cache()->fetch(request, result);
@@ -505,6 +526,7 @@ void PInternalServiceImpl::fetch_cache(google::protobuf::RpcController* controll
 void PInternalServiceImpl::clear_cache(google::protobuf::RpcController* controller,
                                        const PClearCacheRequest* request, PCacheResponse* response,
                                        google::protobuf::Closure* done) {
+    DorisMetrics::instance()->clear_cache->increment(1);
     _light_work_pool.offer([this, controller, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         _exec_env->result_cache()->clear(request, response);
@@ -515,6 +537,7 @@ void PInternalServiceImpl::merge_filter(::google::protobuf::RpcController* contr
                                         const ::doris::PMergeFilterRequest* request,
                                         ::doris::PMergeFilterResponse* response,
                                         ::google::protobuf::Closure* done) {
+    DorisMetrics::instance()->merge_filter->increment(1);
     _light_work_pool.offer([this, controller, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
@@ -531,6 +554,7 @@ void PInternalServiceImpl::apply_filter(::google::protobuf::RpcController* contr
                                         const ::doris::PPublishFilterRequest* request,
                                         ::doris::PPublishFilterResponse* response,
                                         ::google::protobuf::Closure* done) {
+    DorisMetrics::instance()->apply_filter->increment(1);
     _light_work_pool.offer([this, controller, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
@@ -548,6 +572,7 @@ void PInternalServiceImpl::apply_filter(::google::protobuf::RpcController* contr
 void PInternalServiceImpl::send_data(google::protobuf::RpcController* controller,
                                      const PSendDataRequest* request, PSendDataResult* response,
                                      google::protobuf::Closure* done) {
+    DorisMetrics::instance()->send_data->increment(1);
     _heavy_work_pool.offer([this, controller, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         TUniqueId fragment_instance_id;
@@ -573,6 +598,7 @@ void PInternalServiceImpl::send_data(google::protobuf::RpcController* controller
 void PInternalServiceImpl::commit(google::protobuf::RpcController* controller,
                                   const PCommitRequest* request, PCommitResult* response,
                                   google::protobuf::Closure* done) {
+    DorisMetrics::instance()->commit->increment(1);
     _light_work_pool.offer([this, controller, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         TUniqueId fragment_instance_id;
@@ -593,6 +619,7 @@ void PInternalServiceImpl::commit(google::protobuf::RpcController* controller,
 void PInternalServiceImpl::rollback(google::protobuf::RpcController* controller,
                                     const PRollbackRequest* request, PRollbackResult* response,
                                     google::protobuf::Closure* done) {
+    DorisMetrics::instance()->rollback->increment(1);
     _light_work_pool.offer([this, controller, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         TUniqueId fragment_instance_id;
@@ -614,6 +641,7 @@ void PInternalServiceImpl::fold_constant_expr(google::protobuf::RpcController* c
                                               const PConstantExprRequest* request,
                                               PConstantExprResult* response,
                                               google::protobuf::Closure* done) {
+    DorisMetrics::instance()->fold_constant_expr->increment(1);
     _light_work_pool.offer([this, cntl_base, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(cntl_base);
@@ -648,6 +676,7 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* cntl_
                                           const PTransmitDataParams* request,
                                           PTransmitDataResult* response,
                                           google::protobuf::Closure* done) {
+    DorisMetrics::instance()->transmit_block->increment(1);
     _heavy_work_pool.offer([this, cntl_base, request, response, done]() {
         // TODO(zxy) delete in 1.2 version
         google::protobuf::Closure* new_done = new NewHttpClosure<PTransmitDataParams>(done);
@@ -662,6 +691,7 @@ void PInternalServiceImpl::transmit_block_by_http(google::protobuf::RpcControlle
                                                   const PEmptyRequest* request,
                                                   PTransmitDataResult* response,
                                                   google::protobuf::Closure* done) {
+    DorisMetrics::instance()->transmit_block_by_http->increment(1);
     _heavy_work_pool.offer([this, cntl_base, request, response, done]() {
         PTransmitDataParams* new_request = new PTransmitDataParams();
         google::protobuf::Closure* new_done =
@@ -710,6 +740,7 @@ void PInternalServiceImpl::check_rpc_channel(google::protobuf::RpcController* co
                                              const PCheckRPCChannelRequest* request,
                                              PCheckRPCChannelResponse* response,
                                              google::protobuf::Closure* done) {
+    DorisMetrics::instance()->check_rpc_channel->increment(1);
     _light_work_pool.offer([this, controller, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         response->mutable_status()->set_status_code(0);
@@ -738,6 +769,7 @@ void PInternalServiceImpl::reset_rpc_channel(google::protobuf::RpcController* co
                                              const PResetRPCChannelRequest* request,
                                              PResetRPCChannelResponse* response,
                                              google::protobuf::Closure* done) {
+    DorisMetrics::instance()->reset_rpc_channel->increment(1);
     _light_work_pool.offer([this, controller, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         response->mutable_status()->set_status_code(0);
@@ -773,6 +805,7 @@ void PInternalServiceImpl::hand_shake(google::protobuf::RpcController* cntl_base
                                       const PHandShakeRequest* request,
                                       PHandShakeResponse* response,
                                       google::protobuf::Closure* done) {
+    DorisMetrics::instance()->hand_shake->increment(1);
     _light_work_pool.offer([this, cntl_base, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         if (request->has_hello()) {
@@ -785,6 +818,7 @@ void PInternalServiceImpl::hand_shake(google::protobuf::RpcController* cntl_base
 void PInternalServiceImpl::request_slave_tablet_pull_rowset(
         google::protobuf::RpcController* controller, const PTabletWriteSlaveRequest* request,
         PTabletWriteSlaveResult* response, google::protobuf::Closure* done) {
+    DorisMetrics::instance()->request_slave_tablet_pull_rowset->increment(1);
     brpc::ClosureGuard closure_guard(done);
     RowsetMetaPB rowset_meta_pb = request->rowset_meta();
     std::string rowset_path = request->rowset_path();
@@ -994,6 +1028,7 @@ void PInternalServiceImpl::_response_pull_slave_rowset(const std::string& remote
 void PInternalServiceImpl::response_slave_tablet_pull_rowset(
         google::protobuf::RpcController* controller, const PTabletWriteSlaveDoneRequest* request,
         PTabletWriteSlaveDoneResult* response, google::protobuf::Closure* done) {
+    DorisMetrics::instance()->response_slave_tablet_pull_rowset->increment(1);
     _light_work_pool.offer([this, controller, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         VLOG_CRITICAL
