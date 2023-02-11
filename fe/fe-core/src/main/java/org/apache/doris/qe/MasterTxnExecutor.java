@@ -21,7 +21,6 @@ import org.apache.doris.common.ClientPool;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TLoadTxnBeginRequest;
 import org.apache.doris.thrift.TLoadTxnBeginResult;
-import org.apache.doris.thrift.TMySqlLoadAcquireTokenResult;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TWaitingTxnStatusRequest;

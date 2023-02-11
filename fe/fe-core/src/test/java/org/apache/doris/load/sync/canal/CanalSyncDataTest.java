@@ -267,7 +267,8 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = commitFuture;
 
-                backendServiceProxy.sendData((TNetworkAddress) any, (Types.PUniqueId) any, (List<InternalService.PDataRow>) any);
+                backendServiceProxy.sendData((TNetworkAddress) any, (Types.PUniqueId) any,
+                        (List<InternalService.PDataRow>) any);
                 minTimes = 0;
                 result = sendDataFuture;
 

@@ -54,7 +54,6 @@ public class InsertStreamTxnExecutor {
     private TUniqueId loadId;
     private TransactionEntry txnEntry;
 
-
     public InsertStreamTxnExecutor(TransactionEntry txnEntry) {
         this.txnEntry = txnEntry;
     }
