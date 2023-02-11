@@ -124,13 +124,13 @@ PInternalServiceImpl::PInternalServiceImpl(ExecEnv* exec_env)
                          [this]() { return _light_work_pool.get_active_threads(); });
     
     REGISTER_HOOK_METRIC(heavy_work_pool_max_queue_size,
-                         [this]() { return config::brpc_heavy_work_pool_max_queue_size; });
+                         []() { return config::brpc_heavy_work_pool_max_queue_size; });
     REGISTER_HOOK_METRIC(light_work_pool_max_queue_size,
-                         [this]() { return config::brpc_light_work_pool_max_queue_size; });
+                         []() { return config::brpc_light_work_pool_max_queue_size; });
     REGISTER_HOOK_METRIC(heavy_work_max_threads,
-                         [this]() { return config::brpc_heavy_work_pool_threads; });
+                         []() { return config::brpc_heavy_work_pool_threads; });
     REGISTER_HOOK_METRIC(light_work_max_threads,
-                         [this]() { return config::brpc_light_work_pool_threads; });
+                         []() { return config::brpc_light_work_pool_threads; });
     CHECK_EQ(0, bthread_key_create(&btls_key, thread_context_deleter));
     CHECK_EQ(0, bthread_key_create(&AsyncIO::btls_io_ctx_key, AsyncIO::io_ctx_key_deleter));
 }
