@@ -31,7 +31,6 @@ import org.apache.doris.load.sync.SyncChannelCallback;
 import org.apache.doris.load.sync.SyncJob;
 import org.apache.doris.load.sync.model.Data;
 import org.apache.doris.proto.InternalService;
-import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.InsertStreamTxnExecutor;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.task.SyncTask;
