@@ -19,75 +19,144 @@
 
 import os
 import re
-from typing import List
-DORIS_HOME = "../../../"
-mp = {}
-mp1 = {'tinyint': ['ktint'],
-       'smallint': ['ksint'],
-       'integer': ['kint'],
-       'bigint': ['kbint'],
-       'largeint': ['klint'],
-       'float': ['kfloat'],
-       'double': ['kdbl'],
-       'decimalv2': ['kdcmls1'],
-       'char': ['kchrs1'],
-       'varchar': ['kvchrs1'],
-       'string': ['kstr'],
-       'date': ['kdt'],
-       'datetime': ['kdtm'],
-       'datev2': ['kdtv2'],
-       'datetimev2': ['kdtmv2s1'],
-       'boolean': ['kbool'],
-       'st_string': ['st_point_str'],
-       'st_varchar': ['st_point_vc'],
-       '': ['']}
+from typing import List, Tuple, Dict
+import define
 
-def run(path):
-    for f in os.listdir(path):
-        fpath = os.path.join(path, f)
-        if os.path.isdir(fpath):
-            run(fpath)
+DORIS_HOME = "../../../../"
+type_to_column_map = {
+    'TinyInt': ['ktint'],
+    'SmallInt': ['ksint'],
+    'Integer': ['kint'],
+    'BigInt': ['kbint'],
+    'LargeInt': ['klint'],
+    'Float': ['kfloat'],
+    'Double': ['kdbl'],
+    'DecimalV2': ['kdcmls1'],
+    'Char': ['kchrs1'],
+    'Varchar': ['kvchrs1'],
+    'String': ['kstr'],
+    'Date': ['kdt'],
+    'DateTime': ['kdtm'],
+    'DateV2': ['kdtv2'],
+    'DateTimeV2': ['kdtmv2s1'],
+    'Boolean': ['kbool'],
+    'st_string': ['st_point_str'],
+    'st_varchar': ['st_point_vc'],
+    'QuantileState': ['to_quantile_state(kvchrs1, 2048)', 'kvchsr1'],
+    'Bitmap': ['to_bitmap(kbint)', 'kbint'],
+    'AnyData': ['kint'],
+    'Hll': ['hll_raw_agg(kint)', 'kint'],
+    '': ['']
+}
+
+
+def getFunctionSet() -> List[str]:
+    path = f'{DORIS_HOME}fe/fe-core/src/main/java/org/apache/doris/catalog/'
+    functions = []
+    dir_list = os.listdir(path)
+    for file_name in dir_list:
+        file_path_name = os.path.join(path, file_name)
+        if not os.path.isdir(file_path_name):
+            file_name = file_name[:-5]
+            if file_name.startswith('Builtin') and file_name.endswith('Functions'):
+                lines = open(file_path_name).readlines()
+                for line in lines:
+                    line = line[line.find('(') + 1: max(line.find('.class'), 0)]
+                    if line != '':
+                        functions.append(line)
+    return functions
+
+
+def checkSupportedFunction(args: List[str]) -> bool:
+    for arg in args:
+        if arg.find('DecimalV3') != -1 or arg.find('Array') != -1 or arg.find('Json') != -1:
+            return False
+    return True
+
+
+def extractNameForFunction(name_text: str) -> str:
+    name_text: List[str] = re.findall('super\(\"([a-z_0-9]+)\",', name_text)
+    if len(name_text) == 0:
+        return None
+    fn_name = name_text[0]
+    if fn_name.find('json') != -1 or fn_name.find('array') != -1:
+        return None
+    if fn_name in define.denied_tag:
+        return None
+    return fn_name
+
+
+def extractReturnTypeAndArgTypesForFunction(text: str) -> Tuple[str, List[List[str]]]:
+    text = text.replace('\n', '').replace('\t', '').replace(' ', '').replace(',', ', ')
+    text = text[text.find('.of('):]
+    name_text = extractNameForFunction(text)
+    if name_text is None:
+        return None
+
+    text = text[:text.find(');')]
+    if len(text) == 0 or text.find('Array') != -1:
+        return None
+
+    lines = [s[s.find('(') + 1: s.find(')')] for s in re.findall('(?:args|varArgs)\([A-Za-z._0-9\ ,]*\)', text)]
+    lines = [[s1[:s1.find('Type.')] for s1 in s.split(', ')] for s in lines]
+    lines = [s for s in lines if checkSupportedFunction(s)]
+
+    return name_text, lines
+
+
+def searchFunctions(path: str) -> Dict[str, List[List[str]]]:
+    functions = {}
+    for file_name in os.listdir(path):
+        file_path_name = os.path.join(path, file_name)
+        if os.path.isdir(file_path_name):
+            functions.update(searchFunctions(path + file_name))
         else:
-            name = to_snake_case(f[:-5])
-            text = open(fpath, "r").read().replace('\n', '').replace('\t', '').replace(' ', '').replace(',', ', ')
-            text = text[text.find('.of('):]
-            text = text[:text.find(');')]
-            if len(text) == 0 or text.find('Array') != -1:
+            function_tag = extractReturnTypeAndArgTypesForFunction(open(file_path_name).read())
+            if function_tag is None:
                 continue
-            lines = text.replace('Type', '').replace('.SYSTEM_DEFAULT', '').replace('.INSTANCE', '').split(
-                'FunctionSignature')[1:]
-            lines = [((s[s.find('rgs'):]).replace('rgs(', ', ')
-                      .replace(').varArgs(', ', '))[:-1].replace(')),', ')') for s in lines]
-            for i in range(0, len(lines)):
-                if lines[i][-1] == ',':
-                    lines[i] = lines[i][:-2]
-            lines = [[to_snake_case(s1).replace('_', '') for s1 in s.split(', ')] for s in lines]
-            mp[name] = lines
+            fn_name, args = function_tag
+            functions[fn_name] = args
+    return functions
 
-def generete_args(func_name: str, args_type: List[str]):
-    need_change = lambda x : x == 'string' or x == 'varchar'
-    if "st_" == func_name[:3]:
-        need_change = lambda x : x == 'string' or x == 'varchar'
-        args_type = ["st_"+t if need_change(t) else t for t in args_type]
-    return [mp1[s][0] for s in args_type]
 
-def to_snake_case(camel_case: str):
-    snake_case = re.sub(r"(?P<key>[A-Z])", r"_\g<key>", camel_case)
-    return snake_case.lower().strip('_')
+f = open('test.groovy', 'w')
+f.write('''suite('nereids_fn_test_new') {
+    sql 'use regression_test_nereids_function_p0'
+    sql 'set enable_nereids_planner=false'
+    sql 'set enable_fallback_to_original_planner=false'\n''')
 
-run(f'{DORIS_HOME}/fe/fe-core/src/main/java/org/apache/doris/nereids/trees/expressions/functions/scalar')
-for k in sorted(mp):
-    v = mp[k]
-    args = ''
-    for i in v:
-        flag = 0
-        for j in i[1:]:
-            if mp1.get(j) == None:
-                flag = 1
-                break
-        if flag == 1:
-            print('// function ' + k + '(' + ", ".join(i[1:]) + ') is unsupported for the test suite.')
-            continue
-        args = ", ".join(generete_args(k, list(i[1:])))
-        print('sql "select ' + k + '(' + args + ') from fn_test order by ' + args + '"')
 
+def generateSQL(function_meta: Dict[str, List[List[str]]]) -> List[str]:
+    tables = ['fn_test', 'fn_test_not_nullable']
+    SQLs = []
+    for fn_name in sorted(function_meta):
+        for args in function_meta[fn_name]:
+            fn_title = f'{fn_name}{"_" + "_".join(args) if args[0] != "" else ""}'
+            trans_args = [type_to_column_map[s][0] for s in args]
+            column_args = [type_to_column_map[s][0 if len(type_to_column_map[s]) == 1 else 1] for s in args]
+
+            fn_tags = f'{fn_name}{"_" + "_".join(trans_args) if trans_args[0] != "" else ""}'
+
+            run_tag = f'{"sql" if fn_tags in define.not_check_result else f"qt_sql_{fn_title}"}'
+            args = ', '.join(trans_args)
+
+            order_by_args = ', '.join(column_args)
+            order_by = f' order by {order_by_args}' if trans_args[0] != "" else ""
+
+            for t in tables:
+                sql = ""
+                if fn_tags in define.const_sql:
+                    sql = define.const_sql[fn_tags]
+                    sql = sql.replace('${t}', t)
+                else:
+                    sql = f'select {fn_name}({args}) from {t}{order_by}'
+
+                SQLs.append(f'{run_tag} "{sql}"\n')
+    return SQLs
+
+
+f.writelines(generateSQL(
+    searchFunctions(
+        f'{DORIS_HOME}fe/fe-core/src/main/java/org/apache/doris/nereids/trees/expressions/functions/scalar')))
+f.write('}')
+f.close()
