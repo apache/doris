@@ -490,7 +490,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
         }
 
         case TYPE_DATE:
-        case TYPE_DATETIME: 
+        case TYPE_DATETIME:
         case TYPE_DATEV2:
         case TYPE_DATETIMEV2: {
             // this would happend just only when `enable_docvalue_scan = false`, and field has timestamp format date from _source
@@ -556,22 +556,29 @@ Status ScrollParser::fill_date_col_with_strval(vectorized::IColumn* col_ptr,
             if (!dt_val.from_date_str(val.c_str(), val_size)) {
                 RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
             }
-            auto date_packed_int = binary_cast<doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>, uint32_t>(
-                *reinterpret_cast<vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(&dt_val));
-            col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)), 0);
+            auto date_packed_int = binary_cast<
+                    doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>, uint32_t>(
+                    *reinterpret_cast<vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(
+                            &dt_val));
+            col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)),
+                                 0);
         } else {
             vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> dt_val;
             if (!dt_val.from_date_str(val.c_str(), val_size)) {
                 RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
             }
-            auto date_packed_int = binary_cast<vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>, uint64_t>(
-                *reinterpret_cast<vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(&dt_val));
-            col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)), 0);
+            auto date_packed_int = binary_cast<
+                    vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>, uint64_t>(
+                    *reinterpret_cast<
+                            vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(
+                            &dt_val));
+            col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)),
+                                 0);
         }
         return Status::OK();
     } else {
         return Status::InternalError("Unsupported datetime type.");
-    }                                           
+    }
 }
 
 Status ScrollParser::fill_date_col_with_timestamp(vectorized::IColumn* col_ptr,
@@ -598,22 +605,29 @@ Status ScrollParser::fill_date_col_with_timestamp(vectorized::IColumn* col_ptr,
             if (!dt_val.from_unixtime(col.GetInt64() / 1000, "+08:00")) {
                 RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
             }
-            auto date_packed_int = binary_cast<doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>, uint32_t>(
-                *reinterpret_cast<vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(&dt_val));
-            col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)), 0);
+            auto date_packed_int = binary_cast<
+                    doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>, uint32_t>(
+                    *reinterpret_cast<vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(
+                            &dt_val));
+            col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)),
+                                 0);
         } else {
             vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> dt_val;
             if (!dt_val.from_unixtime(col.GetInt64() / 1000, "+08:00")) {
                 RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
             }
-            auto date_packed_int = binary_cast<vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>, uint64_t>(
-                *reinterpret_cast<vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(&dt_val));
-            col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)), 0);
+            auto date_packed_int = binary_cast<
+                    vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>, uint64_t>(
+                    *reinterpret_cast<
+                            vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(
+                            &dt_val));
+            col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)),
+                                 0);
         }
         return Status::OK();
     } else {
         return Status::InternalError("Unsupported datetime type.");
-    }                 
+    }
 }
 
 } // namespace doris
