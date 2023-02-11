@@ -1428,4 +1428,9 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 描述: 存放 jdbc driver 的默认目录。
 * 默认值: `${DORIS_HOME}/jdbc_drivers`
 
+#### `enable_parse_multi_dimession_array`
+
+* 描述: 在动态表中是否解析多维数组，如果是false遇到多维数组则会报错。
+* 默认值: true
+
 </version>
