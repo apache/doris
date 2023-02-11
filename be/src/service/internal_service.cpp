@@ -293,7 +293,7 @@ void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController*
                                                 PTabletWriterCancelResult* response,
                                                 google::protobuf::Closure* done) {
     DorisMetrics::instance()->tablet_writer_cancel->increment(1);
-    _light_work_pool.offer([this, controller, request, response, done]() {
+    _light_work_pool.offer([this, controller, request, done]() {
         VLOG_RPC << "tablet writer cancel, id=" << request->id()
                  << ", index_id=" << request->index_id() << ", sender_id=" << request->sender_id();
         brpc::ClosureGuard closure_guard(done);
