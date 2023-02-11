@@ -220,7 +220,6 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.stats = &_stats;
     _reader_context.use_page_cache = read_params.use_page_cache;
     _reader_context.sequence_id_idx = _sequence_col_idx;
-    _reader_context.batch_size = _batch_size;
     _reader_context.is_unique = tablet()->keys_type() == UNIQUE_KEYS;
     _reader_context.merged_rows = &_merged_rows;
     _reader_context.delete_bitmap = read_params.delete_bitmap;

@@ -148,7 +148,7 @@ public:
     int64_t num_segments() const { return rowset_meta()->num_segments(); }
     void to_rowset_pb(RowsetMetaPB* rs_meta) const { return rowset_meta()->to_rowset_pb(rs_meta); }
     RowsetMetaPB get_rowset_pb() const { return rowset_meta()->get_rowset_pb(); }
-    int64_t oldest_write_timestamp() const { return rowset_meta()->oldest_write_timestamp(); }
+    // The writing time of the newest data in rowset, to measure the freshness of a rowset.
     int64_t newest_write_timestamp() const { return rowset_meta()->newest_write_timestamp(); }
     bool is_segments_overlapping() const { return rowset_meta()->is_segments_overlapping(); }
     KeysType keys_type() { return _schema->keys_type(); }

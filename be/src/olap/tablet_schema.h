@@ -133,6 +133,7 @@ class TabletSchema;
 class TabletIndex {
 public:
     void init_from_thrift(const TOlapTableIndex& index, const TabletSchema& tablet_schema);
+    void init_from_thrift(const TOlapTableIndex& index, const std::vector<int32_t>& column_uids);
     void init_from_pb(const TabletIndexPB& index);
     void to_schema_pb(TabletIndexPB* index) const;
 

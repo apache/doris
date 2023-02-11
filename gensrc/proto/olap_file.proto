@@ -100,8 +100,8 @@ message RowsetMetaPB {
     optional string rowset_id_v2 = 23;
     // resource id
     optional string resource_id = 24;
-    // earliest write time
-    optional int64 oldest_write_timestamp = 25 [default = -1];
+    // used to be oldest write time: earliest write time
+    reserved 25;
     // latest write time
     optional int64 newest_write_timestamp = 26 [default = -1];
     // the encoded segment min/max key of segments in this rowset,

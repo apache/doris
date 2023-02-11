@@ -101,6 +101,7 @@ import org.apache.doris.persist.ReplicaPersistInfo;
 import org.apache.doris.persist.RoutineLoadOperation;
 import org.apache.doris.persist.SetReplicaStatusOperationLog;
 import org.apache.doris.persist.TableAddOrDropColumnsInfo;
+import org.apache.doris.persist.TableAddOrDropInvertedIndicesInfo;
 import org.apache.doris.persist.TableInfo;
 import org.apache.doris.persist.TablePropertyInfo;
 import org.apache.doris.persist.TableRenameColumnInfo;
@@ -726,6 +727,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS: {
                 data = TableAddOrDropColumnsInfo.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES: {
+                data = TableAddOrDropInvertedIndicesInfo.read(in);
                 isRead = true;
                 break;
             }

@@ -259,7 +259,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String EXTERNAL_SORT_BYTES_THRESHOLD = "external_sort_bytes_threshold";
 
     public static final String ENABLE_TWO_PHASE_READ_OPT = "enable_two_phase_read_opt";
-    public static final String TWO_PHASE_READ_OPT_LIMIT_THRESHOLD = "two_phase_read_opt_limit_threshold";
+    public static final String TOPN_OPT_LIMIT_THRESHOLD = "topn_opt_limit_threshold";
+
     public static final String ENABLE_FILE_CACHE = "enable_file_cache";
 
     public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
@@ -681,8 +682,8 @@ public class SessionVariable implements Serializable, Writable {
     // 2. spawn fetch RPC to other nodes to get related data by sorted rowids
     @VariableMgr.VarAttr(name = ENABLE_TWO_PHASE_READ_OPT, fuzzy = true)
     public boolean enableTwoPhaseReadOpt = true;
-    @VariableMgr.VarAttr(name = TWO_PHASE_READ_OPT_LIMIT_THRESHOLD)
-    public long twoPhaseReadLimitThreshold = 512;
+    @VariableMgr.VarAttr(name = TOPN_OPT_LIMIT_THRESHOLD)
+    public long topnOptLimitThreshold = 1024;
 
     // Default value is false, which means the group by and having clause
     // should first use column name not alias. According to mysql.
@@ -735,6 +736,9 @@ public class SessionVariable implements Serializable, Writable {
             // this.enableFoldConstantByBe = false;
             // this.enableTwoPhaseReadOpt = true;
         }
+
+        // set random 1, 10, 100, 1000, 10000
+        this.topnOptLimitThreshold = 10 ^ (random.nextInt(5));
     }
 
     public String printFuzzyVariables() {

@@ -166,7 +166,7 @@ import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVJobManager;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendReplicasInfo;
@@ -393,7 +393,7 @@ public class Env {
 
     private TabletStatMgr tabletStatMgr;
 
-    private PaloAuth auth;
+    private Auth auth;
 
     private DomainResolver domainResolver;
 
@@ -593,7 +593,7 @@ public class Env {
 
         this.tabletStatMgr = new TabletStatMgr();
 
-        this.auth = new PaloAuth();
+        this.auth = new Auth();
         this.domainResolver = new DomainResolver(auth);
 
         this.metaContext = new MetaContext();
@@ -690,7 +690,7 @@ public class Env {
         return pluginMgr;
     }
 
-    public PaloAuth getAuth() {
+    public Auth getAuth() {
         return auth;
     }
 
@@ -1807,7 +1807,7 @@ public class Env {
     }
 
     public long loadPaloAuth(DataInputStream dis, long checksum) throws IOException {
-        // CAN NOT use PaloAuth.read(), cause this auth instance is already passed to DomainResolver
+        // CAN NOT use Auth.read(), cause this auth instance is already passed to DomainResolver
         auth.readFields(dis);
         LOG.info("finished replay paloAuth from image");
         return checksum;

@@ -708,8 +708,8 @@ public class SelectStmt extends QueryStmt {
         // Only TOPN query at present
         if (getOrderByElements() == null
                     || !hasLimit()
-                    || getLimit() == 0
-                    || getLimit() > ConnectContext.get().getSessionVariable().twoPhaseReadLimitThreshold) {
+                    || getLimit() <= 0
+                    || getLimit() > ConnectContext.get().getSessionVariable().topnOptLimitThreshold) {
             return false;
         }
         // Check order by exprs are all slot refs

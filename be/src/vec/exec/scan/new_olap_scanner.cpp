@@ -92,6 +92,11 @@ Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
             }
         }
 
+        if (olap_scan_node.__isset.indexes_desc && !olap_scan_node.indexes_desc.empty() &&
+            olap_scan_node.indexes_desc[0].index_id >= 0) {
+            _tablet_schema->update_indexes_from_thrift(olap_scan_node.indexes_desc);
+        }
+
         {
             if (_output_tuple_desc->slots().back()->col_name() == BeConsts::ROWID_COL) {
                 // inject ROWID_COL

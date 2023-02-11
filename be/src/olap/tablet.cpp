@@ -266,6 +266,7 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowset
 }
 
 RowsetSharedPtr Tablet::get_rowset(const RowsetId& rowset_id) {
+    std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
     for (auto& version_rowset : _rs_version_map) {
         if (version_rowset.second->rowset_id() == rowset_id) {
             return version_rowset.second;
@@ -1556,7 +1557,6 @@ Status Tablet::create_initial_rowset(const int64_t req_version) {
         context.rowset_state = VISIBLE;
         context.segments_overlap = OVERLAP_UNKNOWN;
         context.tablet_schema = tablet_schema();
-        context.oldest_write_timestamp = UnixSeconds();
         context.newest_write_timestamp = UnixSeconds();
         res = create_rowset_writer(context, &rs_writer);
 
@@ -1890,14 +1890,6 @@ bool Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
         return false;
     }
 
-    int64_t oldest_cooldown_time = std::numeric_limits<int64_t>::max();
-    if (cooldown_ttl_sec >= 0) {
-        oldest_cooldown_time = rowset->oldest_write_timestamp() + cooldown_ttl_sec;
-    }
-    if (cooldown_datetime > 0) {
-        oldest_cooldown_time = std::min(oldest_cooldown_time, cooldown_datetime);
-    }
-
     int64_t newest_cooldown_time = std::numeric_limits<int64_t>::max();
     if (cooldown_ttl_sec >= 0) {
         newest_cooldown_time = rowset->newest_write_timestamp() + cooldown_ttl_sec;
@@ -1906,14 +1898,10 @@ bool Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
         newest_cooldown_time = std::min(newest_cooldown_time, cooldown_datetime);
     }
 
-    if (oldest_cooldown_time + config::cooldown_lag_time_sec < UnixSeconds()) {
-        *cooldown_timestamp = oldest_cooldown_time;
-        VLOG_DEBUG << "tablet need cooldown, tablet id: " << tablet_id()
-                   << " cooldown_timestamp: " << *cooldown_timestamp;
-        return true;
-    }
-
+    // the rowset should do cooldown job only if it's cooldown ttl plus newest write time is less than
+    // current time or it's datatime is less than current time
     if (newest_cooldown_time < UnixSeconds()) {
+        *cooldown_timestamp = newest_cooldown_time;
         *file_size = rowset->data_disk_size();
         VLOG_DEBUG << "tablet need cooldown, tablet id: " << tablet_id()
                    << " file_size: " << *file_size;
@@ -1922,7 +1910,6 @@ bool Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
 
     VLOG_DEBUG << "tablet does not need cooldown, tablet id: " << tablet_id()
                << " ttl sec: " << cooldown_ttl_sec << " cooldown datetime: " << cooldown_datetime
-               << " oldest write time: " << rowset->oldest_write_timestamp()
                << " newest write time: " << rowset->newest_write_timestamp();
     return false;
 }
@@ -2182,8 +2169,15 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
                         loc.row_id = row_id;
                     }
 
-                    delete_bitmap->add({loc.rowset_id, loc.segment_id, dummy_version.first},
-                                       loc.row_id);
+                    // delete bitmap will be calculate when memtable flush and
+                    // publish. The two stages may see different versions.
+                    // When there is sequence column, the currently imported data
+                    // of rowset may be marked for deletion at memtablet flush or
+                    // publish because the seq column is smaller than the previous
+                    // rowset.
+                    // just set 0 as a unified temporary version number, and update to
+                    // the real version number later.
+                    delete_bitmap->add({loc.rowset_id, loc.segment_id, 0}, loc.row_id);
                 }
                 ++row_id;
             }
@@ -2250,6 +2244,11 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
         int ret = _tablet_meta->delete_bitmap().set(
                 {std::get<0>(iter->first), std::get<1>(iter->first), cur_version}, iter->second);
         DCHECK(ret == 1);
+        if (ret != 1) {
+            LOG(INFO) << "failed to set delete bimap, key is: |" << std::get<0>(iter->first) << "|"
+                      << std::get<1>(iter->first) << "|" << cur_version;
+            return Status::InternalError("failed to set delete bimap");
+        }
     }
 
     return Status::OK();
@@ -2295,6 +2294,11 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapP
         int ret = _tablet_meta->delete_bitmap().set(
                 {std::get<0>(iter->first), std::get<1>(iter->first), cur_version}, iter->second);
         DCHECK(ret == 1);
+        if (ret != 1) {
+            LOG(INFO) << "failed to set delete bimap, key is: |" << std::get<0>(iter->first) << "|"
+                      << std::get<1>(iter->first) << "|" << cur_version;
+            return Status::InternalError("failed to set delete bimap");
+        }
     }
 
     return Status::OK();

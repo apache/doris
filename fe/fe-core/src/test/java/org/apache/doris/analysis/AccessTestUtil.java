@@ -36,7 +36,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.Load;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
@@ -59,8 +59,8 @@ public class AccessTestUtil {
         return clusterInfo;
     }
 
-    public static PaloAuth fetchAdminAccess() {
-        PaloAuth auth = new PaloAuth();
+    public static Auth fetchAdminAccess() {
+        Auth auth = new Auth();
         try {
             new Expectations(auth) {
                 {
@@ -94,7 +94,7 @@ public class AccessTestUtil {
         try {
             Env env = Deencapsulation.newInstance(Env.class);
 
-            PaloAuth auth = fetchAdminAccess();
+            Auth auth = fetchAdminAccess();
 
             fakeEditLog = new FakeEditLog();
             EditLog editLog = new EditLog("name");
@@ -211,8 +211,8 @@ public class AccessTestUtil {
         }
     }
 
-    public static PaloAuth fetchBlockAccess() {
-        PaloAuth auth = new PaloAuth();
+    public static Auth fetchBlockAccess() {
+        Auth auth = new Auth();
         new Expectations(auth) {
             {
                 auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
@@ -336,7 +336,7 @@ public class AccessTestUtil {
         try {
             Env env = Deencapsulation.newInstance(Env.class);
 
-            PaloAuth auth = fetchBlockAccess();
+            Auth auth = fetchBlockAccess();
             Database db = mockDb("testCluster:testDb");
 
             InternalCatalog catalog = Deencapsulation.newInstance(InternalCatalog.class);

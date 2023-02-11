@@ -296,7 +296,7 @@ public:
                 condition.__set_condition_op("match_element_ge");
             }
             condition.condition_values.push_back(
-                    cast_to_string<primitive_type, CppType>(value.second, 0));
+                    cast_to_string<primitive_type, CppType>(value.second, _scale));
             if (condition.condition_values.size() != 0) {
                 filters.push_back(condition);
             }

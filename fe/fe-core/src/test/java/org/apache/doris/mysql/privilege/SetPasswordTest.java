@@ -39,7 +39,7 @@ import org.junit.Test;
 
 public class SetPasswordTest {
 
-    private PaloAuth auth;
+    private Auth auth;
     @Mocked
     public Env env;
     @Mocked
@@ -49,7 +49,7 @@ public class SetPasswordTest {
 
     @Before
     public void setUp() throws NoSuchMethodException, SecurityException, AnalysisException {
-        auth = new PaloAuth();
+        auth = new Auth();
         new Expectations() {
             {
                 analyzer.getClusterName();
