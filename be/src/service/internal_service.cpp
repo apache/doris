@@ -75,6 +75,11 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_pool_queue_size, MetricUnit::NOUNI
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_active_threads, MetricUnit::NOUNIT);
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_active_threads, MetricUnit::NOUNIT);
 
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_pool_max_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_pool_max_queue_size, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(heavy_work_max_threads, MetricUnit::NOUNIT);
+DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(light_work_max_threads, MetricUnit::NOUNIT);
+
 bthread_key_t btls_key;
 
 static void thread_context_deleter(void* d) {
@@ -107,8 +112,8 @@ private:
 
 PInternalServiceImpl::PInternalServiceImpl(ExecEnv* exec_env)
         : _exec_env(exec_env),
-          _heavy_work_pool(config::brpc_heavy_work_pool_threads, 10240, "brpc_heavy"),
-          _light_work_pool(config::brpc_light_work_pool_threads, 10240, "brpc_light") {
+          _heavy_work_pool(config::brpc_heavy_work_pool_threads, config::brpc_heavy_work_pool_max_queue_size, "brpc_heavy"),
+          _light_work_pool(config::brpc_light_work_pool_threads, config::brpc_light_work_pool_max_queue_size, "brpc_light") {
     REGISTER_HOOK_METRIC(heavy_work_pool_queue_size,
                          [this]() { return _heavy_work_pool.get_queue_size(); });
     REGISTER_HOOK_METRIC(light_work_pool_queue_size,
@@ -117,6 +122,15 @@ PInternalServiceImpl::PInternalServiceImpl(ExecEnv* exec_env)
                          [this]() { return _heavy_work_pool.get_active_threads(); });
     REGISTER_HOOK_METRIC(light_work_active_threads,
                          [this]() { return _light_work_pool.get_active_threads(); });
+    
+    REGISTER_HOOK_METRIC(heavy_work_pool_max_queue_size,
+                         [this]() { return config::brpc_heavy_work_pool_max_queue_size; });
+    REGISTER_HOOK_METRIC(light_work_pool_max_queue_size,
+                         [this]() { return config::brpc_light_work_pool_max_queue_size; });
+    REGISTER_HOOK_METRIC(heavy_work_max_threads,
+                         [this]() { return config::brpc_heavy_work_pool_threads; });
+    REGISTER_HOOK_METRIC(light_work_max_threads,
+                         [this]() { return config::brpc_light_work_pool_threads; });
     CHECK_EQ(0, bthread_key_create(&btls_key, thread_context_deleter));
     CHECK_EQ(0, bthread_key_create(&AsyncIO::btls_io_ctx_key, AsyncIO::io_ctx_key_deleter));
 }
@@ -126,6 +140,12 @@ PInternalServiceImpl::~PInternalServiceImpl() {
     DEREGISTER_HOOK_METRIC(light_work_pool_queue_size);
     DEREGISTER_HOOK_METRIC(heavy_work_active_threads);
     DEREGISTER_HOOK_METRIC(light_work_active_threads);
+
+    DEREGISTER_HOOK_METRIC(heavy_work_pool_max_queue_size);
+    DEREGISTER_HOOK_METRIC(light_work_pool_max_queue_size);
+    DEREGISTER_HOOK_METRIC(heavy_work_max_threads);
+    DEREGISTER_HOOK_METRIC(light_work_max_threads);
+
     CHECK_EQ(0, bthread_key_delete(btls_key));
     CHECK_EQ(0, bthread_key_delete(AsyncIO::btls_io_ctx_key));
 }

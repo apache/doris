@@ -391,10 +391,11 @@ CONF_mInt64(load_error_log_reserve_hours, "48");
 // be brpc interface is classified into two categories: light and heavy
 // each category has diffrent thread number 
 // threads to handle heavy api interface, such as transmit_data/transmit_block etc
-// 
 CONF_Int32(brpc_heavy_work_pool_threads, "192");
 // threads to handle light api interface, such as exec_plan_fragment_prepare/exec_plan_fragment_start
 CONF_Int32(brpc_light_work_pool_threads, "32");
+CONF_Int32(brpc_heavy_work_pool_max_queue_size, "10240");
+CONF_Int32(brpc_light_work_pool_max_queue_size, "10240");
 
 // The maximum amount of data that can be processed by a stream load
 CONF_mInt64(streaming_load_max_mb, "10240");
