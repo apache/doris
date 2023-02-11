@@ -193,6 +193,18 @@ public class LoadStmt extends DdlStmt {
                     return Boolean.valueOf(s);
                 }
             })
+            .put(KEY_SKIP_LINES, new Function<String, Integer>() {
+                @Override
+                public @Nullable Integer apply(@Nullable String s) {
+                    return Integer.valueOf(s);
+                }
+            })
+            .put(KEY_TRIM_DOUBLE_QUOTES, new Function<String, Boolean>() {
+                @Override
+                public @Nullable Boolean apply(@Nullable String s) {
+                    return Boolean.valueOf(s);
+                }
+            })
             .build();
 
     public LoadStmt(DataDescription dataDescription, Map<String, String> properties) {

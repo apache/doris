@@ -185,14 +185,6 @@ WITH BROKER broker_name
       
       布尔类型，为true表示支持一个任务只导入数据到对应分区的一个tablet，默认值为false，作业的任务数取决于整体并发度。该参数只允许在对带有random分区的olap表导数的时候设置。
 
-    - `trim_double_quotes`
-
-      布尔类型，默认值为 false，为 true 时表示裁剪掉 csv 文件每个字段最外层的双引号。
-
-    - `skip_lines`
-    
-      <version since="dev" type="inline"> 整数类型, 默认值为0, 含义为跳过csv文件的前几行. 当设置format设置为 `csv_with_names` 或、`csv_with_names_and_types` 时, 该参数会失效. </version>
-
 ### Example
 
 1. 从 HDFS 导入一批数据
@@ -474,6 +466,24 @@ WITH BROKER broker_name
     DATA INFILE("cosn://my_bucket/input/file.csv")
     INTO TABLE `my_table`
     (k1, k2, k3)
+    )
+    WITH BROKER "broker_name"
+    (
+        "fs.cosn.userinfo.secretId" = "xxx",
+        "fs.cosn.userinfo.secretKey" = "xxxx",
+        "fs.cosn.bucket.endpoint_suffix" = "cos.xxxxxxxxx.myqcloud.com"
+    )
+    ```
+
+12. 导入CSV数据时去掉双引号, 并跳过前5行。
+
+    ```SQL
+    LOAD LABEL example_db.label12
+    (
+    DATA INFILE("cosn://my_bucket/input/file.csv")
+    INTO TABLE `my_table`
+    (k1, k2, k3)
+    PROPERTIES("trim_double_quotes" = "true", "skip_lines" = "5")
     )
     WITH BROKER "broker_name"
     (
