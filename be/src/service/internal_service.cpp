@@ -576,7 +576,7 @@ void PInternalServiceImpl::clear_cache(google::protobuf::RpcController* controll
                                        const PClearCacheRequest* request, PCacheResponse* response,
                                        google::protobuf::Closure* done) {
     DorisMetrics::instance()->clear_cache->increment(1);
-    _light_work_pool.offer([this, controller, request, response, done]() {
+    _light_work_pool.offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         _exec_env->result_cache()->clear(request, response);
     });
