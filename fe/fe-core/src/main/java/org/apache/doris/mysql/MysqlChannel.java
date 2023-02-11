@@ -96,11 +96,12 @@ public class MysqlChannel {
         return remoteIp;
     }
 
-    public void setSslMode(boolean SslMode){
-        isSslMode = SslMode;
-    }
     public boolean isSslMode() {
         return isSslMode;
+    }
+
+    public void setSslMode(boolean sslMode) {
+        isSslMode = sslMode;
     }
 
     private int packetId() {
