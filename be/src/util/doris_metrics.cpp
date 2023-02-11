@@ -260,7 +260,7 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, request_slave_tablet_pull_rowset);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, response_slave_tablet_pull_rowset);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, multiget_data);
-   
+
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, fragment_request_duration_us);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_scan_bytes);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_scan_rows);

@@ -191,7 +191,7 @@ private:
 private:
     ExecEnv* _exec_env;
     // every brpc service request should put into thread pool
-    // the reason see issue 
+    // the reason see issue
     // define the interface for reading and writing data as heavy interface
     // otherwise as light interface
     PriorityThreadPool _heavy_work_pool;

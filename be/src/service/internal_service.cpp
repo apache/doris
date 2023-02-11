@@ -112,8 +112,10 @@ private:
 
 PInternalServiceImpl::PInternalServiceImpl(ExecEnv* exec_env)
         : _exec_env(exec_env),
-          _heavy_work_pool(config::brpc_heavy_work_pool_threads, config::brpc_heavy_work_pool_max_queue_size, "brpc_heavy"),
-          _light_work_pool(config::brpc_light_work_pool_threads, config::brpc_light_work_pool_max_queue_size, "brpc_light") {
+          _heavy_work_pool(config::brpc_heavy_work_pool_threads,
+                           config::brpc_heavy_work_pool_max_queue_size, "brpc_heavy"),
+          _light_work_pool(config::brpc_light_work_pool_threads,
+                           config::brpc_light_work_pool_max_queue_size, "brpc_light") {
     REGISTER_HOOK_METRIC(heavy_work_pool_queue_size,
                          [this]() { return _heavy_work_pool.get_queue_size(); });
     REGISTER_HOOK_METRIC(light_work_pool_queue_size,
@@ -122,7 +124,7 @@ PInternalServiceImpl::PInternalServiceImpl(ExecEnv* exec_env)
                          [this]() { return _heavy_work_pool.get_active_threads(); });
     REGISTER_HOOK_METRIC(light_work_active_threads,
                          [this]() { return _light_work_pool.get_active_threads(); });
-    
+
     REGISTER_HOOK_METRIC(heavy_work_pool_max_queue_size,
                          []() { return config::brpc_heavy_work_pool_max_queue_size; });
     REGISTER_HOOK_METRIC(light_work_pool_max_queue_size,
@@ -171,14 +173,15 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
                                               PTabletWriterOpenResult* response,
                                               google::protobuf::Closure* done) {
     DorisMetrics::instance()->tablet_writer_open->increment(1);
-    _light_work_pool.offer([this, controller, request, response, done](){
-        VLOG_RPC << "tablet writer open, id=" << request->id() << ", index_id=" << request->index_id()
-                << ", txn_id=" << request->txn_id();
+    _light_work_pool.offer([this, controller, request, response, done]() {
+        VLOG_RPC << "tablet writer open, id=" << request->id()
+                 << ", index_id=" << request->index_id() << ", txn_id=" << request->txn_id();
         brpc::ClosureGuard closure_guard(done);
         auto st = _exec_env->load_channel_mgr()->open(*request);
         if (!st.ok()) {
             LOG(WARNING) << "load channel open failed, message=" << st << ", id=" << request->id()
-                        << ", index_id=" << request->index_id() << ", txn_id=" << request->txn_id();
+                         << ", index_id=" << request->index_id()
+                         << ", txn_id=" << request->txn_id();
         }
         st.to_protobuf(response->mutable_status());
     });
@@ -207,7 +210,7 @@ void PInternalServiceImpl::exec_plan_fragment_prepare(google::protobuf::RpcContr
                                                       PExecPlanFragmentResult* response,
                                                       google::protobuf::Closure* done) {
     DorisMetrics::instance()->exec_plan_fragment_prepare->increment(1);
-    _light_work_pool.offer([this, controller, request, response, done](){
+    _light_work_pool.offer([this, controller, request, response, done]() {
         exec_plan_fragment(controller, request, response, done);
     });
 }
@@ -217,7 +220,7 @@ void PInternalServiceImpl::exec_plan_fragment_start(google::protobuf::RpcControl
                                                     PExecPlanFragmentResult* result,
                                                     google::protobuf::Closure* done) {
     DorisMetrics::instance()->exec_plan_fragment_start->increment(1);
-    _light_work_pool.offer([this, controller, request, result, done](){
+    _light_work_pool.offer([this, controller, request, result, done]() {
         auto span = telemetry::start_rpc_server_span("exec_plan_fragment_start", controller);
         auto scope = OpentelemetryScope {span};
         brpc::ClosureGuard closure_guard(done);
@@ -232,7 +235,7 @@ void PInternalServiceImpl::tablet_writer_add_block(google::protobuf::RpcControll
                                                    google::protobuf::Closure* done) {
     // TODO(zxy) delete in 1.2 version
     DorisMetrics::instance()->tablet_writer_add_block->increment(1);
-    _heavy_work_pool.offer([this, controller, request, response, done](){
+    _heavy_work_pool.offer([this, controller, request, response, done]() {
         google::protobuf::Closure* new_done = new NewHttpClosure<PTransmitDataParams>(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
         attachment_transfer_request_block<PTabletWriterAddBlockRequest>(request, cntl);
@@ -244,13 +247,13 @@ void PInternalServiceImpl::tablet_writer_add_block_by_http(
         google::protobuf::RpcController* controller, const ::doris::PEmptyRequest* request,
         PTabletWriterAddBlockResult* response, google::protobuf::Closure* done) {
     DorisMetrics::instance()->tablet_writer_add_block_by_http->increment(1);
-    _heavy_work_pool.offer([this, controller, request, response, done](){
+    _heavy_work_pool.offer([this, controller, request, response, done]() {
         PTabletWriterAddBlockRequest* new_request = new PTabletWriterAddBlockRequest();
         google::protobuf::Closure* new_done =
                 new NewHttpClosure<PTabletWriterAddBlockRequest>(new_request, done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
-        Status st = attachment_extract_request_contain_block<PTabletWriterAddBlockRequest>(new_request,
-                                                                                        cntl);
+        Status st = attachment_extract_request_contain_block<PTabletWriterAddBlockRequest>(
+                new_request, cntl);
         if (st.ok()) {
             _tablet_writer_add_block(controller, new_request, response, new_done);
         } else {
@@ -273,9 +276,9 @@ void PInternalServiceImpl::_tablet_writer_add_block(google::protobuf::RpcControl
         auto st = _exec_env->load_channel_mgr()->add_batch(*request, response);
         if (!st.ok()) {
             LOG(WARNING) << "tablet writer add block failed, message=" << st
-                            << ", id=" << request->id() << ", index_id=" << request->index_id()
-                            << ", sender_id=" << request->sender_id()
-                            << ", backend id=" << request->backend_id();
+                         << ", id=" << request->id() << ", index_id=" << request->index_id()
+                         << ", sender_id=" << request->sender_id()
+                         << ", backend id=" << request->backend_id();
         }
         st.to_protobuf(response->mutable_status());
     }
@@ -289,14 +292,14 @@ void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController*
                                                 google::protobuf::Closure* done) {
     DorisMetrics::instance()->tablet_writer_cancel->increment(1);
     _light_work_pool.offer([this, controller, request, response, done]() {
-        VLOG_RPC << "tablet writer cancel, id=" << request->id() << ", index_id=" << request->index_id()
-                << ", sender_id=" << request->sender_id();
+        VLOG_RPC << "tablet writer cancel, id=" << request->id()
+                 << ", index_id=" << request->index_id() << ", sender_id=" << request->sender_id();
         brpc::ClosureGuard closure_guard(done);
         auto st = _exec_env->load_channel_mgr()->cancel(*request);
         if (!st.ok()) {
             LOG(WARNING) << "tablet writer cancel failed, id=" << request->id()
-                        << ", index_id=" << request->index_id()
-                        << ", sender_id=" << request->sender_id();
+                         << ", index_id=" << request->index_id()
+                         << ", sender_id=" << request->sender_id();
         }
     });
 }
@@ -345,7 +348,7 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
         Status st = Status::OK();
         if (request->has_cancel_reason()) {
             LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid)
-                    << ", reason: " << request->cancel_reason();
+                      << ", reason: " << request->cancel_reason();
             _exec_env->fragment_mgr()->cancel(tid, request->cancel_reason());
         } else {
             LOG(INFO) << "cancel fragment, fragment_instance_id=" << print_id(tid);
@@ -374,6 +377,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
                                               google::protobuf::Closure* done) {
     DorisMetrics::instance()->fetch_table_schema->increment(1);
     _light_work_pool.offer([this, controller, request, result, done]() {
+        VLOG_RPC << "fetch table schema";
         brpc::ClosureGuard closure_guard(done);
         TFileScanRange file_scan_range;
         Status st = Status::OK();
@@ -400,61 +404,62 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         const TFileRangeDesc& range = file_scan_range.ranges.at(0);
         const TFileScanRangeParams& params = file_scan_range.params;
 
-    std::unique_ptr<vectorized::GenericReader> reader(nullptr);
-    std::unique_ptr<RuntimeProfile> profile(new RuntimeProfile("FetchTableSchema"));
-    IOContext io_ctx;
-    FileCacheStatistics file_cache_statis;
-    io_ctx.file_cache_stats = &file_cache_statis;
-    switch (params.format_type) {
-    case TFileFormatType::FORMAT_CSV_PLAIN:
-    case TFileFormatType::FORMAT_CSV_GZ:
-    case TFileFormatType::FORMAT_CSV_BZ2:
-    case TFileFormatType::FORMAT_CSV_LZ4FRAME:
-    case TFileFormatType::FORMAT_CSV_LZOP:
-    case TFileFormatType::FORMAT_CSV_DEFLATE: {
-        // file_slots is no use
-        std::vector<SlotDescriptor*> file_slots;
-        reader.reset(new vectorized::CsvReader(profile.get(), params, range, file_slots, &io_ctx));
-        break;
-    }
-    case TFileFormatType::FORMAT_PARQUET: {
-        reader.reset(new vectorized::ParquetReader(params, range, &io_ctx));
-        break;
-    }
-    case TFileFormatType::FORMAT_ORC: {
-        std::vector<std::string> column_names;
-        reader.reset(new vectorized::OrcReader(params, range, column_names, "", &io_ctx));
-        break;
-    }
-    case TFileFormatType::FORMAT_JSON: {
-        std::vector<SlotDescriptor*> file_slots;
-        reader.reset(
-                new vectorized::NewJsonReader(profile.get(), params, range, file_slots, &io_ctx));
-        break;
-    }
-    default:
-        st = Status::InternalError("Not supported file format in fetch table schema: {}",
-                                   params.format_type);
+        std::unique_ptr<vectorized::GenericReader> reader(nullptr);
+        std::unique_ptr<RuntimeProfile> profile(new RuntimeProfile("FetchTableSchema"));
+        IOContext io_ctx;
+        FileCacheStatistics file_cache_statis;
+        io_ctx.file_cache_stats = &file_cache_statis;
+        switch (params.format_type) {
+        case TFileFormatType::FORMAT_CSV_PLAIN:
+        case TFileFormatType::FORMAT_CSV_GZ:
+        case TFileFormatType::FORMAT_CSV_BZ2:
+        case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+        case TFileFormatType::FORMAT_CSV_LZOP:
+        case TFileFormatType::FORMAT_CSV_DEFLATE: {
+            // file_slots is no use
+            std::vector<SlotDescriptor*> file_slots;
+            reader.reset(new vectorized::CsvReader(profile.get(), params, range, file_slots, &io_ctx));
+            break;
+        }
+        case TFileFormatType::FORMAT_PARQUET: {
+            reader.reset(new vectorized::ParquetReader(params, range, &io_ctx));
+            break;
+        }
+        case TFileFormatType::FORMAT_ORC: {
+            std::vector<std::string> column_names;
+            reader.reset(new vectorized::OrcReader(params, range, column_names, "", &io_ctx));
+            break;
+        }
+        case TFileFormatType::FORMAT_JSON: {
+            std::vector<SlotDescriptor*> file_slots;
+            reader.reset(
+                    new vectorized::NewJsonReader(profile.get(), params, range, file_slots, &io_ctx));
+            break;
+        }
+        default:
+            st = Status::InternalError("Not supported file format in fetch table schema: {}",
+                                    params.format_type);
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+        std::vector<std::string> col_names;
+        std::vector<TypeDescriptor> col_types;
+        st = reader->get_parsed_schema(&col_names, &col_types);
+        if (!st.ok()) {
+            LOG(WARNING) << "fetch table schema failed, errmsg=" << st;
+            st.to_protobuf(result->mutable_status());
+            return;
+        }
+        result->set_column_nums(col_names.size());
+        for (size_t idx = 0; idx < col_names.size(); ++idx) {
+            result->add_column_names(col_names[idx]);
+        }
+        for (size_t idx = 0; idx < col_types.size(); ++idx) {
+            PTypeDesc* type_desc = result->add_column_types();
+            col_types[idx].to_protobuf(type_desc);
+        }
         st.to_protobuf(result->mutable_status());
-        return;
-    }
-    std::vector<std::string> col_names;
-    std::vector<TypeDescriptor> col_types;
-    st = reader->get_parsed_schema(&col_names, &col_types);
-    if (!st.ok()) {
-        LOG(WARNING) << "fetch table schema failed, errmsg=" << st;
-        st.to_protobuf(result->mutable_status());
-        return;
-    }
-    result->set_column_nums(col_names.size());
-    for (size_t idx = 0; idx < col_names.size(); ++idx) {
-        result->add_column_names(col_names[idx]);
-    }
-    for (size_t idx = 0; idx < col_types.size(); ++idx) {
-        PTypeDesc* type_desc = result->add_column_types();
-        col_types[idx].to_protobuf(type_desc);
-    }
-    st.to_protobuf(result->mutable_status());
+    });
 }
 
 void PInternalServiceImpl::get_info(google::protobuf::RpcController* controller,
@@ -488,9 +493,9 @@ void PInternalServiceImpl::get_info(google::protobuf::RpcController* controller,
             } else if (!kafka_request.offset_times().empty()) {
                 // if offset_times() has elements, which means this request is to get offset by timestamp.
                 std::vector<PIntegerPair> partition_offsets;
-                Status st =
-                        _exec_env->routine_load_task_executor()->get_kafka_partition_offsets_for_times(
-                                request->kafka_meta_request(), &partition_offsets);
+                Status st = _exec_env->routine_load_task_executor()
+                                    ->get_kafka_partition_offsets_for_times(
+                                            request->kafka_meta_request(), &partition_offsets);
                 if (st.ok()) {
                     PKafkaPartitionOffsets* part_offsets = response->mutable_partition_offsets();
                     for (const auto& entry : partition_offsets) {
@@ -605,7 +610,7 @@ void PInternalServiceImpl::send_data(google::protobuf::RpcController* controller
                 PDataRow* row = new PDataRow();
                 row->CopyFrom(request->data(i));
                 pipe->append_and_flush(reinterpret_cast<char*>(&row), sizeof(row),
-                                    sizeof(row) + row->ByteSizeLong());
+                                       sizeof(row) + row->ByteSizeLong());
             }
             response->mutable_status()->set_status_code(0);
         }
@@ -714,7 +719,8 @@ void PInternalServiceImpl::transmit_block_by_http(google::protobuf::RpcControlle
         google::protobuf::Closure* new_done =
                 new NewHttpClosure<PTransmitDataParams>(new_request, done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
-        Status st = attachment_extract_request_contain_block<PTransmitDataParams>(new_request, cntl);
+        Status st =
+                attachment_extract_request_contain_block<PTransmitDataParams>(new_request, cntl);
         _transmit_block(controller, new_request, response, new_done, st);
     });
 }
@@ -764,13 +770,14 @@ void PInternalServiceImpl::check_rpc_channel(google::protobuf::RpcController* co
         if (request->data().size() != request->size()) {
             std::stringstream ss;
             ss << "data size not same, expected: " << request->size()
-            << ", actual: " << request->data().size();
+               << ", actual: " << request->data().size();
             response->mutable_status()->add_error_msgs(ss.str());
             response->mutable_status()->set_status_code(1);
 
         } else {
             Md5Digest digest;
-            digest.update(static_cast<const void*>(request->data().c_str()), request->data().size());
+            digest.update(static_cast<const void*>(request->data().c_str()),
+                          request->data().size());
             digest.digest();
             if (!iequal(digest.hex(), request->md5())) {
                 std::stringstream ss;
@@ -845,8 +852,8 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
     int64_t brpc_port = request->brpc_port();
     std::string token = request->token();
     int64_t node_id = request->node_id();
-    _heavy_work_pool.offer([rowset_meta_pb, host, brpc_port, node_id, segments_size,
-                                      http_port, token, rowset_path, this]() {
+    _heavy_work_pool.offer([rowset_meta_pb, host, brpc_port, node_id, segments_size, http_port,
+                            token, rowset_path, this]() {
         TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
                 rowset_meta_pb.tablet_id(), rowset_meta_pb.tablet_schema_hash());
         if (tablet == nullptr) {
@@ -1048,10 +1055,10 @@ void PInternalServiceImpl::response_slave_tablet_pull_rowset(
     DorisMetrics::instance()->response_slave_tablet_pull_rowset->increment(1);
     _light_work_pool.offer([this, controller, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
-        VLOG_CRITICAL
-                << "receive the result of slave replica pull rowset from slave replica. slave server="
-                << request->node_id() << ", is_succeed=" << request->is_succeed()
-                << ", tablet_id=" << request->tablet_id() << ", txn_id=" << request->txn_id();
+        VLOG_CRITICAL << "receive the result of slave replica pull rowset from slave replica. "
+                         "slave server="
+                      << request->node_id() << ", is_succeed=" << request->is_succeed()
+                      << ", tablet_id=" << request->tablet_id() << ", txn_id=" << request->txn_id();
         StorageEngine::instance()->txn_manager()->finish_slave_tablet_pull_rowset(
                 request->txn_id(), request->tablet_id(), request->node_id(), request->is_succeed());
         Status::OK().to_protobuf(response->mutable_status());
