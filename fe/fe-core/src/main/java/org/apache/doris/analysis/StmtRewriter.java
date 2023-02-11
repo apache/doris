@@ -1279,7 +1279,9 @@ public class StmtRewriter {
         if (currentUserIdentity.isRootUser() || currentUserIdentity.isAdminUser()) {
             return false;
         }
-        if (!currentEnv.getPolicyMgr().existPolicy(user)) {
+
+        String role = ConnectContext.get().getEnv().getAuth().findRoleNameForUser(currentUserIdentity);
+        if (!currentEnv.getPolicyMgr().canMatchPolicy(user, role)) {
             return false;
         }
         if (!(statementBase instanceof SelectStmt)) {
@@ -1305,7 +1307,7 @@ public class StmtRewriter {
             Database db = currentEnv.getInternalCatalog().getDbOrAnalysisException(dbName);
             long dbId = db.getId();
             long tableId = table.getId();
-            RowPolicy matchPolicy = currentEnv.getPolicyMgr().getMatchTablePolicy(dbId, tableId, user);
+            RowPolicy matchPolicy = currentEnv.getPolicyMgr().getMatchTablePolicy(dbId, tableId, user, role);
             if (matchPolicy == null) {
                 continue;
             }

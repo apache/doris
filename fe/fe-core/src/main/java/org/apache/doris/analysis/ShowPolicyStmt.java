@@ -18,6 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
@@ -29,11 +30,13 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ShowResultSetMetaData;
 
 import lombok.Getter;
+import org.apache.commons.lang.StringUtils;
 
 /**
  * Show policy statement
  * syntax:
  * SHOW ROW POLICY [FOR user]
+ * SHOW ROW POLICY [FOR ROLE role]
  **/
 public class ShowPolicyStmt extends ShowStmt {
 
@@ -43,9 +46,13 @@ public class ShowPolicyStmt extends ShowStmt {
     @Getter
     private final UserIdentity user;
 
-    public ShowPolicyStmt(PolicyTypeEnum type, UserIdentity user) {
+    @Getter
+    private String role;
+
+    public ShowPolicyStmt(PolicyTypeEnum type, UserIdentity user, String role) {
         this.type = type;
         this.user = user;
+        this.role = role;
     }
 
     @Override
@@ -54,6 +61,10 @@ public class ShowPolicyStmt extends ShowStmt {
         if (user != null) {
             user.analyze(analyzer.getClusterName());
         }
+        if (role != null) {
+            role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
+        }
+
         // check auth
         if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
@@ -71,6 +82,8 @@ public class ShowPolicyStmt extends ShowStmt {
             default:
                 if (user != null) {
                     sb.append(" FOR ").append(user);
+                } else if (StringUtils.isNotBlank(role)) {
+                    sb.append(" FOR ROLE '").append(role).append("'");
                 }
         }
         return sb.toString();

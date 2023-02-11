@@ -1875,6 +1875,11 @@ public class PaloAuth implements Writable {
         }
     }
 
+    public String findRoleNameForUser(UserIdentity userIdent) {
+        PaloRole role = roleManager.findRoleForUser(userIdent);
+        return role != null ? role.getRoleName() : null;
+    }
+
     private void alterUserInternal(boolean ifExists, OpType opType, UserIdentity userIdent, byte[] password,
             String role, PasswordOptions passwordOptions, boolean isReplay) throws DdlException {
         writeLock();

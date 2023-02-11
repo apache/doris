@@ -126,17 +126,18 @@ public class LogicalCheckPolicy<CHILD_TYPE extends Plan> extends LogicalUnary<CH
         PolicyMgr policyMgr = connectContext.getEnv().getPolicyMgr();
         UserIdentity currentUserIdentity = connectContext.getCurrentUserIdentity();
         String user = connectContext.getQualifiedUser();
+        String role = ConnectContext.get().getEnv().getAuth().findRoleNameForUser(currentUserIdentity);
         if (currentUserIdentity.isRootUser() || currentUserIdentity.isAdminUser()) {
             return Optional.empty();
         }
-        if (!policyMgr.existPolicy(user)) {
+        if (!policyMgr.canMatchPolicy(user, role)) {
             return Optional.empty();
         }
 
         CatalogRelation catalogRelation = (CatalogRelation) logicalRelation;
         long dbId = catalogRelation.getDatabase().getId();
         long tableId = catalogRelation.getTable().getId();
-        List<RowPolicy> policies = policyMgr.getMatchRowPolicy(dbId, tableId, currentUserIdentity);
+        List<RowPolicy> policies = policyMgr.getMatchRowPolicy(dbId, tableId, currentUserIdentity, role);
         if (policies.isEmpty()) {
             return Optional.empty();
         }

@@ -57,6 +57,7 @@ public class RowPolicy extends Policy {
                 .addColumn(new Column("FilterType", ScalarType.createVarchar(20)))
                 .addColumn(new Column("WherePredicate", ScalarType.createVarchar(65535)))
                 .addColumn(new Column("User", ScalarType.createVarchar(20)))
+                .addColumn(new Column("Role", ScalarType.createVarchar(100)))
                 .addColumn(new Column("OriginStmt", ScalarType.createVarchar(65535)))
                 .build();
 
@@ -67,6 +68,12 @@ public class RowPolicy extends Policy {
      **/
     @SerializedName(value = "user")
     private UserIdentity user = null;
+
+    /**
+     * Policy bind role.
+     **/
+    @SerializedName(value = "role")
+    private String role = null;
 
     @SerializedName(value = "dbId")
     private long dbId = -1;
@@ -116,13 +123,38 @@ public class RowPolicy extends Policy {
     }
 
     /**
+     * Policy for Table. Policy of ROW or others.
+     *
+     * @param policyId policy id
+     * @param policyName policy name
+     * @param dbId database i
+     * @param role role
+     * @param originStmt origin stmt
+     * @param tableId table id
+     * @param filterType filter type
+     * @param wherePredicate where predicate
+     */
+    public RowPolicy(long policyId, final String policyName, long dbId, String role, String originStmt,
+                     final long tableId, final FilterType filterType, final Expr wherePredicate) {
+        super(policyId, PolicyTypeEnum.ROW, policyName);
+        this.role = role;
+        this.dbId = dbId;
+        this.tableId = tableId;
+        this.filterType = filterType;
+        this.originStmt = originStmt;
+        this.wherePredicate = wherePredicate;
+    }
+
+    /**
      * Use for SHOW POLICY.
      **/
     public List<String> getShowInfo() throws AnalysisException {
         Database database = Env.getCurrentInternalCatalog().getDbOrAnalysisException(this.dbId);
         Table table = database.getTableOrAnalysisException(this.tableId);
         return Lists.newArrayList(this.policyName, database.getFullName(), table.getName(), this.type.name(),
-                this.filterType.name(), this.wherePredicate.toSql(), this.user.getQualifiedUser(), this.originStmt);
+                this.filterType.name(), this.wherePredicate.toSql(),
+                this.user != null ? this.user.getQualifiedUser() : StringUtils.EMPTY,
+                this.role != null ? this.role : StringUtils.EMPTY, this.originStmt);
     }
 
     @Override
@@ -142,17 +174,31 @@ public class RowPolicy extends Policy {
 
     @Override
     public RowPolicy clone() {
-        return new RowPolicy(this.policyId, this.policyName, this.dbId, this.user, this.originStmt, this.tableId,
+        if (StringUtils.isNotBlank(role)) {
+            return new RowPolicy(this.policyId, this.policyName, this.dbId, this.role, this.originStmt, this.tableId,
                 this.filterType, this.wherePredicate);
+        } else {
+            return new RowPolicy(this.policyId, this.policyName, this.dbId, this.user, this.originStmt, this.tableId,
+                this.filterType, this.wherePredicate);
+        }
     }
 
     private boolean checkMatched(long dbId, long tableId, PolicyTypeEnum type,
-                                 String policyName, UserIdentity user) {
+                                 String policyName, UserIdentity user, String role) {
+        boolean userMatch = true;
+        boolean roleMatch = true;
+        if (user != null) {
+            userMatch = this.user == null ? false :
+                                            StringUtils.equals(user.getQualifiedUser(), this.user.getQualifiedUser());
+        }
+        if (role != null) {
+            roleMatch = this.role == null ? false : StringUtils.equals(role, this.role);
+        }
+
         return super.checkMatched(type, policyName)
                 && (dbId == -1 || dbId == this.dbId)
                 && (tableId == -1 || tableId == this.tableId)
-                && (user == null || this.user == null
-                        || StringUtils.equals(user.getQualifiedUser(), this.user.getQualifiedUser()));
+                && userMatch && roleMatch;
     }
 
     @Override
@@ -162,14 +208,14 @@ public class RowPolicy extends Policy {
         }
         RowPolicy rowPolicy = (RowPolicy) checkedPolicyCondition;
         return checkMatched(rowPolicy.getDbId(), rowPolicy.getTableId(), rowPolicy.getType(),
-                            rowPolicy.getPolicyName(), rowPolicy.getUser());
+                            rowPolicy.getPolicyName(), rowPolicy.getUser(), rowPolicy.getRole());
     }
 
     @Override
     public boolean matchPolicy(DropPolicyLog checkedDropPolicyLogCondition) {
         return checkMatched(checkedDropPolicyLogCondition.getDbId(), checkedDropPolicyLogCondition.getTableId(),
                             checkedDropPolicyLogCondition.getType(), checkedDropPolicyLogCondition.getPolicyName(),
-                            checkedDropPolicyLogCondition.getUser());
+                            checkedDropPolicyLogCondition.getUser(), checkedDropPolicyLogCondition.getRole());
     }
 
     @Override

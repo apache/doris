@@ -29,6 +29,7 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Strings;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import org.apache.commons.lang.StringUtils;
@@ -88,11 +89,17 @@ public abstract class Policy implements Writable, GsonPostProcessable {
                 DatabaseIf db = Env.getCurrentEnv().getCatalogMgr()
                         .getCatalogOrAnalysisException(stmt.getTableName().getCtl())
                         .getDbOrAnalysisException(stmt.getTableName().getDb());
-                UserIdentity userIdent = stmt.getUser();
-                userIdent.analyze(ConnectContext.get().getClusterName());
                 TableIf table = db.getTableOrAnalysisException(stmt.getTableName().getTbl());
-                return new RowPolicy(policyId, stmt.getPolicyName(), db.getId(), userIdent,
+                if (!Strings.isNullOrEmpty(stmt.getRole())) {
+                    return new RowPolicy(policyId, stmt.getPolicyName(), db.getId(), stmt.getRole(),
                         stmt.getOrigStmt().originStmt, table.getId(), stmt.getFilterType(), stmt.getWherePredicate());
+                } else {
+                    UserIdentity userIdent = stmt.getUser();
+                    userIdent.analyze(ConnectContext.get().getClusterName());
+                    return new RowPolicy(policyId, stmt.getPolicyName(), db.getId(), userIdent,
+                        stmt.getOrigStmt().originStmt, table.getId(), stmt.getFilterType(), stmt.getWherePredicate());
+                }
+
             default:
                 throw new AnalysisException("Unknown policy type: " + stmt.getType());
         }

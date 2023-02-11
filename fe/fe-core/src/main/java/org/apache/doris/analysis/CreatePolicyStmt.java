@@ -18,9 +18,11 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -28,6 +30,7 @@ import org.apache.doris.policy.FilterType;
 import org.apache.doris.policy.PolicyTypeEnum;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Strings;
 import lombok.Getter;
 
 import java.util.Map;
@@ -35,7 +38,8 @@ import java.util.Map;
 /**
  * Create policy statement.
  * syntax:
- * CREATE ROW POLICY [IF NOT EXISTS] test_row_policy ON test_table AS {PERMISSIVE|RESTRICTIVE} TO user USING (a = ’xxx‘)
+ * CREATE ROW POLICY [IF NOT EXISTS] row_policy ON test_table AS {PERMISSIVE|RESTRICTIVE} TO user USING (a = ’xxx‘)
+ * CREATE ROW POLICY [IF NOT EXISTS] row_policy ON test_table AS {PERMISSIVE|RESTRICTIVE} TO ROLE role USING (a = ’xxx‘)
  */
 public class CreatePolicyStmt extends DdlStmt {
 
@@ -58,6 +62,9 @@ public class CreatePolicyStmt extends DdlStmt {
     private UserIdentity user = null;
 
     @Getter
+    private String role = null;
+
+    @Getter
     private Expr wherePredicate;
 
     @Getter
@@ -74,6 +81,17 @@ public class CreatePolicyStmt extends DdlStmt {
         this.tableName = tableName;
         this.filterType = FilterType.of(filterType);
         this.user = user;
+        this.wherePredicate = wherePredicate;
+    }
+
+    public CreatePolicyStmt(PolicyTypeEnum type, boolean ifNotExists, String policyName, TableName tableName,
+                            String filterType, String role, Expr wherePredicate) {
+        this.type = type;
+        this.ifNotExists = ifNotExists;
+        this.policyName = policyName;
+        this.tableName = tableName;
+        this.filterType = FilterType.of(filterType);
+        this.role = role;
         this.wherePredicate = wherePredicate;
     }
 
@@ -101,10 +119,15 @@ public class CreatePolicyStmt extends DdlStmt {
             case ROW:
             default:
                 tableName.analyze(analyzer);
-                user.analyze(analyzer.getClusterName());
-                if (user.isRootUser() || user.isAdminUser()) {
-                    ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CreatePolicyStmt",
-                            user.getQualifiedUser(), user.getHost(), tableName.getTbl());
+                if (user != null) {
+                    user.analyze(analyzer.getClusterName());
+                    if (user.isRootUser() || user.isAdminUser()) {
+                        ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "CreatePolicyStmt",
+                                user.getQualifiedUser(), user.getHost(), tableName.getTbl());
+                    }
+                } else {
+                    FeNameFormat.checkRoleName(role, false /* can not be admin */, "Can not create row policy to role");
+                    role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
                 }
         }
         // check auth
@@ -127,8 +150,13 @@ public class CreatePolicyStmt extends DdlStmt {
                 break;
             case ROW:
             default:
-                sb.append(" ON ").append(tableName.toSql()).append(" AS ").append(filterType)
-                    .append(" TO ").append(user.getQualifiedUser()).append(" USING ").append(wherePredicate.toSql());
+                sb.append(" ON ").append(tableName.toSql()).append(" AS ").append(filterType).append(" TO ");
+                if (!Strings.isNullOrEmpty(role)) {
+                    sb.append("ROLE '").append(role).append("'");
+                } else {
+                    sb.append(user.getQualifiedUser());
+                }
+                sb.append(" USING ").append(wherePredicate.toSql());
         }
         return sb.toString();
     }
