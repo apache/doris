@@ -1346,7 +1346,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
     uint32_t nrows_read_limit = _opts.block_row_max;
     if (UNLIKELY(_estimate_row_size)) {
         // read 100 rows to estimate average row size
-        nrows_read_limit = 100;
+        nrows_read_limit = std::min(nrows_read_limit, (uint32_t)100);
     }
     _split_row_ranges.clear();
     _split_row_ranges.reserve(nrows_read_limit / 2);
