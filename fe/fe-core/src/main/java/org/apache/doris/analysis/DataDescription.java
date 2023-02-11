@@ -1101,7 +1101,8 @@ public class DataDescription {
         if (isNegative) {
             sb.append(" NEGATIVE");
         }
-        sb.append(" INTO TABLE ").append(isMysqlLoad ? dbName + "." + tableName : tableName);
+        sb.append(" INTO TABLE ");
+        sb.append(isMysqlLoad ? ClusterNamespace.getNameFromFullName(dbName) + "." + tableName : tableName);
         if (partitionNames != null) {
             sb.append(" ");
             sb.append(partitionNames.toSql());
