@@ -20,6 +20,7 @@ package org.apache.doris.load.loadv2;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TMySqlLoadAcquireTokenResult;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -63,7 +64,7 @@ public class TokenManager {
     }
 
     public String acquireToken() {
-        if (Env.getCurrentEnv().isMaster()) {
+        if (Env.getCurrentEnv().isMaster() || FeConstants.runningUnitTest) {
             return tokenQueue.peek();
         } else {
             try {
