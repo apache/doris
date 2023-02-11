@@ -496,6 +496,21 @@ void NewOlapScanner::_update_counters_before_close() {
 
     COUNTER_UPDATE(olap_parent->_inverted_index_filter_counter, stats.rows_inverted_index_filtered);
     COUNTER_UPDATE(olap_parent->_inverted_index_filter_timer, stats.inverted_index_filter_timer);
+    COUNTER_UPDATE(olap_parent->_inverted_index_query_cache_hit_counter,
+                   stats.inverted_index_query_cache_hit);
+    COUNTER_UPDATE(olap_parent->_inverted_index_query_cache_miss_counter,
+                   stats.inverted_index_query_cache_miss);
+    COUNTER_UPDATE(olap_parent->_inverted_index_query_timer, stats.inverted_index_query_timer);
+    COUNTER_UPDATE(olap_parent->_inverted_index_query_bitmap_copy_timer,
+                   stats.inverted_index_query_bitmap_copy_timer);
+    COUNTER_UPDATE(olap_parent->_inverted_index_query_bitmap_op_timer,
+                   stats.inverted_index_query_bitmap_op_timer);
+    COUNTER_UPDATE(olap_parent->_inverted_index_searcher_open_timer,
+                   stats.inverted_index_searcher_open_timer);
+    COUNTER_UPDATE(olap_parent->_inverted_index_searcher_search_timer,
+                   stats.inverted_index_searcher_search_timer);
+    COUNTER_UPDATE(olap_parent->_inverted_index_searcher_bitmap_timer,
+                   stats.inverted_index_searcher_bitmap_timer);
 
     COUNTER_UPDATE(olap_parent->_output_index_result_column_timer,
                    stats.output_index_result_column_timer);

@@ -344,6 +344,14 @@ struct OlapReaderStatistics {
 
     int64_t rows_inverted_index_filtered = 0;
     int64_t inverted_index_filter_timer = 0;
+    int64_t inverted_index_query_timer = 0;
+    int64_t inverted_index_query_cache_hit = 0;
+    int64_t inverted_index_query_cache_miss = 0;
+    int64_t inverted_index_query_bitmap_copy_timer = 0;
+    int64_t inverted_index_query_bitmap_op_timer = 0;
+    int64_t inverted_index_searcher_open_timer = 0;
+    int64_t inverted_index_searcher_search_timer = 0;
+    int64_t inverted_index_searcher_bitmap_timer = 0;
 
     int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator

@@ -894,6 +894,9 @@ CONF_String(inverted_index_searcher_cache_limit, "10%");
 CONF_Bool(enable_write_index_searcher_cache, "true");
 CONF_Bool(enable_inverted_index_cache_check_timestamp, "true");
 
+// inverted index match bitmap cache size
+CONF_String(inverted_index_query_cache_limit, "10%");
+
 // inverted index
 CONF_mDouble(inverted_index_ram_buffer_size, "512");
 CONF_Int32(query_bkd_inverted_index_limit_percent, "5"); // 5%

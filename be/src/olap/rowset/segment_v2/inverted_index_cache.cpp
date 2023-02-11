@@ -70,7 +70,7 @@ Status InvertedIndexSearcherCache::get_index_searcher(const io::FileSystemSPtr& 
                                                       const std::string& index_dir,
                                                       const std::string& file_name,
                                                       InvertedIndexCacheHandle* cache_handle,
-                                                      bool use_cache) {
+                                                      OlapReaderStatistics* stats, bool use_cache) {
     auto file_path = index_dir + "/" + file_name;
 
     using namespace std::chrono;
@@ -85,12 +85,14 @@ Status InvertedIndexSearcherCache::get_index_searcher(const io::FileSystemSPtr& 
         cache_handle->owned = false;
         return Status::OK();
     }
+
     cache_handle->owned = !use_cache;
     IndexSearcherPtr index_searcher = nullptr;
     auto mem_tracker =
             std::unique_ptr<MemTracker>(new MemTracker("InvertedIndexSearcherCacheWithRead"));
 #ifndef BE_TEST
     {
+        SCOPED_RAW_TIMER(&stats->inverted_index_searcher_open_timer);
         SCOPED_CONSUME_MEM_TRACKER(mem_tracker.get());
         index_searcher = build_index_searcher(fs, index_dir, file_name);
     }
@@ -167,6 +169,26 @@ Cache::Handle* InvertedIndexSearcherCache::_insert(const InvertedIndexSearcherCa
     Cache::Handle* lru_handle =
             _cache->insert(key.index_file_path, value, value->size, deleter, CachePriority::NORMAL);
     return lru_handle;
+}
+
+InvertedIndexQueryCache* InvertedIndexQueryCache::_s_instance = nullptr;
+
+bool InvertedIndexQueryCache::lookup(const CacheKey& key, InvertedIndexQueryCacheHandle* handle) {
+    auto lru_handle = _cache->lookup(key.encode());
+    if (lru_handle == nullptr) {
+        return false;
+    }
+    *handle = InvertedIndexQueryCacheHandle(_cache.get(), lru_handle);
+    return true;
+}
+
+void InvertedIndexQueryCache::insert(const CacheKey& key, roaring::Roaring* bitmap,
+                                     InvertedIndexQueryCacheHandle* handle) {
+    auto deleter = [](const doris::CacheKey& key, void* value) { delete (roaring::Roaring*)value; };
+
+    auto lru_handle = _cache->insert(key.encode(), (void*)bitmap, bitmap->getSizeInBytes(), deleter,
+                                     CachePriority::NORMAL);
+    *handle = InvertedIndexQueryCacheHandle(_cache.get(), lru_handle);
 }
 
 } // namespace segment_v2
