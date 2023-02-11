@@ -62,6 +62,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     }
 
     // convert RowsetReaderContext to StorageReadOptions
+    _read_options.block_row_max = read_context->batch_size;
     _read_options.stats = _stats;
     _read_options.push_down_agg_type_opt = _context->push_down_agg_type_opt;
     _read_options.remaining_vconjunct_root = _context->remaining_vconjunct_root;
