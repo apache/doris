@@ -704,20 +704,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    private void checkAuthCodeUuid(String dbName, long txnId, String authCodeUuid) throws AuthenticationException {
-        DatabaseIf db = Env.getCurrentInternalCatalog()
-                .getDbOrException(dbName, s -> new AuthenticationException("invalid db name: " + s));
-        TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
-                .getTransactionState(db.getId(), txnId);
-        if (transactionState == null) {
-            throw new AuthenticationException("invalid transactionState: " + txnId);
-        }
-        if (!authCodeUuid.equals(transactionState.getAuthCode())) {
-            throw new AuthenticationException(
-                    "Access denied; you need (at least one of) the LOAD privilege(s) for this operation");
-        }
-    }
-
     private void checkPasswordAndPrivs(String cluster, String user, String passwd, String db, String tbl,
             String clientIp, PrivPredicate predicate) throws AuthenticationException {
 
@@ -806,10 +792,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 db.getId(), Lists.newArrayList(table.getId()), request.getLabel(), request.getRequestId(),
                 new TxnCoordinator(TxnSourceType.BE, clientIp),
                 TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
-        if (!Strings.isNullOrEmpty(request.getToken())) {
-            Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId)
-                    .setAuthCode(request.getToken());
-        }
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
         result.setTxnId(txnId).setDbId(db.getId());
         return result;
@@ -1450,7 +1432,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
         try {
-            String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken(null);
+            String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
             result.setToken(token);
         } catch (Throwable e) {
             LOG.warn("catch unknown result.", e);

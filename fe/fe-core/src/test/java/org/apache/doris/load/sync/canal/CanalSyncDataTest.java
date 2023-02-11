@@ -58,7 +58,6 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.net.InetSocketAddress;
-import java.nio.ByteBuffer;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Future;
@@ -268,8 +267,7 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = commitFuture;
 
-                backendServiceProxy.sendData((TNetworkAddress) any, (Types.PUniqueId) any,
-                        (List<InternalService.PDataRow>) any, (ByteBuffer) any);
+                backendServiceProxy.sendData((TNetworkAddress) any, (Types.PUniqueId) any, (List<InternalService.PDataRow>) any);
                 minTimes = 0;
                 result = sendDataFuture;
 
@@ -412,8 +410,7 @@ public class CanalSyncDataTest {
                 minTimes = 0;
                 result = abortFuture;
 
-                backendServiceProxy.sendData((TNetworkAddress) any, (Types.PUniqueId) any,
-                        (List<InternalService.PDataRow>) any, (ByteBuffer) any);
+                backendServiceProxy.sendData((TNetworkAddress) any, (Types.PUniqueId) any, (List<InternalService.PDataRow>) any);
                 minTimes = 0;
                 result = sendDataFuture;
 

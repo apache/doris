@@ -139,43 +139,4 @@ public class MasterTxnExecutor {
             }
         }
     }
-
-    public String acquireToken() throws TException {
-        TNetworkAddress thriftAddress = getMasterAddress();
-
-        FrontendService.Client client = getClient(thriftAddress);
-
-        LOG.info("Send acquire token {} to Master {}", ctx.getStmtId(), thriftAddress);
-
-        boolean isReturnToPool = false;
-        try {
-            TMySqlLoadAcquireTokenResult result = client.acquireToken();
-            isReturnToPool = true;
-            if (result.getStatus().getStatusCode() != TStatusCode.OK) {
-                throw new TException("get acquire token failed.");
-            }
-            return result.getToken();
-        } catch (TTransportException e) {
-            boolean ok = ClientPool.frontendPool.reopen(client, thriftTimeoutMs);
-            if (!ok) {
-                throw e;
-            }
-            if (e.getType() == TTransportException.TIMED_OUT) {
-                throw e;
-            } else {
-                TMySqlLoadAcquireTokenResult result = client.acquireToken();
-                if (result.getStatus().getStatusCode() != TStatusCode.OK) {
-                    throw new TException("commit failed.");
-                }
-                isReturnToPool = true;
-                return result.getToken();
-            }
-        } finally {
-            if (isReturnToPool) {
-                ClientPool.frontendPool.returnObject(thriftAddress, client);
-            } else {
-                ClientPool.frontendPool.invalidateObject(thriftAddress, client);
-            }
-        }
-    }
 }

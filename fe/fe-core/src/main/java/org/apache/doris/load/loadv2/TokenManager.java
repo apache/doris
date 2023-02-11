@@ -18,14 +18,18 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
-import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.qe.MasterTxnExecutor;
+import org.apache.doris.thrift.FrontendService;
+import org.apache.doris.thrift.TMySqlLoadAcquireTokenResult;
+import org.apache.doris.thrift.TNetworkAddress;
+import org.apache.doris.thrift.TStatusCode;
 
 import com.google.common.collect.EvictingQueue;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
+import org.apache.thrift.transport.TTransportException;
 
 import java.util.UUID;
 import java.util.concurrent.Executors;
@@ -35,15 +39,22 @@ import java.util.concurrent.TimeUnit;
 public class TokenManager {
     private static final Logger LOG = LogManager.getLogger(TokenManager.class);
 
+    private final int thriftTimeoutMs = 300 * 1000;
     private final EvictingQueue<String> tokenQueue;
     private final ScheduledExecutorService tokenGenerator;
 
     public TokenManager() {
         this.tokenQueue = EvictingQueue.create(Config.token_queue_size);
+        // init one token to avoid async issue.
+        this.tokenQueue.offer(generateNewToken());
         this.tokenGenerator = Executors.newScheduledThreadPool(1);
         this.tokenGenerator.scheduleAtFixedRate(() -> {
-            tokenQueue.offer(UUID.randomUUID().toString());
-        }, 1, Config.token_generate_period_hour, TimeUnit.HOURS);
+            tokenQueue.offer(generateNewToken());
+        }, 0, Config.token_generate_period_hour, TimeUnit.HOURS);
+    }
+
+    private String generateNewToken() {
+        return UUID.randomUUID().toString();
     }
 
     // this method only will be called in master node, since stream load only send message to master.
@@ -51,18 +62,71 @@ public class TokenManager {
         return tokenQueue.contains(token);
     }
 
-    // context only use in no master branch.
-    public String acquireToken(ConnectContext context) {
+    public String acquireToken() {
         if (Env.getCurrentEnv().isMaster()) {
             return tokenQueue.peek();
         } else {
-            MasterTxnExecutor masterTxnExecutor = new MasterTxnExecutor(context);
             try {
-                return masterTxnExecutor.acquireToken();
+                return acquireTokenFromMaster();
             } catch (TException e) {
                 LOG.warn("acquire token error", e);
                 return null;
             }
+        }
+    }
+
+    public String acquireTokenFromMaster() throws TException {
+        TNetworkAddress thriftAddress = getMasterAddress();
+
+        FrontendService.Client client = getClient(thriftAddress);
+
+        LOG.info("Send acquire token to Master {}", thriftAddress);
+
+        boolean isReturnToPool = false;
+        try {
+            TMySqlLoadAcquireTokenResult result = client.acquireToken();
+            isReturnToPool = true;
+            if (result.getStatus().getStatusCode() != TStatusCode.OK) {
+                throw new TException("get acquire token failed.");
+            }
+            return result.getToken();
+        } catch (TTransportException e) {
+            boolean ok = ClientPool.frontendPool.reopen(client, thriftTimeoutMs);
+            if (!ok) {
+                throw e;
+            }
+            if (e.getType() == TTransportException.TIMED_OUT) {
+                throw e;
+            } else {
+                TMySqlLoadAcquireTokenResult result = client.acquireToken();
+                if (result.getStatus().getStatusCode() != TStatusCode.OK) {
+                    throw new TException("commit failed.");
+                }
+                isReturnToPool = true;
+                return result.getToken();
+            }
+        } finally {
+            if (isReturnToPool) {
+                ClientPool.frontendPool.returnObject(thriftAddress, client);
+            } else {
+                ClientPool.frontendPool.invalidateObject(thriftAddress, client);
+            }
+        }
+    }
+
+
+    private TNetworkAddress getMasterAddress() {
+        String masterHost = Env.getCurrentEnv().getMasterIp();
+        int masterRpcPort = Env.getCurrentEnv().getMasterRpcPort();
+        return new TNetworkAddress(masterHost, masterRpcPort);
+    }
+
+    private FrontendService.Client getClient(TNetworkAddress thriftAddress) throws TException {
+        try {
+            return ClientPool.frontendPool.borrowObject(thriftAddress, thriftTimeoutMs);
+        } catch (Exception e) {
+            // may throw NullPointerException. add err msg
+            throw new TException("Failed to get master client.", e);
         }
     }
 }

@@ -559,10 +559,6 @@ void PInternalServiceImpl::send_data(google::protobuf::RpcController* controller
             pipe->append_and_flush(reinterpret_cast<char*>(&row), sizeof(row),
                                    sizeof(row) + row->ByteSizeLong());
         }
-        if (request->has_chunk()) {
-            const std::string& chuck_body = request->chunk();
-            pipe->append(chuck_body.data(), chuck_body.size());
-        }
         response->mutable_status()->set_status_code(0);
     }
 }

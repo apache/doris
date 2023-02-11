@@ -1362,7 +1362,7 @@ public class StmtExecutor implements ProfileWriter {
 
             TTxnParams txnConf = context.getTxnEntry().getTxnConf();
             try {
-                StreamLoadTxnExecutor executor = new StreamLoadTxnExecutor(context.getTxnEntry());
+                InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(context.getTxnEntry());
                 if (context.getTxnEntry().getDataToSend().size() > 0) {
                     // send rest data
                     executor.sendData();
@@ -1405,7 +1405,7 @@ public class StmtExecutor implements ProfileWriter {
             }
             try {
                 // abort txn
-                StreamLoadTxnExecutor executor = new StreamLoadTxnExecutor(context.getTxnEntry());
+                InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(context.getTxnEntry());
                 executor.abortTransaction();
 
                 StringBuilder sb = new StringBuilder();
@@ -1460,7 +1460,7 @@ public class StmtExecutor implements ProfileWriter {
                 dataToSend.add(data);
                 if (dataToSend.size() >= MAX_DATA_TO_SEND_FOR_TXN) {
                     // send data
-                    StreamLoadTxnExecutor executor = new StreamLoadTxnExecutor(txnEntry);
+                    InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(txnEntry);
                     executor.sendData();
                 }
             }
@@ -1489,11 +1489,10 @@ public class StmtExecutor implements ProfileWriter {
                             TransactionState.TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                     sourceType, timeoutSecond);
             txnConf.setTxnId(txnId);
-            String token = Env.getCurrentGlobalTransactionMgr().getTransactionState(
-                    txnConf.getDbId(), txnConf.getTxnId()).getAuthCode();
+            String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
             txnConf.setToken(token);
         } else {
-            String token = UUID.randomUUID().toString();
+            String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
             MasterTxnExecutor masterTxnExecutor = new MasterTxnExecutor(context);
             TLoadTxnBeginRequest request = new TLoadTxnBeginRequest();
             request.setDb(txnConf.getDb()).setTbl(txnConf.getTbl()).setToken(token)
@@ -1510,7 +1509,7 @@ public class StmtExecutor implements ProfileWriter {
                 .setMergeType(TMergeType.APPEND).setThriftRpcTimeoutMs(5000).setLoadId(context.queryId());
 
         // execute begin txn
-        StreamLoadTxnExecutor executor = new StreamLoadTxnExecutor(txnEntry);
+        InsertStreamTxnExecutor executor = new InsertStreamTxnExecutor(txnEntry);
         executor.beginTransaction(request);
     }
 
