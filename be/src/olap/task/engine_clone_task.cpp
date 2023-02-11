@@ -105,7 +105,8 @@ Status EngineCloneTask::_do_clone() {
         LOG(INFO) << "clone to existed tablet. missed_versions_size=" << missed_versions.size()
                   << ", allow_incremental_clone=" << allow_incremental_clone
                   << ", signature=" << _signature << ", tablet_id=" << _clone_req.tablet_id
-                  << ", committed_version=" << _clone_req.committed_version;
+                  << ", committed_version=" << _clone_req.committed_version
+                  << ", req replica=" << _clone_req.replica_id;
 
         // try to download missing version from src backend.
         // if tablet on src backend does not contains missing version, it will download all versions,
@@ -539,7 +540,8 @@ Status EngineCloneTask::_finish_incremental_clone(Tablet* tablet,
                                                   const TabletMeta& cloned_tablet_meta,
                                                   int64_t committed_version) {
     LOG(INFO) << "begin to finish incremental clone. tablet=" << tablet->full_name()
-              << ", committed_version=" << committed_version;
+              << ", committed_version=" << committed_version
+              << ", cloned_tablet_replica_id=" << cloned_tablet_meta.tablet_id();
 
     /// Get missing versions again from local tablet.
     /// We got it before outside the lock, so it has to be got again.
