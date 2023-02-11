@@ -377,7 +377,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
                                               PFetchTableSchemaResult* result,
                                               google::protobuf::Closure* done) {
     DorisMetrics::instance()->fetch_table_schema->increment(1);
-    _light_work_pool.offer([this, controller, request, result, done]() {
+    _light_work_pool.offer([this, request, result, done]() {
         VLOG_RPC << "fetch table schema";
         brpc::ClosureGuard closure_guard(done);
         TFileScanRange file_scan_range;
