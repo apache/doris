@@ -33,7 +33,7 @@ public class StoragePolicyPersistTest {
     @Test
     public void test() throws IOException {
         long cooldownTime = System.currentTimeMillis();
-        StoragePolicy storagePolicy = new StoragePolicy(1, "test_policy", "resource1", cooldownTime, "-1", -1);
+        StoragePolicy storagePolicy = new StoragePolicy(1, "test_policy", "resource1", cooldownTime, -1);
 
         // 1. Write objects to file
         File file = new File("./StoregaPolicyPersistTest");

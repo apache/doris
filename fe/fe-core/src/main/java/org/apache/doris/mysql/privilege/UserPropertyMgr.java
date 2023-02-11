@@ -30,7 +30,6 @@ import org.apache.doris.resource.Tag;
 import org.apache.doris.thrift.TAgentServiceVersion;
 import org.apache.doris.thrift.TFetchResourceResult;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -87,31 +86,6 @@ public class UserPropertyMgr implements Writable {
         }
 
         propertyMap.put(qualifiedUser, property);
-        resourceVersion.incrementAndGet();
-    }
-
-    public void setPasswordForDomain(UserIdentity userIdentity, byte[] password, boolean errOnExist,
-            boolean errOnNonExist) throws DdlException {
-        Preconditions.checkArgument(userIdentity.isDomain());
-        UserProperty property = propertyMap.get(userIdentity.getQualifiedUser());
-        if (property == null) {
-            if (errOnNonExist) {
-                throw new DdlException("user " + userIdentity + " does not exist");
-            }
-            property = new UserProperty(userIdentity.getQualifiedUser());
-        }
-        property.setPasswordForDomain(userIdentity.getHost(), password, errOnExist);
-        // update propertyMap after setPasswordForDomain, cause setPasswordForDomain may throw exception
-        propertyMap.put(userIdentity.getQualifiedUser(), property);
-    }
-
-    public void removeDomainFromUser(UserIdentity userIdentity) {
-        Preconditions.checkArgument(userIdentity.isDomain());
-        UserProperty userProperty = propertyMap.get(userIdentity.getQualifiedUser());
-        if (userProperty == null) {
-            return;
-        }
-        userProperty.removeDomain(userIdentity.getHost());
         resourceVersion.incrementAndGet();
     }
 
@@ -221,39 +195,6 @@ public class UserPropertyMgr implements Writable {
             throw new AnalysisException("User " + qualifiedUser + " does not exist");
         }
         return property.fetchProperty();
-    }
-
-    // return a map from domain name -> set of user names
-    public void getAllDomains(Set<String> allDomains) {
-        LOG.debug("get property map: {}", propertyMap);
-        for (Map.Entry<String, UserProperty> entry : propertyMap.entrySet()) {
-            Set<String> domains = entry.getValue().getWhiteList().getAllDomains();
-            allDomains.addAll(domains);
-        }
-    }
-
-    // check if specified user identity has password
-    public boolean doesUserHasPassword(UserIdentity userIdent) {
-        Preconditions.checkState(userIdent.isDomain());
-        if (!propertyMap.containsKey(userIdent.getQualifiedUser())) {
-            return false;
-        }
-        return propertyMap.get(userIdent.getQualifiedUser()).getWhiteList().hasPassword(userIdent.getHost());
-    }
-
-    public boolean doesUserExist(UserIdentity userIdent) {
-        Preconditions.checkState(userIdent.isDomain());
-        if (!propertyMap.containsKey(userIdent.getQualifiedUser())) {
-            return false;
-        }
-        return propertyMap.get(userIdent.getQualifiedUser()).getWhiteList().containsDomain(userIdent.getHost());
-    }
-
-    public void addUserPrivEntriesByResolvedIPs(Map<String, Set<String>> resolvedIPsMap) {
-        for (UserProperty userProperty : propertyMap.values()) {
-            userProperty.getWhiteList()
-                    .addUserPrivEntriesByResolvedIPs(userProperty.getQualifiedUser(), resolvedIPsMap);
-        }
     }
 
     public String[] getSqlBlockRules(String qualifiedUser) {

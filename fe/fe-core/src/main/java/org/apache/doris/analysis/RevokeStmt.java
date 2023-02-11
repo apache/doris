@@ -21,8 +21,8 @@ import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeNameFormat;
-import org.apache.doris.mysql.privilege.PaloPrivilege;
 import org.apache.doris.mysql.privilege.PrivBitSet;
+import org.apache.doris.mysql.privilege.Privilege;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
@@ -39,7 +39,7 @@ public class RevokeStmt extends DdlStmt {
     private String role;
     private TablePattern tblPattern;
     private ResourcePattern resourcePattern;
-    private List<PaloPrivilege> privileges;
+    private List<Privilege> privileges;
 
     public RevokeStmt(UserIdentity userIdent, String role, TablePattern tblPattern, List<AccessPrivilege> privileges) {
         this.userIdent = userIdent;
@@ -82,7 +82,7 @@ public class RevokeStmt extends DdlStmt {
         return role;
     }
 
-    public List<PaloPrivilege> getPrivileges() {
+    public List<Privilege> getPrivileges() {
         return privileges;
     }
 

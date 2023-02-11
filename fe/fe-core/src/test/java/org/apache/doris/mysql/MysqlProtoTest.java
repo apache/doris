@@ -27,7 +27,7 @@ import org.apache.doris.common.LdapConfig;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ldap.LdapAuthenticate;
 import org.apache.doris.ldap.LdapManager;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -57,7 +57,7 @@ public class MysqlProtoTest {
     @Mocked
     private InternalCatalog catalog;
     @Mocked
-    private PaloAuth auth;
+    private Auth auth;
     @Mocked
     private LdapManager ldapManager;
     @Mocked

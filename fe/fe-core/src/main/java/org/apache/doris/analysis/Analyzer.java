@@ -2091,7 +2091,9 @@ public class Analyzer {
         }
         if (compatibleType.equals(Type.VARCHAR)) {
             if (exprs.get(0).getType().isDateType()) {
-                compatibleType = ScalarType.getDefaultDateType(Type.DATETIME);
+                compatibleType = exprs.get(0).getType().isDateOrDateTime()
+                        ? Type.DATETIME : exprs.get(0).getType().isDatetimeV2()
+                        ? exprs.get(0).getType() : Type.DATETIMEV2;
             }
         }
         // Add implicit casts if necessary.

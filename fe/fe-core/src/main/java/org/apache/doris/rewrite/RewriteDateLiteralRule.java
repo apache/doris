@@ -24,7 +24,6 @@ import org.apache.doris.analysis.DateLiteral;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 
 /**
@@ -64,7 +63,6 @@ public class RewriteDateLiteralRule implements ExprRewriteRule {
                     String dateStr = childExpr.getStringValue();
                     DateLiteral dateLiteral = new DateLiteral();
                     dateLiteral.fromDateStr(dateStr);
-                    dateLiteral.setType(ScalarType.getDefaultDateType(dateLiteral.getType()));
                     expr.setChild(1, dateLiteral);
                 } catch (AnalysisException e) {
                     if (clauseType == ExprRewriter.ClauseType.OTHER_CLAUSE) {

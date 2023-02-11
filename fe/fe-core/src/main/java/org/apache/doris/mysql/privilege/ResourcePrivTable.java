@@ -17,14 +17,8 @@
 
 package org.apache.doris.mysql.privilege;
 
-import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.common.io.Text;
-
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-
-import java.io.DataOutput;
-import java.io.IOException;
 
 /*
  * ResourcePrivTable saves all resources privs
@@ -36,15 +30,10 @@ public class ResourcePrivTable extends PrivTable {
      * Return first priv which match the user@host on resourceName The returned priv will be
      * saved in 'savedPrivs'.
      */
-    public void getPrivs(UserIdentity currentUser, String resourceName, PrivBitSet savedPrivs) {
+    public void getPrivs(String resourceName, PrivBitSet savedPrivs) {
         ResourcePrivEntry matchedEntry = null;
         for (PrivEntry entry : entries) {
             ResourcePrivEntry resourcePrivEntry = (ResourcePrivEntry) entry;
-
-            if (!resourcePrivEntry.match(currentUser, true)) {
-                continue;
-            }
-
             // check resource
             if (!resourcePrivEntry.getResourcePattern().match(resourceName)) {
                 continue;
@@ -58,16 +47,5 @@ public class ResourcePrivTable extends PrivTable {
         }
 
         savedPrivs.or(matchedEntry.getPrivSet());
-    }
-
-    @Override
-    public void write(DataOutput out) throws IOException {
-        if (!isClassNameWrote) {
-            String className = ResourcePrivTable.class.getCanonicalName();
-            Text.writeString(out, className);
-            isClassNameWrote = true;
-        }
-
-        super.write(out);
     }
 }

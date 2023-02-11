@@ -708,8 +708,8 @@ public class SelectStmt extends QueryStmt {
         // Only TOPN query at present
         if (getOrderByElements() == null
                     || !hasLimit()
-                    || getLimit() == 0
-                    || getLimit() > ConnectContext.get().getSessionVariable().twoPhaseReadLimitThreshold) {
+                    || getLimit() <= 0
+                    || getLimit() > ConnectContext.get().getSessionVariable().topnOptLimitThreshold) {
             return false;
         }
         // Check order by exprs are all slot refs
@@ -896,7 +896,7 @@ public class SelectStmt extends QueryStmt {
                     lateralViewRef.materializeRequiredSlots(baseTblSmap, analyzer);
                 }
             }
-            boolean hasConstant = resultExprs.stream().anyMatch(Expr::isConstant);
+            boolean hasConstant = resultExprs.stream().anyMatch(e -> e.isConstant() || e.refToCountStar());
             // In such case, agg output must be materialized whether outer query block required or not.
             if (tableRef instanceof InlineViewRef && hasConstant) {
                 InlineViewRef inlineViewRef = (InlineViewRef) tableRef;

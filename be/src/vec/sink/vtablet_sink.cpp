@@ -225,8 +225,6 @@ Status VNodeChannel::init(RuntimeState* state) {
     _rpc_timeout_ms = state->query_options().query_timeout * 1000;
     _timeout_watch.start();
 
-    _cur_mutable_block.reset(new vectorized::MutableBlock({_tuple_desc}));
-
     // Initialize _cur_add_block_request
     _cur_add_block_request.set_allocated_id(&_parent->_load_id);
     _cur_add_block_request.set_index_id(_index_channel->_index_id);
@@ -428,7 +426,16 @@ Status VNodeChannel::add_block(vectorized::Block* block,
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
-    block->append_block_by_selector(_cur_mutable_block->mutable_columns(), *(payload.first));
+    if (UNLIKELY(!_cur_mutable_block)) {
+        _cur_mutable_block.reset(new vectorized::MutableBlock(block->clone_empty()));
+    }
+
+    if (_parent->_schema->is_dynamic_schema()) {
+        // Set _cur_mutable_block to dynamic since input blocks may be structure-variable(dyanmic)
+        // this will align _cur_mutable_block with block and auto extends columns
+        _cur_mutable_block->set_block_type(vectorized::BlockType::DYNAMIC);
+    }
+    block->append_block_by_selector(_cur_mutable_block.get(), *(payload.first));
     for (auto tablet_id : payload.second) {
         _cur_add_block_request.add_tablet_ids(tablet_id);
     }
@@ -447,8 +454,7 @@ Status VNodeChannel::add_block(vectorized::Block* block,
                        << " jobid:" << std::to_string(_state->load_job_id())
                        << " loadinfo:" << _load_info;
         }
-
-        _cur_mutable_block.reset(new vectorized::MutableBlock({_tuple_desc}));
+        _cur_mutable_block.reset(new vectorized::MutableBlock(block->clone_empty()));
         _cur_add_block_request.clear_tablet_ids();
     }
 
@@ -731,6 +737,10 @@ void VNodeChannel::mark_close() {
     {
         debug::ScopedTSANIgnoreReadsAndWrites ignore_tsan;
         std::lock_guard<std::mutex> l(_pending_batches_lock);
+        if (!_cur_mutable_block) {
+            // add a dummy block
+            _cur_mutable_block.reset(new vectorized::MutableBlock());
+        }
         _pending_blocks.emplace(std::move(_cur_mutable_block), _cur_add_block_request);
         _pending_batches_num++;
         DCHECK(_pending_blocks.back().second.eos());
@@ -1398,11 +1408,12 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
             }
             fmt::format_to(error_prefix, "ARRAY type failed: ");
             RETURN_IF_ERROR(_validate_column(
-                    state, nested_type, nested_type.contains_null, column_array->get_data_ptr(),
+                    state, nested_type, type.contains_nulls[0], column_array->get_data_ptr(),
                     slot_index, filter_bitmap, stop_processing, error_prefix, &permutation));
         }
         break;
     }
+    // TODO(xy): add struct type validate
     default:
         break;
     }
@@ -1452,7 +1463,7 @@ Status VOlapTableSink::_validate_data(RuntimeState* state, vectorized::Block* bl
 }
 
 void VOlapTableSink::_convert_to_dest_desc_block(doris::vectorized::Block* block) {
-    for (int i = 0; i < _output_tuple_desc->slots().size(); ++i) {
+    for (int i = 0; i < _output_tuple_desc->slots().size() && i < block->columns(); ++i) {
         SlotDescriptor* desc = _output_tuple_desc->slots()[i];
         if (desc->is_nullable() != block->get_by_position(i).type->is_nullable()) {
             if (desc->is_nullable()) {

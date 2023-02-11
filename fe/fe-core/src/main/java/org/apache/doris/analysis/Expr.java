@@ -47,6 +47,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -1354,8 +1355,7 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     }
 
     public Expr checkTypeCompatibility(Type targetType) throws AnalysisException {
-        if (targetType.getPrimitiveType() != PrimitiveType.ARRAY
-                && targetType.getPrimitiveType() == type.getPrimitiveType()) {
+        if (!targetType.isComplexType() && targetType.getPrimitiveType() == type.getPrimitiveType()) {
             if (targetType.isDecimalV2() && type.isDecimalV2()) {
                 return this;
             } else if (!PrimitiveType.typeWithPrecision.contains(type.getPrimitiveType())) {
@@ -1825,7 +1825,9 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         ARRAY_LITERAL(13),
         CAST_EXPR(14),
         JSON_LITERAL(15),
-        ARITHMETIC_EXPR(16);
+        ARITHMETIC_EXPR(16),
+        STRUCT_LITERAL(17),
+        MAP_LITERAL(18);
 
         private static Map<Integer, ExprSerCode> codeMap = Maps.newHashMap();
 
@@ -1877,6 +1879,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
             output.writeInt(ExprSerCode.FUNCTION_CALL.getCode());
         } else if (expr instanceof ArrayLiteral) {
             output.writeInt(ExprSerCode.ARRAY_LITERAL.getCode());
+        } else if (expr instanceof MapLiteral) {
+            output.writeInt(ExprSerCode.MAP_LITERAL.getCode());
+        } else if (expr instanceof StructLiteral) {
+            output.writeInt(ExprSerCode.STRUCT_LITERAL.getCode());
         } else if (expr instanceof CastExpr) {
             output.writeInt(ExprSerCode.CAST_EXPR.getCode());
         } else if (expr instanceof ArithmeticExpr) {
@@ -1926,6 +1932,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                 return FunctionCallExpr.read(in);
             case ARRAY_LITERAL:
                 return ArrayLiteral.read(in);
+            case MAP_LITERAL:
+                return MapLiteral.read(in);
+            case STRUCT_LITERAL:
+                return StructLiteral.read(in);
             case CAST_EXPR:
                 return CastExpr.read(in);
             case ARITHMETIC_EXPR:
@@ -2196,6 +2206,31 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
                     }
                     return type;
                 }).toArray(Type[]::new);
+    }
+
+    public boolean refToCountStar() {
+        if (this instanceof SlotRef) {
+            SlotRef slotRef = (SlotRef) this;
+            SlotDescriptor desc = slotRef.getDesc();
+            List<Expr> exprs = desc.getSourceExprs();
+            return CollectionUtils.isNotEmpty(exprs) && exprs.stream().anyMatch(e -> {
+                if (e instanceof FunctionCallExpr) {
+                    FunctionCallExpr funcExpr = (FunctionCallExpr) e;
+                    Function f = funcExpr.fn;
+                    if (f.getFunctionName().getFunction().equals("count")
+                            && funcExpr.children.stream().anyMatch(Expr::isConstant)) {
+                        return true;
+                    }
+                }
+                return false;
+            });
+        }
+        for (Expr expr : children) {
+            if (expr.refToCountStar()) {
+                return true;
+            }
+        }
+        return false;
     }
 }
 
