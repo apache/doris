@@ -821,7 +821,7 @@ void PInternalServiceImpl::reset_rpc_channel(google::protobuf::RpcController* co
                                              PResetRPCChannelResponse* response,
                                              google::protobuf::Closure* done) {
     DorisMetrics::instance()->reset_rpc_channel->increment(1);
-    _light_work_pool.offer([this, controller, request, response, done]() {
+    _light_work_pool.offer([ controller, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         response->mutable_status()->set_status_code(0);
         if (request->all()) {
