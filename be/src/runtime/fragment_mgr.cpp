@@ -226,10 +226,13 @@ Status FragmentExecState::execute() {
         SCOPED_RAW_TIMER(&duration_ns);
         CgroupsMgr::apply_system_cgroup();
         opentelemetry::trace::Tracer::GetCurrentSpan()->AddEvent("start executing Fragment");
-        WARN_IF_ERROR(_executor.open(),
+        Status st = _executor.open();
+        WARN_IF_ERROR(st,
                       strings::Substitute("Got error while opening fragment $0, query id: $1",
                                           print_id(_fragment_instance_id), print_id(_query_id)));
-
+        if (!st.ok()) {
+            cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "PlanFragmentExecutor open failed");
+        }
         _executor.close();
     }
     DorisMetrics::instance()->fragment_requests_total->increment(1);
@@ -464,7 +467,10 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
             .tag("instance_id", exec_state->fragment_instance_id())
             .tag("pthread_id", (uintptr_t)pthread_self());
 
-    exec_state->execute();
+    Status st = exec_state->execute();
+    if (!st.ok()) {
+        exec_state->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "exec_state execute failed");
+    }
 
     std::shared_ptr<QueryFragmentsCtx> fragments_ctx = exec_state->get_fragments_ctx();
     bool all_done = false;
