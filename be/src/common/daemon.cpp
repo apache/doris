@@ -218,7 +218,9 @@ void Daemon::memory_maintenance_thread() {
         // Refresh allocator memory metrics.
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
         doris::MemInfo::refresh_allocator_mem();
-        DorisMetrics::instance()->system_metrics()->update_allocator_metrics();
+        if (config::enable_system_metrics) {
+            DorisMetrics::instance()->system_metrics()->update_allocator_metrics();
+        }
 #endif
         doris::MemInfo::refresh_proc_mem_no_allocator_cache();
 
