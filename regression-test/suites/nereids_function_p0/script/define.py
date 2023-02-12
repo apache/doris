@@ -89,7 +89,8 @@ not_check_result = {
     'sm4_encrypt_kvchrs1_kvchrs1_kvchrs1_kvchrs1',
     'sm4_encrypt_kstr_kstr_kstr_kstr',
     'space_kint',
-    'user'
+    'user',
+    'unix_timestamp'
 }
 
 denied_tag = {
