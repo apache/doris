@@ -187,89 +187,86 @@ public:
                 ret = _execute_internal<ColumnDecimal32>(left_exec_data, right_exec_data,
                                                          dst_null_map_data,
                                                          dst_nested_col->get_data().data());
-                if (check_column<ColumnDecimal64>(*left_exec_data.nested_col)) {
-                    ret = _execute_internal<ColumnDecimal64>(left_exec_data, right_exec_data,
-                                                             dst_null_map_data,
-                                                             dst_nested_col->get_data().data());
-                    if (check_column<ColumnDecimal128I>(*left_exec_data.nested_col)) {
-                        ret = _execute_internal<ColumnDecimal128I>(
-                                left_exec_data, right_exec_data, dst_null_map_data,
-                                dst_nested_col->get_data().data());
-                    } else if (check_column<ColumnDecimal128>(*left_exec_data.nested_col)) {
-                        ret = _execute_internal<ColumnDecimal128>(
-                                left_exec_data, right_exec_data, dst_null_map_data,
-                                dst_nested_col->get_data().data());
-                    }
-                }
+            } else if (check_column<ColumnDecimal64>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnDecimal64>(left_exec_data, right_exec_data,
+                                                         dst_null_map_data,
+                                                         dst_nested_col->get_data().data());
+            } else if (check_column<ColumnDecimal128I>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnDecimal128I>(left_exec_data, right_exec_data,
+                                                           dst_null_map_data,
+                                                           dst_nested_col->get_data().data());
+            } else if (check_column<ColumnDecimal128>(*left_exec_data.nested_col)) {
+                ret = _execute_internal<ColumnDecimal128>(left_exec_data, right_exec_data,
+                                                          dst_null_map_data,
+                                                          dst_nested_col->get_data().data());
+            }
+        }
 
-                if (ret == Status::OK()) {
-                    block.replace_by_position(result,
-                                              ColumnNullable::create(std::move(dst_nested_col),
+        if (ret == Status::OK()) {
+            block.replace_by_position(result, ColumnNullable::create(std::move(dst_nested_col),
                                                                      std::move(dst_null_map)));
-                }
+        }
 
-                return ret;
+        return ret;
+    }
+
+private:
+    Status _execute_nullable(const ColumnArrayExecutionData& data, UInt8* dst_nullmap_data) {
+        for (ssize_t row = 0; row < data.offsets_ptr->size(); ++row) {
+            if (dst_nullmap_data[row]) {
+                continue;
             }
 
-        private:
-            Status _execute_nullable(const ColumnArrayExecutionData& data,
-                                     UInt8* dst_nullmap_data) {
-                for (ssize_t row = 0; row < data.offsets_ptr->size(); ++row) {
-                    if (dst_nullmap_data[row]) {
-                        continue;
-                    }
+            if (data.array_nullmap_data && data.array_nullmap_data[row]) {
+                dst_nullmap_data[row] = 1;
+                continue;
+            }
 
-                    if (data.array_nullmap_data && data.array_nullmap_data[row]) {
+            // any element inside array is NULL, return NULL
+            if (data.nested_nullmap_data) {
+                ssize_t start = (*data.offsets_ptr)[row - 1];
+                ssize_t size = (*data.offsets_ptr)[row] - start;
+                for (ssize_t i = start; i < start + size; ++i) {
+                    if (data.nested_nullmap_data[i]) {
                         dst_nullmap_data[row] = 1;
-                        continue;
-                    }
-
-                    // any element inside array is NULL, return NULL
-                    if (data.nested_nullmap_data) {
-                        ssize_t start = (*data.offsets_ptr)[row - 1];
-                        ssize_t size = (*data.offsets_ptr)[row] - start;
-                        for (ssize_t i = start; i < start + size; ++i) {
-                            if (data.nested_nullmap_data[i]) {
-                                dst_nullmap_data[row] = 1;
-                                break;
-                            }
-                        }
+                        break;
                     }
                 }
-                return Status::OK();
+            }
+        }
+        return Status::OK();
+    }
+
+    template <typename T>
+    Status _execute_internal(const ColumnArrayExecutionData& left_data,
+                             const ColumnArrayExecutionData& right_data,
+                             const UInt8* dst_nullmap_data, UInt8* dst_data) {
+        using ExecutorImpl = OverlapSetImpl<T>;
+        for (ssize_t row = 0; row < left_data.offsets_ptr->size(); ++row) {
+            if (dst_nullmap_data[row]) {
+                continue;
             }
 
-            template <typename T>
-            Status _execute_internal(const ColumnArrayExecutionData& left_data,
-                                     const ColumnArrayExecutionData& right_data,
-                                     const UInt8* dst_nullmap_data, UInt8* dst_data) {
-                using ExecutorImpl = OverlapSetImpl<T>;
-                for (ssize_t row = 0; row < left_data.offsets_ptr->size(); ++row) {
-                    if (dst_nullmap_data[row]) {
-                        continue;
-                    }
-
-                    ssize_t left_start = (*left_data.offsets_ptr)[row - 1];
-                    ssize_t left_size = (*left_data.offsets_ptr)[row] - left_start;
-                    ssize_t right_start = (*right_data.offsets_ptr)[row - 1];
-                    ssize_t right_size = (*right_data.offsets_ptr)[row] - right_start;
-                    if (left_size == 0 || right_size == 0) {
-                        dst_data[row] = 0;
-                        continue;
-                    }
-
-                    ExecutorImpl impl;
-                    if (right_size < left_size) {
-                        impl.insert_array(right_data.nested_col, right_start, right_size);
-                        dst_data[row] = impl.find_any(left_data.nested_col, left_start, left_size);
-                    } else {
-                        impl.insert_array(left_data.nested_col, left_start, left_size);
-                        dst_data[row] =
-                                impl.find_any(right_data.nested_col, right_start, right_size);
-                    }
-                }
-                return Status::OK();
+            ssize_t left_start = (*left_data.offsets_ptr)[row - 1];
+            ssize_t left_size = (*left_data.offsets_ptr)[row] - left_start;
+            ssize_t right_start = (*right_data.offsets_ptr)[row - 1];
+            ssize_t right_size = (*right_data.offsets_ptr)[row] - right_start;
+            if (left_size == 0 || right_size == 0) {
+                dst_data[row] = 0;
+                continue;
             }
-        };
 
-    } // namespace doris::vectorized
+            ExecutorImpl impl;
+            if (right_size < left_size) {
+                impl.insert_array(right_data.nested_col, right_start, right_size);
+                dst_data[row] = impl.find_any(left_data.nested_col, left_start, left_size);
+            } else {
+                impl.insert_array(left_data.nested_col, left_start, left_size);
+                dst_data[row] = impl.find_any(right_data.nested_col, right_start, right_size);
+            }
+        }
+        return Status::OK();
+    }
+};
+
+} // namespace doris::vectorized
