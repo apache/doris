@@ -369,7 +369,7 @@ public class DynamicPartitionUtil {
 
     private static void checkStorageMedium(String storageMedium) throws DdlException {
         try {
-            TStorageMedium.valueOf(storageMedium);
+            TStorageMedium.valueOf(storageMedium.toUpperCase());
         } catch (IllegalArgumentException e) {
             throw new DdlException("invalid storage medium: " + storageMedium + ". Should be SSD or HDD");
         }
