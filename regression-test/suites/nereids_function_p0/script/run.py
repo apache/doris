@@ -14,7 +14,7 @@ def run_file(file_path: str):
     suite_names: List[str] = re.findall('suite\(\"[A-Za-z-_0-9]+\"\)', f)
     if len(suite_names) != 1:
         return
-    suite_name: str = suite_names[0].replace('suite("', '').replace(')"', '')
+    suite_name: str = suite_names[0].replace('suite("', '').replace('")', '')
     print(suite_name)
     os.system(f'sh {DORIS_HOME}run-regression-test.sh --run -s {suite_name} > res.log')
 
