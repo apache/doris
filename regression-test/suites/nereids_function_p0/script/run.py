@@ -26,7 +26,7 @@ def extractSql(log_str: str, index: int) -> str:
     print(log_str)
     # we get the sql by find the next line of log(info/error/warn etc.)
     sql_end_index = min(find_uint(log_str, 'ERROR'), find_uint(log_str, 'WARN'), find_uint(log_str, 'INFO')) \
-        - len('\n2023-02-12 19:31:26.793 ')
+                    - len('\n2023-02-12 19:31:26.793 ')
     return log_str[:sql_end_index]
 
 
@@ -50,15 +50,28 @@ def adjustTest(file_path: str, error_sql: str):
     prev_line_index = text[:sql_index].rfind('\n') + 1
     next_line_index = text[sql_index + len(error_sql):].find('\n') + sql_index + len(error_sql)
     print(prev_line_index, next_line_index)
-    new_text = text[:prev_line_index] + "sql 'set enable_nereids_planner=false'\n"\
-        + text[prev_line_index: next_line_index] + "\nsql 'set enable_nereids_planner=true'"\
-        + text[next_line_index:]
+    new_text = text[:prev_line_index] + "sql 'set enable_nereids_planner=false'\n" \
+               + text[prev_line_index: next_line_index] + "\nsql 'set enable_nereids_planner=true'" \
+               + text[next_line_index:]
     f = open(file_path, 'w')
     f.write(new_text)
     f.close()
 
 
 log_f = open(log_path, 'a')
+
+
+def runProcess(file_path_name: str):
+    while True:
+        run_file(file_path_name)
+        status, sql, log = check()
+        if status:
+            break
+        log_f.write(sql)
+        log_f.write(log)
+        adjustTest(file_path_name, sql)
+        os.system(f'sh {DORIS_HOME}output/be/bin/start_be.sh --daemon')
+        time.sleep(15)
 
 
 def run(file_path: str):
@@ -68,13 +81,7 @@ def run(file_path: str):
         if os.path.isdir(file_path_name):
             run(file_path_name)
         else:
-            while True:
-                run_file(file_path_name)
-                status, sql, log = check()
-                if status:
-                    break
-                log_f.write(sql)
-                log_f.write(log)
-                adjustTest(file_path_name, sql)
-                os.system('rbe')
-                time.sleep(15)
+            runProcess(file_path_name)
+
+
+runProcess('../scalar_function/A.groovy')
