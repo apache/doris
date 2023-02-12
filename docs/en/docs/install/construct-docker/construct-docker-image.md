@@ -67,7 +67,7 @@ In the Dockerfile script for compiling the Docker Image, there are two methods t
 1. Execute the download command via wget / curl when compiling, and then start the docker build process.
 2. Download the binary package to the compilation directory in advance, and then load it into the docker build process through the ADD or COPY command.
 
-Method 1 can produce a smaller Docker image, but if the docker build process fails, the download operation might be repeated and result in longer build time; Method 2 is more suitable for less-than-ideal network environments. Method 2 will produce a Docker image that is slightly larger than that from Method 1.
+Method 1 can produce a smaller Docker image, but if the docker build process fails, the download operation might be repeated and result in longer build time; Method 2 is more suitable for less-than-ideal network environments.
 
 **The examples below are based on Method 2. If you prefer to go for Method 1, you may modify the steps accordingly.**
 
