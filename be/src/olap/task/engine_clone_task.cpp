@@ -99,9 +99,9 @@ Status EngineCloneTask::_do_clone() {
             LOG(INFO) << "missed version size = 0, skip clone and return success. tablet_id="
                       << _clone_req.tablet_id << " req replica=" << _clone_req.replica_id;
             // update replica id to meet cooldown replica
+            tablet->tablet_meta()->set_replica_id(_clone_req.replica_id);
             {
-                std::lock_guard<std::shared_mutex> wrlock(tablet->get_header_lock());
-                tablet->tablet_meta()->set_replica_id(_clone_req.replica_id);
+                std::shared_lock rlock(tablet->get_header_lock());
                 tablet->save_meta();
             }
             _set_tablet_info(is_new_tablet);
