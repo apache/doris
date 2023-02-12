@@ -86,6 +86,8 @@ public:
     }
     int max_errors() const { return _query_options.max_errors; }
     int query_timeout() const { return _query_options.query_timeout; }
+    int insert_timeout() const { return _query_options.insert_timeout; }
+    int execution_timeout() const { return _query_options.execution_timeout; }
     int max_io_buffers() const { return _query_options.max_io_buffers; }
     int num_scanner_threads() const { return _query_options.num_scanner_threads; }
     TQueryType::type query_type() const { return _query_options.query_type; }
