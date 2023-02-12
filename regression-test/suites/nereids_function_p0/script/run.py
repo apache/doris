@@ -75,3 +75,5 @@ def run(file_path: str):
                     break
                 log_f.write(log)
                 adjustTest(file_path_name, sql)
+                os.system('rbe')
+                time.sleep(8)
