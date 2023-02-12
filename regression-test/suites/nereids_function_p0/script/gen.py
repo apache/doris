@@ -151,10 +151,11 @@ def generateSQL(function_meta: Dict[str, List[List[str]]]) -> List[str]:
 
 
 def genHeaderAndFooter(input_dir: str, output_file: str, title: str, func: Callable[[str], bool]) -> bool:
+    open_nereids = 'true'
     f = open(output_file, 'w')
     f.write(f'suite("{title}") ''{\n'
             '\tsql \'use regression_test_nereids_function_p0\'\n'
-            '\tsql \'set enable_nereids_planner=false\'\n'
+            f'\tsql \'set enable_nereids_planner={open_nereids}\'\n'
             '\tsql \'set enable_fallback_to_original_planner=false\'\n')
     f.writelines(generateSQL(searchFunctions(input_dir, func)))
     f.write('}')
