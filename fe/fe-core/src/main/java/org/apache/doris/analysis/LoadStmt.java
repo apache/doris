@@ -259,10 +259,6 @@ public class LoadStmt extends DdlStmt {
         return etlJobType;
     }
 
-    public boolean isMysqlLoad() {
-        return isMysqlLoad;
-    }
-
     public static void checkProperties(Map<String, String> properties) throws DdlException {
         if (properties == null) {
             return;
@@ -478,5 +474,13 @@ public class LoadStmt extends DdlStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    public RedirectStatus getRedirectStatus() {
+        if (isMysqlLoad) {
+            return RedirectStatus.NO_FORWARD;
+        } else {
+            return RedirectStatus.FORWARD_WITH_SYNC;
+        }
     }
 }

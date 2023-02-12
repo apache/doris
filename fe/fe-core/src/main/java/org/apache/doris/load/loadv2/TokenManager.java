@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
 import org.apache.doris.thrift.FrontendService;
 import org.apache.doris.thrift.TMySqlLoadAcquireTokenResult;
 import org.apache.doris.thrift.TNetworkAddress;
@@ -63,7 +64,7 @@ public class TokenManager {
         return tokenQueue.contains(token);
     }
 
-    public String acquireToken() {
+    public String acquireToken() throws UserException {
         if (Env.getCurrentEnv().isMaster() || FeConstants.runningUnitTest) {
             return tokenQueue.peek();
         } else {
@@ -71,7 +72,7 @@ public class TokenManager {
                 return acquireTokenFromMaster();
             } catch (TException e) {
                 LOG.warn("acquire token error", e);
-                return null;
+                throw new UserException("Acquire token from master failed", e);
             }
         }
     }
@@ -81,7 +82,7 @@ public class TokenManager {
 
         FrontendService.Client client = getClient(thriftAddress);
 
-        LOG.info("Send acquire token to Master {}", thriftAddress);
+        LOG.debug("Send acquire token to Master {}", thriftAddress);
 
         boolean isReturnToPool = false;
         try {

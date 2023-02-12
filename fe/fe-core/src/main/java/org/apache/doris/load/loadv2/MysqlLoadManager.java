@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.ThreadPoolManager;
+import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.ByteBufferNetworkInputStream;
 import org.apache.doris.load.LoadJobRowResult;
 import org.apache.doris.qe.ConnectContext;
@@ -66,7 +67,7 @@ public class MysqlLoadManager {
     }
 
     public LoadJobRowResult executeMySqlLoadJobFromStmt(ConnectContext context, LoadStmt stmt)
-            throws IOException, LoadException {
+            throws IOException, UserException {
         LoadJobRowResult loadResult = new LoadJobRowResult();
         // Mysql data load only have one data desc
         DataDescription dataDesc = stmt.getDataDescriptions().get(0);
@@ -74,9 +75,6 @@ public class MysqlLoadManager {
         String database = ClusterNamespace.getNameFromFullName(dataDesc.getDbName());
         String table = dataDesc.getTableName();
         String token = tokenManager.acquireToken();
-        if (token == null) {
-            throw new LoadException("Can't get the load token in mysql load");
-        }
         try (final CloseableHttpClient httpclient = HttpClients.createDefault()) {
             for (String file : filePaths) {
                 InputStreamEntity entity = getInputStreamEntity(context, dataDesc.isClientLocal(), file);

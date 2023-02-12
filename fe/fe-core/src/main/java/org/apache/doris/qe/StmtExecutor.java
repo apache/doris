@@ -349,11 +349,6 @@ public class StmtExecutor implements ProfileWriter {
             return false;
         }
 
-        // mysql load don't format to master.
-        if (parsedStmt instanceof LoadStmt && ((LoadStmt) parsedStmt).isMysqlLoad()) {
-            return false;
-        }
-
         // this is a query stmt, but this non-master FE can not read, forward it to master
         if ((parsedStmt instanceof QueryStmt) && !Env.getCurrentEnv().isMaster()
                 && !Env.getCurrentEnv().canRead()) {

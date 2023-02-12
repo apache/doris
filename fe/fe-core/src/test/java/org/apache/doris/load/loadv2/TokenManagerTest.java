@@ -18,6 +18,7 @@
 package org.apache.doris.load.loadv2;
 
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.UserException;
 
 import org.junit.Assert;
 import org.junit.Before;
@@ -31,14 +32,14 @@ public class TokenManagerTest {
     }
 
     @Test
-    public void testTokenCheck() {
+    public void testTokenCheck() throws UserException {
         TokenManager tokenManager = new TokenManager();
         String token = tokenManager.acquireToken();
         Assert.assertTrue(tokenManager.checkAuthToken(token));
     }
 
     @Test
-    public void testSameToken() {
+    public void testSameToken() throws UserException {
         TokenManager tokenManager = new TokenManager();
         String token1 = tokenManager.acquireToken();
         String token2 = tokenManager.acquireToken();
