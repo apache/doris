@@ -151,7 +151,7 @@ def generateSQL(function_meta: Dict[str, List[List[str]]]) -> List[str]:
 
 
 def genHeaderAndFooter(input_dir: str, output_file: str, title: str, func: Callable[[str], bool]) -> bool:
-    open_nereids = False
+    open_nereids = True
     f = open(output_file, 'w')
     f.write(f'suite("{title}") ''{\n'
             '\tsql \'use regression_test_nereids_function_p0\'\n'
