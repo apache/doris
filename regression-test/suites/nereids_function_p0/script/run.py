@@ -73,7 +73,8 @@ def run(file_path: str):
                 status, sql, log = check()
                 if status:
                     break
+                log_f.write(sql)
                 log_f.write(log)
                 adjustTest(file_path_name, sql)
                 os.system('rbe')
-                time.sleep(8)
+                time.sleep(15)
