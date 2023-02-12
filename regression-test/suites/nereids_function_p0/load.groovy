@@ -19,6 +19,7 @@ suite("load") {
 
     // ddl begin
     sql "drop table if exists fn_test"
+    sql "drop table if exists fn_test_not_nullable"
 
     sql """
         CREATE TABLE IF NOT EXISTS `fn_test` (
