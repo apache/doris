@@ -122,6 +122,18 @@ public:
         LOG(FATAL) << "get_permutation not implemented";
     }
 
+    [[noreturn]] TypeIndex get_data_type() const override {
+        LOG(FATAL) << "ColumnComplexType get_data_type not implemeted";
+    }
+
+    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
+                                         size_t limit) const override {
+        LOG(FATAL) << "get_indices_of_non_default_rows not implemented";
+    }
+    [[noreturn]] ColumnPtr index(const IColumn& indexes, size_t limit) const override {
+        LOG(FATAL) << "index not implemented";
+    }
+
     void reserve(size_t n) override { data.reserve(n); }
 
     void resize(size_t n) override { data.resize(n); }

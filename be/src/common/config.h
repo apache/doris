@@ -894,6 +894,9 @@ CONF_String(inverted_index_searcher_cache_limit, "10%");
 CONF_Bool(enable_write_index_searcher_cache, "true");
 CONF_Bool(enable_inverted_index_cache_check_timestamp, "true");
 
+// inverted index match bitmap cache size
+CONF_String(inverted_index_query_cache_limit, "10%");
+
 // inverted index
 CONF_mDouble(inverted_index_ram_buffer_size, "512");
 CONF_Int32(query_bkd_inverted_index_limit_percent, "5"); // 5%
@@ -903,6 +906,8 @@ CONF_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 CONF_Int32(max_depth_in_bkd_tree, "32");
 // use num_broadcast_buffer blocks as buffer to do broadcast
 CONF_Int32(num_broadcast_buffer, "32");
+// semi-structure configs
+CONF_Bool(enable_parse_multi_dimession_array, "true");
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");

@@ -23,6 +23,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <roaring/roaring.hh>
 #include <vector>
 
 #include "io/fs/file_system.h"
@@ -71,7 +72,7 @@ public:
 
     Status get_index_searcher(const io::FileSystemSPtr& fs, const std::string& index_dir,
                               const std::string& file_name, InvertedIndexCacheHandle* cache_handle,
-                              bool use_cache = true);
+                              OlapReaderStatistics* stats, bool use_cache = true);
 
     // function `insert` called after inverted index writer close
     Status insert(const io::FileSystemSPtr& fs, const std::string& index_dir,
@@ -161,6 +162,103 @@ private:
 
     // Don't allow copy and assign
     DISALLOW_COPY_AND_ASSIGN(InvertedIndexCacheHandle);
+};
+
+enum class InvertedIndexQueryType;
+
+class InvertedIndexQueryCacheHandle;
+
+class InvertedIndexQueryCache {
+public:
+    // cache key
+    struct CacheKey {
+        io::Path index_path;               // index file path
+        std::string column_name;           // column name
+        InvertedIndexQueryType query_type; // query type
+        std::wstring value;                // query value
+
+        // Encode to a flat binary which can be used as LRUCache's key
+        std::string encode() const {
+            std::string key_buf(index_path.string());
+            key_buf.append("/");
+            key_buf.append(column_name);
+            key_buf.append("/");
+            key_buf.append(1, static_cast<char>(query_type));
+            key_buf.append("/");
+            key_buf.append(lucene::util::Misc::toString(value.c_str()));
+            return key_buf;
+        }
+    };
+
+    using CacheValue = roaring::Roaring;
+
+    // Create global instance of this class
+    static void create_global_cache(size_t capacity, int32_t index_cache_percentage,
+                                    uint32_t num_shards = 16) {
+        DCHECK(_s_instance == nullptr);
+        static InvertedIndexQueryCache instance(capacity, index_cache_percentage, num_shards);
+        _s_instance = &instance;
+    }
+
+    // Return global instance.
+    // Client should call create_global_cache before.
+    static InvertedIndexQueryCache* instance() { return _s_instance; }
+
+    InvertedIndexQueryCache() = delete;
+
+    InvertedIndexQueryCache(size_t capacity, int32_t index_cache_percentage, uint32_t num_shards) {
+        _cache = std::unique_ptr<Cache>(
+                new_lru_cache("InvertedIndexQueryCache", capacity, LRUCacheType::SIZE, num_shards));
+    }
+
+    bool lookup(const CacheKey& key, InvertedIndexQueryCacheHandle* handle);
+
+    void insert(const CacheKey& key, roaring::Roaring* bitmap,
+                InvertedIndexQueryCacheHandle* handle);
+
+private:
+    static InvertedIndexQueryCache* _s_instance;
+    std::unique_ptr<Cache> _cache {nullptr};
+};
+
+class InvertedIndexQueryCacheHandle {
+public:
+    InvertedIndexQueryCacheHandle() {}
+
+    InvertedIndexQueryCacheHandle(Cache* cache, Cache::Handle* handle)
+            : _cache(cache), _handle(handle) {}
+
+    ~InvertedIndexQueryCacheHandle() {
+        if (_handle != nullptr) {
+            _cache->release(_handle);
+        }
+    }
+
+    InvertedIndexQueryCacheHandle(InvertedIndexQueryCacheHandle&& other) noexcept {
+        // we can use std::exchange if we switch c++14 on
+        std::swap(_cache, other._cache);
+        std::swap(_handle, other._handle);
+    }
+
+    InvertedIndexQueryCacheHandle& operator=(InvertedIndexQueryCacheHandle&& other) noexcept {
+        std::swap(_cache, other._cache);
+        std::swap(_handle, other._handle);
+        return *this;
+    }
+
+    Cache* cache() const { return _cache; }
+    Slice data() const { return _cache->value_slice(_handle); }
+
+    InvertedIndexQueryCache::CacheValue* match_bitmap() const {
+        return ((InvertedIndexQueryCache::CacheValue*)_cache->value(_handle));
+    }
+
+private:
+    Cache* _cache = nullptr;
+    Cache::Handle* _handle = nullptr;
+
+    // Don't allow copy and assign
+    DISALLOW_COPY_AND_ASSIGN(InvertedIndexQueryCacheHandle);
 };
 
 } // namespace segment_v2

@@ -20,6 +20,7 @@
 
 #include "vec/columns/column_string.h"
 
+#include "vec/columns/column_impl.h"
 #include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
@@ -518,6 +519,10 @@ void ColumnString::compare_internal(size_t rhs_row_id, const IColumn& rhs, int n
         }
         begin = simd::find_zero(cmp_res, end + 1);
     }
+}
+
+ColumnPtr ColumnString::index(const IColumn& indexes, size_t limit) const {
+    return select_index_impl(*this, indexes, limit);
 }
 
 } // namespace doris::vectorized

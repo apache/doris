@@ -62,12 +62,14 @@ TEST_F(InvertedIndexSearcherCacheTest, insert_lookup) {
     status = index_searcher_cache->insert(fs, kTestDir, file_name_2);
     EXPECT_EQ(Status::OK(), status);
 
+    OlapReaderStatistics stats;
+
     // lookup after insert
     {
         // case 1: lookup exist entry
         InvertedIndexCacheHandle inverted_index_cache_handle;
         status = index_searcher_cache->get_index_searcher(fs, kTestDir, file_name_1,
-                                                          &inverted_index_cache_handle);
+                                                          &inverted_index_cache_handle, &stats);
         EXPECT_EQ(Status::OK(), status);
 
         auto cache_value_1 =
@@ -76,7 +78,7 @@ TEST_F(InvertedIndexSearcherCacheTest, insert_lookup) {
         EXPECT_GE(UnixMillis(), cache_value_1->last_visit_time);
 
         status = index_searcher_cache->get_index_searcher(fs, kTestDir, file_name_2,
-                                                          &inverted_index_cache_handle);
+                                                          &inverted_index_cache_handle, &stats);
         EXPECT_EQ(Status::OK(), status);
 
         auto cache_value_2 =
@@ -92,8 +94,8 @@ TEST_F(InvertedIndexSearcherCacheTest, insert_lookup) {
         // use cache
         {
             InvertedIndexCacheHandle inverted_index_cache_handle_1;
-            status = index_searcher_cache->get_index_searcher(fs, kTestDir, file_name_not_exist_1,
-                                                              &inverted_index_cache_handle_1);
+            status = index_searcher_cache->get_index_searcher(
+                    fs, kTestDir, file_name_not_exist_1, &inverted_index_cache_handle_1, &stats);
             EXPECT_EQ(Status::OK(), status);
             EXPECT_FALSE(inverted_index_cache_handle_1.owned);
         }
@@ -101,8 +103,8 @@ TEST_F(InvertedIndexSearcherCacheTest, insert_lookup) {
         // lookup again
         {
             InvertedIndexCacheHandle inverted_index_cache_handle_1;
-            status = index_searcher_cache->get_index_searcher(fs, kTestDir, file_name_not_exist_1,
-                                                              &inverted_index_cache_handle_1);
+            status = index_searcher_cache->get_index_searcher(
+                    fs, kTestDir, file_name_not_exist_1, &inverted_index_cache_handle_1, &stats);
             EXPECT_EQ(Status::OK(), status);
             EXPECT_FALSE(inverted_index_cache_handle_1.owned);
 
@@ -114,15 +116,15 @@ TEST_F(InvertedIndexSearcherCacheTest, insert_lookup) {
 
         // not use cache
         InvertedIndexCacheHandle inverted_index_cache_handle_2;
-        status = index_searcher_cache->get_index_searcher(fs, kTestDir, file_name_not_exist_2,
-                                                          &inverted_index_cache_handle_2, false);
+        status = index_searcher_cache->get_index_searcher(
+                fs, kTestDir, file_name_not_exist_2, &inverted_index_cache_handle_2, &stats, false);
         EXPECT_EQ(Status::OK(), status);
         EXPECT_TRUE(inverted_index_cache_handle_2.owned);
         EXPECT_EQ(nullptr, inverted_index_cache_handle_2._cache);
         EXPECT_EQ(nullptr, inverted_index_cache_handle_2._handle);
 
         status = index_searcher_cache->get_index_searcher(fs, kTestDir, file_name_not_exist_2,
-                                                          &inverted_index_cache_handle_2);
+                                                          &inverted_index_cache_handle_2, &stats);
         EXPECT_EQ(Status::OK(), status);
         EXPECT_FALSE(inverted_index_cache_handle_2.owned);
         auto cache_value_use_cache_2 =
