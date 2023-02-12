@@ -11,10 +11,10 @@ def run_file(file_path: str):
     if os.path.isdir(file_path):
         return
     f = open(file_path, 'r').read()
-    suite_names = re.findall('suite\(\"[A-Za-z-_0-9]+\"\)', f)
+    suite_names: List[str] = re.findall('suite\(\"[A-Za-z-_0-9]+\"\)', f)
     if len(suite_names) != 1:
         return
-    suite_name = suite_names[0]
+    suite_name: str = suite_names[0].replace('suite("', '').replace(')"', '')
     print(suite_name)
     os.system(f'sh {DORIS_HOME}run-regression-test.sh --run -s {suite_name} > res.log')
 
@@ -58,19 +58,23 @@ def adjustTest(file_path: str, error_sql: str):
 log_f = open(log_path, 'w')
 
 
-def run(file_path: str):
-    for file_name in os.listdir(file_path):
-        file_path_name = os.path.join(file_path, file_name)
-        if os.path.isdir(file_path_name):
-            run(file_path_name)
-        else:
-            while True:
-                run_file(file_path_name)
-                status, sql, log = check()
-                if status:
-                    break
-                log_f.write(log)
-                adjustTest(file_path_name, sql)
+# def run(file_path: str):
+#     for file_name in os.listdir(file_path):
+#         file_path_name = os.path.join(file_path, file_name)
+#         print(file_path_name)
+#         if os.path.isdir(file_path_name):
+#             run(file_path_name)
+#         else:
+#             while True:
+#                 run_file(file_path_name)
+#                 status, sql, log = check()
+#                 if status:
+#                     break
+#                 log_f.write(log)
+#                 adjustTest(file_path_name, sql)
 
 
-run('../')
+run_file('../scalar_function/M.groovy')
+status, sql, log = check()
+print(status, sql, log)
+# adjustTest('../scalar_function/M.groovy', sql)
