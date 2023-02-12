@@ -486,10 +486,13 @@ public class OriginalPlanner extends Planner {
 
             if (parent instanceof SortNode) {
                 SortNode sortNode = (SortNode) parent;
-                for (Expr expr : sortNode.getSortInfo().getOrigOrderingExprs()) {
-                    if (expr instanceof SlotRef) {
-                        if (((SlotRef) expr).getColumn() != null) {
-                            outputColumnUniqueIds.add(((SlotRef) expr).getColumn().getUniqueId());
+                List<Expr> orderingExprs = sortNode.getSortInfo().getOrigOrderingExprs();
+                if (orderingExprs != null) {
+                    for (Expr expr : orderingExprs) {
+                        if (expr instanceof SlotRef) {
+                            if (((SlotRef) expr).getColumn() != null) {
+                                outputColumnUniqueIds.add(((SlotRef) expr).getColumn().getUniqueId());
+                            }
                         }
                     }
                 }

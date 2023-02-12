@@ -432,7 +432,7 @@ Status SegmentIterator::_apply_bitmap_index() {
         } else {
             RETURN_IF_ERROR(pred->evaluate(_bitmap_index_iterators[unique_id], _segment->num_rows(),
                                            &_row_bitmap));
-            
+
             auto column_name = _schema.column(pred->column_id())->name();
             if (_check_column_pred_all_push_down(column_name) &&
                 !pred->predicate_params()->marked_by_runtime_filter) {
@@ -628,7 +628,8 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
 
     for (auto pred : _col_preds_except_leafnode_of_andnode) {
         auto column_name = _schema.column(pred->column_id())->name();
-        if (_remaining_vconjunct_root != nullptr && _check_column_pred_all_push_down(column_name, true) &&
+        if (_remaining_vconjunct_root != nullptr &&
+            _check_column_pred_all_push_down(column_name, true) &&
             !pred->predicate_params()->marked_by_runtime_filter) {
             int32_t unique_id = _schema.unique_id(pred->column_id());
             _need_read_data_indices[unique_id] = false;
@@ -670,9 +671,10 @@ bool SegmentIterator::_is_handle_predicate_by_fulltext(int32_t unique_id) {
     std::all_of(predicate_set.begin(), predicate_set.end(), \
                 [](const ColumnPredicate* p) { return PredicateTypeTraits::is_range(p->type()); })
 
-#define all_predicates_are_marked_by_runtime_filter(predicate_set)   \
-    std::all_of(predicate_set.begin(), predicate_set.end(),          \
-                [](const ColumnPredicate* p) { return p->predicate_params()->marked_by_runtime_filter; })
+#define all_predicates_are_marked_by_runtime_filter(predicate_set)                            \
+    std::all_of(predicate_set.begin(), predicate_set.end(), [](const ColumnPredicate* p) {    \
+        return const_cast<ColumnPredicate*>(p)->predicate_params()->marked_by_runtime_filter; \
+    })
 
 Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         ColumnPredicate* pred, std::vector<ColumnPredicate*>& remaining_predicates,
