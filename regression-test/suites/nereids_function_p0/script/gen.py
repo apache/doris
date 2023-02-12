@@ -19,7 +19,7 @@
 
 import os
 import re
-from typing import List, Tuple, Dict
+from typing import List, Tuple, Dict, Callable
 import define
 
 DORIS_HOME = "../../../../"
@@ -104,26 +104,21 @@ def extractReturnTypeAndArgTypesForFunction(text: str) -> Tuple[str, List[List[s
     return name_text, lines
 
 
-def searchFunctions(path: str) -> Dict[str, List[List[str]]]:
+def searchFunctions(path: str, func: Callable[[str], bool]) -> Dict[str, List[List[str]]]:
     functions = {}
     for file_name in os.listdir(path):
         file_path_name = os.path.join(path, file_name)
         if os.path.isdir(file_path_name):
-            functions.update(searchFunctions(path + file_name))
-        else:
-            function_tag = extractReturnTypeAndArgTypesForFunction(open(file_path_name).read())
-            if function_tag is None:
-                continue
-            fn_name, args = function_tag
-            functions[fn_name] = args
+            functions.update(searchFunctions(path + file_name, func))
+            continue
+        if not func(file_name):
+            continue
+        function_tag = extractReturnTypeAndArgTypesForFunction(open(file_path_name).read())
+        if function_tag is None:
+            continue
+        fn_name, args = function_tag
+        functions[fn_name] = args
     return functions
-
-
-f = open('test.groovy', 'w')
-f.write('''suite('nereids_fn_test_new') {
-    sql 'use regression_test_nereids_function_p0'
-    sql 'set enable_nereids_planner=false'
-    sql 'set enable_fallback_to_original_planner=false'\n''')
 
 
 def generateSQL(function_meta: Dict[str, List[List[str]]]) -> List[str]:
@@ -151,12 +146,31 @@ def generateSQL(function_meta: Dict[str, List[List[str]]]) -> List[str]:
                 else:
                     sql = f'select {fn_name}({args}) from {t}{order_by}'
 
-                SQLs.append(f'{run_tag} "{sql}"\n')
+                SQLs.append(f'\t{run_tag} "{sql}"\n')
     return SQLs
 
 
-f.writelines(generateSQL(
-    searchFunctions(
-        f'{DORIS_HOME}fe/fe-core/src/main/java/org/apache/doris/nereids/trees/expressions/functions/scalar')))
-f.write('}')
-f.close()
+def genHeaderAndFooter(input_dir: str, output_file: str, func: Callable[[str], bool]) -> bool:
+    f = open(output_file, 'w')
+    f.write('''suite('nereids_fn_test_new') {
+    sql 'use regression_test_nereids_function_p0'
+    sql 'set enable_nereids_planner=false'
+    sql 'set enable_fallback_to_original_planner=false'\n''')
+    f.writelines(generateSQL(
+        searchFunctions(
+            f'{DORIS_HOME}fe/fe-core/src/main/java/org/apache/doris/nereids/trees/expressions/functions/scalar',
+            func)))
+    f.write('}')
+    f.close()
+    return False
+
+
+getChar: Callable[[int], Callable[[str], bool]] = lambda c: \
+    lambda s: s[s.rfind('/') + 1: s.rfind('.')][0] == c
+
+
+FUNCTION_DIR = '../../../../fe/fe-core/src/main/java/org/apache/doris/nereids/trees/expressions/functions/'
+
+for i in range(65, 91):
+    print(chr(i))
+    genHeaderAndFooter(f'{FUNCTION_DIR}scalar', f'../scalar_function/{chr(i)}.groovy', getChar(chr(i)))
