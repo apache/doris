@@ -12,9 +12,7 @@ suite("nereids_scalar_fn_M") {
 	qt_sql_mask_first_n_Varchar "select mask_first_n(kvchrs1) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_mask_first_n_String "select mask_first_n(kstr) from fn_test order by kstr"
 	qt_sql_mask_first_n_String "select mask_first_n(kstr) from fn_test_not_nullable order by kstr"
-sql 'set enable_nereids_planner=false'
 	qt_sql_mask_first_n_Varchar_Integer "select mask_first_n(kvchrs1, kint) from fn_test order by kvchrs1, kint"
-sql 'set enable_nereids_planner=true'
 	qt_sql_mask_first_n_Varchar_Integer "select mask_first_n(kvchrs1, kint) from fn_test_not_nullable order by kvchrs1, kint"
 	qt_sql_mask_first_n_String_Integer "select mask_first_n('asd123', 54)"
 	qt_sql_mask_first_n_String_Integer "select mask_first_n('asd123', 54)"
