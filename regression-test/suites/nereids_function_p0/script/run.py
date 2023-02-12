@@ -1,5 +1,6 @@
 import os
 import re
+import time
 from typing import Tuple, List
 
 DORIS_HOME = '../../../../'
@@ -16,13 +17,15 @@ def run_file(file_path: str):
         return
     suite_name: str = suite_names[0].replace('suite("', '').replace('")', '')
     print(suite_name)
-    os.system(f'sh {DORIS_HOME}run-regression-test.sh --run -s {suite_name} > res.log')
+    os.system(f'sh {DORIS_HOME}run-regression-test.sh --run -s {suite_name} > {DORIS_HOME}res.log')
 
 
 def extractSql(log_str: str, index: int) -> str:
+    find_uint = lambda s, sub: s.find(sub) & 0xffffffff
     log_str = log_str[index:]
+    print(log_str)
     # we get the sql by find the next line of log(info/error/warn etc.)
-    sql_end_index = min(log_str.find('ERROR'), log_str.find('WARN'), log_str.find('INFO')) \
+    sql_end_index = min(find_uint(log_str, 'ERROR'), find_uint(log_str, 'WARN'), find_uint(log_str, 'INFO')) \
         - len('\n2023-02-12 19:31:26.793 ')
     return log_str[:sql_end_index]
 
@@ -55,26 +58,20 @@ def adjustTest(file_path: str, error_sql: str):
     f.close()
 
 
-log_f = open(log_path, 'w')
+log_f = open(log_path, 'a')
 
 
-# def run(file_path: str):
-#     for file_name in os.listdir(file_path):
-#         file_path_name = os.path.join(file_path, file_name)
-#         print(file_path_name)
-#         if os.path.isdir(file_path_name):
-#             run(file_path_name)
-#         else:
-#             while True:
-#                 run_file(file_path_name)
-#                 status, sql, log = check()
-#                 if status:
-#                     break
-#                 log_f.write(log)
-#                 adjustTest(file_path_name, sql)
-
-
-run_file('../scalar_function/M.groovy')
-status, sql, log = check()
-print(status, sql, log)
-# adjustTest('../scalar_function/M.groovy', sql)
+def run(file_path: str):
+    for file_name in os.listdir(file_path):
+        file_path_name = os.path.join(file_path, file_name)
+        print(file_path_name)
+        if os.path.isdir(file_path_name):
+            run(file_path_name)
+        else:
+            while True:
+                run_file(file_path_name)
+                status, sql, log = check()
+                if status:
+                    break
+                log_f.write(log)
+                adjustTest(file_path_name, sql)
