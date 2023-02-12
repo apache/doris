@@ -79,8 +79,10 @@ public class SessionVariablesTest extends TestWithFeService {
         Assertions.assertTrue(queryOptions.isSetQueryTimeout());
 
         queryOptions.setQueryTimeout(123);
+        queryOptions.setInsertTimeout(123);
         sessionVariable.setForwardedSessionVariables(queryOptions);
         Assertions.assertEquals(123, sessionVariable.getQueryTimeoutS());
+        Assertions.assertEquals(123, sessionVariable.getInsertTimeoutS());
     }
 
     @Test

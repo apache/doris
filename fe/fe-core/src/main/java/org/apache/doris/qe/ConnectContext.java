@@ -152,6 +152,15 @@ public class ConnectContext {
 
     private long userQueryTimeout;
 
+    /**
+     * the global execution timeout in seconds, currently set according to query_timeout and insert_timeout.
+     * <p>
+     * when a connection is established, exec_timeout is set by query_timeout, when the statement is an insert stmt,
+     * then it is set to max(query_timeout, insert_timeout) with {@link #resetExecTimeout()} in
+     * {@link ConnectProcessor#handleQuery()} after the StmtExecutor is specified.
+     */
+    private int executionTimeoutS;
+
     public void setUserQueryTimeout(long queryTimeout) {
         this.userQueryTimeout = queryTimeout;
     }
@@ -164,7 +173,7 @@ public class ConnectContext {
     }
 
     public void setOrUpdateInsertResult(long txnId, String label, String db, String tbl,
-                                        TransactionStatus txnStatus, long loadedRows, int filteredRows) {
+            TransactionStatus txnStatus, long loadedRows, int filteredRows) {
         if (isTxnModel() && insertResult != null) {
             insertResult.updateResult(txnStatus, loadedRows, filteredRows);
         } else {
@@ -220,6 +229,8 @@ public class ConnectContext {
         if (Config.use_fuzzy_session_variable) {
             sessionVariable.initFuzzyModeVariables();
         }
+        // initialize executionTimeoutS to default to queryTimeout
+        executionTimeoutS = sessionVariable.getQueryTimeoutS();
     }
 
     public boolean isTxnModel() {
@@ -568,7 +579,7 @@ public class ConnectContext {
         boolean killFlag = false;
         boolean killConnection = false;
         if (command == MysqlCommand.COM_SLEEP) {
-            if (delta > sessionVariable.getWaitTimeoutS() * 1000) {
+            if (delta > sessionVariable.getWaitTimeoutS() * 1000L) {
                 // Need kill this connection.
                 LOG.warn("kill wait timeout connection, remote: {}, wait timeout: {}",
                         getMysqlChannel().getRemoteHostPortString(), sessionVariable.getWaitTimeoutS());
@@ -577,25 +588,27 @@ public class ConnectContext {
                 killConnection = true;
             }
         } else {
+            long timeout;
+            String timeoutTag = "query";
             if (userQueryTimeout > 0) {
                 // user set query_timeout property
-                if (delta > userQueryTimeout * 1000) {
-                    LOG.warn("kill query timeout, remote: {}, query timeout: {}",
-                            getMysqlChannel().getRemoteHostPortString(), userQueryTimeout);
-
-                    killFlag = true;
-                }
+                timeout = userQueryTimeout * 1000L;
             } else {
-                // default use session query_timeout
-                if (delta > sessionVariable.getQueryTimeoutS() * 1000) {
-                    LOG.warn("kill query timeout, remote: {}, query timeout: {}",
-                            getMysqlChannel().getRemoteHostPortString(), sessionVariable.getQueryTimeoutS());
+                //to ms
+                timeout = executionTimeoutS * 1000L;
+            }
+            //deal with insert stmt particularly
+            if (executor != null && executor.isInsertStmt()) {
+                timeoutTag = "insert";
+            }
 
-                    // Only kill
-                    killFlag = true;
-                }
+            if (delta > timeout) {
+                LOG.warn("kill {} timeout, remote: {}, query timeout: {}",
+                        timeoutTag, getMysqlChannel().getRemoteHostPortString(), timeout);
+                killFlag = true;
             }
         }
+
         if (killFlag) {
             kill(killConnection);
         }
@@ -633,6 +646,18 @@ public class ConnectContext {
 
     public String getRemoteIp() {
         return mysqlChannel == null ? "" : mysqlChannel.getRemoteIp();
+    }
+
+    public void resetExecTimeout() {
+        if (executor != null && executor.isInsertStmt()) {
+            // particular timeout for insert stmt, we can make other particular timeout in the same way.
+            // set the execution timeout as max(insert_timeout,query_timeout) to be compatible with older versions
+            executionTimeoutS = Math.max(sessionVariable.getInsertTimeoutS(), executionTimeoutS);
+        }
+    }
+
+    public int getExecTimeout() {
+        return executionTimeoutS;
     }
 
     public class ThreadInfo {
