@@ -1,7 +1,7 @@
-suite('nereids_fn_test_new') {
-    sql 'use regression_test_nereids_function_p0'
-    sql 'set enable_nereids_planner=false'
-    sql 'set enable_fallback_to_original_planner=false'
+suite(nereids_scalar_fn_R) {
+	sql 'use regression_test_nereids_function_p0'
+	sql 'set enable_nereids_planner=false'
+	sql 'set enable_fallback_to_original_planner=false'
 	qt_sql_radians_Double "select radians(kdbl) from fn_test order by kdbl"
 	qt_sql_radians_Double "select radians(kdbl) from fn_test_not_nullable order by kdbl"
 	sql "select random() from fn_test"

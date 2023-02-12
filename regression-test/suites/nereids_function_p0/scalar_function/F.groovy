@@ -1,7 +1,7 @@
-suite('nereids_fn_test_new') {
-    sql 'use regression_test_nereids_function_p0'
-    sql 'set enable_nereids_planner=false'
-    sql 'set enable_fallback_to_original_planner=false'
+suite(nereids_scalar_fn_F) {
+	sql 'use regression_test_nereids_function_p0'
+	sql 'set enable_nereids_planner=false'
+	sql 'set enable_fallback_to_original_planner=false'
 	qt_sql_field_TinyInt "select field(ktint, 1, 2) from fn_test order by ktint"
 	qt_sql_field_TinyInt "select field(ktint, 1, 2) from fn_test_not_nullable order by ktint"
 	qt_sql_field_SmallInt "select field(ksint, 1, 2) from fn_test order by ksint"

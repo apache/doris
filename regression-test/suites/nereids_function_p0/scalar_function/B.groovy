@@ -1,7 +1,7 @@
-suite('nereids_fn_test_new') {
-    sql 'use regression_test_nereids_function_p0'
-    sql 'set enable_nereids_planner=false'
-    sql 'set enable_fallback_to_original_planner=false'
+suite(nereids_scalar_fn_B) {
+	sql 'use regression_test_nereids_function_p0'
+	sql 'set enable_nereids_planner=false'
+	sql 'set enable_fallback_to_original_planner=false'
 	qt_sql_bin_BigInt "select bin(kbint) from fn_test order by kbint"
 	qt_sql_bin_BigInt "select bin(kbint) from fn_test_not_nullable order by kbint"
 	qt_sql_bit_length_Varchar "select bit_length(kvchrs1) from fn_test order by kvchrs1"

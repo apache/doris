@@ -150,16 +150,13 @@ def generateSQL(function_meta: Dict[str, List[List[str]]]) -> List[str]:
     return SQLs
 
 
-def genHeaderAndFooter(input_dir: str, output_file: str, func: Callable[[str], bool]) -> bool:
+def genHeaderAndFooter(input_dir: str, output_file: str, title: str, func: Callable[[str], bool]) -> bool:
     f = open(output_file, 'w')
-    f.write('''suite('nereids_fn_test_new') {
-    sql 'use regression_test_nereids_function_p0'
-    sql 'set enable_nereids_planner=false'
-    sql 'set enable_fallback_to_original_planner=false'\n''')
-    f.writelines(generateSQL(
-        searchFunctions(
-            f'{DORIS_HOME}fe/fe-core/src/main/java/org/apache/doris/nereids/trees/expressions/functions/scalar',
-            func)))
+    f.write(f'suite({title}) ''{\n'
+            '\tsql \'use regression_test_nereids_function_p0\'\n'
+            '\tsql \'set enable_nereids_planner=false\'\n'
+            '\tsql \'set enable_fallback_to_original_planner=false\'\n')
+    f.writelines(generateSQL(searchFunctions(input_dir, func)))
     f.write('}')
     f.close()
     return False
@@ -168,9 +165,12 @@ def genHeaderAndFooter(input_dir: str, output_file: str, func: Callable[[str], b
 getChar: Callable[[int], Callable[[str], bool]] = lambda c: \
     lambda s: s[s.rfind('/') + 1: s.rfind('.')][0] == c
 
+getCharRange: Callable[[int, int], Callable[[str], bool]] = lambda c1, c2: \
+    lambda s: c1 <= s[s.rfind('/') + 1: s.rfind('.')][0] <= c2
 
 FUNCTION_DIR = '../../../../fe/fe-core/src/main/java/org/apache/doris/nereids/trees/expressions/functions/'
 
 for i in range(65, 91):
     print(chr(i))
-    genHeaderAndFooter(f'{FUNCTION_DIR}scalar', f'../scalar_function/{chr(i)}.groovy', getChar(chr(i)))
+    genHeaderAndFooter(f'{FUNCTION_DIR}scalar', f'../scalar_function/{chr(i)}.groovy', f'nereids_scalar_fn_{chr(i)}',
+                       getChar(chr(i)))

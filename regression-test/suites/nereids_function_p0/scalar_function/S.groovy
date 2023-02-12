@@ -1,7 +1,7 @@
-suite('nereids_fn_test_new') {
-    sql 'use regression_test_nereids_function_p0'
-    sql 'set enable_nereids_planner=false'
-    sql 'set enable_fallback_to_original_planner=false'
+suite(nereids_scalar_fn_S) {
+	sql 'use regression_test_nereids_function_p0'
+	sql 'set enable_nereids_planner=false'
+	sql 'set enable_fallback_to_original_planner=false'
 	qt_sql_second_DateTime "select second(kdtm) from fn_test order by kdtm"
 	qt_sql_second_DateTime "select second(kdtm) from fn_test_not_nullable order by kdtm"
 	qt_sql_second_DateTimeV2 "select second(kdtmv2s1) from fn_test order by kdtmv2s1"
