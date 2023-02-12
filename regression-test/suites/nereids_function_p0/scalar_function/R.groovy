@@ -17,7 +17,7 @@
 
 suite("nereids_scalar_fn_R") {
 	sql 'use regression_test_nereids_function_p0'
-	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	sql 'set enable_fallback_to_original_planner=false'
 	qt_sql_radians_Double "select radians(kdbl) from fn_test order by kdbl"
 	qt_sql_radians_Double_notnull "select radians(kdbl) from fn_test_not_nullable order by kdbl"

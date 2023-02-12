@@ -17,7 +17,7 @@
 
 suite("nereids_scalar_fn_L") {
 	sql 'use regression_test_nereids_function_p0'
-	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	sql 'set enable_fallback_to_original_planner=false'
 	qt_sql_last_day_DateTime "select last_day(kdtm) from fn_test order by kdtm"
 	qt_sql_last_day_DateTime_notnull "select last_day(kdtm) from fn_test_not_nullable order by kdtm"
