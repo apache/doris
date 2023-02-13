@@ -31,23 +31,26 @@ cur_relative_path = ''
 log_path = 'res.log'
 
 
-def run_file(file_path: str):
+def run_file(file_path: str) -> bool:
     if os.path.isdir(file_path):
         return
     f = open(file_path, 'r')
     text = f.read()
     f.close()
-    suite_names: List[str] = re.findall('suite\(\"[A-Za-z-_0-9]+\"\)', text)
+    suite_names: List[str] = re.findall('suite\(\"[A-Za-z-_0-9]+\"', text)
     if len(suite_names) != 1:
-        return
-    suite_name: str = suite_names[0].replace('suite("', '').replace('")', '')
+        return False
+    suite_name: str = suite_names[0].replace('suite("', '').replace('"', '')
     print(suite_name)
+    if suite_name == "load":
+        return False
     f = open(file_path, 'w')
     index = text.find('{\n') + 2
     f.write(text[:index] + "sql 'set enable_nereids_planner=true'\n"
             + "sql 'set enable_fallback_to_original_planner=false'\n" + text[index:])
     f.close()
     os.system(f'sh {DORIS_HOME}run-regression-test.sh --run -s {suite_name} > {DORIS_HOME}res.log')
+    return True
 
 
 def extractSql(log_str: str, index: int) -> str:
@@ -101,7 +104,8 @@ log_f = open(log_path, 'a')
 
 def runProcess(file_path_name: str):
     while True:
-        run_file(file_path_name)
+        if not run_file(file_path_name):
+            break
         status, sql, log = check()
         if status:
             break
@@ -121,4 +125,4 @@ def run(file_path: str):
             runProcess(file_path_name)
 
 
-runProcess('../scalar_function/A.groovy')
+run('../../brown_p2')
