@@ -1,3 +1,26 @@
+#!/usr/bin/env python
+# encoding: utf-8
+
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+# This file is copied from
+# https://github.com/apache/impala/blob/branch-2.9.0/common/function-registry/impala_functions.py
+# and modified by Doris
+
 import os
 import re
 import time
@@ -11,12 +34,19 @@ log_path = 'res.log'
 def run_file(file_path: str):
     if os.path.isdir(file_path):
         return
-    f = open(file_path, 'r').read()
-    suite_names: List[str] = re.findall('suite\(\"[A-Za-z-_0-9]+\"\)', f)
+    f = open(file_path, 'r')
+    text = f.read()
+    f.close()
+    suite_names: List[str] = re.findall('suite\(\"[A-Za-z-_0-9]+\"\)', text)
     if len(suite_names) != 1:
         return
     suite_name: str = suite_names[0].replace('suite("', '').replace('")', '')
     print(suite_name)
+    f = open(file_path, 'w')
+    index = text.find('{\n') + 2
+    f.write(text[:index] + "sql 'set enable_nereids_planner=true'\n"
+            + "sql 'set enable_fallback_to_original_planner=false'\n" + text[index:])
+    f.close()
     os.system(f'sh {DORIS_HOME}run-regression-test.sh --run -s {suite_name} > {DORIS_HOME}res.log')
 
 
@@ -58,6 +88,14 @@ def adjustTest(file_path: str, error_sql: str):
     f.close()
 
 
+def checkDBAliveAndRerun(port: str):
+    time.sleep(5)
+    log = os.popen(f'mysql -h:: -P{port} -uroot -e "show backends"').readlines()[1].split('\t')[9]
+    if log != 'true':
+        os.system(f'sh {DORIS_HOME}output/be/bin/start_be.sh --daemon')
+    time.sleep(10)
+
+
 log_f = open(log_path, 'a')
 
 
@@ -70,8 +108,7 @@ def runProcess(file_path_name: str):
         log_f.write(sql)
         log_f.write(log)
         adjustTest(file_path_name, sql)
-        os.system(f'sh {DORIS_HOME}output/be/bin/start_be.sh --daemon')
-        time.sleep(15)
+        checkDBAliveAndRerun('6786')
 
 
 def run(file_path: str):
