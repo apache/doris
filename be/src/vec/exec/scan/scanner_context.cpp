@@ -102,7 +102,7 @@ vectorized::BlockUPtr ScannerContext::get_free_block(bool* has_free_block) {
                                                true /*ignore invalid slots*/);
 }
 
-void ScannerContext::return_free_block(std::unique_ptr<vectorized::Block>&& block) {
+void ScannerContext::return_free_block(std::unique_ptr<vectorized::Block> block) {
     block->clear_column_data();
     _parent->_free_blocks_memory_usage->add(block->allocated_bytes());
     std::lock_guard l(_free_blocks_lock);
@@ -114,7 +114,7 @@ void ScannerContext::append_blocks_to_queue(const std::vector<vectorized::BlockU
     auto old_bytes_in_queue = _cur_bytes_in_queue;
     for (auto& b : blocks) {
         _cur_bytes_in_queue += b->allocated_bytes();
-        _blocks_queue.emplace_back(std::move(b));
+        _blocks_queue.push_back(std::move(b));
     }
     _update_block_queue_empty();
     _blocks_queue_added_cv.notify_one();

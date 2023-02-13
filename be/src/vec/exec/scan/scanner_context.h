@@ -71,7 +71,7 @@ public:
     Status init();
 
     vectorized::BlockUPtr get_free_block(bool* has_free_block);
-    void return_free_block(std::unique_ptr<vectorized::Block>&& block);
+    void return_free_block(std::unique_ptr<vectorized::Block> block);
 
     // Append blocks from scanners to the blocks queue.
     void append_blocks_to_queue(const std::vector<vectorized::BlockUPtr>& blocks);
