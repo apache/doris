@@ -21,35 +21,51 @@ suite("nereids_scalar_fn_H") {
 	qt_sql_hour_ceil_DateTime "select hour_ceil(kdtm) from fn_test order by kdtm"
 	qt_sql_hour_ceil_DateTime "select hour_ceil(kdtm) from fn_test_not_nullable order by kdtm"
 	qt_sql_hour_ceil_DateTimeV2 "select hour_ceil(kdtmv2s1) from fn_test order by kdtmv2s1"
+	sql 'set enable_nereids_planner=false'
 	qt_sql_hour_ceil_DateTimeV2 "select hour_ceil(kdtmv2s1) from fn_test_not_nullable order by kdtmv2s1"
+	sql 'set enable_nereids_planner=true'
 	qt_sql_hour_ceil_DateTime_DateTime "select hour_ceil(kdtm, kdtm) from fn_test order by kdtm, kdtm"
 	qt_sql_hour_ceil_DateTime_DateTime "select hour_ceil(kdtm, kdtm) from fn_test_not_nullable order by kdtm, kdtm"
 	qt_sql_hour_ceil_DateTime_Integer "select hour_ceil(kdtm, kint) from fn_test order by kdtm, kint"
 	qt_sql_hour_ceil_DateTime_Integer "select hour_ceil(kdtm, kint) from fn_test_not_nullable order by kdtm, kint"
 	qt_sql_hour_ceil_DateTimeV2_DateTimeV2 "select hour_ceil(kdtmv2s1, kdtmv2s1) from fn_test order by kdtmv2s1, kdtmv2s1"
+	sql 'set enable_nereids_planner=false'
 	qt_sql_hour_ceil_DateTimeV2_DateTimeV2 "select hour_ceil(kdtmv2s1, kdtmv2s1) from fn_test_not_nullable order by kdtmv2s1, kdtmv2s1"
+	sql 'set enable_nereids_planner=true'
 	qt_sql_hour_ceil_DateTimeV2_Integer "select hour_ceil(kdtmv2s1, kint) from fn_test order by kdtmv2s1, kint"
+	sql 'set enable_nereids_planner=false'
 	qt_sql_hour_ceil_DateTimeV2_Integer "select hour_ceil(kdtmv2s1, kint) from fn_test_not_nullable order by kdtmv2s1, kint"
+	sql 'set enable_nereids_planner=true'
 	qt_sql_hour_ceil_DateTime_Integer_DateTime "select hour_ceil(kdtm, kint, kdtm) from fn_test order by kdtm, kint, kdtm"
 	qt_sql_hour_ceil_DateTime_Integer_DateTime "select hour_ceil(kdtm, kint, kdtm) from fn_test_not_nullable order by kdtm, kint, kdtm"
 	qt_sql_hour_ceil_DateTimeV2_Integer_DateTimeV2 "select hour_ceil(kdtmv2s1, kint, kdtmv2s1) from fn_test order by kdtmv2s1, kint, kdtmv2s1"
+	sql 'set enable_nereids_planner=false'
 	qt_sql_hour_ceil_DateTimeV2_Integer_DateTimeV2 "select hour_ceil(kdtmv2s1, kint, kdtmv2s1) from fn_test_not_nullable order by kdtmv2s1, kint, kdtmv2s1"
+	sql 'set enable_nereids_planner=true'
 	qt_sql_hour_floor_DateTime "select hour_floor(kdtm) from fn_test order by kdtm"
 	qt_sql_hour_floor_DateTime "select hour_floor(kdtm) from fn_test_not_nullable order by kdtm"
 	qt_sql_hour_floor_DateTimeV2 "select hour_floor(kdtmv2s1) from fn_test order by kdtmv2s1"
+	sql 'set enable_nereids_planner=false'
 	qt_sql_hour_floor_DateTimeV2 "select hour_floor(kdtmv2s1) from fn_test_not_nullable order by kdtmv2s1"
+	sql 'set enable_nereids_planner=true'
 	qt_sql_hour_floor_DateTime_DateTime "select hour_floor(kdtm, kdtm) from fn_test order by kdtm, kdtm"
 	qt_sql_hour_floor_DateTime_DateTime "select hour_floor(kdtm, kdtm) from fn_test_not_nullable order by kdtm, kdtm"
 	qt_sql_hour_floor_DateTime_Integer "select hour_floor(kdtm, kint) from fn_test order by kdtm, kint"
 	qt_sql_hour_floor_DateTime_Integer "select hour_floor(kdtm, kint) from fn_test_not_nullable order by kdtm, kint"
 	qt_sql_hour_floor_DateTimeV2_DateTimeV2 "select hour_floor(kdtmv2s1, kdtmv2s1) from fn_test order by kdtmv2s1, kdtmv2s1"
+	sql 'set enable_nereids_planner=false'
 	qt_sql_hour_floor_DateTimeV2_DateTimeV2 "select hour_floor(kdtmv2s1, kdtmv2s1) from fn_test_not_nullable order by kdtmv2s1, kdtmv2s1"
+	sql 'set enable_nereids_planner=true'
 	qt_sql_hour_floor_DateTimeV2_Integer "select hour_floor(kdtmv2s1, kint) from fn_test order by kdtmv2s1, kint"
+	sql 'set enable_nereids_planner=false'
 	qt_sql_hour_floor_DateTimeV2_Integer "select hour_floor(kdtmv2s1, kint) from fn_test_not_nullable order by kdtmv2s1, kint"
+	sql 'set enable_nereids_planner=true'
 	qt_sql_hour_floor_DateTime_Integer_DateTime "select hour_floor(kdtm, kint, kdtm) from fn_test order by kdtm, kint, kdtm"
 	qt_sql_hour_floor_DateTime_Integer_DateTime "select hour_floor(kdtm, kint, kdtm) from fn_test_not_nullable order by kdtm, kint, kdtm"
 	qt_sql_hour_floor_DateTimeV2_Integer_DateTimeV2 "select hour_floor(kdtmv2s1, kint, kdtmv2s1) from fn_test order by kdtmv2s1, kint, kdtmv2s1"
+	sql 'set enable_nereids_planner=false'
 	qt_sql_hour_floor_DateTimeV2_Integer_DateTimeV2 "select hour_floor(kdtmv2s1, kint, kdtmv2s1) from fn_test_not_nullable order by kdtmv2s1, kint, kdtmv2s1"
+	sql 'set enable_nereids_planner=true'
 	qt_sql_hours_add_DateTime_Integer "select hours_add(kdtm, kint) from fn_test order by kdtm, kint"
 	qt_sql_hours_add_DateTime_Integer "select hours_add(kdtm, kint) from fn_test_not_nullable order by kdtm, kint"
 	qt_sql_hours_add_DateTimeV2_Integer "select hours_add(kdtmv2s1, kint) from fn_test order by kdtmv2s1, kint"

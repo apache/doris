@@ -124,26 +124,70 @@ suite("nereids_scalar_fn_W") {
 	qt_sql_weeks_sub_DateTimeV2_Integer "select weeks_sub(kdtmv2s1, kint) from fn_test_not_nullable order by kdtmv2s1, kint"
 	qt_sql_weeks_sub_DateV2_Integer "select weeks_sub(kdtv2, kint) from fn_test order by kdtv2, kint"
 	qt_sql_weeks_sub_DateV2_Integer "select weeks_sub(kdtv2, kint) from fn_test_not_nullable order by kdtv2, kint"
+	sql 'set enable_nereids_planner=false'
 	qt_sql_width_bucket_TinyInt_TinyInt_TinyInt_TinyInt "select width_bucket(ktint, ktint, ktint, ktint) from fn_test order by ktint, ktint, ktint, ktint"
+	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	qt_sql_width_bucket_TinyInt_TinyInt_TinyInt_TinyInt "select width_bucket(ktint, ktint, ktint, ktint) from fn_test_not_nullable order by ktint, ktint, ktint, ktint"
+	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	qt_sql_width_bucket_SmallInt_SmallInt_SmallInt_SmallInt "select width_bucket(ksint, ksint, ksint, ksint) from fn_test order by ksint, ksint, ksint, ksint"
+	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	qt_sql_width_bucket_SmallInt_SmallInt_SmallInt_SmallInt "select width_bucket(ksint, ksint, ksint, ksint) from fn_test_not_nullable order by ksint, ksint, ksint, ksint"
+	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	qt_sql_width_bucket_Integer_Integer_Integer_Integer "select width_bucket(kint, kint, kint, kint) from fn_test order by kint, kint, kint, kint"
+	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	qt_sql_width_bucket_Integer_Integer_Integer_Integer "select width_bucket(kint, kint, kint, kint) from fn_test_not_nullable order by kint, kint, kint, kint"
+	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	qt_sql_width_bucket_BigInt_BigInt_BigInt_BigInt "select width_bucket(kbint, kbint, kbint, kbint) from fn_test order by kbint, kbint, kbint, kbint"
+	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	qt_sql_width_bucket_BigInt_BigInt_BigInt_BigInt "select width_bucket(kbint, kbint, kbint, kbint) from fn_test_not_nullable order by kbint, kbint, kbint, kbint"
+	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	qt_sql_width_bucket_Float_Float_Float_TinyInt "select width_bucket(kfloat, kfloat, kfloat, ktint) from fn_test order by kfloat, kfloat, kfloat, ktint"
+	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	qt_sql_width_bucket_Float_Float_Float_TinyInt "select width_bucket(kfloat, kfloat, kfloat, ktint) from fn_test_not_nullable order by kfloat, kfloat, kfloat, ktint"
+	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	qt_sql_width_bucket_Double_Double_Double_TinyInt "select width_bucket(kdbl, kdbl, kdbl, ktint) from fn_test order by kdbl, kdbl, kdbl, ktint"
+	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	qt_sql_width_bucket_Double_Double_Double_TinyInt "select width_bucket(kdbl, kdbl, kdbl, ktint) from fn_test_not_nullable order by kdbl, kdbl, kdbl, ktint"
+	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	qt_sql_width_bucket_DecimalV2_DecimalV2_DecimalV2_TinyInt "select width_bucket(kdcmls1, kdcmls1, kdcmls1, ktint) from fn_test order by kdcmls1, kdcmls1, kdcmls1, ktint"
+	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	qt_sql_width_bucket_DecimalV2_DecimalV2_DecimalV2_TinyInt "select width_bucket(kdcmls1, kdcmls1, kdcmls1, ktint) from fn_test_not_nullable order by kdcmls1, kdcmls1, kdcmls1, ktint"
+	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	qt_sql_width_bucket_Date_Date_Date_TinyInt "select width_bucket(kdt, kdt, kdt, ktint) from fn_test order by kdt, kdt, kdt, ktint"
+	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	qt_sql_width_bucket_Date_Date_Date_TinyInt "select width_bucket(kdt, kdt, kdt, ktint) from fn_test_not_nullable order by kdt, kdt, kdt, ktint"
+	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	qt_sql_width_bucket_DateV2_DateV2_DateV2_TinyInt "select width_bucket(kdtv2, kdtv2, kdtv2, ktint) from fn_test order by kdtv2, kdtv2, kdtv2, ktint"
+	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	qt_sql_width_bucket_DateV2_DateV2_DateV2_TinyInt "select width_bucket(kdtv2, kdtv2, kdtv2, ktint) from fn_test_not_nullable order by kdtv2, kdtv2, kdtv2, ktint"
+	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	qt_sql_width_bucket_DateTime_DateTime_DateTime_TinyInt "select width_bucket(kdtm, kdtm, kdtm, ktint) from fn_test order by kdtm, kdtm, kdtm, ktint"
+	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	qt_sql_width_bucket_DateTime_DateTime_DateTime_TinyInt "select width_bucket(kdtm, kdtm, kdtm, ktint) from fn_test_not_nullable order by kdtm, kdtm, kdtm, ktint"
+	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	qt_sql_width_bucket_DateTimeV2_DateTimeV2_DateTimeV2_TinyInt "select width_bucket(kdtmv2s1, kdtmv2s1, kdtmv2s1, ktint) from fn_test order by kdtmv2s1, kdtmv2s1, kdtmv2s1, ktint"
+	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	qt_sql_width_bucket_DateTimeV2_DateTimeV2_DateTimeV2_TinyInt "select width_bucket(kdtmv2s1, kdtmv2s1, kdtmv2s1, ktint) from fn_test_not_nullable order by kdtmv2s1, kdtmv2s1, kdtmv2s1, ktint"
+	sql 'set enable_nereids_planner=true'
 }
