@@ -98,6 +98,14 @@ Status EngineCloneTask::_do_clone() {
         if (missed_versions.empty()) {
             LOG(INFO) << "missed version size = 0, skip clone and return success. tablet_id="
                       << _clone_req.tablet_id << " req replica=" << _clone_req.replica_id;
+            if (_clone_req.replica_id != tablet->replica_id()) {
+                // update replica id to meet cooldown replica
+                tablet->tablet_meta()->set_replica_id(_clone_req.replica_id);
+                {
+                    std::shared_lock rlock(tablet->get_header_lock());
+                    tablet->save_meta();
+                }
+            }
             _set_tablet_info(is_new_tablet);
             return Status::OK();
         }
@@ -204,7 +212,7 @@ Status EngineCloneTask::_set_tablet_info(bool is_new_tablet) {
 /// This method will do following things:
 /// 1. Make snapshots on source BE.
 /// 2. Download all snapshots to CLONE dir.
-/// 3. Convert rowset ids of downloaded snapshots.
+/// 3. Convert rowset ids of downloaded snapshots(would also change the replica id).
 /// 4. Release the snapshots on source BE.
 Status EngineCloneTask::_make_and_download_snapshots(DataDir& data_dir,
                                                      const std::string& local_data_path,
@@ -540,7 +548,7 @@ Status EngineCloneTask::_finish_incremental_clone(Tablet* tablet,
                                                   int64_t committed_version) {
     LOG(INFO) << "begin to finish incremental clone. tablet=" << tablet->full_name()
               << ", committed_version=" << committed_version
-              << ", cloned_tablet_replica_id=" << cloned_tablet_meta.tablet_id();
+              << ", cloned_tablet_replica_id=" << cloned_tablet_meta.replica_id();
 
     /// Get missing versions again from local tablet.
     /// We got it before outside the lock, so it has to be got again.
