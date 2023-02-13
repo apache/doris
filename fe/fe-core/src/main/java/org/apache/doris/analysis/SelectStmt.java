@@ -898,10 +898,13 @@ public class SelectStmt extends QueryStmt {
             }
             boolean hasConstant = resultExprs.stream().anyMatch(e -> e.isConstant() || e.refToCountStar());
             // In such case, agg output must be materialized whether outer query block required or not.
-            if (tableRef instanceof InlineViewRef && hasConstant) {
+            if (tableRef instanceof InlineViewRef) {
                 InlineViewRef inlineViewRef = (InlineViewRef) tableRef;
                 QueryStmt queryStmt = inlineViewRef.getQueryStmt();
-                queryStmt.resultExprs.forEach(Expr::materializeSrcExpr);
+                boolean inlineViewHasConstant = queryStmt.resultExprs.stream().anyMatch(Expr::isConstant);
+                if (hasConstant || inlineViewHasConstant) {
+                    queryStmt.resultExprs.forEach(Expr::materializeSrcExpr);
+                }
             }
         }
     }
