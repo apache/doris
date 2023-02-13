@@ -740,7 +740,7 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
             task.priority = max_priority--;
             bool submited = _cooldown_thread_pool->offer(std::move(task));
 
-            if (submited) {
+            if (!submited) {
                 LOG(INFO) << "failed to submit cooldown task";
             }
         }
@@ -750,6 +750,7 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
 void StorageEngine::_remove_unused_remote_files_callback() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::remove_unused_remote_files_interval_sec))) {
+        LOG(INFO) << "begin to remove unused remote files";
         Tablet::remove_unused_remote_files();
     }
 }

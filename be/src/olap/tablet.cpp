@@ -1976,7 +1976,8 @@ Status Tablet::remove_all_remote_rowsets() {
 
 void Tablet::remove_unused_remote_files() {
     auto tablets = StorageEngine::instance()->tablet_manager()->get_all_tablet([](Tablet* t) {
-        return t->tablet_meta()->cooldown_meta_id().initialized() && t->is_used();
+        return t->tablet_meta()->cooldown_meta_id().initialized() && t->is_used() &&
+               t->tablet_state() == TABLET_RUNNING;
     });
     TConfirmUnusedRemoteFilesRequest req;
     req.__isset.confirm_list = true;
@@ -2067,39 +2068,41 @@ void Tablet::remove_unused_remote_files() {
             return;
         }
         files.shrink_to_fit();
+        num_files_in_buffer += files.size();
         buffer.insert({t->tablet_id(), {std::move(dest_fs), std::move(files)}});
         auto& info = req.confirm_list.emplace_back();
         info.__set_tablet_id(t->tablet_id());
         info.__set_cooldown_replica_id(t->replica_id());
         info.__set_cooldown_meta_id(cooldown_meta_id.to_thrift());
-        num_files_in_buffer += files.size();
     };
 
-    auto confirm_and_remove_files = [&buffer, &req]() {
+    auto confirm_and_remove_files = [&buffer, &req, &num_files_in_buffer]() {
         TConfirmUnusedRemoteFilesResult result;
+        LOG(INFO) << "begin to confirm unused remote files. num_tablets=" << buffer.size()
+                  << " num_files=" << num_files_in_buffer;
         auto st = MasterServerClient::instance()->confirm_unused_remote_files(req, &result);
-        if (st.ok()) {
-            for (auto& id : result.confirmed_tablets) {
-                if (auto it = buffer.find(id); LIKELY(it != buffer.end())) {
-                    auto& fs = it->second.first;
-                    auto& files = it->second.second;
-                    // delete unused files
-                    LOG(INFO) << "delete unused files. root_path=" << fs->root_path()
-                              << " tablet_id=" << id;
-                    io::Path dir("data/" + std::to_string(id));
-                    for (auto& file : files) {
-                        file = dir / file;
-                        LOG(INFO) << "delete unused file: " << file.native();
-                    }
-                    st = fs->batch_delete(files);
-                    if (!st.ok()) {
-                        LOG(WARNING)
-                                << "failed to delete unused files, tablet_id=" << id << " : " << st;
-                    }
+        if (!st.ok()) {
+            LOG(WARNING) << st;
+            return;
+        }
+        for (auto id : result.confirmed_tablets) {
+            if (auto it = buffer.find(id); LIKELY(it != buffer.end())) {
+                auto& fs = it->second.first;
+                auto& files = it->second.second;
+                // delete unused files
+                LOG(INFO) << "delete unused files. root_path=" << fs->root_path()
+                          << " tablet_id=" << id;
+                io::Path dir("data/" + std::to_string(id));
+                for (auto& file : files) {
+                    file = dir / file;
+                    LOG(INFO) << "delete unused file: " << file.native();
+                }
+                st = fs->batch_delete(files);
+                if (!st.ok()) {
+                    LOG(WARNING) << "failed to delete unused files, tablet_id=" << id << " : "
+                                 << st;
                 }
             }
-        } else {
-            LOG(WARNING) << st;
         }
     };
 
@@ -2108,7 +2111,7 @@ void Tablet::remove_unused_remote_files() {
                              std::chrono::seconds(config::confirm_unused_remote_files_interval_sec);
     for (auto& t : tablets) {
         if (t.use_count() <= 1 // this means tablet has been dropped
-            || t->_cooldown_replica_id != t->replica_id()) {
+            || t->_cooldown_replica_id != t->replica_id() || t->_state != TABLET_RUNNING) {
             continue;
         }
         calc_unused_remote_files(t.get());
