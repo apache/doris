@@ -48,7 +48,7 @@ In order to ensure the maintainability of the code structure and reduce the addi
 
 For normal upgrade operations, you can perform rolling upgrades according to the cluster upgrade documentation on the official website.
 
-[https://doris.apache.org/zh-CN/docs/admin-manual/cluster-management/upgrade](https://doris.apache.org/zh-CN/docs/admin-manual/cluster-management/upgrade)
+[https://doris.apache.org//docs/admin-manual/cluster-management/upgrade](https://doris.apache.org//docs/admin-manual/cluster-management/upgrade)
 
 ## Features
 
@@ -98,9 +98,9 @@ On all 22 SQLs in the TPC-H test data set, version 1.1 is better than version 0.
 
 **Performance test report**
 
-[https://doris.apache.org/zh-CN/docs/benchmark/ssb](https://doris.apache.org/zh-CN/docs/benchmark/ssb)
+[https://doris.apache.org//docs/benchmark/ssb](https://doris.apache.org//docs/benchmark/ssb)
 
-[https://doris.apache.org/zh-CN/docs/benchmark/tpch](https://doris.apache.org/zh-CN/docs/benchmark/tpch)
+[https://doris.apache.org//docs/benchmark/tpch](https://doris.apache.org//docs/benchmark/tpch)
 
 ### Compaction logic optimization and real-time guarantee
 
