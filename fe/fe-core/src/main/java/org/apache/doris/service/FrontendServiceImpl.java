@@ -81,6 +81,7 @@ import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnDef;
 import org.apache.doris.thrift.TColumnDesc;
 import org.apache.doris.thrift.TConfirmUnusedRemoteFilesRequest;
+import org.apache.doris.thrift.TConfirmUnusedRemoteFilesResult;
 import org.apache.doris.thrift.TDescribeTableParams;
 import org.apache.doris.thrift.TDescribeTableResult;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
@@ -180,55 +181,67 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     @Override
-    public TStatus confirmUnusedRemoteFiles(TConfirmUnusedRemoteFilesRequest request) throws TException {
-        TStatus res = new TStatus(TStatusCode.OK);
-        if (!request.isSetCooldownMetaId()) {
-            res.setStatusCode(TStatusCode.INVALID_ARGUMENT);
-            res.addToErrorMsgs("cooldown_meta_id is null");
-            return res;
+    public TConfirmUnusedRemoteFilesResult confirmUnusedRemoteFiles(TConfirmUnusedRemoteFilesRequest request)
+            throws TException {
+        if (!Env.getCurrentEnv().isMaster()) {
+            throw new TException("FE is not master");
         }
-        TabletMeta tabletMeta = Env.getCurrentEnv().getTabletInvertedIndex().getTabletMeta(request.tablet_id);
-        if (tabletMeta == null) {
-            res.setStatusCode(TStatusCode.NOT_FOUND);
-            res.addToErrorMsgs("tablet not found");
-            return res;
+        TConfirmUnusedRemoteFilesResult res = new TConfirmUnusedRemoteFilesResult();
+        if (!request.isSetConfirmList()) {
+            throw new TException("confirm_list in null");
         }
-        Tablet tablet;
-        try {
-            OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId())
-                    .getTable(tabletMeta.getTableId())
-                    .get();
-            table.readLock();
+        request.getConfirmList().forEach(info -> {
+            if (!info.isSetCooldownMetaId()) {
+                LOG.warn("cooldown_meta_id is null");
+                return;
+            }
+            TabletMeta tabletMeta = Env.getCurrentEnv().getTabletInvertedIndex().getTabletMeta(info.tablet_id);
+            if (tabletMeta == null) {
+                LOG.warn("tablet {} not found", info.tablet_id);
+                return;
+            }
+            Tablet tablet;
             try {
-                tablet = table.getPartition(tabletMeta.getPartitionId()).getIndex(tabletMeta.getIndexId())
-                        .getTablet(request.tablet_id);
-            } finally {
-                table.readUnlock();
+                OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId())
+                        .getTable(tabletMeta.getTableId())
+                        .get();
+                table.readLock();
+                try {
+                    tablet = table.getPartition(tabletMeta.getPartitionId()).getIndex(tabletMeta.getIndexId())
+                            .getTablet(info.tablet_id);
+                } finally {
+                    table.readUnlock();
+                }
+            } catch (RuntimeException e) {
+                LOG.warn("tablet {} not found", info.tablet_id);
+                return;
             }
-        } catch (RuntimeException e) {
-            res.setStatusCode(TStatusCode.NOT_FOUND);
-            res.addToErrorMsgs("tablet not found");
-            return res;
-        }
-        // check cooldownReplicaId
-        long cooldownReplicaId = tablet.getCooldownConf().first;
-        if (cooldownReplicaId != request.cooldown_replica_id) {
-            res.setStatusCode(TStatusCode.ABORTED);
-            res.addToErrorMsgs(
-                    "cooldown replica id not match(" + cooldownReplicaId + " vs " + request.cooldown_replica_id + ')');
-            return res;
-        }
-        // check cooldownMetaId of all replicas are the same
-        List<Replica> replicas = Env.getCurrentEnv().getTabletInvertedIndex().getReplicas(request.tablet_id);
-        for (Replica replica : replicas) {
-            if (!request.cooldown_meta_id.equals(replica.getCooldownMetaId())) {
-                res.setStatusCode(TStatusCode.ABORTED);
-                res.addToErrorMsgs("cooldown meta id are not same");
-                return res;
+            // check cooldownReplicaId
+            long cooldownReplicaId = tablet.getCooldownConf().first;
+            if (cooldownReplicaId != info.cooldown_replica_id) {
+                LOG.info("cooldown replica id not match({} vs {}), tablet={}", cooldownReplicaId,
+                        info.cooldown_replica_id, info.tablet_id);
+                return;
+            }
+            // check cooldownMetaId of all replicas are the same
+            List<Replica> replicas = Env.getCurrentEnv().getTabletInvertedIndex().getReplicas(info.tablet_id);
+            for (Replica replica : replicas) {
+                if (!info.cooldown_meta_id.equals(replica.getCooldownMetaId())) {
+                    LOG.info("cooldown meta id are not same, tablet={}", info.tablet_id);
+                    return;
+                }
+            }
+            res.addToConfirmedTablets(info.tablet_id);
+        });
+
+        if (res.isSetConfirmedTablets() && !res.getConfirmedTablets().isEmpty()) {
+            if (Env.getCurrentEnv().isMaster()) {
+                // ensure FE is real master
+                Env.getCurrentEnv().getEditLog().logCooldownDelete(new CooldownDelete());
+            } else {
+                throw new TException("FE is not master");
             }
         }
-        // ensure FE is master
-        Env.getCurrentEnv().getEditLog().logCooldownDelete(new CooldownDelete());
 
         return res;
     }
