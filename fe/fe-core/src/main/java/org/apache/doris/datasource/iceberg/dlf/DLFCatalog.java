@@ -69,7 +69,7 @@ public class DLFCatalog extends BaseMetastoreCatalog implements SupportsNamespac
         this.delegate = new DLFHttpProxy(
                 conf.get(S3Resource.S3_ACCESS_KEY),
                 conf.get(S3Resource.S3_SECRET_KEY),
-                conf.get(S3Resource.S3_ENDPOINT),
+                conf.get("dlf.catalog.endpoint"),
                 conf.get(S3Resource.S3_REGION));
     }
 

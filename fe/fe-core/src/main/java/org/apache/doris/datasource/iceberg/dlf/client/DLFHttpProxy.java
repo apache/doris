@@ -59,6 +59,9 @@ public class DLFHttpProxy {
             config.setType("access_key");
             config.setAccessKeyId(accessId);
             config.setAccessKeySecret(secretId);
+            if (endpoint.startsWith("http")) {
+                endpoint = endpoint.split("://")[1];
+            }
             config.setEndpoint(endpoint);
             config.setRegionId(region);
             this.client = new Client(config);

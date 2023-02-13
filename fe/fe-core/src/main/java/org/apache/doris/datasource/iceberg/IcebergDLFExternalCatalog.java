@@ -27,6 +27,7 @@ public class IcebergDLFExternalCatalog extends IcebergExternalCatalog {
 
     public IcebergDLFExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
         super(catalogId, name);
+        props.put(HMSResource.HIVE_METASTORE_TYPE, "dlf");
         props = HMSResource.getPropertiesFromDLF(props);
         catalogProperty = new CatalogProperty(resource, props);
     }
@@ -38,7 +39,8 @@ public class IcebergDLFExternalCatalog extends IcebergExternalCatalog {
         dlfCatalog.setConf(getConfiguration());
         // initialize catalog
         Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
-        dlfCatalog.initialize(icebergCatalogType, catalogProperties);
+        String dlfUid = catalogProperties.get("dlf.catalog.uid");
+        dlfCatalog.initialize(dlfUid, catalogProperties);
         catalog = dlfCatalog;
     }
 }
