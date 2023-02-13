@@ -328,7 +328,7 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
                 // block may miss match bettween dynamic blocks
                 // merge is not supported by dynamic block
                 && blocks.back()->get_block_type() != BlockType::DYNAMIC) {
-                vectorized::MutableBlock(blocks.back()).merge(*block);
+                vectorized::MutableBlock(blocks.back().get()).merge(*block);
                 ctx->return_free_block(std::move(block));
             } else {
                 blocks.push_back(std::move(block));
