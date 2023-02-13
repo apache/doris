@@ -886,6 +886,32 @@ uint32_t Tablet::calc_compaction_score(
     }
 }
 
+uint32_t Tablet::calc_cold_data_compaction_score() const {
+    uint32_t score = 0;
+    std::vector<RowsetMetaSharedPtr> cooldowned_rowsets;
+    int64_t max_delete_version = 0;
+    {
+        std::shared_lock rlock(_meta_lock);
+        for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
+            if (!rs_meta->is_local()) {
+                cooldowned_rowsets.push_back(rs_meta);
+                if (rs_meta->has_delete_predicate() &&
+                    rs_meta->end_version() > max_delete_version) {
+                    max_delete_version = rs_meta->end_version();
+                }
+            }
+        }
+    }
+    for (auto& rs_meta : cooldowned_rowsets) {
+        if (rs_meta->end_version() < max_delete_version) {
+            score += rs_meta->num_segments();
+        } else {
+            score += rs_meta->get_compaction_score();
+        }
+    }
+    return (keys_type() != KeysType::DUP_KEYS) ? score * 2 : score;
+}
+
 uint32_t Tablet::_calc_cumulative_compaction_score(
         std::shared_ptr<CumulativeCompactionPolicy> cumulative_compaction_policy) {
 #ifndef BE_TEST
@@ -894,10 +920,7 @@ uint32_t Tablet::_calc_cumulative_compaction_score(
         _cumulative_compaction_policy = cumulative_compaction_policy;
     }
 #endif
-    uint32_t score = 0;
-    _cumulative_compaction_policy->calc_cumulative_compaction_score(
-            this, tablet_state(), _tablet_meta->all_rs_metas(), cumulative_layer_point(), &score);
-    return score;
+    return _cumulative_compaction_policy->calc_cumulative_compaction_score(this);
 }
 
 uint32_t Tablet::_calc_base_compaction_score() const {
@@ -908,7 +931,7 @@ uint32_t Tablet::_calc_base_compaction_score() const {
         if (rs_meta->start_version() == 0) {
             base_rowset_exist = true;
         }
-        if (rs_meta->start_version() >= point) {
+        if (rs_meta->start_version() >= point || !rs_meta->is_local()) {
             // all_rs_metas() is not sorted, so we use _continue_ other than _break_ here.
             continue;
         }
