@@ -51,7 +51,8 @@ public:
     // * result: The result of report task
     Status report(const TReportRequest& request, TMasterResult* result);
 
-    Status confirm_unused_remote_files(const TConfirmUnusedRemoteFilesRequest& request);
+    Status confirm_unused_remote_files(const TConfirmUnusedRemoteFilesRequest& request,
+                                       TConfirmUnusedRemoteFilesResult* result);
 
 private:
     MasterServerClient(const TMasterInfo& master_info);

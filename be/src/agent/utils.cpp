@@ -143,7 +143,7 @@ Status MasterServerClient::report(const TReportRequest& request, TMasterResult* 
 }
 
 Status MasterServerClient::confirm_unused_remote_files(
-        const TConfirmUnusedRemoteFilesRequest& request) {
+        const TConfirmUnusedRemoteFilesRequest& request, TConfirmUnusedRemoteFilesResult* result) {
     Status client_status;
     FrontendServiceConnection client(&s_client_cache, _master_info.network_address,
                                      config::thrift_rpc_timeout_ms, &client_status);
@@ -154,10 +154,9 @@ Status MasterServerClient::confirm_unused_remote_files(
                 _master_info.network_address.hostname, _master_info.network_address.port,
                 client_status.code());
     }
-    TStatus t_status;
     try {
         try {
-            client->confirmUnusedRemoteFiles(t_status, request);
+            client->confirmUnusedRemoteFiles(*result, request);
         } catch (TTransportException& e) {
             TTransportException::TTransportExceptionType type = e.getType();
             if (type != TTransportException::TTransportExceptionType::TIMED_OUT) {
@@ -172,7 +171,7 @@ Status MasterServerClient::confirm_unused_remote_files(
                             _master_info.network_address.port, client_status.code());
                 }
 
-                client->confirmUnusedRemoteFiles(t_status, request);
+                client->confirmUnusedRemoteFiles(*result, request);
             } else {
                 // TIMED_OUT exception. do not retry
                 // actually we don't care what FE returns.
@@ -190,7 +189,7 @@ Status MasterServerClient::confirm_unused_remote_files(
                 client_status.code(), e.what());
     }
 
-    return t_status;
+    return Status::OK();
 }
 
 bool AgentUtils::exec_cmd(const string& command, string* errmsg, bool redirect_stderr) {

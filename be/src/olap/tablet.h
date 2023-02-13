@@ -319,7 +319,7 @@ public:
     void record_unused_remote_rowset(const RowsetId& rowset_id, const std::string& resource,
                                      int64_t num_segments);
 
-    void remove_unused_remote_files();
+    static void remove_unused_remote_files();
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////

@@ -739,10 +739,18 @@ struct TMySqlLoadAcquireTokenResult {
     2: optional string token
 }
 
+struct TTabletCooldownInfo {
+    1: optional Types.TTabletId tablet_id
+    2: optional Types.TReplicaId cooldown_replica_id
+    3: optional Types.TUniqueId cooldown_meta_id
+}
+
 struct TConfirmUnusedRemoteFilesRequest {
-  1: optional Types.TTabletId tablet_id
-  2: optional Types.TReplicaId cooldown_replica_id
-  3: optional Types.TUniqueId cooldown_meta_id
+    1: optional list<TTabletCooldownInfo> confirm_list
+}
+
+struct TConfirmUnusedRemoteFilesResult {
+    1: optional list<Types.TTabletId> confirmed_tablets
 }
 
 service FrontendService {
@@ -787,5 +795,5 @@ service FrontendService {
 
     TMySqlLoadAcquireTokenResult acquireToken()
 
-    Status.TStatus confirmUnusedRemoteFiles(1: TConfirmUnusedRemoteFilesRequest request)
+    TConfirmUnusedRemoteFilesResult confirmUnusedRemoteFiles(1: TConfirmUnusedRemoteFilesRequest request)
 }
