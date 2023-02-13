@@ -33,8 +33,8 @@ using std::vector;
 namespace doris {
 using namespace ErrorCode;
 
-Compaction::Compaction(TabletSharedPtr tablet, const std::string& label)
-        : _tablet(std::move(tablet)),
+Compaction::Compaction(const TabletSharedPtr& tablet, const std::string& label)
+        : _tablet(tablet),
           _input_rowsets_size(0),
           _input_row_num(0),
           _input_num_segments(0),

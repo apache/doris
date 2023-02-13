@@ -24,9 +24,8 @@
 namespace doris {
 using namespace ErrorCode;
 
-ColdDataCompaction::ColdDataCompaction(TabletSharedPtr tablet)
-        : Compaction(std::move(tablet),
-                     "ColdDataCompaction:" + std::to_string(tablet->tablet_id())) {}
+ColdDataCompaction::ColdDataCompaction(const TabletSharedPtr& tablet)
+        : Compaction(tablet, "ColdDataCompaction:" + std::to_string(tablet->tablet_id())) {}
 
 ColdDataCompaction::~ColdDataCompaction() = default;
 

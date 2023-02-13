@@ -23,8 +23,8 @@
 namespace doris {
 using namespace ErrorCode;
 
-BaseCompaction::BaseCompaction(TabletSharedPtr tablet)
-        : Compaction(std::move(tablet), "BaseCompaction:" + std::to_string(tablet->tablet_id())) {}
+BaseCompaction::BaseCompaction(const TabletSharedPtr& tablet)
+        : Compaction(tablet, "BaseCompaction:" + std::to_string(tablet->tablet_id())) {}
 
 BaseCompaction::~BaseCompaction() {}
 

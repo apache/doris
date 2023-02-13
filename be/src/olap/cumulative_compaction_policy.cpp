@@ -221,6 +221,7 @@ uint32_t SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(T
         total_size -= rs_meta->total_disk_size();
         score -= rs_meta->get_compaction_score();
     }
+    return score;
 }
 
 int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(

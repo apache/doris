@@ -42,7 +42,7 @@ class Merger;
 //  4. gc output rowset if failed
 class Compaction {
 public:
-    Compaction(TabletSharedPtr tablet, const std::string& label);
+    Compaction(const TabletSharedPtr& tablet, const std::string& label);
     virtual ~Compaction();
 
     // This is only for http CompactionAction

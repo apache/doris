@@ -23,7 +23,7 @@ namespace doris {
 
 class ColdDataCompaction final : public Compaction {
 public:
-    ColdDataCompaction(TabletSharedPtr tablet);
+    ColdDataCompaction(const TabletSharedPtr& tablet);
     ~ColdDataCompaction() override;
 
     Status prepare_compact() override;
