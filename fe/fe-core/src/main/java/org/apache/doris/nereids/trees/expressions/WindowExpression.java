@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.trees.expressions;
 
 import org.apache.doris.nereids.exceptions.UnboundException;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
@@ -36,7 +35,7 @@ import java.util.stream.Collectors;
  * which is an UnboundFunction at first and will be analyzed as relevant BoundFunction
  * (can be a WindowFunction or AggregateFunction) after BindFunction.
  */
-public class WindowExpression extends Expression implements PropagateNullable {
+public class WindowExpression extends Expression {
 
     private final Expression function;
 
@@ -120,6 +119,11 @@ public class WindowExpression extends Expression implements PropagateNullable {
             return new WindowExpression(function, partitionKeys, orderKeys, windowFrame.get());
         }
         return new WindowExpression(function, partitionKeys, orderKeys);
+    }
+
+    @Override
+    public boolean nullable() {
+        return function.nullable();
     }
 
     @Override

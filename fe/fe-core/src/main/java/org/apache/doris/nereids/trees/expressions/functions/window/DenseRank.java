@@ -23,8 +23,6 @@ import org.apache.doris.nereids.trees.expressions.functions.AlwaysNotNullable;
 import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
-import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.IntegerType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -59,10 +57,5 @@ public class DenseRank extends WindowFunction implements AlwaysNotNullable, Leaf
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitDenseRank(this, context);
-    }
-
-    @Override
-    public DataType getDataType() {
-        return IntegerType.INSTANCE;
     }
 }

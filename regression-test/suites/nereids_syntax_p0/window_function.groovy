@@ -90,12 +90,11 @@ suite("test_window_function") {
     """
 
     qt_subquery_1 """
-        SELECT *, row_number() over(partition by c1)
+        SELECT *, row_number() over(partition by c1 order by c3)
         FROM (
-            SELECT *, row_number() over(partition by c2)
+            SELECT *, row_number() over(partition by c2 order by c3)
             FROM window_test
         ) t
-        ORDER BY c1, c2, c3
     """
 
     order_qt_subquery_2 """
