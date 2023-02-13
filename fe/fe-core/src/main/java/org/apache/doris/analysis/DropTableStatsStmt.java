@@ -104,7 +104,7 @@ public class DropTableStatsStmt extends DdlStmt {
     }
 
     private void checkAnalyzePriv(String dbName, String tblName) throws AnalysisException {
-        if (!Env.getCurrentEnv().getAccessCtlMgr()
+        if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), dbName, tblName, PrivPredicate.DROP)) {
             ErrorReport.reportAnalysisException(
                     ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,

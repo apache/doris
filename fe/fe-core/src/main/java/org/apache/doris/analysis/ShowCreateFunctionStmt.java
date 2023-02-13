@@ -79,7 +79,7 @@ public class ShowCreateFunctionStmt extends ShowStmt {
         functionName.analyze(analyzer);
 
         // check operation privilege
-        if (!Env.getCurrentEnv().getAccessCtlMgr().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SHOW)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(
                     ErrorCode.ERR_DBACCESS_DENIED_ERROR, ConnectContext.get().getQualifiedUser(), dbName);
         }

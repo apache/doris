@@ -271,7 +271,7 @@ public abstract class DorisHttpTestCase {
 
             new Expectations(env) {
                 {
-                    env.getAccessCtlMgr();
+                    env.getAccessManager();
                     minTimes = 0;
                     result = accessManager;
 

@@ -109,7 +109,7 @@ public class ResourceMgrTest {
                 result = true;
                 env.getEditLog();
                 result = editLog;
-                env.getAccessCtlMgr();
+                env.getAccessManager();
                 result = accessManager;
                 accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
@@ -176,7 +176,7 @@ public class ResourceMgrTest {
                 result = brokerMgr;
                 brokerMgr.containsBroker(broker);
                 result = true;
-                env.getAccessCtlMgr();
+                env.getAccessManager();
                 result = accessManager;
                 accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;

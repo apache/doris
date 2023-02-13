@@ -112,7 +112,7 @@ public class AuthTest {
                 minTimes = 0;
                 result = env;
 
-                env.getAccessCtlMgr();
+                env.getAccessManager();
                 minTimes = 0;
                 result = accessManager;
 

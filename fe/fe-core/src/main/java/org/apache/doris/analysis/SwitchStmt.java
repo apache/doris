@@ -51,7 +51,7 @@ public class SwitchStmt extends StatementBase {
 
         Util.checkCatalogAllRules(catalogName);
 
-        if (!Env.getCurrentEnv().getAccessCtlMgr().checkCtlPriv(
+        if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(
                 ConnectContext.get(), catalogName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(
                     ErrorCode.ERR_CATALOG_ACCESS_DENIED, analyzer.getQualifiedUser(), catalogName);

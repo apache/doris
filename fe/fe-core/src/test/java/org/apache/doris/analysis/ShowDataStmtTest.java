@@ -92,7 +92,7 @@ public class ShowDataStmtTest {
                 minTimes = 0;
                 result = invertedIndex;
 
-                env.getAccessCtlMgr();
+                env.getAccessManager();
                 minTimes = 0;
                 result = accessManager;
 

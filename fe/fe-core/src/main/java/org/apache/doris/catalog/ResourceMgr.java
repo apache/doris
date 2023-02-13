@@ -234,7 +234,7 @@ public class ResourceMgr implements Writable {
             for (Map.Entry<String, Resource> entry : nameToResource.entrySet()) {
                 Resource resource = entry.getValue();
                 // check resource privs
-                if (!Env.getCurrentEnv().getAccessCtlMgr().checkResourcePriv(ConnectContext.get(), resource.getName(),
+                if (!Env.getCurrentEnv().getAccessManager().checkResourcePriv(ConnectContext.get(), resource.getName(),
                                                                              PrivPredicate.SHOW_RESOURCES)) {
                     continue;
                 }

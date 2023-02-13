@@ -174,7 +174,7 @@ public class AccessTestUtil {
 
             new Expectations(env, catalog) {
                 {
-                    env.getAccessCtlMgr();
+                    env.getAccessManager();
                     minTimes = 0;
                     result = accessManager;
 
@@ -407,7 +407,7 @@ public class AccessTestUtil {
 
             new Expectations(env) {
                 {
-                    env.getAccessCtlMgr();
+                    env.getAccessManager();
                     minTimes = 0;
                     result = accessManager;
 

@@ -221,7 +221,7 @@ public class ShowExecutorTest {
                 minTimes = 0;
                 result = catalog;
 
-                env.getAccessCtlMgr();
+                env.getAccessManager();
                 minTimes = 0;
                 result = accessManager;
 

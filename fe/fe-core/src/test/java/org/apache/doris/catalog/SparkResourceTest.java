@@ -73,7 +73,7 @@ public class SparkResourceTest {
                 result = brokerMgr;
                 brokerMgr.containsBroker(broker);
                 result = true;
-                env.getAccessCtlMgr();
+                env.getAccessManager();
                 result = accessManager;
                 accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
@@ -130,7 +130,7 @@ public class SparkResourceTest {
                 result = brokerMgr;
                 brokerMgr.containsBroker(broker);
                 result = true;
-                env.getAccessCtlMgr();
+                env.getAccessManager();
                 result = accessManager;
                 accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
@@ -168,7 +168,7 @@ public class SparkResourceTest {
                 result = brokerMgr;
                 brokerMgr.containsBroker(broker);
                 result = false;
-                env.getAccessCtlMgr();
+                env.getAccessManager();
                 result = accessManager;
                 accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;

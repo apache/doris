@@ -1149,7 +1149,7 @@ public class MaterializedViewHandler extends AlterHandler {
                 continue;
             }
             if (ctx != null) {
-                if (!Env.getCurrentEnv().getAccessCtlMgr().checkTblPriv(ctx, db.getFullName(),
+                if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, db.getFullName(),
                         alterJob.getTableName(), PrivPredicate.ALTER)) {
                     continue;
                 }

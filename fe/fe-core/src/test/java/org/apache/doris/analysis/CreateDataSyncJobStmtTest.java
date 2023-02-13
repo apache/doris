@@ -76,7 +76,7 @@ public class CreateDataSyncJobStmtTest {
                 minTimes = 0;
                 result = database;
 
-                env.getAccessCtlMgr();
+                env.getAccessManager();
                 minTimes = 0;
                 result = accessManager;
 

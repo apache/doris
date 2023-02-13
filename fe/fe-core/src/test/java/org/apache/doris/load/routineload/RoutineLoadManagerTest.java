@@ -112,7 +112,7 @@ public class RoutineLoadManagerTest {
 
         new Expectations() {
             {
-                env.getAccessCtlMgr();
+                env.getAccessManager();
                 minTimes = 0;
                 result = accessManager;
                 accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.LOAD);
@@ -172,7 +172,7 @@ public class RoutineLoadManagerTest {
 
         new Expectations() {
             {
-                env.getAccessCtlMgr();
+                env.getAccessManager();
                 minTimes = 0;
                 result = accessManager;
                 accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, PrivPredicate.LOAD);
@@ -630,7 +630,7 @@ public class RoutineLoadManagerTest {
                 tbl.getName();
                 minTimes = 0;
                 result = "tbl";
-                env.getAccessCtlMgr();
+                env.getAccessManager();
                 minTimes = 0;
                 result = accessManager;
                 accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
@@ -698,7 +698,7 @@ public class RoutineLoadManagerTest {
                 tbl.getName();
                 minTimes = 0;
                 result = "tbl";
-                env.getAccessCtlMgr();
+                env.getAccessManager();
                 minTimes = 0;
                 result = accessManager;
                 accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
@@ -750,7 +750,7 @@ public class RoutineLoadManagerTest {
                 tbl.getName();
                 minTimes = 0;
                 result = "tbl";
-                env.getAccessCtlMgr();
+                env.getAccessManager();
                 minTimes = 0;
                 result = accessManager;
                 accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
@@ -954,7 +954,7 @@ public class RoutineLoadManagerTest {
                 tbl.getName();
                 minTimes = 0;
                 result = "tbl";
-                env.getAccessCtlMgr();
+                env.getAccessManager();
                 minTimes = 0;
                 result = accessManager;
                 accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
@@ -1018,7 +1018,7 @@ public class RoutineLoadManagerTest {
                 tbl.getName();
                 minTimes = 0;
                 result = "tbl";
-                env.getAccessCtlMgr();
+                env.getAccessManager();
                 minTimes = 0;
                 result = accessManager;
                 accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);

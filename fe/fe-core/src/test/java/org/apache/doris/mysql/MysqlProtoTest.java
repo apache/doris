@@ -96,7 +96,7 @@ public class MysqlProtoTest {
                 minTimes = 0;
                 result = new Database();
 
-                env.getAccessCtlMgr();
+                env.getAccessManager();
                 minTimes = 0;
                 result = accessManager;
 

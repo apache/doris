@@ -55,7 +55,7 @@ public class CreateResourceStmtTest {
             throws UserException {
         new Expectations() {
             {
-                env.getAccessCtlMgr();
+                env.getAccessManager();
                 result = accessManager;
                 accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
@@ -93,7 +93,7 @@ public class CreateResourceStmtTest {
             throws UserException {
         new Expectations() {
             {
-                env.getAccessCtlMgr();
+                env.getAccessManager();
                 result = accessManager;
                 accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;

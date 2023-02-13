@@ -40,7 +40,7 @@ public class UserAuthentication extends OneAnalysisRuleFactory {
     private Plan checkPermission(LogicalRelation relation, ConnectContext connectContext) {
         String dbName = !relation.getQualifier().isEmpty() ? relation.getQualifier().get(0) : null;
         String tableName = relation.getTable().getName();
-        if (!connectContext.getEnv().getAccessCtlMgr()
+        if (!connectContext.getEnv().getAccessManager()
                 .checkTblPriv(connectContext, dbName, tableName, PrivPredicate.SELECT)) {
             String message = ErrorCode.ERR_TABLEACCESS_DENIED_ERROR.formatErrorMsg("SELECT",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),

@@ -404,7 +404,7 @@ public class CatalogMocker {
 
             new Expectations(env, catalog) {
                 {
-                    env.getAccessCtlMgr();
+                    env.getAccessManager();
                     minTimes = 0;
                     result = accessManager;
 

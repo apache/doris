@@ -129,7 +129,7 @@ public class DescribeStmt extends ShowStmt {
 
         dbTableName.analyze(analyzer);
 
-        if (!Env.getCurrentEnv().getAccessCtlMgr()
+        if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), dbTableName, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "DESCRIBE",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),

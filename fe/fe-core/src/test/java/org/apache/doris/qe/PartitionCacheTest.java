@@ -212,7 +212,7 @@ public class PartitionCacheTest {
 
         new Expectations(env) {
             {
-                env.getAccessCtlMgr();
+                env.getAccessManager();
                 minTimes = 0;
                 result = accessManager;
 

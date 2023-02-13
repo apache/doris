@@ -102,7 +102,7 @@ public class LoadStmtTest {
                 result = resourceMgr;
                 resourceMgr.getResource(resourceName);
                 result = resource;
-                env.getAccessCtlMgr();
+                env.getAccessManager();
                 result = accessManager;
                 accessManager.checkResourcePriv((ConnectContext) any, resourceName, PrivPredicate.USAGE);
                 result = true;

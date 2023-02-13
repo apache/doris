@@ -158,7 +158,7 @@ public class DeleteHandlerTest {
                 minTimes = 0;
                 result = editLog;
 
-                env.getAccessCtlMgr();
+                env.getAccessManager();
                 minTimes = 0;
                 result = accessManager;
 

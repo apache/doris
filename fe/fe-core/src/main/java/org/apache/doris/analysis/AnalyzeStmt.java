@@ -154,7 +154,7 @@ public class AnalyzeStmt extends DdlStmt {
     }
 
     private void checkAnalyzePriv(String dbName, String tblName) throws AnalysisException {
-        if (!Env.getCurrentEnv().getAccessCtlMgr()
+        if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), dbName, tblName, PrivPredicate.SELECT)) {
             ErrorReport.reportAnalysisException(
                     ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,

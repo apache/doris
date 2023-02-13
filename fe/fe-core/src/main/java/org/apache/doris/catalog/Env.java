@@ -697,7 +697,7 @@ public class Env {
         return auth;
     }
 
-    public AccessControllerManager getAccessCtlMgr() {
+    public AccessControllerManager getAccessManager() {
         return accessManager;
     }
 

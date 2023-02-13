@@ -71,7 +71,7 @@ public class ShowBackupStmt extends ShowStmt {
         }
 
         // check auth
-        if (!Env.getCurrentEnv().getAccessCtlMgr().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.LOAD)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
                     ConnectContext.get().getQualifiedUser(), dbName);
         }

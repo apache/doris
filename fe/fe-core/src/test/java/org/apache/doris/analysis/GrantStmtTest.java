@@ -72,7 +72,7 @@ public class GrantStmtTest {
                 minTimes = 0;
                 result = env;
 
-                env.getAccessCtlMgr();
+                env.getAccessManager();
                 minTimes = 0;
                 result = accessManager;
             }
