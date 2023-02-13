@@ -954,7 +954,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         for (CatalogIf catalog : idToCatalog.values()) {
             nameToCatalog.put(catalog.getName(), catalog);
         }
-        internalCatalog = (InternalCatalog) idToCatalog.get(InternalCatalog.INTERNAL_DS_ID);
+        internalCatalog = (InternalCatalog) idToCatalog.get(InternalCatalog.INTERNAL_CATALOG_ID);
     }
 }
 

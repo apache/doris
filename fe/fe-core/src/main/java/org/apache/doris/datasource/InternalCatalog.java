@@ -210,7 +210,7 @@ import java.util.stream.Collectors;
  */
 public class InternalCatalog implements CatalogIf<Database> {
     public static final String INTERNAL_CATALOG_NAME = "internal";
-    public static final long INTERNAL_DS_ID = 0L;
+    public static final long INTERNAL_CATALOG_ID = 0L;
 
     private static final Logger LOG = LogManager.getLogger(InternalCatalog.class);
 
@@ -228,7 +228,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     @Override
     public long getId() {
-        return INTERNAL_DS_ID;
+        return INTERNAL_CATALOG_ID;
     }
 
     @Override
