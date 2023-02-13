@@ -68,6 +68,7 @@ public class ResolveWindowFunctionTest extends TestWithFeService implements Patt
         // String sql3 = "select rank() over(partition by s_suppkey+3 order by s_city) from supplier group by s_city, s_suppkey";
         // String sql = "select sum(s_suppkey) over(partition by s_city) from supplier";
         String sql = " select rank() over from supplier";
-        String sql2 = "select s_suppkey+1, s_city, sum(s_suppkey), sum(s_suppkey+1) over(partition by s_city order by s_suppkey + 1) from supplier group by s_city, s_suppkey";
+        // String sql2 = "select s_suppkey+1, s_city, sum(s_suppkey), sum(s_suppkey+1) over(partition by s_city order by s_suppkey + 1) from supplier group by s_city, s_suppkey";
         PlanChecker.from(connectContext).checkPlannerResult(sql);
+    }
 }
