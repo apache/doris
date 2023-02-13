@@ -414,8 +414,8 @@ public class BindExpression implements AnalysisRuleFactory {
                     Plan childPlan = having.child();
                     Set<Expression> boundConjuncts = having.getConjuncts().stream()
                             .map(expr -> {
-                                expr = bindSlot(expr, childPlan.children(), ctx.cascadesContext);
-                                return bindSlot(expr, childPlan, ctx.cascadesContext);
+                                expr = bindSlot(expr, childPlan.children(), ctx.cascadesContext, false);
+                                return bindSlot(expr, childPlan, ctx.cascadesContext, false);
                             })
                             .map(expr -> bindFunction(expr, ctx.cascadesContext))
                             .collect(Collectors.toSet());
@@ -428,8 +428,8 @@ public class BindExpression implements AnalysisRuleFactory {
                     Plan childPlan = having.child();
                     Set<Expression> boundConjuncts = having.getConjuncts().stream()
                             .map(expr -> {
-                                expr = bindSlot(expr, childPlan, ctx.cascadesContext);
-                                return bindSlot(expr, childPlan.children(), ctx.cascadesContext);
+                                expr = bindSlot(expr, childPlan, ctx.cascadesContext, false);
+                                return bindSlot(expr, childPlan.children(), ctx.cascadesContext, false);
                             })
                             .map(expr -> bindFunction(expr, ctx.cascadesContext))
                             .collect(Collectors.toSet());
@@ -560,24 +560,28 @@ public class BindExpression implements AnalysisRuleFactory {
             .collect(Collectors.toList());
     }
 
-    private <E extends Expression> Set<E> bindSlot(
-            Set<E> exprList, List<Plan> inputs, CascadesContext cascadesContext) {
-        return exprList.stream()
-                .map(expr -> bindSlot(expr, inputs, cascadesContext))
-                .collect(Collectors.toSet());
+    @SuppressWarnings("unchecked")
+    private <E extends Expression> E bindSlot(E expr, Plan input, CascadesContext cascadesContext) {
+        return bindSlot(expr, input, cascadesContext, true);
+    }
+
+    private <E extends Expression> E bindSlot(E expr, Plan input, CascadesContext cascadesContext,
+            boolean enableExactMatch) {
+        return (E) new SlotBinder(toScope(input.getOutput()), cascadesContext, enableExactMatch).bind(expr);
     }
 
     @SuppressWarnings("unchecked")
-    private <E extends Expression> E bindSlot(E expr, Plan input, CascadesContext cascadesContext) {
-        return (E) new SlotBinder(toScope(input.getOutput()), cascadesContext).bind(expr);
+    private <E extends Expression> E bindSlot(E expr, List<Plan> inputs, CascadesContext cascadesContext,
+            boolean enableExactMatch) {
+        List<Slot> boundedSlots = inputs.stream()
+                .flatMap(input -> input.getOutput().stream())
+                .collect(Collectors.toList());
+        return (E) new SlotBinder(toScope(boundedSlots), cascadesContext, enableExactMatch).bind(expr);
     }
 
     @SuppressWarnings("unchecked")
     private <E extends Expression> E bindSlot(E expr, List<Plan> inputs, CascadesContext cascadesContext) {
-        List<Slot> boundedSlots = inputs.stream()
-                .flatMap(input -> input.getOutput().stream())
-                .collect(Collectors.toList());
-        return (E) new SlotBinder(toScope(boundedSlots), cascadesContext).bind(expr);
+        return bindSlot(expr, inputs, cascadesContext, true);
     }
 
     @SuppressWarnings("unchecked")
