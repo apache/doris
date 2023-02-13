@@ -125,13 +125,19 @@ private:
     Status _get_row_ranges_from_conditions(RowRanges* condition_row_ranges);
     Status _apply_bitmap_index();
     Status _apply_inverted_index();
-
+    Status _apply_inverted_index_on_column_predicate(
+            ColumnPredicate* pred, std::vector<ColumnPredicate*>& remaining_predicates,
+            bool* continue_apply);
+    Status _apply_inverted_index_on_block_column_predicate(
+            ColumnId column_id, MutilColumnBlockPredicate* pred,
+            std::set<const ColumnPredicate*>& no_need_to_pass_column_predicate_set,
+            bool* continue_apply);
     Status _apply_index_except_leafnode_of_andnode();
     Status _apply_bitmap_index_except_leafnode_of_andnode(ColumnPredicate* pred,
                                                           roaring::Roaring* output_result);
     Status _apply_inverted_index_except_leafnode_of_andnode(ColumnPredicate* pred,
                                                             roaring::Roaring* output_result);
-    bool _is_handle_predicate_by_fulltext(ColumnPredicate* predicate);
+    bool _is_handle_predicate_by_fulltext(int32_t unique_id);
     bool _can_filter_by_preds_except_leafnode_of_andnode();
     Status _execute_predicates_except_leafnode_of_andnode(vectorized::VExpr* expr);
     Status _execute_compound_fn(const std::string& function_name);
