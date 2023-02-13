@@ -288,10 +288,13 @@ Status NewPlainTextLineReader::read_fields(const uint8_t** ptr, size_t* size, bo
 
     *ptr = _output_buf + _output_buf_pos;
     *size = offset;
+    // this for the case:
+    // line_delimiter: AA
+    // the last line of file: 1AAftwAA18
     if (found_line_delimiter == 0) {
-        LOG(INFO) << "--ftw: eof";
         trim_space_and_quote();
     }
+    // emplace_back the last field of one line
     fields->emplace_back(_field_start, _non_space_offset - _field_start + 1);
 
     // Skip offset and _line_delimiter size;
