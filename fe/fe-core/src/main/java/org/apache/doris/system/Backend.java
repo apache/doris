@@ -30,6 +30,7 @@ import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.system.HeartbeatResponse.HbStatus;
 import org.apache.doris.thrift.TDisk;
+import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
@@ -780,6 +781,10 @@ public class Backend implements Writable {
 
     public Map<String, String> getTagMap() {
         return tagMap;
+    }
+
+    public TNetworkAddress getBrpcAdress() {
+        return new TNetworkAddress(getHost(), getBrpcPort());
     }
 
     public String getTagMapString() {

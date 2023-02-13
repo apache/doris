@@ -1066,6 +1066,14 @@ public class Config extends ConfigBase {
     public static int max_query_retry_time = 1;
 
     /**
+     * The number of point query retries in executor.
+     * A query may retry if we encounter RPC exception and no result has been sent to user.
+     * You may reduce this number to avoid Avalanche disaster.
+     */
+    @ConfField(mutable = true)
+    public static int max_point_query_retry_time = 2;
+
+    /**
      * The tryLock timeout configuration of catalog lock.
      * Normally it does not need to change, unless you need to test something.
      */
