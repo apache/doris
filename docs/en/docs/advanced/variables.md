@@ -580,3 +580,7 @@ Translated with www.DeepL.com/Translator (free version)
 * `topn_opt_limit_threshold`
 
     Set threshold for limit of topn query (eg. SELECT * FROM t ORDER BY k LIMIT n). If n <= threshold, topn optimizations(runtime predicate pushdown, two phase result fetch and read order by key) will enable automatically, otherwise disable. Default value is 1024.
+
+* `drop_table_if_ctas_failed`
+
+    Controls whether create table as select deletes created tables when a insert error occurs, the default value is true.
