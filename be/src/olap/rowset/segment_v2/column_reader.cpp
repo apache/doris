@@ -157,6 +157,10 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
     opts.type = iter_opts.type;
     opts.encoding_info = _encoding_info;
     opts.io_ctx = iter_opts.io_ctx;
+    // index page should not pre decode
+    if (iter_opts.type == INDEX_PAGE) {
+        opts.pre_decode = false;
+    }
 
     return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
 }
