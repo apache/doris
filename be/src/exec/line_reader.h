@@ -29,7 +29,7 @@ public:
     virtual Status read_line(const uint8_t** ptr, size_t* size, bool* eof) = 0;
 
     virtual Status read_fields(const uint8_t** ptr, size_t* size, bool* eof,
-                               std::vector<Slice>* fields) {
+                               std::vector<std::pair<int, int>>* fields) {
         return Status::NotSupported("Not supported to read fields");
     }
 

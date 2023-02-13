@@ -113,7 +113,7 @@ uint8_t* NewPlainTextLineReader::_find_line_delimiter(const uint8_t* start, size
 }
 
 uint8_t* NewPlainTextLineReader::_update_field_pos_and_find_line_delimiter(
-        const uint8_t* start, size_t len, std::vector<Slice>* fields) {
+        const uint8_t* start, size_t len, std::vector<std::pair<int, int>>* fields) {
     assert(start);
     assert(_line_delimiter.c_str());
     assert(_line_delimiter_length >= 1);
@@ -158,8 +158,7 @@ uint8_t* NewPlainTextLineReader::_update_field_pos_and_find_line_delimiter(
                 non_space_offset--;
             }
 
-            fields->emplace_back(line_start() + _field_start, non_space_offset - _field_start + 1);
-            _fields_pos.emplace_back(_field_start, non_space_offset - _field_start + 1);
+            fields->emplace_back(_field_start, non_space_offset - _field_start + 1);
             _field_start = _line_cur_pos + 1;
             _value_delimiter_cur_pos = 0;
             if (_line_delimiter_cur_pos == _line_delimiter_length) {
@@ -247,7 +246,7 @@ void NewPlainTextLineReader::extend_output_buf() {
 }
 
 Status NewPlainTextLineReader::read_fields(const uint8_t** ptr, size_t* size, bool* eof,
-                                           std::vector<Slice>* fields) {
+                                           std::vector<std::pair<int, int>>* fields) {
     if (_eof || update_eof()) {
         *size = 0;
         *eof = true;
@@ -257,7 +256,6 @@ Status NewPlainTextLineReader::read_fields(const uint8_t** ptr, size_t* size, bo
     size_t offset = 0;
 
     fields->clear();
-    _fields_pos.clear();
     _field_start = 0;
     _line_cur_pos = 0;
     _value_delimiter_cur_pos = 0;
@@ -275,11 +273,6 @@ Status NewPlainTextLineReader::read_fields(const uint8_t** ptr, size_t* size, bo
             // read from file reader
             offset = output_buf_read_remaining();
             extend_output_buf();
-
-            for (size_t i = 0; i < _fields_pos.size(); ++i) {
-                Slice new_pos(line_start() + _fields_pos[i].first, _fields_pos[i].second);
-                (*fields)[i] = new_pos;
-            }
 
             // if _read_more_data() == false : break
             // if _read_more_data() == true : continue

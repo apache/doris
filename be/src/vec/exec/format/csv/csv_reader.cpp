@@ -247,8 +247,9 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             delete[] row_ptr;
             RETURN_IF_ERROR(_fill_dest_columns(line, block, columns, &rows));
         } else {
+            _fields_pos.clear();
             RETURN_IF_ERROR(
-                    _line_reader->read_fields(&ptr, &size, &_line_reader_eof, &_split_values));
+                    _line_reader->read_fields(&ptr, &size, &_line_reader_eof, &_fields_pos));
             if (_skip_lines > 0) {
                 _skip_lines--;
                 continue;
@@ -376,11 +377,12 @@ Status CsvReader::_create_decompressor() {
 
 Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
                                      std::vector<MutableColumnPtr>& columns, size_t* rows) {
+    size_t fields_size = _is_proto_format ? _split_values.size() : _fields_pos.size();
     if (_is_load) {
         // Only check for load task. For query task, the non exist column will be filled "null".
         // if actual column number in csv file is not equal to _file_slot_descs.size()
         // then filter this line.
-        if (_split_values.size() != _file_slot_descs.size()) {
+        if (fields_size != _file_slot_descs.size()) {
             std::string cmp_str =
                     _split_values.size() > _file_slot_descs.size() ? "more than" : "less than";
             RETURN_IF_ERROR(_state->append_error_msg_to_file(
@@ -407,26 +409,44 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
             auto src_slot_desc = _file_slot_descs[i];
             int col_idx = _col_idxs[i];
             // col idx is out of range, fill with null.
-            const Slice& value =
-                    col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
-            // For load task, we always read "string" from file, so use "write_string_column"
-            _text_converter->write_string_column(src_slot_desc, &columns[i], value.data,
-                                                 value.size);
+            if (col_idx >= fields_size) {
+                const Slice& value = _s_null_slice;
+                // For load task, we always read "string" from file, so use "write_string_column"
+                _text_converter->write_string_column(src_slot_desc, &columns[i], value.data,
+                                                     value.size);
+            } else {
+                const Slice& value = _is_proto_format
+                                             ? _split_values[col_idx]
+                                             : Slice(line.data + _fields_pos[col_idx].first,
+                                                     _fields_pos[col_idx].second);
+                // For load task, we always read "string" from file, so use "write_string_column"
+                _text_converter->write_string_column(src_slot_desc, &columns[i], value.data,
+                                                     value.size);
+            }
         }
     } else {
-        // if _split_values.size > _file_slot_descs.size()
+        // if fields_size > _file_slot_descs.size()
         // we only take the first few columns
         for (int i = 0; i < _file_slot_descs.size(); ++i) {
             auto src_slot_desc = _file_slot_descs[i];
             int col_idx = _col_idxs[i];
             // col idx is out of range, fill with null.
-            const Slice& value =
-                    col_idx < _split_values.size() ? _split_values[col_idx] : _s_null_slice;
             IColumn* col_ptr = const_cast<IColumn*>(
                     block->get_by_position(_file_slot_idx_map[i]).column.get());
-            // For query task, we will convert values to final column type, so use "write_vec_column"
-            _text_converter->write_vec_column(src_slot_desc, col_ptr, value.data, value.size, true,
-                                              false);
+            if (col_idx >= fields_size) {
+                const Slice& value = _s_null_slice;
+                // For query task, we will convert values to final column type, so use "write_vec_column"
+                _text_converter->write_vec_column(src_slot_desc, col_ptr, value.data, value.size,
+                                                  true, false);
+            } else {
+                const Slice& value = _is_proto_format
+                                             ? _split_values[col_idx]
+                                             : Slice(line.data + _fields_pos[col_idx].first,
+                                                     _fields_pos[col_idx].second);
+                // For query task, we will convert values to final column type, so use "write_vec_column"
+                _text_converter->write_vec_column(src_slot_desc, col_ptr, value.data, value.size,
+                                                  true, false);
+            }
         }
     }
     ++(*rows);

@@ -46,7 +46,7 @@ public:
     Status read_line(const uint8_t** ptr, size_t* size, bool* eof) override;
 
     Status read_fields(const uint8_t** ptr, size_t* size, bool* eof,
-                       std::vector<Slice>* fields) override;
+                       std::vector<std::pair<int, int>>* fields) override;
 
     void close() override;
 
@@ -64,7 +64,7 @@ private:
     uint8_t* _find_line_delimiter(const uint8_t* start, size_t len);
     // save positions of fields and return and line delimiter.
     uint8_t* _update_field_pos_and_find_line_delimiter(const uint8_t* start, size_t len,
-                                                       std::vector<Slice>* fields);
+                                                       std::vector<std::pair<int, int>>* fields);
 
     bool _read_more_data();
     void extend_input_buf();
@@ -120,14 +120,6 @@ private:
     // point to the current pos of separator matching sequence.
     // this is an offset from the start of line_delimiter.
     size_t _line_delimiter_cur_pos = 0;
-    // pair is (_field_start, len)
-    // because the _output_buf and _output_buf_pos may be change.
-    // we can not save (_output_buf+_output_buf_pos) only.
-    // We should save the offset from line_start (that is _field_start),
-    // so that when _output_buf and _output_buf_pos change
-    // we can use (line_start() + _field_start) to find the
-    // correct start of a field
-    std::vector<std::pair<int, int>> _fields_pos;
 
     // Profile counters
     RuntimeProfile::Counter* _bytes_read_counter;

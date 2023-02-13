@@ -119,6 +119,14 @@ private:
 
     // save source text which have been splitted.
     std::vector<Slice> _split_values;
+    // pair is (_field_start, len)
+    // because the _output_buf and _output_buf_pos may be change.
+    // we can not save (_output_buf+_output_buf_pos) only.
+    // We should save the offset from line_start (that is _field_start),
+    // so that when _output_buf and _output_buf_pos change
+    // we can use (line_start() + _field_start) to find the
+    // correct start of a field
+    std::vector<std::pair<int, int>> _fields_pos;
 };
 } // namespace vectorized
 } // namespace doris
