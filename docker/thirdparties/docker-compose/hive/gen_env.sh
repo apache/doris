@@ -38,3 +38,5 @@ HOST_NAME="doris--namenode"
     echo "CORE_CONF_fs_defaultFS=hdfs://${HOST_NAME}:${FS_PORT}"
     echo "HOST_NAME=${HOST_NAME}"
 } >>"${ROOT}"/hadoop-hive.env
+
+
