@@ -118,7 +118,7 @@ This import method can still guarantee the atomicity of a batch of import tasks,
 
 5. Import the data in the local file `testData` into the p1, p2 partitions in the table of `testTbl` in the database `testDb`, allowing a 20% error rate.
 
-    ```
+    ```sql
     LOAD DATA LOCAL
     INFILE 'testData'
     PARTITION (p1, p2)

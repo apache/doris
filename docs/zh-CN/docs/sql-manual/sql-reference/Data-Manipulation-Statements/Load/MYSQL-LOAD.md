@@ -117,7 +117,7 @@ INTO TABLE tbl_name
 
 5. 将本地文件'testData'中的数据导入到数据库'testDb'中'testTbl'的表中的p1, p2分区, 允许20%的错误率。
 
-    ```
+    ```sql
     LOAD DATA LOCAL
     INFILE 'testData'
     PARTITION (p1, p2)
