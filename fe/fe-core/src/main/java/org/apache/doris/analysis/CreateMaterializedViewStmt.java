@@ -496,6 +496,23 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         return name;
     }
 
+    public static String oldmvColumnBreaker(String name) {
+        if (name.startsWith(MATERIALIZED_VIEW_NAME_PREFIX)) {
+            // mv_count_k2 -> k2
+            name = name.substring(MATERIALIZED_VIEW_NAME_PREFIX.length());
+            for (String prefix : FN_NAME_TO_PATTERN.keySet()) {
+                if (name.startsWith(prefix)) {
+                    return name.substring(prefix.length() + 1);
+                }
+            }
+        }
+        if (name.startsWith(MATERIALIZED_VIEW_NAME_PREFIX)) {
+            // mv_k2 -> k2
+            return mvColumnBreaker(name.substring(MATERIALIZED_VIEW_NAME_PREFIX.length()));
+        }
+        return name;
+    }
+
     public static boolean isMVColumn(String name) {
         return isMVColumnAggregate(name) || isMVColumnNormal(name);
     }
