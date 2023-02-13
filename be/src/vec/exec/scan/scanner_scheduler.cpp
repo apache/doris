@@ -342,10 +342,10 @@ void ScannerScheduler::_scanner_scan(ScannerScheduler* scheduler, ScannerContext
         // _transfer_done = true;
         ctx->set_status_on_error(status);
         eos = true;
-        std::for_each(blocks.begin(), blocks.end(), std::default_delete<vectorized::Block>());
+        blocks.clear();
     } else if (should_stop) {
         // No need to return blocks because of should_stop, just delete them
-        std::for_each(blocks.begin(), blocks.end(), std::default_delete<vectorized::Block>());
+        blocks.clear();
     } else if (!blocks.empty()) {
         ctx->append_blocks_to_queue(blocks);
     }
