@@ -59,6 +59,7 @@ hive -f /mnt/scripts/create_preinstalled_table.hql
 echo "touch /mnt/SUCCESS"
 touch /mnt/SUCCESS
 
+
 while true
 do
     sleep 30s
