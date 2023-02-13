@@ -98,11 +98,13 @@ Status EngineCloneTask::_do_clone() {
         if (missed_versions.empty()) {
             LOG(INFO) << "missed version size = 0, skip clone and return success. tablet_id="
                       << _clone_req.tablet_id << " req replica=" << _clone_req.replica_id;
-            // update replica id to meet cooldown replica
-            tablet->tablet_meta()->set_replica_id(_clone_req.replica_id);
-            {
-                std::shared_lock rlock(tablet->get_header_lock());
-                tablet->save_meta();
+            if (_clone_req.replica_id != tablet->replica_id()) {
+                // update replica id to meet cooldown replica
+                tablet->tablet_meta()->set_replica_id(_clone_req.replica_id);
+                {
+                    std::shared_lock rlock(tablet->get_header_lock());
+                    tablet->save_meta();
+                }
             }
             _set_tablet_info(is_new_tablet);
             return Status::OK();
