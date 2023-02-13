@@ -377,7 +377,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
                                               PFetchTableSchemaResult* result,
                                               google::protobuf::Closure* done) {
     DorisMetrics::instance()->fetch_table_schema->increment(1);
-    _light_work_pool.offer([request, result, done]() {
+    _heavy_work_pool.offer([request, result, done]() {
         VLOG_RPC << "fetch table schema";
         brpc::ClosureGuard closure_guard(done);
         TFileScanRange file_scan_range;
@@ -493,7 +493,7 @@ void PInternalServiceImpl::get_info(google::protobuf::RpcController* controller,
                                     const PProxyRequest* request, PProxyResult* response,
                                     google::protobuf::Closure* done) {
     DorisMetrics::instance()->get_info->increment(1);
-    _light_work_pool.offer([this, request, response, done]() {
+    _heavy_work_pool.offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         // PProxyRequest is defined in gensrc/proto/internal_service.proto
         // Currently it supports 2 kinds of requests:
@@ -691,17 +691,10 @@ void PInternalServiceImpl::fold_constant_expr(google::protobuf::RpcController* c
                                               PConstantExprResult* response,
                                               google::protobuf::Closure* done) {
     DorisMetrics::instance()->fold_constant_expr->increment(1);
-    _light_work_pool.offer([this, controller, request, response, done]() {
+    _light_work_pool.offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
-        brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
-
         Status st = Status::OK();
-        if (request->has_request()) {
-            st = _fold_constant_expr(request->request(), response);
-        } else {
-            // TODO(yangzhengguo) this is just for compatible with old version, this should be removed in the release 0.15
-            st = _fold_constant_expr(cntl->request_attachment().to_string(), response);
-        }
+        st = _fold_constant_expr(request->request(), response);
         if (!st.ok()) {
             LOG(WARNING) << "exec fold constant expr failed, errmsg=" << st;
         }
@@ -1209,7 +1202,7 @@ void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* contro
                                          PMultiGetResponse* response,
                                          google::protobuf::Closure* done) {
     DorisMetrics::instance()->multiget_data->increment(1);
-    _light_work_pool.offer([request, response, done, this]() {
+    _heavy_work_pool.offer([request, response, done, this]() {
         // multi get data by rowid
         MonotonicStopWatch watch;
         watch.start();
