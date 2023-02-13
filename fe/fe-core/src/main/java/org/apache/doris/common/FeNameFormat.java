@@ -35,7 +35,8 @@ public class FeNameFormat {
     private static final String UNICODE_LABEL_REGEX = "^[-_A-Za-z0-9\\p{L}]{1,128}$";
     private static final String UNICODE_COMMON_NAME_REGEX = "^[a-zA-Z\\p{L}][a-zA-Z0-9_\\p{L}]{0,63}$";
     private static final String UNICODE_TABLE_NAME_REGEX = "^[a-zA-Z\\p{L}][a-zA-Z0-9_\\p{L}]*$";
-    private static final String UNICODE_COLUMN_NAME_REGEX = "^[_a-zA-Z@0-9\\p{L}][.a-zA-Z0-9_+-/><?@#$%^&*\\p{L}]{0,255}$";
+    private static final String UNICODE_COLUMN_NAME_REGEX
+            = "^[_a-zA-Z@0-9\\p{L}][.a-zA-Z0-9_+-/><?@#$%^&*\\p{L}]{0,255}$";
 
     public static final String FORBIDDEN_PARTITION_NAME = "placeholder_";
 
