@@ -61,7 +61,7 @@ suite("test_add_drop_index", "inverted_index"){
 
     // case1: create index for int colume
     // case1.0 create index
-    sql "create index age_idx on ${indexTbName1}(age);"
+    sql "create index age_idx on ${indexTbName1}(age) using inverted"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
 
     def show_result = sql "show index from ${indexTbName1}"
@@ -71,7 +71,7 @@ suite("test_add_drop_index", "inverted_index"){
     // case1.1 create duplicate same index for one colume with same name
     def create_dup_index_result = "fail"
     try {
-        sql "create index age_idx on ${indexTbName1}(`age`)"
+        sql "create index age_idx on ${indexTbName1}(`age`) using inverted"
         create_dup_index_result = "success"
     } catch(Exception ex) {
         logger.info("create same duplicate and same name index,  result: " + ex)
@@ -79,25 +79,28 @@ suite("test_add_drop_index", "inverted_index"){
     assertEquals(create_dup_index_result, "fail")
     // case1.2 create duplicate same index for one colume with different name
     try {
-        sql "create index age_idx_diff on ${indexTbName1}(`age`)"
+        sql "create index age_idx_diff on ${indexTbName1}(`age`) using inverted"
         create_dup_index_result = "success"
     } catch(Exception ex) {
         logger.info("create same duplicate with different name index,  result: " + ex)
     }
     assertEquals(create_dup_index_result, "fail")
     // case1.3 create duplicate different index for one colume with same name
-    try {
-        sql "create index age_idx_diff on ${indexTbName1}(`age`) using bitmap"
-        create_dup_index_result = "success"
-    } catch(Exception ex) {
-        logger.info("create different duplicate and different name index,  result: " + ex)
-    }
-    assertEquals(create_dup_index_result, "fail")
+    sql "create index age_idx_diff on ${indexTbName1}(`age`) using bitmap"
+    wait_for_latest_op_on_table_finish(indexTbName1, timeout)
+    show_result = sql "show index from ${indexTbName1}"
+    logger.info("show index from " + indexTbName1 + " result: " + show_result)
+    assertEquals(show_result[1][2], "age_idx_diff")
     
     // case1.4 drop index
     def drop_result = sql "drop index age_idx on ${indexTbName1}"
     logger.info("drop index age_idx on " + indexTbName1 + "; result: " + drop_result)
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
+
+    drop_result = sql "drop index age_idx_diff on ${indexTbName1}"
+    logger.info("drop index age_idx_diff on " + indexTbName1 + "; result: " + drop_result)
+    wait_for_latest_op_on_table_finish(indexTbName1, timeout)
+
     show_result = sql "show index from ${indexTbName1}"
     assertEquals(show_result.size(), 0)
     
@@ -111,24 +114,9 @@ suite("test_add_drop_index", "inverted_index"){
     }
     assertEquals(drop_index_twice_result, "fail")
 
-
     // case2: create index for date colume
-    // case2.0 create index with which index_name has been used in age colume
-    sleep(30000)
-    def create_index_with_used_name_result = "fail"
-    try {
-        sql "create index age_idx on ${indexTbName1}(age);"
-        sql "create index age_idx on ${indexTbName1}(`registDate`)"
-        create_index_with_used_name_result = "success"
-    } catch(Exception ex) {
-        logger.info("expect create index with used index name, result: " + ex)
-        sleep(3000)
-        sql "drop index age_idx on ${indexTbName1}"
-    }
-    assertEquals(create_index_with_used_name_result, "fail")
     // case2.1 create index for date colume
-    sleep(3000)
-    sql "create index date_idx on ${indexTbName1}(`registDate`)"
+    sql "create index date_idx on ${indexTbName1}(`registDate`) using inverted"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
     show_result = sql "show index from ${indexTbName1}"
     assertEquals(show_result.size(), 1)
@@ -147,11 +135,10 @@ suite("test_add_drop_index", "inverted_index"){
     assertEquals(create_string_index_on_int_colume_result, "fail")
 
     // case4: create default inverted index for varchar coulume
-    sleep(10000)
-    sql "create index name_idx on ${indexTbName1}(`name`)"
+    sql "create index name_idx on ${indexTbName1}(`name`) using inverted"
     wait_for_latest_op_on_table_finish(indexTbName1, timeout)
     show_result = sql "show index from ${indexTbName1}"
-    assertTrue(show_result[0][2] == "name_idx" && show_result[0][10] == "BITMAP")
+    assertTrue(show_result[0][2] == "name_idx" && show_result[0][10] == "INVERTED")
     logger.info("create index name_idx for " + indexTbName1 + "(`name`)")
     logger.info("show index result: " + show_result)
     sql "drop index name_idx on ${indexTbName1}"
