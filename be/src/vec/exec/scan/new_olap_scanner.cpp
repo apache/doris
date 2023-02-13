@@ -24,8 +24,7 @@
 namespace doris::vectorized {
 
 NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit,
-                               bool aggregation, bool need_agg_finalize,
-                               const TPaloScanRange& scan_range, RuntimeProfile* profile)
+                               bool aggregation, bool need_agg_finalize, RuntimeProfile* profile)
         : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
@@ -90,6 +89,11 @@ Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
             for (const auto& column_desc : olap_scan_node.columns_desc) {
                 _tablet_schema->append_column(TabletColumn(column_desc));
             }
+        }
+
+        if (olap_scan_node.__isset.indexes_desc && !olap_scan_node.indexes_desc.empty() &&
+            olap_scan_node.indexes_desc[0].index_id >= 0) {
+            _tablet_schema->update_indexes_from_thrift(olap_scan_node.indexes_desc);
         }
 
         {
@@ -491,6 +495,21 @@ void NewOlapScanner::_update_counters_before_close() {
 
     COUNTER_UPDATE(olap_parent->_inverted_index_filter_counter, stats.rows_inverted_index_filtered);
     COUNTER_UPDATE(olap_parent->_inverted_index_filter_timer, stats.inverted_index_filter_timer);
+    COUNTER_UPDATE(olap_parent->_inverted_index_query_cache_hit_counter,
+                   stats.inverted_index_query_cache_hit);
+    COUNTER_UPDATE(olap_parent->_inverted_index_query_cache_miss_counter,
+                   stats.inverted_index_query_cache_miss);
+    COUNTER_UPDATE(olap_parent->_inverted_index_query_timer, stats.inverted_index_query_timer);
+    COUNTER_UPDATE(olap_parent->_inverted_index_query_bitmap_copy_timer,
+                   stats.inverted_index_query_bitmap_copy_timer);
+    COUNTER_UPDATE(olap_parent->_inverted_index_query_bitmap_op_timer,
+                   stats.inverted_index_query_bitmap_op_timer);
+    COUNTER_UPDATE(olap_parent->_inverted_index_searcher_open_timer,
+                   stats.inverted_index_searcher_open_timer);
+    COUNTER_UPDATE(olap_parent->_inverted_index_searcher_search_timer,
+                   stats.inverted_index_searcher_search_timer);
+    COUNTER_UPDATE(olap_parent->_inverted_index_searcher_bitmap_timer,
+                   stats.inverted_index_searcher_bitmap_timer);
 
     COUNTER_UPDATE(olap_parent->_output_index_result_column_timer,
                    stats.output_index_result_column_timer);

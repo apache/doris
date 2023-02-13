@@ -33,7 +33,7 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
 
 ## Usage
 
-1. Supported datas sources include MySQL, PostgreSQL, Oracle, SQLServer, and Clickhouse.
+1. Supported datas sources include MySQL, PostgreSQL, Oracle, SQLServer, Clickhouse and Doris.
 
 ## Create Catalog
 
@@ -146,6 +146,27 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
    | Database | Schema    |
    | Table    | Table     |
 
+<version since="dev">
+    
+6. Doris
+
+</version>
+
+Jdbc Catalog also support to connect another Doris database:
+
+```sql
+CREATE CATALOG doris_catalog PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:9030?useSSL=false",
+    "driver_url" = "mysql-connector-java-5.1.47.jar",
+    "driver_class" = "com.mysql.jdbc.Driver"
+);
+```
+
+Currently, Jdbc Catalog only support to use 5.x version of JDBC jar package to connect another Doris database. If you use 8.x version of JDBC jar package, the data type of column may not be matched.
+
 ### Parameter Description
 
 | Parameter       | Required or Not | Default Value | Description                                        |
@@ -211,7 +232,7 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 | UNSIGNED TINYINT                                             | SMALLINT    | Doris does not support UNSIGNED data types so UNSIGNED TINYINT will be mapped to SMALLINT. |
 | UNSIGNED MEDIUMINT                                           | INT         | Doris does not support UNSIGNED data types so UNSIGNED MEDIUMINT will be mapped to INT. |
 | UNSIGNED INT                                                 | BIGINT      | Doris does not support UNSIGNED data types so UNSIGNED INT will be mapped to BIGINT. |
-| UNSIGNED BIGINT                                              | STRING      |                                                              |
+| UNSIGNED BIGINT                                              | LARGEINT      |                                                              |
 | FLOAT                                                        | FLOAT       |                                                              |
 | DOUBLE                                                       | DOUBLE      |                                                              |
 | DECIMAL                                                      | DECIMAL     |                                                              |
@@ -221,7 +242,7 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 | YEAR                                                         | SMALLINT    |                                                              |
 | TIME                                                         | STRING      |                                                              |
 | CHAR                                                         | CHAR        |                                                              |
-| VARCHAR                                                      | STRING      |                                                              |
+| VARCHAR                                                      | VARCHAR      |                                                              |
 | TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT、TINYBLOB、BLOB、MEDIUMBLOB、LONGBLOB、TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING、BINARY、VARBINARY、JSON、SET、BIT | STRING      |                                                              |
 | Other                                                        | UNSUPPORTED |                                                              |
 
@@ -306,6 +327,28 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 | Enum/IPv4/IPv6/UUID    | STRING      | Data of IPv4 and IPv6 type will be displayed with an extra `/` as a prefix. To remove the `/`, you can use the `split_part`function. |
 | Other                  | UNSUPPORTED |                                                              |
 
+### Doris
+
+| Doris Type | Jdbc Catlog Doris Type | Comment |
+|---|---|---|
+| BOOLEAN | BOOLEAN | |
+| TINYINT | TINYINT | |
+| SMALLINT | SMALLINT | |
+| INT | INT | |
+| BIGINT | BIGINT | |
+| LARGEINT | LARGEINT | |
+| FLOAT | FLOAT | |
+| DOUBLE | DOUBLE | |
+| DECIMAL / DECIMALV3 | DECIMAL/DECIMALV3/STRING | The Data type is based on the DECIMAL field's (precision, scale) and the `enable_decimal_conversion` configuration |
+| DATE | DATEV2 | JDBC CATLOG uses Datev2 type default when connecting DORIS |
+| DATEV2 | DATEV2 |  |
+| DATETIME | DATETIMEV2 | JDBC CATLOG uses DATETIMEV2 type default when connecting DORIS |
+| DATETIMEV2 | DATETIMEV2 | |
+| CHAR | CHAR | |
+| VARCHAR | VARCHAR | |
+| STRING | STRING | |
+| TEXT | STRING | |
+|Other| UNSUPPORTED |
 ## FAQ
 
 1. Are there any other databases supported besides MySQL, Oracle, PostgreSQL, SQLServer, and ClickHouse?

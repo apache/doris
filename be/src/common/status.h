@@ -409,6 +409,8 @@ public:
                ErrorCode::TEST_FILE_ERROR == _code || ErrorCode::ROWBLOCK_READ_INFO_ERROR == _code;
     }
 
+    bool is_invalid_argument() const { return ErrorCode::INVALID_ARGUMENT == _code; }
+
     bool is_not_found() const { return _code == ErrorCode::NOT_FOUND; }
 
     // Convert into TStatus. Call this if 'status_container' contains an optional

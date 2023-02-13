@@ -44,6 +44,7 @@
 #include "runtime/thread_context.h"
 #include "service/brpc.h"
 #include "service/point_query_executor.h"
+#include "util/async_io.h"
 #include "util/brpc_client_cache.h"
 #include "util/defer_op.h"
 #include "util/md5.h"
@@ -109,11 +110,13 @@ PInternalServiceImpl::PInternalServiceImpl(ExecEnv* exec_env)
     REGISTER_HOOK_METRIC(add_batch_task_queue_size,
                          [this]() { return _tablet_worker_pool.get_queue_size(); });
     CHECK_EQ(0, bthread_key_create(&btls_key, thread_context_deleter));
+    CHECK_EQ(0, bthread_key_create(&AsyncIO::btls_io_ctx_key, AsyncIO::io_ctx_key_deleter));
 }
 
 PInternalServiceImpl::~PInternalServiceImpl() {
     DEREGISTER_HOOK_METRIC(add_batch_task_queue_size);
     CHECK_EQ(0, bthread_key_delete(btls_key));
+    CHECK_EQ(0, bthread_key_delete(AsyncIO::btls_io_ctx_key));
 }
 
 void PInternalServiceImpl::transmit_data(google::protobuf::RpcController* cntl_base,
@@ -1094,14 +1097,22 @@ void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* contro
                                          const PMultiGetRequest* request,
                                          PMultiGetResponse* response,
                                          google::protobuf::Closure* done) {
-    // multi get data by rowid
-    MonotonicStopWatch watch;
-    watch.start();
-    brpc::ClosureGuard closure_guard(done);
-    response->mutable_status()->set_status_code(0);
-    Status st = _multi_get(request, response);
-    st.to_protobuf(response->mutable_status());
-    LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
+    // Submit task to seperate ThreadPool for avoiding block bthread working pthread
+    ThreadPool* task_pool = StorageEngine::instance()->get_bg_multiget_threadpool();
+    Status submit_st = task_pool->submit_func([request, response, done, this]() {
+        // multi get data by rowid
+        MonotonicStopWatch watch;
+        watch.start();
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(0);
+        Status st = _multi_get(request, response);
+        st.to_protobuf(response->mutable_status());
+        LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
+    });
+    if (!submit_st.ok()) {
+        submit_st.to_protobuf(response->mutable_status());
+        done->Run();
+    }
 }
 
 } // namespace doris

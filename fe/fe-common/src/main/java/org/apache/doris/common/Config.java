@@ -803,13 +803,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int alter_table_timeout_second = 86400 * 30; // 1month
     /**
-     * Maximal timeout of push cooldown conf request.
-     */
-    @ConfField(mutable = false, masterOnly = true)
-    public static boolean cooldown_single_remote_file = false;
-    @ConfField(mutable = false, masterOnly = true)
-    public static int push_cooldown_conf_timeout_second = 600; // 10 min
-    /**
      * If a backend is down for *max_backend_down_time_second*, a BACKEND_DOWN event will be triggered.
      * Do not set this if you know what you are doing.
      */
@@ -1932,11 +1925,10 @@ public class Config extends ConfigBase {
     public static int max_same_name_catalog_trash_num = 3;
 
     /**
-     * The storage policy is still under developement.
-     * Disable it by default.
+     * NOTE: The storage policy is still under developement.
      */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_storage_policy = false;
+    @ConfField(mutable = false, masterOnly = true)
+    public static boolean enable_storage_policy = true;
 
     /**
      * This config is mainly used in the k8s cluster environment.
@@ -1977,9 +1969,6 @@ public class Config extends ConfigBase {
     @ConfField(masterOnly = true, mutable = true)
     public static int max_error_tablet_of_broker_load = 3;
 
-    @ConfField(mutable = false)
-    public static int topn_two_phase_limit_threshold = 512;
-
     /**
      * Used to set session variables randomly to check more issues in github workflow
      */
@@ -1991,5 +1980,18 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static long default_db_max_running_txn_num = -1;
+
+    /**
+     * Used by TokenManager to control the number of tokens keep in memory.
+     * One token will keep alive for {token_queue_size * token_generate_period_hour} hours.
+     * By defaults, one token will keep for 3 days.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static int token_queue_size = 6;
+
+    /**
+     * TokenManager will generate token every token_generate_period_hour.
+     */
+    public static int token_generate_period_hour = 12;
 }
 

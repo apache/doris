@@ -15,8 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite ("test_rollup_add_fail") {
-    def tableName = "test_rollup_add_fail"
+suite ("test_rollup_agg_fail") {
+    def tableName = "test_rollup_agg_fail"
 
     /* agg */
     sql """ DROP TABLE IF EXISTS ${tableName} FORCE"""
@@ -37,34 +37,14 @@ suite ("test_rollup_add_fail") {
             BUCKETS 1
             PROPERTIES ( "replication_num" = "1", "light_schema_change" = "true" );
         """
-
-    // add materialized view (failed)
-    def result = "null"
-    def mvName = "mv1"
-    sql "create materialized view ${mvName} as select user_id, date, city, age, sex, sum(cost) from ${tableName} group by user_id, date, city, age, sex;"
-    while (!result.contains("CANCELLED")){
-        result = sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1;"
-        result = result.toString()
-        logger.info("result: ${result}")
-        if(result.contains("FINISHED")){
-            assertTrue(false);
-        }
-        Thread.sleep(100)
-    }
-
-    Thread.sleep(1000)
-
     //add rollup (failed)
-    result = "null"
-    def rollupName = "rollup_cost"
-    sql "ALTER TABLE ${tableName} ADD ROLLUP ${rollupName}(`user_id`,`date`,`city`,`age`, `sex`, cost);"
-    while (!result.contains("CANCELLED")){
-        result = sql "SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1;"
-        result = result.toString()
-        logger.info("result: ${result}")
-        if(result.contains("FINISHED")){
-            assertTrue(false);
-        }
-        Thread.sleep(100)
+    test {
+        sql "create materialized view mv1 as select user_id, date, city, age, sex, sum(cost) from ${tableName} group by user_id, date, city, age, sex;"
+        exception "errCode = 2"
+    }
+    //add rollup (failed)
+    test {
+        sql "ALTER TABLE ${tableName} ADD ROLLUP r1 (`user_id`,`date`,`city`,`age`, `sex`, cost);"
+        exception "errCode = 2"
     }
 }

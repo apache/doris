@@ -122,7 +122,7 @@ import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.consistency.ConsistencyChecker;
-import org.apache.doris.cooldown.CooldownHandler;
+import org.apache.doris.cooldown.CooldownConfHandler;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.EsExternalCatalog;
@@ -166,7 +166,7 @@ import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVJobManager;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendReplicasInfo;
@@ -314,7 +314,7 @@ public class Env {
     private DeleteHandler deleteHandler;
     private DbUsedDataQuotaInfoCollector dbUsedDataQuotaInfoCollector;
     private PartitionInMemoryInfoCollector partitionInMemoryInfoCollector;
-    private CooldownHandler cooldownHandler;
+    private CooldownConfHandler cooldownConfHandler;
     private MetastoreEventsProcessor metastoreEventsProcessor;
 
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
@@ -393,7 +393,7 @@ public class Env {
 
     private TabletStatMgr tabletStatMgr;
 
-    private PaloAuth auth;
+    private Auth auth;
 
     private DomainResolver domainResolver;
 
@@ -551,7 +551,9 @@ public class Env {
         this.deleteHandler = new DeleteHandler();
         this.dbUsedDataQuotaInfoCollector = new DbUsedDataQuotaInfoCollector();
         this.partitionInMemoryInfoCollector = new PartitionInMemoryInfoCollector();
-        this.cooldownHandler = new CooldownHandler();
+        if (Config.enable_storage_policy) {
+            this.cooldownConfHandler = new CooldownConfHandler();
+        }
         this.metastoreEventsProcessor = new MetastoreEventsProcessor();
 
         this.replayedJournalId = new AtomicLong(0L);
@@ -591,7 +593,7 @@ public class Env {
 
         this.tabletStatMgr = new TabletStatMgr();
 
-        this.auth = new PaloAuth();
+        this.auth = new Auth();
         this.domainResolver = new DomainResolver(auth);
 
         this.metaContext = new MetaContext();
@@ -688,7 +690,7 @@ public class Env {
         return pluginMgr;
     }
 
-    public PaloAuth getAuth() {
+    public Auth getAuth() {
         return auth;
     }
 
@@ -1398,8 +1400,8 @@ public class Env {
         dbUsedDataQuotaInfoCollector.start();
         // start daemon thread to update global partition in memory information periodically
         partitionInMemoryInfoCollector.start();
-        if (Config.cooldown_single_remote_file) {
-            cooldownHandler.start();
+        if (Config.enable_storage_policy) {
+            cooldownConfHandler.start();
         }
         streamLoadRecordMgr.start();
         getInternalCatalog().getIcebergTableCreationRecordMgr().start();
@@ -1738,12 +1740,6 @@ public class Env {
         return checksum;
     }
 
-    public long loadCooldownJob(DataInputStream dis, long checksum) throws IOException {
-        cooldownHandler.readField(dis);
-        LOG.info("finished replay loadCooldownJob from image");
-        return checksum;
-    }
-
     public long loadAlterJob(DataInputStream dis, long checksum) throws IOException {
         long newChecksum = checksum;
         for (JobType type : JobType.values()) {
@@ -1811,7 +1807,7 @@ public class Env {
     }
 
     public long loadPaloAuth(DataInputStream dis, long checksum) throws IOException {
-        // CAN NOT use PaloAuth.read(), cause this auth instance is already passed to DomainResolver
+        // CAN NOT use Auth.read(), cause this auth instance is already passed to DomainResolver
         auth.readFields(dis);
         LOG.info("finished replay paloAuth from image");
         return checksum;
@@ -2152,14 +2148,6 @@ public class Env {
      */
     public long saveCatalog(CountingDataOutputStream out, long checksum) throws IOException {
         Env.getCurrentEnv().getCatalogMgr().write(out);
-        return checksum;
-    }
-
-    /**
-     * Save CooldownJob.
-     */
-    public long saveCooldownJob(CountingDataOutputStream out, long checksum) throws IOException {
-        Env.getCurrentEnv().getCooldownHandler().write(out);
         return checksum;
     }
 
@@ -2930,6 +2918,12 @@ public class Env {
                 sb.append(olapTable.storeRowColumn()).append("\"");
             }
 
+            // dynamic schema
+            if (olapTable.isDynamicSchema()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA).append("\" = \"");
+                sb.append(olapTable.isDynamicSchema()).append("\"");
+            }
+
             // disable auto compaction
             sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DISABLE_AUTO_COMPACTION).append("\" = \"");
             sb.append(olapTable.disableAutoCompaction()).append("\"");
@@ -3387,8 +3381,8 @@ public class Env {
         return (MaterializedViewHandler) this.alter.getMaterializedViewHandler();
     }
 
-    public CooldownHandler getCooldownHandler() {
-        return cooldownHandler;
+    public CooldownConfHandler getCooldownConfHandler() {
+        return cooldownConfHandler;
     }
 
     public SystemHandler getClusterHandler() {

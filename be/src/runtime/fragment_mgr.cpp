@@ -192,7 +192,7 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
 
 Status FragmentExecState::prepare(const TExecPlanFragmentParams& params) {
     if (params.__isset.query_options) {
-        _timeout_second = params.query_options.query_timeout;
+        _timeout_second = params.query_options.execution_timeout;
     }
 
     if (_fragments_ctx == nullptr) {
@@ -226,10 +226,13 @@ Status FragmentExecState::execute() {
         SCOPED_RAW_TIMER(&duration_ns);
         CgroupsMgr::apply_system_cgroup();
         opentelemetry::trace::Tracer::GetCurrentSpan()->AddEvent("start executing Fragment");
-        WARN_IF_ERROR(_executor.open(),
+        Status st = _executor.open();
+        WARN_IF_ERROR(st,
                       strings::Substitute("Got error while opening fragment $0, query id: $1",
                                           print_id(_fragment_instance_id), print_id(_query_id)));
-
+        if (!st.ok()) {
+            cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "PlanFragmentExecutor open failed");
+        }
         _executor.close();
     }
     DorisMetrics::instance()->fragment_requests_total->increment(1);
@@ -464,7 +467,10 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, Fi
             .tag("instance_id", exec_state->fragment_instance_id())
             .tag("pthread_id", (uintptr_t)pthread_self());
 
-    exec_state->execute();
+    Status st = exec_state->execute();
+    if (!st.ok()) {
+        exec_state->cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "exec_state execute failed");
+    }
 
     std::shared_ptr<QueryFragmentsCtx> fragments_ctx = exec_state->get_fragments_ctx();
     bool all_done = false;
@@ -502,11 +508,11 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
         stream_load_ctx->label = params.import_label;
         stream_load_ctx->format = TFileFormatType::FORMAT_CSV_PLAIN;
         stream_load_ctx->timeout_second = 3600;
-        stream_load_ctx->auth.auth_code_uuid = params.txn_conf.auth_code_uuid;
+        stream_load_ctx->auth.token = params.txn_conf.token;
         stream_load_ctx->need_commit_self = true;
         stream_load_ctx->need_rollback = true;
         auto pipe = std::make_shared<io::StreamLoadPipe>(
-                kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
+                io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
                 -1 /* total_length */, true /* use_proto */);
         stream_load_ctx->body_sink = pipe;
         stream_load_ctx->max_filter_ratio = params.txn_conf.max_filter_ratio;
@@ -642,7 +648,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
 
         fragments_ctx->get_shared_hash_table_controller()->set_pipeline_engine_enabled(
                 pipeline_engine_enabled);
-        fragments_ctx->timeout_second = params.query_options.query_timeout;
+        fragments_ctx->timeout_second = params.query_options.execution_timeout;
         _set_scan_concurrency(params, fragments_ctx.get());
 
         bool has_query_mem_tracker =
@@ -773,43 +779,11 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
 void FragmentMgr::_set_scan_concurrency(const TExecPlanFragmentParams& params,
                                         QueryFragmentsCtx* fragments_ctx) {
 #ifndef BE_TEST
-    // set thread token
-    // the thread token will be set if
-    // 1. the cpu_limit is set, or
-    // 2. the limit is very small ( < 1024)
     // If the token is set, the scan task will use limited_scan_pool in scanner scheduler.
     // Otherwise, the scan task will use local/remote scan pool in scanner scheduler
-    int concurrency = 1;
-    bool is_serial = false;
-    bool need_token = false;
     if (params.query_options.__isset.resource_limit &&
         params.query_options.resource_limit.__isset.cpu_limit) {
-        concurrency = params.query_options.resource_limit.cpu_limit;
-        need_token = true;
-    } else {
-        concurrency = config::doris_scanner_thread_pool_thread_num;
-    }
-    if (params.__isset.fragment && params.fragment.__isset.plan &&
-        params.fragment.plan.nodes.size() > 0) {
-        for (auto& node : params.fragment.plan.nodes) {
-            // Only for SCAN NODE
-            if (!_is_scan_node(node.node_type)) {
-                continue;
-            }
-            if (node.__isset.conjuncts && !node.conjuncts.empty()) {
-                // If the scan node has where predicate, do not set concurrency
-                continue;
-            }
-            if (node.limit > 0 && node.limit < 1024) {
-                concurrency = 1;
-                is_serial = true;
-                need_token = true;
-                break;
-            }
-        }
-    }
-    if (need_token) {
-        fragments_ctx->set_thread_token(concurrency, is_serial);
+        fragments_ctx->set_thread_token(params.query_options.resource_limit.cpu_limit, false);
     }
 #endif
 }

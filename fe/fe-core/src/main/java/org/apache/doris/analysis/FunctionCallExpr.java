@@ -221,6 +221,10 @@ public class FunctionCallExpr extends Expr {
         this.aggFnParams = aggFnParams;
     }
 
+    public FunctionParams getAggFnParams() {
+        return aggFnParams;
+    }
+
     public void setIsAnalyticFnCall(boolean v) {
         isAnalyticFnCall = v;
     }
@@ -1414,12 +1418,12 @@ public class FunctionCallExpr extends Expr {
             Expr child1Result = getChild(1).getResultValue();
             if (child1Result instanceof StringLiteral) {
                 if (DateLiteral.hasTimePart(((StringLiteral) child1Result).getStringValue())) {
-                    this.type = ScalarType.getDefaultDateType(Type.DATETIME);
+                    this.type = Type.DATETIME;
                 } else {
-                    this.type = ScalarType.getDefaultDateType(Type.DATE);
+                    this.type = Type.DATE;
                 }
             } else {
-                this.type = ScalarType.getDefaultDateType(Type.DATETIME);
+                this.type = Type.DATETIME;
             }
         } else if (TIME_FUNCTIONS_WITH_PRECISION.contains(fnName.getFunction().toLowerCase())
                 && fn.getReturnType().isDatetimeV2()) {

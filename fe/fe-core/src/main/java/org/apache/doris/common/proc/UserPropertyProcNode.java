@@ -19,7 +19,7 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 
 import com.google.common.collect.ImmutableList;
 
@@ -31,10 +31,10 @@ public class UserPropertyProcNode implements ProcNodeInterface {
             .add("Key").add("Value")
             .build();
 
-    private PaloAuth auth;
+    private Auth auth;
     private UserIdentity userIdent;
 
-    public UserPropertyProcNode(PaloAuth auth, UserIdentity userIdent) {
+    public UserPropertyProcNode(Auth auth, UserIdentity userIdent) {
         this.auth = auth;
         this.userIdent = userIdent;
     }

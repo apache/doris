@@ -41,6 +41,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.cooldown.CooldownConf;
 import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.metric.MetricRepo;
@@ -62,6 +63,7 @@ import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.task.MasterTask;
 import org.apache.doris.task.PublishVersionTask;
+import org.apache.doris.task.PushCooldownConfTask;
 import org.apache.doris.task.PushStoragePolicyTask;
 import org.apache.doris.task.StorageMediaMigrationTask;
 import org.apache.doris.task.UpdateTabletMetaInfoTask;
@@ -94,6 +96,7 @@ import org.apache.thrift.TException;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -263,6 +266,17 @@ public class ReportHandler extends Daemon {
         }
     }
 
+    private static void handlePushCooldownConf(long backendId, List<CooldownConf> cooldownConfToPush) {
+        final int PUSH_BATCH_SIZE = 1024;
+        AgentBatchTask batchTask = new AgentBatchTask();
+        for (int start = 0; start < cooldownConfToPush.size(); start += PUSH_BATCH_SIZE) {
+            PushCooldownConfTask task = new PushCooldownConfTask(backendId,
+                    cooldownConfToPush.subList(start, Math.min(start + PUSH_BATCH_SIZE, cooldownConfToPush.size())));
+            batchTask.addTask(task);
+        }
+        AgentTaskExecutor.submit(batchTask);
+    }
+
     private static void handlePushStoragePolicy(long backendId, List<Policy> policyToPush,
                                                 List<Resource> resourceToPush, List<Long> policyToDrop) {
         AgentBatchTask batchTask = new AgentBatchTask();
@@ -396,8 +410,6 @@ public class ReportHandler extends Daemon {
         Set<Long> tabletFoundInMeta = Sets.newConcurrentHashSet();
         // storage medium -> tablet id
         ListMultimap<TStorageMedium, Long> tabletMigrationMap = LinkedListMultimap.create();
-        // the cooldown type of replicas which need to be sync. tabletId -> TabletMeta
-        Map<Long, TabletMeta> syncCooldownTabletMap = new HashMap<>();
 
         // dbid -> txn id -> [partition info]
         Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish = Maps.newHashMap();
@@ -407,6 +419,9 @@ public class ReportHandler extends Daemon {
         ListMultimap<Long, Long> tabletRecoveryMap = LinkedListMultimap.create();
 
         List<Triple<Long, Integer, Boolean>> tabletToInMemory = Lists.newArrayList();
+
+        List<CooldownConf> cooldownConfToPush = new LinkedList<>();
+        List<CooldownConf> cooldownConfToUpdate = new LinkedList<>();
 
         // 1. do the diff. find out (intersection) / (be - meta) / (meta - be)
         Env.getCurrentInvertedIndex().tabletReport(backendId, backendTablets, storageMediumMap,
@@ -418,7 +433,8 @@ public class ReportHandler extends Daemon {
                 transactionsToClear,
                 tabletRecoveryMap,
                 tabletToInMemory,
-                syncCooldownTabletMap);
+                cooldownConfToPush,
+                cooldownConfToUpdate);
 
         // 2. sync
         if (!tabletSyncMap.isEmpty()) {
@@ -461,9 +477,12 @@ public class ReportHandler extends Daemon {
             handleSetTabletInMemory(backendId, tabletToInMemory);
         }
 
-        // 10. send cooldownType which need sync to CooldownHandler
-        if (!syncCooldownTabletMap.isEmpty()) {
-            Env.getCurrentEnv().getCooldownHandler().handleCooldownConf(syncCooldownTabletMap);
+        // handle cooldown conf
+        if (!cooldownConfToPush.isEmpty()) {
+            handlePushCooldownConf(backendId, cooldownConfToPush);
+        }
+        if (!cooldownConfToUpdate.isEmpty()) {
+            Env.getCurrentEnv().getCooldownConfHandler().addCooldownConfToUpdate(cooldownConfToUpdate);
         }
 
         final SystemInfoService currentSystemInfo = Env.getCurrentSystemInfo();
@@ -754,7 +773,7 @@ public class ReportHandler extends Daemon {
                                             olapTable.getCompressionType(),
                                             olapTable.getEnableUniqueKeyMergeOnWrite(), olapTable.getStoragePolicy(),
                                             olapTable.disableAutoCompaction(),
-                                            olapTable.storeRowColumn());
+                                            olapTable.storeRowColumn(), olapTable.isDynamicSchema());
 
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaBatchTask.addTask(createReplicaTask);

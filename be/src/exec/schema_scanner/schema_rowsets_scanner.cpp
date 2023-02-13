@@ -44,7 +44,6 @@ std::vector<SchemaScanner::ColumnDesc> SchemaRowsetsScanner::_s_tbls_columns = {
         {"INDEX_DISK_SIZE", TYPE_BIGINT, sizeof(size_t), true},
         {"DATA_DISK_SIZE", TYPE_BIGINT, sizeof(size_t), true},
         {"CREATION_TIME", TYPE_BIGINT, sizeof(int64_t), true},
-        {"OLDEST_WRITE_TIMESTAMP", TYPE_BIGINT, sizeof(int64_t), true},
         {"NEWEST_WRITE_TIMESTAMP", TYPE_BIGINT, sizeof(int64_t), true},
 
 };
@@ -187,14 +186,6 @@ Status SchemaRowsetsScanner::_fill_block_impl(vectorized::Block* block) {
             RowsetSharedPtr rowset = rowsets_[i];
             size_t src = rowset->creation_time();
             fill_dest_column(block, &src, _s_tbls_columns[10]);
-        }
-    }
-    // OLDEST_WRITE_TIMESTAMP
-    {
-        for (int i = fill_idx_begin; i < fill_idx_end; ++i) {
-            RowsetSharedPtr rowset = rowsets_[i];
-            size_t src = rowset->oldest_write_timestamp();
-            fill_dest_column(block, &src, _s_tbls_columns[11]);
         }
     }
     // NEWEST_WRITE_TIMESTAMP

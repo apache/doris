@@ -1211,7 +1211,7 @@ Status VScanNode::try_append_late_arrival_runtime_filter(int* arrived_rf_num) {
 
     // This method will be called in scanner thread.
     // So need to add lock
-    std::unique_lock<std::mutex> l(_rf_locks);
+    std::unique_lock l(_rf_locks);
     if (_is_all_rf_applied) {
         *arrived_rf_num = _runtime_filter_descs.size();
         return Status::OK();
@@ -1244,7 +1244,7 @@ Status VScanNode::try_append_late_arrival_runtime_filter(int* arrived_rf_num) {
 
 Status VScanNode::clone_vconjunct_ctx(VExprContext** _vconjunct_ctx) {
     if (_vconjunct_ctx_ptr) {
-        std::unique_lock<std::mutex> l(_rf_locks);
+        std::unique_lock l(_rf_locks);
         return (*_vconjunct_ctx_ptr)->clone(_state, _vconjunct_ctx);
     }
     return Status::OK();

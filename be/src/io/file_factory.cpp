@@ -37,7 +37,6 @@
 #include "io/s3_writer.h"
 #include "olap/iterators.h"
 #include "runtime/exec_env.h"
-#include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 
 namespace doris {
@@ -159,7 +158,8 @@ Status FileFactory::create_file_reader(RuntimeProfile* /*profile*/,
     if (config::enable_file_cache && io_ctx->enable_file_cache) {
         cache_policy = io::FileCachePolicy::FILE_BLOCK_CACHE;
     }
-    io::FileReaderOptions reader_options(cache_policy, io::FileBlockCachePathPolicy());
+    io::FileBlockCachePathPolicy file_block_cache;
+    io::FileReaderOptions reader_options(cache_policy, file_block_cache);
     switch (type) {
     case TFileType::FILE_LOCAL: {
         RETURN_IF_ERROR(io::global_local_filesystem()->open_file(
@@ -192,15 +192,6 @@ Status FileFactory::create_file_reader(RuntimeProfile* /*profile*/,
 Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderSPtr* file_reader) {
     *file_reader = ExecEnv::GetInstance()->new_load_stream_mgr()->get(load_id);
     if (!(*file_reader)) {
-        return Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
-    }
-    return Status::OK();
-}
-
-Status FileFactory::create_pipe_reader(const TUniqueId& load_id,
-                                       std::shared_ptr<FileReader>& file_reader) {
-    file_reader = ExecEnv::GetInstance()->load_stream_mgr()->get(load_id);
-    if (!file_reader) {
         return Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
     return Status::OK();

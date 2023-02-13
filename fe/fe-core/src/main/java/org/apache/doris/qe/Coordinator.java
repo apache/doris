@@ -31,6 +31,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.telemetry.ScopedSpan;
 import org.apache.doris.common.telemetry.Telemetry;
+import org.apache.doris.common.util.ConsistentHash;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.ListUtil;
 import org.apache.doris.common.util.ProfileWriter;
@@ -59,6 +60,7 @@ import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.planner.SetOperationNode;
 import org.apache.doris.planner.UnionNode;
+import org.apache.doris.planner.external.ExternalScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentResult;
 import org.apache.doris.proto.InternalService.PExecPlanFragmentStartRequest;
@@ -77,6 +79,7 @@ import org.apache.doris.thrift.TErrorTabletInfo;
 import org.apache.doris.thrift.TEsScanRange;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
 import org.apache.doris.thrift.TExecPlanFragmentParamsList;
+import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
 import org.apache.doris.thrift.TPlanFragmentDestination;
@@ -104,6 +107,9 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multiset;
 import com.google.common.collect.Sets;
+import com.google.common.hash.Funnel;
+import com.google.common.hash.Hashing;
+import com.google.common.hash.PrimitiveSink;
 import io.opentelemetry.api.trace.Span;
 import io.opentelemetry.api.trace.SpanKind;
 import io.opentelemetry.context.Context;
@@ -115,10 +121,12 @@ import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.jetbrains.annotations.NotNull;
 
+import java.nio.charset.StandardCharsets;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
@@ -134,6 +142,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.stream.Collectors;
 
 public class Coordinator {
     private static final Logger LOG = LogManager.getLogger(Coordinator.class);
@@ -226,7 +235,7 @@ public class Coordinator {
     private final TUniqueId nextInstanceId;
 
     // a timestamp represent the absolute timeout
-    // eg, System.currentTimeMillis() + query_timeout * 1000
+    // eg, System.currentTimeMillis() + executeTimeoutS * 1000
     private long timeoutDeadline;
 
     private boolean enableShareHashTableForBroadcastJoin = false;
@@ -246,6 +255,26 @@ public class Coordinator {
 
     private boolean isPointQuery = false;
     private PointQueryExec pointExec = null;
+
+    private static class BackendHash implements Funnel<Backend> {
+        @Override
+        public void funnel(Backend backend, PrimitiveSink primitiveSink) {
+            primitiveSink.putBytes(backend.getHost().getBytes(StandardCharsets.UTF_8));
+            primitiveSink.putInt(backend.getBePort());
+        }
+    }
+
+    private static class ScanRangeHash implements Funnel<TScanRangeLocations> {
+        @Override
+        public void funnel(TScanRangeLocations scanRange, PrimitiveSink primitiveSink) {
+            Preconditions.checkState(scanRange.scan_range.isSetExtScanRange());
+            for (TFileRangeDesc desc : scanRange.scan_range.ext_scan_range.file_scan_range.ranges) {
+                primitiveSink.putBytes(desc.path.getBytes(StandardCharsets.UTF_8));
+                primitiveSink.putLong(desc.start_offset);
+                primitiveSink.putLong(desc.size);
+            }
+        }
+    }
 
     // Used for query/insert
     public Coordinator(ConnectContext context, Analyzer analyzer, Planner planner) {
@@ -278,6 +307,12 @@ public class Coordinator {
             }
         } else {
             this.descTable = planner.getDescTable().toThrift();
+        }
+
+        for (PlanFragment fragment : fragments) {
+            if (fragment.hasTargetNode()) {
+                LOG.info("Log for ISSUE-16517: " + this.descTable.toString());
+            }
         }
 
         this.returnedAllResults = false;
@@ -354,6 +389,7 @@ public class Coordinator {
         this.queryOptions.setEnableVectorizedEngine(VectorizedUtil.isVectorized());
         this.queryOptions.setEnablePipelineEngine(VectorizedUtil.isPipeline());
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
+        this.queryOptions.setExecutionTimeout(context.getExecTimeout());
     }
 
     public long getJobId() {
@@ -550,7 +586,7 @@ public class Coordinator {
         PlanFragmentId topId = fragments.get(0).getFragmentId();
         FragmentExecParams topParams = fragmentExecParamsMap.get(topId);
         DataSink topDataSink = topParams.fragment.getSink();
-        this.timeoutDeadline = System.currentTimeMillis() + queryOptions.query_timeout * 1000L;
+        this.timeoutDeadline = System.currentTimeMillis() + queryOptions.getExecutionTimeout() * 1000L;
         if (topDataSink instanceof ResultSink || topDataSink instanceof ResultFileSink) {
             TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
             receiver = new ResultReceiver(topParams.instanceExecParams.get(0).instanceId,
@@ -750,7 +786,7 @@ public class Coordinator {
             String operation) throws RpcException, UserException {
         if (leftTimeMs <= 0) {
             throw new UserException("timeout before waiting for " + operation + " RPC. Elapse(sec): " + (
-                    (System.currentTimeMillis() - timeoutDeadline) / 1000 + queryOptions.query_timeout));
+                    (System.currentTimeMillis() - timeoutDeadline) / 1000 + queryOptions.getExecutionTimeout()));
         }
 
         long timeoutMs = Math.min(leftTimeMs, Config.remote_fragment_exec_timeout_ms);
@@ -1762,12 +1798,56 @@ public class Coordinator {
         return location;
     }
 
+    private void computeScanRangeAssignmentByConsistentHash(
+            ScanNode scanNode,
+            final List<TScanRangeLocations> locations,
+            FragmentScanRangeAssignment assignment,
+            Map<TNetworkAddress, Long> assignedBytesPerHost,
+            Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
+        Collection<Backend> aliveBEs = idToBackend.values().stream().filter(SimpleScheduler::isAvailable)
+                .collect(Collectors.toList());
+        if (aliveBEs.isEmpty()) {
+            throw new UserException("No available backends");
+        }
+        int virtualNumber = Math.max(Math.min(512 / aliveBEs.size(), 32), 2);
+        ConsistentHash<TScanRangeLocations, Backend> consistentHash = new ConsistentHash<>(
+                Hashing.murmur3_128(), new ScanRangeHash(), new BackendHash(), aliveBEs, virtualNumber);
+        for (TScanRangeLocations scanRangeLocations : locations) {
+            TScanRangeLocation minLocation = scanRangeLocations.locations.get(0);
+            Backend backend = consistentHash.getNode(scanRangeLocations);
+            TNetworkAddress execHostPort = new TNetworkAddress(backend.getHost(), backend.getBePort());
+            this.addressToBackendID.put(execHostPort, backend.getId());
+            // Why only increase 1 in other implementations ?
+            if (scanRangeLocations.getScanRange().isSetExtScanRange()) {
+                for (TFileRangeDesc desc : scanRangeLocations.scan_range.ext_scan_range.file_scan_range.ranges) {
+                    assignedBytesPerHost.compute(execHostPort, (k, v) -> (v == null) ? desc.size : desc.size + v);
+                }
+            }
+            // Is replicaNumPerHost useful ?
+            replicaNumPerHost.computeIfPresent(minLocation.server, (k, v) -> v - 1);
+
+            Map<Integer, List<TScanRangeParams>> scanRanges = findOrInsert(assignment, execHostPort, new HashMap<>());
+            List<TScanRangeParams> scanRangeParamsList =
+                    findOrInsert(scanRanges, scanNode.getId().asInt(), new ArrayList<>());
+            TScanRangeParams scanRangeParams = new TScanRangeParams();
+            scanRangeParams.scan_range = scanRangeLocations.scan_range;
+            scanRangeParams.setVolumeId(minLocation.volume_id);
+            scanRangeParamsList.add(scanRangeParams);
+        }
+    }
+
     private void computeScanRangeAssignmentByScheduler(
             final ScanNode scanNode,
             final List<TScanRangeLocations> locations,
             FragmentScanRangeAssignment assignment,
             Map<TNetworkAddress, Long> assignedBytesPerHost,
             Map<TNetworkAddress, Long> replicaNumPerHost) throws Exception {
+        if (scanNode instanceof ExternalScanNode) {
+            // Use consistent hash to assign the same scan range into the same backend among different queries
+            computeScanRangeAssignmentByConsistentHash(
+                    scanNode, locations, assignment, assignedBytesPerHost, replicaNumPerHost);
+            return;
+        }
         for (TScanRangeLocations scanRangeLocations : locations) {
             Reference<Long> backendIdRef = new Reference<Long>();
             TScanRangeLocation minLocation = selectBackendsByRoundRobin(scanRangeLocations,

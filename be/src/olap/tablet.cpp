@@ -266,6 +266,7 @@ Status Tablet::revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowset
 }
 
 RowsetSharedPtr Tablet::get_rowset(const RowsetId& rowset_id) {
+    std::lock_guard<std::shared_mutex> wrlock(_meta_lock);
     for (auto& version_rowset : _rs_version_map) {
         if (version_rowset.second->rowset_id() == rowset_id) {
             return version_rowset.second;
@@ -1392,9 +1393,9 @@ void Tablet::build_tablet_report_info(TTabletInfo* tablet_info,
     tablet_info->__set_is_in_memory(_tablet_meta->tablet_schema()->is_in_memory());
     tablet_info->__set_replica_id(replica_id());
     tablet_info->__set_remote_data_size(_tablet_meta->tablet_remote_size());
-    tablet_info->__set_is_cooldown(_tablet_meta->storage_policy_id() > 0);
-    if (tablet_info->is_cooldown) {
+    if (tablet_state() == TABLET_RUNNING && _tablet_meta->storage_policy_id() > 0) {
         tablet_info->__set_cooldown_replica_id(_cooldown_replica_id);
+        tablet_info->__set_cooldown_term(_cooldown_term);
     }
 }
 
@@ -1556,7 +1557,6 @@ Status Tablet::create_initial_rowset(const int64_t req_version) {
         context.rowset_state = VISIBLE;
         context.segments_overlap = OVERLAP_UNKNOWN;
         context.tablet_schema = tablet_schema();
-        context.oldest_write_timestamp = UnixSeconds();
         context.newest_write_timestamp = UnixSeconds();
         res = create_rowset_writer(context, &rs_writer);
 
@@ -1645,7 +1645,7 @@ Status Tablet::cooldown() {
     }
     int64_t cooldown_replica_id = _cooldown_replica_id;
     if (cooldown_replica_id <= 0) { // wait for FE to push cooldown conf
-        return Status::OK();
+        return Status::InternalError("invalid cooldown_replica_id");
     }
     auto storage_policy = get_storage_policy(storage_policy_id());
     if (storage_policy == nullptr) {
@@ -1768,6 +1768,9 @@ Status Tablet::_write_cooldown_meta(io::RemoteFileSystem* fs, RowsetMeta* new_rs
 }
 
 Status Tablet::_follow_cooldowned_data(io::RemoteFileSystem* fs, int64_t cooldown_replica_id) {
+    LOG(INFO) << "try to follow cooldowned data. tablet_id=" << tablet_id()
+              << " cooldown_replica_id=" << cooldown_replica_id
+              << " local replica=" << replica_id();
     TabletMetaPB cooldown_meta_pb;
     RETURN_IF_ERROR(_read_cooldown_meta(fs, cooldown_replica_id, &cooldown_meta_pb));
     DCHECK(cooldown_meta_pb.rs_metas_size() > 0);
@@ -1788,12 +1791,13 @@ Status Tablet::_follow_cooldowned_data(io::RemoteFileSystem* fs, int64_t cooldow
         }
     }
     if (!version_aligned) {
-        LOG(INFO) << "cooldowned version is not aligned";
-        return Status::OK();
+        return Status::InternalError("cooldowned version is not aligned");
     }
     for (auto& [v, rs] : _rs_version_map) {
         if (v.second <= cooldowned_version) {
             overlap_rowsets.push_back(rs);
+        } else if (!rs->is_local()) {
+            return Status::InternalError("cooldowned version larger than that to follow");
         }
     }
     std::sort(overlap_rowsets.begin(), overlap_rowsets.end(), Rowset::comparator);
@@ -1854,6 +1858,9 @@ RowsetSharedPtr Tablet::pick_cooldown_rowset() {
             }
         }
     }
+    if (!rowset) {
+        return nullptr;
+    }
     if (min_local_version != cooldowned_version + 1) { // ensure version continuity
         if (UNLIKELY(cooldowned_version != -1)) {
             LOG(WARNING) << "version not continuous. tablet_id=" << tablet_id()
@@ -1884,14 +1891,6 @@ bool Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
         return false;
     }
 
-    int64_t oldest_cooldown_time = std::numeric_limits<int64_t>::max();
-    if (cooldown_ttl_sec >= 0) {
-        oldest_cooldown_time = rowset->oldest_write_timestamp() + cooldown_ttl_sec;
-    }
-    if (cooldown_datetime > 0) {
-        oldest_cooldown_time = std::min(oldest_cooldown_time, cooldown_datetime);
-    }
-
     int64_t newest_cooldown_time = std::numeric_limits<int64_t>::max();
     if (cooldown_ttl_sec >= 0) {
         newest_cooldown_time = rowset->newest_write_timestamp() + cooldown_ttl_sec;
@@ -1900,14 +1899,10 @@ bool Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
         newest_cooldown_time = std::min(newest_cooldown_time, cooldown_datetime);
     }
 
-    if (oldest_cooldown_time + config::cooldown_lag_time_sec < UnixSeconds()) {
-        *cooldown_timestamp = oldest_cooldown_time;
-        VLOG_DEBUG << "tablet need cooldown, tablet id: " << tablet_id()
-                   << " cooldown_timestamp: " << *cooldown_timestamp;
-        return true;
-    }
-
+    // the rowset should do cooldown job only if it's cooldown ttl plus newest write time is less than
+    // current time or it's datatime is less than current time
     if (newest_cooldown_time < UnixSeconds()) {
+        *cooldown_timestamp = newest_cooldown_time;
         *file_size = rowset->data_disk_size();
         VLOG_DEBUG << "tablet need cooldown, tablet id: " << tablet_id()
                    << " file_size: " << *file_size;
@@ -1916,7 +1911,6 @@ bool Tablet::need_cooldown(int64_t* cooldown_timestamp, size_t* file_size) {
 
     VLOG_DEBUG << "tablet does not need cooldown, tablet id: " << tablet_id()
                << " ttl sec: " << cooldown_ttl_sec << " cooldown datetime: " << cooldown_datetime
-               << " oldest write time: " << rowset->oldest_write_timestamp()
                << " newest write time: " << rowset->newest_write_timestamp();
     return false;
 }
@@ -2176,8 +2170,15 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
                         loc.row_id = row_id;
                     }
 
-                    delete_bitmap->add({loc.rowset_id, loc.segment_id, dummy_version.first},
-                                       loc.row_id);
+                    // delete bitmap will be calculate when memtable flush and
+                    // publish. The two stages may see different versions.
+                    // When there is sequence column, the currently imported data
+                    // of rowset may be marked for deletion at memtablet flush or
+                    // publish because the seq column is smaller than the previous
+                    // rowset.
+                    // just set 0 as a unified temporary version number, and update to
+                    // the real version number later.
+                    delete_bitmap->add({loc.rowset_id, loc.segment_id, 0}, loc.row_id);
                 }
                 ++row_id;
             }
@@ -2244,6 +2245,11 @@ Status Tablet::update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset) 
         int ret = _tablet_meta->delete_bitmap().set(
                 {std::get<0>(iter->first), std::get<1>(iter->first), cur_version}, iter->second);
         DCHECK(ret == 1);
+        if (ret != 1) {
+            LOG(INFO) << "failed to set delete bimap, key is: |" << std::get<0>(iter->first) << "|"
+                      << std::get<1>(iter->first) << "|" << cur_version;
+            return Status::InternalError("failed to set delete bimap");
+        }
     }
 
     return Status::OK();
@@ -2289,6 +2295,11 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapP
         int ret = _tablet_meta->delete_bitmap().set(
                 {std::get<0>(iter->first), std::get<1>(iter->first), cur_version}, iter->second);
         DCHECK(ret == 1);
+        if (ret != 1) {
+            LOG(INFO) << "failed to set delete bimap, key is: |" << std::get<0>(iter->first) << "|"
+                      << std::get<1>(iter->first) << "|" << cur_version;
+            return Status::InternalError("failed to set delete bimap");
+        }
     }
 
     return Status::OK();

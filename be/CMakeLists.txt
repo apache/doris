@@ -543,6 +543,12 @@ if (USE_JEMALLOC)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_JEMALLOC")
 endif()
 
+# Use Bthread to separate computation and IO
+# Adding the option `USE_BTHREAD_SCANNER=ON sh build.sh` when comliling can enable this feature
+if (USE_BTHREAD_SCANNER)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_BTHREAD_SCANNER")
+endif()
+
 # STRICT_MEMORY_USE=ON` expects BE to use less memory, and gives priority to ensuring stability
 # when the cluster memory is limited.
 # TODO In the future, expect a dynamic soft memory limit, combined with real-time memory usage of the cluster,

@@ -118,6 +118,7 @@ public class LoadStmt extends DdlStmt {
     public static final String KEY_IN_PARAM_SEQUENCE_COL = "sequence_col";
     public static final String KEY_IN_PARAM_BACKEND_ID = "backend_id";
     public static final String KEY_SKIP_LINES = "skip_lines";
+    public static final String KEY_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
 
     private final LabelName label;
     private final List<DataDescription> dataDescriptions;
@@ -187,6 +188,18 @@ public class LoadStmt extends DdlStmt {
                 }
             })
             .put(USE_NEW_LOAD_SCAN_NODE, new Function<String, Boolean>() {
+                @Override
+                public @Nullable Boolean apply(@Nullable String s) {
+                    return Boolean.valueOf(s);
+                }
+            })
+            .put(KEY_SKIP_LINES, new Function<String, Integer>() {
+                @Override
+                public @Nullable Integer apply(@Nullable String s) {
+                    return Integer.valueOf(s);
+                }
+            })
+            .put(KEY_TRIM_DOUBLE_QUOTES, new Function<String, Boolean>() {
                 @Override
                 public @Nullable Boolean apply(@Nullable String s) {
                     return Boolean.valueOf(s);
@@ -474,5 +487,13 @@ public class LoadStmt extends DdlStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    public RedirectStatus getRedirectStatus() {
+        if (isMysqlLoad) {
+            return RedirectStatus.NO_FORWARD;
+        } else {
+            return RedirectStatus.FORWARD_WITH_SYNC;
+        }
     }
 }

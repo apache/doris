@@ -533,7 +533,6 @@ VCollectIterator::Level1Iterator::Level1Iterator(
           _is_reverse(is_reverse),
           _skip_same(skip_same) {
     _ref.reset();
-    _batch_size = reader->_batch_size;
     // !_merge means that data are in order, so we just reverse children to return data in reverse
     if (!_merge && _is_reverse) {
         _children.reverse();
@@ -703,8 +702,9 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
         block->insert(cur_row.block->get_by_position(i).clone_empty());
     }
 
+    auto batch_size = _reader->batch_size();
     if (UNLIKELY(_reader->_reader_context.record_rowids)) {
-        _block_row_locations.resize(_batch_size);
+        _block_row_locations.resize(batch_size);
     }
     int continuous_row_in_block = 0;
     do {
@@ -736,7 +736,7 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
             LOG(WARNING) << "next failed: " << res;
             return res;
         }
-        if (target_block_row >= _batch_size) {
+        if (target_block_row >= batch_size) {
             if (continuous_row_in_block > 0) {
                 const auto& src_block = pre_row_ref.block;
                 for (size_t i = 0; i < column_count; ++i) {

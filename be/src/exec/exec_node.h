@@ -108,7 +108,19 @@ public:
     // new interface to compatible new optimizers in FE
     Status get_next_after_projects(
             RuntimeState* state, vectorized::Block* block, bool* eos,
-            const std::function<Status(RuntimeState*, vectorized::Block*, bool*)>& fn);
+            const std::function<Status(RuntimeState*, vectorized::Block*, bool*)>& fn,
+            bool clear_data = true);
+
+    // Used by pipeline streaming operators.
+    vectorized::Block* get_clear_input_block() {
+        clear_origin_block();
+        return &_origin_block;
+    }
+    bool has_output_row_descriptor() const { return _output_row_descriptor != nullptr; }
+    // If use projection, we should clear `_origin_block`.
+    void clear_origin_block() {
+        _origin_block.clear_column_data(_row_descriptor.num_materialized_slots());
+    }
 
     // Emit data, both need impl with method: sink
     // Eg: Aggregation, Sort, Scan

@@ -76,6 +76,7 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
     CREATE_AND_START_POOL(CLEAR_TRANSACTION_TASK, _clear_transaction_task_workers);
     CREATE_AND_START_POOL(DELETE, _delete_workers);
     CREATE_AND_START_POOL(ALTER_TABLE, _alter_tablet_workers);
+    CREATE_AND_START_POOL(ALTER_INVERTED_INDEX, _alter_inverted_index_workers);
     CREATE_AND_START_POOL(CLONE, _clone_workers);
     CREATE_AND_START_POOL(STORAGE_MEDIUM_MIGRATE, _storage_medium_migrate_workers);
     CREATE_AND_START_POOL(CHECK_CONSISTENCY, _check_consistency_workers);
@@ -181,6 +182,15 @@ void AgentServer::submit_tasks(TAgentResult& agent_result,
                 ret_st = Status::InvalidArgument(
                         "task(signature={}) has wrong request member = alter_tablet_req",
                         signature);
+            }
+            break;
+        case TTaskType::ALTER_INVERTED_INDEX:
+            if (task.__isset.alter_inverted_index_req) {
+                _alter_inverted_index_workers->submit_task(task);
+            } else {
+                ret_st = Status::InvalidArgument(strings::Substitute(
+                        "task(signature=$0) has wrong request member = alter_inverted_index_req",
+                        signature));
             }
             break;
         case TTaskType::PUSH_COOLDOWN_CONF:
