@@ -16,19 +16,31 @@
 # specific language governing permissions and limitations
 # under the License.
 
-nohup /opt/hive/bin/hive --service metastore &
-sleep 10
+/opt/hive/bin/hive --service metastore &
+
+# wait metastore start
+sleep 10s
+
+# if you test in your local，better use # to annotation section about tpch1.db
 if [[ ! -d "/mnt/scripts/tpch1.db" ]]; then
     echo "/mnt/scripts/tpch1.db does not exist"
     exit 1
+else
+    wget https://doris-build-hk-1308700295.cos.ap-hongkong.myqcloud.com/regression/load/tpch1_parquet/tpch1.db.tar.gz -P /mnt/scripts/
+    tar -zxvf /data/regression/load/tpch1_parquet/tpch1.db.tar.gz -C /mnt/scripts/
+    rm /data/regression/load/tpch1_parquet/tpch1.db.tar.gz
 fi
 
-# put data file
-## put tpch1
+
 echo "hadoop fs -mkdir /user/doris/"
 hadoop fs -mkdir -p /user/doris/
+
+# if you test in your local，better use # to annotation section about tpch1.db
+# put data file
+# put tpch1
 echo "hadoop fs -put /mnt/scripts/tpch1.db /user/doris/"
 hadoop fs -put /mnt/scripts/tpch1.db /user/doris/
+
 
 ## put other preinstalled data
 echo "hadoop fs -put /mnt/scripts/preinstalled_data /user/doris/"
@@ -47,7 +59,7 @@ hive -f /mnt/scripts/create_preinstalled_table.hql
 echo "touch /mnt/SUCCESS"
 touch /mnt/SUCCESS
 
-# Avoid container exit
-while true; do
-    sleep 1
+while true
+do
+    sleep 30s
 done

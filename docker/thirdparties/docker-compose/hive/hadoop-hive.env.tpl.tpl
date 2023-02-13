@@ -15,7 +15,7 @@
 # limitations under the License.
 #
 
-HIVE_SITE_CONF_javax_jdo_option_ConnectionURL=jdbc:postgresql://doris--hive-metastore-postgresql/metastore
+HIVE_SITE_CONF_javax_jdo_option_ConnectionURL=jdbc:postgresql://doris--hive-metastore-postgresql:5432/metastore
 HIVE_SITE_CONF_javax_jdo_option_ConnectionDriverName=org.postgresql.Driver
 HIVE_SITE_CONF_javax_jdo_option_ConnectionUserName=hive
 HIVE_SITE_CONF_javax_jdo_option_ConnectionPassword=hive
