@@ -109,13 +109,14 @@ void ScannerContext::return_free_block(std::unique_ptr<vectorized::Block> block)
     _free_blocks.emplace_back(std::move(block));
 }
 
-void ScannerContext::append_blocks_to_queue(const std::vector<vectorized::BlockUPtr>& blocks) {
+void ScannerContext::append_blocks_to_queue(std::vector<vectorized::BlockUPtr>& blocks) {
     std::lock_guard l(_transfer_lock);
     auto old_bytes_in_queue = _cur_bytes_in_queue;
     for (auto& b : blocks) {
         _cur_bytes_in_queue += b->allocated_bytes();
         _blocks_queue.push_back(std::move(b));
     }
+    blocks.clear();
     _update_block_queue_empty();
     _blocks_queue_added_cv.notify_one();
     _parent->_queued_blocks_memory_usage->add(_cur_bytes_in_queue - old_bytes_in_queue);

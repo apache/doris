@@ -74,7 +74,7 @@ public:
     void return_free_block(std::unique_ptr<vectorized::Block> block);
 
     // Append blocks from scanners to the blocks queue.
-    void append_blocks_to_queue(const std::vector<vectorized::BlockUPtr>& blocks);
+    void append_blocks_to_queue(std::vector<vectorized::BlockUPtr>& blocks);
 
     // Get next block from blocks queue. Called by ScanNode
     // Set eos to true if there is no more data to read.
