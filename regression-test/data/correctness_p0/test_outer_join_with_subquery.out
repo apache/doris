@@ -61,3 +61,21 @@ aaa
 -- !select --
 1	100
 
+-- !select --
+\N
+
+-- !select --
+\N
+
+-- !select --
+100
+
+-- !select --
+100
+
+-- !select --
+0
+
+-- !select --
+100
+

@@ -299,6 +299,30 @@ suite("test_outer_join_with_subquery") {
         select count(1), max(user_id) from(  select max(user_id), 100 as user_id FROM test_outer_join_with_subquery_outerjoin_A_1  )t;
     """
 
+qt_select """
+        select max(user_id) from(  select user_id FROM test_outer_join_with_subquery_outerjoin_A_1  )t;
+    """
+
+    qt_select """
+        select max(user_id) from(  select user_id FROM (  select user_id FROM test_outer_join_with_subquery_outerjoin_A_1  )s  )t;
+    """
+
+    qt_select """
+        select max(user_id) from(  select count(1), 100 as user_id FROM test_outer_join_with_subquery_outerjoin_A_1  )t;
+    """
+
+    qt_select """
+        select max(user_id) from(  select 100 as user_id FROM (  select max(user_id) FROM test_outer_join_with_subquery_outerjoin_A_1  )s  )t;
+    """
+
+    qt_select """
+        select max(user_id) from(  select user_id FROM (  select count(1) as user_id, 'abc' FROM test_outer_join_with_subquery_outerjoin_A_1 )s  )t;
+    """
+
+    qt_select """
+        select max(user_id) from(  select max(user_id), 100 as user_id FROM test_outer_join_with_subquery_outerjoin_A_1  )t;
+    """
+
     sql """
         drop table if exists test_outer_join_with_subquery_outerjoin_A_1;
     """
