@@ -17,25 +17,25 @@
 
 package org.apache.doris.datasource.iceberg.dlf;
 
-import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.datasource.iceberg.dlf.client.DLFCachedClientPool;
-import org.apache.doris.datasource.iceberg.dlf.client.DLFHttpProxy;
 
-import com.aliyun.datalake20200710.models.Database;
 import org.apache.hadoop.conf.Configurable;
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.iceberg.BaseMetastoreCatalog;
+import org.apache.iceberg.BaseMetastoreTableOperations;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NamespaceNotEmptyException;
+import org.apache.iceberg.exceptions.NoSuchIcebergTableException;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.hadoop.HadoopFileIO;
+import org.apache.iceberg.hive.MetastoreUtil;
 import org.apache.iceberg.io.FileIO;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -47,7 +47,6 @@ public class DLFCatalog extends BaseMetastoreCatalog implements SupportsNamespac
     private DLFCachedClientPool clients;
     private FileIO fileIO;
     private String uid;
-    private DLFHttpProxy delegate;
 
     @Override
     protected TableOperations newTableOps(TableIdentifier tableIdentifier) {
@@ -66,27 +65,31 @@ public class DLFCatalog extends BaseMetastoreCatalog implements SupportsNamespac
         this.uid = name;
         this.fileIO = new HadoopFileIO(conf);
         this.clients = new DLFCachedClientPool(this.conf, properties);
-        this.delegate = new DLFHttpProxy(
-                conf.get(S3Resource.S3_ACCESS_KEY),
-                conf.get(S3Resource.S3_SECRET_KEY),
-                conf.get("dlf.catalog.endpoint"),
-                conf.get(S3Resource.S3_REGION));
     }
 
     @Override
     public List<TableIdentifier> listTables(Namespace namespace) {
         String dbName = namespace.level(0);
-        return delegate.listTables(uid, dbName)
-            .stream()
-            .map(e -> TableIdentifier.of(dbName, e.getTableName()))
-            .collect(Collectors.toList());
+        try {
+            return clients.run(client -> client.getAllTables(dbName))
+                .stream()
+                .map(tbl -> TableIdentifier.of(dbName, tbl))
+                .collect(Collectors.toList());
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
     public boolean dropTable(TableIdentifier tableIdentifier, boolean purge) {
         try {
             String dbName = tableIdentifier.namespace().level(0);
-            delegate.dropTable(uid, dbName, tableIdentifier.name());
+            clients.run(client -> {
+                client.dropTable(dbName, tableIdentifier.name(),
+                        false /* do not delete data */,
+                        false /* throw NoSuchObjectException if the table doesn't exist */);
+                return true;
+            });
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -101,32 +104,40 @@ public class DLFCatalog extends BaseMetastoreCatalog implements SupportsNamespac
             if (!sourceDbName.equals(targetDbName)) {
                 throw new RuntimeException("The two table not belong to a database.");
             }
-            delegate.renameTable(uid, sourceDbName, sourceTbl.name(), targetTbl.name(), false);
+            Table table = clients.run(client -> client.getTable(sourceDbName, sourceTbl.name()));
+            validateTableIsIceberg(table, fullTableName(sourceDbName, sourceTbl));
+            clients.run(client -> {
+                MetastoreUtil.alterTable(client, sourceDbName, sourceTbl.name(), table);
+                return null;
+            });
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
     }
 
-    @Override
-    public void createNamespace(Namespace namespace, Map<String, String> props) {
-        try {
-            String dbName = namespace.level(0);
-            String locationUri = props.get("location");
-            if (locationUri.isEmpty()) {
-                throw new RuntimeException("");
-            }
-            delegate.createDatabase(uid, dbName, locationUri, props);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
+    static void validateTableIsIceberg(Table table, String fullName) {
+        String type = table.getParameters().get(BaseMetastoreTableOperations.TABLE_TYPE_PROP);
+        NoSuchIcebergTableException.check(
+                type != null && type.equalsIgnoreCase(BaseMetastoreTableOperations.ICEBERG_TABLE_TYPE_VALUE),
+                "Not an iceberg table: %s (type=%s)",
+                fullName,
+                type);
     }
+
+    @Override
+    public void createNamespace(Namespace namespace, Map<String, String> props) {}
 
     @Override
     public List<Namespace> listNamespaces(Namespace namespace) throws NoSuchNamespaceException {
         List<Namespace> namespaces = new ArrayList<>();
-        List<Database> databases = delegate.listDatabases(uid);
-        for (Database database : databases) {
-            namespaces.add(Namespace.of(database.getName()));
+        List<String> databases;
+        try {
+            databases = clients.run(client -> client.getAllDatabases());
+            for (String database : databases) {
+                namespaces.add(Namespace.of(database));
+            }
+        } catch (Exception e) {
+            throw new RuntimeException(e);
         }
         return namespaces;
     }
@@ -134,17 +145,21 @@ public class DLFCatalog extends BaseMetastoreCatalog implements SupportsNamespac
     @Override
     public Map<String, String> loadNamespaceMetadata(Namespace namespace) throws NoSuchNamespaceException {
         String dbName = namespace.level(0);
-        Database database = delegate.getDatabase(uid, dbName);
-        Map<String, String> metaProperties = new HashMap<>(database.getParameters());
-        metaProperties.put("createBy", database.getCreatedBy());
-        return metaProperties;
+        try {
+            return clients.run(client -> client.getDatabase(dbName)).getParameters();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
     }
 
     @Override
     public boolean dropNamespace(Namespace namespace) throws NamespaceNotEmptyException {
         String dbName = namespace.level(0);
         try {
-            delegate.dropDatabase(uid, dbName, true);
+            clients.run(client -> {
+                client.dropDatabase(dbName);
+                return null;
+            });
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
@@ -153,23 +168,11 @@ public class DLFCatalog extends BaseMetastoreCatalog implements SupportsNamespac
 
     @Override
     public boolean setProperties(Namespace namespace, Map<String, String> props) throws NoSuchNamespaceException {
-        String dbName = namespace.level(0);
-        try {
-            delegate.addDbProperties(uid, dbName, props);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
         return false;
     }
 
     @Override
     public boolean removeProperties(Namespace namespace, Set<String> pNames) throws NoSuchNamespaceException {
-        String dbName = namespace.level(0);
-        try {
-            delegate.removeDbProperties(uid, dbName, pNames);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
         return false;
     }
 
