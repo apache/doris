@@ -497,6 +497,10 @@ public abstract class DataType implements AbstractDataType {
         return this instanceof NullType;
     }
 
+    public boolean isIntegralType() {
+        return this instanceof IntegralType;
+    }
+
     public boolean isNumericType() {
         return this instanceof NumericType;
     }

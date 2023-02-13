@@ -92,10 +92,10 @@ public class AnalyticPlanner {
      * a subset of the grouping exprs which should be used for the aggregate
      * hash partitioning during the parallelization of 'root'.
      * TODO: when generating sort orders for the sort groups, optimize the ordering
-     * of the partition exprs (so that subsequent sort operations see the input sorted
-     * on a prefix of their required sort exprs)
+     *  of the partition exprs (so that subsequent sort operations see the input sorted
+     *  on a prefix of their required sort exprs)
      * TODO: when merging sort groups, recognize equivalent exprs
-     * (using the equivalence classes) rather than looking for expr equality
+     *  (using the equivalence classes) rather than looking for expr equality
      * @throws AnalysisException
      * @throws UserException
      */

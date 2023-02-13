@@ -31,6 +31,7 @@ import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithAggregate;
 import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithoutAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.logical.BuildAggForUnion;
+import org.apache.doris.nereids.rules.rewrite.logical.CheckAndStandardizeWindowFunctionAndFrame;
 import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.logical.CountDistinctRewrite;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateAggregate;
@@ -39,6 +40,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateOrderByConstant;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateUnnecessaryProject;
+import org.apache.doris.nereids.rules.rewrite.logical.ExtractAndNormalizeWindowExpression;
 import org.apache.doris.nereids.rules.rewrite.logical.ExtractFilterFromCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.ExtractSingleTableExpressionFromDisjunction;
 import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
@@ -90,6 +92,11 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .add(bottomUpBatch(ImmutableList.of(new AdjustAggregateNullableForEmptySet())))
                 .add(topDownBatch(ImmutableList.of(new EliminateGroupByConstant())))
                 .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
+                .add(topDownBatch(ImmutableList.of(new ExtractAndNormalizeWindowExpression())))
+                //execute NormalizeAggregate() again to resolve nested AggregateFunctions in WindowExpression,
+                //e.g. sum(sum(c1)) over(partition by avg(c1))
+                .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
+                .add(topDownBatch(ImmutableList.of(new CheckAndStandardizeWindowFunctionAndFrame())))
                 .add(topDownBatch(RuleSet.PUSH_DOWN_FILTERS, false))
                 .add(visitorJob(RuleType.INFER_PREDICATES, new InferPredicates()))
                 .add(topDownBatch(ImmutableList.of(new ExtractFilterFromCrossJoin())))

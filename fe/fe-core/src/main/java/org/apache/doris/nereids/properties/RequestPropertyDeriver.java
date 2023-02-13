@@ -90,7 +90,7 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         for (int i = context.getGroupExpression().arity(); i > 0; --i) {
             requiredPropertyList.add(PhysicalProperties.ANY);
         }
-        requestPropertyToChildren.add(requiredPropertyList);
+        addRequestPropertyToChildren(requiredPropertyList);
         return null;
     }
 
