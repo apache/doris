@@ -79,8 +79,6 @@ services:
     container_name: doris--hive-server
     expose:
       - "10000"
-    ports:
-      - "10000:10000"
     depends_on:
       - doris--datanode
       - doris--namenode
