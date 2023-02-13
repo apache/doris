@@ -56,7 +56,7 @@ For normal upgrade operations, you can perform rolling upgrades according to the
 
 In some scenarios (such as log data analysis), users may not be able to find a suitable bucket key to avoid data skew, so the system needs to provide additional distribution methods to solve the problem.
 
-Therefore, when creating a table you can set `DISTRIBUTED BY random BUCKET number`to use random distribution, the data will be randomly written to a single tablet when importing to reduce the data fanout during the loading process. And reduce resource overhead and improve system stability.
+Therefore, when creating a table you can set `DISTRIBUTED BY random BUCKETS number`to use random distribution, the data will be randomly written to a single tablet when importing to reduce the data fanout during the loading process. And reduce resource overhead and improve system stability.
 
 ### Support for creating Iceberg external tables[experimental]
 
