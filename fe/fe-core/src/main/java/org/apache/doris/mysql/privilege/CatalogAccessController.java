@@ -21,12 +21,28 @@ import org.apache.doris.analysis.UserIdentity;
 
 public interface CatalogAccessController {
     // ==== Catalog ====
-    boolean checkCtlPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, PrivPredicate wanted);
+    default boolean checkCtlPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, PrivPredicate wanted) {
+        boolean res = checkCtlPriv(currentUser, ctl, wanted);
+        return hasGlobal || res;
+    }
+
+    boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted);
 
     // ==== Database ====
-    boolean checkDbPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, String db, PrivPredicate wanted);
+    default boolean checkDbPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, String db,
+            PrivPredicate wanted) {
+        boolean res = checkDbPriv(currentUser, ctl, db, wanted);
+        return hasGlobal || res;
+    }
+
+    boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted);
 
     // ==== Table ====
-    boolean checkTblPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, String db, String tbl,
-            PrivPredicate wanted);
+    default boolean checkTblPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, String db, String tbl,
+            PrivPredicate wanted) {
+        boolean res = checkTblPriv(currentUser, ctl, db, tbl, wanted);
+        return hasGlobal || res;
+    }
+
+    boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted);
 }

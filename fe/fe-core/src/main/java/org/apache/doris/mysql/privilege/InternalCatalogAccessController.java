@@ -26,23 +26,18 @@ public class InternalCatalogAccessController implements CatalogAccessController 
         this.auth = auth;
     }
 
-    // ==== Catalog ====
     @Override
-    public boolean checkCtlPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, PrivPredicate wanted) {
-        return hasGlobal || auth.checkCtlPriv(currentUser, ctl, wanted);
+    public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
+        return auth.checkCtlPriv(currentUser, ctl, wanted);
     }
 
-    // ==== Database ====
     @Override
-    public boolean checkDbPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, String db,
-            PrivPredicate wanted) {
-        return hasGlobal || auth.checkDbPriv(currentUser, ctl, db, wanted);
+    public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
+        return auth.checkDbPriv(currentUser, ctl, db, wanted);
     }
 
-    // ==== Table ====
     @Override
-    public boolean checkTblPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, String db, String tbl,
-            PrivPredicate wanted) {
-        return hasGlobal || auth.checkTblPriv(currentUser, ctl, db, tbl, wanted);
+    public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
+        return auth.checkTblPriv(currentUser, ctl, db, tbl, wanted);
     }
 }

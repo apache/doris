@@ -21,19 +21,21 @@ import org.apache.doris.analysis.UserIdentity;
 
 public class RangerAccessController implements CatalogAccessController {
     @Override
-    public boolean checkCtlPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, PrivPredicate wanted) {
+    public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
+        // TODO
         return false;
     }
 
     @Override
-    public boolean checkDbPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, String db,
+    public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db,
             PrivPredicate wanted) {
+        // TODO
         return false;
     }
 
     @Override
-    public boolean checkTblPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, String db, String tbl,
-            PrivPredicate wanted) {
+    public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
+        // TODO
         return false;
     }
 }
