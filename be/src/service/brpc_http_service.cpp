@@ -113,8 +113,9 @@ void add_brpc_http_service(brpc::Server* server, ExecEnv* env) {
                                         "/jeheap/dump => jeprofile,"
                                         "/api/meta/header/* => meta,"
                                         "/metrics => metrics,"
-                                        "api/pad_rowset => pad_rowset,"
-                                        "/pprof/* => pprofile,"
+                                        "/api/pad_rowset => pad_rowset,"
+                                        // adjust pprof uri to resolve the confict with brpc internal service
+                                        "/api/pprof/* => pprofile,"
                                         "/api/reload_tablet => reload_tablet,"
                                         "/api/reset_rpc_channel/* => reset_rpc_channel,"
                                         "/api/restore_tablet => restore_tablet,"

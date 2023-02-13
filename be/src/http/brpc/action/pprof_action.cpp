@@ -69,7 +69,12 @@ void PProfHandler::_do_heap_action(brpc::Controller* cntl) {
     on_succ(cntl, str);
 #else
     int seconds = kPprofDefaultSampleSecs;
-    const std::string& seconds_str = req->param(SECOND_KEY);
+    std::string seconds_str;
+    const std::string* seconds_ptr = get_param(cntl, SECOND_KEY);
+    if (seconds_ptr != null) {
+        seconds_str = *seconds_ptr;
+    }
+
     if (!seconds_str.empty()) {
         seconds = std::atoi(seconds_str.c_str());
     }
@@ -87,17 +92,22 @@ void PProfHandler::_do_heap_action(brpc::Controller* cntl) {
     std::string str = profile;
     delete profile;
 
-    const std::string& readable_str = req->param("readable");
+    const std::string* readable_ptr = get_param(cntl, "readable");
+    std::string readable_str;
+    if (readable_ptr != nullptr) {
+        readable_str = *readable_ptr;
+    }
+
     if (!readable_str.empty()) {
         std::stringstream readable_res;
         Status st = PprofUtils::get_readable_profile(str, false, &readable_res);
         if (!st.ok()) {
-            HttpChannel::send_reply(req, st.to_string());
+            on_succ(cntl, st.to_string());
         } else {
-            HttpChannel::send_reply(req, readable_res.str());
+            on_succ(cntl, readable_res.str());
         }
     } else {
-        HttpChannel::send_reply(req, str);
+        on_succ(cntl, str);
     }
 #endif
 }
@@ -114,7 +124,7 @@ void PProfHandler::_do_growth_action(brpc::Controller* cntl) {
     std::string heap_growth_stack;
     MallocExtension::instance()->GetHeapGrowthStacks(&heap_growth_stack);
 
-    HttpChannel::send_reply(req, heap_growth_stack);
+    on_succ(cntl, heap_growth_stack);
 #endif
 }
 
@@ -127,12 +137,20 @@ void PProfHandler::_do_profile_action(brpc::Controller* cntl) {
     std::lock_guard<std::mutex> lock(kPprofHandlerMutex);
 
     int seconds = kPprofDefaultSampleSecs;
-    const std::string& seconds_str = req->param(SECOND_KEY);
+    std::string seconds_str;
+    const std::string* seconds_ptr = get_param(cntl, SECOND_KEY);
+    if (seconds_ptr != null) {
+        seconds_str = *seconds_ptr;
+    }
     if (!seconds_str.empty()) {
         seconds = std::atoi(seconds_str.c_str());
     }
+    const std::string* type_ptr = get_param(cntl, "type");
+    std::string type_str;
+    if (type_ptr != nullptr) {
+        type_str = *type_ptr;
+    }
 
-    const std::string& type_str = req->param("type");
     if (type_str != "flamegraph") {
         // use pprof the sample the CPU
         std::ostringstream tmp_prof_file_name;
@@ -149,22 +167,22 @@ void PProfHandler::_do_profile_action(brpc::Controller* cntl) {
             if (!prof_file.is_open()) {
                 ss << "Unable to open cpu profile: " << tmp_prof_file_name.str();
                 std::string str = ss.str();
-                HttpChannel::send_reply(req, str);
+                on_succ(cntl, str);
                 return;
             }
             ss << prof_file.rdbuf();
             prof_file.close();
             std::string str = ss.str();
-            HttpChannel::send_reply(req, str);
+            on_succ(cntl, str);
         }
 
         // text type. we will return readable content via http response
         std::stringstream readable_res;
         Status st = PprofUtils::get_readable_profile(tmp_prof_file_name.str(), true, &readable_res);
         if (!st.ok()) {
-            HttpChannel::send_reply(req, st.to_string());
+            on_succ(cntl, st.to_string());
         } else {
-            HttpChannel::send_reply(req, readable_res.str());
+            on_succ(cntl, readable_res.str());
         }
     } else {
         // generate flamegraph
@@ -174,17 +192,21 @@ void PProfHandler::_do_profile_action(brpc::Controller* cntl) {
         Status st = PprofUtils::generate_flamegraph(30, flamegraph_install_dir, false,
                                                     &svg_file_content);
         if (!st.ok()) {
-            HttpChannel::send_reply(req, st.to_string());
+            on_succ(cntl, st.to_string());
         } else {
-            HttpChannel::send_reply(req, svg_file_content);
+            on_succ(cntl, svg_file_content);
         }
     }
 #endif
 }
 
-void PProfHandler::_do_pmu_profile_action(brpc::Controller* cntl) {}
+void PProfHandler::_do_pmu_profile_action(brpc::Controller* cntl) {
+    on_succ(cntl, "empty implementation yet");
+}
 
-void PProfHandler::_do_content_action(brpc::Controller* cntl) {}
+void PProfHandler::_do_content_action(brpc::Controller* cntl) {
+    on_succ(cntl, "empty implementation yet");
+}
 
 void PProfHandler::_do_cmd_line_action(brpc::Controller* cntl) {
     FILE* fp = fopen("/proc/self/cmdline", "r");

@@ -25,12 +25,12 @@ namespace doris {
 TabletsInfoHandler::TabletsInfoHandler() : BaseHttpHandler("tablets_info") {}
 
 void TabletsInfoHandler::handle_sync(brpc::Controller* cntl) {
-    const std::string* tablet_num_to_return = get_param(cntl, "limit");
-    if (tablet_num_to_return == nullptr) {
-        on_bad_req(cntl, "invalid null param: limit");
-        return;
+    const std::string* limit = get_param(cntl, "limit");
+    std::string tablet_num_to_return;
+    if (limit != nullptr) {
+    	tablet_num_to_return = *limit;
     }
-    on_succ_json(cntl, get_tablets_info(cntl, *tablet_num_to_return).ToString());
+    on_succ_json(cntl, get_tablets_info(cntl, tablet_num_to_return).ToString());
 }
 
 bool TabletsInfoHandler::support_method(brpc::HttpMethod method) const {

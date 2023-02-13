@@ -30,8 +30,16 @@ MetricsHandler::MetricsHandler(MetricRegistry* metric_registry)
         : BaseHttpHandler("metrics"), _metric_registry(metric_registry) {}
 
 void MetricsHandler::handle_sync(brpc::Controller* cntl) {
-    const std::string& type = *get_param(cntl, "type");
-    const std::string& with_tablet = *get_param(cntl, "with_tablet");
+    const std::string* type_ptr = get_param(cntl, "type");
+    const std::string* with_tablet_ptr = get_param(cntl, "with_tablet");
+    std::string type;
+    std::string with_tablet;
+    if (type_ptr != nullptr) {
+	type = *type_ptr;
+    }
+    if (with_tablet_ptr != nullptr) {
+	with_tablet = *with_tablet_ptr;
+    }
     std::string str;
     if (type == "core") {
         str = _metric_registry->to_core_string();

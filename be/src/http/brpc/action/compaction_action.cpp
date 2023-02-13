@@ -48,7 +48,7 @@ void CompactionHandler::handle_sync(brpc::Controller* cntl) {
         } else {
             on_succ_json(cntl, json_result);
         }
-    } else if (type == RUN_STATUS_TYPE) {
+    } else if (type == RUN_COMPACTION_TYPE) {
         std::string json_result;
         Status st = _handle_run_compaction(cntl, &json_result);
         if (!st.ok()) {
