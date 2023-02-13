@@ -30,10 +30,13 @@ import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.CTEContext;
+import org.apache.doris.nereids.analyzer.Unbound;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
-import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.parser.NereidsParser;
+import org.apache.doris.nereids.pattern.MatchingContext;
+import org.apache.doris.nereids.properties.LogicalProperties;
+import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
@@ -69,24 +72,35 @@ public class BindRelation extends OneAnalysisRuleFactory {
     @Override
     public Rule build() {
         return unboundRelation().thenApply(ctx -> {
-            List<String> nameParts = ctx.root.getNameParts();
-            switch (nameParts.size()) {
-                case 1: { // table
-                    // Use current database name from catalog.
-                    return bindWithCurrentDb(ctx.cascadesContext, ctx.root);
-                }
-                case 2: { // db.table
-                    // Use database name from table name parts.
-                    return bindWithDbNameFromNamePart(ctx.cascadesContext, ctx.root);
-                }
-                case 3: { // catalog.db.table
-                    // Use catalog and database name from name parts.
-                    return bindWithCatalogNameFromNamePart(ctx.cascadesContext, ctx.root);
-                }
-                default:
-                    throw new IllegalStateException("Table name [" + ctx.root.getTableName() + "] is invalid.");
+            Plan plan = doBindRelation(ctx);
+            if (!(plan instanceof Unbound)) {
+                // init output and allocate slot id immediately, so that the slot id increase
+                // in the order in which the table appears.
+                LogicalProperties logicalProperties = plan.getLogicalProperties();
+                logicalProperties.getOutput();
             }
+            return plan;
         }).toRule(RuleType.BINDING_RELATION);
+    }
+
+    private Plan doBindRelation(MatchingContext<UnboundRelation> ctx) {
+        List<String> nameParts = ctx.root.getNameParts();
+        switch (nameParts.size()) {
+            case 1: { // table
+                // Use current database name from catalog.
+                return bindWithCurrentDb(ctx.cascadesContext, ctx.root);
+            }
+            case 2: { // db.table
+                // Use database name from table name parts.
+                return bindWithDbNameFromNamePart(ctx.cascadesContext, ctx.root);
+            }
+            case 3: { // catalog.db.table
+                // Use catalog and database name from name parts.
+                return bindWithCatalogNameFromNamePart(ctx.cascadesContext, ctx.root);
+            }
+            default:
+                throw new IllegalStateException("Table name [" + ctx.root.getTableName() + "] is invalid.");
+        }
     }
 
     private TableIf getTable(String catalogName, String dbName, String tableName, Env env) {
@@ -205,12 +219,12 @@ public class BindRelation extends OneAnalysisRuleFactory {
 
     private Plan parseAndAnalyzeView(String viewSql, CascadesContext parentContext) {
         LogicalPlan parsedViewPlan = new NereidsParser().parseSingle(viewSql);
-        CascadesContext viewContext = new Memo(parsedViewPlan)
-                .newCascadesContext(parentContext.getStatementContext());
+        CascadesContext viewContext = CascadesContext.newRewriteContext(
+                parentContext.getStatementContext(), parsedViewPlan, PhysicalProperties.ANY);
         viewContext.newAnalyzer().analyze();
 
         // we should remove all group expression of the plan which in other memo, so the groupId would not conflict
-        return viewContext.getMemo().copyOut(false);
+        return viewContext.getRewritePlan();
     }
 
     private List<Long> getPartitionIds(TableIf t, UnboundRelation unboundRelation) {

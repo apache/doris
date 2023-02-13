@@ -22,11 +22,12 @@ import org.apache.doris.nereids.trees.expressions.SubqueryExpr;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
+import com.google.common.collect.Sets;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * The slot range required for expression analyze.
@@ -57,13 +58,13 @@ public class Scope {
     private final List<Slot> slots;
 
     private final Optional<SubqueryExpr> ownerSubquery;
-    private List<Slot> correlatedSlots;
+    private Set<Slot> correlatedSlots;
 
     public Scope(Optional<Scope> outerScope, List<Slot> slots, Optional<SubqueryExpr> subqueryExpr) {
         this.outerScope = outerScope;
         this.slots = ImmutableList.copyOf(Objects.requireNonNull(slots, "slots can not be null"));
         this.ownerSubquery = subqueryExpr;
-        this.correlatedSlots = new ArrayList<>();
+        this.correlatedSlots = Sets.newLinkedHashSet();
     }
 
     public Scope(List<Slot> slots) {
@@ -82,7 +83,7 @@ public class Scope {
         return ownerSubquery;
     }
 
-    public List<Slot> getCorrelatedSlots() {
+    public Set<Slot> getCorrelatedSlots() {
         return correlatedSlots;
     }
 

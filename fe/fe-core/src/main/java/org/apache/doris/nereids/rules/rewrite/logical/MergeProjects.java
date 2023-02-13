@@ -21,7 +21,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
 import java.util.List;
@@ -47,7 +47,7 @@ public class MergeProjects extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalProject(logicalProject()).then(project -> {
-            LogicalProject<GroupPlan> childProject = project.child();
+            LogicalProject<Plan> childProject = project.child();
             List<NamedExpression> projectExpressions = project.mergeProjections(childProject);
             return new LogicalProject<>(projectExpressions, childProject.child(0));
         }).toRule(RuleType.MERGE_PROJECTS);

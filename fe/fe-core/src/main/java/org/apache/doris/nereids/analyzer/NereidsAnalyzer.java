@@ -18,13 +18,9 @@
 package org.apache.doris.nereids.analyzer;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.jobs.batch.AdjustAggregateNullableForEmptySetJob;
 import org.apache.doris.nereids.jobs.batch.AnalyzeRulesJob;
-import org.apache.doris.nereids.jobs.batch.AnalyzeSubqueryRulesJob;
-import org.apache.doris.nereids.jobs.batch.CheckAnalysisJob;
 
 import java.util.Objects;
-import java.util.Optional;
 
 /**
  * Bind symbols according to metadata in the catalog, perform semantic analysis, etc.
@@ -33,26 +29,15 @@ import java.util.Optional;
 public class NereidsAnalyzer {
 
     private final CascadesContext cascadesContext;
-    private final Optional<Scope> outerScope;
 
     public NereidsAnalyzer(CascadesContext cascadesContext) {
-        this(cascadesContext, Optional.empty());
-    }
-
-    public NereidsAnalyzer(CascadesContext cascadesContext, Optional<Scope> outerScope) {
         this.cascadesContext = Objects.requireNonNull(cascadesContext, "cascadesContext cannot be null");
-        this.outerScope = Objects.requireNonNull(outerScope, "outerScope cannot be null");
     }
 
     /**
      * nereids analyze sql.
      */
     public void analyze() {
-        new AnalyzeRulesJob(cascadesContext, outerScope).execute();
-        new AnalyzeSubqueryRulesJob(cascadesContext).execute();
-        new AdjustAggregateNullableForEmptySetJob(cascadesContext).execute();
-        // check whether analyze result is meaningful
-        new CheckAnalysisJob(cascadesContext).execute();
+        new AnalyzeRulesJob(cascadesContext).execute();
     }
-
 }

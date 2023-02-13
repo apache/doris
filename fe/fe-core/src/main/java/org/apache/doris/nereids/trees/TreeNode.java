@@ -179,4 +179,21 @@ public interface TreeNode<NODE_TYPE extends TreeNode<NODE_TYPE>> {
             return false;
         });
     }
+
+    /**
+     * equals by the full tree nodes
+     * @param that other tree node
+     * @return true if all the tree is equals
+     */
+    default boolean deepEquals(TreeNode that) {
+        if (!equals(that)) {
+            return false;
+        }
+        for (int i = 0; i < arity(); i++) {
+            if (!child(i).deepEquals(that.child(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
 }

@@ -22,7 +22,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -59,12 +59,12 @@ import java.util.Map;
  *                    Filter(Uncorrelated predicate)
  * </pre>
  */
-public class ApplyPullFilterOnAgg extends OneRewriteRuleFactory {
+public class UnCorrelatedApplyAggregateFilter extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalApply(group(), logicalAggregate(logicalFilter())).when(LogicalApply::isCorrelated).then(apply -> {
-            LogicalAggregate<LogicalFilter<GroupPlan>> agg = apply.right();
-            LogicalFilter<GroupPlan> filter = agg.child();
+        return logicalApply(any(), logicalAggregate(logicalFilter())).when(LogicalApply::isCorrelated).then(apply -> {
+            LogicalAggregate<LogicalFilter<Plan>> agg = apply.right();
+            LogicalFilter<Plan> filter = agg.child();
             Map<Boolean, List<Expression>> split = Utils.splitCorrelatedConjuncts(
                     filter.getConjuncts(), apply.getCorrelationSlot());
             List<Expression> correlatedPredicate = split.get(true);
@@ -89,6 +89,6 @@ public class ApplyPullFilterOnAgg extends OneRewriteRuleFactory {
                     apply.getSubqueryExpr(),
                     ExpressionUtils.optionalAnd(correlatedPredicate),
                     apply.left(), newAgg);
-        }).toRule(RuleType.APPLY_PULL_FILTER_ON_AGG);
+        }).toRule(RuleType.UN_CORRELATED_APPLY_AGGREGATE_FILTER);
     }
 }

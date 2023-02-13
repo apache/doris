@@ -18,17 +18,25 @@
 package org.apache.doris.nereids.jobs.batch;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.jobs.cascades.OptimizeGroupJob;
 
-import com.google.common.collect.ImmutableList;
+import java.util.Objects;
 
 /**
- * cascade optimizer added.
+ * cascade optimizer.
  */
-public class OptimizeRulesJob extends BatchRulesJob {
-    public OptimizeRulesJob(CascadesContext cascadesContext) {
-        super(cascadesContext);
-        rulesJob.addAll(ImmutableList.of(
-                optimize()
-        ));
+public class CascadesOptimizer {
+    private CascadesContext cascadesContext;
+
+    public CascadesOptimizer(CascadesContext cascadesContext) {
+        this.cascadesContext = Objects.requireNonNull(cascadesContext, "cascadesContext cannot be null");
+    }
+
+    public void execute() {
+        cascadesContext.pushJob(new OptimizeGroupJob(
+                cascadesContext.getMemo().getRoot(),
+                cascadesContext.getCurrentJobContext())
+        );
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
     }
 }
