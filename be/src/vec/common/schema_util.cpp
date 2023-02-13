@@ -313,6 +313,8 @@ Status send_fetch_full_base_schema_view_rpc(FullBaseSchemaView* schema_view) {
     req.__set_table_name(schema_view->table_name);
     req.__set_db_name(schema_view->db_name);
     req.__set_table_id(schema_view->table_id);
+    // Set empty columns
+    req.__set_addColumns({});
     auto master_addr = ExecEnv::GetInstance()->master_info()->network_address;
     Status rpc_st = ThriftRpcHelper::rpc<FrontendServiceClient>(
             master_addr.hostname, master_addr.port,
@@ -350,6 +352,7 @@ Status send_add_columns_rpc(ColumnsWithTypeAndName column_type_names,
     req.__set_table_id(schema_view->table_id);
     // TODO(lhy) more configurable
     req.__set_allow_type_conflict(true);
+    req.__set_addColumns({});
     for (const auto& column_type_name : column_type_names) {
         TColumnDef col;
         get_column_def(column_type_name.type, column_type_name.name, &col);
