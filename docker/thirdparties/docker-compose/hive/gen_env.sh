@@ -39,4 +39,3 @@ HOST_NAME="doris--namenode"
     echo "HOST_NAME=${HOST_NAME}"
 } >>"${ROOT}"/hadoop-hive.env
 
-
