@@ -21,6 +21,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.ResourceMgr;
 import org.apache.doris.catalog.SparkResource;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.load.EtlJobType;
@@ -221,6 +222,21 @@ public class LoadStmtTest {
         };
 
         LoadStmt stmt = new LoadStmt(desc, Maps.newHashMap());
+        try {
+            stmt.analyze(analyzer);
+        } catch (AnalysisException ae) {
+            Assert.assertEquals("errCode = 2, detailMessage = Load local data from fe local is not enabled."
+                    + " If you want to use it, plz set the `mysql_load_server_secure_path` for FE to be a right path.",
+                    ae.getMessage());
+        }
+        Config.mysql_load_server_secure_path = "/root";
+        try {
+            stmt.analyze(analyzer);
+        } catch (AnalysisException ae) {
+            Assert.assertEquals("errCode = 2, detailMessage = Local file should be under the secure path of FE.",
+                    ae.getMessage());
+        }
+        Config.mysql_load_server_secure_path = "/";
         stmt.analyze(analyzer);
         Assert.assertNull(stmt.getLabel().getDbName());
         Assert.assertEquals(EtlJobType.LOCAL_FILE, stmt.getEtlJobType());
