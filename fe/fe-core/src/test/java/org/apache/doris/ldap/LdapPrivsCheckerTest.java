@@ -77,7 +77,7 @@ public class LdapPrivsCheckerTest {
                 minTimes = 0;
                 result = env;
 
-                env.getAccessCtlMgr();
+                env.getAuth();
                 minTimes = 0;
                 result = auth;
 

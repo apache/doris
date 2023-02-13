@@ -88,7 +88,6 @@ public class ShowExecutorTest {
         ctx = new ConnectContext(null);
         ctx.setCommand(MysqlCommand.COM_SLEEP);
 
-
         Column column1 = new Column("col1", PrimitiveType.BIGINT);
         Column column2 = new Column("col2", PrimitiveType.DOUBLE);
         column1.setIsKey(true);
@@ -225,10 +224,6 @@ public class ShowExecutorTest {
                 env.getAccessCtlMgr();
                 minTimes = 0;
                 result = accessManager;
-
-                env.getAuth();
-                minTimes = 0;
-                result = accessManager.getAuth();
 
                 Env.getCurrentEnv();
                 minTimes = 0;
