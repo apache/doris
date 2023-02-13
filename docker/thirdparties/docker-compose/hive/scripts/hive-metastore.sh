@@ -56,6 +56,7 @@ hive -f /mnt/scripts/create_tpch1_parquet.hql
 echo "hive -f /mnt/scripts/create_preinstalled_table.hql"
 hive -f /mnt/scripts/create_preinstalled_table.hql
 
+
 echo "touch /mnt/SUCCESS"
 touch /mnt/SUCCESS
 
