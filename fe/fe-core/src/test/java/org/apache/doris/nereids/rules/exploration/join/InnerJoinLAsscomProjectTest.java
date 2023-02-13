@@ -165,6 +165,7 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
                 .printlnTree()
                 .applyExploration(InnerJoinLAsscomProject.INSTANCE.build())
+                .printlnExploration()
                 .matchesExploration(
                         innerLogicalJoin(
                                 logicalProject(
@@ -178,8 +179,7 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
                                 "[(t2.id#6 = id#8), (t1.id#4 = t2.id#6)]")
                                 && Objects.equals(join.getOtherJoinConjuncts().toString(),
                                 "[(t2.name#7 > name#9), (t1.name#5 > t2.name#7)]"))
-                )
-                .printlnExploration();
+                );
     }
 
     /**
