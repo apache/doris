@@ -21,7 +21,6 @@ import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.iceberg.dlf.DLFCatalog;
 
-import java.util.HashMap;
 import java.util.Map;
 
 public class IcebergDLFExternalCatalog extends IcebergExternalCatalog {
@@ -38,8 +37,7 @@ public class IcebergDLFExternalCatalog extends IcebergExternalCatalog {
         DLFCatalog dlfCatalog = new DLFCatalog();
         dlfCatalog.setConf(getConfiguration());
         // initialize catalog
-        Map<String, String> catalogProperties = new HashMap<>();
-        // catalogProperties.put("uri", "");
+        Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
         dlfCatalog.initialize(icebergCatalogType, catalogProperties);
         catalog = dlfCatalog;
     }

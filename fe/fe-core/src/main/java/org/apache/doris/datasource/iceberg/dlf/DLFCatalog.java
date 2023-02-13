@@ -67,10 +67,10 @@ public class DLFCatalog extends BaseMetastoreCatalog implements SupportsNamespac
         this.fileIO = new HadoopFileIO(conf);
         this.clients = new DLFCachedClientPool(this.conf, properties);
         this.delegate = new DLFHttpProxy(
-                properties.get(S3Resource.S3_ACCESS_KEY),
-                properties.get(S3Resource.S3_SECRET_KEY),
-                properties.get(S3Resource.S3_ENDPOINT),
-                properties.get(S3Resource.S3_REGION));
+                conf.get(S3Resource.S3_ACCESS_KEY),
+                conf.get(S3Resource.S3_SECRET_KEY),
+                conf.get(S3Resource.S3_ENDPOINT),
+                conf.get(S3Resource.S3_REGION));
     }
 
     @Override
