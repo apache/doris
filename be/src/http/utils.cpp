@@ -64,16 +64,21 @@ bool parse_basic_auth(const HttpRequest& req, std::string* user, std::string* pa
 }
 
 bool parse_basic_auth(const HttpRequest& req, AuthInfo* auth) {
-    std::string full_user;
-    if (!parse_basic_auth(req, &full_user, &auth->passwd)) {
-        return false;
-    }
-    auto pos = full_user.find('@');
-    if (pos != std::string::npos) {
-        auth->user.assign(full_user.data(), pos);
-        auth->cluster.assign(full_user.data() + pos + 1);
+    auto& token = req.header("token");
+    if (token.empty()) {
+        std::string full_user;
+        if (!parse_basic_auth(req, &full_user, &auth->passwd)) {
+            return false;
+        }
+        auto pos = full_user.find('@');
+        if (pos != std::string::npos) {
+            auth->user.assign(full_user.data(), pos);
+            auth->cluster.assign(full_user.data() + pos + 1);
+        } else {
+            auth->user = full_user;
+        }
     } else {
-        auth->user = full_user;
+        auth->token = token;
     }
 
     // set user ip
