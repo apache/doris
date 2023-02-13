@@ -46,6 +46,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalQuickS
 import org.apache.doris.nereids.rules.implementation.LogicalTVFRelationToPhysicalTVFRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
 import org.apache.doris.nereids.rules.implementation.LogicalUnionToPhysicalUnion;
+import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateOuterJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeGenerates;
@@ -116,6 +117,7 @@ public class RuleSet {
             .add(new LogicalFileScanToPhysicalFileScan())
             .add(new LogicalProjectToPhysicalProject())
             .add(new LogicalLimitToPhysicalLimit())
+            .add(new LogicalWindowToPhysicalWindow())
             .add(new LogicalSortToPhysicalQuickSort())
             .add(new LogicalTopNToPhysicalTopN())
             .add(new LogicalAssertNumRowsToPhysicalAssertNumRows())

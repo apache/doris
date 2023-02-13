@@ -46,18 +46,17 @@ public class PhysicalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhysical
     /**
      * Constructor of PhysicalHashJoinNode.
      */
-    public PhysicalQuickSort(List<OrderKey> orderKeys,
-            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            CHILD_TYPE child) {
+    public PhysicalQuickSort(List<OrderKey> orderKeys, Optional<GroupExpression> groupExpression,
+                             LogicalProperties logicalProperties, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_QUICK_SORT, orderKeys, groupExpression, logicalProperties, child);
     }
 
     /**
      * Constructor of PhysicalHashJoinNode.
      */
-    public PhysicalQuickSort(List<OrderKey> orderKeys,
-            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult, CHILD_TYPE child) {
+    public PhysicalQuickSort(List<OrderKey> orderKeys, Optional<GroupExpression> groupExpression,
+                             LogicalProperties logicalProperties, PhysicalProperties physicalProperties,
+                             StatsDeriveResult statsDeriveResult, CHILD_TYPE child) {
         super(PlanType.PHYSICAL_QUICK_SORT, orderKeys, groupExpression, logicalProperties, physicalProperties,
                 statsDeriveResult, child);
     }
@@ -86,14 +85,14 @@ public class PhysicalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhysical
     @Override
     public PhysicalQuickSort<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             StatsDeriveResult statsDeriveResult) {
-        return new PhysicalQuickSort<>(orderKeys, Optional.empty(), getLogicalProperties(), physicalProperties,
-                statsDeriveResult, child());
+        return new PhysicalQuickSort<>(orderKeys, Optional.empty(), getLogicalProperties(),
+                physicalProperties, statsDeriveResult, child());
     }
 
     @Override
     public String toString() {
         return Utils.toSqlString("PhysicalQuickSort",
-                "orderKeys", orderKeys
+            "orderKeys", orderKeys
         );
     }
 }

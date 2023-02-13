@@ -81,6 +81,10 @@ public class PhysicalProperties {
         return new PhysicalProperties(distributionSpecHash);
     }
 
+    public PhysicalProperties withOrderSpec(OrderSpec orderSpec) {
+        return new PhysicalProperties(distributionSpec, orderSpec);
+    }
+
     // Current properties satisfies other properties.
     public boolean satisfy(PhysicalProperties other) {
         return orderSpec.satisfy(other.orderSpec) && distributionSpec.satisfy(other.distributionSpec);

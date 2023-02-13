@@ -509,8 +509,7 @@ public class BindExpression implements AnalysisRuleFactory {
         );
     }
 
-    private Plan bindSort(
-            LogicalSort<? extends Plan> sort, Plan plan, CascadesContext ctx) {
+    private Plan bindSort(LogicalSort<? extends Plan> sort, Plan plan, CascadesContext ctx) {
         // 1. We should deduplicate the slots, otherwise the binding process will fail due to the
         //    ambiguous slots exist.
         // 2. try to bound order-key with agg output, if failed, try to bound with output of agg.child
