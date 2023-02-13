@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.thrift.TUniqueId;
 
 import com.google.gson.annotations.SerializedName;
 import org.apache.logging.log4j.LogManager;
@@ -107,6 +108,8 @@ public class Replica implements Writable {
 
     // bad means this Replica is unrecoverable, and we will delete it
     private boolean bad = false;
+
+    private TUniqueId cooldownMetaId;
 
     /*
      * If set to true, with means this replica need to be repaired. explicitly.
@@ -232,6 +235,14 @@ public class Replica implements Writable {
         }
         this.bad = bad;
         return true;
+    }
+
+    public TUniqueId getCooldownMetaId() {
+        return cooldownMetaId;
+    }
+
+    public void setCooldownMetaId(TUniqueId cooldownMetaId) {
+        this.cooldownMetaId = cooldownMetaId;
     }
 
     public boolean needFurtherRepair() {

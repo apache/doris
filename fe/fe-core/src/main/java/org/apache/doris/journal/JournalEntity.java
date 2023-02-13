@@ -37,6 +37,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.cooldown.CooldownConfList;
+import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -583,6 +584,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_UPDATE_COOLDOWN_CONF: {
                 data = CooldownConfList.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_COOLDOWN_DELETE: {
+                data = CooldownDelete.read(in);
                 isRead = true;
                 break;
             }

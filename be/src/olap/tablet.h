@@ -318,6 +318,8 @@ public:
 
     void record_unused_remote_rowset(const RowsetId& rowset_id, const std::string& resource,
                                      int64_t num_segments);
+
+    static void remove_unused_remote_files();
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
@@ -360,6 +362,16 @@ public:
     bool should_skip_compaction(CompactionType compaction_type, int64_t now);
 
     RowsetSharedPtr get_rowset(const RowsetId& rowset_id);
+
+    void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor) {
+        std::shared_lock rlock(_meta_lock);
+        for (auto& [v, rs] : _rs_version_map) {
+            visitor(rs);
+        }
+        for (auto& [v, rs] : _stale_rs_version_map) {
+            visitor(rs);
+        }
+    }
 
 private:
     Status _init_once_action();
@@ -404,7 +416,8 @@ private:
     Status _follow_cooldowned_data(io::RemoteFileSystem* fs, int64_t cooldown_replica_id);
     Status _read_cooldown_meta(io::RemoteFileSystem* fs, int64_t cooldown_replica_id,
                                TabletMetaPB* tablet_meta_pb);
-    Status _write_cooldown_meta(io::RemoteFileSystem* fs, RowsetMeta* new_rs_meta);
+    Status _write_cooldown_meta(io::RemoteFileSystem* fs, UniqueId cooldown_meta_id,
+                                RowsetMeta* new_rs_meta);
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
@@ -484,6 +497,7 @@ private:
     // cooldown conf
     int64_t _cooldown_replica_id = -1;
     int64_t _cooldown_term = -1;
+    std::shared_mutex _remote_files_lock;
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 
