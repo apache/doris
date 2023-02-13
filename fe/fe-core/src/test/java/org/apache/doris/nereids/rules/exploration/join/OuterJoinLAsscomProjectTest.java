@@ -51,6 +51,7 @@ class OuterJoinLAsscomProjectTest implements PatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .printlnTree()
                 .applyExploration(OuterJoinLAsscomProject.INSTANCE.build())
                 .printlnExploration()
                 .matchesExploration(
