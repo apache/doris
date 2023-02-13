@@ -65,6 +65,7 @@ private:
     // save positions of fields and return and line delimiter.
     uint8_t* _update_field_pos_and_find_line_delimiter(const uint8_t* start, size_t len,
                                                        std::vector<std::pair<int, int>>* fields);
+    void trim_space_and_quote();
 
     bool _read_more_data();
     void extend_input_buf();
@@ -111,6 +112,7 @@ private:
     // point to the start of next field.
     // this is an offset from line_start().
     size_t _field_start = 0;
+    size_t _non_space_offset = 0;
     // point to the current position from line_start().
     // this is an offset from line_start() .
     size_t _line_cur_pos = 0;

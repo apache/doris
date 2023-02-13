@@ -115,8 +115,6 @@ uint8_t* NewPlainTextLineReader::_find_line_delimiter(const uint8_t* start, size
 uint8_t* NewPlainTextLineReader::_update_field_pos_and_find_line_delimiter(
         const uint8_t* start, size_t len, std::vector<std::pair<int, int>>* fields) {
     assert(start);
-    assert(_line_delimiter.c_str());
-    assert(_line_delimiter_length >= 1);
     for (size_t cur = 0; cur < len; ++cur) {
         // TODO(ftw): Can not handle the case:
         // value delimiter: ABAC
@@ -137,38 +135,38 @@ uint8_t* NewPlainTextLineReader::_update_field_pos_and_find_line_delimiter(
         if (_value_delimiter_cur_pos == _value_delimiter_length ||
             _line_delimiter_cur_pos == _line_delimiter_length) {
             // Match a separator
-            // point to the last pos of non_space charactor.
-            size_t non_space_offset = _line_cur_pos - _value_delimiter_length;
+            trim_space_and_quote();
             if (_line_delimiter_cur_pos == _line_delimiter_length) {
-                non_space_offset = _line_cur_pos - _line_delimiter_length;
-            }
-
-            // Trim tailing spaces. Be consistent with hive and trino's behavior.
-            if (_trim_tailing_spaces_for_external_table_query) {
-                while (non_space_offset >= _field_start &&
-                       *(line_start() + non_space_offset) == ' ') {
-                    non_space_offset--;
-                }
-            }
-
-            if (_trim_double_quotes && non_space_offset > _field_start &&
-                *(line_start() + _field_start) == '\"' &&
-                *(line_start() + non_space_offset) == '\"') {
-                _field_start++;
-                non_space_offset--;
-            }
-
-            fields->emplace_back(_field_start, non_space_offset - _field_start + 1);
-            _field_start = _line_cur_pos + 1;
-            _value_delimiter_cur_pos = 0;
-            if (_line_delimiter_cur_pos == _line_delimiter_length) {
-                _line_delimiter_cur_pos = 0;
                 return line_start() + (_line_cur_pos - _line_delimiter_length + 1);
             }
+            fields->emplace_back(_field_start, _non_space_offset - _field_start + 1);
+            _value_delimiter_cur_pos = 0;
+            _field_start = _line_cur_pos + 1;
         }
         ++_line_cur_pos;
     }
     return nullptr;
+}
+
+void NewPlainTextLineReader::trim_space_and_quote() {
+    // point to the last pos of non_space charactor.
+    _non_space_offset = _line_cur_pos - _value_delimiter_length;
+    if (_line_delimiter_cur_pos == _line_delimiter_length) {
+        _non_space_offset = _line_cur_pos - _line_delimiter_length;
+    }
+
+    // Trim tailing spaces. Be consistent with hive and trino's behavior.
+    if (_trim_tailing_spaces_for_external_table_query) {
+        while (_non_space_offset >= _field_start && *(line_start() + _non_space_offset) == ' ') {
+            _non_space_offset--;
+        }
+    }
+
+    if (_trim_double_quotes && _non_space_offset > _field_start &&
+        *(line_start() + _field_start) == '\"' && *(line_start() + _non_space_offset) == '\"') {
+        _field_start++;
+        _non_space_offset--;
+    }
 }
 
 // extend input buf if necessary only when _more_input_bytes > 0
@@ -290,6 +288,11 @@ Status NewPlainTextLineReader::read_fields(const uint8_t** ptr, size_t* size, bo
 
     *ptr = _output_buf + _output_buf_pos;
     *size = offset;
+    if (found_line_delimiter == 0) {
+        LOG(INFO) << "--ftw: eof";
+        trim_space_and_quote();
+    }
+    fields->emplace_back(_field_start, _non_space_offset - _field_start + 1);
 
     // Skip offset and _line_delimiter size;
     _output_buf_pos += offset + found_line_delimiter;

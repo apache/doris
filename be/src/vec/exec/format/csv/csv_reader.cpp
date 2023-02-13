@@ -383,8 +383,7 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
         // if actual column number in csv file is not equal to _file_slot_descs.size()
         // then filter this line.
         if (fields_size != _file_slot_descs.size()) {
-            std::string cmp_str =
-                    _split_values.size() > _file_slot_descs.size() ? "more than" : "less than";
+            std::string cmp_str = fields_size > _file_slot_descs.size() ? "more than" : "less than";
             RETURN_IF_ERROR(_state->append_error_msg_to_file(
                     [&]() -> std::string { return std::string(line.data, line.size); },
                     [&]() -> std::string {
@@ -393,7 +392,7 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
                                        "actual column number in csv file is ", cmp_str,
                                        " schema column number.");
                         fmt::format_to(error_msg, "actual number: {}, column separator: [{}], ",
-                                       _split_values.size(), _value_separator);
+                                       fields_size, _value_separator);
                         fmt::format_to(error_msg,
                                        "line delimiter: [{}], schema column number: {}; ",
                                        _line_delimiter, _file_slot_descs.size());
