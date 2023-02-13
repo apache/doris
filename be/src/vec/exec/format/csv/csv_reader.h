@@ -114,6 +114,7 @@ private:
     int _value_separator_length;
     int _line_delimiter_length;
     bool _trim_double_quotes = false;
+    bool _trim_tailing_spaces_for_external_table_query = false;
 
     IOContext* _io_ctx;
 

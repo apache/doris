@@ -144,6 +144,9 @@ Status CsvReader::init_reader(bool is_load) {
     _value_separator_length = _value_separator.size();
     _line_delimiter = _params.file_attributes.text_params.line_delimiter;
     _line_delimiter_length = _line_delimiter.size();
+    if (_state != nullptr && _state->trim_tailing_spaces_for_external_table_query()) {
+        _trim_tailing_spaces_for_external_table_query = true;
+    }
 
     if (_params.file_attributes.__isset.trim_double_quotes) {
         _trim_double_quotes = _params.file_attributes.trim_double_quotes;
@@ -160,9 +163,10 @@ Status CsvReader::init_reader(bool is_load) {
     case TFileFormatType::FORMAT_CSV_LZ4FRAME:
     case TFileFormatType::FORMAT_CSV_LZOP:
     case TFileFormatType::FORMAT_CSV_DEFLATE:
-        _line_reader.reset(new NewPlainTextLineReader(_profile, _file_reader, _decompressor.get(),
-                                                      _size, _line_delimiter,
-                                                      _line_delimiter_length, start_offset));
+        _line_reader.reset(new NewPlainTextLineReader(
+                _profile, _file_reader, _decompressor.get(), _size, _line_delimiter,
+                _line_delimiter_length, start_offset, _value_separator, _value_separator_length,
+                _trim_tailing_spaces_for_external_table_query, _trim_double_quotes));
 
         break;
     case TFileFormatType::FORMAT_PROTO:
@@ -217,17 +221,60 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
     while (rows < batch_size && !_line_reader_eof) {
         const uint8_t* ptr = nullptr;
         size_t size = 0;
-        RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof));
-        if (_skip_lines > 0) {
-            _skip_lines--;
-            continue;
-        }
-        if (size == 0) {
-            // Read empty row, just continue
-            continue;
-        }
+        if (_is_proto_format) {
+            RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof));
+            if (_skip_lines > 0) {
+                _skip_lines--;
+                continue;
+            }
+            if (size == 0) {
+                // Read empty row, just continue
+                continue;
+            }
 
-        RETURN_IF_ERROR(_fill_dest_columns(Slice(ptr, size), block, columns, &rows));
+            Slice line(ptr, size);
+            _split_values.clear();
+            PDataRow** row_ptr = reinterpret_cast<PDataRow**>(line.data);
+            PDataRow* row = *row_ptr;
+            for (const PDataColumn& col : (row)->col()) {
+                int len = col.value().size();
+                uint8_t* buf = new uint8_t[len];
+                memcpy(buf, col.value().c_str(), len);
+                _split_values.emplace_back(buf, len);
+            }
+
+            delete row;
+            delete[] row_ptr;
+            RETURN_IF_ERROR(_fill_dest_columns(line, block, columns, &rows));
+        } else {
+            RETURN_IF_ERROR(
+                    _line_reader->read_fields(&ptr, &size, &_line_reader_eof, &_split_values));
+            if (_skip_lines > 0) {
+                _skip_lines--;
+                continue;
+            }
+            if (size == 0) {
+                // Read empty row, just continue
+                continue;
+            }
+            Slice line(ptr, size);
+            if (!validate_utf8(line.data, line.size)) {
+                if (!_is_load) {
+                    return Status::InternalError("Only support csv data in utf8 codec");
+                } else {
+                    RETURN_IF_ERROR(_state->append_error_msg_to_file(
+                            []() -> std::string { return "Unable to display"; },
+                            []() -> std::string {
+                                fmt::memory_buffer error_msg;
+                                fmt::format_to(error_msg, "{}", "Unable to display");
+                                return fmt::to_string(error_msg);
+                            },
+                            &_line_reader_eof));
+                    _counter->num_rows_filtered++;
+                }
+            }
+            RETURN_IF_ERROR(_fill_dest_columns(line, block, columns, &rows));
+        }
     }
 
     *eof = (rows == 0);
@@ -329,15 +376,33 @@ Status CsvReader::_create_decompressor() {
 
 Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
                                      std::vector<MutableColumnPtr>& columns, size_t* rows) {
-    bool is_success = false;
-
-    RETURN_IF_ERROR(_line_split_to_values(line, &is_success));
-    if (UNLIKELY(!is_success)) {
-        // If not success, which means we met an invalid row, filter this row and return.
-        return Status::OK();
-    }
-
     if (_is_load) {
+        // Only check for load task. For query task, the non exist column will be filled "null".
+        // if actual column number in csv file is not equal to _file_slot_descs.size()
+        // then filter this line.
+        if (_split_values.size() != _file_slot_descs.size()) {
+            std::string cmp_str =
+                    _split_values.size() > _file_slot_descs.size() ? "more than" : "less than";
+            RETURN_IF_ERROR(_state->append_error_msg_to_file(
+                    [&]() -> std::string { return std::string(line.data, line.size); },
+                    [&]() -> std::string {
+                        fmt::memory_buffer error_msg;
+                        fmt::format_to(error_msg, "{} {} {}",
+                                       "actual column number in csv file is ", cmp_str,
+                                       " schema column number.");
+                        fmt::format_to(error_msg, "actual number: {}, column separator: [{}], ",
+                                       _split_values.size(), _value_separator);
+                        fmt::format_to(error_msg,
+                                       "line delimiter: [{}], schema column number: {}; ",
+                                       _line_delimiter, _file_slot_descs.size());
+                        return fmt::to_string(error_msg);
+                    },
+                    &_line_reader_eof));
+            _counter->num_rows_filtered++;
+            // meet an invalid row, filter this row and return.
+            return Status::OK();
+        }
+
         for (int i = 0; i < _file_slot_descs.size(); ++i) {
             auto src_slot_desc = _file_slot_descs[i];
             int col_idx = _col_idxs[i];
@@ -367,136 +432,6 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
     ++(*rows);
 
     return Status::OK();
-}
-
-Status CsvReader::_line_split_to_values(const Slice& line, bool* success) {
-    if (!_is_proto_format && !validate_utf8(line.data, line.size)) {
-        if (!_is_load) {
-            return Status::InternalError("Only support csv data in utf8 codec");
-        } else {
-            RETURN_IF_ERROR(_state->append_error_msg_to_file(
-                    []() -> std::string { return "Unable to display"; },
-                    []() -> std::string {
-                        fmt::memory_buffer error_msg;
-                        fmt::format_to(error_msg, "{}", "Unable to display");
-                        return fmt::to_string(error_msg);
-                    },
-                    &_line_reader_eof));
-            _counter->num_rows_filtered++;
-            *success = false;
-            return Status::OK();
-        }
-    }
-
-    _split_line(line);
-
-    if (_is_load) {
-        // Only check for load task. For query task, the non exist column will be filled "null".
-        // if actual column number in csv file is not equal to _file_slot_descs.size()
-        // then filter this line.
-        if (_split_values.size() != _file_slot_descs.size()) {
-            std::string cmp_str =
-                    _split_values.size() > _file_slot_descs.size() ? "more than" : "less than";
-            RETURN_IF_ERROR(_state->append_error_msg_to_file(
-                    [&]() -> std::string { return std::string(line.data, line.size); },
-                    [&]() -> std::string {
-                        fmt::memory_buffer error_msg;
-                        fmt::format_to(error_msg, "{} {} {}",
-                                       "actual column number in csv file is ", cmp_str,
-                                       " schema column number.");
-                        fmt::format_to(error_msg, "actual number: {}, column separator: [{}], ",
-                                       _split_values.size(), _value_separator);
-                        fmt::format_to(error_msg,
-                                       "line delimiter: [{}], schema column number: {}; ",
-                                       _line_delimiter, _file_slot_descs.size());
-                        return fmt::to_string(error_msg);
-                    },
-                    &_line_reader_eof));
-            _counter->num_rows_filtered++;
-            *success = false;
-            return Status::OK();
-        }
-    }
-
-    *success = true;
-    return Status::OK();
-}
-
-void CsvReader::_split_line(const Slice& line) {
-    _split_values.clear();
-    if (_file_format_type == TFileFormatType::FORMAT_PROTO) {
-        PDataRow** ptr = reinterpret_cast<PDataRow**>(line.data);
-        PDataRow* row = *ptr;
-        for (const PDataColumn& col : (row)->col()) {
-            int len = col.value().size();
-            uint8_t* buf = new uint8_t[len];
-            memcpy(buf, col.value().c_str(), len);
-            _split_values.emplace_back(buf, len);
-        }
-        delete row;
-        delete[] ptr;
-    } else {
-        const char* value = line.data;
-        size_t start = 0;     // point to the start pos of next col value.
-        size_t curpos = 0;    // point to the start pos of separator matching sequence.
-        size_t p1 = 0;        // point to the current pos of separator matching sequence.
-        size_t non_space = 0; // point to the last pos of non_space charactor.
-
-        // Separator: AAAA
-        //
-        //    p1
-        //     ▼
-        //     AAAA
-        //   1000AAAA2000AAAA
-        //   ▲   ▲
-        // Start │
-        //     curpos
-
-        while (curpos < line.size) {
-            if (curpos + p1 == line.size || *(value + curpos + p1) != _value_separator[p1]) {
-                // Not match, move forward:
-                curpos += (p1 == 0 ? 1 : p1);
-                p1 = 0;
-            } else {
-                p1++;
-                if (p1 == _value_separator_length) {
-                    // Match a separator
-                    non_space = curpos;
-                    // Trim tailing spaces. Be consistent with hive and trino's behavior.
-                    if (_state != nullptr &&
-                        _state->trim_tailing_spaces_for_external_table_query()) {
-                        while (non_space > start && *(value + non_space - 1) == ' ') {
-                            non_space--;
-                        }
-                    }
-                    if (_trim_double_quotes && (non_space - 1) > start &&
-                        *(value + start) == '\"' && *(value + non_space - 1) == '\"') {
-                        start++;
-                        non_space--;
-                    }
-                    _split_values.emplace_back(value + start, non_space - start);
-                    start = curpos + _value_separator_length;
-                    curpos = start;
-                    p1 = 0;
-                    non_space = 0;
-                }
-            }
-        }
-
-        CHECK(curpos == line.size) << curpos << " vs " << line.size;
-        non_space = curpos;
-        if (_state != nullptr && _state->trim_tailing_spaces_for_external_table_query()) {
-            while (non_space > start && *(value + non_space - 1) == ' ') {
-                non_space--;
-            }
-        }
-        if (_trim_double_quotes && (non_space - 1) > start && *(value + start) == '\"' &&
-            *(value + non_space - 1) == '\"') {
-            start++;
-            non_space--;
-        }
-        _split_values.emplace_back(value + start, non_space - start);
-    }
 }
 
 Status CsvReader::_check_array_format(std::vector<Slice>& split_values, bool* is_success) {
@@ -599,6 +534,7 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
 Status CsvReader::_parse_col_nums(size_t* col_nums) {
     const uint8_t* ptr = nullptr;
     size_t size = 0;
+    // TODO(ftw): use read_fields
     RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof));
     if (size == 0) {
         return Status::InternalError("The first line is empty, can not parse column numbers");
@@ -615,6 +551,7 @@ Status CsvReader::_parse_col_names(std::vector<std::string>* col_names) {
     const uint8_t* ptr = nullptr;
     size_t size = 0;
     // no use of _line_reader_eof
+    // TODO(ftw): use read_fields
     RETURN_IF_ERROR(_line_reader->read_line(&ptr, &size, &_line_reader_eof));
     if (size == 0) {
         return Status::InternalError("The first line is empty, can not parse column names");

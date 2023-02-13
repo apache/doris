@@ -33,9 +33,20 @@ public:
                            const std::string& line_delimiter, size_t line_delimiter_length,
                            size_t current_offset);
 
+    NewPlainTextLineReader(RuntimeProfile* profile, io::FileReaderSPtr file_reader,
+                           Decompressor* decompressor, size_t length,
+                           const std::string& line_delimiter, size_t line_delimiter_length,
+                           size_t current_offset, const std::string& value_delimiter,
+                           size_t value_delimiter_length,
+                           bool trim_tailing_spaces_for_external_table_query,
+                           bool trim_double_quotes);
+
     ~NewPlainTextLineReader() override;
 
     Status read_line(const uint8_t** ptr, size_t* size, bool* eof) override;
+
+    Status read_fields(const uint8_t** ptr, size_t* size, bool* eof,
+                       std::vector<Slice>* fields) override;
 
     void close() override;
 
@@ -50,12 +61,16 @@ private:
 
     // find line delimiter from 'start' to 'start' + len,
     // return line delimiter pos if found, otherwise return nullptr.
-    // TODO:
-    //  save to positions of field separator
-    uint8_t* update_field_pos_and_find_line_delimiter(const uint8_t* start, size_t len);
+    uint8_t* _find_line_delimiter(const uint8_t* start, size_t len);
+    // save positions of fields and return and line delimiter.
+    uint8_t* _update_field_pos_and_find_line_delimiter(const uint8_t* start, size_t len,
+                                                       std::vector<Slice>* fields);
 
+    bool _read_more_data();
     void extend_input_buf();
     void extend_output_buf();
+
+    uint8_t* line_start() { return _output_buf + _output_buf_pos; }
 
     RuntimeProfile* _profile;
     io::FileReaderSPtr _file_reader;
@@ -87,6 +102,32 @@ private:
     size_t _more_output_bytes;
 
     size_t _current_offset;
+
+    std::string _value_delimiter;
+    size_t _value_delimiter_length;
+    bool _trim_tailing_spaces_for_external_table_query = false;
+    bool _trim_double_quotes = false;
+
+    // point to the start of next field.
+    // this is an offset from line_start().
+    size_t _field_start = 0;
+    // point to the current position from line_start().
+    // this is an offset from line_start() .
+    size_t _line_cur_pos = 0;
+    // point to the current pos of separator matching sequence.
+    // this is an offset from the start of value_delimiter.
+    size_t _value_delimiter_cur_pos = 0;
+    // point to the current pos of separator matching sequence.
+    // this is an offset from the start of line_delimiter.
+    size_t _line_delimiter_cur_pos = 0;
+    // pair is (_field_start, len)
+    // because the _output_buf and _output_buf_pos may be change.
+    // we can not save (_output_buf+_output_buf_pos) only.
+    // We should save the offset from line_start (that is _field_start),
+    // so that when _output_buf and _output_buf_pos change
+    // we can use (line_start() + _field_start) to find the
+    // correct start of a field
+    std::vector<std::pair<int, int>> _fields_pos;
 
     // Profile counters
     RuntimeProfile::Counter* _bytes_read_counter;

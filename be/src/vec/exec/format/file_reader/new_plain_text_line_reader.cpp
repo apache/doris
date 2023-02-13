@@ -69,6 +69,19 @@ NewPlainTextLineReader::NewPlainTextLineReader(RuntimeProfile* profile,
     _decompress_timer = ADD_TIMER(_profile, "DecompressTime");
 }
 
+NewPlainTextLineReader::NewPlainTextLineReader(
+        RuntimeProfile* profile, io::FileReaderSPtr file_reader, Decompressor* decompressor,
+        size_t length, const std::string& line_delimiter, size_t line_delimiter_length,
+        size_t current_offset, const std::string& value_delimiter, size_t value_delimiter_length,
+        bool trim_tailing_spaces_for_external_table_query, bool trim_double_quotes)
+        : NewPlainTextLineReader(profile, file_reader, decompressor, length, line_delimiter,
+                                 line_delimiter_length, current_offset) {
+    _value_delimiter = value_delimiter;
+    _value_delimiter_length = value_delimiter_length;
+    _trim_tailing_spaces_for_external_table_query = trim_tailing_spaces_for_external_table_query;
+    _trim_double_quotes = trim_double_quotes;
+}
+
 NewPlainTextLineReader::~NewPlainTextLineReader() {
     close();
 }
@@ -94,10 +107,69 @@ inline bool NewPlainTextLineReader::update_eof() {
     return _eof;
 }
 
-uint8_t* NewPlainTextLineReader::update_field_pos_and_find_line_delimiter(const uint8_t* start,
-                                                                          size_t len) {
+uint8_t* NewPlainTextLineReader::_find_line_delimiter(const uint8_t* start, size_t len) {
     // TODO: meanwhile find and save field pos
     return (uint8_t*)memmem(start, len, _line_delimiter.c_str(), _line_delimiter_length);
+}
+
+uint8_t* NewPlainTextLineReader::_update_field_pos_and_find_line_delimiter(
+        const uint8_t* start, size_t len, std::vector<Slice>* fields) {
+    assert(start);
+    assert(_line_delimiter.c_str());
+    assert(_line_delimiter_length >= 1);
+    for (size_t cur = 0; cur < len; ++cur) {
+        // TODO(ftw): Can not handle the case:
+        // value delimiter: ABAC
+        // source line: 1ABACdorisABABAC18
+
+        if (*(start + cur) != _line_delimiter[_line_delimiter_cur_pos]) {
+            _line_delimiter_cur_pos = 0;
+        } else {
+            ++_line_delimiter_cur_pos;
+        }
+
+        if (*(start + cur) != _value_delimiter[_value_delimiter_cur_pos]) {
+            _value_delimiter_cur_pos = 0;
+        } else {
+            ++_value_delimiter_cur_pos;
+        }
+
+        if (_value_delimiter_cur_pos == _value_delimiter_length ||
+            _line_delimiter_cur_pos == _line_delimiter_length) {
+            // Match a separator
+            // point to the last pos of non_space charactor.
+            size_t non_space_offset = _line_cur_pos - _value_delimiter_length;
+            if (_line_delimiter_cur_pos == _line_delimiter_length) {
+                non_space_offset = _line_cur_pos - _line_delimiter_length;
+            }
+
+            // Trim tailing spaces. Be consistent with hive and trino's behavior.
+            if (_trim_tailing_spaces_for_external_table_query) {
+                while (non_space_offset >= _field_start &&
+                       *(line_start() + non_space_offset) == ' ') {
+                    non_space_offset--;
+                }
+            }
+
+            if (_trim_double_quotes && non_space_offset > _field_start &&
+                *(line_start() + _field_start) == '\"' &&
+                *(line_start() + non_space_offset) == '\"') {
+                _field_start++;
+                non_space_offset--;
+            }
+
+            fields->emplace_back(line_start() + _field_start, non_space_offset - _field_start + 1);
+            _fields_pos.emplace_back(_field_start, non_space_offset - _field_start + 1);
+            _field_start = _line_cur_pos + 1;
+            _value_delimiter_cur_pos = 0;
+            if (_line_delimiter_cur_pos == _line_delimiter_length) {
+                _line_delimiter_cur_pos = 0;
+                return line_start() + (_line_cur_pos - _line_delimiter_length + 1);
+            }
+        }
+        ++_line_cur_pos;
+    }
+    return nullptr;
 }
 
 // extend input buf if necessary only when _more_input_bytes > 0
@@ -174,7 +246,8 @@ void NewPlainTextLineReader::extend_output_buf() {
     } while (false);
 }
 
-Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* eof) {
+Status NewPlainTextLineReader::read_fields(const uint8_t** ptr, size_t* size, bool* eof,
+                                           std::vector<Slice>* fields) {
     if (_eof || update_eof()) {
         *size = 0;
         *eof = true;
@@ -182,11 +255,18 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
     }
     int found_line_delimiter = 0;
     size_t offset = 0;
+
+    fields->clear();
+    _fields_pos.clear();
+    _field_start = 0;
+    _line_cur_pos = 0;
+    _value_delimiter_cur_pos = 0;
+    _line_delimiter_cur_pos = 0;
     while (!done()) {
         // find line delimiter in current decompressed data
-        uint8_t* cur_ptr = _output_buf + _output_buf_pos;
-        uint8_t* pos = update_field_pos_and_find_line_delimiter(
-                cur_ptr + offset, output_buf_read_remaining() - offset);
+        uint8_t* cur_ptr = line_start();
+        uint8_t* pos = _update_field_pos_and_find_line_delimiter(
+                cur_ptr + offset, output_buf_read_remaining() - offset, fields);
 
         if (pos == nullptr) {
             // didn't find line delimiter, read more data from decompressor
@@ -195,124 +275,16 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
             // read from file reader
             offset = output_buf_read_remaining();
             extend_output_buf();
-            if ((_input_buf_limit > _input_buf_pos) && _more_input_bytes == 0) {
-                // we still have data in input which is not decompressed.
-                // and no more data is required for input
-            } else {
-                size_t read_len = 0;
-                int64_t buffer_len = 0;
-                uint8_t* file_buf;
 
-                if (_decompressor == nullptr) {
-                    // uncompressed file, read directly into output buf
-                    file_buf = _output_buf + _output_buf_limit;
-                    buffer_len = _output_buf_size - _output_buf_limit;
-                } else {
-                    // MARK
-                    if (_more_input_bytes > 0) {
-                        // we already extend input buf.
-                        // current data in input buf should remain unchanged
-                        file_buf = _input_buf + _input_buf_limit;
-                        buffer_len = _input_buf_size - _input_buf_limit;
-                        // leave input pos and limit unchanged
-                    } else {
-                        // here we are sure that all data in input buf has been consumed.
-                        // which means input pos and limit should be reset.
-                        file_buf = _input_buf;
-                        buffer_len = _input_buf_size;
-                        // reset input pos and limit
-                        _input_buf_pos = 0;
-                        _input_buf_limit = 0;
-                    }
-                }
-
-                {
-                    SCOPED_TIMER(_read_timer);
-                    Slice file_slice(file_buf, buffer_len);
-                    IOContext io_ctx;
-                    RETURN_IF_ERROR(
-                            _file_reader->read_at(_current_offset, file_slice, io_ctx, &read_len));
-                    _current_offset += read_len;
-                    if (read_len == 0) {
-                        _file_eof = true;
-                    }
-                    COUNTER_UPDATE(_bytes_read_counter, read_len);
-                }
-                if (_file_eof || read_len == 0) {
-                    if (!_stream_end) {
-                        return Status::InternalError(
-                                "Compressed file has been truncated, which is not allowed");
-                    } else {
-                        // last loop we meet stream end,
-                        // and now we finished reading file, so we are finished
-                        // break this loop to see if there is data in buffer
-                        break;
-                    }
-                }
-
-                if (_decompressor == nullptr) {
-                    _output_buf_limit += read_len;
-                    _stream_end = true;
-                } else {
-                    // only update input limit.
-                    // input pos is set at MARK step
-                    _input_buf_limit += read_len;
-                }
-
-                if (read_len < _more_input_bytes) {
-                    // we failed to read enough data, continue to read from file
-                    _more_input_bytes = _more_input_bytes - read_len;
-                    continue;
-                }
+            for (size_t i = 0; i < _fields_pos.size(); ++i) {
+                Slice new_pos(line_start() + _fields_pos[i].first, _fields_pos[i].second);
+                (*fields)[i] = new_pos;
             }
 
-            if (_decompressor != nullptr) {
-                SCOPED_TIMER(_decompress_timer);
-                // decompress
-                size_t input_read_bytes = 0;
-                size_t decompressed_len = 0;
-                _more_input_bytes = 0;
-                _more_output_bytes = 0;
-                RETURN_IF_ERROR(_decompressor->decompress(
-                        _input_buf + _input_buf_pos,                        /* input */
-                        _input_buf_limit - _input_buf_pos,                  /* input_len */
-                        &input_read_bytes, _output_buf + _output_buf_limit, /* output */
-                        _output_buf_size - _output_buf_limit,               /* output_max_len */
-                        &decompressed_len, &_stream_end, &_more_input_bytes, &_more_output_bytes));
-
-                // LOG(INFO) << "after decompress:"
-                //           << " stream_end: " << _stream_end
-                //           << " input_read_bytes: " << input_read_bytes
-                //           << " decompressed_len: " << decompressed_len
-                //           << " more_input_bytes: " << _more_input_bytes
-                //           << " more_output_bytes: " << _more_output_bytes;
-
-                // update pos and limit
-                _input_buf_pos += input_read_bytes;
-                _output_buf_limit += decompressed_len;
-                COUNTER_UPDATE(_bytes_decompress_counter, decompressed_len);
-
-                // TODO(cmy): watch this case
-                if ((input_read_bytes == 0 /*decompressed_len == 0*/) && _more_input_bytes == 0 &&
-                    _more_output_bytes == 0) {
-                    // decompress made no progress, may be
-                    // A. input data is not enough to decompress data to output
-                    // B. output buf is too small to save decompressed output
-                    // this is very unlikely to happen
-                    // print the log and just go to next loop to read more data or extend output buf.
-
-                    // (cmy), for now, return failed to avoid potential endless loop
-                    std::stringstream ss;
-                    ss << "decompress made no progress."
-                       << " input_read_bytes: " << input_read_bytes
-                       << " decompressed_len: " << decompressed_len;
-                    LOG(WARNING) << ss.str();
-                    return Status::InternalError(ss.str());
-                }
-
-                if (_more_input_bytes > 0) {
-                    extend_input_buf();
-                }
+            // if _read_more_data() == false : break
+            // if _read_more_data() == true : continue
+            if (!_read_more_data()) {
+                break;
             }
         } else {
             // we found a complete line
@@ -336,7 +308,179 @@ Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool
 
     // update total read bytes
     _total_read_bytes += *size + found_line_delimiter;
-
     return Status::OK();
+}
+
+Status NewPlainTextLineReader::read_line(const uint8_t** ptr, size_t* size, bool* eof) {
+    if (_eof || update_eof()) {
+        *size = 0;
+        *eof = true;
+        return Status::OK();
+    }
+    int found_line_delimiter = 0;
+    size_t offset = 0;
+    while (!done()) {
+        // find line delimiter in current decompressed data
+        uint8_t* cur_ptr = _output_buf + _output_buf_pos;
+        uint8_t* pos = _find_line_delimiter(cur_ptr + offset, output_buf_read_remaining() - offset);
+
+        if (pos == nullptr) {
+            // didn't find line delimiter, read more data from decompressor
+            // for multi bytes delimiter we cannot set offset to avoid incomplete
+            // delimiter
+            // read from file reader
+            offset = output_buf_read_remaining();
+            extend_output_buf();
+
+            // if _read_more_data() == false : break
+            // if _read_more_data() == true : continue
+            if (!_read_more_data()) {
+                break;
+            }
+        } else {
+            // we found a complete line
+            // ready to return
+            offset = pos - cur_ptr;
+            found_line_delimiter = _line_delimiter_length;
+            break;
+        }
+    } // while (!done())
+
+    *ptr = _output_buf + _output_buf_pos;
+    *size = offset;
+
+    // Skip offset and _line_delimiter size;
+    _output_buf_pos += offset + found_line_delimiter;
+    if (offset == 0 && found_line_delimiter == 0) {
+        *eof = true;
+    } else {
+        *eof = false;
+    }
+
+    // update total read bytes
+    _total_read_bytes += *size + found_line_delimiter;
+    return Status::OK();
+}
+
+bool NewPlainTextLineReader::_read_more_data() {
+    if ((_input_buf_limit > _input_buf_pos) && _more_input_bytes == 0) {
+        // we still have data in input which is not decompressed.
+        // and no more data is required for input
+    } else {
+        size_t read_len = 0;
+        int64_t buffer_len = 0;
+        uint8_t* file_buf;
+
+        if (_decompressor == nullptr) {
+            // uncompressed file, read directly into output buf
+            file_buf = _output_buf + _output_buf_limit;
+            buffer_len = _output_buf_size - _output_buf_limit;
+        } else {
+            // MARK
+            if (_more_input_bytes > 0) {
+                // we already extend input buf.
+                // current data in input buf should remain unchanged
+                file_buf = _input_buf + _input_buf_limit;
+                buffer_len = _input_buf_size - _input_buf_limit;
+                // leave input pos and limit unchanged
+            } else {
+                // here we are sure that all data in input buf has been consumed.
+                // which means input pos and limit should be reset.
+                file_buf = _input_buf;
+                buffer_len = _input_buf_size;
+                // reset input pos and limit
+                _input_buf_pos = 0;
+                _input_buf_limit = 0;
+            }
+        }
+
+        {
+            SCOPED_TIMER(_read_timer);
+            Slice file_slice(file_buf, buffer_len);
+            IOContext io_ctx;
+            RETURN_IF_ERROR(_file_reader->read_at(_current_offset, file_slice, io_ctx, &read_len));
+            _current_offset += read_len;
+            if (read_len == 0) {
+                _file_eof = true;
+            }
+            COUNTER_UPDATE(_bytes_read_counter, read_len);
+        }
+        if (_file_eof || read_len == 0) {
+            if (!_stream_end) {
+                return Status::InternalError(
+                        "Compressed file has been truncated, which is not allowed");
+            } else {
+                // last loop we meet stream end,
+                // and now we finished reading file, so we are finished
+                // break this loop to see if there is data in buffer
+                return false;
+            }
+        }
+
+        if (_decompressor == nullptr) {
+            _output_buf_limit += read_len;
+            _stream_end = true;
+        } else {
+            // only update input limit.
+            // input pos is set at MARK step
+            _input_buf_limit += read_len;
+        }
+
+        if (read_len < _more_input_bytes) {
+            // we failed to read enough data, continue to read from file
+            _more_input_bytes = _more_input_bytes - read_len;
+            return true;
+        }
+    }
+
+    if (_decompressor != nullptr) {
+        SCOPED_TIMER(_decompress_timer);
+        // decompress
+        size_t input_read_bytes = 0;
+        size_t decompressed_len = 0;
+        _more_input_bytes = 0;
+        _more_output_bytes = 0;
+        RETURN_IF_ERROR(_decompressor->decompress(
+                _input_buf + _input_buf_pos,                        /* input */
+                _input_buf_limit - _input_buf_pos,                  /* input_len */
+                &input_read_bytes, _output_buf + _output_buf_limit, /* output */
+                _output_buf_size - _output_buf_limit,               /* output_max_len */
+                &decompressed_len, &_stream_end, &_more_input_bytes, &_more_output_bytes));
+
+        // LOG(INFO) << "after decompress:"
+        //           << " stream_end: " << _stream_end
+        //           << " input_read_bytes: " << input_read_bytes
+        //           << " decompressed_len: " << decompressed_len
+        //           << " more_input_bytes: " << _more_input_bytes
+        //           << " more_output_bytes: " << _more_output_bytes;
+
+        // update pos and limit
+        _input_buf_pos += input_read_bytes;
+        _output_buf_limit += decompressed_len;
+        COUNTER_UPDATE(_bytes_decompress_counter, decompressed_len);
+
+        // TODO(cmy): watch this case
+        if ((input_read_bytes == 0 /*decompressed_len == 0*/) && _more_input_bytes == 0 &&
+            _more_output_bytes == 0) {
+            // decompress made no progress, may be
+            // A. input data is not enough to decompress data to output
+            // B. output buf is too small to save decompressed output
+            // this is very unlikely to happen
+            // print the log and just go to next loop to read more data or extend output buf.
+
+            // (cmy), for now, return failed to avoid potential endless loop
+            std::stringstream ss;
+            ss << "decompress made no progress."
+               << " input_read_bytes: " << input_read_bytes
+               << " decompressed_len: " << decompressed_len;
+            LOG(WARNING) << ss.str();
+            return Status::InternalError(ss.str());
+        }
+
+        if (_more_input_bytes > 0) {
+            extend_input_buf();
+        }
+    }
+    return true;
 }
 } // namespace doris

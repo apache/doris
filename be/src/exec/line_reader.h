@@ -18,6 +18,7 @@
 #pragma once
 
 #include "common/status.h"
+#include "util/slice.h"
 
 namespace doris {
 
@@ -26,6 +27,11 @@ class LineReader {
 public:
     virtual ~LineReader() = default;
     virtual Status read_line(const uint8_t** ptr, size_t* size, bool* eof) = 0;
+
+    virtual Status read_fields(const uint8_t** ptr, size_t* size, bool* eof,
+                               std::vector<Slice>* fields) {
+        return Status::NotSupported("Not supported to read fields");
+    }
 
     virtual void close() = 0;
 };
