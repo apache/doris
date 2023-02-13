@@ -68,7 +68,7 @@ std::shared_ptr<VDataStreamRecvr> VDataStreamMgr::find_recvr(const TUniqueId& fr
     VLOG_ROW << "looking up fragment_instance_id=" << fragment_instance_id << ", node=" << node_id;
     size_t hash_value = get_hash_value(fragment_instance_id, node_id);
     // Create lock guard and not own lock currently and will lock conditionally
-    std::unique_lock recvr_lock(_lock, std::defer_lock_t);
+    std::unique_lock recvr_lock(_lock, std::defer_lock);
     if (acquire_lock) {
         recvr_lock.lock();
     }
