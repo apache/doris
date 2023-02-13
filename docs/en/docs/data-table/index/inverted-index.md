@@ -1,7 +1,7 @@
 ---
 {
-    "title": "倒排索引",
-    "language": "zh-CN"
+    "title": "inverted index",
+    "language": "en"
 }
 ---
 
@@ -24,57 +24,58 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# 倒排索引
+# Inverted Index
 
 <version since="1.2.0">
  
 </version>
 
-从2.0.0版本开始，Doris支持倒排索引，可以用来进行文本类型的全文检索、普通数值日期类型的等值范围查询，快速从海量数据中过滤出满足条件的行。本文档主要介绍如何倒排索引的创建、删除、查询等使用方式。
+From version 2.0.0, Doris implemented inverted index to support fulltext search on text field, normal eq and range filter on text, numeric, datetime field. This doc introduce inverted index usage, including create, drop and query.
 
 
-## 名词解释
+## Glossary
 
-- [inverted index](https://en.wikipedia.org/wiki/Inverted_index)：[倒排索引](https://zh.wikipedia.org/wiki/%E5%80%92%E6%8E%92%E7%B4%A2%E5%BC%95)，是信息检索领域常用的索引技术，将文本分割成一个个词，构建 词 -> 文档编号 的索引，可以快速查找一个词在哪些文档出现。
-
-
-## 原理介绍
-
-Doris使用[CLucene](https://clucene.sourceforge.net/)作为底层的倒排索引库。CLucene是一个用C++实现的高性能、稳定的Lucene倒排索引库。Doris进一步优化了CLucene，使得它更简单、更快、更适合数据库场景。
-
-在Doris的倒排索引实现中，table的一行对应一个文档、一列对应文档中的一个字段，因此利用倒排索引可以根据关键词快速定位包含它的行，达到WHERE字句加速的目的。
-
-与Doris中其他索引不同的是，在存储层倒排索引使用独立的文件，跟segment文件有逻辑对应关系、但存储的文件相互独立。这样的好处是可以做到创建、删除索引不用重写tablet和segment文件，大幅降低处理开销。
+- [inverted index](https://en.wikipedia.org/wiki/Inverted_index) is a index techlogy used in information retirval commonly. It split text into word terms and construct a term to doc index. This index is called inverted index and can be used to find the docs where a specific term appears.
 
 
-## 功能介绍
+## Basic Principles
 
-Doris倒排索引的功能简要介绍如下：
+Doris use [CLucene](https://clucene.sourceforge.net/) as its underlying lib for inverted index. CLucene is a high performance and robust implementation of the famous Lucene inverted index library. Doris optimize CLucene to be more simple, fast and suitable for a database.
 
-- 增加了字符串类型的全文检索
-  - 支持字符串全文检索，包括同时匹配多个关键字MATCH_ALL、匹配任意一个关键字MATCH_ANY
-  - 支持字符串数组类型的全文检索
-  - 支持英文、中文分词
-- 加速普通等值、范围查询，覆盖bitmap索引的功能，未来会代替bitmap索引
-  - 支持字符串、数值、日期时间类型的 =, !=, >, >=, <, <= 快速过滤
-  - 支持字符串、数字、日期时间数组类型的 =, !=, >, >=, <, <=
-- 支持完善的逻辑组合
-  - 新增索引对OR NOT逻辑的下推
-  - 支持多个条件的任意AND OR NOT组合
-- 灵活、快速的索引管理
-  - 支持在创建表上定义倒排索引
-  - 支持在已有的表上增加倒排索引，而且支持增量构建倒排索引，无需重写表中的已有数据
-  - 支持删除已有表上的倒排索引，无需重写表中的已有数据
+In the inverted index of Doris, a row in a table corresponds to a doc in CLucene, a column corresponds to a field in doc. So using inverted index, doris can get the rows that meet the filter of SQL WHERE clause, and then get the rows quickly without reading other unrelated rows.
 
-## 语法
+Doris use a seperate file to store inverted index. It's related to segment file in logic, but iosolated with each other. The advantange is that, create and drop inverted index does not need to rewrite tablet and segment file, which is very heavy work.
 
-- 建表时定义倒排索引，语法说明如下
-  - USING INVERTED 是必须的，用于指定索引类型是倒排索引
-  - PROPERTIES 是可选的，用于指定倒排索引的额外属性，目前有一个属性parser指定分词器
-    - 默认不指定代表不分词
-    - english是英文分词，适合被索引列是英文的情况，用空格和标点符号分词，性能高
-    - chinese是中文分词，适合被索引列有中文或者中英文混合的情况，采用jieba分词库，性能比english分词低
-  - COMMENT 是可选的，用于指定注释
+
+## Features
+
+The features for inverted index is as follows:
+
+- add fulltext search on text(string, varchar, char) field
+  - MATCH_ALL matches all keywords, MATCH_ANY matches any keywords
+  - support fulltext on array of text field
+  - support english and chinese word parser
+- accelerate normal equal, range query, replacing bitmap index in the future
+  - suport =, !=, >, >=, <, <= on text, numeric, datetime types
+  - suport =, !=, >, >=, <, <= on array of text, numeric, datetime types
+- complete suport for logic combination
+  - add index filter push down for OR, NOT
+  - support combination of AND, OR, NOT
+- flexiable and fast index management
+  - support inverted index definition on table creation
+  - support add inverted index on existed table, without rewrite data
+  - support delete inverted index on existed table, without rewrite data
+
+
+## Syntax
+
+- The inverted index definition syntax on table creation is as follows
+  - USING INVERTED is mandatory, it specify index type to be inverted index
+  - PROPERTIES is optional, it allows user to specify additional properties for index, "parser" is for type of word tokenizor/parser
+    - missing stands for no parser, the whole field is considered to be a term
+    - "english" stands for english parser
+    - "chinese" stands for chinese parser
+  - COMMENT is optional
 
 ```sql
 CREATE TABLE table_name
@@ -86,48 +87,48 @@ CREATE TABLE table_name
 table_properties;
 ```
 
-- 已有表增加倒排索引
+- add an inverted index to existed table
 ```sql
--- 语法1
+-- syntax 1
 CREATE INDEX idx_name ON table_name(column_name) USING INVERTED [PROPERTIES("parser" = "english|chinese")] [COMMENT 'your comment'];
--- 语法2
+-- syntax 2
 ALTER TABLE table_name ADD INDEX idx_name(column_name) USING INVERTED [PROPERTIES("parser" = "english|chinese")] [COMMENT 'your comment'];
 ```
 
-- 删除倒排索引
+- drop an inverted index
 ```sql
--- 语法1
+-- syntax 1
 DROP INDEX idx_name ON table_name;
--- 语法2
+-- syntax 2
 ALTER TABLE table_name DROP INDEX idx_name;
 ```
 
-- 利用倒排索引加速查询
+- speed up query using inverted index
 ```sql
--- 1. 全文检索关键词匹配，通过MATCH_ANY MATCH_ALL完成
+-- 1. fulltext search using MATCH_ANY OR MATCH_ALL
 SELECT * FROM table_name WHERE column_name MATCH_ANY | MATCH_ALL 'keyword1 ...';
 
--- 1.1 logmsg中包含keyword1的行
+-- 1.1 find rows that logmsg contains keyword1
 SELECT * FROM table_name WHERE logmsg MATCH_ANY 'keyword1';
 
--- 1.2 logmsg中包含keyword1或者keyword2的行，后面还可以添加多个keyword
+-- 1.2 find rows that logmsg contains keyword1 or keyword2 or more keywords
 SELECT * FROM table_name WHERE logmsg MATCH_ANY 'keyword2 keyword2';
 
--- 1.3 logmsg中同时包含keyword1和keyword2的行，后面还可以添加多个keyword
+-- 1.3 find rows that logmsg contains both keyword1 and keyword2 and more keywords
 SELECT * FROM table_name WHERE logmsg MATCH_ALL 'keyword2 keyword2';
 
 
--- 2. 普通等值、范围、IN、NOT IN，正常的SQL语句即可，例如
+-- 2. normal equal, range query
 SELECT * FROM table_name WHERE id = 123;
 SELECT * FROM table_name WHERE ts > '2023-01-01 00:00:00';
 SELECT * FROM table_name WHERE op_type IN ('add', 'delete');
 ```
 
-## 使用示例
+## Example
 
-用hackernews 100万条数据展示倒排索引的创建、全文检索、普通查询，包括跟无索引的查询性能进行简单对比。
+This example will demostrate inverted index creation, fulltext query, normal query using a hackernews dataset with 1 million rows. The performanc comparation between using  and without inverted index will also be showed.
 
-### 建表
+### Create table
 
 ```sql
 
@@ -135,9 +136,9 @@ CREATE DATABASE test_inverted_index;
 
 USE test_inverted_index;
 
--- 创建表的同时创建了comment的倒排索引idx_comment
---   USING INVERTED 指定索引类型是倒排索引
---   PROPERTIES("parser" = "english") 指定采用english分词，还支持"chinese"中文分词，如果不指定"parser"参数表示不分词
+-- define inverted index idx_comment for comment column on table creation
+--   USING INVERTED specify using inverted index
+--   PROPERTIES("parser" = "english") specify english word parser
 CREATE TABLE hackernews_1m
 (
     `id` BIGINT,
@@ -164,9 +165,9 @@ PROPERTIES ("replication_num" = "1");
 ```
 
 
-### 导入数据
+### Load data
 
-- 通过stream load导入数据
+- load data by stream load
 
 ```
 
@@ -193,7 +194,7 @@ curl --location-trusted -u root: -H "compress_type:gz" -T hacknernews_1m.csv.gz 
 }
 ```
 
-- SQL运行count()确认导入数据成功
+- check loaded data by SQL count()
 
 ```sql
 mysql> SELECT count() FROM hackernews_1m;
@@ -205,11 +206,11 @@ mysql> SELECT count() FROM hackernews_1m;
 1 row in set (0.02 sec)
 ```
 
-### 查询
+### Query
 
-#### 全文检索
+#### Fulltext search query
 
-- 用LIKE匹配计算comment中含有'OLAP'的行数，耗时0.18s
+- count the rows that comment contains 'OLAP' using LIKE, cost 0.18s
 ```sql
 mysql> SELECT count() FROM hackernews_1m WHERE comment LIKE '%OLAP%';
 +---------+
@@ -220,8 +221,8 @@ mysql> SELECT count() FROM hackernews_1m WHERE comment LIKE '%OLAP%';
 1 row in set (0.18 sec)
 ```
 
-- 用基于倒排索引的全文检索MATCH_ANY计算comment中含有'OLAP'的行数，耗时0.02s，加速9倍，在更大的数据集上效果会更加明显
-  - 这里结果条数的差异，是因为倒排索引对comment分词后，还会对词进行进行统一成小写等归一化处理，因此MATCH_ANY比LIKE的结果多一些
+- count the rows that comment contains 'OLAP' using MATCH_ANY fulltext search based on inverted index , cost 0.02s and 9x speedup, the speedup will be even larger on larger dataset
+  - the difference of count is due to feature of fulltext. Word parser will not only split text to words, but also do some normalization such transform to lower case letters. So the result of MATCH_ANY will be a little more.
 ```sql
 mysql> SELECT count() FROM hackernews_1m WHERE comment MATCH_ANY 'OLAP';
 +---------+
@@ -232,7 +233,7 @@ mysql> SELECT count() FROM hackernews_1m WHERE comment MATCH_ANY 'OLAP';
 1 row in set (0.02 sec)
 ```
 
-- 同样的对比统计'OLTP'出现次数的性能，0.07s vs 0.01s，由于缓存的原因LIKE和MATCH_ANY都有提升，倒排索引仍然有7倍加速
+- Semilarly, count on 'OLTP' shows 0.07s vs 0.01s. Due to the cache in Doris, both LIKE and MATCH_ANY is faster, but there is still 7x speedup.
 ```sql
 mysql> SELECT count() FROM hackernews_1m WHERE comment LIKE '%OLTP%';
 +---------+
@@ -251,8 +252,9 @@ mysql> SELECT count() FROM hackernews_1m WHERE comment MATCH_ANY 'OLTP';
 1 row in set (0.01 sec)
 ```
 
-- 同时出现'OLAP'和'OLTP'两个词，0.13s vs 0.01s，13倍加速
-  - 要求多个词同时出现时（AND关系）使用 MATCH_ALL 'keyword1 keyword2 ...'
+
+- search for both 'OLAP' and 'OLTP', 0.13s vs 0.01s，13x speedup
+  - using MATCH_ALL if you need the keywords all appears
 ```sql
 mysql> SELECT count() FROM hackernews_1m WHERE comment LIKE '%OLAP%' AND comment LIKE '%OLTP%';
 +---------+
@@ -271,8 +273,8 @@ mysql> SELECT count() FROM hackernews_1m WHERE comment MATCH_ALL 'OLAP OLTP';
 1 row in set (0.01 sec)
 ```
 
-- 任意出现'OLAP'和'OLTP'其中一个词，0.12s vs 0.01s，12倍加速
-  - 只要求多个词任意一个或多个出现时（OR关系）使用 MATCH_ANY 'keyword1 keyword2 ...'
+- search for at least one of 'OLAP' or 'OLTP', 0.12s vs 0.01s，12x speedup
+  - using MATCH_ALL if you only need at least one of the keywords appears
 ```sql
 mysql> SELECT count() FROM hackernews_1m WHERE comment LIKE '%OLAP%' OR comment LIKE '%OLTP%';
 +---------+
@@ -292,9 +294,9 @@ mysql> SELECT count() FROM hackernews_1m WHERE comment MATCH_ANY 'OLAP OLTP';
 ```
 
 
-#### 普通等值、范围查询
+#### normal equal, range query
 
-- DataTime类型的列范围查询
+- range query on DateTime column
 ```sql
 mysql> SELECT count() FROM hackernews_1m WHERE timestamp > '2007-08-23 04:17:00';
 +---------+
@@ -305,15 +307,15 @@ mysql> SELECT count() FROM hackernews_1m WHERE timestamp > '2007-08-23 04:17:00'
 1 row in set (0.03 sec)
 ```
 
-- 为timestamp列增加一个倒排索引
+- add inverted index for timestamp column
 ```sql
--- 对于日期时间类型USING INVERTED，不用指定分词
--- CREATE INDEX 是第一种建索引的语法，另外一种在后面展示
+-- for timestamp column, there is no need for word parser, so just USING INVERTED without PROPERTIES
+-- this is the first syntax for CREATE INDEX
 mysql> CREATE INDEX idx_timestamp ON hackernews_1m(timestamp) USING INVERTED;
 Query OK, 0 rows affected (0.03 sec)
 ```
 
-- 查看索引创建进度，通过FinishTime和CreateTime的差值，可以看到100万条数据对timestamp列建倒排索引只用了1s
+- progress of building index can be view by SQL. It just costs 1s (compare FinishTime and CreateTime) to build index for timestamp column with 1 million rows.
 ```sql
 mysql> SHOW ALTER TABLE COLUMN;
 +-------+---------------+-------------------------+-------------------------+---------------+---------+---------------+---------------+---------------+----------+------+----------+---------+
@@ -324,7 +326,7 @@ mysql> SHOW ALTER TABLE COLUMN;
 1 row in set (0.00 sec)
 ```
 
-- 索引创建后，范围查询用同样的查询方式，Doris会自动识别索引进行优化，但是这里由于数据量小性能差别不大
+- after the index is build, Doris will automaticaly use index for range query, but the performance is almost the same since it's already fast on the small dataset
 ```sql
 mysql> SELECT count() FROM hackernews_1m WHERE timestamp > '2007-08-23 04:17:00';
 +---------+
@@ -335,7 +337,7 @@ mysql> SELECT count() FROM hackernews_1m WHERE timestamp > '2007-08-23 04:17:00'
 1 row in set (0.01 sec)
 ```
 
-- 在数值类型的列parent进行类似timestamp的操作，这里查询使用等值匹配
+- similary test for parent column with numeric type, using equal query
 ```sql
 mysql> SELECT count() FROM hackernews_1m WHERE parent = 11189;
 +---------+
@@ -345,8 +347,8 @@ mysql> SELECT count() FROM hackernews_1m WHERE parent = 11189;
 +---------+
 1 row in set (0.01 sec)
 
--- 对于数值类型USING INVERTED，不用指定分词
--- ALTER TABLE t ADD INDEX 是第二种建索引的语法
+-- do not use word parser for numeric type USING INVERTED
+-- use the second syntax ALTER TABLE
 mysql> ALTER TABLE hackernews_1m ADD INDEX idx_parent(parent) USING INVERTED;
 Query OK, 0 rows affected (0.01 sec)
 
@@ -367,7 +369,7 @@ mysql> SELECT count() FROM hackernews_1m WHERE parent = 11189;
 1 row in set (0.01 sec)
 ```
 
-- 对字符串类型的author建立部分词的倒排索引，等值查询也可以利用索引加速
+- for text column author, inverted index can also be used to speedup equal query
 ```sql
 mysql> SELECT count() FROM hackernews_1m WHERE author = 'faster';
 +---------+
@@ -377,11 +379,11 @@ mysql> SELECT count() FROM hackernews_1m WHERE author = 'faster';
 +---------+
 1 row in set (0.03 sec)
 
--- 这里只用了USING INVERTED，不对author分词，整个当做一个词处理
+-- do not use any word parser for author to treat it as a whole
 mysql> ALTER TABLE hackernews_1m ADD INDEX idx_author(author) USING INVERTED;
 Query OK, 0 rows affected (0.01 sec)
 
--- 100万条author数据增量建索引仅消耗1.5s
+-- costs 1.5s to build index for author column with 1 million rows.
 mysql> SHOW ALTER TABLE COLUMN;
 +-------+---------------+-------------------------+-------------------------+---------------+---------+---------------+---------------+---------------+----------+------+----------+---------+
 | JobId | TableName     | CreateTime              | FinishTime              | IndexName     | IndexId | OriginIndexId | SchemaVersion | TransactionId | State    | Msg  | Progress | Timeout |
@@ -391,7 +393,7 @@ mysql> SHOW ALTER TABLE COLUMN;
 | 10076 | hackernews_1m | 2023-02-10 19:54:20.046 | 2023-02-10 19:54:21.521 | hackernews_1m | 10077   | 10008         | 1:1335127701  | 5             | FINISHED |      | NULL     | 2592000 |
 +-------+---------------+-------------------------+-------------------------+---------------+---------+---------------+---------------+---------------+----------+------+----------+---------+
 
--- 创建索引后，字符串等值匹配也有明显加速
+-- equal qury on text field autor get 3x speedup
 mysql> SELECT count() FROM hackernews_1m WHERE author = 'faster';
 +---------+
 | count() |
