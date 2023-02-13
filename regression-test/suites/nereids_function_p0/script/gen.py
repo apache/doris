@@ -156,6 +156,7 @@ def genHeaderAndFooter(input_dir: str, output_file: str, title: str, func: Calla
     if len(sqls) == 0:
         return True
     f = open(output_file, 'w')
+    f.write(define.header)
     f.write(f'suite("{title}") ''{\n'
             '\tsql \'use regression_test_nereids_function_p0\'\n'
             f'\tsql \'set enable_nereids_planner={"true" if open_nereids else "false"}\'\n'
