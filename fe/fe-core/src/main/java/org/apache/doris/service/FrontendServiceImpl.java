@@ -108,6 +108,7 @@ import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TMasterResult;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
+import org.apache.doris.thrift.TMySqlLoadAcquireTokenResult;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TReportExecStatusParams;
@@ -707,20 +708,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    private void checkAuthCodeUuid(String dbName, long txnId, String authCodeUuid) throws AuthenticationException {
-        DatabaseIf db = Env.getCurrentInternalCatalog()
-                .getDbOrException(dbName, s -> new AuthenticationException("invalid db name: " + s));
-        TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
-                .getTransactionState(db.getId(), txnId);
-        if (transactionState == null) {
-            throw new AuthenticationException("invalid transactionState: " + txnId);
-        }
-        if (!authCodeUuid.equals(transactionState.getAuthCode())) {
-            throw new AuthenticationException(
-                    "Access denied; you need (at least one of) the LOAD privilege(s) for this operation");
-        }
-    }
-
     private void checkPasswordAndPrivs(String cluster, String user, String passwd, String db, String tbl,
             String clientIp, PrivPredicate predicate) throws AuthenticationException {
 
@@ -733,6 +720,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!Env.getCurrentEnv().getAuth().checkTblPriv(currentUser.get(0), fullDbName, tbl, predicate)) {
             throw new AuthenticationException(
                     "Access denied; you need (at least one of) the LOAD privilege(s) for this operation");
+        }
+    }
+
+    private void checkToken(String token) throws AuthenticationException {
+        if (!Env.getCurrentEnv().getLoadManager().getTokenManager().checkAuthToken(token)) {
+            throw new AuthenticationException("Un matched cluster token.");
         }
     }
 
@@ -775,7 +768,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
 
-        if (Strings.isNullOrEmpty(request.getAuthCodeUuid())) {
+        if (Strings.isNullOrEmpty(request.getToken())) {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
         }
@@ -803,10 +796,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 db.getId(), Lists.newArrayList(table.getId()), request.getLabel(), request.getRequestId(),
                 new TxnCoordinator(TxnSourceType.BE, clientIp),
                 TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
-        if (!Strings.isNullOrEmpty(request.getAuthCodeUuid())) {
-            Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId)
-                    .setAuthCode(request.getAuthCodeUuid());
-        }
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
         result.setTxnId(txnId).setDbId(db.getId());
         return result;
@@ -843,8 +832,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         if (request.isSetAuthCode()) {
             // CHECKSTYLE IGNORE THIS LINE
-        } else if (request.isSetAuthCodeUuid()) {
-            checkAuthCodeUuid(request.getDb(), request.getTxnId(), request.getAuthCodeUuid());
+        } else if (request.isSetToken()) {
+            checkToken(request.getToken());
         } else {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
@@ -979,8 +968,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         if (request.isSetAuthCode()) {
             // TODO(cmy): find a way to check
-        } else if (request.isSetAuthCodeUuid()) {
-            checkAuthCodeUuid(request.getDb(), request.getTxnId(), request.getAuthCodeUuid());
+        } else if (request.isSetToken()) {
+            checkToken(request.getToken());
         } else {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
@@ -1042,8 +1031,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         if (request.isSetAuthCode()) {
             // TODO(cmy): find a way to check
-        } else if (request.isSetAuthCodeUuid()) {
-            checkAuthCodeUuid(request.getDb(), request.getTxnId(), request.getAuthCodeUuid());
+        } else if (request.isSetToken()) {
+            checkToken(request.getToken());
         } else {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
@@ -1436,6 +1425,26 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TInitExternalCtlMetaResult result = new TInitExternalCtlMetaResult();
         result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
         result.setStatus("OK");
+        return result;
+    }
+
+    @Override
+    public TMySqlLoadAcquireTokenResult acquireToken() throws TException {
+        String clientAddr = getClientAddrAsString();
+        LOG.debug("receive acquire token request from client: {}", clientAddr);
+        TMySqlLoadAcquireTokenResult result = new TMySqlLoadAcquireTokenResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
+            result.setToken(token);
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        }
+
         return result;
     }
 }

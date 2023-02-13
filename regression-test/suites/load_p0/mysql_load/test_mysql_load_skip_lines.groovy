@@ -44,8 +44,7 @@ suite("test_mysql_load_skip_lines", "p0") {
         LOCAL
         INFILE '${mysql_load_skip_lines}'
         INTO TABLE ${tableName}
-        COLUMNS TERMINATED BY ','
-        PROPERTIES ("auth" = "root:");
+        COLUMNS TERMINATED BY ',';
     """
 
     sql "sync"
@@ -59,8 +58,7 @@ suite("test_mysql_load_skip_lines", "p0") {
         INFILE '${mysql_load_skip_lines}'
         INTO TABLE ${tableName}
         COLUMNS TERMINATED BY ','
-        IGNORE 2 LINES
-        PROPERTIES ("auth" = "root:");
+        IGNORE 2 LINES;
     """
 
     sql "sync"
@@ -75,8 +73,7 @@ suite("test_mysql_load_skip_lines", "p0") {
         INFILE '${mysql_load_skip_lines}'
         INTO TABLE ${tableName}
         COLUMNS TERMINATED BY ','
-        IGNORE 3 ROWS
-        PROPERTIES ("auth" = "root:");
+        IGNORE 3 ROWS;
     """
 
     sql "sync"
@@ -90,8 +87,7 @@ suite("test_mysql_load_skip_lines", "p0") {
         INFILE '${mysql_load_skip_lines}'
         INTO TABLE ${tableName}
         COLUMNS TERMINATED BY ','
-        IGNORE 5 ROWS
-        PROPERTIES ("auth" = "root:");
+        IGNORE 5 ROWS;
     """
 
     sql "sync"

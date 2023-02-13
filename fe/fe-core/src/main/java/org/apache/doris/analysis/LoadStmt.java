@@ -488,4 +488,12 @@ public class LoadStmt extends DdlStmt {
     public String toString() {
         return toSql();
     }
+
+    public RedirectStatus getRedirectStatus() {
+        if (isMysqlLoad) {
+            return RedirectStatus.NO_FORWARD;
+        } else {
+            return RedirectStatus.FORWARD_WITH_SYNC;
+        }
+    }
 }

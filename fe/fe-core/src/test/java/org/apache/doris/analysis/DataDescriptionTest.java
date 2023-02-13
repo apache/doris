@@ -392,10 +392,10 @@ public class DataDescriptionTest {
                         Lists.newArrayList(predicate), properties);
         String db = desc.analyzeFullDbName(null, analyzer);
         Assert.assertEquals("default_cluster:testDb", db);
-        Assert.assertEquals("testDb", desc.getDbName());
+        Assert.assertEquals("default_cluster:testDb", desc.getDbName());
         db = desc.analyzeFullDbName("testCluster:testDb1", analyzer);
         Assert.assertEquals("testCluster:testDb1", db);
-        Assert.assertEquals("testDb1", desc.getDbName());
+        Assert.assertEquals("testCluster:testDb1", desc.getDbName());
 
         desc.analyze("testDb1");
         Assert.assertEquals(1, desc.getFilePaths().size());

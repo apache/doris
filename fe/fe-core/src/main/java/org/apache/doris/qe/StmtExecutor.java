@@ -1488,18 +1488,17 @@ public class StmtExecutor implements ProfileWriter {
                             TransactionState.TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                     sourceType, timeoutSecond);
             txnConf.setTxnId(txnId);
-            String authCodeUuid = Env.getCurrentGlobalTransactionMgr().getTransactionState(
-                    txnConf.getDbId(), txnConf.getTxnId()).getAuthCode();
-            txnConf.setAuthCodeUuid(authCodeUuid);
+            String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
+            txnConf.setToken(token);
         } else {
-            String authCodeUuid = UUID.randomUUID().toString();
+            String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
             MasterTxnExecutor masterTxnExecutor = new MasterTxnExecutor(context);
             TLoadTxnBeginRequest request = new TLoadTxnBeginRequest();
-            request.setDb(txnConf.getDb()).setTbl(txnConf.getTbl()).setAuthCodeUuid(authCodeUuid)
+            request.setDb(txnConf.getDb()).setTbl(txnConf.getTbl()).setToken(token)
                     .setCluster(dbObj.getClusterName()).setLabel(label).setUser("").setUserIp("").setPasswd("");
             TLoadTxnBeginResult result = masterTxnExecutor.beginTxn(request);
             txnConf.setTxnId(result.getTxnId());
-            txnConf.setAuthCodeUuid(authCodeUuid);
+            txnConf.setToken(token);
         }
 
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();
@@ -1885,7 +1884,8 @@ public class StmtExecutor implements ProfileWriter {
                             + " to load client local file.");
                     return;
                 }
-                LoadJobRowResult submitResult = loadManager.executeMySqlLoadJobFromStmt(context, loadStmt);
+                LoadJobRowResult submitResult = loadManager.getMysqlLoadManager()
+                        .executeMySqlLoadJobFromStmt(context, loadStmt);
                 context.getState().setOk(submitResult.getRecords(), submitResult.getWarnings(),
                         submitResult.toString());
             } else {
