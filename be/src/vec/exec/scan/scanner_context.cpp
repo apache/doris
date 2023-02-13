@@ -106,7 +106,7 @@ void ScannerContext::return_free_block(std::unique_ptr<vectorized::Block>&& bloc
     block->clear_column_data();
     _parent->_free_blocks_memory_usage->add(block->allocated_bytes());
     std::lock_guard l(_free_blocks_lock);
-    _free_blocks.emplace_back(block);
+    _free_blocks.emplace_back(std::move(block));
 }
 
 void ScannerContext::append_blocks_to_queue(const std::vector<vectorized::BlockUPtr>& blocks) {
