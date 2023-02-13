@@ -54,7 +54,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.MysqlCommand;
-import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TStorageType;
 
@@ -169,7 +169,7 @@ public class ShowExecutorTest {
         };
 
         // mock auth
-        Auth auth = AccessTestUtil.fetchAdminAccess();
+        AccessControllerManager accessManager = AccessTestUtil.fetchAdminAccess();
 
         // mock catalog
         catalog = Deencapsulation.newInstance(InternalCatalog.class);
@@ -222,9 +222,13 @@ public class ShowExecutorTest {
                 minTimes = 0;
                 result = catalog;
 
+                env.getAccessCtlMgr();
+                minTimes = 0;
+                result = accessManager;
+
                 env.getAuth();
                 minTimes = 0;
-                result = auth;
+                result = accessManager.getAuth();
 
                 Env.getCurrentEnv();
                 minTimes = 0;

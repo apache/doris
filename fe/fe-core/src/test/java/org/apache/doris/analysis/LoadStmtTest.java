@@ -26,7 +26,7 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.loadv2.LoadTask;
-import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.LoadTaskInfo;
@@ -49,8 +49,6 @@ public class LoadStmtTest {
     private List<DataDescription> dataDescriptions;
     private Analyzer analyzer;
 
-    @Mocked
-    private Auth auth;
     @Mocked
     private ConnectContext ctx;
     @Mocked
@@ -80,7 +78,8 @@ public class LoadStmtTest {
 
     @Test
     public void testNormal(@Injectable DataDescription desc, @Mocked Env env,
-            @Injectable ResourceMgr resourceMgr, @Injectable Auth auth) throws UserException, AnalysisException {
+            @Injectable ResourceMgr resourceMgr, @Injectable AccessControllerManager accessManager)
+            throws UserException, AnalysisException {
         List<DataDescription> dataDescriptionList = Lists.newArrayList();
         dataDescriptionList.add(desc);
         String resourceName = "spark0";
@@ -103,9 +102,9 @@ public class LoadStmtTest {
                 result = resourceMgr;
                 resourceMgr.getResource(resourceName);
                 result = resource;
-                env.getAuth();
-                result = auth;
-                auth.checkResourcePriv((ConnectContext) any, resourceName, PrivPredicate.USAGE);
+                env.getAccessCtlMgr();
+                result = accessManager;
+                accessManager.checkResourcePriv((ConnectContext) any, resourceName, PrivPredicate.USAGE);
                 result = true;
             }
         };

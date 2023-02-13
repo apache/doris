@@ -55,7 +55,15 @@ public class AccessControllerManager {
         ctlToCtlAccessController.put(ctl, controller);
     }
 
+    public Auth getAuth() {
+        return sysAccessController.getAuth();
+    }
+
     // ==== Global ====
+    public boolean checkGlobalPriv(ConnectContext ctx, PrivPredicate wanted) {
+        return checkGlobalPriv(ctx.getCurrentUserIdentity(), wanted);
+    }
+
     public boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
         return sysAccessController.checkGlobalPriv(currentUser, wanted);
     }
@@ -78,6 +86,10 @@ public class AccessControllerManager {
 
     public boolean checkDbPriv(UserIdentity currentUser, String db, PrivPredicate wanted) {
         return checkDbPriv(currentUser, Auth.DEFAULT_CATALOG, db, wanted);
+    }
+
+    public boolean checkDbPriv(ConnectContext ctx, String ctl, String db, PrivPredicate wanted) {
+        return checkDbPriv(ctx.getCurrentUserIdentity(), ctl, db, wanted);
     }
 
     public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
@@ -112,6 +124,10 @@ public class AccessControllerManager {
     }
 
     // ==== Resource ====
+    public boolean checkResourcePriv(ConnectContext ctx, String resourceName, PrivPredicate wanted) {
+        return checkResourcePriv(ctx.getCurrentUserIdentity(), resourceName, wanted);
+    }
+
     public boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
         return sysAccessController.checkResourcePriv(currentUser, resourceName, wanted);
     }
@@ -141,9 +157,5 @@ public class AccessControllerManager {
      */
     public boolean checkHasPriv(ConnectContext ctx, PrivPredicate priv, PrivLevel... levels) {
         return sysAccessController.checkHasPriv(ctx, priv, levels);
-    }
-
-    public boolean checkHasPrivLdap(UserIdentity currentUser, PrivPredicate priv, PrivLevel... levels) {
-        return sysAccessController.checkHasPrivLdap(currentUser, priv, levels);
     }
 }

@@ -352,7 +352,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 }
 
                 for (CatalogIf catalog : nameToCatalog.values()) {
-                    if (Env.getCurrentEnv().getAuth()
+                    if (Env.getCurrentEnv().getAccessCtlMgr()
                             .checkCtlPriv(ConnectContext.get(), catalog.getName(), PrivPredicate.SHOW)) {
                         String name = catalog.getName();
                         // Filter catalog name
@@ -381,7 +381,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     throw new AnalysisException("No catalog found with name: " + showStmt.getCatalogName());
                 }
                 CatalogIf<DatabaseIf> catalog = nameToCatalog.get(showStmt.getCatalogName());
-                if (!Env.getCurrentEnv().getAuth()
+                if (!Env.getCurrentEnv().getAccessCtlMgr()
                         .checkCtlPriv(ConnectContext.get(), catalog.getName(), PrivPredicate.SHOW)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
                             ConnectContext.get().getQualifiedUser(), catalog.getName());

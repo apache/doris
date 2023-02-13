@@ -65,7 +65,7 @@ public class DropDbStmt extends DdlStmt {
                     analyzer.getQualifiedUser(), dbName);
         }
 
-        if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.DROP)) {
+        if (!Env.getCurrentEnv().getAccessCtlMgr().checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.DROP)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
                                                 ConnectContext.get().getQualifiedUser(), dbName);
         }

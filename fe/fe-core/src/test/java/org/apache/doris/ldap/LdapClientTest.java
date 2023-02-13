@@ -59,7 +59,7 @@ public class LdapClientTest {
                 minTimes = 0;
                 result = env;
 
-                env.getAuth();
+                env.getAccessCtlMgr();
                 minTimes = 0;
                 result = auth;
 

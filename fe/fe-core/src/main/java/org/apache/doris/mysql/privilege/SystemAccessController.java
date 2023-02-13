@@ -28,6 +28,10 @@ public class SystemAccessController {
         this.auth = auth;
     }
 
+    public Auth getAuth() {
+        return auth;
+    }
+
     public boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
         return auth.checkGlobalPriv(currentUser, wanted);
     }
@@ -42,9 +46,5 @@ public class SystemAccessController {
      */
     public boolean checkHasPriv(ConnectContext ctx, PrivPredicate priv, PrivLevel... levels) {
         return auth.checkHasPriv(ctx, priv, levels);
-    }
-
-    public boolean checkHasPrivLdap(UserIdentity currentUser, PrivPredicate priv, PrivLevel... levels) {
-        return auth.checkHasPrivLdap(currentUser, priv, levels);
     }
 }

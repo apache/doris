@@ -269,7 +269,7 @@ public abstract class DorisHttpTestCase {
 
             new Expectations(env) {
                 {
-                    env.getAuth();
+                    env.getAccessCtlMgr();
                     minTimes = 0;
                     result = auth;
 

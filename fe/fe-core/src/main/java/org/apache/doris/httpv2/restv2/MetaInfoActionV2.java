@@ -100,7 +100,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         List<String> dbNameSet = Lists.newArrayList();
         for (String fullName : dbNames) {
             final String db = ClusterNamespace.getNameFromFullName(fullName);
-            if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), fullName,
+            if (!Env.getCurrentEnv().getAccessCtlMgr().checkDbPriv(ConnectContext.get(), fullName,
                     PrivPredicate.SHOW)) {
                 continue;
             }
@@ -149,7 +149,7 @@ public class MetaInfoActionV2 extends RestBaseController {
         db.readLock();
         try {
             for (Table tbl : db.getTables()) {
-                if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), fullDbName, tbl.getName(),
+                if (!Env.getCurrentEnv().getAccessCtlMgr().checkTblPriv(ConnectContext.get(), fullDbName, tbl.getName(),
                         PrivPredicate.SHOW)) {
                     continue;
                 }
