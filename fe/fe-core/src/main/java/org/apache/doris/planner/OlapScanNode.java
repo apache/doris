@@ -155,6 +155,7 @@ public class OlapScanNode extends ScanNode {
     private long totalBytes = 0;
 
     private SortInfo sortInfo = null;
+    private HashSet<Integer> outputColumnUniqueIds = new HashSet<>();
 
     // When scan match sort_info, we can push limit into OlapScanNode.
     // It's limit for scanner instead of scanNode so we add a new limit.
@@ -813,6 +814,10 @@ public class OlapScanNode extends ScanNode {
         LOG.debug("distribution prune cost: {} ms", (System.currentTimeMillis() - start));
     }
 
+    public void setOutputColumnUniqueIds(HashSet<Integer> outputColumnUniqueIds) {
+        this.outputColumnUniqueIds = outputColumnUniqueIds;
+    }
+
     /**
      * First, determine how many rows to sample from each partition according to the number of partitions.
      * Then determine the number of Tablets to be selected for each partition according to the average number
@@ -1148,6 +1153,10 @@ public class OlapScanNode extends ScanNode {
 
         if (pushDownAggNoGroupingOp != null) {
             msg.olap_scan_node.setPushDownAggTypeOpt(pushDownAggNoGroupingOp);
+        }
+
+        if (outputColumnUniqueIds != null) {
+            msg.olap_scan_node.setOutputColumnUniqueIds(outputColumnUniqueIds);
         }
     }
 

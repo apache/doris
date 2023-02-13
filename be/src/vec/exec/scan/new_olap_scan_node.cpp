@@ -372,6 +372,15 @@ Status NewOlapScanNode::_init_scanners(std::list<VScanner*>* scanners) {
                                           (*_vconjunct_ctx_ptr)->root()->debug_string());
     }
 
+    if (!_olap_scan_node.output_column_unique_ids.empty()) {
+        for (auto uid : _olap_scan_node.output_column_unique_ids) {
+            if (uid < 0) {
+                continue;
+            }
+            _maybe_read_column_ids.emplace(uid);
+        }
+    }
+
     // ranges constructed from scan keys
     std::vector<std::unique_ptr<doris::OlapScanRange>> cond_ranges;
     RETURN_IF_ERROR(_scan_keys.get_key_range(&cond_ranges));

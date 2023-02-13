@@ -227,6 +227,7 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.record_rowids = read_params.record_rowids;
     _reader_context.is_key_column_group = read_params.is_key_column_group;
     _reader_context.remaining_vconjunct_root = read_params.remaining_vconjunct_root;
+    _reader_context.output_columns = &read_params.output_columns;
 
     *valid_rs_readers = *rs_readers;
 
@@ -457,6 +458,7 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
             // _gen_predicate_result_sign will build predicate result unique sign with condition value
             auto predicate_params = predicate->predicate_params();
             predicate_params->value = condition.condition_values[0];
+            predicate_params->marked_by_runtime_filter = condition.marked_by_runtime_filter;
             if (_tablet_schema->column_by_uid(condition_col_uid).aggregation() !=
                 FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
                 _value_col_predicates.push_back(predicate);
@@ -476,7 +478,13 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
     }
 
     for (const auto& filter : read_params.in_filters) {
-        _col_predicates.emplace_back(_parse_to_predicate(filter));
+        ColumnPredicate* predicate = _parse_to_predicate(filter);
+        if (predicate != nullptr) {
+            // in_filters from runtime filter predicates which pushed down to data source.
+            auto predicate_params = predicate->predicate_params();
+            predicate_params->marked_by_runtime_filter = true;
+        }
+        _col_predicates.emplace_back(predicate);
     }
 
     // Function filter push down to storage engine
@@ -523,6 +531,7 @@ void TabletReader::_init_conditions_param_except_leafnode_of_andnode(
                 parse_to_predicate(_tablet_schema, tmp_cond, _predicate_mem_pool.get());
         if (predicate != nullptr) {
             auto predicate_params = predicate->predicate_params();
+            predicate_params->marked_by_runtime_filter = condition.marked_by_runtime_filter;
             predicate_params->value = condition.condition_values[0];
             _col_preds_except_leafnode_of_andnode.push_back(predicate);
         }

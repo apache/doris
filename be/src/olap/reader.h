@@ -101,7 +101,10 @@ public:
         DeleteBitmap* delete_bitmap {nullptr};
 
         std::vector<RowsetReaderSharedPtr> rs_readers;
+        // return_columns is init from query schema
         std::vector<uint32_t> return_columns;
+        // output_columns only contain columns in OrderByExprs and outputExprs
+        std::set<int32_t> output_columns;
         RuntimeProfile* profile = nullptr;
         RuntimeState* runtime_state = nullptr;
 

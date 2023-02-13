@@ -51,6 +51,7 @@ public class SortInfo {
     private static final float SORT_MATERIALIZATION_COST_THRESHOLD = Expr.FUNCTION_CALL_COST;
 
     private List<Expr> orderingExprs;
+    private List<Expr> origOrderingExprs;
     private final List<Boolean> isAscOrder;
     // True if "NULLS FIRST", false if "NULLS LAST", null if not specified.
     private final List<Boolean> nullsFirstParams;
@@ -120,6 +121,10 @@ public class SortInfo {
 
     public List<Expr> getOrderingExprs() {
         return orderingExprs;
+    }
+
+    public List<Expr> getOrigOrderingExprs() {
+        return origOrderingExprs;
     }
 
     public List<Boolean> getIsAscOrder() {
@@ -260,6 +265,9 @@ public class SortInfo {
                 sortTupleExprs.add(origSlotRef);
             }
         }
+
+        // backup before substitute orderingExprs
+        origOrderingExprs = orderingExprs;
 
         // The ordering exprs are evaluated against the sort tuple, so they must reflect the
         // materialization decision above.

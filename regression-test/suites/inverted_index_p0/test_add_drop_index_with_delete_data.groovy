@@ -35,7 +35,7 @@ suite("test_add_drop_index_with_delete_data", "inverted_index"){
         assertTrue(useTime <= OpTimeout)
     }
 
-    def indexTbName1 = "test_add_drop_inverted_index2"
+    def indexTbName1 = "test_add_drop_inverted_index3"
 
     sql "DROP TABLE IF EXISTS ${indexTbName1}"
     // create 1 replica table

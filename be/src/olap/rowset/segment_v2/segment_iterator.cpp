@@ -176,7 +176,14 @@ Status SegmentIterator::init(const StorageReadOptions& opts) {
     if (!opts.column_predicates_except_leafnode_of_andnode.empty()) {
         _col_preds_except_leafnode_of_andnode = opts.column_predicates_except_leafnode_of_andnode;
     }
+
+    if (opts.output_columns != nullptr) {
+        _output_columns = *(opts.output_columns);
+    }
+
     _remaining_vconjunct_root = opts.remaining_vconjunct_root;
+    _column_predicate_info.reset(new ColumnPredicateInfo());
+    _calculate_pred_in_remaining_vconjunct_root(_remaining_vconjunct_root);
 
     _column_predicate_info.reset(new ColumnPredicateInfo());
     if (_schema.rowid_col_idx() > 0) {
@@ -419,12 +426,19 @@ Status SegmentIterator::_apply_bitmap_index() {
     for (auto pred : _col_predicates) {
         int32_t unique_id = _schema.unique_id(pred->column_id());
         if (_bitmap_index_iterators.count(unique_id) < 1 ||
-            _bitmap_index_iterators[unique_id] == nullptr) {
+            _bitmap_index_iterators[unique_id] == nullptr || pred->type() == PredicateType::BF) {
             // no bitmap index for this column
             remaining_predicates.push_back(pred);
         } else {
             RETURN_IF_ERROR(pred->evaluate(_bitmap_index_iterators[unique_id], _segment->num_rows(),
                                            &_row_bitmap));
+
+            auto column_name = _schema.column(pred->column_id())->name();
+            if (_check_column_pred_all_push_down(column_name) &&
+                !pred->predicate_params()->marked_by_runtime_filter) {
+                _need_read_data_indices[unique_id] = false;
+            }
+
             if (_row_bitmap.isEmpty()) {
                 break; // all rows have been pruned, no need to process further predicates
             }
@@ -518,7 +532,8 @@ Status SegmentIterator::_execute_compound_fn(const std::string& function_name) {
 
 bool SegmentIterator::_can_filter_by_preds_except_leafnode_of_andnode() {
     for (auto pred : _col_preds_except_leafnode_of_andnode) {
-        if (!_check_apply_by_bitmap_index(pred) && !_check_apply_by_inverted_index(pred)) {
+        if (_not_apply_index_pred.count(pred->column_id()) ||
+            (!_check_apply_by_bitmap_index(pred) && !_check_apply_by_inverted_index(pred))) {
             return false;
         }
     }
@@ -597,6 +612,7 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
                  pred->type() != PredicateType::MATCH) ||
                 res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT) {
                 // downgrade without index query
+                _not_apply_index_pred.insert(pred->column_id());
                 continue;
             }
             LOG(WARNING) << "failed to evaluate index"
@@ -608,6 +624,16 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
         std::string pred_result_sign = _gen_predicate_result_sign(pred);
         _rowid_result_for_index.emplace(
                 std::make_pair(pred_result_sign, std::make_pair(true, bitmap)));
+    }
+
+    for (auto pred : _col_preds_except_leafnode_of_andnode) {
+        auto column_name = _schema.column(pred->column_id())->name();
+        if (_remaining_vconjunct_root != nullptr &&
+            _check_column_pred_all_push_down(column_name, true) &&
+            !pred->predicate_params()->marked_by_runtime_filter) {
+            int32_t unique_id = _schema.unique_id(pred->column_id());
+            _need_read_data_indices[unique_id] = false;
+        }
     }
 
     return Status::OK();
@@ -645,6 +671,11 @@ bool SegmentIterator::_is_handle_predicate_by_fulltext(int32_t unique_id) {
     std::all_of(predicate_set.begin(), predicate_set.end(), \
                 [](const ColumnPredicate* p) { return PredicateTypeTraits::is_range(p->type()); })
 
+#define all_predicates_are_marked_by_runtime_filter(predicate_set)                            \
+    std::all_of(predicate_set.begin(), predicate_set.end(), [](const ColumnPredicate* p) {    \
+        return const_cast<ColumnPredicate*>(p)->predicate_params()->marked_by_runtime_filter; \
+    })
+
 Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         ColumnPredicate* pred, std::vector<ColumnPredicate*>& remaining_predicates,
         bool* continue_apply) {
@@ -677,6 +708,12 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
                          << ", column predicate type: " << pred->pred_type_string(pred->type())
                          << ", error msg: " << res.code_as_string();
             return res;
+        }
+
+        auto column_name = _schema.column(pred->column_id())->name();
+        if (_check_column_pred_all_push_down(column_name) &&
+            !pred->predicate_params()->marked_by_runtime_filter) {
+            _need_read_data_indices[unique_id] = false;
         }
 
         auto pred_type = pred->type();
@@ -721,6 +758,10 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
                                   &output_result);
 
         if (res.ok()) {
+            if (_check_column_pred_all_push_down(column_name) &&
+                !all_predicates_are_marked_by_runtime_filter(predicate_set)) {
+                _need_read_data_indices[unique_id] = false;
+            }
             no_need_to_pass_column_predicate_set.insert(predicate_set.begin(), predicate_set.end());
             _row_bitmap &= output_result;
             if (_row_bitmap.isEmpty()) {
@@ -740,6 +781,17 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
         }
     }
     return Status::OK();
+}
+
+bool SegmentIterator::_need_read_data(ColumnId cid) {
+    int32_t unique_id = _schema.unique_id(cid);
+    if (_need_read_data_indices.count(unique_id) > 0 && !_need_read_data_indices[unique_id] &&
+        _output_columns.count(unique_id) < 1) {
+        VLOG_DEBUG << "SegmentIterator no need read data for column: "
+                   << _opts.tablet_schema->column_by_uid(unique_id).name();
+        return false;
+    }
+    return true;
 }
 
 Status SegmentIterator::_apply_inverted_index() {
@@ -993,6 +1045,9 @@ Status SegmentIterator::_seek_and_peek(rowid_t rowid) {
 
 Status SegmentIterator::_seek_columns(const std::vector<ColumnId>& column_ids, rowid_t pos) {
     for (auto cid : column_ids) {
+        if (!_need_read_data(cid)) {
+            continue;
+        }
         RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->seek_to_ordinal(pos));
     }
     return Status::OK();
@@ -1201,11 +1256,33 @@ void SegmentIterator::_vec_init_char_column_id() {
     }
 }
 
+bool SegmentIterator::_prune_column(ColumnId cid, vectorized::MutableColumnPtr& column,
+                                    bool fill_defaults, size_t num_of_defaults) {
+    if (_need_read_data(cid)) {
+        return false;
+    }
+    if (!fill_defaults) {
+        return true;
+    }
+    if (column->is_nullable()) {
+        auto nullable_col_ptr = reinterpret_cast<vectorized::ColumnNullable*>(column.get());
+        nullable_col_ptr->get_null_map_column().insert_many_defaults(num_of_defaults);
+        nullable_col_ptr->get_nested_column_ptr()->insert_many_defaults(num_of_defaults);
+    } else {
+        // assert(column->is_const());
+        column->insert_many_defaults(num_of_defaults);
+    }
+    return true;
+}
+
 Status SegmentIterator::_read_columns(const std::vector<ColumnId>& column_ids,
                                       vectorized::MutableColumns& column_block, size_t nrows) {
     for (auto cid : column_ids) {
         auto& column = column_block[cid];
         size_t rows_read = nrows;
+        if (_prune_column(cid, column, true, rows_read)) {
+            continue;
+        }
         RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->next_batch(&rows_read, column));
         DCHECK_EQ(nrows, rows_read);
     }
@@ -1370,7 +1447,8 @@ uint16_t SegmentIterator::_evaluate_short_circuit_predicate(uint16_t* vec_sel_ro
 
 Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                                 std::vector<rowid_t>& rowid_vector,
-                                                uint16_t* sel_rowid_idx, size_t select_size) {
+                                                uint16_t* sel_rowid_idx, size_t select_size,
+                                                vectorized::MutableColumns* mutable_columns) {
     SCOPED_RAW_TIMER(&_opts.stats->lazy_read_ns);
     std::vector<rowid_t> rowids(select_size);
     for (size_t i = 0; i < select_size; ++i) {
@@ -1378,6 +1456,9 @@ Status SegmentIterator::_read_columns_by_rowids(std::vector<ColumnId>& read_colu
     }
 
     for (auto cid : read_column_ids) {
+        if (_prune_column(cid, (*mutable_columns)[cid], true, select_size)) {
+            continue;
+        }
         RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->read_by_rowids(
                 rowids.data(), select_size, _current_return_columns[cid]));
     }
@@ -1493,7 +1574,8 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
 
         // step3: read non_predicate column
         RETURN_IF_ERROR(_read_columns_by_rowids(_non_predicate_columns, _block_rowids,
-                                                sel_rowid_idx, selected_size));
+                                                sel_rowid_idx, selected_size,
+                                                &_current_return_columns));
 
         // step4: output columns
         // 4.1 output non-predicate column
@@ -1640,6 +1722,78 @@ Status SegmentIterator::current_block_row_locations(std::vector<RowLocation>* bl
         }
     }
     return Status::OK();
+}
+
+/**
+ * solution 1: where cluase included nodes are all `and` leaf nodes,
+ * predicate pushed down and remove from vconjunct.
+ *  for example: where A = 1 and B = 'test' and B like '%he%';
+ *      column A : `A = 1` pushed down, this column's predicates all pushed down,
+ *                  call _check_column_pred_all_push_down will return true.
+ *      column B : `B = 'test'` pushed down, but `B like '%he%'` remain in vconjunct,
+ *                  call _check_column_pred_all_push_down will return false.
+ *
+ * solution 2: where cluase included nodes are compound or other complex conditions,
+ * predicate pushed down but still remain in vconjunct.
+ *  for exmple: where (A = 1 and B = 'test') or B = 'hi' or (C like '%ye%' and C > 'aa');
+ *      column A : `A = 1` pushed down, check it applyed by index,
+ *                  call _check_column_pred_all_push_down will return true.
+ *      column B : `B = 'test'`, `B = 'hi'` all pushed down, check them all applyed by index,
+ *                  call _check_column_pred_all_push_down will return true.
+ *      column C : `C like '%ye%'` not pushed down, `C > 'aa'` pushed down, only `C > 'aa'` applyed by index,
+ *                  call _check_column_pred_all_push_down will return false.
+*/
+bool SegmentIterator::_check_column_pred_all_push_down(const std::string& column_name,
+                                                       bool in_compound) {
+    if (_remaining_vconjunct_root == nullptr) {
+        return true;
+    }
+
+    if (in_compound) {
+        auto preds_in_remaining_vconjuct = _column_pred_in_remaining_vconjunct[column_name];
+        for (auto pred_info : preds_in_remaining_vconjuct) {
+            auto column_sign = _gen_predicate_result_sign(&pred_info);
+            if (_rowid_result_for_index.count(column_sign) < 1) {
+                return false;
+            }
+        }
+    } else {
+        if (_column_pred_in_remaining_vconjunct[column_name].size() != 0) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void SegmentIterator::_calculate_pred_in_remaining_vconjunct_root(const vectorized::VExpr* expr) {
+    if (expr == nullptr) {
+        return;
+    }
+
+    auto children = expr->children();
+    for (int i = 0; i < children.size(); ++i) {
+        _calculate_pred_in_remaining_vconjunct_root(children[i]);
+    }
+
+    auto node_type = expr->node_type();
+    if (node_type == TExprNodeType::SLOT_REF) {
+        _column_predicate_info->column_name = expr->expr_name();
+    } else if (_is_literal_node(node_type)) {
+        auto v_literal_expr = static_cast<const doris::vectorized::VLiteral*>(expr);
+        _column_predicate_info->query_value = v_literal_expr->value();
+    } else {
+        if (node_type == TExprNodeType::MATCH_PRED) {
+            _column_predicate_info->query_op = "match";
+        } else if (node_type != TExprNodeType::COMPOUND_PRED) {
+            _column_predicate_info->query_op = expr->fn().name.function_name;
+        }
+
+        if (!_column_predicate_info->is_empty()) {
+            _column_pred_in_remaining_vconjunct[_column_predicate_info->column_name].push_back(
+                    *_column_predicate_info);
+            _column_predicate_info.reset(new ColumnPredicateInfo());
+        }
+    }
 }
 
 } // namespace segment_v2
