@@ -193,7 +193,11 @@ Status OrcReader::init_reader(
     auto& selected_type = _row_reader->getSelectedType();
     _col_orc_type.resize(selected_type.getSubtypeCount());
     for (int i = 0; i < selected_type.getSubtypeCount(); ++i) {
-        _colname_to_idx[_get_field_name_lower_case(&selected_type, i)] = i;
+        auto name = _get_field_name_lower_case(&selected_type, i);
+        if (_scan_params.__isset.slot_name_to_schema_pos) {
+            name = _file_col_to_schema_col[name];
+        }
+        _colname_to_idx[name] = i;
         _col_orc_type[i] = selected_type.getSubtype(i);
     }
     return Status::OK();
@@ -253,6 +257,13 @@ Status OrcReader::_init_read_columns() {
         orc_cols_lower_case.emplace_back(_get_field_name_lower_case(&root_type, i));
     }
     for (auto& col_name : _column_names) {
+        if (_scan_params.__isset.slot_name_to_schema_pos) {
+            auto iter = _scan_params.slot_name_to_schema_pos.find(col_name);
+            if (iter != _scan_params.slot_name_to_schema_pos.end()) {
+                int pos = iter->second;
+                orc_cols_lower_case[pos] = iter->first;
+            }
+        }
         auto iter = std::find(orc_cols_lower_case.begin(), orc_cols_lower_case.end(), col_name);
         if (iter == orc_cols_lower_case.end()) {
             _missing_cols.emplace_back(col_name);
@@ -260,6 +271,7 @@ Status OrcReader::_init_read_columns() {
             int pos = std::distance(orc_cols_lower_case.begin(), iter);
             _read_cols.emplace_back(orc_cols[pos]);
             _read_cols_lower_case.emplace_back(col_name);
+            _file_col_to_schema_col[orc_cols[pos]] = col_name;
         }
     }
     return Status::OK();

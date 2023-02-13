@@ -270,6 +270,7 @@ private:
     std::list<std::string> _read_cols_lower_case;
     std::list<std::string> _missing_cols;
     std::unordered_map<std::string, int> _colname_to_idx;
+    std::unordered_map<std::string, std::string> _file_col_to_schema_col;
     std::vector<const orc::Type*> _col_orc_type;
     ORCFileInputStream* _file_reader = nullptr;
     Statistics _statistics;
