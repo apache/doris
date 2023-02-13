@@ -364,7 +364,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         // ignore column with same name
                         boolean hasSameNameColumn = false;
                         for (Column column : olapTable.getBaseSchema()) {
-                            if (column.getName().equals(tColumnDef.getColumnDesc().getColumnName())) {
+                            if (column.getName().equalsIgnoreCase(tColumnDef.getColumnDesc().getColumnName())) {
                                 hasSameNameColumn = true;
                             }
                         }
