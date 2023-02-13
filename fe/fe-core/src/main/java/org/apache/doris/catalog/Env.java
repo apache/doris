@@ -395,7 +395,7 @@ public class Env {
     private TabletStatMgr tabletStatMgr;
 
     private Auth auth;
-    private AccessControllerManager accessControllerManager;
+    private AccessControllerManager accessManager;
 
     private DomainResolver domainResolver;
 
@@ -596,7 +596,7 @@ public class Env {
         this.tabletStatMgr = new TabletStatMgr();
 
         this.auth = new Auth();
-        this.accessControllerManager = new AccessControllerManager(auth);
+        this.accessManager = new AccessControllerManager(auth);
         this.domainResolver = new DomainResolver(auth);
 
         this.metaContext = new MetaContext();
@@ -698,7 +698,7 @@ public class Env {
     }
 
     public AccessControllerManager getAccessCtlMgr() {
-        return accessControllerManager;
+        return accessManager;
     }
 
     public TabletScheduler getTabletScheduler() {
@@ -4393,7 +4393,7 @@ public class Env {
 
     // Change current database of this session.
     public void changeDb(ConnectContext ctx, String qualifiedDb) throws DdlException {
-        if (!accessControllerManager.checkDbPriv(ctx, ctx.getDefaultCatalog(), qualifiedDb, PrivPredicate.SHOW)) {
+        if (!accessManager.checkDbPriv(ctx, ctx.getDefaultCatalog(), qualifiedDb, PrivPredicate.SHOW)) {
             ErrorReport.reportDdlException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, ctx.getQualifiedUser(), qualifiedDb);
         }
 

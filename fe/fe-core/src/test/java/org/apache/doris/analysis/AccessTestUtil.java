@@ -89,6 +89,10 @@ public class AccessTestUtil {
                             (PrivPredicate) any);
                     minTimes = 0;
                     result = true;
+
+                    accessManager.getAuth();
+                    minTimes = 0;
+                    result = auth;
                 }
             };
         } catch (DdlException e) {
@@ -173,10 +177,6 @@ public class AccessTestUtil {
                     env.getAccessCtlMgr();
                     minTimes = 0;
                     result = accessManager;
-
-                    env.getAuth();
-                    minTimes = 0;
-                    result = accessManager.getAuth();
 
                     env.getCurrentCatalog();
                     minTimes = 0;
@@ -388,18 +388,18 @@ public class AccessTestUtil {
                 }
             };
 
-            CatalogMgr dsMgr = new CatalogMgr();
-            new Expectations(dsMgr) {
+            CatalogMgr ctlMgr = new CatalogMgr();
+            new Expectations(ctlMgr) {
                 {
-                    dsMgr.getCatalog((String) any);
+                    ctlMgr.getCatalog((String) any);
                     minTimes = 0;
                     result = catalog;
 
-                    dsMgr.getCatalogOrException((String) any, (Function) any);
+                    ctlMgr.getCatalogOrException((String) any, (Function) any);
                     minTimes = 0;
                     result = catalog;
 
-                    dsMgr.getCatalogOrAnalysisException((String) any);
+                    ctlMgr.getCatalogOrAnalysisException((String) any);
                     minTimes = 0;
                     result = catalog;
                 }
@@ -410,10 +410,6 @@ public class AccessTestUtil {
                     env.getAccessCtlMgr();
                     minTimes = 0;
                     result = accessManager;
-
-                    env.getAuth();
-                    minTimes = 0;
-                    result = accessManager.getAuth();
 
                     env.changeDb((ConnectContext) any, anyString);
                     minTimes = 0;
@@ -429,7 +425,7 @@ public class AccessTestUtil {
 
                     env.getCatalogMgr();
                     minTimes = 0;
-                    result = dsMgr;
+                    result = ctlMgr;
                 }
             };
             return env;

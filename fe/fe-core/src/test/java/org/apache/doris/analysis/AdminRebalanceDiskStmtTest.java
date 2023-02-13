@@ -42,7 +42,7 @@ public class AdminRebalanceDiskStmtTest {
     @Mocked
     private ConnectContext ctx;
 
-    @Before()
+    @Before
     public void setUp() {
         Config.disable_cluster_feature = false;
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
@@ -76,5 +76,4 @@ public class AdminRebalanceDiskStmtTest {
         stmt.analyze(analyzer);
         Assert.assertEquals(4, stmt.getBackends().size());
     }
-
 }
