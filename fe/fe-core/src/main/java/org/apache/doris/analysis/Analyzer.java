@@ -397,6 +397,8 @@ public class Analyzer {
 
         private final Set<TupleId> markTupleIdsNotProcessed = Sets.newHashSet();
 
+        private final Map<InlineViewRef, Set<Expr>> migrateFailedConjuncts = Maps.newHashMap();
+
         public GlobalState(Env env, ConnectContext context) {
             this.env = env;
             this.context = context;
@@ -1202,6 +1204,15 @@ public class Analyzer {
             }
             set.add(e);
         }
+    }
+
+    public void registerMigrateFailedConjuncts(InlineViewRef ref, Expr e) {
+        Set<Expr> exprSet = globalState.migrateFailedConjuncts.computeIfAbsent(ref, (k) -> new HashSet<>());
+        exprSet.add(e);
+    }
+
+    public Set<Expr> findMigrateFailedConjuncts(InlineViewRef inlineViewRef) {
+        return globalState.migrateFailedConjuncts.get(inlineViewRef);
     }
 
     /**
