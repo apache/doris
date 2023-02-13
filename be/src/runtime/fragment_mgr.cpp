@@ -159,7 +159,7 @@ private:
     std::string _group;
 
     int _timeout_second;
-    bool _cancelled = false;
+    std::atomic<bool> _cancelled {false};
 
     // This context is shared by all fragments of this host in a query
     std::shared_ptr<QueryFragmentsCtx> _fragments_ctx;

@@ -694,8 +694,9 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
     }
 
     // waiting for finished, it may take a long time, so we couldn't set a timeout
-    while (!_add_batches_finished && !_cancelled) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    while (!_add_batches_finished && !_cancelled && !state->is_cancelled()) {
+        // std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        bthread_usleep(1000);
     }
     _close_time_ms = UnixMillis() - _close_time_ms;
 
