@@ -298,29 +298,12 @@ public class JoinUtils {
      * replace JoinConjuncts by using slots map.
      */
     public static List<Expression> replaceJoinConjuncts(List<Expression> joinConjuncts,
-            Map<ExprId, Slot> replaceMaps) {
+            Map<ExprId, Expression> replaceMaps) {
         return joinConjuncts.stream()
                 .map(expr ->
                         expr.rewriteUp(e -> {
                             if (e instanceof Slot && replaceMaps.containsKey(((Slot) e).getExprId())) {
                                 return replaceMaps.get(((Slot) e).getExprId());
-                            } else {
-                                return e;
-                            }
-                        })
-                ).collect(ImmutableList.toImmutableList());
-    }
-
-    /**
-     * replace JoinConjuncts by Expression map.
-     */
-    public static List<Expression> replaceJoinConjunctsByExpressionMap(List<Expression> joinConjuncts,
-            Map<Slot, Expression> replaceMaps) {
-        return joinConjuncts.stream()
-                .map(expr ->
-                        expr.rewriteUp(e -> {
-                            if (e instanceof Slot && replaceMaps.containsKey((Slot)e)) {
-                                return replaceMaps.get((Slot)e);
                             } else {
                                 return e;
                             }

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -26,14 +27,27 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
+import java.util.Objects;
+
 public class SemiJoinSemiJoinTransposeProjectTest implements PatternMatchSupported {
-    public static final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
-    public static final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
-    public static final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
+    private LogicalOlapScan scan1;
+    private LogicalOlapScan scan2;
+    private LogicalOlapScan scan3;
+
+    @BeforeEach
+    public void beforeEach() throws Exception {
+        ConnectContext.remove();
+        NamedExpressionUtil.clear();
+        scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+        scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
+    }
 
     @Test
     public void testSemiProjectSemiCommute() {
@@ -67,6 +81,29 @@ public class SemiJoinSemiJoinTransposeProjectTest implements PatternMatchSupport
                                        logicalOlapScan().when(scan -> scan.getTable().getName().equals("t2"))
                                 ).when(join -> join.getJoinType() == JoinType.LEFT_ANTI_JOIN)
                         )
+                );
+    }
+
+    @Test
+    void testSemiProjectComplexAlias() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
+                .complexAlias(ImmutableList.of(0), ImmutableList.of("t1.id"))
+                .join(scan3, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .printlnOrigin()
+                .applyExploration(SemiJoinSemiJoinTransposeProject.INSTANCE.build())
+                .printlnExploration()
+                .matchesExploration(
+                        logicalProject(
+                                leftSemiLogicalJoin(
+                                        leftSemiLogicalJoin().when(
+                                                join -> Objects.equals(join.getHashJoinConjuncts().toString(),
+                                                        "[(t1.id#4 = id#5)]")),
+                                        group()
+                                ).when(join -> Objects.equals(join.getHashJoinConjuncts().toString(), "[(id#0 = id#2)]")))
                 );
     }
 }

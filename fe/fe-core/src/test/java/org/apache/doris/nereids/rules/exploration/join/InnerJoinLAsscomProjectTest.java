@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Substring;
@@ -40,19 +41,29 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 import java.util.Objects;
 
 class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
+    private LogicalOlapScan scan1;
+    private LogicalOlapScan scan2;
+    private LogicalOlapScan scan3;
 
-    private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
-    private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
-    private final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
+    @BeforeEach
+    public void beforeEach() throws Exception {
+        ConnectContext.remove();
+        NamedExpressionUtil.clear();
+        scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+        scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
+    }
 
     @Test
     void testJoinLAsscomProject() {
@@ -432,6 +443,57 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
                                     group()
                             ).when(join -> Objects.equals(join.getHashJoinConjuncts().toString(), "[(id#0 = t2.id#6)]")
                                     && Objects.equals(join.getOtherJoinConjuncts().toString(), "[(t1.name#5 > t2.name#7)]")))
+                );
+    }
+
+    @Test
+    public void testComplexConjunctsAndComplexAliasForB() {
+        List<Expression> bottomHashJoinConjunct = ImmutableList.of(
+                new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0)));
+        List<Expression> bottomOtherJoinConjunct = ImmutableList.of(
+                new GreaterThan(scan1.getOutput().get(1), scan2.getOutput().get(1)));
+        LogicalPlan bottomJoin = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.INNER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
+                .build();
+        List<NamedExpression> projectExprs = Lists.newArrayList();
+        List<Integer> slotsIndex = ImmutableList.of(0, 1, 2, 3);
+        List<String> alias = ImmutableList.of("id#0", "t1.name", "abs(t2.id)", "t2.name");
+        projectExprs.add(new Alias(new Abs(bottomJoin.getOutput().get(slotsIndex.get(2))), alias.get(2)));
+        for (int i = 0; i < slotsIndex.size(); i++) {
+            if (i != 2) {
+                projectExprs.add(new Alias(bottomJoin.getOutput().get(slotsIndex.get(i)), alias.get(i)));
+            }
+        }
+        LogicalProject<LogicalPlan> leftProject = new LogicalProject<>(projectExprs, bottomJoin);
+
+        List<Expression> topHashJoinConjunct = ImmutableList.of(
+                new EqualTo(leftProject.getOutput().get(1), scan3.getOutput().get(0)),
+                new EqualTo(new Add(leftProject.getOutput().get(1), leftProject.getOutput().get(1)),
+                        scan3.getOutput().get(1)));
+        List<Expression> topOtherJoinConjunct = ImmutableList.of(
+                new GreaterThan(new Add(leftProject.getOutput().get(1), leftProject.getOutput().get(1)),
+                        scan3.getOutput().get(1)));
+        LogicalPlan topJoin = new LogicalPlanBuilder(leftProject)
+                .join(scan3, JoinType.INNER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
+                .printlnOrigin()
+                .applyExploration(InnerJoinLAsscomProject.INSTANCE.build())
+                .printlnExploration()
+                .matchesExploration(
+                        logicalProject(
+                                innerLogicalJoin(logicalProject(
+                                                innerLogicalJoin().when(
+                                                        join -> Objects.equals(join.getHashJoinConjuncts().toString(),
+                                                                "[(id#0 = id#8), ((id#0 + id#0) = name#9)]")
+                                                                && Objects.equals(join.getOtherJoinConjuncts().toString(),
+                                                                "[((id#0 + id#0) > name#9)]"))),
+                                        group()
+                                ).when(join ->
+                                        Objects.equals(join.getHashJoinConjuncts().toString(), "[(id#0#5 = id#2)]")
+                                                && Objects.equals(join.getOtherJoinConjuncts().toString(),
+                                                "[(t1.name#6 > t2.name#7)]")))
                 );
     }
 }

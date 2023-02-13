@@ -21,6 +21,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.NamedExpressionUtil;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -29,18 +30,29 @@ import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
+import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
+import java.util.Objects;
 
 class OuterJoinLAsscomProjectTest implements PatternMatchSupported {
+    private LogicalOlapScan scan1;
+    private LogicalOlapScan scan2;
+    private LogicalOlapScan scan3;
 
-    private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
-    private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
-    private final LogicalOlapScan scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
+    @BeforeEach
+    public void beforeEach() throws Exception {
+        ConnectContext.remove();
+        NamedExpressionUtil.clear();
+        scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
+        scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
+        scan3 = PlanConstructor.newLogicalOlapScan(2, "t3", 0);
+    }
 
     @Test
     void testJoinLAsscomProject() {
@@ -153,5 +165,28 @@ class OuterJoinLAsscomProjectTest implements PatternMatchSupported {
                 .checkMemo(memo -> {
                     Assertions.assertEquals(1, memo.getRoot().getLogicalExpressions().size());
                 });
+    }
+
+    @Test
+    void testComplexAlias() {
+        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .complexAlias(ImmutableList.of(0, 2), ImmutableList.of("t1.id", "t2.id"))
+                .join(scan3, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .build();
+
+        PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .printlnOrigin()
+                .applyExploration(OuterJoinLAsscomProject.INSTANCE.build())
+                .printlnExploration()
+                .matchesExploration(
+                        logicalProject(
+                                leftOuterLogicalJoin(
+                                        leftOuterLogicalJoin().when(
+                                                join -> Objects.equals(join.getHashJoinConjuncts().toString(),
+                                                        "[(t1.id#4 = id#6)]")),
+                                        group()
+                                ).when(join -> Objects.equals(join.getHashJoinConjuncts().toString(), "[(id#0 = id#2)]")))
+                );
     }
 }

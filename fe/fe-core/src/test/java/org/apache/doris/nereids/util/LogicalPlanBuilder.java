@@ -22,6 +22,7 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.Abs;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -79,6 +80,18 @@ public class LogicalPlanBuilder {
         List<NamedExpression> projectExprs = Lists.newArrayList();
         for (int i = 0; i < slotsIndex.size(); i++) {
             projectExprs.add(new Alias(this.plan.getOutput().get(slotsIndex.get(i)), alias.get(i)));
+        }
+        LogicalProject<LogicalPlan> project = new LogicalProject<>(projectExprs, this.plan);
+        return from(project);
+    }
+
+    public LogicalPlanBuilder complexAlias(List<Integer> slotsIndex, List<String> alias) {
+        Preconditions.checkArgument(slotsIndex.size() == alias.size());
+
+        List<NamedExpression> projectExprs = Lists.newArrayList();
+        for (int i = 0; i < slotsIndex.size(); i++) {
+            projectExprs.add(new Alias(new Abs(this.plan.getOutput().get(slotsIndex.get(i))),
+                    alias.get(i)));
         }
         LogicalProject<LogicalPlan> project = new LogicalProject<>(projectExprs, this.plan);
         return from(project);

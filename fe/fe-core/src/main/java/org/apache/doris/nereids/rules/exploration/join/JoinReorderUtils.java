@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
@@ -79,15 +80,17 @@ class JoinReorderUtils {
      * If projectExprs is empty or project output equal plan output, return the original plan.
      */
     public static Plan projectOrSelf(List<NamedExpression> projectExprs, Plan plan) {
-        if (projectExprs.isEmpty() || projectExprs.stream().map(NamedExpression::getExprId).collect(Collectors.toSet())
-                .equals(plan.getOutputExprIdSet())) {
+        if (projectExprs.isEmpty() || projectExprs.stream().map(NamedExpression::getExprId)
+                .collect(Collectors.toSet()).equals(plan.getOutputExprIdSet())) {
             return plan;
         }
         return new LogicalProject<>(projectExprs, plan);
+    }
+
     /**
      * - prevent reorder when hyper edge is in projection. like project A.id + B.id as ab join C on ab = C.id
      */
-    static boolean checkProjectForInnerJoin(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
+    static boolean checkProjectForJoin(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
         List<NamedExpression> exprs = project.getProjects();
         Set<ExprId> leftExprIds = project.child().left().getOutputExprIdSet();
         Set<ExprId> rightExprIds = project.child().right().getOutputExprIdSet();
@@ -101,5 +104,43 @@ class JoinReorderUtils {
             }
             return !(findInLeft && findInRight);
         });
+    }
+
+    /**
+     *        topJoin                   newTopJoin
+     *        /     \                   /        \
+     *    project    C          newLeftProject newRightProject
+     *      /            ──►          /            \
+     * bottomJoin                newBottomJoin      B
+     *    /   \                     /   \
+     *   A     B                   A     C
+     *
+     * calculate the replace map for new top and bottom join conjuncts
+     * @param projects project's output
+     * @param leftBottomOutputs A's output
+     * @param replaceMapForNewTopJoin output param, as the name indicated
+     * @param replaceMapForNewBottomJoin output param, as the name indicated
+     * @return return true, if a new project node should be created as A's child
+     */
+    public static boolean processProjects(List<NamedExpression> projects, Set<ExprId> leftBottomOutputs,
+            Map<ExprId, Expression> replaceMapForNewTopJoin, Map<ExprId, Expression> replaceMapForNewBottomJoin) {
+        boolean needCreateLeftBottomChildProject = false;
+        for (NamedExpression expr : projects) {
+            if (expr instanceof Alias) {
+                Alias alias = (Alias) expr;
+                Slot outputSlot = alias.toSlot();
+                if (alias.child() instanceof Slot) {
+                    Slot inputSlot = (Slot) alias.child();
+                    replaceMapForNewTopJoin.put(inputSlot.getExprId(), outputSlot);
+                } else {
+                    // the project expr is not a simple slot but some complex expr come from left bottom child A
+                    // like abs(A.slot), add(A.slot, 1), etc
+                    needCreateLeftBottomChildProject = needCreateLeftBottomChildProject
+                            || leftBottomOutputs.containsAll(expr.getInputSlotExprIds());
+                }
+                replaceMapForNewBottomJoin.put(outputSlot.getExprId(), alias.child());
+            }
+        }
+        return needCreateLeftBottomChildProject;
     }
 }
