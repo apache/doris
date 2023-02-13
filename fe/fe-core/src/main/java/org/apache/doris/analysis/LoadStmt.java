@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
@@ -405,8 +406,16 @@ public class LoadStmt extends DdlStmt {
         // mysql load only have one data desc.
         if (isMysqlLoad && !dataDescriptions.get(0).isClientLocal()) {
             for (String path : dataDescriptions.get(0).getFilePaths()) {
-                if (!new File(path).exists()) {
-                    throw new AnalysisException("Path: " + path + " is not exists.");
+                if (Config.mysql_load_server_secure_path.isEmpty()) {
+                    throw new AnalysisException("Load local data from fe local is not enabled. If you want to use it,"
+                            + " plz set the `mysql_load_server_secure_path` for FE to be a right path.");
+                } else {
+                    if (!(path.startsWith(Config.mysql_load_server_secure_path))) {
+                        throw new AnalysisException("Local file should be under the secure path of FE.");
+                    }
+                    if (!new File(path).exists()) {
+                        throw new AnalysisException("File: " + path + " is not exists.");
+                    }
                 }
             }
         }

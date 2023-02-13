@@ -1992,6 +1992,15 @@ public class Config extends ConfigBase {
     /**
      * TokenManager will generate token every token_generate_period_hour.
      */
+    @ConfField(mutable = false, masterOnly = true)
     public static int token_generate_period_hour = 12;
+
+    /**
+     * The secure local path of the FE node the place the data which will be loaded in doris.
+     * The default value is empty for this config which means this feature is not allowed.
+     * User who want to load fe server local file should config the value to a right local path.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String mysql_load_server_secure_path = "";
 }
 
