@@ -116,7 +116,7 @@ Status BetaRowsetWriter::add_block(const vectorized::Block* block) {
     return _add_block(block, &_segment_writer);
 }
 
-vectorized::VMergeIterator* BetaRowsetWriter::_get_segcompaction_reader(
+RowwiseIteratorUPtr BetaRowsetWriter::_get_segcompaction_reader(
         SegCompactionCandidatesSharedPtr segments, std::shared_ptr<Schema> schema,
         OlapReaderStatistics* stat, uint64_t* merged_row_stat) {
     StorageReadOptions read_options;
@@ -133,26 +133,18 @@ vectorized::VMergeIterator* BetaRowsetWriter::_get_segcompaction_reader(
         }
         seg_iterators.push_back(std::move(iter));
     }
-    std::vector<RowwiseIterator*> iterators;
-    for (auto& owned_it : seg_iterators) {
-        // transfer ownership
-        iterators.push_back(owned_it.release());
-    }
     bool is_unique = (_context.tablet_schema->keys_type() == UNIQUE_KEYS);
     bool is_reverse = false;
-    auto merge_itr =
-            vectorized::new_merge_iterator(iterators, -1, is_unique, is_reverse, merged_row_stat);
+    auto merge_itr = vectorized::new_merge_iterator(std::move(seg_iterators), -1, is_unique,
+                                                    is_reverse, merged_row_stat);
     DCHECK(merge_itr);
     auto s = merge_itr->init(read_options);
     if (!s.ok()) {
         LOG(WARNING) << "failed to init iterator: " << s.to_string();
-        for (auto& itr : iterators) {
-            delete itr;
-        }
         return nullptr;
     }
 
-    return (vectorized::VMergeIterator*)merge_itr;
+    return merge_itr;
 }
 
 std::unique_ptr<segment_v2::SegmentWriter> BetaRowsetWriter::_create_segcompaction_writer(
@@ -283,14 +275,11 @@ Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr s
                                            _context.tablet_schema->columns().size());
     std::unique_ptr<OlapReaderStatistics> stat(new OlapReaderStatistics());
     uint64_t merged_row_stat = 0;
-    vectorized::VMergeIterator* reader =
-            _get_segcompaction_reader(segments, schema, stat.get(), &merged_row_stat);
-    if (UNLIKELY(reader == nullptr)) {
+    auto reader_ptr = _get_segcompaction_reader(segments, schema, stat.get(), &merged_row_stat);
+    if (UNLIKELY(reader_ptr == nullptr)) {
         LOG(WARNING) << "failed to get segcompaction reader";
         return Status::Error<SEGCOMPACTION_INIT_READER>();
     }
-    std::unique_ptr<vectorized::VMergeIterator> reader_ptr;
-    reader_ptr.reset(reader);
     auto writer = _create_segcompaction_writer(begin, end);
     if (UNLIKELY(writer == nullptr)) {
         LOG(WARNING) << "failed to get segcompaction writer";
