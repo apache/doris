@@ -63,8 +63,6 @@ public class ConnectContext {
     private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
     protected static ThreadLocal<ConnectContext> threadLocalInfo = new ThreadLocal<ConnectContext>();
 
-    private static final String[] SSL_CIPHER_SUITES = {"TLS_DHE_RSA_WITH_AES_128_CBC_SHA256"};
-
     private static final String SSL_PROTOCOL = "TLSv1.2";
 
     // set this id before analyze
@@ -156,8 +154,7 @@ public class ConnectContext {
     private SessionContext sessionContext;
 
     // This context is used for SSL connection between server and mysql client.
-    private final MysqlSslContext mysqlSslContext = new MysqlSslContext(SSL_PROTOCOL,
-            SSL_CIPHER_SUITES);
+    private final MysqlSslContext mysqlSslContext = new MysqlSslContext(SSL_PROTOCOL);
 
     private long userQueryTimeout;
 

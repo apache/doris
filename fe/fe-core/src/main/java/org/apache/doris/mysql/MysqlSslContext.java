@@ -23,12 +23,15 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.security.KeyManagementException;
+import java.security.KeyStore;
 import java.security.NoSuchAlgorithmException;
+import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
 import javax.net.ssl.SSLEngineResult;
 import javax.net.ssl.SSLEngineResult.HandshakeStatus;
 import javax.net.ssl.SSLException;
+import javax.net.ssl.TrustManagerFactory;
 
 public class MysqlSslContext {
 
@@ -36,24 +39,34 @@ public class MysqlSslContext {
     private SSLEngine sslEngine;
     private SSLContext sslContext;
     private String protocol;
-    private String[] ciphersuites;
-
     private ByteBuffer serverAppData;
     private ByteBuffer serverNetData;
     private ByteBuffer clientAppData;
     private ByteBuffer clientNetData;
 
-    public MysqlSslContext(String protocol, String[] ciphersuites) {
+    public MysqlSslContext(String protocol) {
         this.protocol = protocol;
-        this.ciphersuites = ciphersuites;
         initSslContext();
         initSslEngine();
     }
 
     private void initSslContext() {
         try {
+            KeyStore ks = KeyStore.getInstance("JKS");
+            KeyStore ts = KeyStore.getInstance("JKS");
+
+            char[] passphrase = "passphrase".toCharArray();
+
+            ks.load(new FileInputStream(keyStoreFile), passphrase);
+            ts.load(new FileInputStream(trustStoreFile), passphrase);
+
+            KeyManagerFactory kmf = KeyManagerFactory.getInstance("SunX509");
+            kmf.init(ks, passphrase);
+
+            TrustManagerFactory tmf = TrustManagerFactory.getInstance("SunX509");
+            tmf.init(ts);
             sslContext = SSLContext.getInstance(protocol);
-            sslContext.init(null, null, null);
+            sslContext.init(kmf.getKeyManagers(), tmf.getTrustManagers(), null);
         } catch (NoSuchAlgorithmException | KeyManagementException e) {
             LOG.error("Failed to initialize SSL because", e);
         }
@@ -63,7 +76,7 @@ public class MysqlSslContext {
         sslEngine = sslContext.createSSLEngine();
         // set to server mode
         sslEngine.setUseClientMode(false);
-        sslEngine.setEnabledCipherSuites(ciphersuites);
+        sslEngine.setEnabledCipherSuites(sslEngine.getSupportedCipherSuites());
     }
 
     public SSLEngine getSslEngine() {
@@ -74,9 +87,6 @@ public class MysqlSslContext {
         return protocol;
     }
 
-    public String[] getCiphersuites() {
-        return ciphersuites;
-    }
 
     /*
       There may several steps for a successful handshake,
@@ -101,7 +111,7 @@ public class MysqlSslContext {
        reference: https://docs.oracle.com/javase/10/security/java-secure-socket-extension-jsse-reference-guide.htm#JSSEC-GUID-7FCC21CB-158B-440C-B5E4-E4E5A2D7352B
      */
     public boolean sslExchange(MysqlChannel channel) throws Exception {
-        long startTime = System.currentTimeMillis();
+        // long startTime = System.currentTimeMillis();
         // init data buffer
         initDataBuffer();
         // begin handshake.
