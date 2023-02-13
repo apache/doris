@@ -138,9 +138,6 @@ protected:
     // If _input_tuple_desc is set, the scanner will read data into
     // this _input_block first, then convert to the output block.
     Block _input_block;
-    // If _input_tuple_desc is set, this will point to _input_block,
-    // otherwise, it will point to the output block.
-    Block* _input_block_ptr;
 
     bool _is_open = false;
     bool _is_closed = false;

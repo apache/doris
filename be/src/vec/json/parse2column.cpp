@@ -63,7 +63,6 @@ public:
     Pointer get(Factory&& f) {
         std::unique_lock lock(mutex);
         if (stack.empty()) {
-            lock.unlock();
             return {f(), this};
         }
         auto object = stack.top().release();

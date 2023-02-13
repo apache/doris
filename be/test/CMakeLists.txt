@@ -176,7 +176,6 @@ set(UTIL_TEST_FILES
     util/crc32c_test.cpp
     util/lru_cache_util_test.cpp
     util/filesystem_util_test.cpp
-    util/internal_queue_test.cpp
     util/cidr_test.cpp
     util/metrics_test.cpp
     util/doris_metrics_test.cpp
