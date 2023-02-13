@@ -22,9 +22,14 @@ import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.security.KeyManagementException;
 import java.security.KeyStore;
+import java.security.KeyStoreException;
 import java.security.NoSuchAlgorithmException;
+import java.security.UnrecoverableKeyException;
+import java.security.cert.CertificateException;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
 import javax.net.ssl.SSLEngine;
@@ -41,6 +46,8 @@ public class MysqlSslContext {
     private String protocol;
     private ByteBuffer serverAppData;
     private ByteBuffer serverNetData;
+    private static final String keyStoreFile = "/Users/lian/Work/clientkeystore";
+    private static final String trustStoreFile = "/Users/lian/Work/clientkeystore";
     private ByteBuffer clientAppData;
     private ByteBuffer clientNetData;
 
@@ -55,19 +62,20 @@ public class MysqlSslContext {
             KeyStore ks = KeyStore.getInstance("JKS");
             KeyStore ts = KeyStore.getInstance("JKS");
 
-            char[] passphrase = "passphrase".toCharArray();
+            char[] password = "bigwork".toCharArray();
 
-            ks.load(new FileInputStream(keyStoreFile), passphrase);
-            ts.load(new FileInputStream(trustStoreFile), passphrase);
+            ks.load(Files.newInputStream(Paths.get(keyStoreFile)), password);
+            ts.load(Files.newInputStream(Paths.get(trustStoreFile)), password);
 
-            KeyManagerFactory kmf = KeyManagerFactory.getInstance("SunX509");
-            kmf.init(ks, passphrase);
+            KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+            kmf.init(ks, password);
 
-            TrustManagerFactory tmf = TrustManagerFactory.getInstance("SunX509");
+            TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
             tmf.init(ts);
             sslContext = SSLContext.getInstance(protocol);
             sslContext.init(kmf.getKeyManagers(), tmf.getTrustManagers(), null);
-        } catch (NoSuchAlgorithmException | KeyManagementException e) {
+        } catch (NoSuchAlgorithmException | KeyManagementException | KeyStoreException | IOException
+                 | CertificateException | UnrecoverableKeyException e) {
             LOG.error("Failed to initialize SSL because", e);
         }
     }
