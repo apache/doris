@@ -59,11 +59,11 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
         return logicalJoin(logicalProject(logicalJoin()), group())
                 .when(topJoin -> (topJoin.getJoinType().isLeftSemiOrAntiJoin()
                         && (topJoin.left().child().getJoinType().isInnerJoin()
-                                || topJoin.left().child().getJoinType().isLeftOuterJoin()
-                                || topJoin.left().child().getJoinType().isRightOuterJoin())))
+                        || topJoin.left().child().getJoinType().isLeftOuterJoin()
+                        || topJoin.left().child().getJoinType().isRightOuterJoin())))
                 .whenNot(topJoin -> topJoin.left().child().getJoinType().isSemiOrAntiJoin())
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
-                .when(join -> JoinReorderCommon.checkProject(join.left()))
+                .when(join -> JoinReorderUtils.checkProject(join.left()))
                 .when(this::conditionChecker)
                 .then(topSemiJoin -> {
                     LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = topSemiJoin.left();
@@ -106,8 +106,7 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                                 bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(),
                                 JoinHint.NONE,
                                 newBottomSemiJoin, b);
-
-                        return new LogicalProject<>(new ArrayList<>(topSemiJoin.getOutput()), newTopJoin);
+                        return JoinReorderUtils.projectOrSelf(new ArrayList<>(topSemiJoin.getOutput()), newTopJoin);
                     } else {
                         /*-
                          *     topSemiJoin                  project
@@ -132,8 +131,7 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                                 bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(),
                                 JoinHint.NONE,
                                 a, newBottomSemiJoin);
-
-                        return new LogicalProject<>(new ArrayList<>(topSemiJoin.getOutput()), newTopJoin);
+                        return JoinReorderUtils.projectOrSelf(new ArrayList<>(topSemiJoin.getOutput()), newTopJoin);
                     }
                 }).toRule(RuleType.LOGICAL_SEMI_JOIN_LOGICAL_JOIN_TRANSPOSE_PROJECT);
     }
