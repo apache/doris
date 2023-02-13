@@ -112,7 +112,7 @@ void ScannerContext::return_free_block(std::unique_ptr<vectorized::Block>&& bloc
 void ScannerContext::append_blocks_to_queue(const std::vector<vectorized::BlockUPtr>& blocks) {
     std::lock_guard l(_transfer_lock);
     auto old_bytes_in_queue = _cur_bytes_in_queue;
-    for (auto b : blocks) {
+    for (auto& b : blocks) {
         _cur_bytes_in_queue += b->allocated_bytes();
         _blocks_queue.emplace_back(std::move(b));
     }
