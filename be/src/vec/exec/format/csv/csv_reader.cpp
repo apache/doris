@@ -434,6 +434,83 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
     return Status::OK();
 }
 
+void CsvReader::_split_line(const Slice& line) {
+    _split_values.clear();
+    if (_file_format_type == TFileFormatType::FORMAT_PROTO) {
+        PDataRow** ptr = reinterpret_cast<PDataRow**>(line.data);
+        PDataRow* row = *ptr;
+        for (const PDataColumn& col : (row)->col()) {
+            int len = col.value().size();
+            uint8_t* buf = new uint8_t[len];
+            memcpy(buf, col.value().c_str(), len);
+            _split_values.emplace_back(buf, len);
+        }
+        delete row;
+        delete[] ptr;
+    } else {
+        const char* value = line.data;
+        size_t start = 0;     // point to the start pos of next col value.
+        size_t curpos = 0;    // point to the start pos of separator matching sequence.
+        size_t p1 = 0;        // point to the current pos of separator matching sequence.
+        size_t non_space = 0; // point to the last pos of non_space charactor.
+
+        // Separator: AAAA
+        //
+        //    p1
+        //     ▼
+        //     AAAA
+        //   1000AAAA2000AAAA
+        //   ▲   ▲
+        // Start │
+        //     curpos
+
+        while (curpos < line.size) {
+            if (curpos + p1 == line.size || *(value + curpos + p1) != _value_separator[p1]) {
+                // Not match, move forward:
+                curpos += (p1 == 0 ? 1 : p1);
+                p1 = 0;
+            } else {
+                p1++;
+                if (p1 == _value_separator_length) {
+                    // Match a separator
+                    non_space = curpos;
+                    // Trim tailing spaces. Be consistent with hive and trino's behavior.
+                    if (_state != nullptr &&
+                        _state->trim_tailing_spaces_for_external_table_query()) {
+                        while (non_space > start && *(value + non_space - 1) == ' ') {
+                            non_space--;
+                        }
+                    }
+                    if (_trim_double_quotes && (non_space - 1) > start &&
+                        *(value + start) == '\"' && *(value + non_space - 1) == '\"') {
+                        start++;
+                        non_space--;
+                    }
+                    _split_values.emplace_back(value + start, non_space - start);
+                    start = curpos + _value_separator_length;
+                    curpos = start;
+                    p1 = 0;
+                    non_space = 0;
+                }
+            }
+        }
+
+        CHECK(curpos == line.size) << curpos << " vs " << line.size;
+        non_space = curpos;
+        if (_state != nullptr && _state->trim_tailing_spaces_for_external_table_query()) {
+            while (non_space > start && *(value + non_space - 1) == ' ') {
+                non_space--;
+            }
+        }
+        if (_trim_double_quotes && (non_space - 1) > start && *(value + start) == '\"' &&
+            *(value + non_space - 1) == '\"') {
+            start++;
+            non_space--;
+        }
+        _split_values.emplace_back(value + start, non_space - start);
+    }
+}
+
 Status CsvReader::_check_array_format(std::vector<Slice>& split_values, bool* is_success) {
     // if not the array format, filter this line and return error url
     for (int j = 0; j < _file_slot_descs.size(); ++j) {
