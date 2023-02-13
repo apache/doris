@@ -227,7 +227,9 @@ public class DorisStreamLoader {
 > ```
 
 ## MySql LOAD
-<version since="dev"></version>
+<version since="dev">
+    MySql LOAD样例
+</version>
 
 ### 导入数据
 1. 创建一张表

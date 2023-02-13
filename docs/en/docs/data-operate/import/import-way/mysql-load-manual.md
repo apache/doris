@@ -23,15 +23,17 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-<version since="dev"></version>
 
 # Mysql load
+<version since="dev">
 
-MySql load is a SQL interaction to load data. Users import client local file or server local file into Doris through SQL commands.
+This is an stand syntax of MySql [LOAD DATA](https://dev.mysql.com/doc/refman/8.0/en/load-data.html) for user to load local file.
 
 MySql load synchronously executes the import and returns the import result. The return information will show whether the import is successful for user.
 
 MySql load is mainly suitable for importing local files on the client side, or importing data from a data stream through a program.
+
+</version>
 
 ## Basic Principles
 
@@ -100,6 +102,7 @@ PROPERTIES ("strict_mode" = "true")
 ```
 1. The only difference between the syntax of importing server level local files and importing client side syntax is whether the'LOCAL 'keyword is added after the'LOAD DATA' keyword.
 2. FE will have multi-nodes, and importing server level files can only import FE nodes connected by the client side, and cannot import files local to other FE nodes.
+3. Server side load was disabled by default. Enable it by setting `mysql_load_server_secure_path` with a secure path. All the load file should be under this path.
 
 ### Return result
 Since MySQL load is a synchronous import method, the imported results are returned to the user through SQL syntax.

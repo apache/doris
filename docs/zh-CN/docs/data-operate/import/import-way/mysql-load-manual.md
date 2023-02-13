@@ -24,15 +24,16 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-<version since="dev"></version>
-
 # MySql load
+<version since="dev">
 
-MySql load 是SQL交互的导入方式，用户通过SQL命令将客户端本地或者服务端本地的数据导入Doris 中。
+该语句兼容MySQL标准的[LOAD DATA](https://dev.mysql.com/doc/refman/8.0/en/load-data.html)语法，方便用户导入本地数据，并降低学习成本。
 
 MySql load 同步执行导入并返回导入结果。用户可直接通过SQL返回信息判断本次导入是否成功。
 
 MySql load 主要适用于导入客户端本地文件，或通过程序导入数据流中的数据。
+
+</version>
 
 ## 基本原理
 
@@ -102,6 +103,7 @@ PROPERTIES ("strict_mode"="true")
 ```
 1. 导入服务端本地文件的语法和导入客户端语法的唯一区别是`LOAD DATA`关键词后面是否加入`LOCAL`关键字.
 2. FE为多节点部署, 导入服务端文件功能只能够导入客户端连接的FE节点, 无法导入其他FE节点本地的文件.
+3. 服务端导入默认是关闭, 通过设置FE的配置`mysql_load_server_secure_path`开启, 导入文件的必须在该目录下. 
 
 ### 返回结果
 

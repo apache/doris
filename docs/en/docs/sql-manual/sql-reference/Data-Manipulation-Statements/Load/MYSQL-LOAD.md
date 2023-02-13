@@ -23,13 +23,14 @@ KIND, either express or implied.  See the License for the
 specific language governing permissions and limitations
 under the License.
 -->
-<version since="dev"></version>
 
 ## MYSQL-LOAD
 
 ### Name
 
-MYSQL LOAD
+<version since="dev">
+    MYSQL LOAD
+</version>
 
 ### Description
 
@@ -54,7 +55,7 @@ This statement is used to import data to the specified table. Unlike normal Load
 This import method can still guarantee the atomicity of a batch of import tasks, either all data imports are successful or all fail.
 
 1. MySQL Load starts with the syntax `LOAD DATA`, without specifying `LABEL`
-2. Specify  `LOCAL` to read client side files. Not specified to read FE server side local files
+2. Specify  `LOCAL` to read client side files. Not specified to read FE server side local files. Server side load was disabled by default. It can be enabled by setting a secure path in FE configuration `mysql_load_server_secure_path`
 3. The local fill path will be filled after `INFILE`, which can be a relative path or an absolute path. Currently only a single file is supported, and multiple files are not supported
 4. The table name after `INTO TABLE` can specify the database name, as shown in the case. It can also be omitted, and the database where the current user is located will be used.
 5. `PARTITION` syntax supports specified partition to import
@@ -87,43 +88,43 @@ This import method can still guarantee the atomicity of a batch of import tasks,
     PROPERTIES ("timeout"="100")
     ```
 
-2. Import the data from the server side local file `/root/testData` into the table `testTbl` in the database `testDb`. Specify a timeout of 100 seconds
+2. Import the data from the server side local file `/root/testData` (set FE config `mysql_load_server_secure_path` to be `root` already) into the table `testTbl` in the database `testDb`. Specify a timeout of 100 seconds
 
-        ```sql
-        LOAD DATA
-        INFILE '/root/testData'
-        INTO TABLE testDb.testTbl
-        PROPERTIES ("timeout"="100")
-        ```
+    ```sql
+    LOAD DATA
+    INFILE '/root/testData'
+    INTO TABLE testDb.testTbl
+    PROPERTIES ("timeout"="100")
+    ```
 
 3. Import data from client side local file `testData` into table `testTbl` in database `testDb`, allowing 20% error rate
 
-        ```sql
-        LOAD DATA LOCAL
-        INFILE 'testData'
-        INTO TABLE testDb.testTbl
-        PROPERTIES ("max_filter_ratio"="0.2")
-        ```
+    ```sql
+    LOAD DATA LOCAL
+    INFILE 'testData'
+    INTO TABLE testDb.testTbl
+    PROPERTIES ("max_filter_ratio"="0.2")
+    ```
 
 4. Import the data from the client side local file `testData` into the table `testTbl` in the database `testDb`, allowing a 20% error rate and specifying the column names of the file
 
-        ```sql
-        LOAD DATA LOCAL
-        INFILE 'testData'
-        INTO TABLE testDb.testTbl
-        (k2, k1, v1)
-        PROPERTIES ("max_filter_ratio"="0.2")
-        ```
+    ```sql
+    LOAD DATA LOCAL
+    INFILE 'testData'
+    INTO TABLE testDb.testTbl
+    (k2, k1, v1)
+    PROPERTIES ("max_filter_ratio"="0.2")
+    ```
 
 5. Import the data in the local file `testData` into the p1, p2 partitions in the table of `testTbl` in the database `testDb`, allowing a 20% error rate.
 
-        ```
-        LOAD DATA LOCAL
-        INFILE 'testData'
-        PARTITION (p1, p2)
-        INTO TABLE testDb.testTbl
-        PROPERTIES ("max_filter_ratio"="0.2")
-        ```
+    ```
+    LOAD DATA LOCAL
+    INFILE 'testData'
+    PARTITION (p1, p2)
+    INTO TABLE testDb.testTbl
+    PROPERTIES ("max_filter_ratio"="0.2")
+    ```
 
 6. Import the data in the CSV file `testData` with a local row delimiter of `0102` and a column delimiter of `0304` into the table `testTbl` in the database `testDb`.
 
@@ -137,31 +138,31 @@ This import method can still guarantee the atomicity of a batch of import tasks,
 
 7. Import the data from the local file `testData` into the p1, p2 partitions in the table of `testTbl` in the database `testDb` and skip the first 3 lines.
 
-        ```sql
-        LOAD DATA LOCAL
-        INFILE 'testData'
-        PARTITION (p1, p2)
-        INTO TABLE testDb.testTbl
-        IGNORE 1 LINES
-        ```
+    ```sql
+    LOAD DATA LOCAL
+    INFILE 'testData'
+    PARTITION (p1, p2)
+    INTO TABLE testDb.testTbl
+    IGNORE 1 LINES
+    ```
 
 8. Import data for strict schema filtering and set the time zone to Africa/Abidjan
 
-        ```sql
-        LOAD DATA LOCAL
-        INFILE 'testData'
-        INTO TABLE testDb.testTbl
-        PROPERTIES ("strict_mode"="true", "timezone"="Africa/Abidjan")
-        ```
+    ```sql
+    LOAD DATA LOCAL
+    INFILE 'testData'
+    INTO TABLE testDb.testTbl
+    PROPERTIES ("strict_mode"="true", "timezone"="Africa/Abidjan")
+    ```
 
 9. Import data is limited to 10GB of import memory and timed out in 10 minutes
 
-       ```sql
-       LOAD DATA LOCAL
-       INFILE 'testData'
-       INTO TABLE testDb.testTbl
-       PROPERTIES ("exec_mem_limit"="10737418240", "timeout"="600")
-        ```
+    ```sql
+    LOAD DATA LOCAL
+    INFILE 'testData'
+    INTO TABLE testDb.testTbl
+    PROPERTIES ("exec_mem_limit"="10737418240", "timeout"="600")
+    ```
 
 ### Keywords
 

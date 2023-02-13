@@ -225,7 +225,9 @@ public class DorisStreamLoader {
 > ```
 
 ## MySql LOAD
-<version since="dev"></version>
+<version since="dev">
+    Example of mysql load
+</version>
 
 ### Import Data
 1. Create a table

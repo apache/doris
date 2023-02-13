@@ -24,13 +24,12 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-<version since="dev"></version>
-
 ## MYSQL-LOAD
 
 ### Name
-
-MYSQL LOAD
+<version since="dev">
+    MYSQL LOAD
+</version>
 
 ### Description
 
@@ -55,7 +54,7 @@ INTO TABLE tbl_name
 这种导入方式仍然能够保证一批导入任务的原子性，要么全部数据导入成功，要么全部失败。
 
 1. MySQL Load以语法`LOAD DATA`开头, 无须指定LABEL
-2. 指定`LOCAL`表示读取客户端文件.不指定表示读取FE服务端本地文件
+2. 指定`LOCAL`表示读取客户端文件.不指定表示读取FE服务端本地文件. 导入FE本地文件的功能默认是关闭的, 需要在FE节点上设置`mysql_load_server_secure_path`来指定安全路径, 才能打开该功能.
 3. `INFILE`内填写本地文件路径, 可以是相对路径, 也可以是绝对路径.目前只支持单个文件, 不支持多个文件
 4. `INTO TABLE`的表名可以指定数据库名, 如案例所示. 也可以省略, 则会使用当前用户所在的数据库.
 5. `PARTITION`语法支持指定分区导入
@@ -88,43 +87,43 @@ INTO TABLE tbl_name
     PROPERTIES ("timeout"="100")
     ```
 
-2. 将服务端本地文件'/root/testData'中的数据导入到数据库'testDb'中'testTbl'的表。指定超时时间为 100 秒
+2. 将服务端本地文件'/root/testData'(需设置FE配置`mysql_load_server_secure_path`为`/root`)中的数据导入到数据库'testDb'中'testTbl'的表。指定超时时间为 100 秒
 
-        ```sql
-        LOAD DATA
-        INFILE '/root/testData'
-        INTO TABLE testDb.testTbl
-        PROPERTIES ("timeout"="100")
-        ```
+    ```sql
+    LOAD DATA
+    INFILE '/root/testData'
+    INTO TABLE testDb.testTbl
+    PROPERTIES ("timeout"="100")
+    ```
 
 3. 将客户端本地文件'testData'中的数据导入到数据库'testDb'中'testTbl'的表, 允许20%的错误率
 
-        ```sql
-        LOAD DATA LOCAL
-        INFILE 'testData'
-        INTO TABLE testDb.testTbl
-        PROPERTIES ("max_filter_ratio"="0.2")
-        ```
+    ```sql
+    LOAD DATA LOCAL
+    INFILE 'testData'
+    INTO TABLE testDb.testTbl
+    PROPERTIES ("max_filter_ratio"="0.2")
+    ```
 
 4. 将客户端本地文件'testData'中的数据导入到数据库'testDb'中'testTbl'的表, 允许20%的错误率，并且指定文件的列名
 
-        ```sql
-        LOAD DATA LOCAL
-        INFILE 'testData'
-        INTO TABLE testDb.testTbl
-        (k2, k1, v1)
-        PROPERTIES ("max_filter_ratio"="0.2")
-        ```
+    ```sql
+    LOAD DATA LOCAL
+    INFILE 'testData'
+    INTO TABLE testDb.testTbl
+    (k2, k1, v1)
+    PROPERTIES ("max_filter_ratio"="0.2")
+    ```
 
 5. 将本地文件'testData'中的数据导入到数据库'testDb'中'testTbl'的表中的p1, p2分区, 允许20%的错误率。
 
-        ```
-        LOAD DATA LOCAL
-        INFILE 'testData'
-        PARTITION (p1, p2)
-        INTO TABLE testDb.testTbl
-        PROPERTIES ("max_filter_ratio"="0.2")
-        ```
+    ```
+    LOAD DATA LOCAL
+    INFILE 'testData'
+    PARTITION (p1, p2)
+    INTO TABLE testDb.testTbl
+    PROPERTIES ("max_filter_ratio"="0.2")
+    ```
 
 6. 将本地行分隔符为`0102`,列分隔符为`0304`的CSV文件'testData'中的数据导入到数据库'testDb'中'testTbl'的表中。
 
@@ -138,31 +137,31 @@ INTO TABLE tbl_name
 
 7. 将本地文件'testData'中的数据导入到数据库'testDb'中'testTbl'的表中的p1, p2分区, 并跳过前面3行。
 
-        ```sql
-        LOAD DATA LOCAL
-        INFILE 'testData'
-        PARTITION (p1, p2)
-        INTO TABLE testDb.testTbl
-        IGNORE 1 LINES
-        ```
+    ```sql
+    LOAD DATA LOCAL
+    INFILE 'testData'
+    PARTITION (p1, p2)
+    INTO TABLE testDb.testTbl
+    IGNORE 1 LINES
+    ```
 
 8. 导入数据进行严格模式过滤，并设置时区为 Africa/Abidjan
 
-        ```sql
-        LOAD DATA LOCAL
-        INFILE 'testData'
-        INTO TABLE testDb.testTbl
-        PROPERTIES ("strict_mode"="true", "timezone"="Africa/Abidjan")
-        ```
+    ```sql
+    LOAD DATA LOCAL
+    INFILE 'testData'
+    INTO TABLE testDb.testTbl
+    PROPERTIES ("strict_mode"="true", "timezone"="Africa/Abidjan")
+    ```
 
 9. 导入数据进行限制导入内存为10GB, 并在10分钟超时
 
-       ```sql
-       LOAD DATA LOCAL
-       INFILE 'testData'
-       INTO TABLE testDb.testTbl
-       PROPERTIES ("exec_mem_limit"="10737418240", "timeout"="600")
-        ```
+    ```sql
+    LOAD DATA LOCAL
+    INFILE 'testData'
+    INTO TABLE testDb.testTbl
+    PROPERTIES ("exec_mem_limit"="10737418240", "timeout"="600")
+    ```
 
 ### Keywords
 
