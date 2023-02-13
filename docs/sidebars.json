@@ -54,6 +54,7 @@
                     "type": "category",
                     "label": "Index",
                     "items": [
+                        "data-table/index/inverted-index",
                         "data-table/index/bloomfilter",
                         "data-table/index/prefix-index",
                         "data-table/index/bitmap-index"
