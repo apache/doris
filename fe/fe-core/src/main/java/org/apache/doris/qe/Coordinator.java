@@ -627,10 +627,7 @@ public class Coordinator {
         } else {
             OlapScanNode planRoot = (OlapScanNode) fragments.get(0).getPlanRoot();
             Preconditions.checkState(planRoot.getScanTabletIds().size() == 1);
-            Long backendId = planRoot.getScanBackendIds().iterator().next();
-            Backend backend = this.idToBackend.get(backendId);
-            TNetworkAddress execBeAddr = new TNetworkAddress(backend.getHost(), backend.getBePort());
-            pointExec.setAddressAndBackendID(toBrpcHost(execBeAddr), backendId);
+            pointExec.setCandidateBackends(planRoot.getScanBackendIds());
             pointExec.setTabletId(planRoot.getScanTabletIds().get(0));
         }
     }
