@@ -545,6 +545,7 @@ struct TCondition {
     // In delete condition, the different column may have same column name, need
     // using unique id to distinguish them
     4:  optional i32 column_unique_id
+    5:  optional bool marked_by_runtime_filter = false
 }
 
 struct TExportStatusResult {
