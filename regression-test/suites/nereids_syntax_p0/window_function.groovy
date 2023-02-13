@@ -56,7 +56,8 @@ suite("test_window_function") {
         FROM window_test
     """
 
-    order_qt_select "SELECT dense_rank() over(partition by c3 order by c2) FROM window_test"
+    order_qt_dense_rank "SELECT dense_rank() over(partition by c3 order by c2) FROM window_test"
+    order_qt_ntile "SELECT ntile(5) over(partition by c3 order by c2) FROM window_test"
     order_qt_rank "SELECT rank() over(partition by c3 order by c2) FROM window_test"
     order_qt_row_number "SELECT row_number() over(partition by c3 order by c2) FROM window_test"
     order_qt_sum "SELECT sum(c1) over(partition by c3 order by c2) FROM window_test"
