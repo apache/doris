@@ -273,6 +273,7 @@ private:
     void _adjust_compaction_thread_num();
 
     void _cooldown_tasks_producer_callback();
+    void _remove_unused_remote_files_callback();
 
     void _cache_file_cleaner_tasks_producer_callback();
 
@@ -394,6 +395,7 @@ private:
     std::shared_ptr<CumulativeCompactionPolicy> _cumulative_compaction_policy;
 
     scoped_refptr<Thread> _cooldown_tasks_producer_thread;
+    scoped_refptr<Thread> _remove_unused_remote_files_thread;
 
     scoped_refptr<Thread> _cache_file_cleaner_tasks_producer_thread;
 

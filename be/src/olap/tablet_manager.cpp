@@ -31,6 +31,7 @@
 #include <cstdlib>
 #include <filesystem>
 
+#include "common/compiler_util.h"
 #include "env/env.h"
 #include "env/env_util.h"
 #include "gutil/strings/strcat.h"
@@ -88,6 +89,12 @@ TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
 
 TabletManager::~TabletManager() {
     DEREGISTER_HOOK_METRIC(tablet_meta_mem_consumption);
+}
+
+void TabletManager::add_tablet(const TabletSharedPtr& tablet) {
+    auto& tablet_map = _get_tablet_map(tablet->tablet_id());
+    std::lock_guard wlock(_get_tablets_shard_lock(tablet->tablet_id()));
+    tablet_map[tablet->tablet_id()] = tablet;
 }
 
 Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet,
@@ -580,23 +587,6 @@ TabletSharedPtr TabletManager::get_tablet(TTabletId tablet_id, TabletUid tablet_
     return nullptr;
 }
 
-std::vector<TabletSharedPtr> TabletManager::get_all_tablet() {
-    std::vector<TabletSharedPtr> res;
-    for (const auto& tablets_shard : _tablets_shards) {
-        std::shared_lock rdlock(tablets_shard.lock);
-        for (const auto& tablet_map : tablets_shard.tablet_map) {
-            // these are tablets which is not deleted
-            TabletSharedPtr tablet = tablet_map.second;
-            if (!tablet->is_used()) {
-                LOG(WARNING) << "tablet cannot be used. tablet=" << tablet->tablet_id();
-                continue;
-            }
-            res.emplace_back(tablet);
-        }
-    }
-    return res;
-}
-
 uint64_t TabletManager::get_rowset_nums() {
     uint64_t rowset_nums = 0;
     for (const auto& tablets_shard : _tablets_shards) {
@@ -898,37 +888,31 @@ Status TabletManager::build_all_report_tablets_info(std::map<TTabletId, TTablet>
 
     DorisMetrics::instance()->report_all_tablets_requests_total->increment(1);
     HistogramStat tablet_version_num_hist;
+    auto tablets = get_all_tablet([](Tablet*) { return true; });
     auto local_cache = std::make_shared<std::vector<TTabletStat>>();
-    for (const auto& tablets_shard : _tablets_shards) {
-        std::shared_lock rdlock(tablets_shard.lock);
-        for (const auto& item : tablets_shard.tablet_map) {
-            uint64_t tablet_id = item.first;
-            TabletSharedPtr tablet_ptr = item.second;
-            TTablet t_tablet;
-            TTabletInfo tablet_info;
-            tablet_ptr->build_tablet_report_info(&tablet_info, true);
-            // find expired transaction corresponding to this tablet
-            TabletInfo tinfo(tablet_id, tablet_ptr->schema_hash(), tablet_ptr->tablet_uid());
-            auto find = expire_txn_map.find(tinfo);
-            if (find != expire_txn_map.end()) {
-                tablet_info.__set_transaction_ids(find->second);
-                expire_txn_map.erase(find);
-            }
-            t_tablet.tablet_infos.push_back(tablet_info);
-            tablet_version_num_hist.add(tablet_ptr->version_count());
-            tablets_info->emplace(tablet_id, t_tablet);
-            TTabletStat t_tablet_stat;
-            t_tablet_stat.__set_tablet_id(tablet_info.tablet_id);
-            t_tablet_stat.__set_data_size(tablet_info.data_size);
-            t_tablet_stat.__set_remote_data_size(tablet_info.remote_data_size);
-            t_tablet_stat.__set_row_num(tablet_info.row_count);
-            t_tablet_stat.__set_version_count(tablet_info.version_count);
-            local_cache->emplace_back(std::move(t_tablet_stat));
+    local_cache->reserve(tablets.size());
+    for (auto& tablet : tablets) {
+        auto& t_tablet = (*tablets_info)[tablet->tablet_id()];
+        TTabletInfo& tablet_info = t_tablet.tablet_infos.emplace_back();
+        tablet->build_tablet_report_info(&tablet_info, true);
+        // find expired transaction corresponding to this tablet
+        TabletInfo tinfo(tablet->tablet_id(), tablet->schema_hash(), tablet->tablet_uid());
+        auto find = expire_txn_map.find(tinfo);
+        if (find != expire_txn_map.end()) {
+            tablet_info.__set_transaction_ids(find->second);
+            expire_txn_map.erase(find);
         }
+        tablet_version_num_hist.add(tablet->version_count());
+        auto& t_tablet_stat = local_cache->emplace_back();
+        t_tablet_stat.__set_tablet_id(tablet_info.tablet_id);
+        t_tablet_stat.__set_data_size(tablet_info.data_size);
+        t_tablet_stat.__set_remote_data_size(tablet_info.remote_data_size);
+        t_tablet_stat.__set_row_num(tablet_info.row_count);
+        t_tablet_stat.__set_version_count(tablet_info.version_count);
     }
     {
         std::lock_guard<std::mutex> guard(_tablet_stat_cache_mutex);
-        _tablet_stat_list_cache = local_cache;
+        _tablet_stat_list_cache.swap(local_cache);
     }
     DorisMetrics::instance()->tablet_version_num_distribution->set_histogram(
             tablet_version_num_hist);

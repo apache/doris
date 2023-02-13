@@ -21,51 +21,15 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
-import com.google.gson.annotations.SerializedName;
-import lombok.Data;
-
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
 /**
- * This class is used to log update cooldown conf operation.
+ * This class is used to log delete unused remote files operation.
  */
-@Data
-public class CooldownConf implements Writable {
-    @SerializedName(value = "dbId")
-    protected long dbId;
-    @SerializedName(value = "tableId")
-    protected long tableId;
-    @SerializedName(value = "partitionId")
-    protected long partitionId;
-    @SerializedName(value = "indexId")
-    protected long indexId;
-    @SerializedName(value = "tabletId")
-    protected long tabletId;
-    @SerializedName(value = "cooldownReplicaId")
-    protected long cooldownReplicaId = -1;
-    @SerializedName(value = "cooldownTerm")
-    protected long cooldownTerm = -1;
-
-    public CooldownConf() {
-    }
-
-    // for update
-    public CooldownConf(long dbId, long tableId, long partitionId, long indexId, long tabletId, long cooldownTerm) {
-        this.dbId = dbId;
-        this.tableId = tableId;
-        this.partitionId = partitionId;
-        this.indexId = indexId;
-        this.tabletId = tabletId;
-        this.cooldownTerm = cooldownTerm;
-    }
-
-    // for push
-    public CooldownConf(long tabletId, long cooldownReplicaId, long cooldownTerm) {
-        this.tabletId = tabletId;
-        this.cooldownReplicaId = cooldownReplicaId;
-        this.cooldownTerm = cooldownTerm;
+public class CooldownDelete implements Writable {
+    public CooldownDelete() {
     }
 
     @Override

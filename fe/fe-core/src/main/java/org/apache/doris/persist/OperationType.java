@@ -267,8 +267,9 @@ public class OperationType {
     public static final short OP_REFRESH_EXTERNAL_PARTITIONS = 356;
 
     public static final short OP_ALTER_USER = 400;
-    // cooldown conf
+    // cooldown related
     public static final short OP_UPDATE_COOLDOWN_CONF = 401;
+    public static final short OP_COOLDOWN_DELETE = 402;
 
     /**
      * Get opcode name by op code.

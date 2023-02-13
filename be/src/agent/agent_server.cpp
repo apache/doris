@@ -25,6 +25,7 @@
 #include "agent/task_worker_pool.h"
 #include "agent/topic_subscriber.h"
 #include "agent/user_resource_listener.h"
+#include "agent/utils.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "gutil/strings/substitute.h"
@@ -48,6 +49,8 @@ AgentServer::AgentServer(ExecEnv* exec_env, const TMasterInfo& master_info)
             LOG(WARNING) << "boost exception when remove dpp download path. path=" << path.path;
         }
     }
+
+    MasterServerClient::create(master_info);
 
     // It is the same code to create workers of each type, so we use a macro
     // to make code to be more readable.

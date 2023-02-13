@@ -23,7 +23,6 @@
 #include <utility>
 #include <vector>
 
-#include "agent/utils.h"
 #include "common/status.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
@@ -35,6 +34,7 @@ namespace doris {
 
 class ExecEnv;
 class ThreadPool;
+class AgentUtils;
 
 class TaskWorkerPool {
 public:
@@ -224,7 +224,6 @@ private:
     const TMasterInfo& _master_info;
     TBackend _backend;
     std::unique_ptr<AgentUtils> _agent_utils;
-    std::unique_ptr<MasterServerClient> _master_client;
     ExecEnv* _env;
 
     // Protect task queue
@@ -246,7 +245,6 @@ private:
     uint32_t _worker_count;
     TaskWorkerType _task_worker_type;
 
-    static FrontendServiceClientCache _master_service_client_cache;
     static std::atomic_ulong _s_report_version;
 
     static std::mutex _s_task_signatures_lock;

@@ -157,6 +157,12 @@ Status StorageEngine::start_bg_threads() {
     LOG(INFO) << "cooldown tasks producer thread started";
 
     RETURN_IF_ERROR(Thread::create(
+            "StorageEngine", "remove_unused_remote_files_thread",
+            [this]() { this->_remove_unused_remote_files_callback(); },
+            &_remove_unused_remote_files_thread));
+    LOG(INFO) << "remove unused remote files thread started";
+
+    RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "cache_file_cleaner_tasks_producer_thread",
             [this]() { this->_cache_file_cleaner_tasks_producer_callback(); },
             &_cache_file_cleaner_tasks_producer_thread));
@@ -734,11 +740,19 @@ void StorageEngine::_cooldown_tasks_producer_callback() {
             task.priority = max_priority--;
             bool submited = _cooldown_thread_pool->offer(std::move(task));
 
-            if (submited) {
+            if (!submited) {
                 LOG(INFO) << "failed to submit cooldown task";
             }
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+}
+
+void StorageEngine::_remove_unused_remote_files_callback() {
+    while (!_stop_background_threads_latch.wait_for(
+            std::chrono::seconds(config::remove_unused_remote_files_interval_sec))) {
+        LOG(INFO) << "begin to remove unused remote files";
+        Tablet::remove_unused_remote_files();
+    }
 }
 
 void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {

@@ -29,6 +29,7 @@
 #include <sstream>
 #include <string>
 
+#include "agent/utils.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "env/env.h"
@@ -71,13 +72,11 @@ const int64_t PUBLISH_TIMEOUT_SEC = 10;
 std::atomic_ulong TaskWorkerPool::_s_report_version(time(nullptr) * 10000);
 std::mutex TaskWorkerPool::_s_task_signatures_lock;
 std::map<TTaskType::type, std::set<int64_t>> TaskWorkerPool::_s_task_signatures;
-FrontendServiceClientCache TaskWorkerPool::_master_service_client_cache;
 
 TaskWorkerPool::TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* env,
                                const TMasterInfo& master_info, ThreadModel thread_model)
         : _master_info(master_info),
           _agent_utils(new AgentUtils()),
-          _master_client(new MasterServerClient(_master_info, &_master_service_client_cache)),
           _env(env),
           _stop_background_threads_latch(1),
           _is_work(false),
@@ -303,7 +302,8 @@ void TaskWorkerPool::_finish_task(const TFinishTaskRequest& finish_task_request)
 
     while (try_time < TASK_FINISH_MAX_RETRY) {
         DorisMetrics::instance()->finish_task_requests_total->increment(1);
-        Status client_status = _master_client->finish_task(finish_task_request, &result);
+        Status client_status =
+                MasterServerClient::instance()->finish_task(finish_task_request, &result);
 
         if (client_status.ok()) {
             break;
@@ -1648,7 +1648,7 @@ Status TaskWorkerPool::_move_dir(const TTabletId tablet_id, const std::string& s
 
 void TaskWorkerPool::_handle_report(TReportRequest& request, ReportType type) {
     TMasterResult result;
-    Status status = _master_client->report(request, &result);
+    Status status = MasterServerClient::instance()->report(request, &result);
     bool is_report_success = false;
     if (!status.ok()) {
         LOG_WARNING("failed to report {}", TYPE_STRING(type))

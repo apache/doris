@@ -32,9 +32,12 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -52,6 +55,7 @@ import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.HMSExternalCatalog;
@@ -76,6 +80,8 @@ import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnDef;
 import org.apache.doris.thrift.TColumnDesc;
+import org.apache.doris.thrift.TConfirmUnusedRemoteFilesRequest;
+import org.apache.doris.thrift.TConfirmUnusedRemoteFilesResult;
 import org.apache.doris.thrift.TDescribeTableParams;
 import org.apache.doris.thrift.TDescribeTableResult;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
@@ -172,6 +178,72 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public FrontendServiceImpl(ExecuteEnv exeEnv) {
         masterImpl = new MasterImpl();
         this.exeEnv = exeEnv;
+    }
+
+    @Override
+    public TConfirmUnusedRemoteFilesResult confirmUnusedRemoteFiles(TConfirmUnusedRemoteFilesRequest request)
+            throws TException {
+        if (!Env.getCurrentEnv().isMaster()) {
+            throw new TException("FE is not master");
+        }
+        TConfirmUnusedRemoteFilesResult res = new TConfirmUnusedRemoteFilesResult();
+        if (!request.isSetConfirmList()) {
+            throw new TException("confirm_list in null");
+        }
+        request.getConfirmList().forEach(info -> {
+            if (!info.isSetCooldownMetaId()) {
+                LOG.warn("cooldown_meta_id is null");
+                return;
+            }
+            TabletMeta tabletMeta = Env.getCurrentEnv().getTabletInvertedIndex().getTabletMeta(info.tablet_id);
+            if (tabletMeta == null) {
+                LOG.warn("tablet {} not found", info.tablet_id);
+                return;
+            }
+            Tablet tablet;
+            try {
+                OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId())
+                        .getTable(tabletMeta.getTableId())
+                        .get();
+                table.readLock();
+                try {
+                    tablet = table.getPartition(tabletMeta.getPartitionId()).getIndex(tabletMeta.getIndexId())
+                            .getTablet(info.tablet_id);
+                } finally {
+                    table.readUnlock();
+                }
+            } catch (RuntimeException e) {
+                LOG.warn("tablet {} not found", info.tablet_id);
+                return;
+            }
+            // check cooldownReplicaId
+            long cooldownReplicaId = tablet.getCooldownConf().first;
+            if (cooldownReplicaId != info.cooldown_replica_id) {
+                LOG.info("cooldown replica id not match({} vs {}), tablet={}", cooldownReplicaId,
+                        info.cooldown_replica_id, info.tablet_id);
+                return;
+            }
+            // check cooldownMetaId of all replicas are the same
+            List<Replica> replicas = Env.getCurrentEnv().getTabletInvertedIndex().getReplicas(info.tablet_id);
+            for (Replica replica : replicas) {
+                if (!info.cooldown_meta_id.equals(replica.getCooldownMetaId())) {
+                    LOG.info("cooldown meta id are not same, tablet={}", info.tablet_id);
+                    return;
+                }
+            }
+            res.addToConfirmedTablets(info.tablet_id);
+        });
+
+        if (res.isSetConfirmedTablets() && !res.getConfirmedTablets().isEmpty()) {
+            if (Env.getCurrentEnv().isMaster()) {
+                // ensure FE is real master
+                Env.getCurrentEnv().getEditLog().logCooldownDelete(new CooldownDelete());
+            } else {
+                throw new TException("FE is not master");
+            }
+        }
+
+        return res;
     }
 
     @Override
