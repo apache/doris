@@ -77,7 +77,7 @@ public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
         Set<Expression> whereCondition = ImmutableSet.of(whereCondition1, whereCondition2);
 
         LogicalPlan plan = new LogicalPlanBuilder(rStudent)
-                .hashJoinEmptyOn(rScore, joinType)
+                .joinEmptyOn(rScore, joinType)
                 .filter(whereCondition)
                 .build();
 
@@ -98,7 +98,7 @@ public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
         Set<Expression> whereCondition = ImmutableSet.of(whereCondition1, whereCondition2);
 
         LogicalPlan plan = new LogicalPlanBuilder(rScore)
-                .hashJoinEmptyOn(rStudent, joinType)
+                .joinEmptyOn(rStudent, joinType)
                 .filter(whereCondition)
                 .build();
 
@@ -128,7 +128,7 @@ public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
         Set<Expression> whereCondition = ImmutableSet.of(bothSideEqualTo, leftSide, rightSide);
 
         LogicalPlan plan = new LogicalPlanBuilder(rStudent)
-                .hashJoinEmptyOn(rScore, joinType)
+                .joinEmptyOn(rScore, joinType)
                 .filter(whereCondition)
                 .build();
 
@@ -178,7 +178,7 @@ public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
         Set<Expression> whereCondition = ImmutableSet.of(pushSide, reserveSide);
 
         LogicalPlan plan = new LogicalPlanBuilder(rStudent)
-                .hashJoinEmptyOn(rScore, joinType)
+                .joinEmptyOn(rScore, joinType)
                 .filter(whereCondition)
                 .build();
 
@@ -201,7 +201,7 @@ public class PushdownFilterThroughJoinTest implements PatternMatchSupported {
         Set<Expression> whereCondition = ImmutableSet.of(pushSide, reserveSide);
 
         LogicalPlan plan = new LogicalPlanBuilder(rScore)
-                .hashJoinEmptyOn(rStudent, joinType)
+                .joinEmptyOn(rStudent, joinType)
                 .filter(whereCondition)
                 .build();
 

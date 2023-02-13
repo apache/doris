@@ -163,7 +163,13 @@ bool value_to_bucket(std::vector<Bucket<T>>& buckets, T v, size_t num_per_bucket
 
 template <typename T>
 bool value_to_string(std::stringstream& ss, T input, const DataTypePtr& data_type) {
-    fmt::memory_buffer _insert_stmt_buffer;
+    if constexpr (std::is_same_v<T, Decimal32> || std::is_same_v<T, Decimal64> ||
+                  std::is_same_v<T, Decimal128> || std::is_same_v<T, Decimal128I>) {
+        auto scale = get_decimal_scale(*data_type);
+        ss << input.to_string(scale);
+        return true;
+    }
+
     switch (data_type->get_type_id()) {
     case TypeIndex::Int8:
     case TypeIndex::UInt8:
@@ -181,25 +187,6 @@ bool value_to_string(std::stringstream& ss, T input, const DataTypePtr& data_typ
         fmt::memory_buffer buffer;
         fmt::format_to(buffer, "{}", input);
         ss << std::string(buffer.data(), buffer.size());
-        break;
-    }
-    case TypeIndex::Decimal32: {
-        auto scale = get_decimal_scale(*data_type);
-        auto decimal_val = reinterpret_cast<const Decimal32*>(&input);
-        write_text(*decimal_val, scale, ss);
-        break;
-    }
-    case TypeIndex::Decimal64: {
-        auto scale = get_decimal_scale(*data_type);
-        auto decimal_val = reinterpret_cast<const Decimal64*>(&input);
-        write_text(*decimal_val, scale, ss);
-        break;
-    }
-    case TypeIndex::Decimal128:
-    case TypeIndex::Decimal128I: {
-        auto scale = get_decimal_scale(*data_type);
-        auto decimal_val = reinterpret_cast<const Decimal128*>(&input);
-        write_text(*decimal_val, scale, ss);
         break;
     }
     case TypeIndex::Date:

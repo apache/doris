@@ -52,6 +52,12 @@ public class MVColumnItem {
         this(name, type, aggregateType, isAggregationTypeImplicit, defineExpr, baseColumnName, null);
     }
 
+    public MVColumnItem(Type type, AggregateType aggregateType,
+            Expr defineExpr, String baseColumnName) {
+        this(CreateMaterializedViewStmt.mvColumnBuilder(aggregateType, baseColumnName), type, aggregateType, false,
+                defineExpr, baseColumnName, null);
+    }
+
     public MVColumnItem(String name, Type type, AggregateType aggregateType, boolean isAggregationTypeImplicit,
             Expr defineExpr, String baseColumnName, String baseTableName) {
         this.name = name;
@@ -164,13 +170,11 @@ public class MVColumnItem {
             if (result.getType() == null) {
                 throw new DdlException("base column's type is null");
             }
-            result.setName(name);
             result.setIsKey(isKey);
             // If the mv column type is inconsistent with the base column type, the daily
             // test will core.
             // So, I comment this line firstly.
             // result.setType(type);
-            result.setAggregationType(aggregationType, isAggregationTypeImplicit);
         } else {
             if (type == null) {
                 throw new DdlException("MVColumnItem type is null");
@@ -180,6 +184,8 @@ public class MVColumnItem {
                 result.setIsAllowNull(defineExpr.isNullable());
             }
         }
+        result.setName(name);
+        result.setAggregationType(aggregationType, isAggregationTypeImplicit);
         result.setDefineExpr(defineExpr);
         return result;
     }

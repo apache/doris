@@ -23,24 +23,19 @@ set(EXECUTABLE_OUTPUT_PATH "${BUILD_DIR}/src/exec")
 
 set(EXEC_FILES
     arrow/arrow_reader.cpp
-    arrow/orc_reader.cpp
     arrow/parquet_reader.cpp
-    arrow/parquet_row_group_reader.cpp
     base_scanner.cpp
     data_sink.cpp
     decompressor.cpp
     exec_node.cpp
-    hash_table.cpp
     text_converter.cpp
     olap_common.cpp
     tablet_info.cpp
     plain_binary_line_reader.cpp
     plain_text_line_reader.cpp
-    es/es_predicate.cpp
     es/es_scan_reader.cpp
     es/es_scroll_query.cpp
     es/es_scroll_parser.cpp
-    es/es_query_builder.cpp
     schema_scanner.cpp
     schema_scanner/schema_tables_scanner.cpp
     schema_scanner/schema_dummy_scanner.cpp
@@ -63,7 +58,7 @@ set(EXEC_FILES
     odbc_connector.cpp
     table_connector.cpp
     schema_scanner.cpp
-    parquet_scanner.cpp
+    rowid_fetcher.cpp
 )
 
 if (WITH_LZO)

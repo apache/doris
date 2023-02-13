@@ -18,9 +18,10 @@
 package org.apache.doris.nereids.trees.expressions.functions.scalar;
 
 import org.apache.doris.catalog.FunctionSignature;
+import org.apache.doris.common.Config;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
+import org.apache.doris.nereids.trees.expressions.functions.PropagateNullableOnDateLikeV2Args;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeType;
@@ -35,14 +36,23 @@ import com.google.common.collect.ImmutableList;
 import java.util.List;
 
 /**
- * ScalarFunction 'days_add'.
+ * ScalarFunction 'days_sub'.
  */
-public class DaysSub extends ScalarFunction implements BinaryExpression, ExplicitlyCastableSignature, AlwaysNullable {
-    public static final List<FunctionSignature> SIGNATURES = ImmutableList.of(
-            FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE, IntegerType.INSTANCE),
+public class DaysSub extends ScalarFunction
+        implements BinaryExpression, ExplicitlyCastableSignature, PropagateNullableOnDateLikeV2Args {
+    //When enable_date_conversion is true, we prefer to V2 signature.
+    // This preference follows original planner. refer to ScalarType.getDefaultDateType()
+    public static final List<FunctionSignature> SIGNATURES = Config.enable_date_conversion ? ImmutableList.of(
             FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
                     .args(DateTimeV2Type.SYSTEM_DEFAULT, IntegerType.INSTANCE),
+            FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(DateType.INSTANCE).args(DateType.INSTANCE, IntegerType.INSTANCE)
+    ) : ImmutableList.of(
+            FunctionSignature.ret(DateTimeType.INSTANCE).args(DateTimeType.INSTANCE, IntegerType.INSTANCE),
             FunctionSignature.ret(DateType.INSTANCE).args(DateType.INSTANCE, IntegerType.INSTANCE),
+            FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
+                    .args(DateTimeV2Type.SYSTEM_DEFAULT, IntegerType.INSTANCE),
             FunctionSignature.ret(DateV2Type.INSTANCE).args(DateV2Type.INSTANCE, IntegerType.INSTANCE)
     );
 

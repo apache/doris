@@ -52,8 +52,8 @@ import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlSerializer;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.MockedAuth;
-import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.ScanNode;
@@ -109,7 +109,7 @@ public class PartitionCacheTest {
     private Database db;
 
     @Mocked
-    private PaloAuth auth;
+    private Auth auth;
     @Mocked
     private SystemInfoService service;
     @Mocked
@@ -1074,7 +1074,7 @@ public class PartitionCacheTest {
         SqlCache sqlCache = (SqlCache) ca.getCache();
         String cacheKey = sqlCache.getSqlWithViewStmt();
         Types.PUniqueId sqlKey2 = CacheProxy.getMd5(cacheKey.replace("北京", "上海"));
-        Assert.assertNotEquals(sqlCache.getSqlKey(), sqlKey2);
+        Assert.assertNotEquals(CacheProxy.getMd5(sqlCache.getSqlWithViewStmt()), sqlKey2);
     }
 
     @Test

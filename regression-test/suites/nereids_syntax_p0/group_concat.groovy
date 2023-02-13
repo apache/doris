@@ -17,7 +17,6 @@
 
 suite("group_concat") {
     sql "SET enable_nereids_planner=true"
-    sql "set enable_vectorized_engine=true"
     sql "SET enable_fallback_to_original_planner=false"
 
 
@@ -34,4 +33,21 @@ suite("group_concat") {
                from numbers('number'='10')"""
         result([["0,1,2,3,4,5,6,7,8,9"]])
     }
+
+    test {
+        sql "select group_concat(cast(number as string)) from numbers('number'='10')"
+        result([["0, 1, 2, 3, 4, 5, 6, 7, 8, 9"]])
+    }
+
+    test {
+        sql "select group_concat(cast(number as string), ' : ') from numbers('number'='10')"
+        result([["0 : 1 : 2 : 3 : 4 : 5 : 6 : 7 : 8 : 9"]])
+    }
+
+    test {
+        sql "select group_concat(cast(number as string), NULL) from numbers('number'='10')"
+        result([[null]])
+    }
+    
+    
 }

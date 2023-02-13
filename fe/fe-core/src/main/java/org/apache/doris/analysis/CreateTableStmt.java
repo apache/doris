@@ -31,6 +31,8 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.AutoBucketUtils;
+import org.apache.doris.common.util.ParseUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
@@ -40,6 +42,7 @@ import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 import org.apache.logging.log4j.LogManager;
@@ -58,7 +61,7 @@ import java.util.stream.Collectors;
 public class CreateTableStmt extends DdlStmt {
     private static final Logger LOG = LogManager.getLogger(CreateTableStmt.class);
 
-    private static final String DEFAULT_ENGINE_NAME = "olap";
+    protected static final String DEFAULT_ENGINE_NAME = "olap";
 
     private boolean ifNotExists;
     private boolean isExternal;
@@ -70,7 +73,7 @@ public class CreateTableStmt extends DdlStmt {
     protected DistributionDesc distributionDesc;
     protected Map<String, String> properties;
     private Map<String, String> extProperties;
-    private String engineName;
+    protected String engineName;
     private String comment;
     private List<AlterClause> rollupAlterClauseList = Lists.newArrayList();
 
@@ -94,6 +97,32 @@ public class CreateTableStmt extends DdlStmt {
         engineNames.add("jdbc");
     }
 
+    // if auto bucket auto bucket enable, rewrite distribution bucket num &&
+    // set properties[PropertyAnalyzer.PROPERTIES_AUTO_BUCKET] = "true"
+    private static Map<String, String> maybeRewriteByAutoBucket(DistributionDesc distributionDesc,
+            Map<String, String> properties) throws AnalysisException {
+        if (distributionDesc == null || !distributionDesc.isAutoBucket()) {
+            return properties;
+        }
+
+        // auto bucket is enable
+        Map<String, String> newProperties = properties;
+        if (newProperties == null) {
+            newProperties = new HashMap<String, String>();
+        }
+        newProperties.put(PropertyAnalyzer.PROPERTIES_AUTO_BUCKET, "true");
+
+        if (!newProperties.containsKey(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE)) {
+            distributionDesc.setBuckets(FeConstants.default_bucket_num);
+        } else {
+            long partitionSize = ParseUtil
+                    .analyzeDataVolumn(newProperties.get(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE));
+            distributionDesc.setBuckets(AutoBucketUtils.getBucketsNum(partitionSize));
+        }
+
+        return newProperties;
+    }
+
     public CreateTableStmt() {
         // for persist
         tableName = new TableName();
@@ -112,7 +141,7 @@ public class CreateTableStmt extends DdlStmt {
             Map<String, String> extProperties,
             String comment) {
         this(ifNotExists, isExternal, tableName, columnDefinitions, null, engineName, keysDesc, partitionDesc,
-                distributionDesc, properties, extProperties, comment, null);
+                distributionDesc, properties, extProperties, comment, null, false);
     }
 
     public CreateTableStmt(boolean ifNotExists,
@@ -127,7 +156,7 @@ public class CreateTableStmt extends DdlStmt {
             Map<String, String> extProperties,
             String comment, List<AlterClause> ops) {
         this(ifNotExists, isExternal, tableName, columnDefinitions, null, engineName, keysDesc, partitionDesc,
-                distributionDesc, properties, extProperties, comment, ops);
+                distributionDesc, properties, extProperties, comment, ops, false);
     }
 
     public CreateTableStmt(boolean ifNotExists,
@@ -141,7 +170,8 @@ public class CreateTableStmt extends DdlStmt {
             DistributionDesc distributionDesc,
             Map<String, String> properties,
             Map<String, String> extProperties,
-            String comment, List<AlterClause> rollupAlterClauseList) {
+            String comment, List<AlterClause> rollupAlterClauseList,
+            boolean isDynamicSchema) {
         this.tableName = tableName;
         if (columnDefinitions == null) {
             this.columnDefs = Lists.newArrayList();
@@ -158,6 +188,12 @@ public class CreateTableStmt extends DdlStmt {
         this.keysDesc = keysDesc;
         this.partitionDesc = partitionDesc;
         this.distributionDesc = distributionDesc;
+        if (isDynamicSchema) {
+            if (properties == null) {
+                properties = Maps.newHashMap();
+            }
+            properties.put(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA, "true");
+        }
         this.properties = properties;
         this.extProperties = extProperties;
         this.isExternal = isExternal;
@@ -260,7 +296,11 @@ public class CreateTableStmt extends DdlStmt {
     }
 
     @Override
-    public void analyze(Analyzer analyzer) throws UserException {
+    public void analyze(Analyzer analyzer) throws UserException, AnalysisException {
+        if (Strings.isNullOrEmpty(engineName) || engineName.equalsIgnoreCase("olap")) {
+            this.properties = maybeRewriteByAutoBucket(distributionDesc, properties);
+        }
+
         super.analyze(analyzer);
         tableName.analyze(analyzer);
         FeNameFormat.checkTableName(tableName.getTbl());
@@ -274,11 +314,13 @@ public class CreateTableStmt extends DdlStmt {
 
         analyzeEngineName();
 
-        // `analyzeUniqueKeyMergeOnWrite` would modify `properties`, which will be used later,
+        // `analyzeXXX` would modify `properties`, which will be used later,
         // so we just clone a properties map here.
         boolean enableUniqueKeyMergeOnWrite = false;
+        boolean enableStoreRowColumn = false;
         if (properties != null) {
             enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(new HashMap<>(properties));
+            enableStoreRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(new HashMap<>(properties));
         }
 
         // analyze key desc
@@ -336,7 +378,7 @@ public class CreateTableStmt extends DdlStmt {
                     // So the float and double could not be the first column in OLAP table.
                     if (keysColumnNames.isEmpty()) {
                         throw new AnalysisException("The olap table first column could not be float, double, string"
-                                + " or array, please use decimal or varchar instead.");
+                                + " or array, struct, map, please use decimal or varchar instead.");
                     }
                     keysDesc = new KeysDesc(KeysType.DUP_KEYS, keysColumnNames);
                 }
@@ -384,20 +426,31 @@ public class CreateTableStmt extends DdlStmt {
                 columnDefs.add(ColumnDef.newDeleteSignColumnDef(AggregateType.REPLACE));
             }
         }
+        if (enableStoreRowColumn) {
+            columnDefs.add(ColumnDef.newRowStoreColumnDef());
+        }
         boolean hasObjectStored = false;
         String objectStoredColumn = "";
         Set<String> columnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
         for (ColumnDef columnDef : columnDefs) {
             columnDef.analyze(engineName.equals("olap"));
 
-            if (columnDef.getType().isArrayType() && engineName.equals("olap")) {
+            if (columnDef.getType().isComplexType() && engineName.equals("olap")) {
+                if (columnDef.getType().isMapType() && !Config.enable_map_type) {
+                    throw new AnalysisException("Please open enable_map_type config before use Map.");
+                }
+
+                if (columnDef.getType().isStructType() && !Config.enable_struct_type) {
+                    throw new AnalysisException("Please open enable_struct_type config before use Struct.");
+                }
+
                 if (columnDef.getAggregateType() != null && columnDef.getAggregateType() != AggregateType.NONE) {
-                    throw new AnalysisException("Array column can't support aggregation "
-                            + columnDef.getAggregateType());
+                    throw new AnalysisException(columnDef.getType().getPrimitiveType()
+                            + " column can't support aggregation " + columnDef.getAggregateType());
                 }
                 if (columnDef.isKey()) {
-                    throw new AnalysisException("Array can only be used in the non-key column of"
-                            + " the duplicate table at present.");
+                    throw new AnalysisException(columnDef.getType().getPrimitiveType()
+                            + " can only be used in the non-key column of the duplicate table at present.");
                 }
             }
 

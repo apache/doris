@@ -29,7 +29,6 @@
 #include "pipeline/exec/analytic_sink_operator.h"
 #include "pipeline/exec/analytic_source_operator.h"
 #include "pipeline/exec/assert_num_rows_operator.h"
-#include "pipeline/exec/broker_scan_operator.h"
 #include "pipeline/exec/const_value_operator.h"
 #include "pipeline/exec/data_queue.h"
 #include "pipeline/exec/datagen_operator.h"
@@ -166,12 +165,6 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
             .tag("backend_num", request.backend_num)
             .tag("pthread_id", (uintptr_t)pthread_self());
 
-    // Must be vec exec engine
-    if (!request.query_options.__isset.enable_vectorized_engine ||
-        !request.query_options.enable_vectorized_engine) {
-        return Status::InternalError("should set enable_vectorized_engine to true");
-    }
-
     // 1. init _runtime_state
     _runtime_state = std::make_unique<RuntimeState>(params, request.query_options,
                                                     _query_ctx->query_globals, _exec_env);
@@ -181,7 +174,6 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
 
     // TODO should be combine with plan_fragment_executor.prepare funciton
     SCOPED_ATTACH_TASK(get_runtime_state());
-    _runtime_state->init_scanner_mem_trackers();
     _runtime_state->runtime_filter_mgr()->init();
     _runtime_state->set_be_number(request.backend_num);
 
@@ -197,9 +189,6 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
     if (request.__isset.load_job_id) {
         _runtime_state->set_load_job_id(request.load_job_id);
     }
-    if (request.__isset.load_error_hub_info) {
-        _runtime_state->set_load_error_hub_info(request.load_error_hub_info);
-    }
 
     if (request.query_options.__isset.is_report_success) {
         fragment_context->set_is_report_success(request.query_options.is_report_success);
@@ -211,7 +200,6 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
     // 2. Create ExecNode to build pipeline with PipelineFragmentContext
     RETURN_IF_ERROR(ExecNode::create_tree(_runtime_state.get(), _runtime_state->obj_pool(),
                                           request.fragment.plan, *desc_tbl, &_root_plan));
-    _runtime_state->set_fragment_root_id(_root_plan->id());
 
     // Set senders of exchange nodes before pipeline build
     std::vector<ExecNode*> exch_nodes;
@@ -313,12 +301,6 @@ Status PipelineFragmentContext::_build_pipelines(ExecNode* node, PipelinePtr cur
     auto node_type = node->type();
     switch (node_type) {
     // for source
-    case TPlanNodeType::BROKER_SCAN_NODE: {
-        OperatorBuilderPtr operator_t =
-                std::make_shared<BrokerScanOperatorBuilder>(next_operator_builder_id(), node);
-        RETURN_IF_ERROR(cur_pipe->add_operator(operator_t));
-        break;
-    }
     case TPlanNodeType::OLAP_SCAN_NODE:
     case TPlanNodeType::JDBC_SCAN_NODE:
     case TPlanNodeType::ODBC_SCAN_NODE:

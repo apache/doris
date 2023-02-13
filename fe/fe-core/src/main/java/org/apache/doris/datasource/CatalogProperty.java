@@ -18,6 +18,7 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.S3Resource;
 import org.apache.doris.common.io.Text;
@@ -93,6 +94,7 @@ public class CatalogProperty implements Writable {
     }
 
     public void modifyCatalogProps(Map<String, String> props) {
+        props = HMSResource.getPropertiesFromGlue(props);
         properties.putAll(props);
     }
 

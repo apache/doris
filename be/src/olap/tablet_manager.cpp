@@ -74,7 +74,9 @@ DEFINE_GAUGE_METRIC_PROTOTYPE_5ARG(tablet_meta_mem_consumption, MetricUnit::BYTE
                                    mem_consumption, Labels({{"type", "tablet_meta"}}));
 
 TabletManager::TabletManager(int32_t tablet_map_lock_shard_size)
-        : _mem_tracker(std::make_shared<MemTracker>("TabletManager")),
+        : _mem_tracker(std::make_shared<MemTracker>(
+                  "TabletManager", ExecEnv::GetInstance()->experimental_mem_tracker())),
+          _tablet_meta_mem_tracker(std::make_shared<MemTracker>("TabletMeta")),
           _tablets_shards_size(tablet_map_lock_shard_size),
           _tablets_shards_mask(tablet_map_lock_shard_size - 1) {
     CHECK_GT(_tablets_shards_size, 0);
@@ -155,7 +157,7 @@ Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletShar
     // here, the new rowset's file will also be dropped, so use keep files here
     bool keep_files = force ? true : false;
     if (force ||
-        (new_version > old_version || (new_version == old_version && new_time > old_time))) {
+        (new_version > old_version || (new_version == old_version && new_time >= old_time))) {
         // check if new tablet's meta is in store and add new tablet's meta to meta store
         res = _add_tablet_to_map_unlocked(tablet_id, tablet, update_meta, keep_files,
                                           true /*drop_old*/);
@@ -207,6 +209,10 @@ Status TabletManager::_add_tablet_to_map_unlocked(TTabletId tablet_id,
     tablet_map_t& tablet_map = _get_tablet_map(tablet_id);
     tablet_map[tablet_id] = tablet;
     _add_tablet_to_partition(tablet);
+    // TODO: remove multiply 2 of tablet meta mem size
+    // Because table schema will copy in tablet, there will be double mem cost
+    // so here multiply 2
+    _tablet_meta_mem_tracker->consume(tablet->tablet_meta()->mem_size() * 2);
 
     VLOG_NOTICE << "add tablet to map successfully."
                 << " tablet_id=" << tablet_id;
@@ -478,8 +484,6 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
         // otherwise if BE shutdown after saving tablet state, these remote rowsets path info will lost.
         if (is_drop_table_or_partition) {
             RETURN_IF_ERROR(to_drop_tablet->remove_all_remote_rowsets());
-        } else {
-            to_drop_tablet->remove_self_owned_remote_rowsets();
         }
         to_drop_tablet->save_meta();
         {
@@ -489,6 +493,7 @@ Status TabletManager::_drop_tablet_unlocked(TTabletId tablet_id, TReplicaId repl
     }
 
     to_drop_tablet->deregister_tablet_from_dir();
+    _tablet_meta_mem_tracker->release(to_drop_tablet->tablet_meta()->mem_size() * 2);
     return Status::OK();
 }
 
@@ -590,6 +595,28 @@ std::vector<TabletSharedPtr> TabletManager::get_all_tablet() {
         }
     }
     return res;
+}
+
+uint64_t TabletManager::get_rowset_nums() {
+    uint64_t rowset_nums = 0;
+    for (const auto& tablets_shard : _tablets_shards) {
+        std::shared_lock rdlock(tablets_shard.lock);
+        for (const auto& tablet_map : tablets_shard.tablet_map) {
+            rowset_nums += tablet_map.second->version_count();
+        }
+    }
+    return rowset_nums;
+}
+
+uint64_t TabletManager::get_segment_nums() {
+    uint64_t segment_nums = 0;
+    for (const auto& tablets_shard : _tablets_shards) {
+        std::shared_lock rdlock(tablets_shard.lock);
+        for (const auto& tablet_map : tablets_shard.tablet_map) {
+            segment_nums += tablet_map.second->segment_count();
+        }
+    }
+    return segment_nums;
 }
 
 bool TabletManager::get_tablet_id_and_schema_hash_from_path(const string& path,
@@ -718,6 +745,7 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
                                             TSchemaHash schema_hash, const string& meta_binary,
                                             bool update_meta, bool force, bool restore,
                                             bool check_path) {
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     TabletMetaSharedPtr tablet_meta(new TabletMeta());
     Status status = tablet_meta->deserialize(meta_binary);
     if (!status.ok()) {
@@ -800,6 +828,7 @@ Status TabletManager::load_tablet_from_meta(DataDir* data_dir, TTabletId tablet_
 Status TabletManager::load_tablet_from_dir(DataDir* store, TTabletId tablet_id,
                                            SchemaHash schema_hash, const string& schema_hash_path,
                                            bool force, bool restore) {
+    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
     LOG(INFO) << "begin to load tablet from dir. "
               << " tablet_id=" << tablet_id << " schema_hash=" << schema_hash
               << " path = " << schema_hash_path << " force = " << force << " restore = " << restore;
@@ -1272,39 +1301,43 @@ struct SortCtx {
     SortCtx(TabletSharedPtr tablet, int64_t cooldown_timestamp, int64_t file_size)
             : tablet(tablet), cooldown_timestamp(cooldown_timestamp), file_size(file_size) {}
     TabletSharedPtr tablet;
-    int64_t cooldown_timestamp;
+    // to ensure the tablet with -1 would always be greater than other
+    uint64_t cooldown_timestamp;
     int64_t file_size;
+    bool operator<(const SortCtx& other) const {
+        if (this->cooldown_timestamp == other.cooldown_timestamp) {
+            return this->file_size > other.file_size;
+        }
+        return this->cooldown_timestamp < other.cooldown_timestamp;
+    }
 };
 
-void TabletManager::get_cooldown_tablets(std::vector<TabletSharedPtr>* tablets) {
+void TabletManager::get_cooldown_tablets(std::vector<TabletSharedPtr>* tablets,
+                                         std::function<bool(const TabletSharedPtr&)> skip_tablet) {
     std::vector<SortCtx> sort_ctx_vec;
+    std::vector<std::weak_ptr<Tablet>> candidates;
     for (const auto& tablets_shard : _tablets_shards) {
         std::shared_lock rdlock(tablets_shard.lock);
-        for (const auto& item : tablets_shard.tablet_map) {
-            const TabletSharedPtr& tablet = item.second;
-            int64_t cooldown_timestamp = -1;
-            size_t file_size = -1;
-            if (tablet->need_cooldown(&cooldown_timestamp, &file_size)) {
-                sort_ctx_vec.emplace_back(tablet, cooldown_timestamp, file_size);
-            }
-        }
+        std::for_each(
+                tablets_shard.tablet_map.begin(), tablets_shard.tablet_map.end(),
+                [&candidates](auto& tablet_pair) { candidates.emplace_back(tablet_pair.second); });
     }
+    std::for_each(
+            candidates.begin(), candidates.end(),
+            [&sort_ctx_vec, &skip_tablet](std::weak_ptr<Tablet>& t) {
+                const TabletSharedPtr& tablet = t.lock();
+                if (UNLIKELY(nullptr == tablet)) {
+                    return;
+                }
+                std::shared_lock rdlock(tablet->get_header_lock());
+                int64_t cooldown_timestamp = -1;
+                size_t file_size = -1;
+                if (skip_tablet(tablet) && tablet->need_cooldown(&cooldown_timestamp, &file_size)) {
+                    sort_ctx_vec.emplace_back(tablet, cooldown_timestamp, file_size);
+                }
+            });
 
-    std::sort(sort_ctx_vec.begin(), sort_ctx_vec.end(), [](SortCtx a, SortCtx b) {
-        if (a.cooldown_timestamp != -1 && b.cooldown_timestamp != -1) {
-            return a.cooldown_timestamp < b.cooldown_timestamp;
-        }
-
-        if (a.cooldown_timestamp != -1 && b.cooldown_timestamp == -1) {
-            return true;
-        }
-
-        if (a.cooldown_timestamp == -1 && b.cooldown_timestamp != -1) {
-            return false;
-        }
-
-        return a.file_size > b.file_size;
-    });
+    std::sort(sort_ctx_vec.begin(), sort_ctx_vec.end());
 
     for (SortCtx& ctx : sort_ctx_vec) {
         VLOG_DEBUG << "get cooldown tablet: " << ctx.tablet->tablet_id();

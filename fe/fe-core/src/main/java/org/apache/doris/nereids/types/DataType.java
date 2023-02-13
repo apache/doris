@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.SmallIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
@@ -52,12 +53,14 @@ public abstract class DataType implements AbstractDataType {
     protected static final NereidsParser PARSER = new NereidsParser();
 
     // use class and supplier here to avoid class load deadlock.
-    private static final Map<Class<? extends NumericType>, Supplier<DataType>> PROMOTION_MAP
-            = ImmutableMap.<Class<? extends NumericType>, Supplier<DataType>>builder()
+    private static final Map<Class<? extends PrimitiveType>, Supplier<DataType>> PROMOTION_MAP
+            = ImmutableMap.<Class<? extends PrimitiveType>, Supplier<DataType>>builder()
             .put(TinyIntType.class, () -> SmallIntType.INSTANCE)
             .put(SmallIntType.class, () -> IntegerType.INSTANCE)
             .put(IntegerType.class, () -> BigIntType.INSTANCE)
             .put(FloatType.class, () -> DoubleType.INSTANCE)
+            .put(VarcharType.class, () -> StringType.INSTANCE)
+            .put(CharType.class, () -> StringType.INSTANCE)
             .build();
 
     @Developing("This map is just use to search which itemType of the ArrayType is implicit castable for temporary."
@@ -86,11 +89,7 @@ public abstract class DataType implements AbstractDataType {
     /**
      * create a specific Literal for a given dataType
      */
-    public static Literal promoteNumberLiteral(Object value, DataType dataType) {
-        if (! (value instanceof Number)) {
-            return null;
-        }
-
+    public static Literal promoteLiteral(Object value, DataType dataType) {
         if (dataType.equals(SmallIntType.INSTANCE)) {
             return new SmallIntLiteral(((Number) value).shortValue());
         } else if (dataType.equals(IntegerType.INSTANCE)) {
@@ -99,6 +98,8 @@ public abstract class DataType implements AbstractDataType {
             return new BigIntLiteral(((Number) value).longValue());
         } else if (dataType.equals(DoubleType.INSTANCE)) {
             return new DoubleLiteral(((Number) value).doubleValue());
+        } else if (dataType.equals(StringType.INSTANCE)) {
+            return new StringLiteral((String) value);
         }
         return null;
     }
@@ -196,6 +197,7 @@ public abstract class DataType implements AbstractDataType {
                 return TinyIntType.INSTANCE;
             case "smallint":
                 return SmallIntType.INSTANCE;
+            case "integer":
             case "int":
                 return IntegerType.INSTANCE;
             case "bigint":
@@ -242,6 +244,7 @@ public abstract class DataType implements AbstractDataType {
                     default:
                         throw new AnalysisException("Nereids do not support type: " + type);
                 }
+            case "character":
             case "char":
                 switch (types.size()) {
                     case 1:
@@ -333,8 +336,6 @@ public abstract class DataType implements AbstractDataType {
             return FloatType.INSTANCE;
         } else if (type == Type.DOUBLE) {
             return DoubleType.INSTANCE;
-        } else if (type == Type.STRING) {
-            return StringType.INSTANCE;
         } else if (type.isNull()) {
             return NullType.INSTANCE;
         } else if (type.isDatetimeV2()) {
@@ -359,6 +360,8 @@ public abstract class DataType implements AbstractDataType {
             return CharType.createCharType(type.getLength());
         } else if (type.getPrimitiveType() == org.apache.doris.catalog.PrimitiveType.VARCHAR) {
             return VarcharType.createVarcharType(type.getLength());
+        } else if (type.getPrimitiveType() == org.apache.doris.catalog.PrimitiveType.STRING) {
+            return StringType.INSTANCE;
         } else if (type.isDecimalV3()) {
             ScalarType scalarType = (ScalarType) type;
             int precision = scalarType.getScalarPrecision();
@@ -435,7 +438,7 @@ public abstract class DataType implements AbstractDataType {
     }
 
     public boolean isIntegerLikeType() {
-        return this instanceof IntegralType;
+        return this instanceof IntegralType && !(this instanceof LargeIntType);
     }
 
     public boolean isTinyIntType() {
@@ -484,6 +487,10 @@ public abstract class DataType implements AbstractDataType {
 
     public boolean isDateLikeType() {
         return isDateType() || isDateTimeType() || isDateV2() || isDateTimeV2Type();
+    }
+
+    public boolean isDateLikeV2Type() {
+        return isDateV2() || isDateTimeV2Type();
     }
 
     public boolean isNullType() {

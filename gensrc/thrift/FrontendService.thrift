@@ -50,6 +50,7 @@ struct TColumnDesc {
   5: optional i32 columnScale
   6: optional bool isAllowNull
   7: optional string columnKey
+  8: optional list<TColumnDesc> children
 }
 
 // A column definition; used by CREATE TABLE and DESCRIBE <table> statements. A column
@@ -482,7 +483,7 @@ struct TLoadTxnBeginRequest {
     // The real value of timeout should be i32. i64 ensures the compatibility of interface.
     10: optional i64 timeout
     11: optional Types.TUniqueId request_id
-    12: optional string auth_code_uuid
+    12: optional string token
 }
 
 struct TLoadTxnBeginResult {
@@ -538,7 +539,7 @@ struct TStreamLoadPutRequest {
     31: optional bool fuzzy_parse
     32: optional string line_delimiter
     33: optional bool read_json_by_line
-    34: optional string auth_code_uuid
+    34: optional string token
     35: optional i32 send_batch_parallelism
     36: optional double max_filter_ratio
     37: optional bool load_to_single_tablet
@@ -547,6 +548,7 @@ struct TStreamLoadPutRequest {
     40: optional PlanNodes.TFileCompressType compress_type
     41: optional i64 file_size // only for stream load with parquet or orc
     42: optional bool trim_double_quotes // trim double quotes for csv
+    43: optional i32 skip_lines // csv skip line num, only used when csv header_type is not set.
 }
 
 struct TStreamLoadPutResult {
@@ -592,7 +594,7 @@ struct TLoadTxnCommitRequest {
     10: optional i64 auth_code
     11: optional TTxnCommitAttachment txnCommitAttachment
     12: optional i64 thrift_rpc_timeout_ms
-    13: optional string auth_code_uuid
+    13: optional string token
     14: optional i64 db_id
 }
 
@@ -609,7 +611,7 @@ struct TLoadTxn2PCRequest {
     6: optional i64 txnId
     7: optional string operation
     8: optional i64 auth_code
-    9: optional string auth_code_uuid
+    9: optional string token
     10: optional i64 thrift_rpc_timeout_ms
 }
 
@@ -628,7 +630,7 @@ struct TLoadTxnRollbackRequest {
     8: optional string reason
     9: optional i64 auth_code
     10: optional TTxnCommitAttachment txnCommitAttachment
-    11: optional string auth_code_uuid
+    11: optional string token
     12: optional i64 db_id
 }
 
@@ -715,6 +717,28 @@ struct TFetchSchemaTableDataResult {
   2: optional list<Data.TRow> data_batch;
 }
 
+// Only support base table add columns
+struct TAddColumnsRequest {
+    1: optional i64 table_id
+    2: optional list<TColumnDef> addColumns
+    3: optional string table_name
+    4: optional string db_name
+    5: optional bool allow_type_conflict 
+}
+
+// Only support base table add columns
+struct TAddColumnsResult {
+    1: optional Status.TStatus status
+    2: optional i64 table_id
+    3: optional list<Descriptors.TColumn> allColumns
+    4: optional i32 schema_version
+}
+
+struct TMySqlLoadAcquireTokenResult {
+    1: optional Status.TStatus status
+    2: optional string token
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -749,8 +773,11 @@ service FrontendService {
 
     TFrontendPingFrontendResult ping(1: TFrontendPingFrontendRequest request)
 
-    AgentService.TGetStoragePolicyResult refreshStoragePolicy()
+    TAddColumnsResult addColumns(1: TAddColumnsRequest request)
+
     TInitExternalCtlMetaResult initExternalCtlMeta(1: TInitExternalCtlMetaRequest request)
 
     TFetchSchemaTableDataResult fetchSchemaTableData(1: TFetchSchemaTableDataRequest request)
+
+    TMySqlLoadAcquireTokenResult acquireToken()
 }

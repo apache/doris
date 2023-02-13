@@ -100,8 +100,8 @@ int64_t Compaction::get_avg_segment_rows() {
     // take care of empty rowset
     // input_rowsets_size is total disk_size of input_rowset, this size is the
     // final size after codec and compress, so expect dest segment file size
-    // in disk is config::max_segment_size_in_vertical_compaction
-    return config::max_segment_size_in_vertical_compaction /
+    // in disk is config::vertical_compaction_max_segment_size
+    return config::vertical_compaction_max_segment_size /
            (_input_rowsets_size / (_input_row_num + 1) + 1);
 }
 
@@ -184,7 +184,6 @@ void Compaction::build_basic_info() {
     _output_version =
             Version(_input_rowsets.front()->start_version(), _input_rowsets.back()->end_version());
 
-    _oldest_write_timestamp = _input_rowsets.front()->oldest_write_timestamp();
     _newest_write_timestamp = _input_rowsets.back()->newest_write_timestamp();
 
     std::vector<RowsetMetaSharedPtr> rowset_metas(_input_rowsets.size());
@@ -196,6 +195,10 @@ void Compaction::build_basic_info() {
 
 bool Compaction::handle_ordered_data_compaction() {
     if (!config::enable_ordered_data_compaction) {
+        return false;
+    }
+    if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+        _tablet->enable_unique_key_merge_on_write()) {
         return false;
     }
     // check delete version: if compaction type is base compaction and
@@ -360,7 +363,6 @@ Status Compaction::construct_output_rowset_writer(bool is_vertical) {
     ctx.rowset_state = VISIBLE;
     ctx.segments_overlap = NONOVERLAPPING;
     ctx.tablet_schema = _cur_tablet_schema;
-    ctx.oldest_write_timestamp = _oldest_write_timestamp;
     ctx.newest_write_timestamp = _newest_write_timestamp;
     if (is_vertical) {
         return _tablet->create_vertical_rowset_writer(ctx, &_output_rs_writer);

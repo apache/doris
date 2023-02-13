@@ -44,7 +44,6 @@ Status VRepeatNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     if (_output_tuple_desc == nullptr) {
         return Status::InternalError("Failed to get tuple descriptor.");
@@ -72,7 +71,6 @@ Status VRepeatNode::alloc_resource(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VRepeatNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_ERROR(VExpr::open(_expr_ctxs, state));
     return Status::OK();
 }

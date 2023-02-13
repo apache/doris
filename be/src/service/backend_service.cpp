@@ -144,12 +144,6 @@ void BackendService::transmit_data(TTransmitDataResult& return_val,
     }
 }
 
-void BackendService::fetch_data(TFetchDataResult& return_val, const TFetchDataParams& params) {
-    // maybe hang in this function
-    Status status = _exec_env->result_mgr()->fetch_data(params.fragment_instance_id, &return_val);
-    status.set_t_status(&return_val);
-}
-
 void BackendService::submit_export_task(TStatus& t_status, const TExportTaskRequest& request) {
     //    VLOG_ROW << "submit_export_task. request  is "
     //            << apache::thrift::ThriftDebugString(request).c_str();

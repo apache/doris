@@ -97,7 +97,7 @@ Status EngineCloneTask::_do_clone() {
         // completed. Or remote be will just return header not the rowset files. clone will failed.
         if (missed_versions.empty()) {
             LOG(INFO) << "missed version size = 0, skip clone and return success. tablet_id="
-                      << _clone_req.tablet_id;
+                      << _clone_req.tablet_id << " req replica=" << _clone_req.replica_id;
             _set_tablet_info(is_new_tablet);
             return Status::OK();
         }
@@ -105,7 +105,8 @@ Status EngineCloneTask::_do_clone() {
         LOG(INFO) << "clone to existed tablet. missed_versions_size=" << missed_versions.size()
                   << ", allow_incremental_clone=" << allow_incremental_clone
                   << ", signature=" << _signature << ", tablet_id=" << _clone_req.tablet_id
-                  << ", committed_version=" << _clone_req.committed_version;
+                  << ", committed_version=" << _clone_req.committed_version
+                  << ", req replica=" << _clone_req.replica_id;
 
         // try to download missing version from src backend.
         // if tablet on src backend does not contains missing version, it will download all versions,
@@ -119,7 +120,8 @@ Status EngineCloneTask::_do_clone() {
     } else {
         LOG(INFO) << "clone tablet not exist, begin clone a new tablet from remote be. "
                   << "signature=" << _signature << ", tablet_id=" << _clone_req.tablet_id
-                  << ", committed_version=" << _clone_req.committed_version;
+                  << ", committed_version=" << _clone_req.committed_version
+                  << ", req replica=" << _clone_req.replica_id;
         // create a new tablet in this be
         // Get local disk from olap
         string local_shard_root_path;
@@ -194,7 +196,7 @@ Status EngineCloneTask::_set_tablet_info(bool is_new_tablet) {
     }
     LOG(INFO) << "clone get tablet info success. tablet_id:" << _clone_req.tablet_id
               << ", schema_hash:" << _clone_req.schema_hash << ", signature:" << _signature
-              << ", version:" << tablet_info.version;
+              << ", replica id:" << _clone_req.replica_id << ", version:" << tablet_info.version;
     _tablet_infos->push_back(tablet_info);
     return Status::OK();
 }
@@ -537,7 +539,8 @@ Status EngineCloneTask::_finish_incremental_clone(Tablet* tablet,
                                                   const TabletMeta& cloned_tablet_meta,
                                                   int64_t committed_version) {
     LOG(INFO) << "begin to finish incremental clone. tablet=" << tablet->full_name()
-              << ", committed_version=" << committed_version;
+              << ", committed_version=" << committed_version
+              << ", cloned_tablet_replica_id=" << cloned_tablet_meta.tablet_id();
 
     /// Get missing versions again from local tablet.
     /// We got it before outside the lock, so it has to be got again.

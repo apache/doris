@@ -26,12 +26,13 @@ import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.Load;
 import org.apache.doris.load.loadv2.LoadTask;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.LoadTaskInfo;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import mockit.Expectations;
 import mockit.Injectable;
 import mockit.Mocked;
@@ -39,6 +40,8 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 
+import java.io.File;
+import java.io.IOException;
 import java.io.StringReader;
 import java.util.List;
 
@@ -47,7 +50,7 @@ public class LoadStmtTest {
     private Analyzer analyzer;
 
     @Mocked
-    private PaloAuth auth;
+    private Auth auth;
     @Mocked
     private ConnectContext ctx;
     @Mocked
@@ -77,7 +80,7 @@ public class LoadStmtTest {
 
     @Test
     public void testNormal(@Injectable DataDescription desc, @Mocked Env env,
-            @Injectable ResourceMgr resourceMgr, @Injectable PaloAuth auth) throws UserException, AnalysisException {
+            @Injectable ResourceMgr resourceMgr, @Injectable Auth auth) throws UserException, AnalysisException {
         List<DataDescription> dataDescriptionList = Lists.newArrayList();
         dataDescriptionList.add(desc);
         String resourceName = "spark0";
@@ -93,6 +96,9 @@ public class LoadStmtTest {
                 desc.getTableName();
                 minTimes = 0;
                 result = "testTbl";
+                desc.analyzeFullDbName("testCluster:testDb", (Analyzer) any);
+                minTimes = 0;
+                result = "testCluster:testDb";
                 env.getResourceMgr();
                 result = resourceMgr;
                 resourceMgr.getResource(resourceName);
@@ -181,5 +187,42 @@ public class LoadStmtTest {
         String columnsSQL = "COLUMNS (" + columns + ")";
         return ((ImportColumnsStmt) SqlParserUtils.getFirstStmt(
                 new SqlParser(new SqlScanner(new StringReader(columnsSQL))))).getColumns();
+    }
+
+    @Test
+    public void testMySqlLoadData(@Injectable DataDescription desc) throws UserException, IOException {
+        File temp = File.createTempFile("testMySqlLoadData", ".txt");
+        new Expectations() {
+            {
+                desc.isClientLocal();
+                minTimes = 0;
+                result = false;
+
+                desc.getFilePaths();
+                minTimes = 0;
+                result = Lists.newArrayList(temp.getPath());
+
+                desc.toSql();
+                minTimes = 0;
+                result = "XXX";
+
+                desc.getTableName();
+                minTimes = 0;
+                result = "testTbl";
+
+                desc.analyzeFullDbName(null, (Analyzer) any);
+                minTimes = 0;
+                result = "testCluster:testDb";
+
+                desc.getMergeType();
+                minTimes = 0;
+                result = LoadTask.MergeType.APPEND;
+            }
+        };
+
+        LoadStmt stmt = new LoadStmt(desc, Maps.newHashMap());
+        stmt.analyze(analyzer);
+        Assert.assertNull(stmt.getLabel().getDbName());
+        Assert.assertEquals(EtlJobType.LOCAL_FILE, stmt.getEtlJobType());
     }
 }

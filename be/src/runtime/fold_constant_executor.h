@@ -19,12 +19,11 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "exprs/expr.h"
-#include "exprs/expr_context.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/exec_env.h"
-#include "runtime/tuple_row.h"
+#include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -36,9 +35,6 @@ class TQueryGlobals;
 // This class used to fold constant expr from fe
 class FoldConstantExecutor {
 public:
-    // fold constant expr
-    Status fold_constant_expr(const TFoldConstantParams& params, PConstantExprResult* response);
-
     // fold constant vexpr
     Status fold_constant_vexpr(const TFoldConstantParams& params, PConstantExprResult* response);
 
@@ -55,7 +51,6 @@ private:
     std::unique_ptr<RuntimeState> _runtime_state;
     std::unique_ptr<MemTracker> _mem_tracker;
     RuntimeProfile* _runtime_profile = nullptr;
-    std::unique_ptr<MemPool> _mem_pool;
     ObjectPool _pool;
     static TUniqueId _dummy_id;
 };

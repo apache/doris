@@ -189,10 +189,19 @@ public:
     template <typename Type>
     ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
 
+    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
+                                         size_t limit) const override {
+        return this->template get_indices_of_non_default_rows_impl<Self>(indices, from, limit);
+    }
+
+    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
+
     ColumnPtr replicate(const IColumn::Offsets& offsets) const override;
 
     void replicate(const uint32_t* counts, size_t target_size, IColumn& column, size_t begin = 0,
                    int count_sz = -1) const override;
+
+    TypeIndex get_data_type() const override { return TypeId<T>::value; }
 
     void get_extremes(Field& min, Field& max) const override;
 

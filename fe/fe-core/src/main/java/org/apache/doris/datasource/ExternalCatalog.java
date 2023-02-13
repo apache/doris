@@ -21,7 +21,9 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.catalog.external.ExternalDatabase;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
+import org.apache.doris.catalog.external.IcebergExternalDatabase;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.io.Text;
@@ -35,6 +37,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
+import org.apache.commons.lang.NotImplementedException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jetbrains.annotations.Nullable;
@@ -44,6 +47,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * The abstract class for all types of external catalogs.
@@ -99,6 +103,17 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     public abstract boolean tableExist(SessionContext ctx, String dbName, String tblName);
 
     /**
+     * check if the specified table exist in doris.
+     *
+     * @param dbName
+     * @param tblName
+     * @return true if table exists, false otherwise
+     */
+    public boolean tableExistInLocal(String dbName, String tblName) {
+        throw new NotImplementedException();
+    }
+
+    /**
      * Catalog can't be init when creating because the external catalog may depend on third system.
      * So you have to make sure the client of third system is initialized before any method was called.
      */
@@ -152,7 +167,19 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
         return idToDb.get(dbId);
     }
 
-    public abstract List<Column> getSchema(String dbName, String tblName);
+    public final List<Column> getSchema(String dbName, String tblName) {
+        makeSureInitialized();
+        Optional<ExternalDatabase> db = getDb(dbName);
+        if (db.isPresent()) {
+            Optional table = db.get().getTable(tblName);
+            if (table.isPresent()) {
+                return ((ExternalTable) table.get()).initSchema();
+            }
+        }
+        // return one column with unsupported type.
+        // not return empty to avoid some unexpected issue.
+        return Lists.newArrayList(Column.UNSUPPORTED_COLUMN);
+    }
 
     @Override
     public long getId() {
@@ -268,6 +295,14 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
                     tmpIdToDb.put(db.getId(), db);
                 }
                 break;
+            case ICEBERG:
+                for (int i = 0; i < log.getCreateCount(); i++) {
+                    IcebergExternalDatabase db = new IcebergExternalDatabase(
+                            this, log.getCreateDbIds().get(i), log.getCreateDbNames().get(i));
+                    tmpDbNameToId.put(db.getFullName(), db.getId());
+                    tmpIdToDb.put(db.getId(), db);
+                }
+                break;
             default:
                 break;
         }
@@ -309,5 +344,13 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     public void addDatabaseForTest(ExternalDatabase db) {
         idToDb.put(db.getId(), db);
         dbNameToId.put(ClusterNamespace.getNameFromFullName(db.getFullName()), db.getId());
+    }
+
+    public void dropDatabase(String dbName) {
+        throw new NotImplementedException();
+    }
+
+    public void createDatabase(long dbId, String dbName) {
+        throw new NotImplementedException();
     }
 }

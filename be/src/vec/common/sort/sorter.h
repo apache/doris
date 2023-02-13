@@ -18,6 +18,7 @@
 #pragma once
 #include <queue>
 
+#include "common/consts.h"
 #include "common/status.h"
 #include "vec/common/sort/vsort_exec_exprs.h"
 #include "vec/core/block.h"
@@ -34,7 +35,11 @@ class MergeSorterState {
 public:
     MergeSorterState(const RowDescriptor& row_desc, int64_t offset, int64_t limit,
                      RuntimeState* state, RuntimeProfile* profile)
-            : unsorted_block_(new Block(VectorizedUtils::create_empty_block(row_desc))),
+            // create_empty_block should ignore invalid slots, unsorted_block
+            // should be same structure with arrival block from child node
+            // since block from child node may ignored these slots
+            : unsorted_block_(new Block(
+                      VectorizedUtils::create_empty_block(row_desc, true /*ignore invalid slot*/))),
               offset_(offset),
               limit_(limit),
               profile_(profile) {
@@ -67,6 +72,8 @@ public:
     uint64_t num_rows() const { return num_rows_; }
 
     bool is_spilled() const { return is_spilled_; }
+
+    const Block& last_sorted_block() const { return sorted_blocks_.back(); }
 
     std::unique_ptr<Block> unsorted_block_;
 
@@ -177,16 +184,22 @@ public:
 
 private:
     bool _reach_limit() {
-        return _state->unsorted_block_->rows() > BUFFERED_BLOCK_SIZE ||
-               _state->unsorted_block_->allocated_bytes() > BUFFERED_BLOCK_BYTES;
+        return _state->unsorted_block_->rows() > buffered_block_size_ ||
+               _state->unsorted_block_->bytes() > buffered_block_bytes_;
     }
 
     Status _do_sort();
 
     std::unique_ptr<MergeSorterState> _state;
 
-    static constexpr size_t BUFFERED_BLOCK_SIZE = 1024 * 1024;
-    static constexpr size_t BUFFERED_BLOCK_BYTES = 64 << 20;
+    static constexpr size_t INITIAL_BUFFERED_BLOCK_SIZE = 1024 * 1024;
+    static constexpr size_t INITIAL_BUFFERED_BLOCK_BYTES = 64 << 20;
+
+    static constexpr size_t SPILL_BUFFERED_BLOCK_SIZE = 4 * 1024 * 1024;
+    static constexpr size_t SPILL_BUFFERED_BLOCK_BYTES = 256 << 20;
+
+    size_t buffered_block_size_ = INITIAL_BUFFERED_BLOCK_SIZE;
+    size_t buffered_block_bytes_ = INITIAL_BUFFERED_BLOCK_BYTES;
 };
 
 } // namespace doris::vectorized

@@ -47,7 +47,7 @@ under the License.
     2. Elasticsearch: Access ES data sources.
     3. JDBC: Access MySQL through the JDBC protocol.
     
-    Documentation: https://doris.apache.org/zh-CN/docs/dev/ecosystem/external-table/multi-catalog)
+    Documentation: https://doris.apache.org/zh-CN/docs/dev/lakehouse/multi-catalog)
 
     > Note: The corresponding permission level will also be changed automatically, see the "Upgrade Notes" section for details.
     
@@ -69,7 +69,7 @@ When creating a table, set `"light_schema_change"="true"` in properties.
 	  - SQL Server
 	  - Clickhouse
 
-	Documentation: https://doris.apache.org/zh-CN/docs/dev/ecosystem/external-table/jdbc-of-doris/
+	Documentation: [https://doris.apache.org/en/docs/dev/lakehouse/multi-catalog/jdbc](https://doris.apache.org/docs/dev/lakehouse/multi-catalog/jdbc/)
 
 	> Note: The ODBC feature will be removed in a later version, please try to switch to the JDBC.
 

@@ -62,7 +62,8 @@ Status VResultSink::prepare(RuntimeState* state) {
 
     // create sender
     RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-            state->fragment_instance_id(), _buf_size, &_sender, state->enable_pipeline_exec()));
+            state->fragment_instance_id(), _buf_size, &_sender, state->enable_pipeline_exec(),
+            state->execution_timeout()));
 
     // create writer based on sink type
     switch (_sink_type) {

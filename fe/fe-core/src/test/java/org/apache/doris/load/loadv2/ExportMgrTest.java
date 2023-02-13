@@ -24,8 +24,8 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.MockedAuth;
-import org.apache.doris.mysql.privilege.PaloAuth;
 
 import com.google.common.collect.Maps;
 import mockit.Mocked;
@@ -41,7 +41,7 @@ public class ExportMgrTest {
     private final ExportMgr exportMgr = new ExportMgr();
 
     @Mocked
-    private PaloAuth auth;
+    private Auth auth;
 
     @Before
     public void setUp() {

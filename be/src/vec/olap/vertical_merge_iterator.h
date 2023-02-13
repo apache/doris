@@ -37,8 +37,8 @@ public:
     RowSource(uint16_t data) : _data(data) {}
     RowSource(uint16_t source_num, bool agg_flag);
 
-    uint16_t get_source_num();
-    bool agg_flag();
+    uint16_t get_source_num() const;
+    bool agg_flag() const;
     void set_agg_flag(bool agg_flag);
     uint16_t data() const;
 
@@ -102,6 +102,9 @@ public:
     Status seek_to_begin();
 
     size_t same_source_count(uint16_t source, size_t limit);
+
+    // return continous agg_flag=true count from index
+    size_t continuous_agg_count(uint64_t index);
 
 private:
     Status _create_buffer_file();
@@ -190,14 +193,14 @@ private:
     size_t _ori_return_cols = 0;
 
     // segment order, used to compare key
-    uint32_t _order = -1;
+    uint32_t _order = 0;
 
-    uint32_t _seq_col_idx = -1;
+    int32_t _seq_col_idx = -1;
 
     bool _valid = false;
     bool _inited = false;
     mutable bool _is_same = false;
-    size_t _index_in_block = -1;
+    int32_t _index_in_block = -1;
     size_t _block_row_max = 0;
     int _num_key_columns;
     size_t _cur_batch_num = 0;

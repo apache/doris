@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.plans.algebra;
 
-import org.apache.doris.nereids.analyzer.Relation;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 
 import java.util.List;

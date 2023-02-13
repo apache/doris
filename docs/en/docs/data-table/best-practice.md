@@ -181,3 +181,61 @@ Users can modify the Schema of an existing table through the Schema Change opera
 - Adding or removing bitmap index
 
 For details, please refer to [Schema Change](
+
+## Row Store format
+We support row format for olap table to reduce point lookup io cost, but to enable this format you need to spend more disk space for row format store.Currently we store row in an extra column called `row column` for simplicity.Row store is disabled by default, users can enable it by adding the following property when create table
+```
+"store_row_column" = "true"
+```
+
+## Accelerate point query for merge-on-write model
+As we provided row store format , we could use such store format to speed up point query performance for merge-on-write model.For point query on primary keys when `enable_unique_key_merge_on_write` enabled, planner will optimize such query and execute in a short path in a light weight RPC interface.Bellow is an example of point query with row store on merge-on-write model:
+```
+CREATE TABLE `tbl_point_query` (
+  `key` int(11) NULL,
+  `v1` decimal(27, 9) NULL,
+  `v2` varchar(30) NULL,
+  `v3` varchar(30) NULL,
+  `v4` date NULL,
+  `v5` datetime NULL,
+  `v6` float NULL,
+  `v7` datev2 NULL
+) ENGINE=OLAP
+UNIQUE KEY(key)
+COMMENT 'OLAP'
+DISTRIBUTED BY HASH(key) BUCKETS 1
+PROPERTIES (
+"replication_allocation" = "tag.location.default: 1",
+"enable_unique_key_merge_on_write" = "true",
+"light_schema_change" = "true",
+"store_row_column" = "true"
+);
+```
+[NOTE]
+1. `enable_unique_key_merge_on_write` should be enabled, since we need primary key for quick point lookup in storage engine
+2. when condition only contains primary key like `select * from tbl_point_query where key = 123`, such query will go through the short fast path
+3. `light_schema_change` should also been enabled since we rely `column unique id` of each columns when doing point query.
+
+### Using `PreparedStatement`
+In order to reduce CPU cost for parsing query SQL and SQL expressions, we provide `PreparedStatement` feature in FE fully compatible with mysql protocol (currently only support point queries like above mentioned).Enable it will pre caculate PreparedStatement SQL and expresions and caches it in a session level memory buffer and will be reused later on.We could improve 4x+ performance by using `PreparedStatement` when CPU became hotspot doing such queries.Bellow is an JDBC example of using `PreparedStatement`.
+
+1. Setup JDBC url and enable server side prepared statement
+```
+url = jdbc:mysql://127.0.0.1:9137/ycsb?useServerPrepStmts=true
+``
+
+2. Using `PreparedStatement`
+```java
+// use `?` for placement holders, readStatement should be reused
+PreparedStatement readStatement = conn.prepareStatement("select * from tbl_point_query where key = ?");
+...
+readStatement.setInt(1234);
+ResultSet resultSet = readStatement.executeQuery();
+...
+readStatement.setInt(1235);
+resultSet = readStatement.executeQuery();
+...
+```
+
+
+

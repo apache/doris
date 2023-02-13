@@ -47,7 +47,9 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * Resource manager is responsible for managing external resources used by Doris.
@@ -167,6 +169,11 @@ public class ResourceMgr implements Writable {
         return nameToResource.size();
     }
 
+    public List<Resource> getResource(ResourceType type) {
+        return nameToResource.values().stream().filter(resource -> resource.getType() == type)
+                .collect(Collectors.toList());
+    }
+
     public List<List<Comparable>> getResourcesInfo(String name, boolean accurateMatch, Set<String> typeSets) {
         List<List<String>> targetRows = procNode.fetchResult().getRows();
         List<List<Comparable>> returnRows = Lists.newArrayList();
@@ -229,7 +236,7 @@ public class ResourceMgr implements Writable {
                 Resource resource = entry.getValue();
                 // check resource privs
                 if (!Env.getCurrentEnv().getAuth().checkResourcePriv(ConnectContext.get(), resource.getName(),
-                                                                             PrivPredicate.SHOW)) {
+                                                                             PrivPredicate.SHOW_RESOURCES)) {
                     continue;
                 }
                 resource.getProcNodeData(result);

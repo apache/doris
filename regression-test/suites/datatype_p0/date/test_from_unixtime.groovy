@@ -17,7 +17,6 @@
 // under the License.
 
 suite("test_from_unixtime") {
-    sql "set enable_vectorized_engine=true"
     sql "set enable_fold_constant_by_be=true"
 
     qt_sql1 "select from_unixtime(1553152255)"

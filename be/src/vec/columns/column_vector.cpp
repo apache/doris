@@ -28,6 +28,8 @@
 
 #include "util/simd/bits.h"
 #include "util/stack_util.h"
+#include "vec/columns/column_impl.h"
+#include "vec/columns/columns_common.h"
 #include "vec/common/arena.h"
 #include "vec/common/assert_cast.h"
 #include "vec/common/bit_cast.h"
@@ -345,8 +347,7 @@ Float64 ColumnVector<T>::get_float64(size_t n) const {
 
 template <typename T>
 void ColumnVector<T>::insert_range_from(const IColumn& src, size_t start, size_t length) {
-    const ColumnVector& src_vec = dynamic_cast<const ColumnVector&>(src);
-
+    const ColumnVector& src_vec = assert_cast<const ColumnVector&>(src);
     if (start + length > src_vec.data.size()) {
         LOG(FATAL) << fmt::format(
                 "Parameters start = {}, length = {}, are out of bound in "
@@ -546,6 +547,11 @@ void ColumnVector<T>::get_extremes(Field& min, Field& max) const {
 
     min = NearestFieldType<T>(cur_min);
     max = NearestFieldType<T>(cur_max);
+}
+
+template <typename T>
+ColumnPtr ColumnVector<T>::index(const IColumn& indexes, size_t limit) const {
+    return select_index_impl(*this, indexes, limit);
 }
 
 /// Explicit template instantiations - to avoid code bloat in headers.

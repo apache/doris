@@ -127,8 +127,13 @@ joinRelation
 
 // Just like `opt_plan_hints` in legacy CUP parser.
 joinHint
-    : LEFT_BRACKET identifier RIGHT_BRACKET                           #bracketStyleHint
-    | HINT_START identifier HINT_END                                  #commentStyleHint
+    : LEFT_BRACKET identifier RIGHT_BRACKET                           #bracketJoinHint
+    | HINT_START identifier HINT_END                                  #commentJoinHint
+    ;
+
+relationHint
+    : LEFT_BRACKET identifier (COMMA identifier)* RIGHT_BRACKET       #bracketRelationHint
+    | HINT_START identifier (COMMA identifier)* HINT_END              #commentRelationHint
     ;
 
 aggClause
@@ -208,11 +213,11 @@ identifierSeq
     ;
 
 relationPrimary
-    : multipartIdentifier specifiedPartition? tableAlias lateralView*           #tableName
-    | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                      #aliasedQuery
+    : multipartIdentifier specifiedPartition? tableAlias relationHint? lateralView*           #tableName
+    | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                                    #aliasedQuery
     | tvfName=identifier LEFT_PAREN
       (properties+=tvfProperty (COMMA properties+=tvfProperty)*)?
-      RIGHT_PAREN tableAlias                                                    #tableValuedFunction
+      RIGHT_PAREN tableAlias                                                                  #tableValuedFunction
     ;
 
 tvfProperty
@@ -232,8 +237,7 @@ multipartIdentifier
 
 // -----------------Expression-----------------
 namedExpression
-    : expression (AS? name=errorCapturingIdentifier)?
-    | expression (AS? strName=STRING+)?
+    : expression (AS? (errorCapturingIdentifier | STRING))?
     ;
 
 namedExpressionSeq
@@ -287,7 +291,13 @@ primaryExpression
                 startTimestamp=valueExpression COMMA
                 endTimestamp=valueExpression
             RIGHT_PAREN                                                                        #timestampdiff
-    | name=(TIMESTAMPADD | ADDDATE | DAYS_ADD | DATE_ADD)
+    | name=(TIMESTAMPADD | DATEADD)
+                  LEFT_PAREN
+                      unit=datetimeUnit COMMA
+                      startTimestamp=valueExpression COMMA
+                      endTimestamp=valueExpression
+                  RIGHT_PAREN                                                                  #timestampadd
+    | name =(ADDDATE | DAYS_ADD | DATE_ADD)
             LEFT_PAREN
                 timestamp=valueExpression COMMA
                 (INTERVAL unitsAmount=valueExpression unit=datetimeUnit
@@ -334,10 +344,10 @@ specifiedPartition
 constant
     : NULL                                                                                     #nullLiteral
     | interval                                                                                 #intervalLiteral
-    | identifier STRING                                                                        #typeConstructor
+    | type=(DATE | DATEV2 | TIMESTAMP) STRING                                                  #typeConstructor
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
-    | STRING+                                                                                  #stringLiteral
+    | STRING                                                                                   #stringLiteral
     ;
 
 comparisonOperator
@@ -414,7 +424,6 @@ nonReserved
     | ANY
     | ARCHIVE
     | ARRAY
-    | AS
     | ASC
     | AT
     | AUTHORIZATION
@@ -459,6 +468,7 @@ nonReserved
     | DATABASE
     | DATABASES
     | DATE
+    | DATEV2
     | DATE_ADD
     | DATEDIFF
     | DATE_DIFF
@@ -624,9 +634,6 @@ nonReserved
     | STORED
     | STRATIFY
     | STRUCT
-    | SUBSTR
-    | SUBSTRING
-    | SUM
     | SYNC
     | SYSTEM_TIME
     | SYSTEM_VERSION

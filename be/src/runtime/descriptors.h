@@ -45,12 +45,13 @@ class ObjectPool;
 class TDescriptorTable;
 class TSlotDescriptor;
 class TTupleDescriptor;
-class Expr;
 class RuntimeState;
 class SchemaScanner;
 class OlapTableSchemaParam;
 class PTupleDescriptor;
 class PSlotDescriptor;
+class PInternalServiceImpl;
+class TabletSchema;
 
 // Location information for null indicator bit for particular slot.
 // For non-nullable slots, the byte_offset will be 0 and the bit_mask will be 0.
@@ -116,11 +117,17 @@ public:
 
     int32_t col_unique_id() const { return _col_unique_id; }
 
+    bool is_key() const { return _is_key; }
+    bool need_materialize() const { return _need_materialize; }
+
 private:
     friend class DescriptorTbl;
     friend class TupleDescriptor;
     friend class SchemaScanner;
     friend class OlapTableSchemaParam;
+    friend class PInternalServiceImpl;
+    friend class Tablet;
+    friend class TabletSchema;
 
     const SlotId _id;
     const TypeDescriptor _type;
@@ -147,6 +154,9 @@ private:
 
     const bool _is_materialized;
 
+    const bool _is_key;
+    const bool _need_materialize;
+
     SlotDescriptor(const TSlotDescriptor& tdesc);
     SlotDescriptor(const PSlotDescriptor& pdesc);
 };
@@ -168,10 +178,12 @@ public:
 
     const std::string& name() const { return _name; }
     const std::string& database() const { return _database; }
+    int32_t table_id() const { return _table_id; }
 
 private:
     std::string _name;
     std::string _database;
+    int32_t _table_id;
     int _num_cols;
     int _num_clustering_cols;
 };
@@ -262,7 +274,7 @@ public:
     const std::string user() const { return _user; }
     const std::string passwd() const { return _passwd; }
     const std::string driver() const { return _driver; }
-    const TOdbcTableType::type type() const { return _type; }
+    TOdbcTableType::type type() const { return _type; }
 
 private:
     std::string _db;
@@ -301,7 +313,13 @@ private:
 
 class TupleDescriptor {
 public:
-    // virtual ~TupleDescriptor() {}
+    ~TupleDescriptor() {
+        if (_own_slots) {
+            for (SlotDescriptor* slot : _slots) {
+                delete slot;
+            }
+        }
+    }
     int64_t byte_size() const { return _byte_size; }
     int num_materialized_slots() const { return _num_materialized_slots; }
     int num_null_slots() const { return _num_null_slots; }
@@ -342,6 +360,8 @@ private:
     friend class DescriptorTbl;
     friend class SchemaScanner;
     friend class OlapTableSchemaParam;
+    friend class PInternalServiceImpl;
+    friend class TabletSchema;
 
     const TupleId _id;
     TableDescriptor* _table_desc;
@@ -359,9 +379,12 @@ private:
     // Provide quick way to check if there are variable length slots.
     // True if _string_slots or _collection_slots have entries.
     bool _has_varlen_slots;
+    bool _own_slots = false;
 
-    TupleDescriptor(const TTupleDescriptor& tdesc);
-    TupleDescriptor(const PTupleDescriptor& tdesc);
+    TupleDescriptor(const TTupleDescriptor& tdesc, bool own_slot = false);
+    TupleDescriptor(const PTupleDescriptor& tdesc, bool own_slot = false);
+    TupleDescriptor(TupleDescriptor&&) = delete;
+    void operator=(const TupleDescriptor&) = delete;
 
     void add_slot(SlotDescriptor* slot);
 

@@ -44,6 +44,7 @@ docs/.temp
 # output, thirdparty, extension
 output/
 rpc_data/
+metastore_db/
 thirdparty/src*
 thirdparty/installed*
 
@@ -94,3 +95,5 @@ tools/**/tpch-data/
 
 # be-ut
 data_test
+
+/conf/log4j2-spring.xml

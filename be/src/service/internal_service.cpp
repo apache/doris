@@ -22,10 +22,15 @@
 #include <string>
 
 #include "common/config.h"
+#include "common/consts.h"
 #include "gen_cpp/BackendService.h"
+#include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "http/http_client.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset_factory.h"
+#include "olap/rowset/segment_v2/column_reader.h"
+#include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
 #include "olap/tablet.h"
 #include "runtime/buffer_control_block.h"
@@ -38,7 +43,10 @@
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
 #include "service/brpc.h"
+#include "service/point_query_executor.h"
+#include "util/async_io.h"
 #include "util/brpc_client_cache.h"
+#include "util/defer_op.h"
 #include "util/md5.h"
 #include "util/proto_util.h"
 #include "util/ref_count_closure.h"
@@ -48,6 +56,8 @@
 #include "util/telemetry/telemetry.h"
 #include "util/thrift_util.h"
 #include "util/uid_util.h"
+#include "vec/core/block.h"
+#include "vec/data_types/data_type_string.h"
 #include "vec/exec/format/csv/csv_reader.h"
 #include "vec/exec/format/generic_reader.h"
 #include "vec/exec/format/json/new_json_reader.h"
@@ -100,11 +110,13 @@ PInternalServiceImpl::PInternalServiceImpl(ExecEnv* exec_env)
     REGISTER_HOOK_METRIC(add_batch_task_queue_size,
                          [this]() { return _tablet_worker_pool.get_queue_size(); });
     CHECK_EQ(0, bthread_key_create(&btls_key, thread_context_deleter));
+    CHECK_EQ(0, bthread_key_create(&AsyncIO::btls_io_ctx_key, AsyncIO::io_ctx_key_deleter));
 }
 
 PInternalServiceImpl::~PInternalServiceImpl() {
     DEREGISTER_HOOK_METRIC(add_batch_task_queue_size);
     CHECK_EQ(0, bthread_key_delete(btls_key));
+    CHECK_EQ(0, bthread_key_delete(AsyncIO::btls_io_ctx_key));
 }
 
 void PInternalServiceImpl::transmit_data(google::protobuf::RpcController* cntl_base,
@@ -395,6 +407,28 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
     st.to_protobuf(result->mutable_status());
 }
 
+Status PInternalServiceImpl::_tablet_fetch_data(const PTabletKeyLookupRequest* request,
+                                                PTabletKeyLookupResponse* response) {
+    PointQueryExecutor lookup_util;
+    RETURN_IF_ERROR(lookup_util.init(request, response));
+    RETURN_IF_ERROR(lookup_util.lookup_up());
+    if (VLOG_DEBUG_IS_ON) {
+        VLOG_DEBUG << lookup_util.print_profile();
+    }
+    LOG_EVERY_N(INFO, 500) << lookup_util.print_profile();
+    return Status::OK();
+}
+
+void PInternalServiceImpl::tablet_fetch_data(google::protobuf::RpcController* controller,
+                                             const PTabletKeyLookupRequest* request,
+                                             PTabletKeyLookupResponse* response,
+                                             google::protobuf::Closure* done) {
+    [[maybe_unused]] brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
+    brpc::ClosureGuard guard(done);
+    Status st = _tablet_fetch_data(request, response);
+    st.to_protobuf(response->mutable_status());
+}
+
 void PInternalServiceImpl::get_info(google::protobuf::RpcController* controller,
                                     const PProxyRequest* request, PProxyResult* response,
                                     google::protobuf::Closure* done) {
@@ -593,8 +627,6 @@ Status PInternalServiceImpl::_fold_constant_expr(const std::string& ser_request,
         uint32_t len = ser_request.size();
         RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, false, &t_request));
     }
-    if (!t_request.__isset.vec_exec || !t_request.vec_exec)
-        return FoldConstantExecutor().fold_constant_expr(t_request, response);
 
     return FoldConstantExecutor().fold_constant_vexpr(t_request, response);
 }
@@ -947,6 +979,140 @@ void PInternalServiceImpl::response_slave_tablet_pull_rowset(
     StorageEngine::instance()->txn_manager()->finish_slave_tablet_pull_rowset(
             request->txn_id(), request->tablet_id(), request->node_id(), request->is_succeed());
     Status::OK().to_protobuf(response->mutable_status());
+}
+
+static Status read_by_rowids(
+        std::pair<size_t, size_t> row_range_idx, const TupleDescriptor& desc,
+        const google::protobuf::RepeatedPtrField<PMultiGetRequest_RowId>& rowids,
+        vectorized::Block* sub_block) {
+    //read from row_range.first to row_range.second
+    for (size_t i = row_range_idx.first; i < row_range_idx.second; ++i) {
+        MonotonicStopWatch watch;
+        watch.start();
+        auto row_id = rowids[i];
+        TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
+                row_id.tablet_id(), true /*include deleted*/);
+        RowsetId rowset_id;
+        rowset_id.init(row_id.rowset_id());
+        if (!tablet) {
+            continue;
+        }
+        BetaRowsetSharedPtr rowset =
+                std::static_pointer_cast<BetaRowset>(tablet->get_rowset(rowset_id));
+        if (!rowset) {
+            LOG(INFO) << "no such rowset " << rowset_id;
+            continue;
+        }
+        const TabletSchemaSPtr tablet_schema = rowset->tablet_schema();
+        VLOG_DEBUG << "get tablet schema column_num:" << tablet_schema->num_columns()
+                   << ", version:" << tablet_schema->schema_version()
+                   << ", cost(us):" << watch.elapsed_time() / 1000;
+        SegmentCacheHandle segment_cache;
+        RETURN_IF_ERROR(SegmentLoader::instance()->load_segments(rowset, &segment_cache, true));
+        // find segment
+        auto it = std::find_if(segment_cache.get_segments().begin(),
+                               segment_cache.get_segments().end(),
+                               [&row_id](const segment_v2::SegmentSharedPtr& seg) {
+                                   return seg->id() == row_id.segment_id();
+                               });
+        if (it == segment_cache.get_segments().end()) {
+            continue;
+        }
+        segment_v2::SegmentSharedPtr segment = *it;
+        for (int x = 0; x < desc.slots().size() - 1; ++x) {
+            int index = tablet_schema->field_index(desc.slots()[x]->col_unique_id());
+            segment_v2::ColumnIterator* column_iterator = nullptr;
+            vectorized::MutableColumnPtr column =
+                    sub_block->get_by_position(x).column->assume_mutable();
+            if (index < 0) {
+                column->insert_default();
+                continue;
+            } else {
+                RETURN_IF_ERROR(segment->new_column_iterator(tablet_schema->column(index),
+                                                             &column_iterator));
+            }
+            std::unique_ptr<segment_v2::ColumnIterator> ptr_guard(column_iterator);
+            segment_v2::ColumnIteratorOptions opt;
+            OlapReaderStatistics stats;
+            opt.file_reader = segment->file_reader().get();
+            opt.stats = &stats;
+            opt.use_page_cache = !config::disable_storage_page_cache;
+            column_iterator->init(opt);
+            std::vector<segment_v2::rowid_t> rowids {
+                    static_cast<segment_v2::rowid_t>(row_id.ordinal_id())};
+            RETURN_IF_ERROR(column_iterator->read_by_rowids(rowids.data(), 1, column));
+        }
+        LOG_EVERY_N(INFO, 100) << "multiget_data single_row, cost(us):"
+                               << watch.elapsed_time() / 1000;
+        GlobalRowLoacation row_location(row_id.tablet_id(), rowset->rowset_id(),
+                                        row_id.segment_id(), row_id.ordinal_id());
+        sub_block->get_columns().back()->assume_mutable()->insert_data(
+                reinterpret_cast<const char*>(&row_location), sizeof(GlobalRowLoacation));
+    }
+    return Status::OK();
+}
+
+Status PInternalServiceImpl::_multi_get(const PMultiGetRequest* request,
+                                        PMultiGetResponse* response) {
+    TupleDescriptor desc(request->desc());
+    std::vector<SlotDescriptor> slots;
+    slots.reserve(request->slots().size());
+    for (const auto& pslot : request->slots()) {
+        slots.push_back(SlotDescriptor(pslot));
+        desc.add_slot(&slots.back());
+    }
+    assert(desc.slots().back()->col_name() == BeConsts::ROWID_COL);
+    vectorized::Block block(desc.slots(), request->rowids().size());
+    RETURN_IF_ERROR(
+            read_by_rowids(std::pair {0, request->rowids_size()}, desc, request->rowids(), &block));
+    std::vector<size_t> char_type_idx;
+    for (size_t i = 0; i < desc.slots().size(); i++) {
+        auto column_desc = desc.slots()[i];
+        auto type_desc = column_desc->type();
+        do {
+            if (type_desc.type == TYPE_CHAR) {
+                char_type_idx.emplace_back(i);
+                break;
+            } else if (type_desc.type != TYPE_ARRAY) {
+                break;
+            }
+            // for Array<Char> or Array<Array<Char>>
+            type_desc = type_desc.children[0];
+        } while (true);
+    }
+    // shrink char_type suffix zero data
+    block.shrink_char_type_column_suffix_zero(char_type_idx);
+    VLOG_DEBUG << "dump block:" << block.dump_data(0, 10)
+               << ", be_exec_version:" << request->be_exec_version();
+
+    [[maybe_unused]] size_t compressed_size = 0;
+    [[maybe_unused]] size_t uncompressed_size = 0;
+    int be_exec_version = request->has_be_exec_version() ? request->be_exec_version() : 0;
+    RETURN_IF_ERROR(block.serialize(be_exec_version, response->mutable_block(), &uncompressed_size,
+                                    &compressed_size, segment_v2::CompressionTypePB::LZ4));
+    return Status::OK();
+}
+
+void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* controller,
+                                         const PMultiGetRequest* request,
+                                         PMultiGetResponse* response,
+                                         google::protobuf::Closure* done) {
+    // Submit task to seperate ThreadPool for avoiding block bthread working pthread
+    ThreadPool* task_pool = StorageEngine::instance()->get_bg_multiget_threadpool();
+    Status submit_st = task_pool->submit_func([request, response, done, this]() {
+        // multi get data by rowid
+        MonotonicStopWatch watch;
+        watch.start();
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(0);
+        Status st = _multi_get(request, response);
+        st.to_protobuf(response->mutable_status());
+        LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
+    });
+    if (!submit_st.ok()) {
+        submit_st.to_protobuf(response->mutable_status());
+        done->Run();
+    }
 }
 
 } // namespace doris

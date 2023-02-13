@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite.rules;
 
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.expression.rewrite.AbstractExpressionRewriteRule;
 import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -68,6 +69,7 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
     }
 
     private Expression processDateLikeTypeCoercion(ComparisonPredicate cp, Expression left, Expression right) {
+        Expression originalRight = right;
         if (left instanceof DateLiteral) {
             cp = cp.commute();
             Expression temp = left;
@@ -111,11 +113,54 @@ public class SimplifyComparisonPredicate extends AbstractExpressionRewriteRule {
             }
         }
 
+        if (left.getDataType() == DateType.INSTANCE && right.getDataType() == DateType.INSTANCE) {
+            //Date cp Date is not supported in BE storage engine. So cast to DateTime
+            left = new Cast(left, DateTimeType.INSTANCE);
+            if (right instanceof DateLiteral) {
+                right = migrateLiteralToDateTime((DateLiteral) originalRight);
+            } else {
+                right = new Cast(originalRight, DateTimeType.INSTANCE);
+            }
+        }
         if (left != cp.left() || right != cp.right()) {
             return cp.withChildren(left, right);
         } else {
             return cp;
         }
+    }
+
+    private Expression migrateCastToDateTime(Cast cast) {
+        //cast( cast(v as date) as datetime) if v is datetime, set left = v
+        if (cast.child() instanceof Cast
+                && cast.child().child(0).getDataType() instanceof DateTimeType) {
+            return cast.child().child(0);
+        } else {
+            return new Cast(cast.child(), DateTimeType.INSTANCE);
+        }
+    }
+
+    /*
+    derive tree:
+    DateLiteral
+      |
+      +--->DateTimeLiteral
+      |        |
+      |        +----->DateTimeV2Literal
+      +--->DateV2Literal
+    */
+    private Expression migrateLiteralToDateTime(DateLiteral l) {
+        if (l instanceof DateV2Literal) {
+            return new DateTimeLiteral(l.getYear(), l.getMonth(), l.getDay(), 0, 0, 0);
+        } else if (l instanceof DateTimeV2Literal) {
+            DateTimeV2Literal dtv2 = (DateTimeV2Literal) l;
+            return new DateTimeLiteral(dtv2.getYear(), dtv2.getMonth(), dtv2.getDay(),
+                    dtv2.getHour(), dtv2.getMinute(), dtv2.getSecond());
+        } else if (l instanceof DateTimeLiteral) {
+            return l;
+        } else if (l instanceof DateLiteral) {
+            return new DateTimeLiteral(l.getYear(), l.getMonth(), l.getDay(), 0, 0, 0);
+        }
+        throw new AnalysisException("cannot convert" + l.toSql() + " to DateTime");
     }
 
     private Expression migrateToDateTime(DateTimeV2Literal l) {

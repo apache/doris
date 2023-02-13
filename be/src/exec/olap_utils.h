@@ -21,62 +21,13 @@
 
 #include "common/logging.h"
 #include "gen_cpp/Opcodes_types.h"
-#include "olap/tuple.h"
+#include "olap/olap_tuple.h"
 #include "runtime/datetime_value.h"
 #include "runtime/primitive_type.h"
 
 namespace doris {
 
 typedef bool (*CompareLargeFunc)(const void*, const void*);
-
-template <class T>
-inline bool compare_large(const void* lhs, const void* rhs) {
-    return *reinterpret_cast<const T*>(lhs) > *reinterpret_cast<const T*>(rhs);
-}
-
-inline CompareLargeFunc get_compare_func(PrimitiveType type) {
-    switch (type) {
-    case TYPE_BOOLEAN:
-        return compare_large<bool>;
-
-    case TYPE_TINYINT:
-        return compare_large<int8_t>;
-
-    case TYPE_SMALLINT:
-        return compare_large<int16_t>;
-
-    case TYPE_INT:
-        return compare_large<int32_t>;
-
-    case TYPE_BIGINT:
-        return compare_large<int64_t>;
-
-    case TYPE_LARGEINT:
-        return compare_large<__int128>;
-
-    case TYPE_FLOAT:
-        return compare_large<float>;
-
-    case TYPE_DOUBLE:
-        return compare_large<double>;
-
-    case TYPE_DATE:
-    case TYPE_DATETIME:
-        return compare_large<DateTimeValue>;
-
-    case TYPE_DECIMALV2:
-        return compare_large<DecimalV2Value>;
-
-    case TYPE_CHAR:
-    case TYPE_VARCHAR:
-    case TYPE_STRING:
-        return compare_large<StringValue>;
-
-    default:
-        DCHECK(false) << "Unsupported Compare type";
-    }
-    __builtin_unreachable();
-}
 
 static const char* NEGATIVE_INFINITY = "-oo";
 static const char* POSITIVE_INFINITY = "+oo";
@@ -144,45 +95,6 @@ enum SQLFilterOp {
     FILTER_IN = 4,
     FILTER_NOT_IN = 5
 };
-
-inline int get_olap_size(PrimitiveType type) {
-    switch (type) {
-    case TYPE_BOOLEAN:
-    case TYPE_TINYINT: {
-        return 1;
-    }
-
-    case TYPE_SMALLINT: {
-        return 2;
-    }
-
-    case TYPE_DATE: {
-        return 3;
-    }
-
-    case TYPE_INT:
-    case TYPE_FLOAT: {
-        return 4;
-    }
-
-    case TYPE_BIGINT:
-    case TYPE_LARGEINT:
-    case TYPE_DOUBLE:
-    case TYPE_DATETIME: {
-        return 8;
-    }
-
-    case TYPE_DECIMALV2: {
-        return 12;
-    }
-
-    default: {
-        DCHECK(false);
-    }
-    }
-
-    return 0;
-}
 
 template <PrimitiveType>
 static constexpr bool always_false_v = false;

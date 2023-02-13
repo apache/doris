@@ -22,6 +22,7 @@
 
 #include <string>
 
+#include "exec/tablet_info.h"
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/Types_types.h"
@@ -36,7 +37,6 @@
 #include "runtime/descriptor_helper.h"
 #include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
-#include "runtime/tuple.h"
 #include "util/file_utils.h"
 
 namespace doris {
@@ -163,12 +163,13 @@ TEST_F(TestEngineStorageMigrationTask, write_and_migration) {
     DescriptorTbl* desc_tbl = nullptr;
     DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
+    OlapTableSchemaParam param;
 
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10005, 270068377, WriteType::LOAD, 20003,
-                              30003, load_id,   tuple_desc,      &(tuple_desc->slots())};
+    WriteRequest write_req = {10005,   270068377,  WriteType::LOAD,        20003, 30003,
+                              load_id, tuple_desc, &(tuple_desc->slots()), false, &param};
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, &delta_writer);
     EXPECT_NE(delta_writer, nullptr);

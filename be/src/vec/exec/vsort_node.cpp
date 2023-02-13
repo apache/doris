@@ -44,7 +44,8 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
     // exclude cases which incoming blocks has string column which is sensitive to operations like
     // `filter` and `memcpy`
     if (_limit > 0 && _limit + _offset < HeapSorter::HEAP_SORT_THRESHOLD &&
-        (tnode.sort_node.use_topn_opt || !row_desc.has_varlen_slots())) {
+        (tnode.sort_node.sort_info.use_two_phase_read || tnode.sort_node.use_topn_opt ||
+         !row_desc.has_varlen_slots())) {
         _sorter.reset(new HeapSorter(_vsort_exec_exprs, _limit, _offset, _pool, _is_asc_order,
                                      _nulls_first, row_desc));
         _reuse_mem = false;
@@ -82,12 +83,10 @@ Status VSortNode::init(const TPlanNode& tnode, RuntimeState* state) {
     }
 
     _sorter->init_profile(_runtime_profile.get());
-
     return Status::OK();
 }
 
 Status VSortNode::prepare(RuntimeState* state) {
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
     _runtime_profile->add_info_string("TOP-N", _limit == -1 ? "false" : "true");
@@ -102,7 +101,6 @@ Status VSortNode::prepare(RuntimeState* state) {
 
 Status VSortNode::alloc_resource(doris::RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_ERROR(_vsort_exec_exprs.open(state));
     RETURN_IF_CANCELLED(state);
     RETURN_IF_ERROR(state->check_query_state("vsort, while open."));
@@ -129,7 +127,6 @@ Status VSortNode::sink(RuntimeState* state, vectorized::Block* input_block, bool
                 old_top = std::move(new_top);
             }
         }
-
         if (!_reuse_mem) {
             input_block->clear();
         }
@@ -161,13 +158,12 @@ Status VSortNode::open(RuntimeState* state) {
                                   _children[0], std::placeholders::_1, std::placeholders::_2,
                                   std::placeholders::_3)),
                 child(0)->get_next_span(), eos);
-        SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
         RETURN_IF_ERROR(sink(state, upstream_block.get(), eos));
     } while (!eos);
 
     child(0)->close(state);
 
-    mem_tracker_held()->consume(_sorter->data_size());
+    mem_tracker()->consume(_sorter->data_size());
     COUNTER_UPDATE(_sort_blocks_memory_usage, _sorter->data_size());
 
     return Status::OK();
@@ -183,7 +179,6 @@ Status VSortNode::pull(doris::RuntimeState* state, vectorized::Block* output_blo
 }
 
 Status VSortNode::get_next(RuntimeState* state, Block* block, bool* eos) {
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     INIT_AND_SCOPE_GET_NEXT_SPAN(state->get_tracer(), _get_next_span, "VSortNode::get_next");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 

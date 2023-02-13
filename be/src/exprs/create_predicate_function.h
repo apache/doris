@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "exprs/bloomfilter_predicate.h"
 #include "exprs/hybrid_set.h"
 #include "exprs/minmax_predicate.h"
 #include "olap/bitmap_filter_predicate.h"
@@ -34,7 +33,7 @@ public:
     template <PrimitiveType type>
     static BasePtr get_function() {
         return new MinMaxNumFunc<typename PrimitiveTypeTraits<type>::CppType>();
-    };
+    }
 };
 
 class HybridSetTraits {
@@ -43,10 +42,10 @@ public:
     template <PrimitiveType type>
     static BasePtr get_function() {
         using CppType = typename PrimitiveTypeTraits<type>::CppType;
-        using Set = std::conditional_t<std::is_same_v<CppType, StringValue>, StringSet,
-                                       HybridSet<type>>;
+        using Set =
+                std::conditional_t<std::is_same_v<CppType, StringRef>, StringSet, HybridSet<type>>;
         return new Set();
-    };
+    }
 };
 
 class BloomFilterTraits {
@@ -55,7 +54,7 @@ public:
     template <PrimitiveType type>
     static BasePtr get_function() {
         return new BloomFilterFunc<type>();
-    };
+    }
 };
 
 class BitmapFilterTraits {
@@ -64,7 +63,7 @@ public:
     template <PrimitiveType type>
     static BasePtr get_function() {
         return new BitmapFilterFunc<type>();
-    };
+    }
 };
 
 template <class Traits>

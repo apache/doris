@@ -24,8 +24,8 @@ namespace io {
 
 class RemoteFileSystem : public FileSystem {
 public:
-    RemoteFileSystem(Path&& root_path, ResourceId&& resource_id, FileSystemType type)
-            : FileSystem(std::move(root_path), std::move(resource_id), type) {}
+    RemoteFileSystem(Path&& root_path, std::string&& id, FileSystemType type)
+            : FileSystem(std::move(root_path), std::move(id), type) {}
     ~RemoteFileSystem() override = default;
 
     // `local_path` should be an absolute path on local filesystem.
@@ -38,6 +38,9 @@ public:
 
     Status open_file(const Path& path, const FileReaderOptions& reader_options,
                      FileReaderSPtr* reader, IOContext* io_ctx) override;
+
+    Status open_file_impl(const Path& path, const FileReaderOptions& reader_options,
+                          FileReaderSPtr* reader, IOContext* io_ctx);
 
     Status open_file(const Path& path, FileReaderSPtr* reader, IOContext* io_ctx) override {
         return Status::NotSupported("implemented in derived classes");

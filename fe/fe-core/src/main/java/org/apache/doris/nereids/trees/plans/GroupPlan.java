@@ -36,6 +36,7 @@ import java.util.Optional;
  * as a place-holder when do match root.
  */
 public class GroupPlan extends LogicalLeaf {
+
     private final Group group;
 
     public GroupPlan(Group group) {

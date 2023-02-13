@@ -67,8 +67,8 @@ WITH BROKER broker_name
   [FORMAT AS "file_type"]
   [(column_list)]
   [COLUMNS FROM PATH AS (c1, c2, ...)]
-  [PRECEDING FILTER predicate]
   [SET (column_mapping)]
+  [PRECEDING FILTER predicate]
   [WHERE predicate]
   [DELETE ON expr]
   [ORDER BY source_sequence]
@@ -109,13 +109,13 @@ WITH BROKER broker_name
 
     Specifies the columns to extract from the import file path.
 
-  - `PRECEDING FILTER predicate`
-
-    Pre-filter conditions. The data is first concatenated into raw data rows in order according to `column list` and `COLUMNS FROM PATH AS`. Then filter according to the pre-filter conditions. For a detailed introduction to this part, please refer to the [Column Mapping, Conversion and Filtering](../../../../../data-operate/import/import-scenes/load-data-convert) document.
-
   - `SET (column_mapping)`
 
     Specifies the conversion function for the column.
+  
+  - `PRECEDING FILTER predicate`
+
+    Pre-filter conditions. The data is first concatenated into raw data rows in order according to `column list` and `COLUMNS FROM PATH AS`. Then filter according to the pre-filter conditions. For a detailed introduction to this part, please refer to the [Column Mapping, Conversion and Filtering](../../../../../data-operate/import/import-scenes/load-data-convert) document.
 
   - `WHERE predicate`
 
@@ -313,10 +313,10 @@ WITH BROKER broker_name
        DATA INFILE("hdfs://host:port/input/file")
        INTO TABLE `my_table`
        (k1, k2, k3)
-       PRECEDING FILTER k1 = 1
        SET (
            k2 = k2 + 1
        )
+       PRECEDING FILTER k1 = 1
        WHERE k1 > k2
    )
    WITH BROKER hdfs
@@ -468,6 +468,24 @@ WITH BROKER broker_name
     DATA INFILE("cosn://my_bucket/input/file.csv")
     INTO TABLE `my_table`
     (k1, k2, k3)
+    )
+    WITH BROKER "broker_name"
+    (
+        "fs.cosn.userinfo.secretId" = "xxx",
+        "fs.cosn.userinfo.secretKey" = "xxxx",
+        "fs.cosn.bucket.endpoint_suffix" = "cos.xxxxxxxxx.myqcloud.com"
+    )
+    ```
+
+12. Load CSV date and trim double quotes and skip first 5 lines
+
+    ```SQL
+    LOAD LABEL example_db.label12
+    (
+    DATA INFILE("cosn://my_bucket/input/file.csv")
+    INTO TABLE `my_table`
+    (k1, k2, k3)
+    PROPERTIES("trim_double_quotes" = "true", "skip_lines" = "5")
     )
     WITH BROKER "broker_name"
     (

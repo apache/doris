@@ -20,7 +20,7 @@ package org.apache.doris.load.loadv2.dpp;
 import org.apache.doris.common.SparkDppException;
 import org.apache.doris.common.io.BitmapValue;
 import org.apache.doris.common.io.Hll;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig;
+import org.apache.doris.sparkdpp.EtlJobConfig;
 
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;

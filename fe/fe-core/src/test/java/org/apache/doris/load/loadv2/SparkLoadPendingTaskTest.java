@@ -44,12 +44,12 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.BrokerFileGroup;
 import org.apache.doris.load.BrokerFileGroupAggInfo;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlFileGroup;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlIndex;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlPartition;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlPartitionInfo;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig.EtlTable;
+import org.apache.doris.sparkdpp.EtlJobConfig;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlFileGroup;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlIndex;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlPartition;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlPartitionInfo;
+import org.apache.doris.sparkdpp.EtlJobConfig.EtlTable;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;

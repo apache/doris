@@ -47,32 +47,39 @@ public:
         return selected_size;
     }
     virtual void evaluate_and(vectorized::MutableColumns& block, uint16_t* sel,
-                              uint16_t selected_size, bool* flags) const {};
+                              uint16_t selected_size, bool* flags) const {}
     virtual void evaluate_or(vectorized::MutableColumns& block, uint16_t* sel,
-                             uint16_t selected_size, bool* flags) const {};
+                             uint16_t selected_size, bool* flags) const {}
 
-    virtual void evaluate_vec(vectorized::MutableColumns& block, uint16_t size,
-                              bool* flags) const {};
+    virtual void evaluate_vec(vectorized::MutableColumns& block, uint16_t size, bool* flags) const {
+    }
 
     virtual bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const {
         LOG(FATAL) << "should not reach here";
         return true;
-    };
+    }
 
     virtual bool evaluate_and(const segment_v2::BloomFilter* bf) const {
         LOG(FATAL) << "should not reach here";
         return true;
-    };
+    }
     virtual bool can_do_bloom_filter() const { return false; }
+
+    //evaluate predicate on inverted
+    virtual Status evaluate(const std::string& column_name, InvertedIndexIterator* iterator,
+                            uint32_t num_rows, roaring::Roaring* bitmap) const {
+        return Status::NotSupported(
+                "Not Implemented evaluate with inverted index, please check the predicate");
+    }
 };
 
 class SingleColumnBlockPredicate : public BlockColumnPredicate {
 public:
-    explicit SingleColumnBlockPredicate(const ColumnPredicate* pre) : _predicate(pre) {};
+    explicit SingleColumnBlockPredicate(const ColumnPredicate* pre) : _predicate(pre) {}
 
     void get_all_column_ids(std::set<ColumnId>& column_id_set) const override {
         column_id_set.insert(_predicate->column_id());
-    };
+    }
 
     void get_all_column_predicate(std::set<const ColumnPredicate*>& predicate_set) const override {
         predicate_set.insert(_predicate);
@@ -115,7 +122,7 @@ public:
         for (auto child_block_predicate : _block_column_predicate_vec) {
             child_block_predicate->get_all_column_ids(column_id_set);
         }
-    };
+    }
 
     void get_all_column_predicate(std::set<const ColumnPredicate*>& predicate_set) const override {
         for (auto child_block_predicate : _block_column_predicate_vec) {
@@ -162,6 +169,9 @@ public:
         }
         return true;
     }
+
+    Status evaluate(const std::string& column_name, InvertedIndexIterator* iterator,
+                    uint32_t num_rows, roaring::Roaring* bitmap) const override;
 };
 
 } //namespace doris

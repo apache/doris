@@ -340,7 +340,7 @@ public:
     // Return true if convert success. Otherwise return false.
     bool from_date_int64(int64_t value);
 
-    bool from_date(int64_t value) { return from_date_int64(value); };
+    bool from_date(int64_t value) { return from_date_int64(value); }
 
     // Construct time type value from int64_t value.
     // Return true if convert success. Otherwise return false.
@@ -378,7 +378,7 @@ public:
         }
         set_time(year, month, day, hour, minute, second);
         return true;
-    };
+    }
 
     uint64_t daynr() const { return calc_daynr(_year, _month, _day); }
 
@@ -505,7 +505,7 @@ public:
     template <typename T>
     bool operator!=(const DateV2Value<T>& other) const {
         return !(*this == other);
-    };
+    }
 
     template <typename T>
     bool operator<=(const DateV2Value<T>& other) const;
@@ -563,14 +563,14 @@ public:
     uint32_t to_date_v2() const {
         CHECK(_type == TIME_DATE);
         return (year() << 9 | month() << 5 | day());
-    };
+    }
 
     uint64_t to_datetime_v2() const {
         CHECK(_type == TIME_DATETIME);
         return (uint64_t)(((uint64_t)year() << 46) | ((uint64_t)month() << 42) |
                           ((uint64_t)day() << 37) | ((uint64_t)hour() << 32) |
                           ((uint64_t)minute() << 26) | ((uint64_t)second() << 20));
-    };
+    }
 
     static VecDateTimeValue from_datetime_val(const doris_udf::DateTimeVal& tv) {
         VecDateTimeValue value;
@@ -581,7 +581,7 @@ public:
         return value;
     }
 
-    uint32_t hash(int seed) const { return HashUtil::hash(this, sizeof(*this), seed); }
+    uint32_t hash(int seed) const { return ::doris::HashUtil::hash(this, sizeof(*this), seed); }
 
     int day_of_year() const { return daynr() - calc_daynr(_year, 1, 1) + 1; }
 
@@ -629,7 +629,7 @@ public:
                _day > 0;
     }
 
-    void convert_vec_dt_to_dt(doris::DateTimeValue* dt);
+    void convert_vec_dt_to_dt(doris::DateTimeValue* dt) const;
     void convert_dt_to_vec_dt(doris::DateTimeValue* dt);
     int64_t to_datetime_int64() const;
 
@@ -832,7 +832,7 @@ public:
             set_time(year, month, day, hour, minute, second, microsecond);
         }
         return true;
-    };
+    }
 
     uint32_t daynr() const {
         return calc_daynr(date_v2_value_.year_, date_v2_value_.month_, date_v2_value_.day_);
@@ -1040,7 +1040,7 @@ public:
 
     DateV2Value<T>& operator--() { return *this += -1; }
 
-    uint32_t hash(int seed) const { return HashUtil::hash(this, sizeof(*this), seed); }
+    uint32_t hash(int seed) const { return ::doris::HashUtil::hash(this, sizeof(*this), seed); }
 
     int day_of_year() const { return daynr() - calc_daynr(this->year(), 1, 1) + 1; }
 
@@ -1070,7 +1070,7 @@ public:
         int day_diff = daynr() - rhs.daynr();
         return day_diff * 3600 * 24 + (hour() * 3600 + minute() * 60 + second()) -
                (rhs.hour() * 3600 + rhs.minute() * 60 + rhs.second());
-    };
+    }
 
     int64_t time_part_diff(const VecDateTimeValue& rhs) const {
         int time_diff = (hour() * 3600 + minute() * 60 + second()) -
@@ -1093,23 +1093,6 @@ public:
     uint64_t set_datetime_uint64(uint64_t int_val);
 
     bool get_date_from_daynr(uint64_t);
-
-    void to_datev2_val(doris_udf::DateV2Val* tv) const {
-        DCHECK(!is_datetime);
-        tv->datev2_value = this->to_date_int_val();
-    }
-
-    static DateV2Value<DateV2ValueType> from_datev2_val(const doris_udf::DateV2Val& tv) {
-        DCHECK(!is_datetime);
-        DateV2Value<DateV2ValueType> value;
-        value.from_date(tv.datev2_value);
-        return value;
-    }
-
-    void to_datetimev2_val(doris_udf::DateTimeV2Val* tv) const {
-        DCHECK(is_datetime);
-        tv->datetimev2_value = this->to_date_int_val();
-    }
 
     static DateV2Value<DateTimeV2ValueType> from_datetimev2_val(
             const doris_udf::DateTimeV2Val& tv) {
@@ -1157,7 +1140,7 @@ public:
         } else {
             return date_v2_value_.year_ * 10000 + date_v2_value_.month_ * 100 + date_v2_value_.day_;
         }
-    };
+    }
 
     bool from_date_format_str(const char* format, int format_len, const char* value, int value_len,
                               const char** sub_val_end);
@@ -1505,24 +1488,25 @@ struct DateTraits<uint64_t> {
 } // namespace doris
 
 template <>
-struct std::hash<doris::vectorized::VecDateTimeValue> {
-    size_t operator()(const doris::vectorized::VecDateTimeValue& v) const {
-        return doris::vectorized::hash_value(v);
+struct std::hash<::doris::vectorized::VecDateTimeValue> {
+    size_t operator()(const ::doris::vectorized::VecDateTimeValue& v) const {
+        return ::doris::vectorized::hash_value(v);
     }
 };
 
 template <>
-struct std::hash<doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>> {
+struct std::hash<::doris::vectorized::DateV2Value<::doris::vectorized::DateV2ValueType>> {
     size_t operator()(
-            const doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>& v) const {
-        return doris::vectorized::hash_value(v);
+            const ::doris::vectorized::DateV2Value<::doris::vectorized::DateV2ValueType>& v) const {
+        return ::doris::vectorized::hash_value(v);
     }
 };
 
 template <>
-struct std::hash<doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>> {
+struct std::hash<::doris::vectorized::DateV2Value<::doris::vectorized::DateTimeV2ValueType>> {
     size_t operator()(
-            const doris::vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>& v) const {
-        return doris::vectorized::hash_value(v);
+            const ::doris::vectorized::DateV2Value<::doris::vectorized::DateTimeV2ValueType>& v)
+            const {
+        return ::doris::vectorized::hash_value(v);
     }
 };

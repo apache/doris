@@ -28,10 +28,12 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -40,7 +42,6 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * push down expression which is not slot reference
@@ -65,7 +66,7 @@ public class PushdownExpressionsInHashCondition extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalJoin()
                 .when(join -> join.getHashJoinConjuncts().stream().anyMatch(equalTo ->
-                        equalTo.children().stream().anyMatch(e -> !(e instanceof Slot))))
+                        equalTo.children().stream().anyMatch(e -> !ExpressionUtils.checkTypeSkipCast(e, Slot.class))))
                 .then(join -> {
                     List<List<Expression>> exprsOfHashConjuncts =
                             Lists.newArrayList(Lists.newArrayList(), Lists.newArrayList());
@@ -82,18 +83,18 @@ public class PushdownExpressionsInHashCondition extends OneRewriteRuleFactory {
                                 exprMap.put(expr, new Alias(expr, "expr_" + expr.toSql())));
                     });
                     Iterator<List<Expression>> iter = exprsOfHashConjuncts.iterator();
-                    return join.withhashJoinConjunctsAndChildren(
+                    return join.withHashJoinConjunctsAndChildren(
                             join.getHashJoinConjuncts().stream()
                                     .map(equalTo -> equalTo.withChildren(equalTo.children()
                                             .stream().map(expr -> exprMap.get(expr).toSlot())
-                                            .collect(Collectors.toList())))
-                                    .collect(Collectors.toList()),
+                                            .collect(ImmutableList.toImmutableList())))
+                                    .collect(ImmutableList.toImmutableList()),
                             join.children().stream().map(
-                                    plan -> new LogicalProject<>(new ImmutableList.Builder<NamedExpression>()
-                                            .addAll(iter.next().stream().map(expr -> exprMap.get(expr))
-                                                    .collect(Collectors.toList()))
+                                    plan -> new LogicalProject<>(new Builder<NamedExpression>()
+                                            .addAll(iter.next().stream().map(exprMap::get)
+                                                    .collect(ImmutableList.toImmutableList()))
                                             .addAll(getOutput(plan, join)).build(), plan))
-                                    .collect(Collectors.toList()));
+                                    .collect(ImmutableList.toImmutableList()));
                 }).toRule(RuleType.PUSHDOWN_EXPRESSIONS_IN_HASH_CONDITIONS);
     }
 

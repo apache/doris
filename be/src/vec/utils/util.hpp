@@ -34,10 +34,14 @@ public:
         return create_columns_with_type_and_name(row_desc);
     }
 
-    static ColumnsWithTypeAndName create_columns_with_type_and_name(const RowDescriptor& row_desc) {
+    static ColumnsWithTypeAndName create_columns_with_type_and_name(
+            const RowDescriptor& row_desc, bool ignore_trivial_slot = true) {
         ColumnsWithTypeAndName columns_with_type_and_name;
         for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
             for (const auto& slot_desc : tuple_desc->slots()) {
+                if (ignore_trivial_slot && !slot_desc->need_materialize()) {
+                    continue;
+                }
                 columns_with_type_and_name.emplace_back(nullptr, slot_desc->get_data_type_ptr(),
                                                         slot_desc->col_name());
             }
@@ -45,10 +49,14 @@ public:
         return columns_with_type_and_name;
     }
 
-    static ColumnsWithTypeAndName create_empty_block(const RowDescriptor& row_desc) {
+    static ColumnsWithTypeAndName create_empty_block(const RowDescriptor& row_desc,
+                                                     bool ignore_trivial_slot = true) {
         ColumnsWithTypeAndName columns_with_type_and_name;
         for (const auto& tuple_desc : row_desc.tuple_descriptors()) {
             for (const auto& slot_desc : tuple_desc->slots()) {
+                if (ignore_trivial_slot && !slot_desc->need_materialize()) {
+                    continue;
+                }
                 columns_with_type_and_name.emplace_back(
                         slot_desc->get_data_type_ptr()->create_column(),
                         slot_desc->get_data_type_ptr(), slot_desc->col_name());
@@ -101,7 +109,6 @@ public:
                 expr->close(state, context, context->get_function_state_scope());
             }
 
-            // here do not close Expr* now
             return left_child != nullptr ? left_child : right_child;
         }
     }

@@ -47,8 +47,8 @@ public class SemiJoinLogicalJoinTransposeTest {
          * A      B                A      C
          */
         LogicalPlan topJoin = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0)) // t1.id = t2.id
-                .hashJoinUsing(scan3, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0)) // t1.id = t3.id
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0)) // t1.id = t2.id
+                .join(scan3, JoinType.LEFT_SEMI_JOIN, Pair.of(0, 0)) // t1.id = t3.id
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
@@ -76,8 +76,8 @@ public class SemiJoinLogicalJoinTransposeTest {
     @Test
     public void testSemiJoinLogicalTransposeLAsscomFail() {
         LogicalPlan topJoin = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0)) // t1.id = t2.id
-                .hashJoinUsing(scan3, JoinType.LEFT_SEMI_JOIN, Pair.of(2, 0)) // t2.id = t3.id
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0)) // t1.id = t2.id
+                .join(scan3, JoinType.LEFT_SEMI_JOIN, Pair.of(2, 0)) // t2.id = t3.id
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
@@ -98,8 +98,8 @@ public class SemiJoinLogicalJoinTransposeTest {
          * A      B                       B        C
          */
         LogicalPlan topJoin = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0)) // t1.id = t2.id
-                .hashJoinUsing(scan3, JoinType.LEFT_SEMI_JOIN, Pair.of(2, 0)) // t2.id = t3.id
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0)) // t1.id = t2.id
+                .join(scan3, JoinType.LEFT_SEMI_JOIN, Pair.of(2, 0)) // t2.id = t3.id
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)

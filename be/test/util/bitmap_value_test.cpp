@@ -15,14 +15,14 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "util/bitmap_value.h"
+
 #include <gtest/gtest.h>
 
 #include <cstdint>
 #include <string>
 
 #include "util/coding.h"
-#define private public
-#include "util/bitmap_value.h"
 
 namespace doris {
 using roaring::Roaring;
@@ -390,9 +390,13 @@ TEST(BitmapValueTest, bitmap_value_iterator_test) {
     }
 
     BitmapValue single(1024);
-    for (auto iter = single.begin(); iter != single.end(); ++iter) {
-        EXPECT_EQ(1024, *iter);
-    }
+    auto single_iter = single.begin();
+    EXPECT_EQ(1024, *single_iter);
+    EXPECT_TRUE(single_iter == BitmapValue {1024}.begin());
+    EXPECT_TRUE(single_iter != single.end());
+
+    ++single_iter;
+    EXPECT_TRUE(single_iter == single.end());
 
     int i = 0;
     BitmapValue bitmap({0, 1025, 1026, UINT32_MAX, UINT64_MAX});

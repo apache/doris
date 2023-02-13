@@ -101,7 +101,8 @@ Status VResultFileSink::prepare(RuntimeState* state) {
     if (_is_top_sink) {
         // create sender
         RETURN_IF_ERROR(state->exec_env()->result_mgr()->create_sender(
-                state->fragment_instance_id(), _buf_size, &_sender, state->enable_pipeline_exec()));
+                state->fragment_instance_id(), _buf_size, &_sender, state->enable_pipeline_exec(),
+                state->execution_timeout()));
         // create writer
         _writer.reset(new (std::nothrow) VFileResultWriter(
                 _file_opts.get(), _storage_type, state->fragment_instance_id(), _output_vexpr_ctxs,

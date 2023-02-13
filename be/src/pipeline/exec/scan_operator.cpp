@@ -39,8 +39,24 @@ bool ScanOperator::is_pending_finish() const {
     return _node->_scanner_ctx && !_node->_scanner_ctx->no_schedule();
 }
 
+Status ScanOperator::try_close() {
+    return _node->try_close();
+}
+
 bool ScanOperator::runtime_filters_are_ready_or_timeout() {
     return _node->runtime_filters_are_ready_or_timeout();
+}
+
+std::string ScanOperator::debug_string() const {
+    fmt::memory_buffer debug_string_buffer;
+    fmt::format_to(debug_string_buffer, "{}, scanner_ctx is null: {} ",
+                   SourceOperator::debug_string(), _node->_scanner_ctx == nullptr);
+    if (_node->_scanner_ctx) {
+        fmt::format_to(debug_string_buffer, ", num_running_scanners = {}, num_scheduling_ctx = {} ",
+                       _node->_scanner_ctx->get_num_running_scanners(),
+                       _node->_scanner_ctx->get_num_scheduling_ctx());
+    }
+    return fmt::to_string(debug_string_buffer);
 }
 
 } // namespace doris::pipeline

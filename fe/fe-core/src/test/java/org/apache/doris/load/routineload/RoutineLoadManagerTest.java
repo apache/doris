@@ -35,11 +35,12 @@ import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.loadv2.LoadTask;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.persist.RoutineLoadOperation;
@@ -74,7 +75,7 @@ public class RoutineLoadManagerTest {
     private SystemInfoService systemInfoService;
 
     @Test
-    public void testAddJobByStmt(@Injectable PaloAuth auth,
+    public void testAddJobByStmt(@Injectable Auth auth,
             @Injectable TResourceInfo tResourceInfo,
             @Mocked ConnectContext connectContext,
             @Mocked Env env) throws UserException {
@@ -143,7 +144,7 @@ public class RoutineLoadManagerTest {
     }
 
     @Test
-    public void testCreateJobAuthDeny(@Injectable PaloAuth auth,
+    public void testCreateJobAuthDeny(@Injectable Auth auth,
             @Injectable TResourceInfo tResourceInfo,
             @Mocked ConnectContext connectContext,
             @Mocked Env env) {
@@ -494,8 +495,9 @@ public class RoutineLoadManagerTest {
 
     @Test
     public void testGetJob(@Injectable RoutineLoadJob routineLoadJob1,
-                           @Injectable RoutineLoadJob routineLoadJob2,
-                           @Injectable RoutineLoadJob routineLoadJob3) throws MetaNotFoundException, AnalysisException {
+            @Injectable RoutineLoadJob routineLoadJob2,
+            @Injectable RoutineLoadJob routineLoadJob3) throws MetaNotFoundException,
+            PatternMatcherException {
 
         new Expectations() {
             {
@@ -588,7 +590,7 @@ public class RoutineLoadManagerTest {
 
     @Test
     public void testPauseRoutineLoadJob(@Injectable PauseRoutineLoadStmt pauseRoutineLoadStmt, @Mocked Env env,
-            @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl, @Mocked PaloAuth auth,
+            @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl, @Mocked Auth auth,
             @Mocked ConnectContext connectContext) throws UserException {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
@@ -659,7 +661,7 @@ public class RoutineLoadManagerTest {
 
     @Test
     public void testResumeRoutineLoadJob(@Injectable ResumeRoutineLoadStmt resumeRoutineLoadStmt, @Mocked Env env,
-            @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl, @Mocked PaloAuth auth,
+            @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl, @Mocked Auth auth,
             @Mocked ConnectContext connectContext) throws UserException {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
@@ -710,7 +712,7 @@ public class RoutineLoadManagerTest {
 
     @Test
     public void testStopRoutineLoadJob(@Injectable StopRoutineLoadStmt stopRoutineLoadStmt, @Mocked Env env,
-            @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl, @Mocked PaloAuth auth,
+            @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl, @Mocked Auth auth,
             @Mocked ConnectContext connectContext) throws UserException {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
@@ -913,7 +915,7 @@ public class RoutineLoadManagerTest {
 
     @Test
     public void testAlterRoutineLoadJob(@Injectable StopRoutineLoadStmt stopRoutineLoadStmt, @Mocked Env env,
-            @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl, @Mocked PaloAuth auth,
+            @Mocked InternalCatalog catalog, @Mocked Database database, @Mocked Table tbl, @Mocked Auth auth,
             @Mocked ConnectContext connectContext) throws UserException {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();
@@ -965,7 +967,7 @@ public class RoutineLoadManagerTest {
     @Test
     public void testPauseAndResumeAllRoutineLoadJob(@Injectable PauseRoutineLoadStmt pauseRoutineLoadStmt,
             @Injectable ResumeRoutineLoadStmt resumeRoutineLoadStmt, @Mocked Env env, @Mocked InternalCatalog catalog,
-            @Mocked Database database, @Mocked Table tbl, @Mocked PaloAuth auth,
+            @Mocked Database database, @Mocked Table tbl, @Mocked Auth auth,
             @Mocked ConnectContext connectContext) throws UserException {
         RoutineLoadManager routineLoadManager = new RoutineLoadManager();
         Map<Long, Map<String, List<RoutineLoadJob>>> dbToNameToRoutineLoadJob = Maps.newHashMap();

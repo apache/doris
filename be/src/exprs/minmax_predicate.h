@@ -49,7 +49,10 @@ public:
         }
 
         T val_data;
-        if constexpr (sizeof(T) >= sizeof(int128_t)) {
+        if constexpr (std::is_same_v<T, DateTimeValue>) {
+            reinterpret_cast<const vectorized::VecDateTimeValue*>(data)->convert_vec_dt_to_dt(
+                    &val_data);
+        } else if constexpr (sizeof(T) >= sizeof(int128_t)) {
             // use dereference operator on unalign address maybe lead segmentation fault
             memcpy(&val_data, data, sizeof(T));
         } else {
@@ -94,20 +97,20 @@ public:
     }
 
     Status merge(MinMaxFuncBase* minmax_func, ObjectPool* pool) override {
-        if constexpr (std::is_same_v<T, StringValue>) {
+        if constexpr (std::is_same_v<T, StringRef>) {
             MinMaxNumFunc<T>* other_minmax = static_cast<MinMaxNumFunc<T>*>(minmax_func);
 
             if (other_minmax->_min < _min) {
                 auto& other_min = other_minmax->_min;
-                auto str = pool->add(new std::string(other_min.ptr, other_min.len));
-                _min.ptr = str->data();
-                _min.len = str->length();
+                auto str = pool->add(new std::string(other_min.data, other_min.size));
+                _min.data = str->data();
+                _min.size = str->length();
             }
             if (other_minmax->_max > _max) {
                 auto& other_max = other_minmax->_max;
-                auto str = pool->add(new std::string(other_max.ptr, other_max.len));
-                _max.ptr = str->data();
-                _max.len = str->length();
+                auto str = pool->add(new std::string(other_max.data, other_max.size));
+                _max.data = str->data();
+                _max.size = str->length();
             }
         } else {
             MinMaxNumFunc<T>* other_minmax = static_cast<MinMaxNumFunc<T>*>(minmax_func);

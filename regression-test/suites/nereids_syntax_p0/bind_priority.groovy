@@ -56,9 +56,9 @@ suite("bind_priority") {
         exception "Unexpected exception: cannot bind GROUP BY KEY: v"
     }
 
-    sql "drop table if exists t"
+    sql "drop table if exists bind_priority_tbl"
     sql """
-        CREATE TABLE `t` (
+        CREATE TABLE bind_priority_tbl (
             `a` int(11) NOT NULL,
             `b` int(11) NOT NULL
         ) ENGINE=OLAP
@@ -74,11 +74,48 @@ suite("bind_priority") {
         );
     """
 
-    sql"insert into t values(1,5),(2, 6),(3,4);"
+    sql"insert into bind_priority_tbl values(1,5),(2, 6),(3,4);"
 
-    qt_bind_sort_scan "select a as b from t order by t.b;"
+    qt_bind_sort_scan "select a as b from bind_priority_tbl order by bind_priority_tbl.b;"
 
-    qt_bind_sort_alias "select a as b from t order by b;"
+    qt_bind_sort_alias "select a as b from bind_priority_tbl order by b;"
 
-    qt_bind_sort_aliasAndScan "select a as b from t order by t.b + b;"
+    qt_bind_sort_aliasAndScan "select a as b from bind_priority_tbl order by bind_priority_tbl.b + b;"
+
+    sql "drop table if exists bind_priority_tbl2"
+    sql """
+        CREATE TABLE bind_priority_tbl2 (
+            `a` int(11) NOT NULL,
+            `b` int(11) NOT NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`a`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`a`) BUCKETS 1
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "light_schema_change" = "true",
+        "disable_auto_compaction" = "false"
+        );
+    """
+    sql "insert into bind_priority_tbl2 values(3,5),(2, 6),(1,4);"
+    
+    qt_bind_order_to_project_alias """
+            select bind_priority_tbl.b b, bind_priority_tbl2.b
+            from bind_priority_tbl join bind_priority_tbl2 on bind_priority_tbl.a=bind_priority_tbl2.a 
+            order by b;
+        """
+
+
+    qt_bind_order_to_project_alias """
+        select bind_priority_tbl.b, bind_priority_tbl2.b b
+        from bind_priority_tbl join bind_priority_tbl2 on bind_priority_tbl.a=bind_priority_tbl2.a 
+        order by b;
+        """
+
+    test{
+        sql "SELECT a,2 as a FROM (SELECT '1' as a) b HAVING a=1"
+        exception "Unexpected exception: a is ambiguous: a#0, a#1."
+    }
 }

@@ -67,23 +67,17 @@ public class AnalysisTaskExecutorTest extends TestWithFeService {
                 .build();
         OlapAnalysisTask analysisJob = new OlapAnalysisTask(analysisTaskScheduler, analysisJobInfo);
 
-        new Expectations() {
-            {
-                analysisTaskScheduler.getPendingTasks();
-                result = analysisJob;
+        new MockUp<AnalysisTaskScheduler>() {
+            public synchronized BaseAnalysisTask getPendingTasks() {
+                return analysisJob;
             }
         };
+
         AnalysisTaskExecutor analysisTaskExecutor = new AnalysisTaskExecutor(analysisTaskScheduler);
-        BlockingQueue<AnalysisTaskWrapper> b = Deencapsulation.getField(analysisTaskExecutor, "jobQueue");
+        BlockingQueue<AnalysisTaskWrapper> b = Deencapsulation.getField(analysisTaskExecutor, "taskQueue");
         AnalysisTaskWrapper analysisTaskWrapper = new AnalysisTaskWrapper(analysisTaskExecutor, analysisJob);
         Deencapsulation.setField(analysisTaskWrapper, "startTime", 5);
         b.put(analysisTaskWrapper);
-        new Expectations() {
-            {
-                analysisTaskWrapper.cancel();
-                times = 1;
-            }
-        };
         analysisTaskExecutor.start();
         BlockingCounter counter = Deencapsulation.getField(analysisTaskExecutor, "blockingCounter");
         int sleepTime = 500;

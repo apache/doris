@@ -20,7 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.analysis.AlterDatabaseQuotaStmt.QuotaType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -34,7 +34,7 @@ public class AlterDatabaseQuotaStmtTest {
     private Analyzer analyzer;
 
     @Mocked
-    private PaloAuth auth;
+    private Auth auth;
 
     @Before
     public void setUp() {
@@ -154,4 +154,27 @@ public class AlterDatabaseQuotaStmtTest {
         Assert.fail("No exception throws.");
     }
 
+    @Test
+    public void testNormalAlterDatabaseTransactionQuotaStmt() throws AnalysisException, UserException {
+        long quotaSize = 10;
+        AlterDatabaseQuotaStmt stmt = new AlterDatabaseQuotaStmt("testDb", QuotaType.TRANSACTION, String.valueOf(quotaSize));
+        stmt.analyze(analyzer);
+        String expectedSql = "ALTER DATABASE testCluster:testDb SET TRANSACTION QUOTA 10";
+        Assert.assertEquals(expectedSql, stmt.toSql());
+        Assert.assertEquals(quotaSize, stmt.getQuota());
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void testTransactionMinusQuota() throws AnalysisException, UserException {
+        AlterDatabaseQuotaStmt stmt = new AlterDatabaseQuotaStmt("testDb", QuotaType.TRANSACTION, "-100");
+        stmt.analyze(analyzer);
+        Assert.fail("No exception throws.");
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void testtransactionInvalidQuantity() throws AnalysisException, UserException {
+        AlterDatabaseQuotaStmt stmt = new AlterDatabaseQuotaStmt("testDb", QuotaType.TRANSACTION, "invalid_100_quota");
+        stmt.analyze(analyzer);
+        Assert.fail("No exception throws.");
+    }
 }

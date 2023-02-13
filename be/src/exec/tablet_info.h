@@ -34,13 +34,12 @@
 
 namespace doris {
 
-class MemPool;
-
 struct OlapTableIndexSchema {
     int64_t index_id;
     std::vector<SlotDescriptor*> slots;
     int32_t schema_hash;
     std::vector<TabletColumn*> columns;
+    std::vector<TabletIndex*> indexes;
 
     void to_protobuf(POlapTableIndexSchema* pindex) const;
 };
@@ -71,6 +70,8 @@ public:
         return _proto_schema;
     }
 
+    bool is_dynamic_schema() const { return _is_dynamic_schema; }
+
     std::string debug_string() const;
 
 private:
@@ -82,6 +83,7 @@ private:
     mutable POlapTableSchemaParam* _proto_schema = nullptr;
     std::vector<OlapTableIndexSchema*> _indexes;
     mutable ObjectPool _obj_pool;
+    bool _is_dynamic_schema = false;
 };
 
 using OlapTableIndexTablets = TOlapTableIndexTablets;
@@ -91,6 +93,7 @@ using OlapTableIndexTablets = TOlapTableIndexTablets;
 // }
 
 using BlockRow = std::pair<vectorized::Block*, int32_t>;
+using VecBlock = vectorized::Block;
 
 struct VOlapTablePartition {
     int64_t id = 0;
@@ -101,7 +104,7 @@ struct VOlapTablePartition {
     std::vector<OlapTableIndexTablets> indexes;
 
     VOlapTablePartition(vectorized::Block* partition_block)
-            : start_key {partition_block, -1}, end_key {partition_block, -1} {};
+            : start_key {partition_block, -1}, end_key {partition_block, -1} {}
 };
 
 class VOlapTablePartKeyComparator {
@@ -248,6 +251,8 @@ public:
         }
         return nullptr;
     }
+
+    const std::unordered_map<int64_t, NodeInfo>& nodes_info() { return _nodes; }
 
 private:
     std::unordered_map<int64_t, NodeInfo> _nodes;

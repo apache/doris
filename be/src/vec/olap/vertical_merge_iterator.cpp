@@ -28,11 +28,11 @@ RowSource::RowSource(uint16_t source_num, bool agg_flag) {
     _data = agg_flag ? (_data | AGG_FLAG) : (_data & SOURCE_FLAG);
 }
 
-uint16_t RowSource::get_source_num() {
+uint16_t RowSource::get_source_num() const {
     return _data & SOURCE_FLAG;
 }
 
-bool RowSource::agg_flag() {
+bool RowSource::agg_flag() const {
     return (_data & AGG_FLAG) != 0;
 }
 
@@ -96,6 +96,21 @@ void RowSourcesBuffer::set_agg_flag(uint64_t index, bool agg) {
     RowSource ori(_buffer->get_data()[index]);
     ori.set_agg_flag(agg);
     _buffer->get_data()[index] = ori.data();
+}
+
+size_t RowSourcesBuffer::continuous_agg_count(uint64_t index) {
+    size_t result = 1;
+    int start = index + 1;
+    int end = _buffer->size();
+    while (index < end) {
+        RowSource next(_buffer->get_element(start++));
+        if (next.agg_flag()) {
+            ++result;
+        } else {
+            break;
+        }
+    }
+    return result;
 }
 
 size_t RowSourcesBuffer::same_source_count(uint16_t source, size_t limit) {
@@ -257,7 +272,6 @@ void VerticalMergeIteratorContext::copy_rows(Block* block, bool advanced) {
 
     // copy a row to dst block column by column
     size_t start = _index_in_block - _cur_batch_num + 1 - advanced;
-    DCHECK(start >= 0);
 
     for (size_t i = 0; i < _ori_return_cols; ++i) {
         auto& s_col = src.get_by_position(i);
@@ -606,8 +620,7 @@ std::shared_ptr<RowwiseIterator> new_vertical_heap_merge_iterator(
 std::shared_ptr<RowwiseIterator> new_vertical_mask_merge_iterator(
         const std::vector<RowwiseIterator*>& inputs, size_t ori_return_cols,
         RowSourcesBuffer* row_sources) {
-    return std::make_shared<VerticalMaskMergeIterator>(std::move(inputs), ori_return_cols,
-                                                       row_sources);
+    return std::make_shared<VerticalMaskMergeIterator>(inputs, ori_return_cols, row_sources);
 }
 
 } // namespace vectorized

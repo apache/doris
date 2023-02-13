@@ -142,15 +142,6 @@ inline void attachment_transfer_request_block(const Params* brpc_request, brpc::
     }
 }
 
-// Embed tuple_data and brpc request serialization string in controller attachment.
-template <typename Params, typename Closure>
-inline Status request_embed_attachment_contain_tuple(Params* brpc_request, Closure* closure) {
-    auto row_batch = brpc_request->row_batch();
-    Status st = request_embed_attachment(brpc_request, row_batch.tuple_data(), closure);
-    row_batch.set_tuple_data("");
-    return st;
-}
-
 template <typename Params, typename Closure>
 inline Status request_embed_attachment(Params* brpc_request, const std::string& data,
                                        Closure* closure) {
@@ -179,16 +170,6 @@ inline Status request_embed_attachment(Params* brpc_request, const std::string& 
     // step3: attachment add to closure.
     closure->cntl.request_attachment().swap(attachment);
     return Status::OK();
-}
-
-// Extract the brpc request and tuple data from the controller attachment,
-// and put the tuple data into the request.
-template <typename Params>
-inline Status attachment_extract_request_contain_tuple(const Params* brpc_request,
-                                                       brpc::Controller* cntl) {
-    Params* req = const_cast<Params*>(brpc_request);
-    auto rb = req->mutable_row_batch();
-    return attachment_extract_request(req, cntl, rb->mutable_tuple_data());
 }
 
 // Extract the brpc request and block from the controller attachment,

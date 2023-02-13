@@ -672,7 +672,8 @@ public class RestoreJob extends AbstractJob {
                     }
 
                     // Reset properties to correct values.
-                    remoteOlapTbl.resetPropertiesForRestore(reserveDynamicPartitionEnable, replicaAlloc);
+                    remoteOlapTbl.resetPropertiesForRestore(reserveDynamicPartitionEnable, reserveReplica,
+                                                            replicaAlloc);
 
                     // DO NOT set remote table's new name here, cause we will still need the origin name later
                     // remoteOlapTbl.setName(jobInfo.getAliasByOriginNameIfSet(tblInfo.name));
@@ -985,9 +986,9 @@ public class RestoreJob extends AbstractJob {
         double bfFpp = localTbl.getBfFpp();
         for (MaterializedIndex restoredIdx : restorePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
             MaterializedIndexMeta indexMeta = localTbl.getIndexMetaByIndexId(restoredIdx.getId());
-            TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
-                    restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD);
             for (Tablet restoreTablet : restoredIdx.getTablets()) {
+                TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
+                        restoredIdx.getId(), indexMeta.getSchemaHash(), TStorageMedium.HDD);
                 Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                 for (Replica restoreReplica : restoreTablet.getReplicas()) {
                     Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
@@ -1004,7 +1005,9 @@ public class RestoreJob extends AbstractJob {
                             null,
                             localTbl.getCompressionType(),
                             localTbl.getEnableUniqueKeyMergeOnWrite(), localTbl.getStoragePolicy(),
-                            localTbl.disableAutoCompaction());
+                            localTbl.disableAutoCompaction(),
+                            localTbl.storeRowColumn(),
+                            localTbl.isDynamicSchema());
 
                     task.setInRestoreMode(true);
                     batchTask.addTask(task);
@@ -1172,9 +1175,9 @@ public class RestoreJob extends AbstractJob {
             // modify tablet inverted index
             for (MaterializedIndex restoreIdx : restorePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
                 int schemaHash = localTbl.getSchemaHashByIndexId(restoreIdx.getId());
-                TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
-                        restoreIdx.getId(), schemaHash, TStorageMedium.HDD);
                 for (Tablet restoreTablet : restoreIdx.getTablets()) {
+                    TabletMeta tabletMeta = new TabletMeta(db.getId(), localTbl.getId(), restorePart.getId(),
+                            restoreIdx.getId(), schemaHash, TStorageMedium.HDD);
                     Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                     for (Replica restoreReplica : restoreTablet.getReplicas()) {
                         Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);
@@ -1204,9 +1207,9 @@ public class RestoreJob extends AbstractJob {
                 for (Partition restorePart : olapRestoreTbl.getPartitions()) {
                     for (MaterializedIndex restoreIdx : restorePart.getMaterializedIndices(IndexExtState.VISIBLE)) {
                         int schemaHash = olapRestoreTbl.getSchemaHashByIndexId(restoreIdx.getId());
-                        TabletMeta tabletMeta = new TabletMeta(db.getId(), restoreTbl.getId(), restorePart.getId(),
-                                restoreIdx.getId(), schemaHash, TStorageMedium.HDD);
                         for (Tablet restoreTablet : restoreIdx.getTablets()) {
+                            TabletMeta tabletMeta = new TabletMeta(db.getId(), restoreTbl.getId(), restorePart.getId(),
+                                    restoreIdx.getId(), schemaHash, TStorageMedium.HDD);
                             Env.getCurrentInvertedIndex().addTablet(restoreTablet.getId(), tabletMeta);
                             for (Replica restoreReplica : restoreTablet.getReplicas()) {
                                 Env.getCurrentInvertedIndex().addReplica(restoreTablet.getId(), restoreReplica);

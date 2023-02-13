@@ -35,7 +35,6 @@
 #include <ctime>
 #include <memory>
 
-#include "exprs/slot_ref.h"
 #include "gutil/strings/substitute.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
@@ -70,12 +69,12 @@ public:
 #define PRIMITIVE_VISIT(TYPE) \
     arrow::Status Visit(const arrow::TYPE& type) override { return _visit(type); }
 
-    PRIMITIVE_VISIT(Int8Type);
-    PRIMITIVE_VISIT(Int16Type);
-    PRIMITIVE_VISIT(Int32Type);
-    PRIMITIVE_VISIT(Int64Type);
-    PRIMITIVE_VISIT(FloatType);
-    PRIMITIVE_VISIT(DoubleType);
+    PRIMITIVE_VISIT(Int8Type)
+    PRIMITIVE_VISIT(Int16Type)
+    PRIMITIVE_VISIT(Int32Type)
+    PRIMITIVE_VISIT(Int64Type)
+    PRIMITIVE_VISIT(FloatType)
+    PRIMITIVE_VISIT(DoubleType)
 
 #undef PRIMITIVE_VISIT
 
@@ -108,7 +107,8 @@ public:
             case vectorized::TypeIndex::Date:
             case vectorized::TypeIndex::DateTime: {
                 char buf[64];
-                const DateTimeValue* time_val = (const DateTimeValue*)(data_ref.data);
+                const vectorized::VecDateTimeValue* time_val =
+                        (const vectorized::VecDateTimeValue*)(data_ref.data);
                 int len = time_val->to_buffer(buf);
                 ARROW_RETURN_NOT_OK(builder.Append(buf, len));
                 break;

@@ -27,9 +27,10 @@
 
 #include "exec/olap_utils.h"
 #include "olap/olap_common.h"
-#include "olap/tuple.h"
+#include "olap/olap_tuple.h"
 #include "runtime/primitive_type.h"
 #include "runtime/type_limit.h"
+#include "vec/core/types.h"
 #include "vec/io/io_helper.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -38,17 +39,11 @@ namespace doris {
 template <PrimitiveType primitive_type, class T>
 std::string cast_to_string(T value, int scale) {
     if constexpr (primitive_type == TYPE_DECIMAL32) {
-        std::stringstream ss;
-        vectorized::write_text<int32_t>((int32_t)value, scale, ss);
-        return ss.str();
+        return ((vectorized::Decimal<int32_t>)value).to_string(scale);
     } else if constexpr (primitive_type == TYPE_DECIMAL64) {
-        std::stringstream ss;
-        vectorized::write_text<int64_t>((int64_t)value, scale, ss);
-        return ss.str();
+        return ((vectorized::Decimal<int64_t>)value).to_string(scale);
     } else if constexpr (primitive_type == TYPE_DECIMAL128I) {
-        std::stringstream ss;
-        vectorized::write_text<int128_t>((int128_t)value, scale, ss);
-        return ss.str();
+        return ((vectorized::Decimal<int128_t>)value).to_string(scale);
     } else if constexpr (primitive_type == TYPE_TINYINT) {
         return std::to_string(static_cast<int>(value));
     } else if constexpr (primitive_type == TYPE_LARGEINT) {
@@ -301,7 +296,7 @@ public:
                 condition.__set_condition_op("match_element_ge");
             }
             condition.condition_values.push_back(
-                    cast_to_string<primitive_type, CppType>(value.second, 0));
+                    cast_to_string<primitive_type, CppType>(value.second, _scale));
             if (condition.condition_values.size() != 0) {
                 filters.push_back(condition);
             }
@@ -336,7 +331,7 @@ public:
             set_whole_value_range();
         }
         _contain_null = contain_null;
-    };
+    }
 
     int precision() const { return _precision; }
 
@@ -715,13 +710,6 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
             max_value.set_type(TimeType::TIME_DATE);
         }
 
-        if (contain_null()) {
-            begin_scan_keys.emplace_back();
-            begin_scan_keys.back().add_null();
-            end_scan_keys.emplace_back();
-            end_scan_keys.back().add_null();
-        }
-
         if (min_value > max_value || max_scan_key_num == 1) {
             return no_split();
         }
@@ -745,6 +733,13 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
             return no_split();
         }
 
+        // Add null key if contain null, must do after no_split check
+        if (contain_null()) {
+            begin_scan_keys.emplace_back();
+            begin_scan_keys.back().add_null();
+            end_scan_keys.emplace_back();
+            end_scan_keys.back().add_null();
+        }
         while (true) {
             begin_scan_keys.emplace_back();
             begin_scan_keys.back().add_value(

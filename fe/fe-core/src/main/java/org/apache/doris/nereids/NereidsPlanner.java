@@ -30,6 +30,7 @@ import org.apache.doris.nereids.jobs.batch.NereidsRewriteJobExecutor;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
+import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.metrics.event.CounterEvent;
@@ -172,13 +173,12 @@ public class NereidsPlanner extends Planner {
 
             deriveStats();
 
-            // We need to do join reorder before cascades and after deriving stats
-            // joinReorder();
-            // TODO: What is the appropriate time to set physical properties? Maybe before enter.
-            // cascades style optimize phase.
-
-            // cost-based optimize and explore plan space
-            optimize();
+            if (statementContext.getConnectContext().getSessionVariable().isEnableDPHypOptimizer()) {
+                // TODO: use DPHyp according the number of join table
+                dpHypOptimize();
+            } else {
+                optimize();
+            }
 
             PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), requireProperties);
 
@@ -217,25 +217,19 @@ public class NereidsPlanner extends Planner {
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
     }
 
-    private void joinReorder() {
+    private void dpHypOptimize() {
         Group root = getRoot();
-        boolean changeRoot = false;
         if (root.isJoinGroup()) {
             // If the root group is join group, DPHyp can change the root group.
             // To keep the root group is not changed, we add a project operator above join
             List<Slot> outputs = root.getLogicalExpression().getPlan().getOutput();
-            GroupExpression newExpr = new GroupExpression(
-                    new LogicalProject(outputs, root.getLogicalExpression().getPlan()),
-                    Lists.newArrayList(root));
-            root = new Group();
-            root.addGroupExpression(newExpr);
-            changeRoot = true;
+            LogicalPlan plan = new LogicalProject(outputs, root.getLogicalExpression().getPlan());
+            CopyInResult copyInResult = cascadesContext.getMemo().copyIn(plan, null, false);
+            root = copyInResult.correspondingExpression.getOwnerGroup();
         }
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
-        if (changeRoot) {
-            cascadesContext.getMemo().setRoot(root.getLogicalExpression().child(0));
-        }
+        optimize();
     }
 
     /**
@@ -303,7 +297,7 @@ public class NereidsPlanner extends Planner {
             case OPTIMIZED_PLAN:
                 return optimizedPlan.treeString();
             case ALL_PLAN:
-                String explainString = "========== PARSED PLAN ==========\n"
+                return "========== PARSED PLAN ==========\n"
                         + parsedPlan.treeString() + "\n\n"
                         + "========== ANALYZED PLAN ==========\n"
                         + analyzedPlan.treeString() + "\n\n"
@@ -311,7 +305,6 @@ public class NereidsPlanner extends Planner {
                         + rewrittenPlan.treeString() + "\n\n"
                         + "========== OPTIMIZED PLAN ==========\n"
                         + optimizedPlan.treeString();
-                return explainString;
             default:
                 return super.getExplainString(explainOptions);
         }

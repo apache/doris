@@ -25,7 +25,6 @@ import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
-import org.apache.doris.nereids.types.DateV2Type;
 import org.apache.doris.nereids.types.VarcharType;
 
 import com.google.common.base.Preconditions;
@@ -43,9 +42,7 @@ public class ConvertTz extends ScalarFunction
             FunctionSignature.ret(DateTimeType.INSTANCE)
                     .args(DateTimeType.INSTANCE, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
             FunctionSignature.ret(DateTimeV2Type.SYSTEM_DEFAULT)
-                    .args(DateTimeV2Type.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT),
-            FunctionSignature.ret(DateV2Type.INSTANCE)
-                    .args(DateV2Type.INSTANCE, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
+                    .args(DateTimeV2Type.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT, VarcharType.SYSTEM_DEFAULT)
     );
 
     /**

@@ -35,7 +35,7 @@
                     "label": "Construct Docker",
                     "items": [
                         "install/construct-docker/construct-docker-image",
-                        "install/construct-docker/construct-docker-compose"
+                        "install/construct-docker/run-docker-cluster"
                     ]
                 }
             ]
@@ -157,6 +157,7 @@
                         "advanced/join-optimization/doris-join-optimization"
                     ]
                 },
+                "advanced/pipeline-execution-engine",
                 "advanced/materialized-view",
                 "advanced/broker",
                 {
@@ -165,7 +166,8 @@
                     "items": [
                         "advanced/best-practice/query-analysis",
                         "advanced/best-practice/import-analysis",
-                        "advanced/best-practice/debug-log"
+                        "advanced/best-practice/debug-log",
+                        "advanced/best-practice/compaction"
                     ]
                 },
                 "advanced/resource",
@@ -174,26 +176,45 @@
                 "advanced/variables",
                 "advanced/time-zone",
                 "advanced/small-file-mgr",
-                "advanced/cold_hot_separation"
+                "advanced/cold_hot_separation",
+                "advanced/compute_node"
+            ]
+        },
+        {
+            "type": "category",
+            "label": "Lakehouse",
+            "items": [
+                {
+                    "type": "category",
+                    "label": "Multi Catalog",
+                    "items": [
+                        "lakehouse/multi-catalog/multi-catalog",
+                        "lakehouse/multi-catalog/hive",
+                        "lakehouse/multi-catalog/iceberg",
+                        "lakehouse/multi-catalog/hudi",
+                        "lakehouse/multi-catalog/es",
+                        "lakehouse/multi-catalog/jdbc",
+                        "lakehouse/multi-catalog/dlf",
+                        "lakehouse/multi-catalog/faq"
+                    ]
+                },
+                {
+                    "type": "category",
+                    "label": "External Table",
+                    "items": [
+                        "lakehouse/external-table/es",
+                        "lakehouse/external-table/jdbc",
+                        "lakehouse/external-table/odbc",
+                        "lakehouse/external-table/hive"
+                    ]
+                },
+                "lakehouse/file"
             ]
         },
         {
             "type": "category",
             "label": "Ecosystem",
             "items": [
-                {
-                    "type": "category",
-                    "label": "Expansion table",
-                    "items": [
-                        "ecosystem/external-table/multi-catalog",
-                        "ecosystem/external-table/doris-on-es",
-                        "ecosystem/external-table/hudi-external-table",
-                        "ecosystem/external-table/iceberg-of-doris",
-                        "ecosystem/external-table/odbc-of-doris",
-                        "ecosystem/external-table/jdbc-of-doris",
-                        "ecosystem/external-table/hive-of-doris"
-                    ]
-                },
                 "ecosystem/spark-doris-connector",
                 "ecosystem/flink-doris-connector",
                 "ecosystem/datax",
@@ -202,18 +223,7 @@
                 "ecosystem/plugin-development-manual",
                 "ecosystem/audit-plugin",
                 "ecosystem/cloudcanal",
-                {
-                    "type": "category",
-                    "label": "Doris Manager",
-                    "items": [
-                        "ecosystem/doris-manager/compiling-deploying",
-                        "ecosystem/doris-manager/initializing",
-                        "ecosystem/doris-manager/cluster-managenent",
-                        "ecosystem/doris-manager/space-list",
-                        "ecosystem/doris-manager/space-management",
-                        "ecosystem/doris-manager/system-settings"
-                    ]
-                },
+                "ecosystem/hive-bitmap-udf",
                 {
                     "type": "category",
                     "label": "SeaTunnel",
@@ -643,7 +653,8 @@
                                 "sql-manual/sql-functions/table-functions/numbers",
                                 "sql-manual/sql-functions/table-functions/explode-numbers",
                                 "sql-manual/sql-functions/table-functions/s3",
-                                "sql-manual/sql-functions/table-functions/hdfs"
+                                "sql-manual/sql-functions/table-functions/hdfs",
+                                "sql-manual/sql-functions/table-functions/iceberg_meta"
                             ]
                         },
                         {

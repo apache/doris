@@ -44,6 +44,7 @@ import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
@@ -79,7 +80,9 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         }
 
         expr = rewriteChildren(expr, ctx);
-        if (expr instanceof PropagateNullable && argsHasNullLiteral(expr)) {
+        if (expr instanceof PropagateNullable
+                && !(expr instanceof NullableAggregateFunction)
+                && argsHasNullLiteral(expr)) {
             return new NullLiteral(expr.getDataType());
         }
         return expr.accept(this, ctx);
@@ -255,7 +258,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
             return new NullLiteral(cast.getDataType());
         }
         try {
-            Expression castResult = child.castTo(cast.getDataType());
+            Expression castResult = child.checkedCastTo(cast.getDataType());
             if (!Objects.equals(castResult, cast) && !Objects.equals(castResult, child)) {
                 castResult = rewrite(castResult, context);
             }
@@ -328,10 +331,17 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
             return inPredicate;
         }
 
+        boolean hasNull = false;
         for (Expression item : inPredicate.getOptions()) {
+            if (item.isNullLiteral()) {
+                hasNull = true;
+            }
             if (valueIsLiteral && value.equals(item)) {
                 return BooleanLiteral.TRUE;
             }
+        }
+        if (hasNull) {
+            return NullLiteral.INSTANCE;
         }
         return BooleanLiteral.FALSE;
     }

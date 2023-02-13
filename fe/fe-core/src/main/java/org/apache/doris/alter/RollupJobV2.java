@@ -248,7 +248,9 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 null,
                                 tbl.getCompressionType(),
                                 tbl.getEnableUniqueKeyMergeOnWrite(), tbl.getStoragePolicy(),
-                                tbl.disableAutoCompaction());
+                                tbl.disableAutoCompaction(),
+                                tbl.storeRowColumn(),
+                                tbl.isDynamicSchema());
                         createReplicaTask.setBaseTablet(tabletIdMap.get(rollupTabletId), baseSchemaHash);
                         if (this.storageFormat != null) {
                             createReplicaTask.setStorageFormat(this.storageFormat);
@@ -654,10 +656,10 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
         for (Long partitionId : partitionIdToRollupIndex.keySet()) {
             MaterializedIndex rollupIndex = partitionIdToRollupIndex.get(partitionId);
             TStorageMedium medium = tbl.getPartitionInfo().getDataProperty(partitionId).getStorageMedium();
-            TabletMeta rollupTabletMeta = new TabletMeta(dbId, tableId, partitionId, rollupIndexId,
-                    rollupSchemaHash, medium);
 
             for (Tablet rollupTablet : rollupIndex.getTablets()) {
+                TabletMeta rollupTabletMeta = new TabletMeta(dbId, tableId, partitionId, rollupIndexId,
+                        rollupSchemaHash, medium);
                 invertedIndex.addTablet(rollupTablet.getId(), rollupTabletMeta);
                 for (Replica rollupReplica : rollupTablet.getReplicas()) {
                     invertedIndex.addReplica(rollupTablet.getId(), rollupReplica);

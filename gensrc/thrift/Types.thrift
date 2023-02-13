@@ -91,6 +91,7 @@ enum TPrimitiveType {
   DECIMAL64,
   DECIMAL128I,
   JSONB,
+  VARIANT,
   UNSUPPORTED
 }
 
@@ -98,13 +99,15 @@ enum TTypeNodeType {
     SCALAR,
     ARRAY,
     MAP,
-    STRUCT
+    STRUCT,
+    VARIANT,
 }
 
 enum TStorageBackendType {
     BROKER,
     S3,
     HDFS,
+    JFS,
     LOCAL,
     OFS
 }
@@ -125,6 +128,7 @@ struct TScalarType {
 struct TStructField {
     1: required string name
     2: optional string comment
+    3: optional bool contains_null
 }
 
 struct TTypeNode {
@@ -166,7 +170,7 @@ enum TAggregationType {
 }
 
 enum TPushType {
-    LOAD,
+    LOAD, // deprecated, it is used for old hadoop dpp load
     DELETE,
     LOAD_DELETE,
     // for spark load push request
@@ -202,7 +206,10 @@ enum TTaskType {
     UNINSTALL_PLUGIN,
     COMPACTION,
     STORAGE_MEDIUM_MIGRATE_V2,
-    NOTIFY_UPDATE_STORAGE_POLICY
+    NOTIFY_UPDATE_STORAGE_POLICY, // deprecated
+    PUSH_COOLDOWN_CONF,
+    PUSH_STORAGE_POLICY,
+    ALTER_INVERTED_INDEX
 }
 
 enum TStmtType {

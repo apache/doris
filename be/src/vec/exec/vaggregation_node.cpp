@@ -80,12 +80,11 @@ AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
                                  const DescriptorTbl& descs)
         : ExecNode(pool, tnode, descs),
           _intermediate_tuple_id(tnode.agg_node.intermediate_tuple_id),
-          _intermediate_tuple_desc(NULL),
+          _intermediate_tuple_desc(nullptr),
           _output_tuple_id(tnode.agg_node.output_tuple_id),
-          _output_tuple_desc(NULL),
+          _output_tuple_desc(nullptr),
           _needs_finalize(tnode.agg_node.need_finalize),
           _is_merge(false),
-          _agg_data(),
           _build_timer(nullptr),
           _serialize_key_timer(nullptr),
           _exec_timer(nullptr),
@@ -118,6 +117,9 @@ AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
             tnode.agg_node.use_fixed_length_serialization_opt;
     _agg_data = std::make_unique<AggregatedDataVariants>();
     _agg_arena_pool = std::make_unique<Arena>();
+    if (_needs_finalize && id() == 27) {
+        LOG(INFO) << "Log for ISSUE-16517: " << _row_descriptor.debug_string();
+    }
 }
 
 AggregationNode::~AggregationNode() = default;
@@ -140,6 +142,9 @@ Status AggregationNode::init(const TPlanNode& tnode, RuntimeState* state) {
                 &evaluator));
         _aggregate_evaluators.push_back(evaluator);
     }
+
+    _partitioned_hash_table_enabled = state->partitioned_hash_agg_rows_threshold() > 0;
+    _agg_data->set_enable_partitioned_hash_table(_partitioned_hash_table_enabled);
 
     const auto& agg_functions = tnode.agg_node.aggregate_functions;
     _is_merge = std::any_of(agg_functions.cbegin(), agg_functions.cend(),
@@ -297,6 +302,7 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
             memory_usage->AddHighWaterMarkCounter("SerializeKeyArena", TUnit::BYTES);
 
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
+    _build_table_convert_timer = ADD_TIMER(runtime_profile(), "BuildConvertToPartitionedTime");
     _serialize_key_timer = ADD_TIMER(runtime_profile(), "SerializeKeyTime");
     _exec_timer = ADD_TIMER(runtime_profile(), "ExecTime");
     _merge_timer = ADD_TIMER(runtime_profile(), "MergeTime");
@@ -317,6 +323,9 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
     RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, child(0)->row_desc()));
+
+    runtime_profile()->add_info_string("PartitionedHashTableEnabled",
+                                       _partitioned_hash_table_enabled ? "true" : "false");
 
     _mem_pool = std::make_unique<MemPool>();
 
@@ -408,6 +417,10 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
                             ((_total_size_of_aggregate_states + _align_aggregate_states - 1) /
                              _align_aggregate_states) *
                                     _align_aggregate_states));
+                    if constexpr (HashTableTraits<HashTableType>::is_partitioned_table) {
+                        agg_method.data.set_partitioned_threshold(
+                                state->partitioned_hash_agg_rows_threshold());
+                    }
                 },
                 _agg_data->_aggregated_method_variant);
         if (_is_merge) {
@@ -447,7 +460,6 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
 }
 
 Status AggregationNode::prepare(RuntimeState* state) {
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
 
     RETURN_IF_ERROR(ExecNode::prepare(state));
@@ -457,7 +469,6 @@ Status AggregationNode::prepare(RuntimeState* state) {
 
 Status AggregationNode::alloc_resource(doris::RuntimeState* state) {
     RETURN_IF_ERROR(ExecNode::alloc_resource(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     RETURN_IF_ERROR(VExpr::open(_probe_expr_ctxs, state));
 
@@ -535,7 +546,6 @@ Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
                     _children[0]->get_next_span(), _child_eos);
         };
         {
-            SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
             if (_preagg_block.rows() != 0) {
                 RETURN_IF_ERROR(do_pre_agg(&_preagg_block, block));
             } else {
@@ -543,7 +553,6 @@ Status AggregationNode::get_next(RuntimeState* state, Block* block, bool* eos) {
             }
         }
     } else {
-        SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
         RETURN_IF_ERROR(pull(state, block, eos));
     }
     return Status::OK();
@@ -577,6 +586,11 @@ void AggregationNode::release_resource(RuntimeState* state) {
     if (_hash_table_size_counter) {
         std::visit(
                 [&](auto&& agg_method) {
+                    using HashTableType = std::decay_t<decltype(agg_method.data)>;
+                    if constexpr (HashTableTraits<HashTableType>::is_partitioned_table) {
+                        COUNTER_UPDATE(_build_table_convert_timer,
+                                       agg_method.data.get_convert_timer_value());
+                    }
                     COUNTER_SET(_hash_table_size_counter, int64_t(agg_method.data.size()));
                 },
                 _agg_data->_aggregated_method_variant);
@@ -714,9 +728,9 @@ Status AggregationNode::_execute_without_key(Block* block) {
     DCHECK(_agg_data->without_key != nullptr);
     SCOPED_TIMER(_build_timer);
     for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-        _aggregate_evaluators[i]->execute_single_add(
+        RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_single_add(
                 block, _agg_data->without_key + _offsets_of_aggregate_states[i],
-                _agg_arena_pool.get());
+                _agg_arena_pool.get()));
     }
     return Status::OK();
 }
@@ -749,9 +763,9 @@ Status AggregationNode::_merge_without_key(Block* block) {
                 }
             }
         } else {
-            _aggregate_evaluators[i]->execute_single_add(
+            RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_single_add(
                     block, _agg_data->without_key + _offsets_of_aggregate_states[i],
-                    _agg_arena_pool.get());
+                    _agg_arena_pool.get()));
         }
     }
     return Status::OK();
@@ -759,7 +773,7 @@ Status AggregationNode::_merge_without_key(Block* block) {
 
 void AggregationNode::_update_memusage_without_key() {
     auto arena_memory_usage = _agg_arena_pool->size() - _mem_usage_record.used_in_arena;
-    mem_tracker_held()->consume(arena_memory_usage);
+    mem_tracker()->consume(arena_memory_usage);
     _serialize_key_arena_memory_usage->add(arena_memory_usage);
     _mem_usage_record.used_in_arena = _agg_arena_pool->size();
 }
@@ -898,18 +912,14 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
                     AggregateDataPtr mapped = nullptr;
                     if constexpr (HashTableTraits<HashTableType>::is_phmap) {
                         if (LIKELY(i + HASH_MAP_PREFETCH_DIST < num_rows)) {
-                            if constexpr (HashTableTraits<HashTableType>::is_parallel_phmap) {
-                                agg_method.data.prefetch_by_key(state.get_key_holder(
-                                        i + HASH_MAP_PREFETCH_DIST, *_agg_arena_pool));
-                            } else
-                                agg_method.data.prefetch_by_hash(
-                                        _hash_values[i + HASH_MAP_PREFETCH_DIST]);
+                            agg_method.data.prefetch_by_hash(
+                                    _hash_values[i + HASH_MAP_PREFETCH_DIST]);
                         }
 
                         if constexpr (ColumnsHashing::IsSingleNullableColumnMethod<
                                               AggState>::value) {
-                            mapped = state.lazy_emplace_key(agg_method.data, _hash_values[i], i,
-                                                            *_agg_arena_pool, creator,
+                            mapped = state.lazy_emplace_key(agg_method.data, i, *_agg_arena_pool,
+                                                            _hash_values[i], creator,
                                                             creator_for_null_key);
                         } else {
                             mapped = state.lazy_emplace_key(agg_method.data, _hash_values[i], i,
@@ -964,16 +974,12 @@ void AggregationNode::_find_in_hash_table(AggregateDataPtr* places, ColumnRawPtr
                     auto find_result = [&]() {
                         if constexpr (HashTableTraits<HashTableType>::is_phmap) {
                             if (LIKELY(i + HASH_MAP_PREFETCH_DIST < num_rows)) {
-                                if constexpr (HashTableTraits<HashTableType>::is_parallel_phmap) {
-                                    agg_method.data.prefetch_by_key(state.get_key_holder(
-                                            i + HASH_MAP_PREFETCH_DIST, *_agg_arena_pool));
-                                } else
-                                    agg_method.data.prefetch_by_hash(
-                                            _hash_values[i + HASH_MAP_PREFETCH_DIST]);
+                                agg_method.data.prefetch_by_hash(
+                                        _hash_values[i + HASH_MAP_PREFETCH_DIST]);
                             }
 
-                            return state.find_key(agg_method.data, _hash_values[i], i,
-                                                  *_agg_arena_pool);
+                            return state.find_key_with_hash(agg_method.data, _hash_values[i], i,
+                                                            *_agg_arena_pool);
                         } else {
                             return state.find_key(agg_method.data, i, *_agg_arena_pool);
                         }
@@ -1019,8 +1025,8 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
     // to avoid wasting memory.
     // But for fixed hash map, it never need to expand
     bool ret_flag = false;
-    std::visit(
-            [&](auto&& agg_method) -> void {
+    RETURN_IF_ERROR(std::visit(
+            [&](auto&& agg_method) -> Status {
                 if (auto& hash_tbl = agg_method.data; hash_tbl.add_elem_size_overflow(rows)) {
                     // do not try to do agg, just init and serialize directly return the out_block
                     if (!_should_expand_preagg_hash_tables()) {
@@ -1052,8 +1058,10 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
 
                             for (int i = 0; i != _aggregate_evaluators.size(); ++i) {
                                 SCOPED_TIMER(_serialize_data_timer);
-                                _aggregate_evaluators[i]->streaming_agg_serialize_to_column(
-                                        in_block, value_columns[i], rows, _agg_arena_pool.get());
+                                RETURN_IF_ERROR(
+                                        _aggregate_evaluators[i]->streaming_agg_serialize_to_column(
+                                                in_block, value_columns[i], rows,
+                                                _agg_arena_pool.get()));
                             }
                         } else {
                             std::vector<VectorBufferWriter> value_buffer_writers;
@@ -1076,9 +1084,9 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
 
                             for (int i = 0; i != _aggregate_evaluators.size(); ++i) {
                                 SCOPED_TIMER(_serialize_data_timer);
-                                _aggregate_evaluators[i]->streaming_agg_serialize(
+                                RETURN_IF_ERROR(_aggregate_evaluators[i]->streaming_agg_serialize(
                                         in_block, value_buffer_writers[i], rows,
-                                        _agg_arena_pool.get());
+                                        _agg_arena_pool.get()));
                             }
                         }
 
@@ -1104,16 +1112,17 @@ Status AggregationNode::_pre_agg_with_serialized_key(doris::vectorized::Block* i
                         }
                     }
                 }
+                return Status::OK();
             },
-            _agg_data->_aggregated_method_variant);
+            _agg_data->_aggregated_method_variant));
 
     if (!ret_flag) {
         RETURN_IF_CATCH_BAD_ALLOC(_emplace_into_hash_table(_places.data(), key_columns, rows));
 
         for (int i = 0; i < _aggregate_evaluators.size(); ++i) {
-            _aggregate_evaluators[i]->execute_batch_add(in_block, _offsets_of_aggregate_states[i],
-                                                        _places.data(), _agg_arena_pool.get(),
-                                                        _should_expand_hash_table);
+            RETURN_IF_ERROR(_aggregate_evaluators[i]->execute_batch_add(
+                    in_block, _offsets_of_aggregate_states[i], _places.data(),
+                    _agg_arena_pool.get(), _should_expand_hash_table));
         }
     }
 
@@ -1368,9 +1377,9 @@ void AggregationNode::_update_memusage_with_serialized_key() {
                 auto arena_memory_usage = _agg_arena_pool->size() +
                                           _aggregate_data_container->memory_usage() -
                                           _mem_usage_record.used_in_arena;
-                mem_tracker_held()->consume(arena_memory_usage);
-                mem_tracker_held()->consume(data.get_buffer_size_in_bytes() -
-                                            _mem_usage_record.used_in_state);
+                mem_tracker()->consume(arena_memory_usage);
+                mem_tracker()->consume(data.get_buffer_size_in_bytes() -
+                                       _mem_usage_record.used_in_state);
                 _serialize_key_arena_memory_usage->add(arena_memory_usage);
                 COUNTER_UPDATE(_hash_table_memory_usage,
                                data.get_buffer_size_in_bytes() - _mem_usage_record.used_in_state);
@@ -1397,7 +1406,7 @@ void AggregationNode::_close_with_serialized_key() {
 }
 
 void AggregationNode::release_tracker() {
-    mem_tracker_held()->release(_mem_usage_record.used_in_state + _mem_usage_record.used_in_arena);
+    mem_tracker()->release(_mem_usage_record.used_in_state + _mem_usage_record.used_in_arena);
 }
 
 void AggregationNode::_release_mem() {

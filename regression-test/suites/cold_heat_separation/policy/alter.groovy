@@ -16,8 +16,6 @@
 // under the License.
 
 suite("alter_policy") {
-    sql """ADMIN SET FRONTEND CONFIG ("enable_storage_policy" = "true");"""
-
     def has_resouce_policy_alter = sql """
         SHOW RESOURCES WHERE NAME = "has_resouce_policy_alter";
     """
@@ -92,6 +90,7 @@ suite("alter_policy") {
     def show_alter_result = order_sql """
         SHOW RESOURCES WHERE NAME = "has_resouce_policy_alter";
     """
+    logger.info(show_alter_result.toString())
 
     // [[has_resouce_policy_alter, s3, AWS_ACCESS_KEY, 6666],
     // [has_resouce_policy_alter, s3, AWS_BUCKET, test-bucket],
@@ -102,7 +101,9 @@ suite("alter_policy") {
     // [has_resouce_policy_alter, s3, AWS_REQUEST_TIMEOUT_MS, 7777],
     // [has_resouce_policy_alter, s3, AWS_ROOT_PATH, path/to/rootaaaa],
     // [has_resouce_policy_alter, s3, AWS_SECRET_KEY, ******],
-    // [has_resouce_policy_alter, s3, type, s3]]
+    // [has_resouce_policy_alter, s3, id, {id}],
+    // [has_resouce_policy_alter, s3, type, s3]
+    // [has_resouce_policy_alter, s3, version, {version}]]
     // AWS_ACCESS_KEY
     assertEquals(show_alter_result[0][3], "6666")
     // AWS_BUCKET
@@ -121,8 +122,6 @@ suite("alter_policy") {
     assertEquals(show_alter_result[7][3], "path/to/rootaaaa")
     // AWS_SECRET_KEY
     assertEquals(show_alter_result[8][3], "******")
-    // type
-    assertEquals(show_alter_result[10][3], "s3")
 
     def storage_exist = { name ->
         def show_storage_policy = sql """

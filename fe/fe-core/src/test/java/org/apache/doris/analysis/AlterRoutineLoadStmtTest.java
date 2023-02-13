@@ -20,7 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -43,7 +43,7 @@ public class AlterRoutineLoadStmtTest {
     private Analyzer analyzer;
 
     @Mocked
-    private PaloAuth auth;
+    private Auth auth;
 
     @Before
     public void setUp() {

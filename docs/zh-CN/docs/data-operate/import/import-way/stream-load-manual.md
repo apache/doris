@@ -184,10 +184,6 @@ Stream Load 由于使用的是 HTTP 协议，所以所有导入任务有关的�
 
   Stream load 导入可以开启两阶段事务提交模式：在Stream load过程中，数据写入完成即会返回信息给用户，此时数据不可见，事务状态为`PRECOMMITTED`，用户手动触发commit操作之后，数据才可见。
 
-  默认的两阶段批量事务提交为关闭。
-
-  > **开启方式：** 在be.conf中配置`disable_stream_load_2pc=false` 并且 在 HEADER 中声明 `two_phase_commit=true` 。
-
   示例：
 
   1. 发起stream load预提交操作
@@ -421,6 +417,14 @@ timeout = 1000s 等于 10G / 10M/s
            <version>4.5.13</version>
          </dependency>
      ```
+- 用户在开启 BE 上的 Stream Load 记录后，查询不到记录
+
+  这是因为拉取速度慢造成的，可以尝试调整下面的参数：
+  
+  1. 调大 BE 配置 `stream_load_record_batch_size`，这个配置表示每次从 BE 上最多拉取多少条 Stream load 的记录数，默认值为50条，可以调大到500条。
+  2. 调小 FE 的配置 `fetch_stream_load_record_interval_second`，这个配置表示获取 Stream load 记录间隔，默认每120秒拉取一次，可以调整到60秒。
+  3. 如果要保存更多的 Stream load 记录（不建议，占用 FE 更多的资源）可以将 FE 的配置 `max_stream_load_record_size` 调大，默认是5000条。
+
 ## 更多帮助
 
 关于 Stream Load 使用的更多详细语法及最佳实践，请参阅 [Stream Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD.md) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP STREAM LOAD` 获取更多帮助信息。

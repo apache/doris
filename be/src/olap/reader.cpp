@@ -30,7 +30,6 @@
 #include "olap/like_column_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/predicate_creator.h"
-#include "olap/row.h"
 #include "olap/row_cursor.h"
 #include "olap/schema.h"
 #include "olap/tablet.h"
@@ -205,6 +204,8 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.need_ordered_result = need_ordered_result;
     _reader_context.use_topn_opt = read_params.use_topn_opt;
     _reader_context.read_orderby_key_reverse = read_params.read_orderby_key_reverse;
+    _reader_context.read_orderby_key_limit = read_params.read_orderby_key_limit;
+    _reader_context.filter_block_vconjunct_ctx_ptr = read_params.filter_block_vconjunct_ctx_ptr;
     _reader_context.return_columns = &_return_columns;
     _reader_context.read_orderby_key_columns =
             _orderby_key_columns.size() > 0 ? &_orderby_key_columns : nullptr;
@@ -219,7 +220,6 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.stats = &_stats;
     _reader_context.use_page_cache = read_params.use_page_cache;
     _reader_context.sequence_id_idx = _sequence_col_idx;
-    _reader_context.batch_size = _batch_size;
     _reader_context.is_unique = tablet()->keys_type() == UNIQUE_KEYS;
     _reader_context.merged_rows = &_merged_rows;
     _reader_context.delete_bitmap = read_params.delete_bitmap;
@@ -419,7 +419,8 @@ Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
     }
 
     // UNIQUE_KEYS will compare all keys as before
-    if (_tablet_schema->keys_type() == DUP_KEYS) {
+    if (_tablet_schema->keys_type() == DUP_KEYS || (_tablet_schema->keys_type() == UNIQUE_KEYS &&
+                                                    _tablet->enable_unique_key_merge_on_write())) {
         // find index in vector _return_columns
         //   for the read_orderby_key_num_prefix_columns orderby keys
         for (uint32_t i = 0; i < read_params.read_orderby_key_num_prefix_columns; i++) {
@@ -452,6 +453,10 @@ void TabletReader::_init_conditions_param(const ReaderParams& read_params) {
         ColumnPredicate* predicate =
                 parse_to_predicate(_tablet_schema, tmp_cond, _predicate_mem_pool.get());
         if (predicate != nullptr) {
+            // record condition value into predicate_params in order to pushdown segment_iterator,
+            // _gen_predicate_result_sign will build predicate result unique sign with condition value
+            auto predicate_params = predicate->predicate_params();
+            predicate_params->value = condition.condition_values[0];
             if (_tablet_schema->column_by_uid(condition_col_uid).aggregation() !=
                 FieldAggregationMethod::OLAP_FIELD_AGGREGATION_NONE) {
                 _value_col_predicates.push_back(predicate);

@@ -66,6 +66,9 @@ public class GroupExpression {
     // value is the request physical properties
     private final Map<PhysicalProperties, PhysicalProperties> requestPropertiesMap;
 
+    // After mergeGroup(), source Group was cleaned up, but it may be in the Job Stack. So use this to mark and skip it.
+    private boolean isUnused = false;
+
     public GroupExpression(Plan plan) {
         this(plan, Lists.newArrayList());
     }
@@ -114,6 +117,7 @@ public class GroupExpression {
     }
 
     public void setChild(int i, Group group) {
+        child(i).removeParentExpression(this);
         children.set(i, group);
         group.addParentExpression(this);
     }
@@ -162,6 +166,22 @@ public class GroupExpression {
         this.statDerived = statDerived;
     }
 
+    /**
+     * Check this GroupExpression isUnused. See detail of `isUnused` in its comment.
+     */
+    public boolean isUnused() {
+        if (isUnused) {
+            Preconditions.checkState(children.isEmpty() || ownerGroup == null);
+            return true;
+        }
+        Preconditions.checkState(ownerGroup != null);
+        return false;
+    }
+
+    public void setUnused(boolean isUnused) {
+        this.isUnused = isUnused;
+    }
+
     public Map<PhysicalProperties, Pair<Double, List<PhysicalProperties>>> getLowestCostTable() {
         return lowestCostTable;
     }
@@ -174,6 +194,7 @@ public class GroupExpression {
     /**
      * Add a (outputProperties) -> (cost, childrenInputProperties) in lowestCostTable.
      * if the outputProperties exists, will be covered.
+     *
      * @return true if lowest cost table change.
      */
     public boolean updateLowestCostTable(PhysicalProperties outputProperties,
@@ -194,6 +215,7 @@ public class GroupExpression {
 
     /**
      * get the lowest cost when satisfy property
+     *
      * @param property property that needs to be satisfied
      * @return Lowest cost to satisfy that property
      */
@@ -205,6 +227,32 @@ public class GroupExpression {
     public void putOutputPropertiesMap(PhysicalProperties outputPropertySet,
             PhysicalProperties requiredPropertySet) {
         this.requestPropertiesMap.put(requiredPropertySet, outputPropertySet);
+    }
+
+    /**
+     * Merge GroupExpression.
+     */
+    public void mergeTo(GroupExpression target) {
+        this.ownerGroup.removeGroupExpression(this);
+        this.mergeToNotOwnerRemove(target);
+    }
+
+    /**
+     * Merge GroupExpression, but owner don't remove this GroupExpression.
+     */
+    public void mergeToNotOwnerRemove(GroupExpression target) {
+        // LowestCostTable
+        this.getLowestCostTable()
+                .forEach((properties, pair) -> target.updateLowestCostTable(properties, pair.second, pair.first));
+        // requestPropertiesMap
+        target.requestPropertiesMap.putAll(this.requestPropertiesMap);
+        // ruleMasks
+        target.ruleMasks.or(this.ruleMasks);
+
+        // clear
+        this.children.forEach(child -> child.removeParentExpression(this));
+        this.children.clear();
+        this.ownerGroup = null;
     }
 
     public double getCost() {

@@ -30,7 +30,6 @@
 #include "runtime/exec_env.h"
 #include "runtime/mem_pool.h"
 #include "runtime/runtime_state.h"
-#include "runtime/tuple.h"
 #include "util/string_util.h"
 #include "util/thrift_util.h"
 #include "vec/core/block.h"
@@ -262,7 +261,7 @@ arrow::Result<std::shared_ptr<arrow::Buffer>> ArrowFile::Read(int64_t nbytes) {
     ARROW_RETURN_NOT_OK(bytes_read);
     // If bytes_read is equal with read_buf's capacity, we just assign
     if (bytes_read.ValueOrDie() == nbytes) {
-        return std::move(read_buf);
+        return read_buf;
     } else {
         return arrow::SliceBuffer(read_buf, 0, bytes_read.ValueOrDie());
     }

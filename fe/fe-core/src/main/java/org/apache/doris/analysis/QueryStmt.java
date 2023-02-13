@@ -76,6 +76,8 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
      */
     protected ArrayList<Expr> resultExprs = Lists.newArrayList();
 
+    protected ArrayList<Expr> originResultExprs = null;
+
     // For a select statement: select list exprs resolved to base tbl refs
     // For a union statement: same as resultExprs
     /**
@@ -166,6 +168,8 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
     private Set<TupleId> disableTuplesMVRewriter = Sets.newHashSet();
 
     protected boolean toSQLWithSelectList;
+    protected boolean isPointQuery;
+    protected boolean toSQLWithHint;
 
     QueryStmt(ArrayList<OrderByElement> orderByElements, LimitElement limitElement) {
         this.orderByElements = orderByElements;
@@ -546,6 +550,10 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         return false;
     }
 
+    public Expr getExprFromAliasSMap(Expr expr) {
+        return aliasSMap.get(expr);
+    }
+
     // get tables used by this query.
     // Set<String> parentViewNameSet contain parent stmt view name
     // to make sure query like "with tmp as (select * from db1.table1) " +
@@ -814,4 +822,12 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         return toSql();
     }
 
+    public boolean isPointQuery() {
+        return isPointQuery;
+    }
+
+    public String toSqlWithHint() {
+        toSQLWithHint = true;
+        return toSql();
+    }
 }

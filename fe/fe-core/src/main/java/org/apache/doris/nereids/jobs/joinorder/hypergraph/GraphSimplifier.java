@@ -38,27 +38,31 @@ import java.util.Stack;
 import javax.annotation.Nullable;
 
 /**
- * GraphSimplifier is used to simplify HyperGraph {@link HyperGraph}
+ * GraphSimplifier is used to simplify HyperGraph {@link HyperGraph}.
+ * <p>
+ * Related paper:
+ *  - [Neu09] Neumann: “Query Simplification: Graceful Degradation for Join-Order Optimization”.
+ *  - [Rad19] Radke and Neumann: “LinDP++: Generalizing Linearized DP to Crossproducts and Non-Inner Joins”.
  */
 public class GraphSimplifier {
     // Note that each index in the graph simplifier is the half of the actual index
     private final int edgeSize;
     // Detect the circle when order join
-    private CircleDetector circleDetector;
+    private final CircleDetector circleDetector;
     // This is used for cache the intermediate results when calculate the benefit
     // Note that we store it for the after. Because if we put B after A (t1 Join_A t2 Join_B t3),
     // B is changed. Therefore, Any step that involves B need to be recalculated.
-    private List<BestSimplification> simplifications = new ArrayList<>();
-    private PriorityQueue<BestSimplification> priorityQueue = new PriorityQueue<>();
+    private final List<BestSimplification> simplifications = new ArrayList<>();
+    private final PriorityQueue<BestSimplification> priorityQueue = new PriorityQueue<>();
     // The graph we are simplifying
-    private HyperGraph graph;
+    private final HyperGraph graph;
     // It cached the plan in simplification. we don't store it in hyper graph,
     // because it's just used for simulating join. In fact, the graph simplifier
     // just generate the partial order of join operator.
-    private HashMap<Long, Plan> cachePlan = new HashMap<>();
+    private final HashMap<Long, Plan> cachePlan = new HashMap<>();
 
-    private Stack<SimplificationStep> appliedSteps = new Stack<SimplificationStep>();
-    private Stack<SimplificationStep> unAppliedSteps = new Stack<SimplificationStep>();
+    private final Stack<SimplificationStep> appliedSteps = new Stack<>();
+    private final Stack<SimplificationStep> unAppliedSteps = new Stack<>();
 
     /**
      * Create a graph simplifier
@@ -76,12 +80,12 @@ public class GraphSimplifier {
             cachePlan.put(node.getNodeMap(), node.getPlan());
         }
         circleDetector = new CircleDetector(edgeSize);
+
+        // init first simplification step
+        initFirstStep();
     }
 
-    /**
-     * This function init the first simplification step
-     */
-    public void initFirstStep() {
+    private void initFirstStep() {
         extractJoinDependencies();
         for (int i = 0; i < edgeSize; i += 1) {
             processNeighbors(i, i + 1, edgeSize);
@@ -122,7 +126,6 @@ public class GraphSimplifier {
      */
     public boolean simplifyGraph(int limit) {
         Preconditions.checkArgument(limit >= 1);
-        initFirstStep();
         int lowerBound = 0;
         int upperBound = 1;
 
@@ -265,7 +268,7 @@ public class GraphSimplifier {
 
     private boolean trySetSimplificationStep(SimplificationStep step, BestSimplification bestSimplification,
             int index, int neighborIndex) {
-        if (bestSimplification.bestNeighbor == -1 || bestSimplification.isInQueue == false
+        if (bestSimplification.bestNeighbor == -1 || !bestSimplification.isInQueue
                 || bestSimplification.getBenefit() <= step.getBenefit()) {
             bestSimplification.bestNeighbor = neighborIndex;
             bestSimplification.setStep(step);
@@ -425,14 +428,14 @@ public class GraphSimplifier {
         //      Plan.cost = Plan.rowCount + Plan.children1.cost + Plan.children2.cost
         // The reason is that this cost model has ASI (adjacent sequence interchange) property.
         // TODO: consider network, data distribution cost
-        LogicalJoin newJoin = new LogicalJoin(join.getJoinType(), plan1, plan2);
+        LogicalJoin newJoin = new LogicalJoin<>(join.getJoinType(), plan1, plan2);
         List<Group> children = new ArrayList<>();
         children.add(getGroup(plan1));
         children.add(getGroup(plan2));
         double cost = getSimpleCost(plan1) + getSimpleCost(plan2);
         GroupExpression groupExpression = new GroupExpression(newJoin, children);
-        Group group = new Group();
-        group.addGroupExpression(groupExpression);
+        // FIXME: use wrong constructor
+        Group group = new Group(null, groupExpression, null);
         StatsCalculator.estimate(groupExpression);
         cost += group.getStatistics().getRowCount();
 
@@ -441,13 +444,16 @@ public class GraphSimplifier {
         inputs.add(PhysicalProperties.ANY);
         groupExpression.updateLowestCostTable(PhysicalProperties.ANY, inputs, cost);
 
-        return (LogicalJoin) newJoin.withGroupExpression(Optional.of(groupExpression));
+        return newJoin.withGroupExpression(Optional.of(groupExpression));
     }
 
+    /**
+     * Put join dependencies into circle detector.
+     */
     private void extractJoinDependencies() {
         for (int i = 0; i < edgeSize; i++) {
+            Edge edge1 = graph.getEdge(i);
             for (int j = i + 1; j < edgeSize; j++) {
-                Edge edge1 = graph.getEdge(i);
                 Edge edge2 = graph.getEdge(j);
                 if (edge1.isSub(edge2)) {
                     Preconditions.checkArgument(circleDetector.tryAddDirectedEdge(i, j),
@@ -460,7 +466,7 @@ public class GraphSimplifier {
         }
     }
 
-    class SimplificationStep {
+    static class SimplificationStep {
         double benefit;
         int beforeIndex;
         int afterIndex;
@@ -496,7 +502,7 @@ public class GraphSimplifier {
         }
     }
 
-    class BestSimplification implements Comparable<BestSimplification> {
+    static class BestSimplification implements Comparable<BestSimplification> {
         int bestNeighbor = -1;
         Optional<SimplificationStep> step = Optional.empty();
         // This data whether to be added to the queue

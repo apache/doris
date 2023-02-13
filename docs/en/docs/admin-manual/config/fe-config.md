@@ -2583,4 +2583,35 @@ MasterOnly：false
 
 The default dir to put jdbc drivers.
 
+#### `max_error_tablet_of_broker_load`
+
+Default: 3;
+
+IsMutable：true
+
+MasterOnly：true
+
+Maximum number of error tablet showed in broker load.
+
+#### `default_db_max_running_txn_num`
+
+Default：-1
+
+IsMutable：true
+
+MasterOnly：true
+
+Used to set the default database transaction quota size.
+
+The default value setting to -1 means using `max_running_txn_num_per_db` instead of `default_db_max_running_txn_num`.
+
+To set the quota size of a single database, you can use:
+
+```
+Set the database transaction quota
+ALTER DATABASE db_name SET TRANSACTION QUOTA quota;
+View configuration
+show data （Detail：HELP SHOW DATA）
+```
+
 

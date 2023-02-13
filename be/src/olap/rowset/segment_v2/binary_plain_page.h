@@ -206,49 +206,6 @@ public:
         return Status::OK();
     }
 
-    Status next_batch(size_t* n, ColumnBlockView* dst) override {
-        DCHECK(_parsed);
-        if (PREDICT_FALSE(*n == 0 || _cur_idx >= _num_elems)) {
-            *n = 0;
-            return Status::OK();
-        }
-        const size_t max_fetch = std::min(*n, static_cast<size_t>(_num_elems - _cur_idx));
-
-        Slice* out = reinterpret_cast<Slice*>(dst->data());
-        size_t mem_len[max_fetch];
-        for (size_t i = 0; i < max_fetch; i++, out++, _cur_idx++) {
-            *out = string_at_index(_cur_idx);
-            if constexpr (Type == OLAP_FIELD_TYPE_OBJECT) {
-                if (_options.need_check_bitmap) {
-                    RETURN_IF_ERROR(BitmapTypeCode::validate(*(out->data)));
-                }
-            }
-            mem_len[i] = out->size;
-        }
-
-        // use SIMD instruction to speed up call function `RoundUpToPowerOfTwo`
-        size_t mem_size = 0;
-        for (int i = 0; i < max_fetch; ++i) {
-            mem_len[i] = BitUtil::RoundUpToPowerOf2Int32(mem_len[i], MemPool::DEFAULT_ALIGNMENT);
-            mem_size += mem_len[i];
-        }
-
-        // allocate a batch of memory and do memcpy
-        out = reinterpret_cast<Slice*>(dst->data());
-        char* destination = (char*)dst->column_block()->pool()->allocate(mem_size);
-        if (destination == nullptr) {
-            return Status::MemoryAllocFailed("memory allocate failed, size:{}", mem_size);
-        }
-        for (int i = 0; i < max_fetch; ++i) {
-            out->relocate(destination);
-            destination += mem_len[i];
-            ++out;
-        }
-
-        *n = max_fetch;
-        return Status::OK();
-    }
-
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
         DCHECK(_parsed);
         if (PREDICT_FALSE(*n == 0 || _cur_idx >= _num_elems)) {
@@ -281,7 +238,7 @@ public:
 
         *n = max_fetch;
         return Status::OK();
-    };
+    }
 
     Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
                           vectorized::MutableColumnPtr& dst) override {

@@ -24,13 +24,26 @@
 namespace doris::vectorized {
 
 NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit,
-                               bool aggregation, bool need_agg_finalize,
-                               const TPaloScanRange& scan_range, RuntimeProfile* profile)
+                               bool aggregation, bool need_agg_finalize, RuntimeProfile* profile)
         : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
           _version(-1) {
     _tablet_schema = std::make_shared<TabletSchema>();
+}
+
+static std::string read_columns_to_string(TabletSchemaSPtr tablet_schema,
+                                          const std::vector<uint32_t>& read_columns) {
+    std::string read_columns_string;
+    read_columns_string += "[";
+    for (auto it = read_columns.cbegin(); it != read_columns.cend(); it++) {
+        if (it != read_columns.cbegin()) {
+            read_columns_string += ", ";
+        }
+        read_columns_string += tablet_schema->columns().at(*it).name();
+    }
+    read_columns_string += "]";
+    return read_columns_string;
 }
 
 Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
@@ -77,6 +90,29 @@ Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
                 _tablet_schema->append_column(TabletColumn(column_desc));
             }
         }
+
+        if (olap_scan_node.__isset.indexes_desc && !olap_scan_node.indexes_desc.empty() &&
+            olap_scan_node.indexes_desc[0].index_id >= 0) {
+            _tablet_schema->update_indexes_from_thrift(olap_scan_node.indexes_desc);
+        }
+
+        {
+            if (_output_tuple_desc->slots().back()->col_name() == BeConsts::ROWID_COL) {
+                // inject ROWID_COL
+                TabletColumn rowid_column;
+                rowid_column.set_is_nullable(false);
+                rowid_column.set_name(BeConsts::ROWID_COL);
+                // avoid column reader init error
+                rowid_column.set_has_default_value(true);
+                // fake unique id
+                rowid_column.set_unique_id(INT32_MAX);
+                rowid_column.set_aggregation_method(
+                        FieldAggregationMethod::OLAP_FIELD_AGGREGATION_REPLACE);
+                rowid_column.set_type(FieldType::OLAP_FIELD_TYPE_STRING);
+                _tablet_schema->append_column(rowid_column);
+            }
+        }
+
         {
             std::shared_lock rdlock(_tablet->get_header_lock());
             const RowsetSharedPtr rowset = _tablet->rowset_with_max_version();
@@ -106,6 +142,12 @@ Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
             RETURN_IF_ERROR(_init_tablet_reader_params(key_ranges, filters, filter_predicates,
                                                        function_filters));
         }
+    }
+
+    // add read columns in profile
+    if (_state->enable_profile()) {
+        _profile->add_info_string("ReadColumns",
+                                  read_columns_to_string(_tablet_schema, _return_columns));
     }
 
     return Status::OK();
@@ -183,6 +225,15 @@ Status NewOlapScanner::_init_tablet_reader_params(
                                         filter.column_name + "` is not inverted index column");
         }
         _tablet_reader_params.conditions.push_back(filter);
+    }
+
+    for (auto& filter : _compound_filters) {
+        if (is_match_condition(filter.condition_op) &&
+            !_tablet_schema->has_inverted_index(
+                    _tablet_schema->column(filter.column_name).unique_id())) {
+            return Status::NotSupported("Match query must with inverted index, column `" +
+                                        filter.column_name + "` is not inverted index column");
+        }
     }
 
     std::copy(_compound_filters.cbegin(), _compound_filters.cend(),
@@ -291,10 +342,14 @@ Status NewOlapScanner::_init_tablet_reader_params(
             }
             _tablet_reader_params.read_orderby_key_num_prefix_columns =
                     olap_scan_node.sort_info.is_asc_order.size();
+            _tablet_reader_params.read_orderby_key_limit = _limit;
+            _tablet_reader_params.filter_block_vconjunct_ctx_ptr = &_vconjunct_ctx;
         }
-    }
 
-    _tablet_reader_params.use_topn_opt = ((NewOlapScanNode*)_parent)->_olap_scan_node.use_topn_opt;
+        // runtime predicate push down optimization for topn
+        _tablet_reader_params.use_topn_opt =
+                ((NewOlapScanNode*)_parent)->_olap_scan_node.use_topn_opt;
+    }
 
     return Status::OK();
 }
@@ -304,7 +359,9 @@ Status NewOlapScanner::_init_return_columns() {
         if (!slot->is_materialized()) {
             continue;
         }
-
+        if (!slot->need_materialize()) {
+            continue;
+        }
         int32_t index = slot->col_unique_id() >= 0
                                 ? _tablet_schema->field_index(slot->col_unique_id())
                                 : _tablet_schema->field_index(slot->col_name());
@@ -336,7 +393,7 @@ Status NewOlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* 
     // Read one block from block reader
     // ATTN: Here we need to let the _get_block_impl method guarantee the semantics of the interface,
     // that is, eof can be set to true only when the returned block is empty.
-    RETURN_IF_ERROR(_tablet_reader->next_block_with_aggregation(block, nullptr, nullptr, eof));
+    RETURN_IF_ERROR(_tablet_reader->next_block_with_aggregation(block, eof));
     if (!_profile_updated) {
         _profile_updated = _tablet_reader->update_profile(_profile);
     }
@@ -430,11 +487,6 @@ void NewOlapScanner::_update_counters_before_close() {
     COUNTER_UPDATE(olap_parent->_conditions_filtered_counter, stats.rows_conditions_filtered);
     COUNTER_UPDATE(olap_parent->_key_range_filtered_counter, stats.rows_key_range_filtered);
 
-    size_t timer_count = sizeof(stats.general_debug_ns) / sizeof(*stats.general_debug_ns);
-    for (size_t i = 0; i < timer_count; ++i) {
-        COUNTER_UPDATE(olap_parent->_general_debug_timer[i], stats.general_debug_ns[i]);
-    }
-
     COUNTER_UPDATE(olap_parent->_total_pages_num_counter, stats.total_pages_num);
     COUNTER_UPDATE(olap_parent->_cached_pages_num_counter, stats.cached_pages_num);
 
@@ -443,6 +495,21 @@ void NewOlapScanner::_update_counters_before_close() {
 
     COUNTER_UPDATE(olap_parent->_inverted_index_filter_counter, stats.rows_inverted_index_filtered);
     COUNTER_UPDATE(olap_parent->_inverted_index_filter_timer, stats.inverted_index_filter_timer);
+    COUNTER_UPDATE(olap_parent->_inverted_index_query_cache_hit_counter,
+                   stats.inverted_index_query_cache_hit);
+    COUNTER_UPDATE(olap_parent->_inverted_index_query_cache_miss_counter,
+                   stats.inverted_index_query_cache_miss);
+    COUNTER_UPDATE(olap_parent->_inverted_index_query_timer, stats.inverted_index_query_timer);
+    COUNTER_UPDATE(olap_parent->_inverted_index_query_bitmap_copy_timer,
+                   stats.inverted_index_query_bitmap_copy_timer);
+    COUNTER_UPDATE(olap_parent->_inverted_index_query_bitmap_op_timer,
+                   stats.inverted_index_query_bitmap_op_timer);
+    COUNTER_UPDATE(olap_parent->_inverted_index_searcher_open_timer,
+                   stats.inverted_index_searcher_open_timer);
+    COUNTER_UPDATE(olap_parent->_inverted_index_searcher_search_timer,
+                   stats.inverted_index_searcher_search_timer);
+    COUNTER_UPDATE(olap_parent->_inverted_index_searcher_bitmap_timer,
+                   stats.inverted_index_searcher_bitmap_timer);
 
     COUNTER_UPDATE(olap_parent->_output_index_result_column_timer,
                    stats.output_index_result_column_timer);

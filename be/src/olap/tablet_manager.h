@@ -80,6 +80,9 @@ public:
 
     std::vector<TabletSharedPtr> get_all_tablet();
 
+    uint64_t get_rowset_nums();
+    uint64_t get_segment_nums();
+
     // Extract tablet_id and schema_hash from given path.
     //
     // The normal path pattern is like "/data/{shard_id}/{tablet_id}/{schema_hash}/xxx.data".
@@ -136,7 +139,8 @@ public:
     void get_tablets_distribution_on_different_disks(
             std::map<int64_t, std::map<DataDir*, int64_t>>& tablets_num_on_disk,
             std::map<int64_t, std::map<DataDir*, std::vector<TabletSize>>>& tablets_info_on_disk);
-    void get_cooldown_tablets(std::vector<TabletSharedPtr>* tables);
+    void get_cooldown_tablets(std::vector<TabletSharedPtr>* tables,
+                              std::function<bool(const TabletSharedPtr&)> skip_tablet);
 
     void get_all_tablets_storage_format(TCheckStorageFormatResult* result);
 
@@ -202,6 +206,7 @@ private:
 
     // trace the memory use by meta of tablet
     std::shared_ptr<MemTracker> _mem_tracker;
+    std::shared_ptr<MemTracker> _tablet_meta_mem_tracker;
 
     const int32_t _tablets_shards_size;
     const int32_t _tablets_shards_mask;

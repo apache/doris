@@ -60,7 +60,6 @@ endif ()
 # Set boost/stacktrace use backtrace api to unwind
 if (NOT OS_MACOSX)
     add_definitions(-DBOOST_STACKTRACE_USE_BACKTRACE)
-    #add_definitions(-DPRINT_ALL_ERR_STATUS_STACKTRACE)
 else()
     add_definitions(-DBOOST_STACKTRACE_USE_NOOP)
 endif()
@@ -118,8 +117,8 @@ option(WITH_MYSQL "Support access MySQL" ON)
 
 # Check gcc
 if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "11.0")
-        message(FATAL_ERROR "Need GCC version at least 11.0")
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "11.1")
+        message(FATAL_ERROR "Need GCC version at least 11.1")
     endif()
 endif()
 
@@ -152,6 +151,18 @@ endif()
 set(GPERFTOOLS_HOME "${THIRDPARTY_DIR}/gperftools")
 
 # Set all libraries
+add_library(ic STATIC IMPORTED)
+set_target_properties(ic PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libic.a)
+
+add_library(clucene-core STATIC IMPORTED)
+set_target_properties(clucene-core PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libclucene-core-static.a)
+
+add_library(clucene-shared STATIC IMPORTED)
+set_target_properties(clucene-shared PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libclucene-shared-static.a)
+
+add_library(clucene-contribs-lib STATIC IMPORTED)
+set_target_properties(clucene-contribs-lib PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libclucene-contribs-lib.a)
+
 add_library(gflags STATIC IMPORTED)
 set_target_properties(gflags PROPERTIES IMPORTED_LOCATION ${THIRDPARTY_DIR}/lib/libgflags.a)
 
@@ -441,12 +452,13 @@ check_function_exists(sched_getcpu HAVE_SCHED_GETCPU)
 
 # compiler flags that are common across debug/release builds
 #  -Wall: Enable all warnings.
-#  -Wno-sign-compare: suppress warnings for comparison between signed and unsigned
 #    integers
 #  -pthread: enable multithreaded malloc
 #  -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG: enable nanosecond precision for boost
 #  -fno-omit-frame-pointers: Keep frame pointer for functions in register
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wall -Wno-sign-compare -pthread -Werror")
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -g -Wall -Wextra -pthread -Werror")
+# TODO: resolve and remove those wno
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-unused-parameter -Wno-implicit-fallthrough -Wno-sign-compare")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -fstrict-aliasing -fno-omit-frame-pointer")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -std=gnu++17 -D__STDC_FORMAT_MACROS")
 set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DBOOST_DATE_TIME_POSIX_TIME_STD_CONFIG")
@@ -470,35 +482,31 @@ endfunction()
 
 # In terms of performance, mold> lld> gold> ld
 set(CUSTUM_LINKER_COMMAND "ld")
-# TODO: mold will link fail on thirdparty brpc now, waiting for investigation.
-# TRY_TO_CHANGE_LINKER("mold" "mold")
-
+TRY_TO_CHANGE_LINKER("mold" "mold")
 TRY_TO_CHANGE_LINKER("lld" "LLD")
 TRY_TO_CHANGE_LINKER("gold" "GNU gold")
 if (NOT CUSTUM_LINKER_COMMAND STREQUAL "ld")
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fuse-ld=${CUSTUM_LINKER_COMMAND}")
 endif()
 
-if (USE_LIBCPP AND COMPILER_CLANG)
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -stdlib=libc++")
-    if (NOT OS_MACOSX)
-        set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -lstdc++")
-    endif()
-    add_definitions(-DUSE_LIBCPP)
-endif()
-
 if (COMPILER_GCC)
-    # Avoid GCC 11 false alarm
-    # https://stackoverflow.com/questions/67584073/gcc-11-false-array-subscript-is-partly-outside-array-bounds-warning
-    # https://stackoverflow.com/questions/69426070/gcc-11-order-of-arguments-triggers-false-positive-wstringop-overflow-is-this-bu
-    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-array-bounds -Wno-stringop-overread")
-    add_compile_options(-Wno-stringop-overflow -fdiagnostics-color=always)
+    add_compile_options(-fdiagnostics-color=always -Wno-array-bounds -Wno-stringop-overread)
 endif ()
 
 if (COMPILER_CLANG)
-    add_compile_options(-fcolor-diagnostics -fno-limit-debug-info)
+    add_compile_options(-fcolor-diagnostics -fno-limit-debug-info -Wpedantic)
+    add_compile_options(-Wno-zero-length-array -Wno-variadic-macros -Wno-gnu-zero-variadic-macro-arguments -Wno-vla-extension -Wno-c++20-designator -Wno-gnu-label-as-value -Wno-embedded-directive -Wno-array-bounds)
     if(MAKE_TEST STREQUAL "OFF")
         add_compile_options(-Qunused-arguments)
+    endif()
+    if (USE_LIBCPP)
+        add_compile_options(-stdlib=libc++)
+        if (NOT OS_MACOSX)
+            add_compile_options(-lstdc++)
+        endif()
+        add_definitions(-DUSE_LIBCPP)
+    else()
+        add_compile_options(-Wno-c++20-attribute-extensions)
     endif()
 endif ()
 
@@ -511,7 +519,7 @@ if ("${CMAKE_BUILD_TARGET_ARCH}" STREQUAL "x86" OR "${CMAKE_BUILD_TARGET_ARCH}" 
         set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -mavx2")
     endif()
 endif()
-set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -Wno-attributes -DS2_USE_GFLAGS -DS2_USE_GLOG")
+set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DS2_USE_GFLAGS -DS2_USE_GLOG")
 
 if (WITH_MYSQL)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DDORIS_WITH_MYSQL")
@@ -535,6 +543,12 @@ if (USE_JEMALLOC)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_JEMALLOC")
 endif()
 
+# Use Bthread to separate computation and IO
+# Adding the option `USE_BTHREAD_SCANNER=ON sh build.sh` when comliling can enable this feature
+if (USE_BTHREAD_SCANNER)
+    set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -DUSE_BTHREAD_SCANNER")
+endif()
+
 # STRICT_MEMORY_USE=ON` expects BE to use less memory, and gives priority to ensuring stability
 # when the cluster memory is limited.
 # TODO In the future, expect a dynamic soft memory limit, combined with real-time memory usage of the cluster,
@@ -550,11 +564,6 @@ endif()
 if (CMAKE_CXX_COMPILER_VERSION VERSION_GREATER 7.0)
     set(CXX_COMMON_FLAGS "${CXX_COMMON_FLAGS} -faligned-new")
 endif()
-
-# For any gcc builds:
-#   -g: Enable symbols for profiler tools. Produce debugging information in the operating system’s native formt
-#   -Wno-unused-local-typedefs: Do not warn for local typedefs that are unused.
-set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -g -Wno-unused-local-typedefs")
 
 if (USE_DWARF)
     set(CXX_GCC_FLAGS "${CXX_GCC_FLAGS} -gdwarf-5")
@@ -694,6 +703,10 @@ find_package(absl)
 # When adding new dependencies, If you don’t know if it can run on all platforms,
 # add it here first.
 set(COMMON_THIRDPARTY
+    ic
+    clucene-core
+    clucene-shared
+    clucene-contribs-lib
     backtrace
     rocksdb
     cyrus-sasl

@@ -74,6 +74,10 @@ CONF_Int64(max_sys_mem_available_low_water_mark_bytes, "1717986918");
 // The size of the memory that gc wants to release each time, as a percentage of the mem limit.
 CONF_mString(process_minor_gc_size, "10%");
 CONF_mString(process_full_gc_size, "20%");
+// Some caches have their own gc threads, such as segment cache.
+// For caches that do not have a separate gc thread, perform regular gc in the memory maintenance thread.
+// Currently only storage page cache, chunk allocator, more in the future.
+CONF_mInt32(cache_gc_interval_s, "60");
 
 // If true, when the process does not exceed the soft mem limit, the query memory will not be limited;
 // when the process memory exceeds the soft mem limit, the query with the largest ratio between the currently
@@ -106,6 +110,8 @@ CONF_Int32(clear_transaction_task_worker_count, "1");
 CONF_Int32(delete_worker_count, "3");
 // the count of thread to alter table
 CONF_Int32(alter_tablet_worker_count, "3");
+// the count of thread to alter inverted index
+CONF_Int32(alter_inverted_index_worker_count, "3");
 // the count of thread to clone
 CONF_Int32(clone_worker_count, "3");
 // the count of thread to clone
@@ -178,6 +184,7 @@ CONF_Int32(doris_scanner_thread_pool_thread_num, "48");
 CONF_Int32(doris_scanner_thread_pool_queue_size, "102400");
 // default thrift client connect timeout(in seconds)
 CONF_mInt32(thrift_connect_timeout_seconds, "3");
+CONF_mInt32(fetch_rpc_timeout_seconds, "20");
 // default thrift client retry interval (in milliseconds)
 CONF_mInt64(thrift_client_retry_interval_ms, "1000");
 // max row count number for single scan range, used in segmentv1
@@ -210,6 +217,8 @@ CONF_mInt64(memory_limitation_per_thread_for_storage_migration_bytes, "100000000
 
 // the clean interval of file descriptor cache and segment cache
 CONF_mInt32(cache_clean_interval, "1800");
+// the clean interval of tablet lookup cache
+CONF_mInt32(tablet_lookup_cache_clean_interval, "30");
 CONF_mInt32(disk_stat_monitor_interval, "5");
 CONF_mInt32(unused_rowset_monitor_interval, "30");
 CONF_String(storage_root_path, "${DORIS_HOME}/storage");
@@ -239,6 +248,7 @@ CONF_mBool(row_nums_check, "true");
 // modify them upon necessity
 CONF_Int32(min_file_descriptor_number, "60000");
 CONF_Int64(index_stream_cache_capacity, "10737418240");
+CONF_String(row_cache_mem_limit, "20%");
 
 // Cache for storage page size
 CONF_String(storage_page_cache_limit, "20%");
@@ -250,6 +260,8 @@ CONF_Int32(storage_page_cache_shard_size, "16");
 CONF_Int32(index_page_cache_percentage, "10");
 // whether to disable page cache feature in storage
 CONF_Bool(disable_storage_page_cache, "false");
+// whether to disable row cache feature in storage
+CONF_Bool(disable_storage_row_cache, "false");
 
 CONF_Bool(enable_storage_vectorization, "true");
 
@@ -265,15 +277,15 @@ CONF_Bool(enable_vectorized_compaction, "true");
 // whether enable vectorized schema change/material-view/rollup task.
 CONF_Bool(enable_vectorized_alter_table, "true");
 // whether enable vertical compaction
-CONF_mBool(enable_vertical_compaction, "false");
+CONF_mBool(enable_vertical_compaction, "true");
 // whether enable ordered data compaction
-CONF_mBool(enable_ordered_data_compaction, "false");
+CONF_mBool(enable_ordered_data_compaction, "true");
 // In vertical compaction, column number for every group
 CONF_mInt32(vertical_compaction_num_columns_per_group, "5");
 // In vertical compaction, max memory usage for row_source_buffer
 CONF_Int32(vertical_compaction_max_row_source_memory_mb, "200");
 // In vertical compaction, max dest segment file size
-CONF_mInt64(max_segment_size_in_vertical_compaction, "268435456");
+CONF_mInt64(vertical_compaction_max_segment_size, "268435456");
 
 // In ordered data compaction, min segment size for input rowset
 CONF_mInt32(ordered_data_compaction_min_segment_size, "10485760");
@@ -311,6 +323,9 @@ CONF_mInt64(cumulative_compaction_max_deltas, "100");
 
 // This config can be set to limit thread number in  segcompaction thread pool.
 CONF_mInt32(seg_compaction_max_threads, "10");
+
+// This config can be set to limit thread number in  multiget thread pool.
+CONF_mInt32(multi_get_max_threads, "10");
 
 // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
 CONF_mInt64(total_permits_for_compaction_score, "10000");
@@ -424,7 +439,7 @@ CONF_Int32(min_buffer_size, "1024"); // 1024, The minimum read buffer size (in b
 CONF_Int32(max_free_io_buffers, "128");
 
 // Whether to disable the memory cache pool,
-// including MemPool, ChunkAllocator, BufferPool, DiskIO free buffer.
+// including MemPool, ChunkAllocator, DiskIO free buffer.
 CONF_Bool(disable_mem_pools, "false");
 
 // The reserved bytes limit of Chunk Allocator, usually set as a percentage of mem_limit.
@@ -473,16 +488,8 @@ CONF_Bool(madvise_huge_pages, "false");
 // whether use mmap to allocate memory
 CONF_Bool(mmap_buffers, "false");
 
-// max memory can be allocated by buffer pool
-// This is the percentage of mem_limit
-CONF_String(buffer_pool_limit, "20%");
-
-// clean page can be hold by buffer pool
-// This is the percentage of buffer_pool_limit
-CONF_String(buffer_pool_clean_pages_limit, "50%");
-
 // Sleep time in milliseconds between memory maintenance iterations
-CONF_mInt64(memory_maintenance_sleep_time_ms, "500");
+CONF_mInt32(memory_maintenance_sleep_time_ms, "500");
 
 // Sleep time in milliseconds between load channel memory refresh iterations
 CONF_mInt64(load_channel_memory_refresh_sleep_time_ms, "100");
@@ -494,16 +501,8 @@ CONF_Int32(memory_max_alignment, "16");
 CONF_mInt64(write_buffer_size, "209715200");
 // max buffer size used in memtable for the aggregated table, default 400MB
 CONF_mInt64(write_buffer_size_for_agg, "419430400");
-// write buffer size in push task for sparkload, default 1GB
-CONF_mInt64(write_buffer_size_for_sparkload, "1073741824");
 
-// following 2 configs limit the memory consumption of load process on a Backend.
-// eg: memory limit to 80% of mem limit config but up to 100GB(default)
-// NOTICE(cmy): set these default values very large because we don't want to
-// impact the load performance when user upgrading Doris.
-// user should set these configs properly if necessary.
-CONF_Int64(load_process_max_memory_limit_bytes, "107374182400"); // 100GB
-CONF_Int32(load_process_max_memory_limit_percent, "50");         // 50%
+CONF_Int32(load_process_max_memory_limit_percent, "50"); // 50%
 
 // If the memory consumption of load jobs exceed load_process_max_memory_limit,
 // all load jobs will hang there to wait for memtable flush. We should have a
@@ -831,9 +830,9 @@ CONF_Bool(enable_simdjson_reader, "false");
 
 CONF_mBool(enable_query_like_bloom_filter, "true");
 // number of s3 scanner thread pool size
-CONF_Int32(doris_remote_scanner_thread_pool_thread_num, "16");
+CONF_Int32(doris_remote_scanner_thread_pool_thread_num, "48");
 // number of s3 scanner thread pool queue size
-CONF_Int32(doris_remote_scanner_thread_pool_queue_size, "10240");
+CONF_Int32(doris_remote_scanner_thread_pool_queue_size, "102400");
 
 // limit the queue of pending batches which will be sent by a single nodechannel
 CONF_mInt64(nodechannel_pending_queue_max_bytes, "67108864");
@@ -873,7 +872,7 @@ CONF_Int32(pipeline_executor_size, "0");
 
 // Temp config. True to use optimization for bitmap_index apply predicate except leaf node of the and node.
 // Will remove after fully test.
-CONF_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "false");
+CONF_Bool(enable_index_apply_preds_except_leafnode_of_andnode, "true");
 
 // block file cache
 CONF_Bool(enable_file_cache, "false");
@@ -881,9 +880,34 @@ CONF_Bool(enable_file_cache, "false");
 CONF_String(file_cache_path, "");
 CONF_String(disposable_file_cache_path, "");
 CONF_Int64(file_cache_max_file_segment_size, "4194304"); // 4MB
+CONF_Validator(file_cache_max_file_segment_size,
+               [](const int64_t config) -> bool { return config >= 4096; }); // 4KB
 CONF_Bool(clear_file_cache, "false");
 CONF_Bool(enable_file_cache_query_limit, "false");
 
+// inverted index searcher cache
+// cache entry stay time after lookup, default 1h
+CONF_mInt32(index_cache_entry_stay_time_after_lookup_s, "3600");
+// inverted index searcher cache size
+CONF_String(inverted_index_searcher_cache_limit, "10%");
+// set `true` to enable insert searcher into cache when write inverted index data
+CONF_Bool(enable_write_index_searcher_cache, "true");
+CONF_Bool(enable_inverted_index_cache_check_timestamp, "true");
+
+// inverted index match bitmap cache size
+CONF_String(inverted_index_query_cache_limit, "10%");
+
+// inverted index
+CONF_mDouble(inverted_index_ram_buffer_size, "512");
+CONF_Int32(query_bkd_inverted_index_limit_percent, "5"); // 5%
+// dict path for chinese analyzer
+CONF_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
+// tree depth for bkd index
+CONF_Int32(max_depth_in_bkd_tree, "32");
+// use num_broadcast_buffer blocks as buffer to do broadcast
+CONF_Int32(num_broadcast_buffer, "32");
+// semi-structure configs
+CONF_Bool(enable_parse_multi_dimession_array, "true");
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");

@@ -126,7 +126,7 @@ If supported, execute `sh build.sh` directly.
 
 This script will compile the third-party libraries first and then the Doris components (FE, BE) later. The compiled output will be in the `output/` directory.
 
-## Precompile the three-party binaries
+## Precompile the Third-Party Binaries
 
 The `build.sh` script will first compile the third-party dependencies. You can also directly download the precompiled three-party binaries:
 

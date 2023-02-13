@@ -144,6 +144,7 @@ import org.apache.doris.common.MarkedCountDownLatch;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.proc.BackendsProcDir;
 import org.apache.doris.common.proc.FrontendsProcNode;
 import org.apache.doris.common.proc.LoadProcDir;
@@ -171,8 +172,6 @@ import org.apache.doris.load.DeleteHandler;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
-import org.apache.doris.load.LoadErrorHub;
-import org.apache.doris.load.LoadErrorHub.HubType;
 import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.LoadJob.JobState;
 import org.apache.doris.load.routineload.RoutineLoadJob;
@@ -697,7 +696,7 @@ public class ShowExecutor {
         List<String> dbNames = catalogIf.getDbNames();
         PatternMatcher matcher = null;
         if (showDbStmt.getPattern() != null) {
-            matcher = PatternMatcher.createMysqlPattern(showDbStmt.getPattern(),
+            matcher = PatternMatcherWrapper.createMysqlPattern(showDbStmt.getPattern(),
                     CaseSensibility.DATABASE.getCaseSensibility());
         }
         Set<String> dbNameSet = Sets.newTreeSet();
@@ -732,7 +731,7 @@ public class ShowExecutor {
                 .getDbOrAnalysisException(showTableStmt.getDb());
         PatternMatcher matcher = null;
         if (showTableStmt.getPattern() != null) {
-            matcher = PatternMatcher.createMysqlPattern(showTableStmt.getPattern(),
+            matcher = PatternMatcherWrapper.createMysqlPattern(showTableStmt.getPattern(),
                     CaseSensibility.TABLE.getCaseSensibility());
         }
         for (TableIf tbl : db.getTables()) {
@@ -776,7 +775,7 @@ public class ShowExecutor {
         if (db != null) {
             PatternMatcher matcher = null;
             if (showStmt.getPattern() != null) {
-                matcher = PatternMatcher.createMysqlPattern(showStmt.getPattern(),
+                matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
                         CaseSensibility.TABLE.getCaseSensibility());
             }
             for (TableIf table : db.getTables()) {
@@ -849,7 +848,7 @@ public class ShowExecutor {
         ShowVariablesStmt showStmt = (ShowVariablesStmt) stmt;
         PatternMatcher matcher = null;
         if (showStmt.getPattern() != null) {
-            matcher = PatternMatcher.createMysqlPattern(showStmt.getPattern(),
+            matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
                     CaseSensibility.VARIABLES.getCaseSensibility());
         }
         List<List<String>> rows = VariableMgr.dump(showStmt.getType(), ctx.getSessionVariable(), matcher);
@@ -930,7 +929,7 @@ public class ShowExecutor {
         TableIf table = db.getTableOrAnalysisException(showStmt.getTable());
         PatternMatcher matcher = null;
         if (showStmt.getPattern() != null) {
-            matcher = PatternMatcher.createMysqlPattern(showStmt.getPattern(),
+            matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
                     CaseSensibility.COLUMN.getCaseSensibility());
         }
         table.readLock();
@@ -1239,24 +1238,7 @@ public class ShowExecutor {
                 }
             }
         }
-
-        LoadErrorHub.Param param = load.getLoadErrorHubInfo();
-        if (param == null || param.getType() == HubType.NULL_TYPE) {
-            throw new AnalysisException("no load error hub be supplied.");
-        }
-        LoadErrorHub errorHub = LoadErrorHub.createHub(param);
-        List<LoadErrorHub.ErrorMsg> errors = errorHub.fetchLoadError(jobId);
-        errorHub.close();
-
         List<List<String>> rows = Lists.newArrayList();
-        for (LoadErrorHub.ErrorMsg error : errors) {
-            List<String> oneInfo = Lists.newArrayList();
-            oneInfo.add(String.valueOf(jobId));
-            oneInfo.add(label);
-            oneInfo.add(error.getMsg());
-            rows.add(oneInfo);
-        }
-
         long limit = showWarningsStmt.getLimitNum();
         if (limit != -1L && limit < rows.size()) {
             rows = rows.subList(0, (int) limit);
@@ -1312,7 +1294,7 @@ public class ShowExecutor {
         try {
             PatternMatcher matcher = null;
             if (showRoutineLoadStmt.getPattern() != null) {
-                matcher = PatternMatcher.createMysqlPattern(showRoutineLoadStmt.getPattern(),
+                matcher = PatternMatcherWrapper.createMysqlPattern(showRoutineLoadStmt.getPattern(),
                         CaseSensibility.ROUTINE_LOAD.getCaseSensibility());
             }
             routineLoadJobList = Env.getCurrentEnv().getRoutineLoadManager()
@@ -1868,7 +1850,7 @@ public class ShowExecutor {
 
         PatternMatcher matcher = null;
         if (showStmt.getPattern() != null) {
-            matcher = PatternMatcher.createMysqlPattern(showStmt.getPattern(),
+            matcher = PatternMatcherWrapper.createMysqlPattern(showStmt.getPattern(),
                     CaseSensibility.CONFIG.getCaseSensibility());
         }
         results = ConfigBase.getConfigInfo(matcher);
@@ -2326,9 +2308,39 @@ public class ShowExecutor {
         resultSet = Env.getCurrentEnv().getCatalogMgr().showCreateCatalog(showStmt);
     }
 
+    private void handleShowAnalyze() {
+        ShowAnalyzeStmt showStmt = (ShowAnalyzeStmt) stmt;
 
-    private void handleShowAnalyze() throws AnalysisException {
-        // TODO: Support later
+        List<List<Comparable>> results;
+        List<List<String>> resultRows = Lists.newArrayList();
+
+        try {
+            results = Env.getCurrentEnv().getAnalysisManager()
+                    .showAnalysisJob(showStmt);
+        } catch (DdlException e) {
+            resultSet = new ShowResultSet(showStmt.getMetaData(), resultRows);
+            return;
+        }
+
+        // order the result
+        ListComparator<List<Comparable>> comparator;
+        List<OrderByPair> orderByPairs = showStmt.getOrderByPairs();
+        if (orderByPairs == null) {
+            // sort by id asc
+            comparator = new ListComparator<>(0);
+        } else {
+            OrderByPair[] orderByPairArr = new OrderByPair[orderByPairs.size()];
+            comparator = new ListComparator<>(orderByPairs.toArray(orderByPairArr));
+        }
+        results.sort(comparator);
+
+        // convert to result and return it
+        for (List<Comparable> result : results) {
+            List<String> row = result.stream().map(Object::toString).collect(Collectors.toList());
+            resultRows.add(row);
+        }
+
+        resultSet = new ShowResultSet(showStmt.getMetaData(), resultRows);
     }
 
     private void handleCopyTablet() throws AnalysisException {

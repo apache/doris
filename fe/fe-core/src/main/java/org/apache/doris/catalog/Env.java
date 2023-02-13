@@ -99,6 +99,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ConfigBase;
+import org.apache.doris.common.ConfigException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -121,6 +122,7 @@ import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.consistency.ConsistencyChecker;
+import org.apache.doris.cooldown.CooldownConfHandler;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.EsExternalCatalog;
@@ -143,14 +145,10 @@ import org.apache.doris.journal.JournalCursor;
 import org.apache.doris.journal.JournalEntity;
 import org.apache.doris.journal.bdbje.Timestamp;
 import org.apache.doris.load.DeleteHandler;
-import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.ExportChecker;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
 import org.apache.doris.load.Load;
-import org.apache.doris.load.LoadChecker;
-import org.apache.doris.load.LoadErrorHub;
-import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.StreamLoadRecordMgr;
 import org.apache.doris.load.loadv2.LoadEtlChecker;
 import org.apache.doris.load.loadv2.LoadJobScheduler;
@@ -168,7 +166,7 @@ import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVJobManager;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendReplicasInfo;
@@ -261,7 +259,6 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
@@ -317,6 +314,7 @@ public class Env {
     private DeleteHandler deleteHandler;
     private DbUsedDataQuotaInfoCollector dbUsedDataQuotaInfoCollector;
     private PartitionInMemoryInfoCollector partitionInMemoryInfoCollector;
+    private CooldownConfHandler cooldownConfHandler;
     private MetastoreEventsProcessor metastoreEventsProcessor;
 
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
@@ -395,7 +393,7 @@ public class Env {
 
     private TabletStatMgr tabletStatMgr;
 
-    private PaloAuth auth;
+    private Auth auth;
 
     private DomainResolver domainResolver;
 
@@ -439,6 +437,8 @@ public class Env {
     private ExternalMetaCacheMgr extMetaCacheMgr;
 
     private FQDNManager fqdnManager;
+
+    private AtomicLong stmtIdCounter;
 
     public List<Frontend> getFrontends(FrontendNodeType nodeType) {
         if (nodeType == null) {
@@ -551,9 +551,13 @@ public class Env {
         this.deleteHandler = new DeleteHandler();
         this.dbUsedDataQuotaInfoCollector = new DbUsedDataQuotaInfoCollector();
         this.partitionInMemoryInfoCollector = new PartitionInMemoryInfoCollector();
+        if (Config.enable_storage_policy) {
+            this.cooldownConfHandler = new CooldownConfHandler();
+        }
         this.metastoreEventsProcessor = new MetastoreEventsProcessor();
 
         this.replayedJournalId = new AtomicLong(0L);
+        this.stmtIdCounter = new AtomicLong(0L);
         this.isElectable = false;
         this.synchronizedTimeMs = 0;
         this.feType = FrontendNodeType.INIT;
@@ -589,7 +593,7 @@ public class Env {
 
         this.tabletStatMgr = new TabletStatMgr();
 
-        this.auth = new PaloAuth();
+        this.auth = new Auth();
         this.domainResolver = new DomainResolver(auth);
 
         this.metaContext = new MetaContext();
@@ -636,7 +640,9 @@ public class Env {
         this.mtmvJobManager = new MTMVJobManager();
         this.extMetaCacheMgr = new ExternalMetaCacheMgr();
         this.fqdnManager = new FQDNManager(systemInfo);
-        this.analysisManager = new AnalysisManager();
+        if (!isCheckpointCatalog) {
+            this.analysisManager = new AnalysisManager();
+        }
     }
 
     public static void destroyCheckpoint() {
@@ -684,7 +690,7 @@ public class Env {
         return pluginMgr;
     }
 
-    public PaloAuth getAuth() {
+    public Auth getAuth() {
         return auth;
     }
 
@@ -850,8 +856,6 @@ public class Env {
             // If not using bdb, we need to notify the FE type transfer manually.
             notifyNewFETypeTransfer(FrontendNodeType.MASTER);
         }
-        // 7. start mtmv jobManager
-        mtmvJobManager.start();
     }
 
     // wait until FE is ready.
@@ -1350,9 +1354,6 @@ public class Env {
         // heartbeat mgr
         heartbeatMgr.setMaster(clusterId, token, epoch);
         heartbeatMgr.start();
-        // Load checker
-        LoadChecker.init(Config.load_checker_interval_second * 1000L);
-        LoadChecker.startAll();
         // New load scheduler
         pendingLoadTaskScheduler.start();
         loadingLoadTaskScheduler.start();
@@ -1399,6 +1400,9 @@ public class Env {
         dbUsedDataQuotaInfoCollector.start();
         // start daemon thread to update global partition in memory information periodically
         partitionInMemoryInfoCollector.start();
+        if (Config.enable_storage_policy) {
+            cooldownConfHandler.start();
+        }
         streamLoadRecordMgr.start();
         getInternalCatalog().getIcebergTableCreationRecordMgr().start();
         new InternalSchemaInitializer().start();
@@ -1408,7 +1412,8 @@ public class Env {
         if (Config.enable_hms_events_incremental_sync) {
             metastoreEventsProcessor.start();
         }
-
+        // start mtmv jobManager
+        mtmvJobManager.start();
     }
 
     // start threads that should running on all FE
@@ -1458,6 +1463,9 @@ public class Env {
         startNonMasterDaemonThreads();
 
         MetricRepo.init();
+
+        // stop mtmv scheduler
+        mtmvJobManager.stop();
     }
 
     // Set global variable 'lower_case_table_names' only when the cluster is initialized.
@@ -1707,55 +1715,6 @@ public class Env {
         return getInternalCatalog().loadDb(dis, checksum);
     }
 
-    public long loadLoadJob(DataInputStream dis, long checksum) throws IOException, DdlException {
-        // load jobs
-        int jobSize = dis.readInt();
-        long newChecksum = checksum ^ jobSize;
-        for (int i = 0; i < jobSize; i++) {
-            long dbId = dis.readLong();
-            newChecksum ^= dbId;
-
-            int loadJobCount = dis.readInt();
-            newChecksum ^= loadJobCount;
-            long currentTimeMs = System.currentTimeMillis();
-            for (int j = 0; j < loadJobCount; j++) {
-                LoadJob job = new LoadJob();
-                job.readFields(dis);
-
-                // Delete the history load jobs that are older than
-                // LABEL_KEEP_MAX_MS
-                // This job must be FINISHED or CANCELLED
-                if (!job.isExpired(currentTimeMs)) {
-                    if (job.getEtlJobType() != EtlJobType.HADOOP) {
-                        LOG.warn("job {} with type is deprecated, skip it", job.getId(), job.getEtlJobType());
-                        continue;
-                    }
-                    load.unprotectAddLoadJob(job, true /* replay */);
-                }
-            }
-        }
-
-        // delete jobs
-        // Delete job has been moved to DeleteHandler. Here the jobSize is always 0, we need do nothing.
-        jobSize = dis.readInt();
-        Preconditions.checkState(jobSize == 0, jobSize);
-        newChecksum ^= jobSize;
-
-        // load error hub info
-        LoadErrorHub.Param param = new LoadErrorHub.Param();
-        param.readFields(dis);
-        load.setLoadErrorHubInfo(param);
-
-        // 4. load delete jobs
-        // Delete job has been moved to DeleteHandler. Here the jobSize is always 0, we need do nothing.
-        int deleteJobSize = dis.readInt();
-        Preconditions.checkState(deleteJobSize == 0, deleteJobSize);
-        newChecksum ^= deleteJobSize;
-
-        LOG.info("finished replay loadJob from image");
-        return newChecksum;
-    }
-
     public long loadExportJob(DataInputStream dis, long checksum) throws IOException, DdlException {
         long curTime = System.currentTimeMillis();
         long newChecksum = checksum;
@@ -1848,7 +1807,7 @@ public class Env {
     }
 
     public long loadPaloAuth(DataInputStream dis, long checksum) throws IOException {
-        // CAN NOT use PaloAuth.read(), cause this auth instance is already passed to DomainResolver
+        // CAN NOT use Auth.read(), cause this auth instance is already passed to DomainResolver
         auth.readFields(dis);
         LOG.info("finished replay paloAuth from image");
         return checksum;
@@ -2045,45 +2004,6 @@ public class Env {
 
     public long saveDb(CountingDataOutputStream dos, long checksum) throws IOException {
         return getInternalCatalog().saveDb(dos, checksum);
-    }
-
-    public long saveLoadJob(CountingDataOutputStream dos, long checksum) throws IOException {
-        // 1. save load.dbToLoadJob
-        Map<Long, List<LoadJob>> dbToLoadJob = load.getDbToLoadJobs();
-        int jobSize = dbToLoadJob.size();
-        checksum ^= jobSize;
-        dos.writeInt(jobSize);
-        for (Entry<Long, List<LoadJob>> entry : dbToLoadJob.entrySet()) {
-            long dbId = entry.getKey();
-            checksum ^= dbId;
-            dos.writeLong(dbId);
-
-            List<LoadJob> loadJobs = entry.getValue();
-            int loadJobCount = loadJobs.size();
-            checksum ^= loadJobCount;
-            dos.writeInt(loadJobCount);
-            for (LoadJob job : loadJobs) {
-                job.write(dos);
-            }
-        }
-
-        // 2. save delete jobs
-        // delete jobs are moved to DeleteHandler. So here we just set job size as 0.
-        jobSize = 0;
-        checksum ^= jobSize;
-        dos.writeInt(jobSize);
-
-        // 3. load error hub info
-        LoadErrorHub.Param param = load.getLoadErrorHubInfo();
-        param.write(dos);
-
-        // 4. save delete load job info
-        // delete jobs are moved to DeleteHandler. So here we just set job size as 0.
-        int deleteJobSize = 0;
-        checksum ^= deleteJobSize;
-        dos.writeInt(deleteJobSize);
-
-        return checksum;
     }
 
     public long saveExportJob(CountingDataOutputStream dos, long checksum) throws IOException {
@@ -2955,6 +2875,12 @@ public class Env {
                 sb.append(olapTable.getCompressionType()).append("\"");
             }
 
+            // estimate_partition_size
+            if (!olapTable.getEstimatePartitionSize().equals("")) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_ESTIMATE_PARTITION_SIZE).append("\" = \"");
+                sb.append(olapTable.getEstimatePartitionSize()).append("\"");
+            }
+
             // unique key table with merge on write
             if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS && olapTable.getEnableUniqueKeyMergeOnWrite()) {
                 sb.append(",\n\"").append(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE).append("\" = \"");
@@ -2984,6 +2910,18 @@ public class Env {
                             + PropertyAnalyzer.PROPERTIES_SEQUENCE_TYPE).append("\" = \"");
                     sb.append(olapTable.getSequenceType().toString()).append("\"");
                 }
+            }
+
+            // store row column
+            if (olapTable.storeRowColumn()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN).append("\" = \"");
+                sb.append(olapTable.storeRowColumn()).append("\"");
+            }
+
+            // dynamic schema
+            if (olapTable.isDynamicSchema()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA).append("\" = \"");
+                sb.append(olapTable.isDynamicSchema()).append("\"");
             }
 
             // disable auto compaction
@@ -3308,6 +3246,11 @@ public class Env {
         return idGenerator.getNextId();
     }
 
+    // counter for prepared statement id
+    public long getNextStmtId() {
+        return this.stmtIdCounter.getAndIncrement();
+    }
+
     public IdGeneratorBuffer getIdGeneratorBuffer(long bufferSize) {
         return idGenerator.getIdGeneratorBuffer(bufferSize);
     }
@@ -3436,6 +3379,10 @@ public class Env {
 
     public MaterializedViewHandler getMaterializedViewHandler() {
         return (MaterializedViewHandler) this.alter.getMaterializedViewHandler();
+    }
+
+    public CooldownConfHandler getCooldownConfHandler() {
+        return cooldownConfHandler;
     }
 
     public SystemHandler getClusterHandler() {
@@ -4275,7 +4222,7 @@ public class Env {
     }
 
     // The caller need to hold the table write lock
-    public void modifyTableInMemoryMeta(Database db, OlapTable table, Map<String, String> properties) {
+    public void modifyTableProperties(Database db, OlapTable table, Map<String, String> properties) {
         Preconditions.checkArgument(table.isWriteLockHeldByCurrentThread());
         TableProperty tableProperty = table.getTableProperty();
         if (tableProperty == null) {
@@ -4421,7 +4368,10 @@ public class Env {
 
         String currentDB = ctx.getDatabase();
         if (StringUtils.isNotEmpty(currentDB)) {
-            catalogMgr.addLastDBOfCatalog(ctx.getCurrentCatalog().getName(), currentDB);
+            // When dropped the current catalog in current context, the current catalog will be null.
+            if (ctx.getCurrentCatalog() != null) {
+                catalogMgr.addLastDBOfCatalog(ctx.getCurrentCatalog().getName(), currentDB);
+            }
         }
         ctx.changeDefaultCatalog(catalogName);
         String lastDb = catalogMgr.getLastDB(catalogName);
@@ -4436,7 +4386,7 @@ public class Env {
 
     // Change current database of this session.
     public void changeDb(ConnectContext ctx, String qualifiedDb) throws DdlException {
-        if (!auth.checkDbPriv(ctx, qualifiedDb, PrivPredicate.SHOW)) {
+        if (!auth.checkDbPriv(ctx, ctx.getDefaultCatalog(), qualifiedDb, PrivPredicate.SHOW)) {
             ErrorReport.reportDdlException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, ctx.getQualifiedUser(), qualifiedDb);
         }
 
@@ -4782,7 +4732,11 @@ public class Env {
         Preconditions.checkState(configs.size() == 1);
 
         for (Map.Entry<String, String> entry : configs.entrySet()) {
-            ConfigBase.setMutableConfig(entry.getKey(), entry.getValue());
+            try {
+                ConfigBase.setMutableConfig(entry.getKey(), entry.getValue());
+            } catch (ConfigException e) {
+                throw new DdlException(e.getMessage());
+            }
         }
     }
 

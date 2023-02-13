@@ -190,6 +190,14 @@ struct TQueryOptions {
   57: optional bool check_overflow_for_decimal = false
 
   58: optional i64 external_sort_bytes_threshold = 0
+
+  59: optional i32 partitioned_hash_agg_rows_threshold = 0
+
+  60: optional bool enable_file_cache = true
+  
+  61: optional i32 insert_timeout = 14400
+
+  62: optional i32 execution_timeout = 3600
 }
     
 
@@ -295,7 +303,7 @@ enum PaloInternalServiceVersion {
 
 struct TTxnParams {
   1: optional bool need_txn
-  2: optional string auth_code_uuid
+  2: optional string token
   3: optional i64 thrift_rpc_timeout_ms
   4: optional string db
   5: optional string tbl

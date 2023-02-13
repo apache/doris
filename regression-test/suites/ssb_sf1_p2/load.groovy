@@ -89,8 +89,8 @@ suite("load") {
     def rowCount = sql "select count(*) from ${table}"
     if (rowCount[0][0] != table_rows) {
         sql new File("""${context.file.parent}/ddl/${table}_delete.sql""").text
-        sql "set global query_timeout=3600"
-        def r = sql "select @@query_timeout"
+        sql "set global insert_timeout=3600"
+        def r = sql "select @@insert_timeout"
         assertEquals(3600, r[0][0])
         year_cons = [
             'lo_orderdate<19930101',

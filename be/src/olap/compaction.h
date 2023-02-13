@@ -27,7 +27,6 @@
 #include "olap/tablet_meta.h"
 #include "olap/utils.h"
 #include "rowset/rowset_id_generator.h"
-#include "util/semaphore.hpp"
 
 namespace doris {
 
@@ -106,7 +105,6 @@ protected:
 
     Version _output_version;
 
-    int64_t _oldest_write_timestamp;
     int64_t _newest_write_timestamp;
     RowIdConversion _rowid_conversion;
     TabletSchemaSPtr _cur_tablet_schema;

@@ -81,9 +81,18 @@ public class MetaReader {
             checksum = env.loadHeader(dis, metaHeader, checksum);
             // 3. Read other meta modules
             // Modules must be read in the order in which the metadata was written
-            for (MetaIndex metaIndex : metaFooter.metaIndices) {
+            for (int i = 0; i < metaFooter.metaIndices.size(); ++i) {
+                MetaIndex metaIndex = metaFooter.metaIndices.get(i);
                 if (metaIndex.name.equals("header")) {
                     // skip meta header, which has been read before.
+                    continue;
+                }
+                // Should skip some bytes because ignore some meta, such as load job
+                if (metaIndex.name.equals("loadJob") || metaIndex.name.equals("cooldownJob")) {
+                    LOG.info("Skip {} module", metaIndex.name);
+                    if (i < metaFooter.metaIndices.size() - 1) {
+                        IOUtils.skipFully(dis, metaFooter.metaIndices.get(i + 1).offset - metaIndex.offset);
+                    }
                     continue;
                 }
                 MetaPersistMethod persistMethod = PersistMetaModules.MODULES_MAP.get(metaIndex.name);

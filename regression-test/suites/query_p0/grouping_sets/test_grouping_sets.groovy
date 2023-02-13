@@ -60,4 +60,22 @@ suite("test_grouping_sets") {
     }
 
    qt_select7 """ select k1,k2,sum(k3) from test_query_db.test where 1 = 2 group by grouping sets((k1), (k1,k2)) """ 
+
+   qt_select8 """ WITH dt AS 
+                    (select 'test' as name,1 as score
+                    UNION
+                    all 
+                    SELECT 'test' AS name,1 AS score
+                    UNION
+                    all SELECT 'test2' AS name,12 AS score
+                    UNION
+                    all SELECT 'test2' AS name,12 AS score ) ,result_data AS 
+                    (SELECT name,
+                        sum(score) AS score
+                    FROM dt
+                    GROUP BY  CUBE(name))
+                SELECT *
+                FROM result_data
+                WHERE name = 'test';
+            """
 }

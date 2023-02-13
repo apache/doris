@@ -110,6 +110,9 @@ public:
 
     Status execute(bool* eos);
 
+    // Try to close this pipeline task. If there are still some resources need to be released after `try_close`,
+    // this task will enter the `PENDING_FINISH` state.
+    Status try_close();
     // if the pipeline create a bunch of pipeline task
     // must be call after all pipeline task is finish to release resource
     Status close();
@@ -174,9 +177,7 @@ public:
 
     std::string debug_string() const;
 
-    RuntimeState* runtime_state() { return _state; }
-
-    const uint32_t total_schedule_time() const { return _schedule_time; }
+    uint32_t total_schedule_time() const { return _schedule_time; }
 
     static constexpr auto THREAD_TIME_SLICE = 100'000'000L;
 

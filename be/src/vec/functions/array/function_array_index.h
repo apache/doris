@@ -21,6 +21,7 @@
 
 #include <string_view>
 
+#include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_string.h"
 #include "vec/data_types/data_type_array.h"
@@ -233,6 +234,14 @@ private:
             return _execute_number<NestedColumnType, ColumnDateTime>(
                     offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
                     outer_null_map);
+        } else if (check_column<ColumnDateV2>(right_column)) {
+            return _execute_number<NestedColumnType, ColumnDateV2>(
+                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
+                    outer_null_map);
+        } else if (check_column<ColumnDateTimeV2>(right_column)) {
+            return _execute_number<NestedColumnType, ColumnDateTimeV2>(
+                    offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
+                    outer_null_map);
         } else if (check_column<ColumnDecimal128>(right_column)) {
             return _execute_number<NestedColumnType, ColumnDecimal128>(
                     offsets, nested_null_map, nested_column, right_column, right_nested_null_map,
@@ -335,6 +344,14 @@ private:
                         right_nested_null_map, array_null_map);
             } else if (nested_column->is_datetime_type()) {
                 return_column = _execute_number_expanded<ColumnDateTime>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
+            } else if (check_column<ColumnDateV2>(*nested_column)) {
+                return_column = _execute_number_expanded<ColumnDateV2>(
+                        offsets, nested_null_map, *nested_column, *right_column,
+                        right_nested_null_map, array_null_map);
+            } else if (check_column<ColumnDateTimeV2>(*nested_column)) {
+                return_column = _execute_number_expanded<ColumnDateTimeV2>(
                         offsets, nested_null_map, *nested_column, *right_column,
                         right_nested_null_map, array_null_map);
             }

@@ -89,8 +89,6 @@ public:
 
     std::string get_name() const { return _name; }
 
-    RuntimeState* runtime_state() { return _state; }
-
     virtual const RowDescriptor& row_desc() = 0;
 
     int32_t id() const { return _id; }
@@ -142,13 +140,13 @@ public:
     explicit OperatorBase(OperatorBuilderBase* operator_builder);
     virtual ~OperatorBase() = default;
 
-    virtual std::string get_name() const { return _operator_builder->get_name(); };
+    virtual std::string get_name() const { return _operator_builder->get_name(); }
 
     bool is_sink() const;
 
     bool is_source() const;
 
-    virtual Status init(const TDataSink& tsink) { return Status::OK(); };
+    virtual Status init(const TDataSink& tsink) { return Status::OK(); }
 
     // Prepare for running. (e.g. resource allocation, etc.)
     virtual Status prepare(RuntimeState* state) = 0;
@@ -191,7 +189,7 @@ public:
     virtual Status get_block(RuntimeState* runtime_state, vectorized::Block* block,
                              SourceState& result_state) {
         return Status::OK();
-    };
+    }
 
     /**
      * Push data to the sink operator.
@@ -216,6 +214,8 @@ public:
      */
     virtual bool is_pending_finish() const { return false; }
 
+    virtual Status try_close() { return Status::OK(); }
+
     bool is_closed() const { return _is_closed; }
 
     MemTracker* mem_tracker() const { return _mem_tracker.get(); }
@@ -225,7 +225,7 @@ public:
     const RowDescriptor& row_desc();
 
     RuntimeProfile* runtime_profile() { return _runtime_profile.get(); }
-    std::string debug_string() const;
+    virtual std::string debug_string() const;
     int32_t id() const { return _operator_builder->id(); }
 
 protected:
@@ -253,7 +253,7 @@ public:
             std::remove_pointer_t<decltype(std::declval<OperatorBuilderType>().exec_node())>;
 
     DataSinkOperator(OperatorBuilderBase* builder, DataSink* sink)
-            : OperatorBase(builder), _sink(reinterpret_cast<NodeType*>(sink)) {};
+            : OperatorBase(builder), _sink(reinterpret_cast<NodeType*>(sink)) {}
 
     ~DataSinkOperator() override = default;
 
@@ -262,8 +262,9 @@ public:
         _runtime_profile.reset(new RuntimeProfile(
                 fmt::format("{} (id={})", _operator_builder->get_name(), _operator_builder->id())));
         _sink->profile()->insert_child_head(_runtime_profile.get(), true);
-        _mem_tracker = std::make_unique<MemTracker>("DataSinkOperator:" + _runtime_profile->name(),
-                                                    _runtime_profile.get());
+        _mem_tracker =
+                std::make_unique<MemTracker>("DataSinkOperator:" + _runtime_profile->name(),
+                                             _runtime_profile.get(), nullptr, "PeakMemoryUsage");
         return Status::OK();
     }
 
@@ -311,7 +312,7 @@ public:
             std::remove_pointer_t<decltype(std::declval<OperatorBuilderType>().exec_node())>;
 
     StreamingOperator(OperatorBuilderBase* builder, ExecNode* node)
-            : OperatorBase(builder), _node(reinterpret_cast<NodeType*>(node)) {};
+            : OperatorBase(builder), _node(reinterpret_cast<NodeType*>(node)) {}
 
     ~StreamingOperator() override = default;
 
@@ -319,9 +320,11 @@ public:
         _runtime_profile.reset(new RuntimeProfile(
                 fmt::format("{} (id={})", _operator_builder->get_name(), _operator_builder->id())));
         _node->runtime_profile()->insert_child_head(_runtime_profile.get(), true);
-        _mem_tracker = std::make_unique<MemTracker>(get_name() + ": " + _runtime_profile->name(),
-                                                    _runtime_profile.get());
+        _mem_tracker =
+                std::make_unique<MemTracker>(get_name() + ": " + _runtime_profile->name(),
+                                             _runtime_profile.get(), nullptr, "PeakMemoryUsage");
         _node->increase_ref();
+        _use_projection = _node->has_output_row_descriptor();
         return Status::OK();
     }
 
@@ -353,12 +356,14 @@ public:
                      SourceState& source_state) override {
         SCOPED_TIMER(_runtime_profile->total_time_counter());
         DCHECK(_child);
-        RETURN_IF_ERROR(_child->get_block(state, block, source_state));
+        auto input_block = _use_projection ? _node->get_clear_input_block() : block;
+        RETURN_IF_ERROR(_child->get_block(state, input_block, source_state));
         bool eos = false;
         RETURN_IF_ERROR(_node->get_next_after_projects(
                 state, block, &eos,
                 std::bind(&ExecNode::pull, _node, std::placeholders::_1, std::placeholders::_2,
-                          std::placeholders::_3)));
+                          std::placeholders::_3),
+                false));
         return Status::OK();
     }
 
@@ -373,6 +378,7 @@ protected:
     }
 
     NodeType* _node;
+    bool _use_projection;
 };
 
 template <typename OperatorBuilderType>
@@ -382,7 +388,7 @@ public:
             std::remove_pointer_t<decltype(std::declval<OperatorBuilderType>().exec_node())>;
 
     SourceOperator(OperatorBuilderBase* builder, ExecNode* node)
-            : StreamingOperator<OperatorBuilderType>(builder, node) {};
+            : StreamingOperator<OperatorBuilderType>(builder, node) {}
 
     ~SourceOperator() override = default;
 
@@ -417,7 +423,7 @@ public:
     StatefulOperator(OperatorBuilderBase* builder, ExecNode* node)
             : StreamingOperator<OperatorBuilderType>(builder, node),
               _child_block(new vectorized::Block),
-              _child_source_state(SourceState::DEPEND_ON_SOURCE) {};
+              _child_source_state(SourceState::DEPEND_ON_SOURCE) {}
 
     virtual ~StatefulOperator() = default;
 

@@ -20,8 +20,8 @@
 #include <random>
 
 #include "exprs/string_functions.h"
-#include "runtime/string_value.h"
 #include "udf/udf.h"
+#include "vec/common/string_ref.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/functions/function_string.h"
@@ -203,6 +203,10 @@ struct RegexpExtractAllImpl {
                     continue;
                 }
                 scoped_re.reset(re);
+            }
+            if (re->NumberOfCapturingGroups() == 0) {
+                StringOP::push_empty_string(i, result_data, result_offset);
+                continue;
             }
             const auto& str = str_col->get_data_at(i);
             int max_matches = 1 + re->NumberOfCapturingGroups();

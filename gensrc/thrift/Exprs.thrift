@@ -60,6 +60,12 @@ enum TExprNodeType {
 
   // for fulltext search
   MATCH_PRED,
+
+  // for map 
+  MAP_LITERAL,
+
+  // for struct
+  STRUCT_LITERAL,
 }
 
 //enum TAggregationOp {
@@ -143,6 +149,7 @@ struct TTupleIsNullPredicate {
 struct TSlotRef {
   1: required Types.TSlotId slot_id
   2: required Types.TTupleId tuple_id
+  3: optional i32 col_unique_id
 }
 
 struct TStringLiteral {
@@ -213,6 +220,10 @@ struct TExprNode {
 // traversal.
 struct TExpr {
   1: required list<TExprNode> nodes
+}
+
+struct TExprList {
+  1: required list<TExpr> exprs
 }
 
 

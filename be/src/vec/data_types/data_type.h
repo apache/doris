@@ -32,7 +32,6 @@
 namespace doris {
 class PBlock;
 class PColumn;
-enum FieldType;
 
 namespace vectorized {
 
@@ -178,6 +177,8 @@ public:
       */
     virtual bool is_value_represented_by_integer() const { return false; }
 
+    virtual bool is_object() const { return false; }
+
     /** Unsigned Integers, Date, DateTime. Not nullable.
       */
     virtual bool is_value_represented_by_unsigned_integer() const { return false; }
@@ -314,6 +315,7 @@ struct WhichDataType {
     bool is_uuid() const { return idx == TypeIndex::UUID; }
     bool is_array() const { return idx == TypeIndex::Array; }
     bool is_tuple() const { return idx == TypeIndex::Tuple; }
+    bool is_map() const { return idx == TypeIndex::Map; }
     bool is_set() const { return idx == TypeIndex::Set; }
     bool is_interval() const { return idx == TypeIndex::Interval; }
 
@@ -321,6 +323,8 @@ struct WhichDataType {
     bool is_nullable() const { return idx == TypeIndex::Nullable; }
     bool is_function() const { return idx == TypeIndex::Function; }
     bool is_aggregate_function() const { return idx == TypeIndex::AggregateFunction; }
+    bool is_variant_type() const { return idx == TypeIndex::VARIANT; }
+    bool is_simple() const { return is_int() || is_uint() || is_float() || is_string(); }
 };
 
 /// IDataType helpers (alternative for IDataType virtual methods with single point of truth)
@@ -355,7 +359,9 @@ inline bool is_tuple(const DataTypePtr& data_type) {
 inline bool is_array(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_array();
 }
-
+inline bool is_map(const DataTypePtr& data_type) {
+    return WhichDataType(data_type).is_map();
+}
 inline bool is_nothing(const DataTypePtr& data_type) {
     return WhichDataType(data_type).is_nothing();
 }

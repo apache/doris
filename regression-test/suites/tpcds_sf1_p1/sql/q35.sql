@@ -1,4 +1,3 @@
-/*
 SELECT
   ca_state
 , cd_gender
@@ -57,4 +56,3 @@ WHERE (c.c_current_addr_sk = ca.ca_address_sk)
 GROUP BY ca_state, cd_gender, cd_marital_status, cd_dep_count, cd_dep_employed_count, cd_dep_college_count
 ORDER BY ca_state ASC, cd_gender ASC, cd_marital_status ASC, cd_dep_count ASC, cd_dep_employed_count ASC, cd_dep_college_count ASC
 LIMIT 100
-*/

@@ -1749,7 +1749,7 @@ void VecDateTimeValue::create_from_date_v2(DateV2Value<T>& value, TimeType type)
 }
 
 void VecDateTimeValue::convert_vec_dt_to_dt(
-        doris::DateTimeValue* dt) { //use convert VecDateTimeValue to DateTimeValue
+        doris::DateTimeValue* dt) const { //use convert VecDateTimeValue to DateTimeValue
     dt->_neg = this->_neg;
     dt->_type = this->_type;
     dt->_hour = this->_hour;
@@ -1893,6 +1893,7 @@ bool DateV2Value<T>::from_date_str(const char* date_str, int len, int scale) {
         if (field_idx == 2 && *ptr == 'T') {
             // YYYYMMDDTHHMMDD, skip 'T' and continue
             ptr++;
+            field_idx++;
             continue;
         }
 

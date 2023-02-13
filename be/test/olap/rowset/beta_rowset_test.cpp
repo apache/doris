@@ -230,9 +230,8 @@ TEST_F(BetaRowsetTest, ReadTest) {
     s3_conf.region = "region";
     s3_conf.bucket = "bucket";
     s3_conf.prefix = "prefix";
-    io::ResourceId resource_id = "test_resourse_id";
-    std::shared_ptr<io::S3FileSystem> fs =
-            std::make_shared<io::S3FileSystem>(std::move(s3_conf), resource_id);
+    std::string resource_id = "10000";
+    auto fs = io::S3FileSystem::create(std::move(s3_conf), resource_id);
     Aws::SDKOptions aws_options = Aws::SDKOptions {};
     Aws::InitAPI(aws_options);
     // failed to head object

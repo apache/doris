@@ -117,19 +117,19 @@ public class MTMVTask implements Writable, Comparable {
         this.state = state;
     }
 
-    public String getDbName() {
+    public String getDBName() {
         return dbName;
     }
 
-    public void setDbName(String dbName) {
+    public void setDBName(String dbName) {
         this.dbName = dbName;
     }
 
-    public String getMvName() {
+    public String getMVName() {
         return mvName;
     }
 
-    public void setMvName(String mvName) {
+    public void setMVName(String mvName) {
         this.mvName = mvName;
     }
 
@@ -222,8 +222,8 @@ public class MTMVTask implements Writable, Comparable {
         List<String> list = Lists.newArrayList();
         list.add(getTaskId());
         list.add(getJobName());
-        list.add(getDbName());
-        list.add(getMvName());
+        list.add(getDBName());
+        list.add(getMVName());
         list.add(getQuery().length() > 10240 ? getQuery().substring(0, 10240) : getQuery());
         list.add(getUser());
         list.add(Integer.toString(getPriority()));

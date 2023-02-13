@@ -26,6 +26,7 @@ import org.apache.doris.common.CaseSensibility;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.proc.UserPropertyProcNode;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -78,8 +79,8 @@ public class ShowUserPropertyStmt extends ShowStmt {
         }
 
         List<List<String>> result = Lists.newArrayList();
-        PatternMatcher matcher = PatternMatcher.createMysqlPattern(pattern,
-                                                                   CaseSensibility.USER.getCaseSensibility());
+        PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(pattern,
+                CaseSensibility.USER.getCaseSensibility());
         for (List<String> row : rows) {
             String key = row.get(0).split("\\" + SetUserPropertyVar.DOT_SEPARATOR)[0];
             if (matcher.match(key)) {

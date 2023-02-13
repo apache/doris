@@ -172,10 +172,6 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
 
   Stream load import can enable two-stage transaction commit mode: in the stream load process, the data is written and the information is returned to the user. At this time, the data is invisible and the transaction status is `PRECOMMITTED`. After the user manually triggers the commit operation, the data is visible.
 
-  The default two-phase bulk transaction commit is off.
-
-  > **Open method:** Configure `disable_stream_load_2pc=false` in be.conf and declare `two_phase_commit=true` in HEADER.
-
   Example：
 
 	1. Initiate a stream load pre-commit operation
@@ -404,7 +400,14 @@ Cluster situation: The concurrency of Stream load is not affected by cluster siz
 	        <version>4.5.13</version>
 	      </dependency>
 	  ```
+ 
+* After enabling the Stream Load record on the BE, the record cannot be queried
 
+  This is caused by the slowness of fetching records, you can try to adjust the following parameters:
+
+  1. Increase the BE configuration `stream_load_record_batch_size`. This configuration indicates how many Stream load records can be pulled from BE each time. The default value is 50, which can be increased to 500.
+  2. Reduce the FE configuration `fetch_stream_load_record_interval_second`, this configuration indicates the interval for obtaining Stream load records, the default is to fetch once every 120 seconds, and it can be adjusted to 60 seconds.
+  3. If you want to save more Stream load records (not recommended, it will take up more resources of FE), you can increase the configuration `max_stream_load_record_size` of FE, the default is 5000.
 
 ## More Help
 

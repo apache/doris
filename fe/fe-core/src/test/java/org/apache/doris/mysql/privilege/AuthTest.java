@@ -55,7 +55,7 @@ import java.util.Set;
 
 public class AuthTest {
 
-    private PaloAuth auth;
+    private Auth auth;
     @Mocked
     public Env env;
     @Mocked
@@ -69,7 +69,7 @@ public class AuthTest {
 
     // Thread is not mockable in Jmockit, so use a subclass instead.
     private static final class MockDomainResolver extends DomainResolver {
-        public MockDomainResolver(PaloAuth auth) {
+        public MockDomainResolver(Auth auth) {
             super(auth);
         }
 
@@ -95,7 +95,7 @@ public class AuthTest {
 
     @Before
     public void setUp() throws NoSuchMethodException, SecurityException {
-        auth = new PaloAuth();
+        auth = new Auth();
 
         new Expectations() {
             {
@@ -390,8 +390,9 @@ public class AuthTest {
         // 9.1 check auth
         Assert.assertTrue(auth.checkDbPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db1",
                 PrivPredicate.CREATE));
-        UserIdentity zhangsan1 = UserIdentity.createAnalyzedUserIdentWithIp(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan",
-                "172.1.1.1");
+        UserIdentity zhangsan1 = UserIdentity
+                .createAnalyzedUserIdentWithIp(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan",
+                        "172.1.1.1");
         Assert.assertFalse(auth.checkDbPriv(zhangsan1, SystemInfoService.DEFAULT_CLUSTER + ":db1",
                 PrivPredicate.CREATE));
 
@@ -495,6 +496,36 @@ public class AuthTest {
         Assert.assertFalse(auth.checkGlobalPriv(currentUser2.get(0), PrivPredicate.SELECT));
         Assert.assertTrue(auth.checkTblPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":db2", "tbl2",
                 PrivPredicate.DROP));
+
+        // 13.1 grant external ctl tbl auth to exist user
+        tablePattern = new TablePattern("ext_ctl", "ext_db1", "ext_tbl1");
+        privileges = Lists.newArrayList(AccessPrivilege.SELECT_PRIV);
+        grantStmt = new GrantStmt(new UserIdentity("zhangsan", "192.%"), null, tablePattern, privileges);
+
+        try {
+            grantStmt.analyze(analyzer);
+        } catch (UserException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        try {
+            auth.grant(grantStmt);
+        } catch (DdlException e) {
+            e.printStackTrace();
+            Assert.fail();
+        }
+
+        currentUser2.clear();
+        auth.checkPlainPasswordForTest(SystemInfoService.DEFAULT_CLUSTER + ":zhangsan", "192.168.1.1", "12345",
+                currentUser2);
+        Assert.assertEquals(1, currentUser2.size());
+        Assert.assertTrue(
+                auth.checkTblPriv(currentUser2.get(0), "ext_ctl", SystemInfoService.DEFAULT_CLUSTER + ":ext_db1",
+                        "ext_tbl1", PrivPredicate.SELECT));
+        Assert.assertFalse(
+                auth.checkTblPriv(currentUser2.get(0), SystemInfoService.DEFAULT_CLUSTER + ":ext_db1", "ext_tbl1",
+                        PrivPredicate.SELECT));
 
         // 14. grant db auth to zhangsan@['palo.domain1']
         tablePattern = new TablePattern("db3", "*");
@@ -787,7 +818,7 @@ public class AuthTest {
          */
 
         // 23. create admin role, which is not allowed
-        CreateRoleStmt roleStmt = new CreateRoleStmt(PaloRole.ADMIN_ROLE);
+        CreateRoleStmt roleStmt = new CreateRoleStmt(Role.ADMIN_ROLE);
         hasException = false;
         try {
             roleStmt.analyze(analyzer);
@@ -798,7 +829,7 @@ public class AuthTest {
         Assert.assertTrue(hasException);
 
         // 23. create operator role, which is not allowed
-        roleStmt = new CreateRoleStmt(PaloRole.OPERATOR_ROLE);
+        roleStmt = new CreateRoleStmt(Role.OPERATOR_ROLE);
         hasException = false;
         try {
             roleStmt.analyze(analyzer);
@@ -1344,6 +1375,13 @@ public class AuthTest {
         UserIdentity otherOpUser = new UserIdentity("other_op_user", "%");
         userDesc = new UserDesc(otherOpUser, "12345", true);
         createUserStmt = new CreateUserStmt(false, userDesc, null);
+        new Expectations() {
+            {
+                ctx.getCurrentUserIdentity();
+                minTimes = 1;
+                result = UserIdentity.ROOT;
+            }
+        };
         createUserStmt.analyze(analyzer);
         auth.createUser(createUserStmt);
         // try grant, it should fail
@@ -1530,6 +1568,8 @@ public class AuthTest {
         }
         Assert.assertTrue(auth.checkResourcePriv(userIdentity, resourceName, PrivPredicate.USAGE));
         Assert.assertTrue(auth.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
+        Assert.assertTrue(auth.checkGlobalPriv(userIdentity, PrivPredicate.SHOW_RESOURCES));
+        Assert.assertFalse(auth.checkGlobalPriv(userIdentity, PrivPredicate.SHOW));
 
         // 3. revoke usage_priv on resource '*' from 'testUser'@'%'
         revokeStmt = new RevokeStmt(userIdentity, null, anyResourcePattern, usagePrivileges);
@@ -1542,6 +1582,8 @@ public class AuthTest {
         }
         Assert.assertFalse(auth.checkResourcePriv(userIdentity, resourceName, PrivPredicate.USAGE));
         Assert.assertFalse(auth.checkGlobalPriv(userIdentity, PrivPredicate.USAGE));
+        Assert.assertFalse(auth.checkGlobalPriv(userIdentity, PrivPredicate.SHOW_RESOURCES));
+        Assert.assertFalse(auth.checkGlobalPriv(userIdentity, PrivPredicate.SHOW));
 
         // 4. drop user
         dropUserStmt = new DropUserStmt(userIdentity);

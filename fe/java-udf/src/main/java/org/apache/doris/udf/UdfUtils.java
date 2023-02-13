@@ -17,7 +17,6 @@
 
 package org.apache.doris.udf;
 
-import org.apache.doris.analysis.CreateFunctionStmt;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -52,6 +51,7 @@ public class UdfUtils {
     public static final Unsafe UNSAFE;
     private static final long UNSAFE_COPY_THRESHOLD = 1024L * 1024L;
     public static final long BYTE_ARRAY_OFFSET;
+    public static final long INT_ARRAY_OFFSET;
 
     static {
         UNSAFE = (Unsafe) AccessController.doPrivileged(
@@ -65,6 +65,7 @@ public class UdfUtils {
                     }
                 });
         BYTE_ARRAY_OFFSET = UNSAFE.arrayBaseOffset(byte[].class);
+        INT_ARRAY_OFFSET = UNSAFE.arrayBaseOffset(int[].class);
     }
 
     // Data types that are supported as return or argument types in Java UDFs.
@@ -134,9 +135,9 @@ public class UdfUtils {
                 return Sets.newHashSet(JavaUdfDataType.CHAR);
             } else if (c == String.class) {
                 return Sets.newHashSet(JavaUdfDataType.STRING);
-            } else if (CreateFunctionStmt.DATE_SUPPORTED_JAVA_TYPE.contains(c)) {
+            } else if (Type.DATE_SUPPORTED_JAVA_TYPE.contains(c)) {
                 return Sets.newHashSet(JavaUdfDataType.DATE, JavaUdfDataType.DATEV2);
-            } else if (CreateFunctionStmt.DATETIME_SUPPORTED_JAVA_TYPE.contains(c)) {
+            } else if (Type.DATETIME_SUPPORTED_JAVA_TYPE.contains(c)) {
                 return Sets.newHashSet(JavaUdfDataType.DATETIME, JavaUdfDataType.DATETIMEV2);
             } else if (c == BigInteger.class) {
                 return Sets.newHashSet(JavaUdfDataType.LARGEINT);

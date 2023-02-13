@@ -187,6 +187,10 @@ using HashTableCtxVariants =
                      ProcessHashTableProbe<TJoinOp::RIGHT_ANTI_JOIN>,
                      ProcessHashTableProbe<TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN>>;
 
+using HashTableIteratorVariants =
+        std::variant<std::monostate, ForwardIterator<RowRefList>,
+                     ForwardIterator<RowRefListWithFlag>, ForwardIterator<RowRefListWithFlags>>;
+
 class HashJoinNode final : public VJoinNodeBase {
 public:
     // TODO: Best prefetch step is decided by machine. We should also provide a
@@ -276,7 +280,8 @@ private:
     std::unique_ptr<HashTableCtxVariants> _process_hashtable_ctx_variants;
 
     // for full/right outer join
-    ForwardIterator<RowRefListWithFlag> _outer_join_pull_visited_iter;
+    HashTableIteratorVariants _outer_join_pull_visited_iter;
+    HashTableIteratorVariants _probe_row_match_iter;
 
     std::shared_ptr<std::vector<Block>> _build_blocks;
     Block _probe_block;
@@ -303,6 +308,8 @@ private:
     std::vector<bool> _left_output_slot_flags;
     std::vector<bool> _right_output_slot_flags;
 
+    // for cases when a probe row matches more than batch size build rows.
+    bool _is_any_probe_match_row_output = false;
     uint8_t _build_block_idx = 0;
     int64_t _build_side_mem_used = 0;
     int64_t _build_side_last_mem_used = 0;

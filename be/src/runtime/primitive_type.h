@@ -32,7 +32,7 @@ class ColumnString;
 
 class DateTimeValue;
 class DecimalV2Value;
-struct StringValue;
+struct StringRef;
 struct JsonBinaryValue;
 
 PrimitiveType convert_type_to_primitive(FunctionContext::Type type);
@@ -54,6 +54,8 @@ constexpr bool is_enumeration_type(PrimitiveType type) {
     case TYPE_DECIMAL128I:
     case TYPE_BOOLEAN:
     case TYPE_ARRAY:
+    case TYPE_STRUCT:
+    case TYPE_MAP:
     case TYPE_HLL:
         return false;
     case TYPE_TINYINT:
@@ -96,12 +98,12 @@ constexpr bool has_variable_type(PrimitiveType type) {
            type == TYPE_QUANTILE_STATE || type == TYPE_STRING;
 }
 
-// Returns the byte size of 'type'  Returns 0 for variable length types.
-int get_byte_size(PrimitiveType type);
 // Returns the byte size of type when in a tuple
 int get_slot_size(PrimitiveType type);
 
 bool is_type_compatible(PrimitiveType lhs, PrimitiveType rhs);
+
+PrimitiveType get_primitive_type(vectorized::TypeIndex v_type);
 
 TExprOpcode::type to_in_opcode(PrimitiveType t);
 PrimitiveType thrift_to_type(TPrimitiveType::type ttype);
@@ -210,24 +212,24 @@ struct PrimitiveTypeTraits<TYPE_LARGEINT> {
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_CHAR> {
-    using CppType = StringValue;
+    using CppType = StringRef;
     using ColumnType = vectorized::ColumnString;
 };
 template <>
 struct PrimitiveTypeTraits<TYPE_VARCHAR> {
-    using CppType = StringValue;
+    using CppType = StringRef;
     using ColumnType = vectorized::ColumnString;
 };
 
 template <>
 struct PrimitiveTypeTraits<TYPE_STRING> {
-    using CppType = StringValue;
+    using CppType = StringRef;
     using ColumnType = vectorized::ColumnString;
 };
 
 template <>
 struct PrimitiveTypeTraits<TYPE_HLL> {
-    using CppType = StringValue;
+    using CppType = StringRef;
     using ColumnType = vectorized::ColumnString;
 };
 

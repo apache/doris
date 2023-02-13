@@ -63,9 +63,7 @@ public:
 
     static std::string remote_tablet_path(int64_t tablet_id);
 
-    Status split_range(const RowCursor& start_key, const RowCursor& end_key,
-                       uint64_t request_block_row_count, size_t key_num,
-                       std::vector<OlapTuple>* ranges) override;
+    static std::string remote_tablet_meta_path(int64_t tablet_id, int64_t replica_id);
 
     Status remove() override;
 
@@ -79,7 +77,7 @@ public:
     // only applicable to alpha rowset, no op here
     Status remove_old_files(std::vector<std::string>* files_to_remove) override {
         return Status::OK();
-    };
+    }
 
     bool check_path(const std::string& path) override;
 

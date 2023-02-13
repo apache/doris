@@ -18,17 +18,19 @@
 #pragma once
 
 #include "io/fs/file_system.h"
-#include "util/file_cache.h"
 
 namespace doris {
 namespace io {
 
 class LocalFileSystem final : public FileSystem {
 public:
-    LocalFileSystem(Path root_path, ResourceId resource_id = ResourceId());
+    static std::shared_ptr<LocalFileSystem> create(Path path, std::string id = "");
+
     ~LocalFileSystem() override;
 
     Status create_file(const Path& path, FileWriterPtr* writer) override;
+
+    Status create_file_impl(const Path& path, FileWriterPtr* writer);
 
     Status open_file(const Path& path, const FileReaderOptions& reader_options,
                      FileReaderSPtr* reader, IOContext* io_ctx) override {
@@ -37,21 +39,39 @@ public:
 
     Status open_file(const Path& path, FileReaderSPtr* reader, IOContext* io_ctx) override;
 
+    Status open_file_impl(const Path& path, FileReaderSPtr* reader, IOContext* io_ctx);
+
     Status delete_file(const Path& path) override;
+
+    Status delete_file_impl(const Path& path);
 
     Status create_directory(const Path& path) override;
 
+    Status create_directory_impl(const Path& path);
+
     Status delete_directory(const Path& path) override;
+
+    Status delete_directory_impl(const Path& path);
 
     Status link_file(const Path& src, const Path& dest) override;
 
+    Status link_file_impl(const Path& src, const Path& dest);
+
     Status exists(const Path& path, bool* res) const override;
+
+    Status exists_impl(const Path& path, bool* res) const;
 
     Status file_size(const Path& path, size_t* file_size) const override;
 
+    Status file_size_impl(const Path& path, size_t* file_size) const;
+
     Status list(const Path& path, std::vector<Path>* files) override;
 
+    Status list_impl(const Path& path, std::vector<Path>* files);
+
 private:
+    LocalFileSystem(Path&& root_path, std::string&& id = "");
+
     Path absolute_path(const Path& path) const;
 };
 

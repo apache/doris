@@ -57,7 +57,7 @@ Apache Doris 早期版本的存储格式为 Segment V1，在 0.12 版本中我�
 
 在某些场景中（例如日志分析类场景），用户可能无法找到一个合适的分桶键来避免数据倾斜，因此需要由系统提供额外的分布方式来解决数据倾斜的问题。
 
-因此通过在建表时可以不指定具体分桶键，选择使用随机分布对数据进行分桶`DISTRIBUTED BY random BUCKET number`，数据导入时将会随机写入单个 Tablet ，以减少加载过程中的数据扇出，并减少资源开销、提升系统稳定性。
+因此通过在建表时可以不指定具体分桶键，选择使用随机分布对数据进行分桶`DISTRIBUTED BY random BUCKETS number`，数据导入时将会随机写入单个 Tablet ，以减少加载过程中的数据扇出，并减少资源开销、提升系统稳定性。
 
 ### 支持创建 Iceberg 外部表 [实验性功能] [#7391](https://github.com/apache/doris/pull/7391) [#7981](https://github.com/apache/doris/pull/7981) [#8179](https://github.com/apache/doris/pull/8179)
 

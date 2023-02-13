@@ -17,10 +17,9 @@
 
 #pragma once
 
+#include <map>
 #include <string>
 #include <vector>
-
-#include "exec/es/es_predicate.h"
 
 namespace doris {
 

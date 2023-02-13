@@ -15,24 +15,20 @@
 // specific language governing permissions and limitations
 // under the License.
 
-import groovy.json.JsonSlurper
-
 suite("show_policy") {
-    sql """ADMIN SET FRONTEND CONFIG ("enable_storage_policy" = "true");"""
-
-    def storage_exist = { name ->
+    def get_storage_policy = { name ->
         def show_storage_policy = sql """
         SHOW STORAGE POLICY;
         """
-        for(iter in show_storage_policy){
-            if(name == iter[0]){
-                return true;
+        for(policy in show_storage_policy){
+            if(name == policy[0]){
+                return policy;
             }
         }
-        return false;
+        return [];
     }
 
-    if (!storage_exist.call("showPolicy_1_policy")){
+    if (get_storage_policy.call("showPolicy_1_policy").isEmpty()){
         def create_s3_resource = try_sql """
             CREATE RESOURCE "showPolicy_1_resource"
             PROPERTIES(
@@ -58,10 +54,8 @@ suite("show_policy") {
         SHOW STORAGE POLICY;
     """
 
-    def jsonSlurper = new JsonSlurper()
-    if (show_result.size != 0){
-        def json_ret = jsonSlurper.parseText(show_result[0][5])
-        assertEquals(json_ret["AWS_SECRET_KEY"], "******")
-    }
-    assertEquals(storage_exist.call("showPolicy_1_policy"), true)
+    def storage_policy = get_storage_policy("showPolicy_1_policy")
+    assertEquals(storage_policy.size(), 7)
+    assertEquals(storage_policy[4], "showPolicy_1_resource")
+    assertEquals(storage_policy[5], "2022-06-08 00:00:00")
 }

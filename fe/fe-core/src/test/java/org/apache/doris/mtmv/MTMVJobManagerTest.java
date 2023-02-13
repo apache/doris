@@ -56,11 +56,15 @@ public class MTMVJobManagerTest extends TestWithFeService {
     public void testSchedulerJob() throws DdlException, InterruptedException {
         MTMVJobManager jobManager = new MTMVJobManager();
         jobManager.start();
+        Assertions.assertTrue(jobManager.getTaskManager().getAllHistory().isEmpty());
         MTMVJob job = MTMVUtilsTest.createSchedulerJob();
         jobManager.createJob(job, false);
         Assertions.assertEquals(1, jobManager.showJobs(MTMVUtilsTest.dbName).size());
-        Thread.sleep(5000L);
-        Assertions.assertTrue(jobManager.getTaskManager().getAllHistory().size() > 1);
+        while (jobManager.getTaskManager().getAllHistory().isEmpty()) {
+            Thread.sleep(1000L);
+            System.out.println("Loop    once");
+        }
+        Assertions.assertTrue(jobManager.getTaskManager().getAllHistory().size() > 0);
     }
 
     @Test
@@ -73,7 +77,7 @@ public class MTMVJobManagerTest extends TestWithFeService {
         Assertions.assertEquals(1, jobManager.showJobs(MTMVUtilsTest.dbName).size());
         Assertions.assertEquals(1, jobManager.showJobs(MTMVUtilsTest.dbName, MTMVUtilsTest.MV_NAME).size());
         while (!jobManager.getJob(MTMVUtilsTest.O_JOB).getState().equals(JobState.COMPLETE)) {
-            Thread.sleep(10000);
+            Thread.sleep(1000L);
             System.out.println("Loop    once");
         }
 
@@ -125,7 +129,7 @@ public class MTMVJobManagerTest extends TestWithFeService {
         // index 7: RetryTimes
         Assertions.assertEquals("0", taskRow.get(7));
         // index 8: State
-        Assertions.assertEquals("FAILED", taskRow.get(8));
+        Assertions.assertEquals("FAILURE", taskRow.get(8));
         // index 9: Message
         Assertions.assertEquals("", taskRow.get(9));
         // index 10: ErrorCode

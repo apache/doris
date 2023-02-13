@@ -21,9 +21,10 @@ import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeBinaryPr
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * Expression rewrite entry, which contains all rewrite rules.
@@ -43,7 +44,7 @@ public class ExpressionRuleExecutor {
     }
 
     public List<Expression> rewrite(List<Expression> exprs) {
-        return exprs.stream().map(this::rewrite).collect(Collectors.toList());
+        return exprs.stream().map(this::rewrite).collect(ImmutableList.toImmutableList());
     }
 
     /**

@@ -16,10 +16,10 @@
  // under the License.
 
  suite("test_group_having_alias") {
-    sql """
-        DROP TABLE IF EXISTS `tb_holiday`;
-    """
+    sql """DROP TABLE IF EXISTS `test_having_alias_tb`; """
+    sql """DROP TABLE IF EXISTS `tb_holiday`;"""
 
+    sql """DROP TABLE IF EXISTS `test_having_alias_tb`; """
     sql """ 
         CREATE TABLE `tb_holiday` (
         `date` bigint(20) NOT NULL ,
@@ -71,11 +71,41 @@
         ORDER BY date;
     """
 
-    sql """
-        DROP TABLE IF EXISTS `tb_holiday`;
+    sql """set group_by_and_having_use_alias_first=true"""
+
+    qt_sql """
+        SELECT
+        date_format(date, '%x%v') AS `date`,
+        count(date) AS `diff_days`
+        FROM `tb_holiday`
+        WHERE `date` between 20221111 AND 20221116
+        GROUP BY date
+        HAVING date = 20221111
+        ORDER BY date;
     """
 
-    sql """ DROP TABLE IF EXISTS `test_having_alias_tb`; """
+    qt_sql """
+        SELECT
+        date_format(date, '%x%v') AS `date2`,
+        count(date) AS `diff_days`
+        FROM `tb_holiday`
+        WHERE `date` between 20221111 AND 20221116
+        GROUP BY date2
+        HAVING date2 = 202245
+        ORDER BY date2;
+    """
+
+    qt_sql """
+        SELECT
+        date_format(date, '%x%v') AS `date`
+        FROM `tb_holiday`
+        WHERE `date` between 20221111 AND 20221116
+        HAVING date = 202245
+        ORDER BY date;
+    """
+
+    sql """set group_by_and_having_use_alias_first=false"""
+
     sql """
          CREATE TABLE `test_having_alias_tb` (
           `id` int(11) NULL,
@@ -98,5 +128,14 @@
     qt_case3 """ SELECT id, v1-2 as v, sum(v2) v2 FROM test_having_alias_tb GROUP BY id,v having(v>0 AND sum(v2)>1) ORDER BY id,v; """
     qt_case4 """ SELECT id, v1-2 as v, sum(v2) vsum FROM test_having_alias_tb GROUP BY id,v having(v>0 AND vsum>1) ORDER BY id,v; """
     qt_case5 """ SELECT id, max(v1) v1 FROM test_having_alias_tb GROUP BY 1 having count(distinct v1)>1 ORDER BY id; """
-    sql """ DROP TABLE IF EXISTS `test_having_alias_tb`; """
- } 
+
+    sql """set enable_nereids_planner=true"""
+    sql """set enable_fallback_to_original_planner=false"""
+    qt_case6 """
+      SELECT date_format(date, '%x%v') AS `date` FROM `tb_holiday` WHERE `date` between 20221111 AND 20221116 HAVING date = 202245 ORDER BY date;
+    """
+    sql """DROP TABLE IF EXISTS `test_having_alias_tb`; """
+    sql """DROP TABLE IF EXISTS `tb_holiday`;"""
+
+    sql """DROP TABLE IF EXISTS `test_having_alias_tb`; """
+ }

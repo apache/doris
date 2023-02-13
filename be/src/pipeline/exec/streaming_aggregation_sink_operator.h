@@ -35,8 +35,8 @@ public:
 
     OperatorPtr build_operator() override;
 
-    bool is_sink() const override { return true; };
-    bool is_source() const override { return false; };
+    bool is_sink() const override { return true; }
+    bool is_source() const override { return false; }
 
 private:
     std::shared_ptr<DataQueue> _data_queue;

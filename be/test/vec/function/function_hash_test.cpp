@@ -19,7 +19,6 @@
 #include <time.h>
 
 #include "function_test_util.h"
-#include "runtime/tuple_row.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {

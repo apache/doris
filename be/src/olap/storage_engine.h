@@ -140,7 +140,7 @@ public:
 
     bool check_rowset_id_in_unused_rowsets(const RowsetId& rowset_id);
 
-    RowsetId next_rowset_id() { return _rowset_id_generator->next_id(); };
+    RowsetId next_rowset_id() { return _rowset_id_generator->next_id(); }
 
     bool rowset_id_in_use(const RowsetId& rowset_id) {
         return _rowset_id_generator->id_in_use(rowset_id);
@@ -193,6 +193,7 @@ public:
         return _tablet_publish_txn_thread_pool;
     }
     bool stopped() { return _stopped; }
+    ThreadPool* get_bg_multiget_threadpool() { return _bg_multi_get_thread_pool.get(); }
 
 private:
     // Instance should be inited from `static open()`
@@ -244,6 +245,8 @@ private:
     void _parse_default_rowset_type();
 
     void _start_clean_cache();
+
+    void _start_clean_lookup_cache();
 
     // Disk status monitoring. Monitoring unused_flag Road King's new corresponding root_path unused flag,
     // When the unused mark is detected, the corresponding table information is deleted from the memory, and the disk data does not move.
@@ -322,8 +325,6 @@ private:
     // map<rowset_id(str), RowsetSharedPtr>, if we use RowsetId as the key, we need custom hash func
     std::unordered_map<std::string, RowsetSharedPtr> _unused_rowsets;
 
-    // StorageEngine oneself
-    std::shared_ptr<MemTracker> _mem_tracker;
     // Count the memory consumption of segment compaction tasks.
     std::shared_ptr<MemTracker> _segcompaction_mem_tracker;
     // This mem tracker is only for tracking memory use by segment meta data such as footer or index page.
@@ -345,6 +346,8 @@ private:
     std::vector<scoped_refptr<Thread>> _path_scan_threads;
     // thread to produce tablet checkpoint tasks
     scoped_refptr<Thread> _tablet_checkpoint_tasks_producer_thread;
+    // thread to clean tablet lookup cache
+    scoped_refptr<Thread> _lookup_cache_clean_thread;
 
     // For tablet and disk-stat report
     std::mutex _report_mtx;
@@ -372,6 +375,7 @@ private:
     std::unique_ptr<ThreadPool> _tablet_publish_txn_thread_pool;
 
     std::unique_ptr<ThreadPool> _tablet_meta_checkpoint_thread_pool;
+    std::unique_ptr<ThreadPool> _bg_multi_get_thread_pool;
 
     CompactionPermitLimiter _permit_limiter;
 
@@ -393,10 +397,9 @@ private:
 
     scoped_refptr<Thread> _cache_file_cleaner_tasks_producer_thread;
 
-    std::unique_ptr<ThreadPool> _cooldown_thread_pool;
+    std::unique_ptr<PriorityThreadPool> _cooldown_thread_pool;
 
     std::mutex _running_cooldown_mutex;
-    std::unordered_map<DataDir*, int64_t> _running_cooldown_tasks_cnt;
     std::unordered_set<int64_t> _running_cooldown_tablets;
 
     DISALLOW_COPY_AND_ASSIGN(StorageEngine);

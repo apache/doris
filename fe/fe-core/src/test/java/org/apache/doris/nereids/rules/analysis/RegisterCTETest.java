@@ -20,6 +20,7 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
+import org.apache.doris.nereids.analyzer.CTEContext;
 import org.apache.doris.nereids.datasets.ssb.SSBUtils;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
@@ -28,7 +29,7 @@ import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
-import org.apache.doris.nereids.rules.rewrite.AggregateStrategies;
+import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.rules.rewrite.logical.InApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushApplyUnderFilter;
 import org.apache.doris.nereids.rules.rewrite.logical.PushApplyUnderProject;
@@ -236,7 +237,7 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
                 .analyze(sql4)
                 .matchesFromRoot(
                     logicalProject(
-                        crossLogicalJoin(
+                        innerLogicalJoin(
                             logicalSubQueryAlias(
                                 logicalProject().when(p -> p.getProjects().equals(ImmutableList.of(skAlias)))
                             ).when(a -> a.getAlias().equals("cte1")),

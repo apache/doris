@@ -28,13 +28,6 @@ import org.apache.doris.common.proc.BaseProcResult;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
-import org.apache.doris.policy.Policy;
-import org.apache.doris.policy.PolicyTypeEnum;
-import org.apache.doris.policy.StoragePolicy;
-import org.apache.doris.system.SystemInfoService;
-import org.apache.doris.task.AgentBatchTask;
-import org.apache.doris.task.AgentTaskExecutor;
-import org.apache.doris.task.NotifyUpdateStoragePolicyTask;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -45,10 +38,9 @@ import org.apache.logging.log4j.Logger;
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
-import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
-import java.util.Optional;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 public abstract class Resource implements Writable, GsonPostProcessable {
@@ -92,6 +84,28 @@ public abstract class Resource implements Writable, GsonPostProcessable {
     protected ResourceType type;
     @SerializedName(value = "references")
     protected Map<String, ReferenceType> references = Maps.newHashMap();
+    @SerializedName(value = "id")
+    protected long id = -1;
+    @SerializedName(value = "version")
+    protected long version = -1;
+
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
+
+    public void writeLock() {
+        lock.writeLock().lock();
+    }
+
+    public void writeUnlock() {
+        lock.writeLock().unlock();
+    }
+
+    public void readLock() {
+        lock.readLock().lock();
+    }
+
+    public void readUnlock() {
+        lock.readLock().unlock();
+    }
 
     public Resource() {
     }
@@ -103,8 +117,18 @@ public abstract class Resource implements Writable, GsonPostProcessable {
 
     public static Resource fromStmt(CreateResourceStmt stmt) throws DdlException {
         Resource resource = getResourceInstance(stmt.getResourceType(), stmt.getResourceName());
+        resource.id = Env.getCurrentEnv().getNextId();
+        resource.version = 0;
         resource.setProperties(stmt.getProperties());
         return resource;
+    }
+
+    public long getId() {
+        return this.id;
+    }
+
+    public long getVersion() {
+        return this.version;
     }
 
     public synchronized boolean removeReference(String referenceName, ReferenceType type) {
@@ -252,48 +276,7 @@ public abstract class Resource implements Writable, GsonPostProcessable {
 
     private void notifyUpdate() {
         references.entrySet().stream().collect(Collectors.groupingBy(Entry::getValue)).forEach((type, refs) -> {
-            if (type == ReferenceType.POLICY) {
-                SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
-                AgentBatchTask batchTask = new AgentBatchTask();
-
-                Map<String, String> copiedProperties = getCopiedProperties();
-
-                for (Long beId : systemInfoService.getBackendIds(true)) {
-                    for (Map.Entry<String, ReferenceType> ref : refs) {
-                        String policyName = ref.getKey().split(REFERENCE_SPLIT)[0];
-                        List<Policy> policiesByType = Env.getCurrentEnv().getPolicyMgr()
-                                .getCopiedPoliciesByType(PolicyTypeEnum.STORAGE);
-                        Optional<Policy> findPolicy = policiesByType.stream()
-                                .filter(p -> p.getType() == PolicyTypeEnum.STORAGE
-                                        && policyName.equals(p.getPolicyName()))
-                                .findAny();
-                        LOG.info("find policy in {} ", policiesByType);
-                        if (!findPolicy.isPresent()) {
-                            return;
-                        }
-                        // add policy's coolDown ttl、coolDown data、policy name to map
-                        Map<String, String> tmpMap = Maps.newHashMap(copiedProperties);
-                        StoragePolicy used = (StoragePolicy) findPolicy.get();
-                        tmpMap.put(StoragePolicy.COOLDOWN_DATETIME,
-                                String.valueOf(used.getCooldownTimestampMs()));
-
-                        final String[] cooldownTtl = {"-1"};
-                        Optional.ofNullable(used.getCooldownTtl())
-                                .ifPresent(date -> cooldownTtl[0] = used.getCooldownTtl());
-                        tmpMap.put(StoragePolicy.COOLDOWN_TTL, cooldownTtl[0]);
-
-                        tmpMap.put(StoragePolicy.MD5_CHECKSUM, used.getMd5Checksum());
-
-                        NotifyUpdateStoragePolicyTask modifyS3ResourcePropertiesTask =
-                                new NotifyUpdateStoragePolicyTask(beId, used.getPolicyName(), tmpMap);
-                        LOG.info("notify be: {}, policy name: {}, "
-                                        + "properties: {} to modify S3 resource batch task.",
-                                beId, used.getPolicyName(), tmpMap);
-                        batchTask.addTask(modifyS3ResourcePropertiesTask);
-                    }
-                }
-                AgentTaskExecutor.submit(batchTask);
-            } else if (type == ReferenceType.CATALOG) {
+            if (type == ReferenceType.CATALOG) {
                 for (Map.Entry<String, ReferenceType> ref : refs) {
                     String catalogName = ref.getKey().split(REFERENCE_SPLIT)[0];
                     CatalogIf catalog = Env.getCurrentEnv().getCatalogMgr().getCatalog(catalogName);

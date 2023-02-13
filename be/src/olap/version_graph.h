@@ -148,6 +148,10 @@ public:
     /// Add a version to tracker, this version is a new version rowset, not merged rowset.
     void add_version(const Version& version);
 
+    void delete_version(const Version& version) {
+        _version_graph.delete_version_from_graph(version);
+    }
+
     /// Add a version path with stale_rs_metas, this versions in version path
     /// are merged rowsets.  These rowsets are tracked and removed after they are expired.
     /// TabletManager sweep these rowsets using tracker by timing.

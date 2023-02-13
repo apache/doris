@@ -46,9 +46,8 @@ using io::FileCacheManager;
 
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
                      RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
+                     const io::FileReaderOptions& reader_options,
                      std::shared_ptr<Segment>* output) {
-    io::FileReaderOptions reader_options(io::cache_type_from_string(config::file_cache_type),
-                                         io::SegmentCachePathPolicy());
     io::FileReaderSPtr file_reader;
 #ifndef BE_TEST
     RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader, nullptr));
@@ -278,10 +277,10 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column, ColumnIte
         }
         auto type_info = get_type_info(&tablet_column);
         std::unique_ptr<DefaultValueColumnIterator> default_value_iter(
-                new DefaultValueColumnIterator(
-                        tablet_column.has_default_value(), tablet_column.default_value(),
-                        tablet_column.is_nullable(), std::move(type_info), tablet_column.length(),
-                        tablet_column.precision(), tablet_column.frac()));
+                new DefaultValueColumnIterator(tablet_column.has_default_value(),
+                                               tablet_column.default_value(),
+                                               tablet_column.is_nullable(), std::move(type_info),
+                                               tablet_column.precision(), tablet_column.frac()));
         ColumnIteratorOptions iter_opts;
 
         RETURN_IF_ERROR(default_value_iter->init(iter_opts));
@@ -303,10 +302,12 @@ Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
 
 Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
                                             const TabletIndex* index_meta,
+                                            OlapReaderStatistics* stats,
                                             InvertedIndexIterator** iter) {
     auto col_unique_id = tablet_column.unique_id();
     if (_column_readers.count(col_unique_id) > 0 && index_meta) {
-        return _column_readers.at(col_unique_id)->new_inverted_index_iterator(index_meta, iter);
+        return _column_readers.at(col_unique_id)
+                ->new_inverted_index_iterator(index_meta, stats, iter);
     }
     return Status::OK();
 }

@@ -31,11 +31,11 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.load.DeleteJob;
-import org.apache.doris.load.LoadJob;
 import org.apache.doris.load.loadv2.SparkLoadJob;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentTask;
 import org.apache.doris.task.AgentTaskQueue;
+import org.apache.doris.task.AlterInvertedIndexTask;
 import org.apache.doris.task.AlterReplicaTask;
 import org.apache.doris.task.CheckConsistencyTask;
 import org.apache.doris.task.ClearAlterTask;
@@ -44,6 +44,7 @@ import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.DirMoveTask;
 import org.apache.doris.task.DownloadTask;
 import org.apache.doris.task.PublishVersionTask;
+import org.apache.doris.task.PushCooldownConfTask;
 import org.apache.doris.task.PushTask;
 import org.apache.doris.task.SnapshotTask;
 import org.apache.doris.task.StorageMediaMigrationTask;
@@ -193,8 +194,14 @@ public class MasterImpl {
                 case ALTER:
                     finishAlterTask(task);
                     break;
+                case ALTER_INVERTED_INDEX:
+                    finishAlterInvertedIndexTask(task);
+                    break;
                 case UPDATE_TABLET_META_INFO:
                     finishUpdateTabletMeta(task, request);
+                    break;
+                case PUSH_COOLDOWN_CONF:
+                    finishPushCooldownConfTask(task);
                     break;
                 default:
                     break;
@@ -352,27 +359,7 @@ public class MasterImpl {
                     tTabletInfo -> tTabletInfo.getTabletId()).collect(Collectors.toList());
             List<TabletMeta> tabletMetaList = Env.getCurrentInvertedIndex().getTabletMetaList(tabletIds);
 
-            // handle load job
-            // TODO yiguolei: why delete should check request version and task version?
-            if (pushTask.getPushType() == TPushType.LOAD) {
-                long loadJobId = pushTask.getLoadJobId();
-                LoadJob job = Env.getCurrentEnv().getLoadInstance().getLoadJob(loadJobId);
-                if (job == null) {
-                    throw new MetaNotFoundException("cannot find load job, job[" + loadJobId + "]");
-                }
-
-                for (int i = 0; i < tabletMetaList.size(); i++) {
-                    TabletMeta tabletMeta = tabletMetaList.get(i);
-                    checkReplica(finishTabletInfos.get(i), tabletMeta);
-                    long tabletId = tabletIds.get(i);
-                    Replica replica = findRelatedReplica(
-                            olapTable, partition, backendId, tabletId, tabletMeta.getIndexId());
-                    // if the replica is under schema change, could not find the replica with aim schema hash
-                    if (replica != null) {
-                        job.addFinishedReplica(replica);
-                    }
-                }
-            } else if (pushTask.getPushType() == TPushType.DELETE) {
+            if (pushTask.getPushType() == TPushType.DELETE) {
                 DeleteJob deleteJob = Env.getCurrentEnv().getDeleteHandler().getDeleteJob(transactionId);
                 if (deleteJob == null) {
                     throw new MetaNotFoundException("cannot find delete job, job[" + transactionId + "]");
@@ -597,5 +584,19 @@ public class MasterImpl {
             LOG.warn("failed to handle finish alter task: {}, {}", task.getSignature(), e.getMessage());
         }
         AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER, task.getSignature());
+    }
+
+    private void finishAlterInvertedIndexTask(AgentTask task) {
+        AlterInvertedIndexTask alterInvertedIndexTask = (AlterInvertedIndexTask) task;
+        LOG.info("beigin finish AlterInvertedIndexTask, Jobtype: {}", alterInvertedIndexTask.getJobType());
+        // TODO: more check
+        alterInvertedIndexTask.setFinished(true);
+        AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.ALTER_INVERTED_INDEX, task.getSignature());
+    }
+
+    private void finishPushCooldownConfTask(AgentTask task) {
+        PushCooldownConfTask cooldownTask = (PushCooldownConfTask) task;
+        cooldownTask.setFinished(true);
+        AgentTaskQueue.removeTask(task.getBackendId(), TTaskType.PUSH_COOLDOWN_CONF, task.getSignature());
     }
 }

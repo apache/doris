@@ -34,13 +34,18 @@ Status BlockSpillWriter::open() {
     RETURN_IF_ERROR(FileFactory::create_file_writer(TFileType::FILE_LOCAL, ExecEnv::GetInstance(),
                                                     {}, {}, file_path_, 0, file_writer_));
 
-    return file_writer_->open();
+    RETURN_IF_ERROR(file_writer_->open());
+
+    is_open_ = true;
+    return Status::OK();
 }
 
 Status BlockSpillWriter::close() {
-    if (!file_writer_) {
+    if (!is_open_) {
         return Status::OK();
     }
+
+    is_open_ = false;
 
     tmp_block_.clear_column_data();
 

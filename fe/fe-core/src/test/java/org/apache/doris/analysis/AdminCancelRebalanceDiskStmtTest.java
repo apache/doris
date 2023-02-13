@@ -21,8 +21,8 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.clone.RebalancerTestUtil;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.MockedAuth;
-import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -38,7 +38,7 @@ public class AdminCancelRebalanceDiskStmtTest {
     private static Analyzer analyzer;
 
     @Mocked
-    private PaloAuth auth;
+    private Auth auth;
     @Mocked
     private ConnectContext ctx;
 

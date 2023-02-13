@@ -81,7 +81,6 @@ struct HashTableProbe {
 
     Status mark_data_in_hashtable(HashTableContext& hash_table_ctx) {
         using KeyGetter = typename HashTableContext::State;
-        using Mapped = typename HashTableContext::Mapped;
 
         KeyGetter key_getter(_probe_raw_ptrs, _operation_node->_probe_key_sz, nullptr);
         if constexpr (ColumnsHashing::IsPreSerializedKeysHashMethodTraits<KeyGetter>::value) {
@@ -144,6 +143,7 @@ void VSetOperationNode<is_intersect>::release_resource(RuntimeState* state) {
         VExpr::close(exprs, state);
     }
     release_mem();
+    ExecNode::release_resource(state);
 }
 template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::close(RuntimeState* state) {
@@ -194,7 +194,6 @@ Status VSetOperationNode<is_intersect>::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VSetOperationNode<is_intersect>::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     // TODO: build the hash table in a thread to open other children asynchronously.
     RETURN_IF_ERROR(hash_table_build(state));
@@ -235,19 +234,24 @@ template <bool is_intersect>
 Status VSetOperationNode<is_intersect>::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _probe_timer = ADD_TIMER(runtime_profile(), "ProbeTime");
     _pull_timer = ADD_TIMER(runtime_profile(), "PullTime");
 
     // Prepare result expr lists.
+    vector<bool> nullable_flags;
+    nullable_flags.resize(_child_expr_lists[0].size(), false);
     for (int i = 0; i < _child_expr_lists.size(); ++i) {
+        for (int j = 0; j < _child_expr_lists[i].size(); ++j) {
+            nullable_flags[j] = nullable_flags[j] || _child_expr_lists[i][j]->root()->is_nullable();
+        }
         RETURN_IF_ERROR(VExpr::prepare(_child_expr_lists[i], state, child(i)->row_desc()));
     }
-
-    for (auto ctx : _child_expr_lists[0]) {
+    for (int i = 0; i < _child_expr_lists[0].size(); ++i) {
+        const auto& ctx = _child_expr_lists[0][i];
         _build_not_ignore_null.push_back(ctx->root()->is_nullable());
-        _left_table_data_types.push_back(ctx->root()->data_type());
+        _left_table_data_types.push_back(nullable_flags[i] ? make_nullable(ctx->root()->data_type())
+                                                           : ctx->root()->data_type());
     }
     hash_table_init();
 
@@ -408,8 +412,6 @@ Status VSetOperationNode<is_intersect>::hash_table_build(RuntimeState* state) {
     SCOPED_TIMER(_build_timer);
     RETURN_IF_ERROR(child(0)->open(state));
     Block block;
-    MutableBlock mutable_block(child(0)->row_desc().tuple_descriptors());
-
     bool eos = false;
     while (!eos) {
         block.clear_column_data();
@@ -464,7 +466,14 @@ void VSetOperationNode<is_intersect>::add_result_columns(RowRefListWithFlags& va
     auto it = value.begin();
     for (auto idx = _build_col_idx.begin(); idx != _build_col_idx.end(); ++idx) {
         auto& column = *_build_blocks[it->block_offset].get_by_position(idx->first).column;
-        _mutable_cols[idx->second]->insert_from(column, it->row_num);
+        if (_mutable_cols[idx->second]->is_nullable() xor column.is_nullable()) {
+            DCHECK(_mutable_cols[idx->second]->is_nullable());
+            ((ColumnNullable*)(_mutable_cols[idx->second].get()))
+                    ->insert_from_not_nullable(column, it->row_num);
+
+        } else {
+            _mutable_cols[idx->second]->insert_from(column, it->row_num);
+        }
     }
     block_size++;
 }

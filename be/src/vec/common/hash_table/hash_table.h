@@ -163,7 +163,7 @@ struct HashTableCell {
 
     Key key;
 
-    HashTableCell() {}
+    HashTableCell() = default;
 
     /// Create a cell with the given key / key and value.
     HashTableCell(const Key& key_, const State&) : key(key_) {}
