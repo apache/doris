@@ -36,6 +36,8 @@ public class MysqlChannel {
     public static final int MAX_PHYSICAL_PACKET_LENGTH = 0xffffff;
     // MySQL packet header length
     protected static final int PACKET_HEADER_LEN = 4;
+    // SSL packet header length
+    protected static final int SSL_PACKET_HEADER_LEN = 5;
     // logger for this class
     protected static final Logger LOG = LogManager.getLogger(MysqlChannel.class);
     // next sequence id to receive or send
@@ -44,6 +46,8 @@ public class MysqlChannel {
     protected SocketChannel channel;
     // used to receive/send header, avoiding new this many time.
     protected ByteBuffer headerByteBuffer = ByteBuffer.allocate(PACKET_HEADER_LEN);
+    // used to receive/send ssl header, avoiding new this many time.
+    protected ByteBuffer sslHeaderByteBuffer = ByteBuffer.allocate(SSL_PACKET_HEADER_LEN);
     // default packet byte buffer for most packet
     protected ByteBuffer defaultBuffer = ByteBuffer.allocate(16 * 1024);
     protected ByteBuffer sendBuffer;
@@ -102,6 +106,9 @@ public class MysqlChannel {
 
     public void setSslMode(boolean sslMode) {
         isSslMode = sslMode;
+        if (isSslMode) {
+            headerByteBuffer = ByteBuffer.allocate(SSL_PACKET_HEADER_LEN);
+        }
     }
 
     private int packetId() {
@@ -110,8 +117,13 @@ public class MysqlChannel {
     }
 
     private int packetLen() {
-        byte[] header = headerByteBuffer.array();
-        return (header[0] & 0xFF) | ((header[1] & 0XFF) << 8) | ((header[2] & 0XFF) << 16);
+        if (isSslMode()) {
+            byte[] header = sslHeaderByteBuffer.array();
+            return (header[4] & 0xFF) | ((header[3] & 0XFF) << 8);
+        } else {
+            byte[] header = headerByteBuffer.array();
+            return (header[0] & 0xFF) | ((header[1] & 0XFF) << 8) | ((header[2] & 0XFF) << 16);
+        }
     }
 
     private void accSequenceId() {
@@ -188,6 +200,55 @@ public class MysqlChannel {
                 return null;
             }
             accSequenceId();
+            if (packetLen != MAX_PHYSICAL_PACKET_LENGTH) {
+                result.flip();
+                break;
+            }
+        }
+        return result;
+    }
+
+    // read one ssl protocol packet
+    // null for channel is closed.
+    // NOTE: all of the following code is assumed that the channel is in block mode.
+    public ByteBuffer fetchOneSslPacket() throws IOException {
+        int readLen;
+        ByteBuffer result = defaultBuffer;
+        result.clear();
+
+        while (true) {
+            sslHeaderByteBuffer.clear();
+            readLen = readAll(sslHeaderByteBuffer);
+            if (readLen != SSL_PACKET_HEADER_LEN) {
+                // remote has close this channel
+                LOG.debug("Receive ssl packet header failed, remote may close the channel.");
+                return null;
+            }
+            int packetLen = packetLen();
+            result.put(sslHeaderByteBuffer.array());
+            if ((result.capacity() - result.position()) < packetLen) {
+                // byte buffer is not enough, new one packet
+                ByteBuffer tmp;
+                if (packetLen < MAX_PHYSICAL_PACKET_LENGTH) {
+                    // last packet, enough to this packet is OK.
+                    tmp = ByteBuffer.allocate(packetLen + result.position());
+                } else {
+                    // already have packet, to allocate two packet.
+                    tmp = ByteBuffer.allocate(2 * packetLen + result.position());
+                }
+                tmp.put(result.array(), 0, result.position());
+                result = tmp;
+            }
+
+            // read one physical packet
+            // before read, set limit to make read only one packet
+            result.limit(result.position() + packetLen);
+            readLen = readAll(result);
+            if (readLen != packetLen) {
+                LOG.warn("Length of received packet content(" + readLen
+                        + ") is not equal with length in head.(" + packetLen + ")");
+                return null;
+            }
             if (packetLen != MAX_PHYSICAL_PACKET_LENGTH) {
                 result.flip();
                 break;

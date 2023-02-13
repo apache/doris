@@ -44,8 +44,8 @@ public class MysqlSslContext {
     private ByteBuffer clientNetData;
 
     public MysqlSslContext(String protocol, String[] ciphersuites) {
-        protocol = protocol;
-        ciphersuites = ciphersuites;
+        this.protocol = protocol;
+        this.ciphersuites = ciphersuites;
         initSslContext();
         initSslEngine();
     }
@@ -102,13 +102,15 @@ public class MysqlSslContext {
      */
     public boolean sslExchange(MysqlChannel channel) throws Exception {
         long startTime = System.currentTimeMillis();
+        // init data buffer
+        initDataBuffer();
         // begin handshake.
         sslEngine.beginHandshake();
         while (sslEngine.getHandshakeStatus() != HandshakeStatus.FINISHED
                 && sslEngine.getHandshakeStatus() != HandshakeStatus.NOT_HANDSHAKING) {
-            if ((System.currentTimeMillis() - startTime) > 10000) {
-                throw new Exception("try to establish SSL connection failed, timeout!");
-            }
+            //            if ((System.currentTimeMillis() - startTime) > 10000) {
+            //                throw new Exception("try to establish SSL connection failed, timeout!");
+            //            }
             switch (sslEngine.getHandshakeStatus()) {
                 case NEED_WRAP:
                     handleNeedWrap(channel);
@@ -129,6 +131,13 @@ public class MysqlSslContext {
             }
         }
         return true;
+    }
+
+    private void initDataBuffer() {
+        int appLength = sslEngine.getSession().getApplicationBufferSize();
+        int netLength = sslEngine.getSession().getPacketBufferSize();
+        serverAppData = clientAppData = ByteBuffer.allocate(appLength);
+        serverNetData = clientNetData = ByteBuffer.allocate(netLength);
     }
 
     private void handleNeedTask() throws Exception {
@@ -164,7 +173,7 @@ public class MysqlSslContext {
     private void handleNeedUnwrap(MysqlChannel channel) {
         try {
             // todo: refactor readAll.
-            channel.readAll(clientNetData);
+            clientNetData = channel.fetchOneSslPacket();
             while (true) {
                 SSLEngineResult sslEngineResult = sslEngine.unwrap(clientNetData, clientAppData);
                 if (handleUnwrapResult(sslEngineResult)) {
