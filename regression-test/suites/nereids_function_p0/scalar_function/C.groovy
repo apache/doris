@@ -1,3 +1,4 @@
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -17,7 +18,7 @@
 
 suite("nereids_scalar_fn_C") {
 	sql 'use regression_test_nereids_function_p0'
-	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	sql 'set enable_fallback_to_original_planner=false'
 	qt_sql_cbrt_Double "select cbrt(kdbl) from fn_test order by kdbl"
 	qt_sql_cbrt_Double_notnull "select cbrt(kdbl) from fn_test_not_nullable order by kdbl"

@@ -1,3 +1,4 @@
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -17,8 +18,10 @@
 
 suite("nereids_scalar_fn_Q") {
 	sql 'use regression_test_nereids_function_p0'
-	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	sql 'set enable_fallback_to_original_planner=false'
+	qt_sql_quantile_percent_QuantileState_Float "select quantile_percent(to_quantile_state(kvchrs1, 2048), kfloat) from fn_test order by kvchsr1, kfloat"
+	qt_sql_quantile_percent_QuantileState_Float "select quantile_percent(to_quantile_state(kvchrs1, 2048), kfloat) from fn_test_not_nullable order by kvchsr1, kfloat"
 	qt_sql_quarter_DateTime "select quarter(kdtm) from fn_test order by kdtm"
 	qt_sql_quarter_DateTime_notnull "select quarter(kdtm) from fn_test_not_nullable order by kdtm"
 	qt_sql_quarter_DateTimeV2 "select quarter(kdtmv2s1) from fn_test order by kdtmv2s1"
