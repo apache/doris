@@ -176,7 +176,8 @@ public class MysqlSslContext {
                 if (handleWrapResult(sslEngineResult)) {
                     // if wrap normal, send packet.
                     // todo: refactor sendAndFlush.
-                    channel.sendAndFlush(serverNetData);
+                    serverNetData.flip();
+                    channel.sendSslAndFlush(serverNetData);
                     break;
                 }
                 // if BUFFER_OVERFLOW, need to wrap again, so we do nothing.
@@ -218,8 +219,7 @@ public class MysqlSslContext {
             case BUFFER_OVERFLOW:
                 // Could attempt to drain the serverNetData buffer of any already obtained
                 // data, but we'll just increase it to the size needed.
-                int appSize = sslEngine.getSession().getApplicationBufferSize();
-                ByteBuffer newBuffer = ByteBuffer.allocate(appSize + serverNetData.position());
+                ByteBuffer newBuffer = ByteBuffer.allocate(serverNetData.capacity() * 2);
                 serverNetData.flip();
                 newBuffer.put(serverNetData);
                 serverNetData = newBuffer;
@@ -243,8 +243,7 @@ public class MysqlSslContext {
             case BUFFER_OVERFLOW:
                 // Could attempt to drain the clientAppData buffer of any already obtained
                 // data, but we'll just increase it to the size needed.
-                int appSize = sslEngine.getSession().getApplicationBufferSize();
-                ByteBuffer newAppBuffer = ByteBuffer.allocate(appSize + clientAppData.position());
+                ByteBuffer newAppBuffer = ByteBuffer.allocate(clientAppData.capacity() * 2);
                 clientAppData.flip();
                 newAppBuffer.put(clientAppData);
                 clientAppData = newAppBuffer;

@@ -51,6 +51,8 @@ public class MysqlChannel {
     // default packet byte buffer for most packet
     protected ByteBuffer defaultBuffer = ByteBuffer.allocate(16 * 1024);
     protected ByteBuffer sendBuffer;
+
+    protected ByteBuffer sendSslBuffer;
     // for log and show
     protected String remoteHostPortString;
     protected String remoteIp;
@@ -61,6 +63,8 @@ public class MysqlChannel {
     protected MysqlChannel() {
         this.sequenceId = 0;
         this.sendBuffer = ByteBuffer.allocate(2 * 1024 * 1024);
+        // todo: change ssl packet capacity.
+        this.sendSslBuffer = ByteBuffer.allocate(2 * 1024 * 1024);
         this.isSend = false;
         this.remoteHostPortString = "";
         this.remoteIp = "";
@@ -279,6 +283,17 @@ public class MysqlChannel {
         isSend = true;
     }
 
+    public void sslFlush() throws IOException {
+        if (null == sendSslBuffer || sendSslBuffer.position() == 0) {
+            // Nothing to send
+            return;
+        }
+        sendSslBuffer.flip();
+        realNetSend(sendSslBuffer);
+        sendSslBuffer.clear();
+        isSend = true;
+    }
+
     private void writeHeader(int length) throws IOException {
         if (null == sendBuffer) {
             return;
@@ -315,6 +330,25 @@ public class MysqlChannel {
         sendBuffer.put(buffer);
     }
 
+    private void writeSslBuffer(ByteBuffer buffer) throws IOException {
+        if (null == sendSslBuffer) {
+            return;
+        }
+        long leftLength = sendSslBuffer.capacity() - sendSslBuffer.position();
+        // If too long for buffer, send buffered data.
+        if (leftLength < buffer.remaining()) {
+            // Flush data in buffer.
+            flush();
+        }
+        // Send this buffer if large enough
+        if (buffer.remaining() > sendSslBuffer.capacity()) {
+            realNetSend(buffer);
+            return;
+        }
+        // Put it to
+        sendSslBuffer.put(buffer);
+    }
+
     public void sendOnePacket(ByteBuffer packet) throws IOException {
         int bufLen;
         int oldLimit = packet.limit();
@@ -331,9 +365,26 @@ public class MysqlChannel {
         accSequenceId();
     }
 
+    public void sendOneSslPacket(ByteBuffer packet) throws IOException {
+        int bufLen;
+        int oldLimit = packet.limit();
+        while (oldLimit - packet.position() >= MAX_PHYSICAL_PACKET_LENGTH) {
+            bufLen = MAX_PHYSICAL_PACKET_LENGTH;
+            packet.limit(packet.position() + bufLen);
+            writeSslBuffer(packet);
+        }
+        packet.limit(oldLimit);
+        writeSslBuffer(packet);
+    }
+
     public void sendAndFlush(ByteBuffer packet) throws IOException {
         sendOnePacket(packet);
         flush();
+    }
+
+    public void sendSslAndFlush(ByteBuffer packet) throws IOException {
+        sendOneSslPacket(packet);
+        sslFlush();
     }
 
     // Call this function before send query before
