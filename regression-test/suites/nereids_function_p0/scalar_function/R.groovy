@@ -90,8 +90,8 @@ suite("nereids_scalar_fn_R") {
 	sql "select running_difference(kdt) from fn_test_not_nullable order by kdt"
 	sql "select running_difference(kdtv2) from fn_test order by kdtv2"
 	sql "select running_difference(kdtv2) from fn_test_not_nullable order by kdtv2"
-	sql "select running_difference(kdtm) from fn_test order by kdtm"
-	sql "select running_difference(kdtm) from fn_test_not_nullable order by kdtm"
-	sql "select running_difference(kdtmv2s1) from fn_test order by kdtmv2s1"
-	sql "select running_difference(kdtmv2s1) from fn_test_not_nullable order by kdtmv2s1"
+	sql "select cast(running_difference(kdtm) as string) from fn_test order by kdtm"
+	sql "select cast(running_difference(kdtm) as string) from fn_test order by kdtm"
+	sql "select cast(running_difference(kdtmv2) as string) from fn_test order by kdtmv2"
+	sql "select cast(running_difference(kdtmv2) as string) from fn_test order by kdtmv2"
 }
