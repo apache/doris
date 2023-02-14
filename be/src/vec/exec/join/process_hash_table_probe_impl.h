@@ -566,6 +566,7 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                                 ++current_offset;
                                 visited_map.emplace_back(&it->visited);
                             }
+                            ++probe_index;
                         } else {
                             auto multi_match_last_offset = current_offset;
                             auto it = mapped.begin();
