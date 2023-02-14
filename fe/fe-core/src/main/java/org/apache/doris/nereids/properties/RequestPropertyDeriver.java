@@ -86,8 +86,8 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
         }
 
         List<PhysicalProperties> requiredPropertyList =
-                Lists.newArrayListWithCapacity(context.getGroupExpression().arity());
-        for (int i = context.getGroupExpression().arity(); i > 0; --i) {
+                Lists.newArrayListWithCapacity(context.arity());
+        for (int i = context.arity(); i > 0; --i) {
             requiredPropertyList.add(PhysicalProperties.ANY);
         }
         addRequestPropertyToChildren(requiredPropertyList);

@@ -19,7 +19,6 @@ package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -124,13 +123,6 @@ public class Edge {
 
     public Expression getExpression() {
         return join.getExpressions().get(0);
-    }
-
-    private double getRowCount(Plan plan) {
-        if (plan instanceof GroupPlan) {
-            return ((GroupPlan) plan).getGroup().getStatistics().getRowCount();
-        }
-        return plan.getGroupExpression().get().getOwnerGroup().getStatistics().getRowCount();
     }
 
     @Override
