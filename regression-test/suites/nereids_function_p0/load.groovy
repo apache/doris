@@ -70,7 +70,6 @@ suite("load") {
             `st_point_str` string null,
             `st_point_vc` varchar(50) null
         ) engine=olap
-        unique KEY(id)
         DISTRIBUTED BY HASH(`id`) BUCKETS 1
         properties("replication_num" = "1")
     """
@@ -124,7 +123,6 @@ suite("load") {
             `st_point_str` string not null,
             `st_point_vc` varchar(50) not null
         ) engine=olap
-        unique KEY(id)
         DISTRIBUTED BY HASH(`id`) BUCKETS 1
         properties("replication_num" = "1")
     """
