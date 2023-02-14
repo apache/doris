@@ -102,7 +102,7 @@ PROPERTIES ("strict_mode" = "true")
 ```
 1. The only difference between the syntax of importing server level local files and importing client side syntax is whether the'LOCAL 'keyword is added after the'LOAD DATA' keyword.
 2. FE will have multi-nodes, and importing server level files can only import FE nodes connected by the client side, and cannot import files local to other FE nodes.
-3. Server side load was disabled by default. Enable it by setting `mysql_load_server_secure_path` with a secure path. All the load file should be under this path.
+3. Server side load was disabled by default. Enable it by setting `mysql_load_server_secure_path` with a secure path. All the load file should be under this path. Recommend create a `local_import_data` directory under `DORIS_HOME` to load data.
 
 ### Return result
 Since MySQL load is a synchronous import method, the imported results are returned to the user through SQL syntax.

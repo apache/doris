@@ -103,7 +103,7 @@ PROPERTIES ("strict_mode"="true")
 ```
 1. 导入服务端本地文件的语法和导入客户端语法的唯一区别是`LOAD DATA`关键词后面是否加入`LOCAL`关键字.
 2. FE为多节点部署, 导入服务端文件功能只能够导入客户端连接的FE节点, 无法导入其他FE节点本地的文件.
-3. 服务端导入默认是关闭, 通过设置FE的配置`mysql_load_server_secure_path`开启, 导入文件的必须在该目录下. 
+3. 服务端导入默认是关闭, 通过设置FE的配置`mysql_load_server_secure_path`开启, 导入文件的必须在该目录下.建议在`DORIS_HOME`目录下创建一个`local_import_data`目录用于导入数据.
 
 ### 返回结果
 
