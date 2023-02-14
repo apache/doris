@@ -68,8 +68,7 @@ suite("load") {
             `kastr` array<string> null,
             `kadcml` array<decimal(27, 9)> null,
             `st_point_str` string null,
-            `st_point_vc` varchar(50) null,
-            `khll` hll hll_union null
+            `st_point_vc` varchar(50) null
         ) engine=olap
         DISTRIBUTED BY HASH(`id`) BUCKETS 1
         properties("replication_num" = "1")
@@ -122,8 +121,7 @@ suite("load") {
             `kastr` array<string> not null,
             `kadcml` array<decimal(27, 9)> not null,
             `st_point_str` string not null,
-            `st_point_vc` varchar(50) not null,
-            `khll` hll hll_union not null
+            `st_point_vc` varchar(50) not null
         ) engine=olap
         DISTRIBUTED BY HASH(`id`) BUCKETS 1
         properties("replication_num" = "1")
@@ -139,7 +137,7 @@ suite("load") {
             kdcmlv3s1, kdcmlv3s2, kdcmlv3s3, kchrs1, kchrs2, kchrs3, kvchrs1, kvchrs2, kvchrs3, kstr,
             kdt ,kdtv2, kdtm, kdtmv2s1, kdtmv2s2, kdtmv2s3, kabool, katint, kasint, kaint,
             kabint, kalint, kafloat, kadbl, kadt, kadtm, kadtv2, kdtmv2, kachr, kavchr, kastr, kadcml,
-            st_point_str, st_point_vc, khll=hll_hash(id)
+            st_point_str, st_point_vc
             '''
         file "fn_test.dat"
     }
