@@ -248,12 +248,12 @@ distribution_desc
 
     1) Hash
        Syntax:
-       `DISTRIBUTED BY HASH (k1[,k2 ...]) [BUCKETS num]`
+       `DISTRIBUTED BY HASH (k1[,k2 ...]) [BUCKETS num|auto]`
        Explain:
        Hash bucketing using the specified key column.
     2) Random
        Syntax:
-       `DISTRIBUTED BY RANDOM [BUCKETS num]`
+       `DISTRIBUTED BY RANDOM [BUCKETS num|auto]`
        Explain:
        Use random numbers for bucketing.
 
