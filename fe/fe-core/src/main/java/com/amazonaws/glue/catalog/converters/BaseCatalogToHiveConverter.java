@@ -239,10 +239,11 @@ public class BaseCatalogToHiveConverter implements CatalogToHiveConverter {
 
   public SerDeInfo convertSerDeInfo(com.amazonaws.services.glue.model.SerDeInfo catalogSerDeInfo){
     SerDeInfo hiveSerDeInfo = new SerDeInfo();
-    hiveSerDeInfo.setName(catalogSerDeInfo.getName());
-    hiveSerDeInfo.setParameters(firstNonNull(catalogSerDeInfo.getParameters(), Maps.<String, String>newHashMap()));
-    hiveSerDeInfo.setSerializationLib(catalogSerDeInfo.getSerializationLibrary());
-
+    if (catalogSerDeInfo != null) {
+        hiveSerDeInfo.setName(catalogSerDeInfo.getName());
+        hiveSerDeInfo.setParameters(firstNonNull(catalogSerDeInfo.getParameters(), Maps.<String, String>newHashMap()));
+        hiveSerDeInfo.setSerializationLib(catalogSerDeInfo.getSerializationLibrary());
+    }
     return hiveSerDeInfo;
   }
 

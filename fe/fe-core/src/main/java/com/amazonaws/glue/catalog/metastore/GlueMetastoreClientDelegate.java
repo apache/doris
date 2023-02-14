@@ -372,7 +372,6 @@ public class GlueMetastoreClientDelegate {
 
     try {
       Table table = glueMetastore.getTable(dbName, tableName);
-      validateGlueTable(table);
       return catalogToHiveConverter.convertTable(table, dbName);
     } catch (AmazonServiceException e) {
       throw catalogToHiveConverter.wrapInHiveException(e);
