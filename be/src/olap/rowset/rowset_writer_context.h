@@ -42,8 +42,7 @@ struct RowsetWriterContext {
               version(Version(0, 0)),
               txn_id(0),
               tablet_uid(0, 0),
-              segments_overlap(OVERLAP_UNKNOWN),
-              tablet(nullptr) {
+              segments_overlap(OVERLAP_UNKNOWN) {
         load_id.set_hi(0);
         load_id.set_lo(0);
     }

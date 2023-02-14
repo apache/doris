@@ -95,8 +95,6 @@ public:
 
     Status finalize(uint64_t* segment_file_size, uint64_t* index_size);
 
-    void reset();
-
     uint32_t get_segment_id() { return _segment_id; }
 
     Status finalize_columns_data();
@@ -113,6 +111,8 @@ public:
 
     DataDir* get_data_dir() { return _data_dir; }
     bool is_unique_key() { return _tablet_schema->keys_type() == UNIQUE_KEYS; }
+
+    void clear();
 
 private:
     Status _create_writers_with_dynamic_block(
@@ -144,8 +144,6 @@ private:
     void set_min_key(const Slice& key);
     void set_max_key(const Slice& key);
     bool _should_create_writers_with_dynamic_block(size_t num_columns_in_block);
-
-    void clear();
 
 private:
     uint32_t _segment_id;

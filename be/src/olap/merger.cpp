@@ -257,7 +257,7 @@ Status Merger::vertical_compact_one_group(
     while (!eof && !StorageEngine::instance()->stopped()) {
         // Read one block from block reader
         RETURN_NOT_OK_LOG(
-                src_block_reader.next_block_with_aggregation(&block, nullptr, nullptr, &eof),
+                src_block_reader.next_block_with_aggregation(&block, &eof),
                 "failed to read next block when merging rowsets of tablet " + tablet->full_name());
         if (!block.rows()) {
             break;
@@ -281,7 +281,8 @@ Status Merger::vertical_compact_one_group(
     }
 
     // segcompaction produce only one segment at once
-    RETURN_IF_ERROR(dst_segment_writer.finalize_columns(index_size));
+    RETURN_IF_ERROR(dst_segment_writer.finalize_columns_data());
+    RETURN_IF_ERROR(dst_segment_writer.finalize_columns_index(index_size));
 
     if (is_key) {
         Slice min_key = dst_segment_writer.min_encoded_key();

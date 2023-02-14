@@ -306,7 +306,7 @@ Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr s
         bool is_key = (i == 0);
         std::vector<uint32_t> column_ids = column_groups[i];
 
-        writer->reset();
+        writer->clear();
         writer->init(column_ids, is_key);
         auto schema = std::make_shared<Schema>(_context.tablet_schema->columns(), column_ids);
         auto reader = _get_segcompaction_reader(segments, tablet, schema, stat.get(), &merged_row_stat, row_sources_buf, is_key, column_ids);
