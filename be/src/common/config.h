@@ -110,6 +110,8 @@ CONF_Int32(clear_transaction_task_worker_count, "1");
 CONF_Int32(delete_worker_count, "3");
 // the count of thread to alter table
 CONF_Int32(alter_tablet_worker_count, "3");
+// the count of thread to alter inverted index
+CONF_Int32(alter_inverted_index_worker_count, "3");
 // the count of thread to clone
 CONF_Int32(clone_worker_count, "3");
 // the count of thread to clone
@@ -321,6 +323,9 @@ CONF_mInt64(cumulative_compaction_max_deltas, "100");
 
 // This config can be set to limit thread number in  segcompaction thread pool.
 CONF_mInt32(seg_compaction_max_threads, "10");
+
+// This config can be set to limit thread number in  multiget thread pool.
+CONF_mInt32(multi_get_max_threads, "10");
 
 // The upper limit of "permits" held by all compaction tasks. This config can be set to limit memory consumption for compaction.
 CONF_mInt64(total_permits_for_compaction_score, "10000");
@@ -804,6 +809,8 @@ CONF_mInt32(bloom_filter_predicate_check_row_num, "204800");
 // cooldown task configs
 CONF_Int32(cooldown_thread_num, "5");
 CONF_mInt64(generate_cooldown_task_interval_sec, "20");
+CONF_mInt32(remove_unused_remote_files_interval_sec, "21600"); // 6h
+CONF_mInt32(confirm_unused_remote_files_interval_sec, "60");
 CONF_mInt64(generate_cache_cleaner_task_interval_sec, "43200"); // 12 h
 CONF_Int32(concurrency_per_dir, "2");
 CONF_mInt64(cooldown_lag_time_sec, "10800");       // 3h
@@ -889,6 +896,9 @@ CONF_String(inverted_index_searcher_cache_limit, "10%");
 CONF_Bool(enable_write_index_searcher_cache, "true");
 CONF_Bool(enable_inverted_index_cache_check_timestamp, "true");
 
+// inverted index match bitmap cache size
+CONF_String(inverted_index_query_cache_limit, "10%");
+
 // inverted index
 CONF_mDouble(inverted_index_ram_buffer_size, "512");
 CONF_Int32(query_bkd_inverted_index_limit_percent, "5"); // 5%
@@ -896,6 +906,10 @@ CONF_Int32(query_bkd_inverted_index_limit_percent, "5"); // 5%
 CONF_String(inverted_index_dict_path, "${DORIS_HOME}/dict");
 // tree depth for bkd index
 CONF_Int32(max_depth_in_bkd_tree, "32");
+// use num_broadcast_buffer blocks as buffer to do broadcast
+CONF_Int32(num_broadcast_buffer, "32");
+// semi-structure configs
+CONF_Bool(enable_parse_multi_dimession_array, "true");
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");

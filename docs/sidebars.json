@@ -35,7 +35,7 @@
                     "label": "Construct Docker",
                     "items": [
                         "install/construct-docker/construct-docker-image",
-                        "install/construct-docker/construct-docker-compose"
+                        "install/construct-docker/run-docker-cluster"
                     ]
                 }
             ]
@@ -49,10 +49,12 @@
                 "data-table/basic-usage",
                 "data-table/hit-the-rollup",
                 "data-table/best-practice",
+                "data-table/dynamic-schema-table",
                 {
                     "type": "category",
                     "label": "Index",
                     "items": [
+                        "data-table/index/inverted-index",
                         "data-table/index/bloomfilter",
                         "data-table/index/prefix-index",
                         "data-table/index/bitmap-index"

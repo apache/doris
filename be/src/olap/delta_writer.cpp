@@ -137,10 +137,10 @@ Status DeltaWriter::init() {
     context.rowset_state = PREPARED;
     context.segments_overlap = OVERLAPPING;
     context.tablet_schema = _tablet_schema;
-    context.oldest_write_timestamp = UnixSeconds();
     context.newest_write_timestamp = UnixSeconds();
     context.tablet_id = _tablet->table_id();
     context.is_direct_write = true;
+    context.tablet = _tablet;
     RETURN_NOT_OK(_tablet->create_rowset_writer(context, &_rowset_writer));
     _schema.reset(new Schema(_tablet_schema));
     _reset_mem_table();
@@ -293,7 +293,7 @@ Status DeltaWriter::close() {
     if (_is_closed) {
         LOG(WARNING) << "close after closed tablet_id=" << _req.tablet_id
                      << " load_id=" << _req.load_id << " txn_id=" << _req.txn_id;
-        return Status::Error<ALREADY_CLOSED>();
+        return Status::OK();
     }
 
     auto s = _flush_memtable_async();
@@ -458,6 +458,8 @@ void DeltaWriter::_build_current_tablet_schema(int64_t index_id,
     if (_tablet_schema->schema_version() > ori_tablet_schema.schema_version()) {
         _tablet->update_max_version_schema(_tablet_schema);
     }
+
+    _tablet_schema->set_table_id(table_schema_param->table_id());
 }
 
 void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {

@@ -359,7 +359,8 @@ public class DynamicPartitionUtil {
         }
         StoragePolicy storagePolicy = (StoragePolicy) Env.getCurrentEnv().getPolicyMgr()
                 .getPolicy(checkedPolicyCondition);
-        if (Strings.isNullOrEmpty(storagePolicy.getCooldownTtl())) {
+        // cooldownttlms <= 0 means didn't set cooldownttl in properties
+        if (storagePolicy.getCooldownTtl() <= 0) {
             throw new DdlException("Storage policy cooldown type need to be cooldownTtl for properties "
                     + DynamicPartitionProperty.STORAGE_POLICY + ": " + policyName);
         }

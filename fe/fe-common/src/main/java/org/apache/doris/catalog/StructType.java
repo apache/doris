@@ -17,6 +17,7 @@
 
 package org.apache.doris.catalog;
 
+import org.apache.doris.thrift.TColumnType;
 import org.apache.doris.thrift.TStructField;
 import org.apache.doris.thrift.TTypeDesc;
 import org.apache.doris.thrift.TTypeNode;
@@ -27,6 +28,7 @@ import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import com.google.gson.annotations.SerializedName;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -35,7 +37,14 @@ import java.util.HashMap;
  * Describes a STRUCT type. STRUCT types have a list of named struct fields.
  */
 public class StructType extends Type {
+
+    @SerializedName(value = "fieldMap")
     private final HashMap<String, StructField> fieldMap = Maps.newHashMap();
+
+    //@SerializedName(value = "positionToField")
+    //private final HashMap<Integer, StructField> positionToField = Maps.newHashMap();
+
+    @SerializedName(value = "fields")
     private final ArrayList<StructField> fields;
 
     public StructType(ArrayList<StructField> fields) {
@@ -44,11 +53,12 @@ public class StructType extends Type {
         for (int i = 0; i < this.fields.size(); ++i) {
             this.fields.get(i).setPosition(i);
             fieldMap.put(this.fields.get(i).getName().toLowerCase(), this.fields.get(i));
+            //positionToField.put(this.fields.get(i).getPosition(), this.fields.get(i));
         }
     }
 
     public StructType() {
-        fields = Lists.newArrayList();
+        this.fields = Lists.newArrayList();
     }
 
     @Override
@@ -74,10 +84,36 @@ public class StructType extends Type {
                 leftPadding, Joiner.on(",\n").join(fieldsSql), leftPadding);
     }
 
+    public static boolean canCastTo(StructType type, StructType targetType) {
+        // TODO(xy) : support cast struct type
+        return false;
+    }
+
+    @Override
+    public boolean isSupported() {
+        for (StructField f : fields) {
+            if (!f.getType().isSupported()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    @Override
+    public boolean supportSubType(Type subType) {
+        for (Type supportedType : Type.getStructSubTypes()) {
+            if (subType.getPrimitiveType() == supportedType.getPrimitiveType()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public void addField(StructField field) {
         field.setPosition(fields.size());
         fields.add(field);
         fieldMap.put(field.getName().toLowerCase(), field);
+        //positionToField.put(field.getPosition(), field);
     }
 
     public ArrayList<StructField> getFields() {
@@ -88,9 +124,41 @@ public class StructType extends Type {
         return fieldMap.get(fieldName.toLowerCase());
     }
 
+    //public StructField getField(int position) {
+    //    return positionToField.get(position);
+    //}
+
     public void clearFields() {
         fields.clear();
         fieldMap.clear();
+        //positionToField.clear();
+    }
+
+    @Override
+    public PrimitiveType getPrimitiveType() {
+        return PrimitiveType.STRUCT;
+    }
+
+    @Override
+    public boolean matchesType(Type t) {
+        if (equals(t)) {
+            return true;
+        }
+
+        if (t.isStructType()) {
+            return false;
+        }
+
+        if (fields.size() != ((StructType) t).getFields().size()) {
+            return false;
+        }
+
+        for (int i = 0; i < fields.size(); i++) {
+            if (!fields.get(i).matchesField(((StructType) t).getFields().get(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override
@@ -107,7 +175,7 @@ public class StructType extends Type {
         TTypeNode node = new TTypeNode();
         container.types.add(node);
         Preconditions.checkNotNull(fields);
-        Preconditions.checkNotNull(!fields.isEmpty());
+        Preconditions.checkState(!fields.isEmpty());
         node.setType(TTypeNodeType.STRUCT);
         node.setStructFields(new ArrayList<TStructField>());
         for (StructField field : fields) {
@@ -118,5 +186,27 @@ public class StructType extends Type {
     @Override
     public String toString() {
         return toSql(0);
+    }
+
+    @Override
+    public TColumnType toColumnTypeThrift() {
+        TColumnType thrift = new TColumnType();
+        thrift.type = PrimitiveType.STRUCT.toThrift();
+        return thrift;
+    }
+
+    @Override
+    public boolean isFixedLengthType() {
+        return false;
+    }
+
+    @Override
+    public boolean supportsTablePartitioning() {
+        return false;
+    }
+
+    @Override
+    public int getSlotSize() {
+        return PrimitiveType.STRUCT.getSlotSize();
     }
 }

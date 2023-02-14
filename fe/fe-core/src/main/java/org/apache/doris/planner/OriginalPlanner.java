@@ -50,6 +50,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 
@@ -253,6 +254,10 @@ public class OriginalPlanner extends Planner {
 
         pushDownResultFileSink(analyzer);
 
+        if (VectorizedUtil.isVectorized()) {
+            pushOutColumnUniqueIdsToOlapScan(rootFragment, analyzer);
+        }
+
         if (queryStmt instanceof SelectStmt) {
             SelectStmt selectStmt = (SelectStmt) queryStmt;
             if (queryStmt.getSortInfo() != null || selectStmt.getAggInfo() != null) {
@@ -437,6 +442,72 @@ public class OriginalPlanner extends Planner {
     }
 
     /**
+     * outputColumnUniqueIds contain columns in OrderByExprs and outputExprs,
+     * push output column unique id set to olap scan.
+     *
+     * when query to storage layer, there are need read raw data
+     * for columns which in outputColumnUniqueIds
+     *
+     * for example:
+     * select A from tb where B = 1 and C > 'hello' order by B;
+     *
+     * column unique id for `A` and `B` will put into outputColumnUniqueIds.
+     *
+    */
+    private void pushOutColumnUniqueIdsToOlapScan(PlanFragment rootFragment, Analyzer analyzer) {
+        HashSet<Integer> outputColumnUniqueIds =  new HashSet<>();
+        ArrayList<Expr> outputExprs = rootFragment.getOutputExprs();
+        for (Expr expr : outputExprs) {
+            if (expr instanceof SlotRef) {
+                if (((SlotRef) expr).getColumn() != null) {
+                    outputColumnUniqueIds.add(((SlotRef) expr).getColumn().getUniqueId());
+                }
+            }
+        }
+
+        for (PlanFragment fragment : fragments) {
+            PlanNode node = fragment.getPlanRoot();
+            PlanNode parent = null;
+            while (node.getChildren().size() != 0) {
+                for (PlanNode childNode : node.getChildren()) {
+                    List<SlotId> outputSlotIds = childNode.getOutputSlotIds();
+                    if (outputSlotIds != null) {
+                        for (SlotId sid : outputSlotIds) {
+                            SlotDescriptor slotDesc = analyzer.getSlotDesc(sid);
+                            outputColumnUniqueIds.add(slotDesc.getUniqueId());
+                        }
+                    }
+                }
+                // OlapScanNode is the last node.
+                // So, just get the two node and check if they are SortNode and OlapScan.
+                parent = node;
+                node = node.getChildren().get(0);
+            }
+
+            if (parent instanceof SortNode) {
+                SortNode sortNode = (SortNode) parent;
+                List<Expr> orderingExprs = sortNode.getSortInfo().getOrigOrderingExprs();
+                if (orderingExprs != null) {
+                    for (Expr expr : orderingExprs) {
+                        if (expr instanceof SlotRef) {
+                            if (((SlotRef) expr).getColumn() != null) {
+                                outputColumnUniqueIds.add(((SlotRef) expr).getColumn().getUniqueId());
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (!(node instanceof OlapScanNode)) {
+                continue;
+            }
+
+            OlapScanNode scanNode = (OlapScanNode) node;
+            scanNode.setOutputColumnUniqueIds(outputColumnUniqueIds);
+        }
+    }
+
+    /**
      * optimize for topn query like: SELECT * FROM t1 WHERE a>100 ORDER BY b,c LIMIT 100
      * the pre-requirement is as follows:
      * 1. only contains SortNode + OlapScanNode
@@ -448,6 +519,8 @@ public class OriginalPlanner extends Planner {
             SortNode sortNode = (SortNode) node;
             PlanNode child = sortNode.getChild(0);
             if (child instanceof OlapScanNode && sortNode.getLimit() > 0
+                    && ConnectContext.get() != null && ConnectContext.get().getSessionVariable() != null
+                    && sortNode.getLimit() <= ConnectContext.get().getSessionVariable().topnOptLimitThreshold
                     && sortNode.getSortInfo().getMaterializedOrderingExprs().size() > 0) {
                 Expr firstSortExpr = sortNode.getSortInfo().getMaterializedOrderingExprs().get(0);
                 if (firstSortExpr instanceof SlotRef && !firstSortExpr.getType().isStringType()

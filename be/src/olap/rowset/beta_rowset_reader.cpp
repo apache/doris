@@ -62,6 +62,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     }
 
     // convert RowsetReaderContext to StorageReadOptions
+    _read_options.block_row_max = read_context->batch_size;
     _read_options.stats = _stats;
     _read_options.push_down_agg_type_opt = _context->push_down_agg_type_opt;
     _read_options.remaining_vconjunct_root = _context->remaining_vconjunct_root;
@@ -162,6 +163,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.read_orderby_key_columns = read_context->read_orderby_key_columns;
     _read_options.io_ctx.reader_type = read_context->reader_type;
     _read_options.runtime_state = read_context->runtime_state;
+    _read_options.output_columns = read_context->output_columns;
 
     // load segments
     // use cache is true when do vertica compaction
@@ -205,8 +207,17 @@ Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
     // merge or union segment iterator
     RowwiseIterator* final_iterator;
     if (read_context->need_ordered_result && _rowset->rowset_meta()->is_segments_overlapping()) {
+        auto sequence_loc = -1;
+        if (read_context->sequence_id_idx != -1) {
+            for (size_t loc = 0; loc < read_context->return_columns->size(); loc++) {
+                if (read_context->return_columns->at(loc) == read_context->sequence_id_idx) {
+                    sequence_loc = loc;
+                    break;
+                }
+            }
+        }
         final_iterator = vectorized::new_merge_iterator(
-                iterators, read_context->sequence_id_idx, read_context->is_unique,
+                iterators, sequence_loc, read_context->is_unique,
                 read_context->read_orderby_key_reverse, read_context->merged_rows);
     } else {
         if (read_context->read_orderby_key_reverse) {

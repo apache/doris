@@ -298,9 +298,6 @@ private:
         // used when `_merge == true`
         std::unique_ptr<MergeHeap> _heap;
 
-        // batch size, get from TabletReader
-        int _batch_size;
-
         std::vector<RowLocation> _block_row_locations;
     };
 

@@ -20,9 +20,10 @@ package org.apache.doris.ldap;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LdapConfig;
-import org.apache.doris.mysql.privilege.PaloAuth;
-import org.apache.doris.mysql.privilege.PaloRole;
+import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.Role;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -76,7 +77,12 @@ public class LdapManager {
         if (ldapUserInfo != null && !ldapUserInfo.checkTimeout()) {
             return ldapUserInfo;
         }
-        return getUserInfoAndUpdateCache(fullName);
+        try {
+            return getUserInfoAndUpdateCache(fullName);
+        } catch (DdlException e) {
+            LOG.warn("getUserInfo for {} failed", fullName, e);
+            return null;
+        }
     }
 
     public boolean doesUserExist(String fullName) {
@@ -117,10 +123,10 @@ public class LdapManager {
 
     private boolean checkParam(String fullName) {
         return LdapConfig.ldap_authentication_enabled && !Strings.isNullOrEmpty(fullName) && !fullName.equalsIgnoreCase(
-                PaloAuth.ROOT_USER) && !fullName.equalsIgnoreCase(PaloAuth.ADMIN_USER);
+                Auth.ROOT_USER) && !fullName.equalsIgnoreCase(Auth.ADMIN_USER);
     }
 
-    private LdapUserInfo getUserInfoAndUpdateCache(String fulName) {
+    private LdapUserInfo getUserInfoAndUpdateCache(String fulName) throws DdlException {
         String cluster = ClusterNamespace.getClusterNameFromFullName(fulName);
         String userName = ClusterNamespace.getNameFromFullName(fulName);
         if (Strings.isNullOrEmpty(userName)) {
@@ -194,7 +200,7 @@ public class LdapManager {
      * Step2: get roles by ldap groups;
      * Step3: merge the roles;
      */
-    private PaloRole getLdapGroupsPrivs(String userName, String clusterName) {
+    private Role getLdapGroupsPrivs(String userName, String clusterName) throws DdlException {
         //get user ldap group. the ldap group name should be the same as the doris role name
         List<String> ldapGroups = ldapClient.getGroups(userName);
         List<String> rolesNames = Lists.newArrayList();
@@ -206,7 +212,7 @@ public class LdapManager {
         }
         LOG.debug("get user:{} ldap groups:{} and doris roles:{}", userName, ldapGroups, rolesNames);
 
-        PaloRole ldapGroupsPrivs = new PaloRole(LDAP_GROUPS_PRIVS_NAME);
+        Role ldapGroupsPrivs = new Role(LDAP_GROUPS_PRIVS_NAME);
         LdapPrivsChecker.grantDefaultPrivToTempUser(ldapGroupsPrivs, clusterName);
         if (!rolesNames.isEmpty()) {
             Env.getCurrentEnv().getAuth().mergeRolesNoCheckName(rolesNames, ldapGroupsPrivs);

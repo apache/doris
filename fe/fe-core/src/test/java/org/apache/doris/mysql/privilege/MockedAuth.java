@@ -25,7 +25,7 @@ import mockit.Expectations;
 
 public class MockedAuth {
 
-    public static void mockedAuth(PaloAuth auth) {
+    public static void mockedAuth(Auth auth) {
         new Expectations() {
             {
                 auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);

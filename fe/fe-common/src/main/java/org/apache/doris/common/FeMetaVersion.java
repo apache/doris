@@ -50,8 +50,10 @@ public final class FeMetaVersion {
     public static final int VERSION_114 = 114;
     // change replica meta to json
     public static final int VERSION_115 = 115;
+    // change Auto to rbac
+    public static final int VERSION_116 = 116;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
-    public static final int VERSION_CURRENT = VERSION_115;
+    public static final int VERSION_CURRENT = VERSION_116;
 
     // all logs meta version should >= the minimum version, so that we could remove many if clause, for example
     // if (FE_METAVERSION < VERSION_94) ...

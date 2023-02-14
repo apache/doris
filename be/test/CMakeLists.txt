@@ -66,7 +66,6 @@ set(HTTP_TEST_FILES
     http/http_utils_test.cpp
     http/http_client_test.cpp
     # TODO this will overide HttpChannel and make other test failed
-    # http/stream_load_test.cpp
     # http/metrics_action_test.cpp
 )
 set(IO_TEST_FILES
@@ -145,10 +144,8 @@ set(RUNTIME_TEST_FILES
     runtime/string_value_test.cpp
     runtime/fragment_mgr_test.cpp
     runtime/mem_limit_test.cpp
-    runtime/stream_load_pipe_test.cpp
     runtime/snapshot_loader_test.cpp
     runtime/user_function_cache_test.cpp
-    runtime/kafka_consumer_pipe_test.cpp
     runtime/routine_load_task_executor_test.cpp
     runtime/small_file_mgr_test.cpp
     runtime/heartbeat_flags_test.cpp
@@ -179,7 +176,6 @@ set(UTIL_TEST_FILES
     util/crc32c_test.cpp
     util/lru_cache_util_test.cpp
     util/filesystem_util_test.cpp
-    util/internal_queue_test.cpp
     util/cidr_test.cpp
     util/metrics_test.cpp
     util/doris_metrics_test.cpp

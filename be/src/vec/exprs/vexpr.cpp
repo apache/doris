@@ -32,8 +32,10 @@
 #include "vec/exprs/vin_predicate.h"
 #include "vec/exprs/vinfo_func.h"
 #include "vec/exprs/vliteral.h"
+#include "vec/exprs/vmap_literal.h"
 #include "vec/exprs/vruntimefilter_wrapper.h"
 #include "vec/exprs/vslot_ref.h"
+#include "vec/exprs/vstruct_literal.h"
 #include "vec/exprs/vtuple_is_null_predicate.h"
 
 namespace doris::vectorized {
@@ -121,6 +123,13 @@ Status VExpr::create_expr(doris::ObjectPool* pool, const doris::TExprNode& texpr
     }
     case TExprNodeType::ARRAY_LITERAL: {
         *expr = pool->add(new VArrayLiteral(texpr_node));
+        return Status::OK();
+    }
+    case TExprNodeType::MAP_LITERAL: {
+        *expr = pool->add(new VMapLiteral(texpr_node));
+    }
+    case TExprNodeType::STRUCT_LITERAL: {
+        *expr = pool->add(new VStructLiteral(texpr_node));
         return Status::OK();
     }
     case doris::TExprNodeType::SLOT_REF: {
@@ -213,7 +222,8 @@ Status VExpr::create_expr_tree(doris::ObjectPool* pool, const doris::TExpr& texp
     Status status = create_tree_from_thrift(pool, texpr.nodes, nullptr, &node_idx, &e, ctx);
     if (status.ok() && node_idx + 1 != texpr.nodes.size()) {
         status = Status::InternalError(
-                "Expression tree only partially reconstructed. Not all thrift nodes were used.");
+                "Expression tree only partially reconstructed. Not all thrift nodes were "
+                "used.");
     }
     if (!status.ok()) {
         LOG(ERROR) << "Could not construct expr tree.\n"
