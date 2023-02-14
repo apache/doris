@@ -175,6 +175,7 @@ enum ReaderType {
     READER_BASE_COMPACTION = 2,
     READER_CUMULATIVE_COMPACTION = 3,
     READER_CHECKSUM = 4,
+    READER_COLD_DATA_COMPACTION = 5,
 };
 
 constexpr bool field_is_slice_type(const FieldType& field_type) {

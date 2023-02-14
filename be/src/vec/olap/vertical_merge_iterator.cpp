@@ -17,6 +17,8 @@
 
 #include "vec/olap/vertical_merge_iterator.h"
 
+#include "olap/olap_common.h"
+
 namespace doris {
 using namespace ErrorCode;
 
@@ -137,6 +139,8 @@ Status RowSourcesBuffer::_create_buffer_file() {
         file_path_ss << "_base";
     } else if (_reader_type == READER_CUMULATIVE_COMPACTION) {
         file_path_ss << "_cumu";
+    } else if (_reader_type == READER_COLD_DATA_COMPACTION) {
+        file_path_ss << "_cold";
     } else {
         DCHECK(false);
         return Status::InternalError("unknown reader type");
