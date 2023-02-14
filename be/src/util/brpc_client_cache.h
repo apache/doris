@@ -29,6 +29,7 @@
 #include "gen_cpp/internal_service.pb.h"
 #include "service/brpc.h"
 #include "util/doris_metrics.h"
+#include "util/network_util.h"
 
 template <typename T>
 using StubMap = phmap::parallel_flat_hash_map<
@@ -54,13 +55,12 @@ public:
     }
 #else
     std::shared_ptr<T> get_client(const TNetworkAddress& taddr) {
-        std::string host_port = fmt::format("{}:{}", taddr.hostname, taddr.port);
-        return get_client(host_port);
+        return get_client(taddr.hostname, taddr.port);
     }
 #endif
 
     std::shared_ptr<T> get_client(const std::string& host, int port) {
-        std::string host_port = fmt::format("{}:{}", host, port);
+        std::string host_port = get_host_port(host, port);
         return get_client(host_port);
     }
 

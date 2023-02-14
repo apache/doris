@@ -116,6 +116,7 @@ import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.MetaLockUtils;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.QueryableReentrantLock;
@@ -253,7 +254,9 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
+import java.net.InetAddress;
 import java.net.URL;
+import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -1032,7 +1035,7 @@ public class Env {
                 clusterId = storage.getClusterID();
                 token = storage.getToken();
                 try {
-                    URL idURL = new URL("http://" + rightHelperNode.first + ":" + Config.http_port + "/check");
+                    URL idURL = new URL("http://" + NetUtils.getHostPortInAccessibleFormat(rightHelperNode.first, Config.http_port) + "/check");
                     HttpURLConnection conn = null;
                     conn = (HttpURLConnection) idURL.openConnection();
                     conn.setConnectTimeout(2 * 1000);
@@ -1097,7 +1100,8 @@ public class Env {
         Pair<String, Integer> rightHelperNode = null;
         for (Pair<String, Integer> helperNode : helperNodes) {
             try {
-                URL url = new URL("http://" + helperNode.first + ":" + Config.http_port + "/role?host=" + selfNode.first
+                URL url = new URL("http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.first, Config.http_port)
+                        + "/role?host=" + selfNode.first
                         + "&port=" + selfNode.second);
                 HttpURLConnection conn = null;
                 conn = (HttpURLConnection) url.openConnection();
@@ -1540,7 +1544,7 @@ public class Env {
 
     private boolean getVersionFileFromHelper(Pair<String, Integer> helperNode) throws IOException {
         try {
-            String url = "http://" + helperNode.first + ":" + Config.http_port + "/version";
+            String url = "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.first, Config.http_port) + "/version";
             File dir = new File(this.imageDir);
             MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000,
                     MetaHelper.getOutputStream(Storage.VERSION_FILE, dir));
@@ -1559,11 +1563,12 @@ public class Env {
         localImageVersion = storage.getLatestImageSeq();
 
         try {
-            URL infoUrl = new URL("http://" + helperNode.first + ":" + Config.http_port + "/info");
+            String hostPort = NetUtils.getHostPortInAccessibleFormat(helperNode.first, Config.http_port);
+            URL infoUrl = new URL("http://" + hostPort + "/info");
             StorageInfo info = getStorageInfo(infoUrl);
             long version = info.getImageSeq();
             if (version > localImageVersion) {
-                String url = "http://" + helperNode.first + ":" + Config.http_port + "/image?version=" + version;
+                String url = "http://" + hostPort + "/image?version=" + version;
                 String filename = Storage.IMAGE + "." + version;
                 File dir = new File(this.imageDir);
                 MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000, MetaHelper.getOutputStream(filename, dir));
@@ -1586,6 +1591,7 @@ public class Env {
         for (Pair<String, Integer> helperNode : helperNodes) {
             if (selfNode.equals(helperNode)) {
                 containSelf = true;
+                break;
             }
         }
         if (containSelf) {
@@ -2507,7 +2513,16 @@ public class Env {
 
     public Frontend getFeByHost(String host) {
         for (Frontend fe : frontends.values()) {
-            if (fe.getHost().equals(host)) {
+            InetAddress hostAddr = null;
+            InetAddress feAddr = null;
+            try {
+                hostAddr = InetAddress.getByName(host);
+                feAddr = InetAddress.getByName(fe.getHost());
+            } catch (UnknownHostException e) {
+                LOG.warn("get address failed: {}", e.getMessage());
+                return null;
+            }
+            if (feAddr.equals(hostAddr)) {
                 return fe;
             }
         }

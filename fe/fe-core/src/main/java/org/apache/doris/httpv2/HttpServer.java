@@ -21,6 +21,7 @@ import org.apache.doris.PaloFe;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.httpv2.config.SpringLog4j2Config;
+import org.apache.doris.service.FrontendOptions;
 
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.builder.SpringApplicationBuilder;
@@ -98,6 +99,11 @@ public class HttpServer extends SpringBootServletInitializer {
     public void start() {
         Map<String, Object> properties = new HashMap<>();
         properties.put("server.port", port);
+        if (FrontendOptions.isBindIPV6()) {
+            properties.put("server.address", "::0");
+        } else {
+            properties.put("server.address", "0.0.0.0");
+        }
         properties.put("server.servlet.context-path", "/");
         properties.put("spring.resources.static-locations", "classpath:/static");
         properties.put("spring.http.encoding.charset", "UTF-8");
