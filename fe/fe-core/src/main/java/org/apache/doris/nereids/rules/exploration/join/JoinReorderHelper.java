@@ -84,12 +84,14 @@ public class JoinReorderHelper {
      * @param cOutputExprIdSet we want to get abOnUsedSlots, we need filter cOutputExprIdSet.
      */
     public void addSlotsUsedByOn(Set<ExprId> cOutputExprIdSet) {
+        // get A project output slots
+        Set<Slot> aProjectSlots = newLeftProjects.stream().map(NamedExpression::toSlot).collect(Collectors.toSet());
         Map<Boolean, Set<Slot>> abOnUsedSlots = Stream.concat(
                         newTopHashConjuncts.stream(),
                         newTopOtherConjuncts.stream())
                 .flatMap(onExpr -> onExpr.getInputSlots().stream())
                 .filter(slot -> !cOutputExprIdSet.contains(slot.getExprId()))
-                .collect(Collectors.partitioningBy(slot -> newLeftProjects.contains(slot), Collectors.toSet()));
+                .collect(Collectors.partitioningBy(aProjectSlots::contains, Collectors.toSet()));
         Set<Slot> aUsedSlots = abOnUsedSlots.get(true);
         Set<Slot> bUsedSlots = abOnUsedSlots.get(false);
 

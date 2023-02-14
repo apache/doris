@@ -60,7 +60,6 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
                 .when(join -> JoinReorderUtils.checkProject(join.left()))
                 .then(topJoin -> {
-
                     /* ********** init ********** */
                     List<NamedExpression> projects = topJoin.left().getProjects();
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left().child();
@@ -73,13 +72,13 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                     /* ********** Split projects ********** */
                     Map<Boolean, List<NamedExpression>> map = JoinReorderUtils.splitProjection(projects, b);
                     List<NamedExpression> aProjects = map.get(false);
+                    List<NamedExpression> bProjects = map.get(true);
                     if (aProjects.isEmpty()) {
                         return null;
                     }
-                    List<NamedExpression> bProjects = map.get(true);
-                    Set<ExprId> bExprIdSet = JoinReorderUtils.combineProjectAndChildExprId(b, bProjects);
 
                     /* ********** split HashConjuncts ********** */
+                    Set<ExprId> bExprIdSet = JoinReorderUtils.combineProjectAndChildExprId(b, bProjects);
                     Map<Boolean, List<Expression>> splitHashConjuncts = splitConjunctsWithAlias(
                             topJoin.getHashJoinConjuncts(), bottomJoin.getHashJoinConjuncts(), bExprIdSet);
                     List<Expression> newTopHashConjuncts = splitHashConjuncts.get(true);

@@ -134,16 +134,18 @@ class OuterJoinLAsscomProjectTest implements PatternMatchSupported {
                 new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0)));
         List<Expression> bottomOtherJoinConjunct = ImmutableList.of(
                 new GreaterThan(scan1.getOutput().get(1), scan2.getOutput().get(1)));
-        List<Expression> topHashJoinConjunct = ImmutableList.of(
-                new EqualTo(scan1.getOutput().get(0), scan3.getOutput().get(0)),
-                new EqualTo(scan2.getOutput().get(0), scan3.getOutput().get(0)));
-        List<Expression> topOtherJoinConjunct = ImmutableList.of(
-                new GreaterThan(scan1.getOutput().get(1), scan3.getOutput().get(1)),
-                new GreaterThan(scan2.getOutput().get(1), scan3.getOutput().get(1)));
-
-        LogicalPlan plan = new LogicalPlanBuilder(scan1)
+        LogicalPlan project = new LogicalPlanBuilder(scan1)
                 .join(scan2, JoinType.LEFT_OUTER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
                 .alias(ImmutableList.of(0, 1, 2, 3), ImmutableList.of("t1.id", "t1.name", "t2.id", "t2.name"))
+                .build();
+
+        List<Expression> topHashJoinConjunct = ImmutableList.of(
+                new EqualTo(project.getOutput().get(0), scan3.getOutput().get(0)),
+                new EqualTo(project.getOutput().get(2), scan3.getOutput().get(0)));
+        List<Expression> topOtherJoinConjunct = ImmutableList.of(
+                new GreaterThan(project.getOutput().get(1), scan3.getOutput().get(1)),
+                new GreaterThan(project.getOutput().get(3), scan3.getOutput().get(1)));
+        LogicalPlan plan = new LogicalPlanBuilder(project)
                 .join(scan3, JoinType.LEFT_OUTER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
                 .build();
 
