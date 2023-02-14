@@ -120,29 +120,39 @@ uint8_t* NewPlainTextLineReader::_update_field_pos_and_find_line_delimiter(
         // value delimiter: ABAC
         // source line: 1ABACdorisABABAC18
 
-        if (*(start + cur) != _line_delimiter[_line_delimiter_cur_pos]) {
-            _line_delimiter_cur_pos = 0;
-        } else {
-            ++_line_delimiter_cur_pos;
-        }
-
-        if (*(start + cur) != _value_delimiter[_value_delimiter_cur_pos]) {
-            _value_delimiter_cur_pos = 0;
-        } else {
-            ++_value_delimiter_cur_pos;
-        }
-
-        if (_value_delimiter_cur_pos == _value_delimiter_length ||
-            _line_delimiter_cur_pos == _line_delimiter_length) {
-            // Match a separator
+        if (*(start + cur) == _line_delimiter[0]) {
             trim_space_and_quote();
-            if (_line_delimiter_cur_pos == _line_delimiter_length) {
-                return line_start() + (_line_cur_pos - _line_delimiter_length + 1);
-            }
+            return line_start() + (_line_cur_pos - _line_delimiter_length + 1);
+        } else if (*(start + cur) == _value_delimiter[0]) {
+            trim_space_and_quote();
             fields->emplace_back(_field_start, _non_space_offset - _field_start + 1);
-            _value_delimiter_cur_pos = 0;
+            // _value_delimiter_cur_pos = 0;
             _field_start = _line_cur_pos + 1;
         }
+
+        // if (*(start + cur) != _line_delimiter[_line_delimiter_cur_pos]) {
+        //     _line_delimiter_cur_pos = 0;
+        // } else {
+        //     ++_line_delimiter_cur_pos;
+        // }
+
+        // if (*(start + cur) != _value_delimiter[_value_delimiter_cur_pos]) {
+        //     _value_delimiter_cur_pos = 0;
+        // } else {
+        //     ++_value_delimiter_cur_pos;
+        // }
+
+        // if (_value_delimiter_cur_pos == _value_delimiter_length ||
+        //     _line_delimiter_cur_pos == _line_delimiter_length) {
+        //     // Match a separator
+        //     trim_space_and_quote();
+        //     if (_line_delimiter_cur_pos == _line_delimiter_length) {
+        //         return line_start() + (_line_cur_pos - _line_delimiter_length + 1);
+        //     }
+        //     fields->emplace_back(_field_start, _non_space_offset - _field_start + 1);
+        //     _value_delimiter_cur_pos = 0;
+        //     _field_start = _line_cur_pos + 1;
+        // }
         ++_line_cur_pos;
     }
     return nullptr;
@@ -256,8 +266,8 @@ Status NewPlainTextLineReader::read_fields(const uint8_t** ptr, size_t* size, bo
     fields->clear();
     _field_start = 0;
     _line_cur_pos = 0;
-    _value_delimiter_cur_pos = 0;
-    _line_delimiter_cur_pos = 0;
+    // _value_delimiter_cur_pos = 0;
+    // _line_delimiter_cur_pos = 0;
     while (!done()) {
         // find line delimiter in current decompressed data
         uint8_t* cur_ptr = line_start();
