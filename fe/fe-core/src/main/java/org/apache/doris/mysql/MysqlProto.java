@@ -210,7 +210,7 @@ public class MysqlProto {
                 } catch (Exception e) {
                     throw new RuntimeException(e);
                 }
-                handshakeResponse = channel.fetchOnePacket();
+                handshakeResponse = channel.fetchOneSslPacket();
             } else {
                 handshakeResponse = clientRequestPacket;
             }

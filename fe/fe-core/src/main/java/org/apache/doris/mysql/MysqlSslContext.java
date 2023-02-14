@@ -210,14 +210,13 @@ public class MysqlSslContext {
     }
 
 
-    private boolean handleWrapResult(SSLEngineResult sslEngineResult) {
+    private boolean handleWrapResult(SSLEngineResult sslEngineResult) throws SSLException {
         switch (sslEngineResult.getStatus()) {
             // normal status.
             case OK:
                 return true;
             case CLOSED:
-                sslEngine.closeOutbound();
-                return false;
+                throw new SSLException("SSL engine closed.");
             case BUFFER_OVERFLOW:
                 // Could attempt to drain the serverNetData buffer of any already obtained
                 // data, but we'll just increase it to the size needed.
