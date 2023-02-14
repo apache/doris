@@ -18,6 +18,7 @@
 package org.apache.doris.httpv2.rest;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -40,8 +41,10 @@ public class GetSmallFileAction extends RestBaseController {
 
     @RequestMapping(path = "/api/get_small_file", method = RequestMethod.GET)
     public Object execute(HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request, response);
-        checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
+            checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        }
 
         String token = request.getParameter("token");
         String fileIdStr = request.getParameter("file_id");

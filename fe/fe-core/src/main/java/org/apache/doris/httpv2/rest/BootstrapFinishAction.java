@@ -58,7 +58,9 @@ public class BootstrapFinishAction extends RestBaseController {
 
     @RequestMapping(path = "/api/bootstrap", method = RequestMethod.GET)
     public ResponseEntity execute(HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request, response);
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
+        }
 
         boolean isReady = Env.getCurrentEnv().isReady();
 

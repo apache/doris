@@ -18,6 +18,7 @@
 package org.apache.doris.httpv2.restv2;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.parquet.ParquetReader;
 import org.apache.doris.common.util.BrokerUtil;
@@ -75,7 +76,9 @@ public class ImportAction extends RestBaseController {
     @RequestMapping(path = "/api/import/file_review", method = RequestMethod.POST)
     public Object fileReview(@RequestBody FileReviewRequestVo body,
             HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request, response);
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
+        }
 
         FileInfo fileInfo = body.getFileInfo();
         ConnectInfo connectInfo = body.getConnectInfo();

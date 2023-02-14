@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.rest;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.metric.JsonMetricVisitor;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.metric.MetricVisitor;
@@ -40,7 +41,9 @@ public class MetricsAction extends RestBaseController {
 
     @RequestMapping(path = "/metrics")
     public void execute(HttpServletRequest request, HttpServletResponse response) {
-        executeCheckPassword(request, response);
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
+        }
 
         String type = request.getParameter(TYPE_PARAM);
         MetricVisitor visitor = null;

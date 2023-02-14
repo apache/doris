@@ -24,6 +24,7 @@ import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.TableIf;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
@@ -85,7 +86,9 @@ public class StmtExecutionAction extends RestBaseController {
             HttpServletRequest request, HttpServletResponse response, @RequestBody String body) {
         ActionAuthorizationInfo authInfo = checkWithCookie(request, response, false);
         String fullDbName = getFullDbName(dbName);
-        checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.ADMIN);
+        if (Config.enable_all_http_auth) {
+            checkDbAuth(ConnectContext.get().getCurrentUserIdentity(), fullDbName, PrivPredicate.ADMIN);
+        }
 
         if (ns.equalsIgnoreCase(SystemInfoService.DEFAULT_CLUSTER)) {
             ns = InternalCatalog.INTERNAL_CATALOG_NAME;

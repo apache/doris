@@ -345,6 +345,11 @@ public class Config extends ConfigBase {
     @ConfField public static int http_port = 8030;
 
     /**
+     * Whether to enable all http interface authentication
+     */
+    @ConfField public static boolean enable_all_http_auth = false;
+
+    /**
      * Jetty container default configuration
      * Jetty's thread architecture model is very simple, divided into three thread pools:
      * acceptors,selectors and workers. Acceptors are responsible for accepting new connections,
