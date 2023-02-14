@@ -471,14 +471,6 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
                                       int64_t committed_version, bool is_incremental_clone) {
     Defer remove_clone_dir {[&]() { std::filesystem::remove_all(clone_dir); }};
 
-    // clone and compaction operation should be performed sequentially
-    std::lock_guard<std::mutex> base_compaction_lock(tablet->get_base_compaction_lock());
-    std::lock_guard<std::mutex> cumulative_compaction_lock(
-            tablet->get_cumulative_compaction_lock());
-    tablet->set_clone_occurred(true);
-    std::lock_guard<std::mutex> push_lock(tablet->get_push_lock());
-    std::lock_guard<std::mutex> rwlock(tablet->get_rowset_update_lock());
-    std::lock_guard<std::shared_mutex> wrlock(tablet->get_header_lock());
     // check clone dir existed
     if (!FileUtils::check_exist(clone_dir)) {
         return Status::InternalError("clone dir not existed. clone_dir={}", clone_dir);
@@ -528,6 +520,14 @@ Status EngineCloneTask::_finish_clone(Tablet* tablet, const std::string& clone_d
         linked_success_files.emplace_back(std::move(to));
     }
 
+    // clone and compaction operation should be performed sequentially
+    std::lock_guard base_compaction_lock(tablet->get_base_compaction_lock());
+    std::lock_guard cumulative_compaction_lock(tablet->get_cumulative_compaction_lock());
+    std::lock_guard cold_compaction_lock(tablet->get_cold_compaction_lock());
+    tablet->set_clone_occurred(true);
+    std::lock_guard<std::mutex> push_lock(tablet->get_push_lock());
+    std::lock_guard<std::mutex> rwlock(tablet->get_rowset_update_lock());
+    std::lock_guard<std::shared_mutex> wrlock(tablet->get_header_lock());
     if (is_incremental_clone) {
         status = _finish_incremental_clone(tablet, cloned_tablet_meta, committed_version);
     } else {
