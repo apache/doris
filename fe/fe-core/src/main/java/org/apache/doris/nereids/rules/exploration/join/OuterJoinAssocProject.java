@@ -88,7 +88,8 @@ public class OuterJoinAssocProject extends OneExplorationRuleFactory {
                             topJoin.getOtherJoinConjuncts(), projects, aProjects, bProjects);
 
                     // Add all slots used by OnCondition when projects not empty.
-                    helper.addSlotsUsedByOn(Collections.EMPTY_SET);
+                    helper.addSlotsUsedByOn(JoinReorderUtils.combineProjectAndChildExprId(a, helper.newLeftProjects),
+                            Collections.EMPTY_SET);
 
                     bProjects.addAll(OuterJoinLAsscomProject.forceToNullable(c.getOutputSet()));
                     /* ********** new Plan ********** */

@@ -62,13 +62,11 @@ class JoinReorderUtils {
     static Map<Boolean, List<NamedExpression>> splitProjection(List<NamedExpression> projects, Plan splitChild) {
         Set<ExprId> splitExprIds = splitChild.getOutputExprIdSet();
 
-        Map<Boolean, List<NamedExpression>> projectExprsMap = projects.stream()
+        return projects.stream()
                 .collect(Collectors.partitioningBy(projectExpr -> {
                     Set<ExprId> usedExprIds = projectExpr.getInputSlotExprIds();
                     return splitExprIds.containsAll(usedExprIds);
                 }));
-
-        return projectExprsMap;
     }
 
     public static Set<ExprId> combineProjectAndChildExprId(Plan b, List<NamedExpression> bProject) {

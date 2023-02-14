@@ -67,7 +67,6 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                     GroupPlan b = bottomJoin.right();
                     GroupPlan c = topJoin.right();
                     Set<Slot> cOutputSet = c.getOutputSet();
-                    Set<ExprId> cOutputExprIdSet = c.getOutputExprIdSet();
 
                     /* ********** Split projects ********** */
                     Map<Boolean, List<NamedExpression>> map = JoinReorderUtils.splitProjection(projects, b);
@@ -99,7 +98,8 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                             newBottomHashConjuncts, newBottomOtherConjuncts, projects, aProjects, bProjects);
 
                     // Add all slots used by OnCondition when projects not empty.
-                    helper.addSlotsUsedByOn(cOutputExprIdSet);
+                    helper.addSlotsUsedByOn(JoinReorderUtils.combineProjectAndChildExprId(a, helper.newLeftProjects),
+                            c.getOutputExprIdSet());
 
                     aProjects.addAll(cOutputSet);
 

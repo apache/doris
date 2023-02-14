@@ -80,7 +80,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     Set<ExprId> bProjectsExprIds = bProjects.stream().map(NamedExpression::getExprId)
                             .collect(Collectors.toSet());
 
-                    // topJoin condition can't contain bProject. just can (A C)
+                    // topJoin condition can't contain bProject output. just can (A C)
                     if (Stream.concat(topJoin.getHashJoinConjuncts().stream(), topJoin.getOtherJoinConjuncts().stream())
                             .anyMatch(expr -> Utils.isIntersecting(expr.getInputSlotExprIds(), bProjectsExprIds))) {
                         return null;
@@ -92,7 +92,8 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                             topJoin.getOtherJoinConjuncts(), projects, aProjects, bProjects);
 
                     // Add all slots used by OnCondition when projects not empty.
-                    helper.addSlotsUsedByOn(Collections.EMPTY_SET);
+                    helper.addSlotsUsedByOn(JoinReorderUtils.combineProjectAndChildExprId(a, helper.newLeftProjects),
+                            Collections.EMPTY_SET);
 
                     aProjects.addAll(forceToNullable(c.getOutputSet()));
 
