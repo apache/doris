@@ -107,6 +107,7 @@ docker_process_sql() {
   mysql -uroot -P9030 -h${MASTER_FE_IP} --comments "$@" 2>/dev/null
 }
 
+# register broker
 register_broker_to_fe() {
   set +e
   # check fe status
