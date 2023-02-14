@@ -139,7 +139,7 @@ suite("load") {
             kdcmlv3s1, kdcmlv3s2, kdcmlv3s3, kchrs1, kchrs2, kchrs3, kvchrs1, kvchrs2, kvchrs3, kstr,
             kdt ,kdtv2, kdtm, kdtmv2s1, kdtmv2s2, kdtmv2s3, kabool, katint, kasint, kaint,
             kabint, kalint, kafloat, kadbl, kadt, kadtm, kadtv2, kdtmv2, kachr, kavchr, kastr, kadcml,
-            st_point_str, st_point_vc, khll=hll_union_agg(id)
+            st_point_str, st_point_vc, khll=hll_hash(id)
             '''
         file "fn_test.dat"
     }
