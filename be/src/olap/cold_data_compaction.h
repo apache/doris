@@ -17,34 +17,24 @@
 
 #pragma once
 
-#include <string>
-
 #include "olap/compaction.h"
-#include "olap/cumulative_compaction_policy.h"
 
 namespace doris {
 
-class CumulativeCompaction : public Compaction {
+class ColdDataCompaction final : public Compaction {
 public:
-    CumulativeCompaction(const TabletSharedPtr& tablet);
-    ~CumulativeCompaction() override;
+    ColdDataCompaction(const TabletSharedPtr& tablet);
+    ~ColdDataCompaction() override;
 
     Status prepare_compact() override;
     Status execute_compact_impl() override;
 
-    std::vector<RowsetSharedPtr> get_input_rowsets() { return _input_rowsets; }
-
-protected:
-    Status pick_rowsets_to_compact() override;
-
-    std::string compaction_name() const override { return "cumulative compaction"; }
-
-    ReaderType compaction_type() const override { return ReaderType::READER_CUMULATIVE_COMPACTION; }
-
 private:
-    Version _last_delete_version {-1, -1};
+    std::string compaction_name() const override { return "cold data compaction"; }
+    ReaderType compaction_type() const override { return ReaderType::READER_COLD_DATA_COMPACTION; }
 
-    DISALLOW_COPY_AND_ASSIGN(CumulativeCompaction);
+    Status pick_rowsets_to_compact() override;
+    Status modify_rowsets() override;
 };
 
 } // namespace doris
