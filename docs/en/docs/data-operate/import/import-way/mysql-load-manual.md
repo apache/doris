@@ -115,4 +115,5 @@ Records: 1 Deleted: 0 Skipped: 0 Warnings: 0
 
 ## More Help
 
-For more detailed syntax and best practices for using MySQL Load, see the [MySQL Load](../../../sql-manual/sql-reference/Data-Management-Statements/Load/MYSQL-LOAD.md) command manual.
+1. If you see this `LOAD DATA LOCAL INFILE file request rejected due to restrictions on access` message, you should connet mysql with `mysql  --local-infile=1` command to enable client to load local file.
+2. For more detailed syntax and best practices for using MySQL Load, see the [MySQL Load](../../../sql-manual/sql-reference/Data-Management-Statements/Load/MYSQL-LOAD.md) command manual.

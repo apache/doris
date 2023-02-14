@@ -117,5 +117,7 @@ Records: 1  Deleted: 0  Skipped: 0  Warnings: 0
 
 ## 更多帮助
 
-关于 MySQL Load 使用的更多详细语法及最佳实践，请参阅 [MySQL Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD.md) 命令手册。
+1. 如果客户端出现`LOAD DATA LOCAL INFILE file request rejected due to restrictions on access`错误, 需要用`mysql  --local-infile=1`命令来打开客户端的导入功能.
+
+2. 关于 MySQL Load 使用的更多详细语法及最佳实践，请参阅 [MySQL Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD.md) 命令手册。
 
