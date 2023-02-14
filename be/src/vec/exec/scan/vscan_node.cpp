@@ -511,6 +511,8 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
             auto impl = conjunct_expr_root->get_impl();
             // If impl is not null, which means this a conjuncts from runtime filter.
             VExpr* cur_expr = impl ? const_cast<VExpr*>(impl) : conjunct_expr_root;
+            bool is_runtimer_filter_predicate =
+                    _rf_vexpr_set.find(conjunct_expr_root) != _rf_vexpr_set.end();
             SlotDescriptor* slot = nullptr;
             ColumnValueRangeType* range = nullptr;
             PushDownType pdt = PushDownType::UNACCEPTABLE;
@@ -523,6 +525,10 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
                 _is_predicate_acting_on_slot(cur_expr, eq_predicate_checker, &slot, &range)) {
                 std::visit(
                         [&](auto& value_range) {
+                            Defer mark_runtime_filter_flag {[&]() {
+                                value_range.mark_runtime_filter_predicate(
+                                        is_runtimer_filter_predicate);
+                            }};
                             RETURN_IF_PUSH_DOWN(_normalize_in_and_eq_predicate(
                                     cur_expr, *(_vconjunct_ctx_ptr.get()), slot, value_range,
                                     &pdt));
@@ -555,7 +561,8 @@ Status VScanNode::_normalize_predicate(VExpr* conjunct_expr_root, VExpr** output
             if (pdt == PushDownType::UNACCEPTABLE &&
                 TExprNodeType::COMPOUND_PRED == cur_expr->node_type()) {
                 _normalize_compound_predicate(cur_expr, *(_vconjunct_ctx_ptr.get()), &pdt,
-                                              in_predicate_checker, eq_predicate_checker);
+                                              is_runtimer_filter_predicate, in_predicate_checker,
+                                              eq_predicate_checker);
                 *output_expr = conjunct_expr_root; // remaining in conjunct tree
                 return Status::OK();
             }
@@ -977,6 +984,7 @@ Status VScanNode::_normalize_noneq_binary_predicate(VExpr* expr, VExprContext* e
 
 Status VScanNode::_normalize_compound_predicate(
         vectorized::VExpr* expr, VExprContext* expr_ctx, PushDownType* pdt,
+        bool is_runtimer_filter_predicate,
         const std::function<bool(const std::vector<VExpr*>&, const VSlotRef**, VExpr**)>&
                 in_predicate_checker,
         const std::function<bool(const std::vector<VExpr*>&, const VSlotRef**, VExpr**)>&
@@ -997,6 +1005,10 @@ Status VScanNode::_normalize_compound_predicate(
                             *range_on_slot; // copy, in order not to affect the range in the _colname_to_value_range
                     std::visit(
                             [&](auto& value_range) {
+                                Defer mark_runtime_filter_flag {[&]() {
+                                    value_range.mark_runtime_filter_predicate(
+                                            is_runtimer_filter_predicate);
+                                }};
                                 _normalize_binary_in_compound_predicate(child_expr, expr_ctx, slot,
                                                                         value_range, pdt);
                             },
@@ -1015,6 +1027,10 @@ Status VScanNode::_normalize_compound_predicate(
                             *range_on_slot; // copy, in order not to affect the range in the _colname_to_value_range
                     std::visit(
                             [&](auto& value_range) {
+                                Defer mark_runtime_filter_flag {[&]() {
+                                    value_range.mark_runtime_filter_predicate(
+                                            is_runtimer_filter_predicate);
+                                }};
                                 _normalize_match_in_compound_predicate(child_expr, expr_ctx, slot,
                                                                        value_range, pdt);
                             },
@@ -1023,7 +1039,8 @@ Status VScanNode::_normalize_compound_predicate(
                     _compound_value_ranges.emplace_back(active_range);
                 }
             } else if (TExprNodeType::COMPOUND_PRED == child_expr->node_type()) {
-                _normalize_compound_predicate(child_expr, expr_ctx, pdt, in_predicate_checker,
+                _normalize_compound_predicate(child_expr, expr_ctx, pdt,
+                                              is_runtimer_filter_predicate, in_predicate_checker,
                                               eq_predicate_checker);
             }
         }

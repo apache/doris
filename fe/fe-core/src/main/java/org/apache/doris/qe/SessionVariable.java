@@ -268,6 +268,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_FILE_CACHE = "enable_file_cache";
 
     public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
+    public static final String DROP_TABLE_IF_CTAS_FAILED = "drop_table_if_ctas_failed";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -704,6 +705,10 @@ public class SessionVariable implements Serializable, Writable {
     // Whether enable block file cache. Only take effect when BE config item enable_file_cache is true.
     @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE, needForward = true)
     public boolean enableFileCache = true;
+
+    // Whether drop table when create table as select insert data appear error.
+    @VariableMgr.VarAttr(name = DROP_TABLE_IF_CTAS_FAILED, needForward = true)
+    public boolean dropTableIfCtasFailed = true;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -1451,6 +1456,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableUnicodeNameSupport(boolean enableUnicodeNameSupport) {
         this.enableUnicodeNameSupport = enableUnicodeNameSupport;
+
+    public boolean isDropTableIfCtasFailed() {
+        return dropTableIfCtasFailed;
     }
 
     public void checkExternalSortBytesThreshold(String externalSortBytesThreshold) {

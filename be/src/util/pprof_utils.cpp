@@ -24,6 +24,9 @@
 #include "util/file_utils.h"
 
 namespace doris {
+namespace config {
+extern std::string pprof_profile_dir;
+}
 
 Status PprofUtils::get_pprof_cmd(std::string* cmd) {
     AgentUtils util;

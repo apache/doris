@@ -21,14 +21,16 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.catalog.Env;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.InternalService.KeyTuple;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
+import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.TExpr;
 import org.apache.doris.thrift.TExprList;
-import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TResultBatch;
 import org.apache.doris.thrift.TStatusCode;
 
@@ -40,6 +42,9 @@ import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -50,7 +55,6 @@ import java.util.concurrent.TimeoutException;
 
 public class PointQueryExec {
     private static final Logger LOG = LogManager.getLogger(PointQueryExec.class);
-    private TNetworkAddress address;
     // SlotRef sorted by column id
     private Map<SlotRef, Expr> equalPredicats;
     // ByteString serialized for prepared statement
@@ -63,22 +67,31 @@ public class PointQueryExec {
 
     private boolean isCancel = false;
     private boolean isBinaryProtocol = false;
-    private long backendID;
+
+    private List<Backend> candidateBackends;
+
     // For parepared statement cached structure,
     // there are some pre caculated structure in Backend TabletFetch service
     // using this ID to find for this prepared statement
     private UUID cacheID;
 
     public PointQueryExec(Map<SlotRef, Expr> equalPredicats, DescriptorTable descTable,
-                    ArrayList<Expr> outputExprs) {
+            ArrayList<Expr> outputExprs) {
         this.equalPredicats = equalPredicats;
         this.descriptorTable = descTable;
         this.outputExprs = outputExprs;
     }
 
-    void setAddressAndBackendID(TNetworkAddress addr, long backendID) {
-        this.address = addr;
-        this.backendID = backendID;
+    void setCandidateBackends(HashSet<Long> backendsIds) {
+        candidateBackends = new ArrayList<>();
+        for (Long backendID : backendsIds) {
+            Backend backend = Env.getCurrentSystemInfo().getBackend(backendID);
+            if (SimpleScheduler.isAvailable(backend)) {
+                candidateBackends.add(backend);
+            }
+        }
+        // Random read replicas
+        Collections.shuffle(this.candidateBackends);
     }
 
     public void setSerializedDescTable(ByteString serializedDescTable) {
@@ -106,7 +119,7 @@ public class PointQueryExec {
     }
 
     void addKeyTuples(
-                InternalService.PTabletKeyLookupRequest.Builder requestBuilder) {
+            InternalService.PTabletKeyLookupRequest.Builder requestBuilder) {
         // TODO handle IN predicates
         KeyTuple.Builder kBuilder = KeyTuple.newBuilder();
         for (Expr expr : equalPredicats.values()) {
@@ -117,6 +130,26 @@ public class PointQueryExec {
     }
 
     public RowBatch getNext(Status status) throws TException {
+        Iterator<Backend> backendIter = candidateBackends.iterator();
+        RowBatch rowBatch = null;
+        int tryCount = 0;
+        int maxTry = Math.min(Config.max_point_query_retry_time, candidateBackends.size());
+        do {
+            Backend backend = backendIter.next();
+            rowBatch = getNextInternal(status, backend);
+            ++tryCount;
+            if (rowBatch != null) {
+                break;
+            }
+            if (tryCount >= maxTry) {
+                break;
+            }
+            status.setStatus(Status.OK);
+        } while (true);
+        return rowBatch;
+    }
+
+    private RowBatch getNextInternal(Status status, Backend backend) throws TException {
         long timeoutTs = System.currentTimeMillis() + timeoutMs;
         RowBatch rowBatch = new RowBatch();
         InternalService.PTabletKeyLookupResponse pResult = null;
@@ -148,13 +181,14 @@ public class PointQueryExec {
                 requestBuilder.setUuid(uuidBuilder);
             }
             addKeyTuples(requestBuilder);
-            InternalService.PTabletKeyLookupRequest request = requestBuilder.build();
-            Future<InternalService.PTabletKeyLookupResponse> futureResponse =
-                    BackendServiceProxy.getInstance().fetchTabletDataAsync(address, request);
+
             while (pResult == null) {
+                InternalService.PTabletKeyLookupRequest request = requestBuilder.build();
+                Future<InternalService.PTabletKeyLookupResponse> futureResponse =
+                        BackendServiceProxy.getInstance().fetchTabletDataAsync(backend.getBrpcAdress(), request);
                 long currentTs = System.currentTimeMillis();
                 if (currentTs >= timeoutTs) {
-                    LOG.warn("fetch result timeout {}", address);
+                    LOG.warn("fetch result timeout {}", backend.getBrpcAdress());
                     status.setStatus("query timeout");
                     return null;
                 }
@@ -170,22 +204,22 @@ public class PointQueryExec {
                 }
             }
         } catch (RpcException e) {
-            LOG.warn("fetch result rpc exception {}", address);
+            LOG.warn("fetch result rpc exception {}", backend.getBrpcAdress());
             status.setRpcStatus(e.getMessage());
-            SimpleScheduler.addToBlacklist(backendID, e.getMessage());
+            SimpleScheduler.addToBlacklist(backend.getId(), e.getMessage());
             return null;
         } catch (ExecutionException e) {
-            LOG.warn("fetch result execution exception {}", address);
+            LOG.warn("fetch result execution exception {}", backend.getBrpcAdress());
             if (e.getMessage().contains("time out")) {
                 // if timeout, we set error code to TIMEOUT, and it will not retry querying.
                 status.setStatus(new Status(TStatusCode.TIMEOUT, e.getMessage()));
             } else {
                 status.setRpcStatus(e.getMessage());
-                SimpleScheduler.addToBlacklist(backendID, e.getMessage());
+                SimpleScheduler.addToBlacklist(backend.getId(), e.getMessage());
             }
             return null;
         } catch (TimeoutException e) {
-            LOG.warn("fetch result timeout {}", address);
+            LOG.warn("fetch result timeout {}", backend.getBrpcAdress());
             status.setStatus("query timeout");
             return null;
         }

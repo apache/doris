@@ -51,6 +51,32 @@ class ColumnIterator;
 
 struct ColumnPredicateInfo {
     ColumnPredicateInfo() = default;
+
+    std::string debug_string() const {
+        std::stringstream ss;
+        ss << "column_name=" << column_name << ", query_op=" << query_op
+           << ", query_value=" << query_value;
+        return ss.str();
+    }
+
+    bool is_empty() const { return column_name.empty() && query_value.empty() && query_op.empty(); }
+
+    bool is_equal(const ColumnPredicateInfo& column_pred_info) const {
+        if (column_pred_info.column_name != column_name) {
+            return false;
+        }
+
+        if (column_pred_info.query_value != query_value) {
+            return false;
+        }
+
+        if (column_pred_info.query_op != query_op) {
+            return false;
+        }
+
+        return true;
+    }
+
     std::string column_name;
     std::string query_value;
     std::string query_op;
@@ -167,7 +193,7 @@ private:
     void _output_non_pred_columns(vectorized::Block* block);
     Status _read_columns_by_rowids(std::vector<ColumnId>& read_column_ids,
                                    std::vector<rowid_t>& rowid_vector, uint16_t* sel_rowid_idx,
-                                   size_t select_size);
+                                   size_t select_size, vectorized::MutableColumns* mutable_columns);
 
     template <class Container>
     Status _output_column_by_sel_idx(vectorized::Block* block, const Container& column_ids,
@@ -202,6 +228,14 @@ private:
                                     const roaring::Roaring& index_result);
     void _output_index_result_column(uint16_t* sel_rowid_idx, uint16_t select_size,
                                      vectorized::Block* block);
+
+    bool _need_read_data(ColumnId cid);
+    bool _prune_column(ColumnId cid, vectorized::MutableColumnPtr& column, bool fill_defaults,
+                       size_t num_of_defaults);
+
+    // return true means one column's predicates all pushed down
+    bool _check_column_pred_all_push_down(const std::string& column_name, bool in_compound = false);
+    void _calculate_pred_in_remaining_vconjunct_root(const vectorized::VExpr* expr);
 
 private:
     // todo(wb) remove this method after RowCursor is removed
@@ -297,6 +331,7 @@ private:
     std::vector<ColumnId>
             _short_cir_pred_column_ids; // keep columnId of columns for short circuit predicate evaluation
     std::vector<bool> _is_pred_column; // columns hold by segmentIter
+    std::map<uint32_t, bool> _need_read_data_indices;
     vectorized::MutableColumns _current_return_columns;
     std::vector<ColumnPredicate*> _pre_eval_block_predicate;
     std::vector<ColumnPredicate*> _short_cir_eval_predicate;
@@ -320,8 +355,12 @@ private:
     doris::vectorized::VExpr* _remaining_vconjunct_root;
     std::vector<roaring::Roaring> _pred_except_leafnode_of_andnode_evaluate_result;
     std::unique_ptr<ColumnPredicateInfo> _column_predicate_info;
+    std::unordered_map<std::string, std::vector<ColumnPredicateInfo>>
+            _column_pred_in_remaining_vconjunct;
+    std::set<ColumnId> _not_apply_index_pred;
 
     std::shared_ptr<ColumnPredicate> _runtime_predicate {nullptr};
+    std::set<int32_t> _output_columns;
 
     // row schema of the key to seek
     // only used in `_get_row_ranges_by_keys`

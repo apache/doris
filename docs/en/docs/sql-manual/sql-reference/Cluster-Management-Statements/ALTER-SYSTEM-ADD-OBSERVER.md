@@ -32,7 +32,7 @@ ALTER SYSTEM ADD OBSERVER
 
 ### Description
 
-The change statement is to increase the node of the OBSERVER role of FRONTEND, (only for administrators!)
+This statement is to increase the node of the OBSERVER role of FRONTEND, (only for administrators!)
 
 grammar:
 
