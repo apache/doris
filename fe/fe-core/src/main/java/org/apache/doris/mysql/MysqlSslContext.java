@@ -178,6 +178,7 @@ public class MysqlSslContext {
                     // todo: refactor sendAndFlush.
                     serverNetData.flip();
                     channel.sendSslAndFlush(serverNetData);
+                    serverNetData.clear();
                     break;
                 }
                 // if BUFFER_OVERFLOW, need to wrap again, so we do nothing.
@@ -196,6 +197,7 @@ public class MysqlSslContext {
             while (true) {
                 SSLEngineResult sslEngineResult = sslEngine.unwrap(clientNetData, clientAppData);
                 if (handleUnwrapResult(sslEngineResult)) {
+                    clientAppData.clear();
                     break;
                 }
                 // if BUFFER_OVERFLOW or BUFFER_UNDERFLOW, need to unwrap again, so we do nothing.
@@ -215,7 +217,7 @@ public class MysqlSslContext {
                 return true;
             case CLOSED:
                 sslEngine.closeOutbound();
-                return true;
+                return false;
             case BUFFER_OVERFLOW:
                 // Could attempt to drain the serverNetData buffer of any already obtained
                 // data, but we'll just increase it to the size needed.
