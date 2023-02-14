@@ -181,6 +181,13 @@ The rules of dynamic partition are prefixed with `dynamic_partition.`:
 
     Otherwise, every `[...,...]` in `reserved_history_periods` is a couple of properties, and they should be set at the same time. And the first date can't be larger than the second one.
 
+- `dynamic_partition.storage_medium`
+
+   <version since="dev"></version>
+
+   Specifies the default storage medium for the created dynamic partition. HDD is the default, SSD can be selected.
+
+   Note that when set to SSD, the `hot_partition_num` property will no longer take effect, all partitions will default to SSD storage media and the cooldown time will be 9999-12-31 23:59:59.
 
 #### Create History Partition Rules
 
