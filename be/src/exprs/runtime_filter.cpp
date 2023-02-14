@@ -1159,7 +1159,7 @@ bool IRuntimeFilter::await() {
     DCHECK(is_consumer());
     // bitmap filter is precise filter and only filter once, so it must be applied.
     int64_t wait_times_ms = _wrapper->get_real_type() == RuntimeFilterType::BITMAP_FILTER
-                                    ? _state->query_options().query_timeout
+                                    ? _state->execution_timeout()
                                     : _state->runtime_filter_wait_time_ms();
     if (_state->enable_pipeline_exec()) {
         auto expected = _rf_state_atomic.load(std::memory_order_acquire);
@@ -1209,7 +1209,7 @@ bool IRuntimeFilter::is_ready_or_timeout() {
     auto cur_state = _rf_state_atomic.load(std::memory_order_acquire);
     // bitmap filter is precise filter and only filter once, so it must be applied.
     int64_t wait_times_ms = _wrapper->get_real_type() == RuntimeFilterType::BITMAP_FILTER
-                                    ? _state->query_options().query_timeout
+                                    ? _state->execution_timeout()
                                     : _state->runtime_filter_wait_time_ms();
     int64_t ms_since_registration = MonotonicMillis() - registration_time_;
     if (!_state->enable_pipeline_exec()) {

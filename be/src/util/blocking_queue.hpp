@@ -64,37 +64,6 @@ public:
         }
     }
 
-    /// Puts an element into the queue, waiting until 'timeout_micros' elapses, if there is
-    /// no space. If the queue is shut down, or if the timeout elapsed without being able to
-    /// put the element, returns false.
-    /*
-    bool blocking_put_with_timeout(const T& val, int64_t timeout_micros) {
-        MonotonicStopWatch timer;
-        std::unique_lock<std::mutex> write_lock(_lock);
-        std::system_time wtime = std::get_system_time() +
-            std::posix_time::microseconds(timeout_micros);
-        const struct timespec timeout = std::detail::to_timespec(wtime);
-        bool notified = true;
-        while (SizeLocked(write_lock) >= _max_elements && !_shutdown && notified) {
-            timer.Start();
-            // Wait until we're notified or until the timeout expires.
-            notified = _put_cv.TimedWait(write_lock, &timeout);
-            timer.Stop();
-        }
-        _total_put_wait_time += timer.ElapsedTime();
-        // If the list is still full or if the the queue has been shut down, return false.
-        // NOTE: We don't check 'notified' here as it appears that pthread condition variables
-        // have a weird behavior in which they can return ETIMEDOUT from timed_wait even if
-        // another thread did in fact signal
-        if (SizeLocked(write_lock) >= _max_elements || _shutdown) return false;
-        DCHECK_LT(put_list_.size(), _max_elements);
-        _list.push_back(val);
-        write_lock.unlock();
-        _get_cv.NotifyOne();
-        return true;
-    }
-    */
-
     // Puts an element into the queue, waiting indefinitely until there is space.
     // If the queue is shut down, returns false.
     bool blocking_put(const T& val) {

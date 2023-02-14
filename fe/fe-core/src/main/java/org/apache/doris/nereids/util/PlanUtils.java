@@ -18,12 +18,9 @@
 package org.apache.doris.nereids.util;
 
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
-import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
-import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
@@ -31,18 +28,6 @@ import java.util.Set;
  * Util for plan
  */
 public class PlanUtils {
-    public static Optional<LogicalProject<? extends Plan>> project(List<NamedExpression> projectExprs, Plan plan) {
-        if (projectExprs.isEmpty()) {
-            return Optional.empty();
-        }
-
-        return Optional.of(new LogicalProject<>(projectExprs, plan));
-    }
-
-    public static Plan projectOrSelf(List<NamedExpression> projectExprs, Plan plan) {
-        return project(projectExprs, plan).map(Plan.class::cast).orElse(plan);
-    }
-
     public static Optional<LogicalFilter<? extends Plan>> filter(Set<Expression> predicates, Plan plan) {
         if (predicates.isEmpty()) {
             return Optional.empty();

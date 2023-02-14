@@ -49,6 +49,42 @@ namespace vectorized {
 class VExprContext;
 class Channel;
 
+template <typename T>
+struct AtomicWrapper {
+    std::atomic<T> _value;
+
+    AtomicWrapper() : _value() {}
+
+    AtomicWrapper(const std::atomic<T>& a) : _value(a.load()) {}
+
+    AtomicWrapper(const AtomicWrapper& other) : _value(other._value.load()) {}
+
+    AtomicWrapper& operator=(const AtomicWrapper& other) { _value.store(other._a.load()); }
+};
+
+// We use BroadcastPBlockHolder to hold a broadcasted PBlock. For broadcast shuffle, one PBlock
+// will be shared between different channel, so we have to use a ref count to mark if this
+// PBlock is available for next serialization.
+class BroadcastPBlockHolder {
+public:
+    BroadcastPBlockHolder() : _ref_count(0) {}
+    ~BroadcastPBlockHolder() noexcept = default;
+
+    void unref() noexcept {
+        DCHECK_GT(_ref_count._value, 0);
+        _ref_count._value.fetch_sub(1);
+    }
+    void ref() noexcept { _ref_count._value.fetch_add(1); }
+
+    bool available() { return _ref_count._value == 0; }
+
+    PBlock* get_block() { return &pblock; }
+
+private:
+    AtomicWrapper<uint32_t> _ref_count;
+    PBlock pblock;
+};
+
 class VDataStreamSender : public DataSink {
 public:
     friend class pipeline::ExchangeSinkOperator;
@@ -91,6 +127,7 @@ protected:
     friend class pipeline::ExchangeSinkBuffer;
 
     void _roll_pb_block();
+    Status _get_next_available_buffer(BroadcastPBlockHolder** holder);
 
     Status get_partition_column_result(Block* block, int* result) const {
         int counter = 0;
@@ -130,6 +167,10 @@ protected:
     PBlock _pb_block1;
     PBlock _pb_block2;
     PBlock* _cur_pb_block;
+
+    // used by pipeline engine
+    std::vector<BroadcastPBlockHolder> _broadcast_pb_blocks;
+    int _broadcast_pb_block_idx;
 
     // compute per-row partition values
     std::vector<VExprContext*> _partition_expr_ctxs;
@@ -218,6 +259,10 @@ public:
     // rpc (or OK if there wasn't one that hasn't been reported yet).
     // if batch is nullptr, send the eof packet
     virtual Status send_block(PBlock* block, bool eos = false);
+
+    virtual Status send_block(BroadcastPBlockHolder* block, bool eos = false) {
+        return Status::InternalError("Send BroadcastPBlockHolder is not allowed!");
+    }
 
     Status add_rows(Block* block, const std::vector<int>& row);
 
@@ -369,8 +414,21 @@ public:
             }
         }
         if (eos || block->column_metas_size()) {
-            RETURN_IF_ERROR(_buffer->add_block(
-                    {this, block ? std::make_unique<PBlock>(*block) : nullptr, eos}));
+            RETURN_IF_ERROR(_buffer->add_block({this, block, eos}));
+        }
+        return Status::OK();
+    }
+
+    Status send_block(BroadcastPBlockHolder* block, bool eos = false) override {
+        if (eos) {
+            if (_eos_send) {
+                return Status::OK();
+            } else {
+                _eos_send = true;
+            }
+        }
+        if (eos || block->get_block()->column_metas_size()) {
+            RETURN_IF_ERROR(_buffer->add_block({this, block, eos}));
         }
         return Status::OK();
     }

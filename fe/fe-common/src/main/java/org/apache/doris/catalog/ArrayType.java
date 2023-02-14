@@ -160,6 +160,16 @@ public class ArrayType extends Type {
     }
 
     @Override
+    public boolean supportSubType(Type subType) {
+        for (Type supportedType : getArraySubTypes()) {
+            if (subType.getPrimitiveType() == supportedType.getPrimitiveType()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    @Override
     public String toString() {
         return toSql(0).toUpperCase();
     }

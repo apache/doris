@@ -113,4 +113,9 @@ suite("bind_priority") {
         from bind_priority_tbl join bind_priority_tbl2 on bind_priority_tbl.a=bind_priority_tbl2.a 
         order by b;
         """
+
+    test{
+        sql "SELECT a,2 as a FROM (SELECT '1' as a) b HAVING a=1"
+        exception "Unexpected exception: a is ambiguous: a#0, a#1."
+    }
 }

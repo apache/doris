@@ -87,7 +87,7 @@ public:
     const char* get_family_name() const override { return "Array"; }
     bool is_column_array() const override { return true; }
     bool can_be_inside_nullable() const override { return true; }
-    TypeIndex get_data_type() const { return TypeIndex::Array; }
+    TypeIndex get_data_type() const override { return TypeIndex::Array; }
     MutableColumnPtr clone_resized(size_t size) const override;
     size_t size() const override;
     Field operator[](size_t n) const override;
@@ -106,7 +106,8 @@ public:
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
     //ColumnPtr index(const IColumn & indexes, size_t limit) const;
-    //template <typename Type> ColumnPtr index_impl(const PaddedPODArray<Type> & indexes, size_t limit) const;
+    template <typename Type>
+    ColumnPtr index_impl(const PaddedPODArray<Type>& indexes, size_t limit) const;
     [[noreturn]] int compare_at(size_t n, size_t m, const IColumn& rhs_,
                                 int nan_direction_hint) const override {
         LOG(FATAL) << "compare_at not implemented";
@@ -177,6 +178,22 @@ public:
     }
 
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override;
+    size_t get_number_of_dimensions() const {
+        const auto* nested_array = check_and_get_column<ColumnArray>(*data);
+        if (!nested_array) {
+            return 1;
+        }
+        return 1 +
+               nested_array
+                       ->get_number_of_dimensions(); /// Every modern C++ compiler optimizes tail recursion.
+    }
+
+    void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
+                                         size_t limit) const override {
+        return get_indices_of_non_default_rows_impl<ColumnArray>(indices, from, limit);
+    }
+
+    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
 
 private:
     WrappedPtr data;

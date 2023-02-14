@@ -1097,14 +1097,22 @@ void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* contro
                                          const PMultiGetRequest* request,
                                          PMultiGetResponse* response,
                                          google::protobuf::Closure* done) {
-    // multi get data by rowid
-    MonotonicStopWatch watch;
-    watch.start();
-    brpc::ClosureGuard closure_guard(done);
-    response->mutable_status()->set_status_code(0);
-    Status st = _multi_get(request, response);
-    st.to_protobuf(response->mutable_status());
-    LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
+    // Submit task to seperate ThreadPool for avoiding block bthread working pthread
+    ThreadPool* task_pool = StorageEngine::instance()->get_bg_multiget_threadpool();
+    Status submit_st = task_pool->submit_func([request, response, done, this]() {
+        // multi get data by rowid
+        MonotonicStopWatch watch;
+        watch.start();
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(0);
+        Status st = _multi_get(request, response);
+        st.to_protobuf(response->mutable_status());
+        LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
+    });
+    if (!submit_st.ok()) {
+        submit_st.to_protobuf(response->mutable_status());
+        done->Run();
+    }
 }
 
 } // namespace doris

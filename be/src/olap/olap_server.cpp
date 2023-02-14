@@ -103,6 +103,10 @@ Status StorageEngine::start_bg_threads() {
             .set_max_threads(max_checkpoint_thread_num)
             .build(&_tablet_meta_checkpoint_thread_pool);
 
+    ThreadPoolBuilder("MultiGetTaskThreadPool")
+            .set_min_threads(config::multi_get_max_threads)
+            .set_max_threads(config::multi_get_max_threads)
+            .build(&_bg_multi_get_thread_pool);
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "tablet_checkpoint_tasks_producer_thread",
             [this, data_dirs]() { this->_tablet_checkpoint_callback(data_dirs); },
@@ -151,6 +155,12 @@ Status StorageEngine::start_bg_threads() {
             [this]() { this->_cooldown_tasks_producer_callback(); },
             &_cooldown_tasks_producer_thread));
     LOG(INFO) << "cooldown tasks producer thread started";
+
+    RETURN_IF_ERROR(Thread::create(
+            "StorageEngine", "remove_unused_remote_files_thread",
+            [this]() { this->_remove_unused_remote_files_callback(); },
+            &_remove_unused_remote_files_thread));
+    LOG(INFO) << "remove unused remote files thread started";
 
     RETURN_IF_ERROR(Thread::create(
             "StorageEngine", "cache_file_cleaner_tasks_producer_thread",
@@ -692,63 +702,57 @@ Status StorageEngine::submit_seg_compaction_task(BetaRowsetWriter* writer,
 void StorageEngine::_cooldown_tasks_producer_callback() {
     int64_t interval = config::generate_cooldown_task_interval_sec;
     do {
-        if (_cooldown_thread_pool->get_queue_size() > 0) {
-            continue;
-        }
+        // these tables are ordered by priority desc
         std::vector<TabletSharedPtr> tablets;
         // TODO(luwei) : a more efficient way to get cooldown tablets
-        _tablet_manager->get_cooldown_tablets(&tablets);
+        // we should skip all the tablets which are not running and those pending to do cooldown
+        auto skip_tablet = [this](const TabletSharedPtr& tablet) -> bool {
+            std::lock_guard<std::mutex> lock(_running_cooldown_mutex);
+            return TABLET_RUNNING != tablet->tablet_state() ||
+                   _running_cooldown_tablets.find(tablet->tablet_id()) ==
+                           _running_cooldown_tablets.end();
+        };
+        _tablet_manager->get_cooldown_tablets(&tablets, std::move(skip_tablet));
         LOG(INFO) << "cooldown producer get tablet num: " << tablets.size();
+        int max_priority = tablets.size();
         for (const auto& tablet : tablets) {
-            Status st = _cooldown_thread_pool->submit_func([tablet, tablets, this]() {
-                {
-                    // Cooldown tasks on the same tablet cannot be executed concurrently
-                    std::lock_guard<std::mutex> lock(_running_cooldown_mutex);
-                    auto it = _running_cooldown_tablets.find(tablet->tablet_id());
-                    if (it != _running_cooldown_tablets.end()) {
-                        return;
-                    }
-
-                    // the number of concurrent cooldown tasks in each directory
-                    // cannot exceed the configured value
-                    auto dir_it = _running_cooldown_tasks_cnt.find(tablet->data_dir());
-                    if (dir_it != _running_cooldown_tasks_cnt.end() &&
-                        dir_it->second >= config::concurrency_per_dir) {
-                        return;
-                    }
-
-                    _running_cooldown_tablets.insert(tablet->tablet_id());
-                    dir_it = _running_cooldown_tasks_cnt.find(tablet->data_dir());
-                    if (dir_it != _running_cooldown_tasks_cnt.end()) {
-                        _running_cooldown_tasks_cnt[tablet->data_dir()]++;
-                    } else {
-                        _running_cooldown_tasks_cnt[tablet->data_dir()] = 1;
-                    }
-                }
-
+            {
+                std::lock_guard<std::mutex> lock(_running_cooldown_mutex);
+                _running_cooldown_tablets.insert(tablet->tablet_id());
+            }
+            PriorityThreadPool::Task task;
+            task.work_function = [tablet, task_size = tablets.size(), this]() {
                 Status st = tablet->cooldown();
+                {
+                    std::lock_guard<std::mutex> lock(_running_cooldown_mutex);
+                    _running_cooldown_tablets.erase(tablet->tablet_id());
+                }
                 if (!st.ok()) {
                     LOG(WARNING) << "failed to cooldown, tablet: " << tablet->tablet_id()
                                  << " err: " << st;
                 } else {
                     LOG(INFO) << "succeed to cooldown, tablet: " << tablet->tablet_id()
                               << " cooldown progress ("
-                              << tablets.size() - _cooldown_thread_pool->get_queue_size() << "/"
-                              << tablets.size() << ")";
+                              << task_size - _cooldown_thread_pool->get_queue_size() << "/"
+                              << task_size << ")";
                 }
+            };
+            task.priority = max_priority--;
+            bool submited = _cooldown_thread_pool->offer(std::move(task));
 
-                {
-                    std::lock_guard<std::mutex> lock(_running_cooldown_mutex);
-                    _running_cooldown_tasks_cnt[tablet->data_dir()]--;
-                    _running_cooldown_tablets.erase(tablet->tablet_id());
-                }
-            });
-
-            if (!st.ok()) {
-                LOG(INFO) << "failed to submit cooldown task, err msg: " << st;
+            if (!submited) {
+                LOG(INFO) << "failed to submit cooldown task";
             }
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(interval)));
+}
+
+void StorageEngine::_remove_unused_remote_files_callback() {
+    while (!_stop_background_threads_latch.wait_for(
+            std::chrono::seconds(config::remove_unused_remote_files_interval_sec))) {
+        LOG(INFO) << "begin to remove unused remote files";
+        Tablet::remove_unused_remote_files();
+    }
 }
 
 void StorageEngine::_cache_file_cleaner_tasks_producer_callback() {

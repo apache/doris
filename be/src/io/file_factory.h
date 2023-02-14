@@ -80,10 +80,6 @@ public:
     // Create FileReader for stream load pipe
     static Status create_pipe_reader(const TUniqueId& load_id, io::FileReaderSPtr* file_reader);
 
-    // [deprecated] Create FileReader for stream load pipe
-    static Status create_pipe_reader(const TUniqueId& load_id,
-                                     std::shared_ptr<FileReader>& file_reader);
-
     static Status create_hdfs_reader(const THdfsParams& hdfs_params, const std::string& path,
                                      std::shared_ptr<io::FileSystem>* hdfs_file_system,
                                      io::FileReaderSPtr* reader,

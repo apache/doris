@@ -125,7 +125,9 @@ Status VExchangeNode::get_next(RuntimeState* state, Block* block, bool* eos) {
         block->clear();
     }
     auto status = _stream_recvr->get_next(block, eos);
-    if (!*eos) {
+    // In vsortrunmerger, it will set eos=true, and block not empty
+    // so that eos==true, could not make sure that block not have valid data
+    if (!*eos || block->rows() > 0) {
         if (!_is_merging) {
             if (_num_rows_skipped + block->rows() < _offset) {
                 _num_rows_skipped += block->rows();

@@ -32,7 +32,7 @@ ALTER SYSTEM DROP FOLLOWER
 
 ### Description
 
-The change statement is to increase the node of the FOLLOWER role of FRONTEND, (only for administrators!)
+This statement is to delete the node of the FOLLOWER role of FRONTEND, (only for administrators!)
 
 grammar:
 

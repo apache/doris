@@ -51,7 +51,6 @@ MySQL [(none)]> desc information_schema.rowsets;
 | INDEX_DISK_SIZE        | BIGINT     | Yes  | false | NULL    |       |
 | DATA_DISK_SIZE         | BIGINT     | Yes  | false | NULL    |       |
 | CREATION_TIME          | BIGINT     | Yes  | false | NULL    |       |
-| OLDEST_WRITE_TIMESTAMP | BIGINT     | Yes  | false | NULL    |       |
 | NEWEST_WRITE_TIMESTAMP | BIGINT     | Yes  | false | NULL    |       |
 +------------------------+------------+------+-------+---------+-------+
 ```

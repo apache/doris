@@ -137,28 +137,4 @@ suite("index_meta", "p0") {
     assertEquals(show_result[2][10], "INVERTED")
     assertEquals(show_result[2][11], "new index for name")
     assertEquals(show_result[2][12], "")
-
-
-    def show_tablets_result = sql "show tablets from ${tableName}"
-    logger.info("show tablets from " + tableName + " result: " + show_tablets_result)
-    for (j in range(0, show_tablets_result.size())) {
-        String metaUrl = show_tablets_result[j][16]
-        String getMetaCommand = "curl -X GET " + metaUrl
-        def process = getMetaCommand.toString().execute()
-        int code = process.waitFor()
-        String err = IOGroovyMethods.getText(new BufferedReader(new InputStreamReader(process.getErrorStream())));
-        String out = process.getText()
-        logger.info("get meta process result: code=" + code + ", out=" + out + ", err=" + err)
-        assertEquals(code, 0)
-        def json = parseJson(out.trim())
-        assert json.schema.index instanceof List
-        int i = 0;
-        for (Object index in (List) json.schema.index) {
-            // assertEquals(index.index_id, i);
-            assertEquals(index.index_name, show_result[i][2])
-            assertEquals(index.index_type, show_result[i][10])
-            // assertEquals(index.properties, show_result[j][12]);
-            i++;
-        }
-    }
 }

@@ -74,4 +74,16 @@ void IColumn::append_data_by_selector_impl(MutablePtr& res, const Selector& sele
         static_cast<Derived&>(*res).insert_from(*this, selector[i]);
 }
 
+template <typename Derived>
+void IColumn::get_indices_of_non_default_rows_impl(IColumn::Offsets64& indices, size_t from,
+                                                   size_t limit) const {
+    size_t to = limit && from + limit < size() ? from + limit : size();
+    indices.reserve(indices.size() + to - from);
+    for (size_t i = from; i < to; ++i) {
+        if (!static_cast<const Derived&>(*this).is_default_at(i)) {
+            indices.push_back(i);
+        }
+    }
+}
+
 } // namespace doris::vectorized

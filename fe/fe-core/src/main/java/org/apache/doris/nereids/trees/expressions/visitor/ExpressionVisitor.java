@@ -73,12 +73,15 @@ import org.apache.doris.nereids.trees.expressions.UnaryOperator;
 import org.apache.doris.nereids.trees.expressions.VariableDesc;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunction;
 import org.apache.doris.nereids.trees.expressions.literal.ArrayLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -103,7 +106,8 @@ import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
  */
 public abstract class ExpressionVisitor<R, C>
         implements ScalarFunctionVisitor<R, C>, AggregateFunctionVisitor<R, C>,
-        TableValuedFunctionVisitor<R, C>, TableGeneratingFunctionVisitor<R, C> {
+        TableValuedFunctionVisitor<R, C>, TableGeneratingFunctionVisitor<R, C>,
+        WindowFunctionVisitor<R, C> {
 
     public abstract R visit(Expression expr, C context);
 
@@ -125,6 +129,11 @@ public abstract class ExpressionVisitor<R, C>
     @Override
     public R visitTableGeneratingFunction(TableGeneratingFunction tableGeneratingFunction, C context) {
         return visitBoundFunction(tableGeneratingFunction, context);
+    }
+
+    @Override
+    public R visitWindowFunction(WindowFunction windowFunction, C context) {
+        return visitBoundFunction(windowFunction, context);
     }
 
     public R visitBoundFunction(BoundFunction boundFunction, C context) {
@@ -409,6 +418,14 @@ public abstract class ExpressionVisitor<R, C>
 
     public R visitOrderExpression(OrderExpression orderExpression, C context) {
         return visit(orderExpression, context);
+    }
+
+    public R visitWindow(WindowExpression windowExpression, C context) {
+        return visit(windowExpression, context);
+    }
+
+    public R visitWindowFrame(WindowFrame windowFrame, C context) {
+        return visit(windowFrame, context);
     }
 
     /* ********************************************************************************************
