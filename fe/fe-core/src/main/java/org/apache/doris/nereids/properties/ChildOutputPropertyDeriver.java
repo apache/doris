@@ -34,7 +34,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -99,15 +98,6 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             default:
                 throw new RuntimeException("Could not derive output properties for agg phase: " + agg.getAggPhase());
         }
-    }
-
-    @Override
-    public PhysicalProperties visitPhysicalLocalQuickSort(
-            PhysicalLocalQuickSort<? extends Plan> sort, PlanContext context) {
-        Preconditions.checkState(childrenOutputProperties.size() == 1);
-        return new PhysicalProperties(
-                childrenOutputProperties.get(0).getDistributionSpec(),
-                new OrderSpec(sort.getOrderKeys()));
     }
 
     @Override
