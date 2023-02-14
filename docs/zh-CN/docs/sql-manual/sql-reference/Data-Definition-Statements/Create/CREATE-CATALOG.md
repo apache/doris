@@ -138,7 +138,7 @@ CREATE CATALOG catalog_name PROPERTIES (
 		"driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
 		"driver_class" = "com.mysql.cj.jdbc.Driver"
 	);
-	CREATE CATALOG jdbc WITH RESOURCE msyql_resource;
+	CREATE CATALOG jdbc WITH RESOURCE mysql_resource;
 
 	-- 1.2.0 版本
 	CREATE CATALOG jdbc PROPERTIES (
