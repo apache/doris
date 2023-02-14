@@ -120,4 +120,83 @@ suite("test_subquery_in_disjunction") {
     qt_two_subquery_in_one_conjuncts """
         SELECT * FROM test_sq_dj1 WHERE c1 IN (SELECT c1 FROM test_sq_dj2) OR c1 IN (SELECT c2 FROM test_sq_dj2) OR c1 < 10 ORDER BY c1;
     """
+
+    // test mark join that one probe row matches multiple build rows
+    sql """drop table if exists sub_query_correlated_subquery1;"""
+    sql """create table if not exists sub_query_correlated_subquery1
+        (k1 bigint, k2 bigint)
+        duplicate key(k1)
+        distributed by hash(k2) buckets 1
+        properties('replication_num' = '1');"""
+
+    sql """drop table if exists sub_query_correlated_subquery3;"""
+    sql """create table if not exists sub_query_correlated_subquery3
+        (kk1 int not null, k2 varchar(128), k3 bigint, v1 bigint, v2 bigint)
+        distributed by hash(k2) buckets 1
+        properties('replication_num' = '1');"""
+
+    sql """
+        insert into
+            sub_query_correlated_subquery1
+        values
+            (1, 2),
+            (1, 3),
+            (2, 4),
+            (2, 5),
+            (3, 3),
+            (3, 4),
+            (20, 2),
+            (22, 3),
+            (24, 4);
+    """
+    sql """
+        insert into
+            sub_query_correlated_subquery3
+        values
+            (1, "abc", 2, 3, 4),
+            (1, "abcd", 3, 3, 4),
+            (2, "xyz", 2, 4, 2),
+            (2, "uvw", 3, 4, 2),
+            (2, "uvw", 3, 4, 2),
+            (3, "abc", 4, 5, 3),
+            (3, "abc", 4, 5, 3);
+    """
+
+    qt_mark_join_with_other_conjuncts1 """
+        SELECT
+            *
+        FROM
+            sub_query_correlated_subquery1
+        WHERE
+            k1 IN (
+                SELECT
+                    kk1
+                FROM
+                    sub_query_correlated_subquery3
+                WHERE
+                    sub_query_correlated_subquery1.k1 > sub_query_correlated_subquery3.k3
+            )
+            OR k1 < 10
+        ORDER BY
+            k1, k2;
+    """
+
+    qt_mark_join_with_other_conjuncts2 """
+        SELECT
+            *
+        FROM
+            sub_query_correlated_subquery1
+        WHERE
+            k1 IN (
+                SELECT
+                    kk1
+                FROM
+                    sub_query_correlated_subquery3
+                WHERE
+                    sub_query_correlated_subquery1.k1 != sub_query_correlated_subquery3.k3
+            )
+            OR k1 < 10
+        ORDER BY
+            k1, k2;
+    """
 }
