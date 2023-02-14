@@ -1849,6 +1849,12 @@ Status Tablet::_follow_cooldowned_data(io::RemoteFileSystem* fs, int64_t cooldow
     LOG(INFO) << "try to follow cooldowned data. tablet_id=" << tablet_id()
               << " cooldown_replica_id=" << cooldown_replica_id
               << " local replica=" << replica_id();
+    // MUST executing serially with cold data compaction, because compaction input rowsets may be deleted by this function
+    std::unique_lock cold_compaction_lock(_cold_compaction_lock, std::try_to_lock);
+    if (!cold_compaction_lock.owns_lock()) {
+        return Status::Error<TRY_LOCK_FAILED>("try cold_compaction_lock failed");
+    }
+
     TabletMetaPB cooldown_meta_pb;
     RETURN_IF_ERROR(_read_cooldown_meta(fs, cooldown_replica_id, &cooldown_meta_pb));
     DCHECK(cooldown_meta_pb.rs_metas_size() > 0);

@@ -833,6 +833,11 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
                     std::lock_guard lock(tablet_submitted_mtx);
                     tablet_submitted.insert(t->tablet_id());
                 }
+                std::unique_lock cold_compaction_lock(t->get_cold_compaction_lock(),
+                                                      std::try_to_lock);
+                if (!cold_compaction_lock.owns_lock()) {
+                    LOG(WARNING) << "try cold_compaction_lock failed, tablet_id=" << t->tablet_id();
+                }
                 auto st = compaction->compact();
                 {
                     std::lock_guard lock(tablet_submitted_mtx);
