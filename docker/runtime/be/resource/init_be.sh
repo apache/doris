@@ -121,6 +121,15 @@ docker_process_sql() {
   mysql -uroot -P9030 -h${MASTER_FE_IP} --comments "$@" 2>/dev/null
 }
 
+node_role_conf(){
+  if [[ ${NODE_ROLE} == 'computation' ]]; then
+    doris_note "this node role is computation"
+    echo "be_node_role=computation" >>${DORIS_HOME}/be/conf/be.conf
+  else
+    doris_note "this node role is mix"
+  fi
+}
+
 register_be_to_fe() {
   set +e
   # check fe status
@@ -198,6 +207,7 @@ _main() {
 
   if [ -z "$DATABASE_ALREADY_EXISTS" ]; then
     add_priority_networks $PRIORITY_NETWORKS
+    node_role_conf
   fi
 
   register_be_to_fe
