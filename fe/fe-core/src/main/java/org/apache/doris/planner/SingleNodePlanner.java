@@ -1346,33 +1346,30 @@ public class SingleNodePlanner {
                 }
 
                 // select index by the new Materialized selector
-                MaterializedViewSelector.BestIndexInfo bestIndexInfo
-                        = materializedViewSelector.selectBestMV(olapScanNode);
+                MaterializedViewSelector.BestIndexInfo bestIndexInfo = materializedViewSelector
+                        .selectBestMV(olapScanNode);
+                boolean tupleSelectFailed = false;
                 if (bestIndexInfo == null) {
-                    selectFailed = true;
-                    TupleId tupleId = olapScanNode.getTupleId();
-                    selectStmt.updateDisableTuplesMVRewriter(tupleId);
-                    LOG.debug("MV rewriter of tuple [] will be disable", tupleId);
-                    continue;
-                }
-                try {
-                    // if the new selected index id is different from the old one, scan node will be
-                    // updated.
-                    olapScanNode.updateScanRangeInfoByNewMVSelector(bestIndexInfo.getBestIndexId(),
-                            bestIndexInfo.isPreAggregation(), bestIndexInfo.getReasonOfDisable());
+                    tupleSelectFailed = true;
+                } else {
+                    try {
+                        // if the new selected index id is different from the old one, scan node will be
+                        // updated.
+                        olapScanNode.updateScanRangeInfoByNewMVSelector(bestIndexInfo.getBestIndexId(),
+                                bestIndexInfo.isPreAggregation(), bestIndexInfo.getReasonOfDisable());
 
-                    if (selectStmt.getAggInfo() != null) {
-                        selectStmt.getAggInfo().updateTypeOfAggregateExprs();
+                        if (selectStmt.getAggInfo() != null) {
+                            selectStmt.getAggInfo().updateTypeOfAggregateExprs();
+                        }
+                    } catch (Exception e) {
+                        tupleSelectFailed = true;
                     }
-                } catch (Exception e) {
+                }
+                if (tupleSelectFailed) {
                     selectFailed = true;
-                    TupleId tupleId = olapScanNode.getTupleId();
-                    selectStmt.updateDisableTuplesMVRewriter(tupleId);
-                    LOG.debug("MV rewriter of tuple [] will be disable", tupleId);
-                    continue;
+                    selectStmt.updateDisableTuplesMVRewriter(olapScanNode.getTupleId());
                 }
             }
-
         } else {
             Preconditions.checkState(queryStmt instanceof SetOperationStmt);
             SetOperationStmt unionStmt = (SetOperationStmt) queryStmt;

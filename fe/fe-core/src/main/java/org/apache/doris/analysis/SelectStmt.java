@@ -88,11 +88,13 @@ public class SelectStmt extends QueryStmt {
     protected final FromClause fromClause;
     protected GroupByClause groupByClause;
     private List<Expr> originalExpr;
-    //
+
     private Expr havingClause;  // original having clause
     protected Expr whereClause;
     // havingClause with aliases and agg output resolved
     private Expr havingPred;
+
+    private Expr originalWhereClause;
 
     // set if we have any kind of aggregation operation, include SELECT DISTINCT
     private AggregateInfo aggInfo;
@@ -155,6 +157,9 @@ public class SelectStmt extends QueryStmt {
             this.fromClause = fromClause;
         }
         this.whereClause = wherePredicate;
+        if (whereClause != null) {
+            this.originalWhereClause = whereClause.clone();
+        }
         this.groupByClause = groupByClause;
         this.havingClause = havingPredicate;
 
@@ -171,6 +176,7 @@ public class SelectStmt extends QueryStmt {
         selectList = other.selectList.clone();
         fromClause = other.fromClause.clone();
         whereClause = (other.whereClause != null) ? other.whereClause.clone() : null;
+        originalWhereClause = (other.originalWhereClause != null) ? other.originalWhereClause.clone() : null;
         groupByClause = (other.groupByClause != null) ? other.groupByClause.clone() : null;
         havingClause = (other.havingClause != null) ? other.havingClause.clone() : null;
         havingClauseAfterAnaylzed =
@@ -212,11 +218,8 @@ public class SelectStmt extends QueryStmt {
         if (getAggInfo() != null && getAggInfo().getGroupingExprs() != null) {
             exprs.addAll(getAggInfo().getGroupingExprs());
         }
-        if (originResultExprs != null) {
-            exprs.addAll(originResultExprs);
-        }
-        if (havingClause != null) {
-            exprs.add(havingClause);
+        if (resultExprs != null) {
+            exprs.addAll(resultExprs);
         }
         if (havingPred != null) {
             exprs.add(havingPred);
@@ -240,6 +243,14 @@ public class SelectStmt extends QueryStmt {
     public void resetSelectList() {
         if (originSelectList != null) {
             selectList = originSelectList;
+        }
+        if (whereClause != null) {
+            whereClause = originalWhereClause;
+        }
+        for (TableRef tableRef : getTableRefs()) {
+            if (tableRef instanceof InlineViewRef) {
+                ((InlineViewRef) tableRef).getViewStmt().resetSelectList();
+            }
         }
     }
 
@@ -444,6 +455,23 @@ public class SelectStmt extends QueryStmt {
             return;
         }
         super.analyze(analyzer);
+
+        if (mvSMap.size() != 0) {
+            mvSMap.useNotCheckDescIdEquals();
+            for (TableRef tableRef : getTableRefs()) {
+                if (tableRef.getOnClause() == null) {
+                    continue;
+                }
+                try {
+                    Expr expr = tableRef.getOnClause();
+                    if (CreateMaterializedViewStmt.isMVColumn(expr.toSqlWithoutTbl())) {
+                        tableRef.setOnClause(expr.trySubstitute(mvSMap, analyzer, false));
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }
         fromClause.setNeedToSql(needToSql);
         fromClause.analyze(analyzer);
         // Generate !empty() predicates to filter out empty collections.
@@ -493,8 +521,7 @@ public class SelectStmt extends QueryStmt {
                             && item.getExpr().contains(Predicates.instanceOf(Subquery.class))) {
                         throw new AnalysisException("Subquery is not supported in the select list.");
                     }
-                    Expr expr = rewriteQueryExprByMvColumnExpr(item.getExpr(), analyzer);
-                    resultExprs.add(expr);
+                    resultExprs.add(rewriteQueryExprByMvColumnExpr(item.getExpr(), analyzer));
                     SlotRef aliasRef = new SlotRef(null, item.toColumnLabel());
                     Expr existingAliasExpr = aliasSMap.get(aliasRef);
                     if (existingAliasExpr != null && !existingAliasExpr.equals(item.getExpr())) {
@@ -542,7 +569,7 @@ public class SelectStmt extends QueryStmt {
                 if (expr instanceof DefaultValueExpr) {
                     resultExprs.add(new IntLiteral(1));
                 } else {
-                    resultExprs.add(expr);
+                    resultExprs.add(rewriteQueryExprByMvColumnExpr(expr, analyzer));
                 }
                 colLabels.add(expr.toColumnLabel());
             }
@@ -566,6 +593,7 @@ public class SelectStmt extends QueryStmt {
                         "cannot combine SELECT DISTINCT with analytic functions");
             }
         }
+
         whereClauseRewrite();
         if (whereClause != null) {
             if (checkGroupingFn(whereClause)) {
@@ -584,6 +612,18 @@ public class SelectStmt extends QueryStmt {
             }
             analyzer.registerConjuncts(whereClause, false, getTableRefIds());
         }
+
+        if (whereClause != null) {
+            whereClause = rewriteQueryExprByMvColumnExpr(whereClause, analyzer);
+        }
+
+        for (TableRef tableRef : getTableRefs()) {
+            if (tableRef.getOnClause() == null) {
+                continue;
+            }
+            tableRef.setOnClause(rewriteQueryExprByMvColumnExpr(tableRef.getOnClause(), analyzer));
+        }
+
         createSortInfo(analyzer);
         if (sortInfo != null && CollectionUtils.isNotEmpty(sortInfo.getOrderingExprs())) {
             if (groupingInfo != null) {
@@ -595,7 +635,6 @@ public class SelectStmt extends QueryStmt {
                 groupingInfo.substituteGroupingFn(orderingExprNotInSelect, analyzer);
             }
         }
-        originResultExprs = Expr.cloneList(resultExprs);
         analyzeAggregation(analyzer);
         createAnalyticInfo(analyzer);
         eliminatingSortNode();
@@ -1095,9 +1134,12 @@ public class SelectStmt extends QueryStmt {
      * Expand "*" for a particular tuple descriptor by appending
      * refs for each column to selectListExprs.
      */
-    private void expandStar(TableName tblName, TupleDescriptor desc) {
+    private void expandStar(TableName tblName, TupleDescriptor desc) throws AnalysisException {
         for (Column col : desc.getTable().getBaseSchema()) {
-            resultExprs.add(new SlotRef(tblName, col.getName()));
+            SlotRef slot = new SlotRef(tblName, col.getName());
+            slot.setTable(desc.getTable());
+            slot.setTupleId(desc.getId());
+            resultExprs.add(rewriteQueryExprByMvColumnExpr(slot, analyzer));
             colLabels.add(col.getName());
         }
     }
@@ -2320,7 +2362,7 @@ public class SelectStmt extends QueryStmt {
                     newAliasRef.analysisDone();
                     aliasSMap.put(aliasRef, newAliasRef);
                 }
-                resultExprs.add(item.getExpr());
+                resultExprs.add(rewriteQueryExprByMvColumnExpr(item.getExpr(), analyzer));
             }
         }
         if (needToSql) {

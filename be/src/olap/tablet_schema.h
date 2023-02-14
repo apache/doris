@@ -252,6 +252,18 @@ public:
 
     bool is_dropped_column(const TabletColumn& col) const;
 
+    string get_all_field_names() const {
+        string str = "[";
+        for (auto p : _field_name_to_index) {
+            if (str.size() > 1) {
+                str += ", ";
+            }
+            str += p.first;
+        }
+        str += "]";
+        return str;
+    }
+
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
     friend bool operator!=(const TabletSchema& a, const TabletSchema& b);
