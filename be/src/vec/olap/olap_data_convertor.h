@@ -58,6 +58,7 @@ public:
 
     bool empty() const { return _convertors.empty(); }
     void reserve(size_t size) { _convertors.reserve(size); }
+    void reset() { _convertors.clear(); }
 
 private:
     class OlapColumnDataConvertorBase;

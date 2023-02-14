@@ -222,7 +222,7 @@ Status VNodeChannel::init(RuntimeState* state) {
         return Status::InternalError("get rpc stub failed");
     }
 
-    _rpc_timeout_ms = state->query_options().query_timeout * 1000;
+    _rpc_timeout_ms = state->execution_timeout() * 1000;
     _timeout_watch.start();
 
     // Initialize _cur_add_block_request
@@ -694,8 +694,9 @@ Status VNodeChannel::close_wait(RuntimeState* state) {
     }
 
     // waiting for finished, it may take a long time, so we couldn't set a timeout
-    while (!_add_batches_finished && !_cancelled) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    while (!_add_batches_finished && !_cancelled && !state->is_cancelled()) {
+        // std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        bthread_usleep(1000);
     }
     _close_time_ms = UnixMillis() - _close_time_ms;
 
@@ -821,8 +822,8 @@ Status VOlapTableSink::prepare(RuntimeState* state) {
 
     _sender_id = state->per_fragment_instance_idx();
     _num_senders = state->num_per_fragment_instances();
-    _is_high_priority = (state->query_options().query_timeout <=
-                         config::load_task_high_priority_threshold_second);
+    _is_high_priority =
+            (state->execution_timeout() <= config::load_task_high_priority_threshold_second);
 
     // profile must add to state's object pool
     _profile = state->obj_pool()->add(new RuntimeProfile("OlapTableSink"));

@@ -89,7 +89,8 @@ public:
     void close();
 
     bool exceeds_limit(int batch_size) {
-        return _num_buffered_bytes + batch_size > config::exchg_node_buffer_size_bytes;
+        return _blocks_memory_usage->current_value() + batch_size >
+               config::exchg_node_buffer_size_bytes;
     }
 
     bool is_closed() const { return _is_closed; }
@@ -119,7 +120,6 @@ private:
     bool _is_merging;
     bool _is_closed;
 
-    std::atomic<int> _num_buffered_bytes;
     std::unique_ptr<MemTracker> _mem_tracker;
     // Managed by object pool
     std::vector<SenderQueue*> _sender_queues;
@@ -185,7 +185,7 @@ protected:
     std::atomic_int _num_remaining_senders;
     std::condition_variable _data_arrival_cv;
     std::condition_variable _data_removal_cv;
-    std::list<BlockUPtr> _block_queue;
+    std::list<std::pair<BlockUPtr, size_t>> _block_queue;
     std::atomic_bool _block_queue_empty = true;
 
     bool _received_first_batch;
@@ -238,19 +238,15 @@ public:
         }
         materialize_block_inplace(*nblock);
 
-        size_t block_size = nblock->bytes();
         auto block_mem_size = nblock->allocated_bytes();
         {
             std::unique_lock<std::mutex> l(_lock);
-            _block_queue.emplace_back(std::move(nblock));
+            _block_queue.emplace_back(std::move(nblock), block_mem_size);
         }
-        COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_size);
+        COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_mem_size);
         _recvr->_blocks_memory_usage->add(block_mem_size);
         _update_block_queue_empty();
         _data_arrival_cv.notify_one();
-
-        _recvr->_num_buffered_bytes += block_size;
-        COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_size);
     }
 };
 } // namespace vectorized

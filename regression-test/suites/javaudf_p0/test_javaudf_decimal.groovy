@@ -64,6 +64,16 @@ suite("test_javaudf_decimal") {
         
 
         sql """ DROP FUNCTION java_udf_decimal_test(decimal(27,9),decimal(27,9)); """
+
+
+        sql """ DROP FUNCTION if exists java_udf_decimal_string_test(decimal(27,9),String,String); """
+        sql """ CREATE FUNCTION java_udf_decimal_string_test(decimal(27,9),String,String) RETURNS decimal(27,9) PROPERTIES (
+            "file"="file://${jarPath}",
+            "symbol"="org.apache.doris.udf.DecimalStringTest",
+            "type"="JAVA_UDF"
+        ); """
+        qt_select_decimal_string """ SELECT java_udf_decimal_string_test(2.83645,'asd','a') as result; """
+        sql """ DROP FUNCTION java_udf_decimal_string_test(decimal(27,9),String,String); """
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }

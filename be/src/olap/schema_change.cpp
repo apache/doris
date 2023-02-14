@@ -609,7 +609,6 @@ Status SchemaChangeForInvertedIndex::process(RowsetReaderSharedPtr rowset_reader
     auto rowset_meta = rowset_reader->rowset()->rowset_meta();
     std::string segment_dir = base_tablet->tablet_path();
     auto fs = rowset_meta->fs();
-    _olap_data_convertor->reserve(_alter_inverted_indexs.size());
 
     // load segments
     SegmentCacheHandle segment_cache_handle;
@@ -622,6 +621,7 @@ Status SchemaChangeForInvertedIndex::process(RowsetReaderSharedPtr rowset_reader
                 fmt::format("{}_{}.dat", rowset_meta->rowset_id().to_string(), seg_ptr->id());
         std::vector<ColumnId> return_columns;
         std::vector<std::pair<int64_t, int64_t>> inverted_index_writer_signs;
+        _olap_data_convertor->reserve(_alter_inverted_indexs.size());
         // create inverted index writer
         for (auto& inverted_index : _alter_inverted_indexs) {
             DCHECK_EQ(inverted_index.columns.size(), 1);
@@ -700,6 +700,8 @@ Status SchemaChangeForInvertedIndex::process(RowsetReaderSharedPtr rowset_reader
                 return Status::Error<IO_ERROR>();
             }
         }
+
+        _olap_data_convertor->reset();
     }
 
     _inverted_index_builders.clear();

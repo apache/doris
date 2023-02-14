@@ -708,7 +708,5 @@ public class PlannerTest extends TestWithFeService {
             Assertions.assertFalse(plan1.contains("SORT INFO:"));
             Assertions.assertFalse(plan1.contains("SORT LIMIT:"));
             }
-
-
     }
 }

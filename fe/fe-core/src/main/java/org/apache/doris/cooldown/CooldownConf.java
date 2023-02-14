@@ -29,7 +29,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 
 /**
- * This class represents the olap replica related metadata.
+ * This class is used to log update cooldown conf operation.
  */
 @Data
 public class CooldownConf implements Writable {

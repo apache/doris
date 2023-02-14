@@ -32,9 +32,12 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.TableIf.TableType;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.cluster.Cluster;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -52,6 +55,7 @@ import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.Version;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.HMSExternalCatalog;
@@ -76,6 +80,8 @@ import org.apache.doris.thrift.TCell;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnDef;
 import org.apache.doris.thrift.TColumnDesc;
+import org.apache.doris.thrift.TConfirmUnusedRemoteFilesRequest;
+import org.apache.doris.thrift.TConfirmUnusedRemoteFilesResult;
 import org.apache.doris.thrift.TDescribeTableParams;
 import org.apache.doris.thrift.TDescribeTableResult;
 import org.apache.doris.thrift.TExecPlanFragmentParams;
@@ -108,6 +114,7 @@ import org.apache.doris.thrift.TMasterOpRequest;
 import org.apache.doris.thrift.TMasterOpResult;
 import org.apache.doris.thrift.TMasterResult;
 import org.apache.doris.thrift.TMetadataTableRequestParams;
+import org.apache.doris.thrift.TMySqlLoadAcquireTokenResult;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrivilegeStatus;
 import org.apache.doris.thrift.TReportExecStatusParams;
@@ -171,6 +178,72 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public FrontendServiceImpl(ExecuteEnv exeEnv) {
         masterImpl = new MasterImpl();
         this.exeEnv = exeEnv;
+    }
+
+    @Override
+    public TConfirmUnusedRemoteFilesResult confirmUnusedRemoteFiles(TConfirmUnusedRemoteFilesRequest request)
+            throws TException {
+        if (!Env.getCurrentEnv().isMaster()) {
+            throw new TException("FE is not master");
+        }
+        TConfirmUnusedRemoteFilesResult res = new TConfirmUnusedRemoteFilesResult();
+        if (!request.isSetConfirmList()) {
+            throw new TException("confirm_list in null");
+        }
+        request.getConfirmList().forEach(info -> {
+            if (!info.isSetCooldownMetaId()) {
+                LOG.warn("cooldown_meta_id is null");
+                return;
+            }
+            TabletMeta tabletMeta = Env.getCurrentEnv().getTabletInvertedIndex().getTabletMeta(info.tablet_id);
+            if (tabletMeta == null) {
+                LOG.warn("tablet {} not found", info.tablet_id);
+                return;
+            }
+            Tablet tablet;
+            try {
+                OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId())
+                        .getTable(tabletMeta.getTableId())
+                        .get();
+                table.readLock();
+                try {
+                    tablet = table.getPartition(tabletMeta.getPartitionId()).getIndex(tabletMeta.getIndexId())
+                            .getTablet(info.tablet_id);
+                } finally {
+                    table.readUnlock();
+                }
+            } catch (RuntimeException e) {
+                LOG.warn("tablet {} not found", info.tablet_id);
+                return;
+            }
+            // check cooldownReplicaId
+            long cooldownReplicaId = tablet.getCooldownConf().first;
+            if (cooldownReplicaId != info.cooldown_replica_id) {
+                LOG.info("cooldown replica id not match({} vs {}), tablet={}", cooldownReplicaId,
+                        info.cooldown_replica_id, info.tablet_id);
+                return;
+            }
+            // check cooldownMetaId of all replicas are the same
+            List<Replica> replicas = Env.getCurrentEnv().getTabletInvertedIndex().getReplicas(info.tablet_id);
+            for (Replica replica : replicas) {
+                if (!info.cooldown_meta_id.equals(replica.getCooldownMetaId())) {
+                    LOG.info("cooldown meta id are not same, tablet={}", info.tablet_id);
+                    return;
+                }
+            }
+            res.addToConfirmedTablets(info.tablet_id);
+        });
+
+        if (res.isSetConfirmedTablets() && !res.getConfirmedTablets().isEmpty()) {
+            if (Env.getCurrentEnv().isMaster()) {
+                // ensure FE is real master
+                Env.getCurrentEnv().getEditLog().logCooldownDelete(new CooldownDelete());
+            } else {
+                throw new TException("FE is not master");
+            }
+        }
+
+        return res;
     }
 
     @Override
@@ -291,7 +364,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                         // ignore column with same name
                         boolean hasSameNameColumn = false;
                         for (Column column : olapTable.getBaseSchema()) {
-                            if (column.getName().equals(tColumnDef.getColumnDesc().getColumnName())) {
+                            if (column.getName().equalsIgnoreCase(tColumnDef.getColumnDesc().getColumnName())) {
                                 hasSameNameColumn = true;
                             }
                         }
@@ -707,20 +780,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    private void checkAuthCodeUuid(String dbName, long txnId, String authCodeUuid) throws AuthenticationException {
-        DatabaseIf db = Env.getCurrentInternalCatalog()
-                .getDbOrException(dbName, s -> new AuthenticationException("invalid db name: " + s));
-        TransactionState transactionState = Env.getCurrentGlobalTransactionMgr()
-                .getTransactionState(db.getId(), txnId);
-        if (transactionState == null) {
-            throw new AuthenticationException("invalid transactionState: " + txnId);
-        }
-        if (!authCodeUuid.equals(transactionState.getAuthCode())) {
-            throw new AuthenticationException(
-                    "Access denied; you need (at least one of) the LOAD privilege(s) for this operation");
-        }
-    }
-
     private void checkPasswordAndPrivs(String cluster, String user, String passwd, String db, String tbl,
             String clientIp, PrivPredicate predicate) throws AuthenticationException {
 
@@ -733,6 +792,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (!Env.getCurrentEnv().getAuth().checkTblPriv(currentUser.get(0), fullDbName, tbl, predicate)) {
             throw new AuthenticationException(
                     "Access denied; you need (at least one of) the LOAD privilege(s) for this operation");
+        }
+    }
+
+    private void checkToken(String token) throws AuthenticationException {
+        if (!Env.getCurrentEnv().getLoadManager().getTokenManager().checkAuthToken(token)) {
+            throw new AuthenticationException("Un matched cluster token.");
         }
     }
 
@@ -775,7 +840,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
         }
 
-        if (Strings.isNullOrEmpty(request.getAuthCodeUuid())) {
+        if (Strings.isNullOrEmpty(request.getToken())) {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
         }
@@ -803,10 +868,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 db.getId(), Lists.newArrayList(table.getId()), request.getLabel(), request.getRequestId(),
                 new TxnCoordinator(TxnSourceType.BE, clientIp),
                 TransactionState.LoadJobSourceType.BACKEND_STREAMING, -1, timeoutSecond);
-        if (!Strings.isNullOrEmpty(request.getAuthCodeUuid())) {
-            Env.getCurrentGlobalTransactionMgr().getTransactionState(db.getId(), txnId)
-                    .setAuthCode(request.getAuthCodeUuid());
-        }
         TLoadTxnBeginResult result = new TLoadTxnBeginResult();
         result.setTxnId(txnId).setDbId(db.getId());
         return result;
@@ -843,8 +904,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         if (request.isSetAuthCode()) {
             // CHECKSTYLE IGNORE THIS LINE
-        } else if (request.isSetAuthCodeUuid()) {
-            checkAuthCodeUuid(request.getDb(), request.getTxnId(), request.getAuthCodeUuid());
+        } else if (request.isSetToken()) {
+            checkToken(request.getToken());
         } else {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
@@ -979,8 +1040,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         if (request.isSetAuthCode()) {
             // TODO(cmy): find a way to check
-        } else if (request.isSetAuthCodeUuid()) {
-            checkAuthCodeUuid(request.getDb(), request.getTxnId(), request.getAuthCodeUuid());
+        } else if (request.isSetToken()) {
+            checkToken(request.getToken());
         } else {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
@@ -1042,8 +1103,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         if (request.isSetAuthCode()) {
             // TODO(cmy): find a way to check
-        } else if (request.isSetAuthCodeUuid()) {
-            checkAuthCodeUuid(request.getDb(), request.getTxnId(), request.getAuthCodeUuid());
+        } else if (request.isSetToken()) {
+            checkToken(request.getToken());
         } else {
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), request.getTbl(),
                     request.getUserIp(), PrivPredicate.LOAD);
@@ -1436,6 +1497,26 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TInitExternalCtlMetaResult result = new TInitExternalCtlMetaResult();
         result.setMaxJournalId(Env.getCurrentEnv().getMaxJournalId());
         result.setStatus("OK");
+        return result;
+    }
+
+    @Override
+    public TMySqlLoadAcquireTokenResult acquireToken() throws TException {
+        String clientAddr = getClientAddrAsString();
+        LOG.debug("receive acquire token request from client: {}", clientAddr);
+        TMySqlLoadAcquireTokenResult result = new TMySqlLoadAcquireTokenResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
+            result.setToken(token);
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        }
+
         return result;
     }
 }

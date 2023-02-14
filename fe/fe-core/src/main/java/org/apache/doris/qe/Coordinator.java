@@ -235,7 +235,7 @@ public class Coordinator {
     private final TUniqueId nextInstanceId;
 
     // a timestamp represent the absolute timeout
-    // eg, System.currentTimeMillis() + query_timeout * 1000
+    // eg, System.currentTimeMillis() + executeTimeoutS * 1000
     private long timeoutDeadline;
 
     private boolean enableShareHashTableForBroadcastJoin = false;
@@ -389,6 +389,7 @@ public class Coordinator {
         this.queryOptions.setEnableVectorizedEngine(VectorizedUtil.isVectorized());
         this.queryOptions.setEnablePipelineEngine(VectorizedUtil.isPipeline());
         this.queryOptions.setBeExecVersion(Config.be_exec_version);
+        this.queryOptions.setExecutionTimeout(context.getExecTimeout());
     }
 
     public long getJobId() {
@@ -585,7 +586,7 @@ public class Coordinator {
         PlanFragmentId topId = fragments.get(0).getFragmentId();
         FragmentExecParams topParams = fragmentExecParamsMap.get(topId);
         DataSink topDataSink = topParams.fragment.getSink();
-        this.timeoutDeadline = System.currentTimeMillis() + queryOptions.query_timeout * 1000L;
+        this.timeoutDeadline = System.currentTimeMillis() + queryOptions.getExecutionTimeout() * 1000L;
         if (topDataSink instanceof ResultSink || topDataSink instanceof ResultFileSink) {
             TNetworkAddress execBeAddr = topParams.instanceExecParams.get(0).host;
             receiver = new ResultReceiver(topParams.instanceExecParams.get(0).instanceId,
@@ -626,10 +627,7 @@ public class Coordinator {
         } else {
             OlapScanNode planRoot = (OlapScanNode) fragments.get(0).getPlanRoot();
             Preconditions.checkState(planRoot.getScanTabletIds().size() == 1);
-            Long backendId = planRoot.getScanBackendIds().iterator().next();
-            Backend backend = this.idToBackend.get(backendId);
-            TNetworkAddress execBeAddr = new TNetworkAddress(backend.getHost(), backend.getBePort());
-            pointExec.setAddressAndBackendID(toBrpcHost(execBeAddr), backendId);
+            pointExec.setCandidateBackends(planRoot.getScanBackendIds());
             pointExec.setTabletId(planRoot.getScanTabletIds().get(0));
         }
     }
@@ -785,7 +783,7 @@ public class Coordinator {
             String operation) throws RpcException, UserException {
         if (leftTimeMs <= 0) {
             throw new UserException("timeout before waiting for " + operation + " RPC. Elapse(sec): " + (
-                    (System.currentTimeMillis() - timeoutDeadline) / 1000 + queryOptions.query_timeout));
+                    (System.currentTimeMillis() - timeoutDeadline) / 1000 + queryOptions.getExecutionTimeout()));
         }
 
         long timeoutMs = Math.min(leftTimeMs, Config.remote_fragment_exec_timeout_ms);

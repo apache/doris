@@ -159,7 +159,7 @@ private:
     std::string _group;
 
     int _timeout_second;
-    bool _cancelled = false;
+    std::atomic<bool> _cancelled {false};
 
     // This context is shared by all fragments of this host in a query
     std::shared_ptr<QueryFragmentsCtx> _fragments_ctx;
@@ -192,7 +192,7 @@ FragmentExecState::FragmentExecState(const TUniqueId& query_id,
 
 Status FragmentExecState::prepare(const TExecPlanFragmentParams& params) {
     if (params.__isset.query_options) {
-        _timeout_second = params.query_options.query_timeout;
+        _timeout_second = params.query_options.execution_timeout;
     }
 
     if (_fragments_ctx == nullptr) {
@@ -508,7 +508,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
         stream_load_ctx->label = params.import_label;
         stream_load_ctx->format = TFileFormatType::FORMAT_CSV_PLAIN;
         stream_load_ctx->timeout_second = 3600;
-        stream_load_ctx->auth.auth_code_uuid = params.txn_conf.auth_code_uuid;
+        stream_load_ctx->auth.token = params.txn_conf.token;
         stream_load_ctx->need_commit_self = true;
         stream_load_ctx->need_rollback = true;
         auto pipe = std::make_shared<io::StreamLoadPipe>(
@@ -648,7 +648,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
 
         fragments_ctx->get_shared_hash_table_controller()->set_pipeline_engine_enabled(
                 pipeline_engine_enabled);
-        fragments_ctx->timeout_second = params.query_options.query_timeout;
+        fragments_ctx->timeout_second = params.query_options.execution_timeout;
         _set_scan_concurrency(params, fragments_ctx.get());
 
         bool has_query_mem_tracker =

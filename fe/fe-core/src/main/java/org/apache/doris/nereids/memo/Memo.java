@@ -264,7 +264,7 @@ public class Memo {
      * +---------------------------------------+-----------------------------------+--------------------------------+
      * | case 3:                               |                                   |                                |
      * | if targetGroup is not null            |              true                 |      new group expression      |
-     * | and same group expression not exits   |                                   |                                |
+     * | and same group expression not exist   |                                   |                                |
      * +---------------------------------------+-----------------------------------+--------------------------------+
      * | case 4:                               |                                   |                                |
      * | if targetGroup is not null and not    |              true                 |      new group expression      |
@@ -382,7 +382,7 @@ public class Memo {
     private void validateRewriteChildGroup(Group childGroup, Group targetGroup) {
         /*
          * 'A => B(A)' is invalid equivalent transform because of dead loop.
-         * see 'MemoRewriteTest.a2ba()'
+         * see 'MemoTest.a2ba()'
          */
         if (childGroup == targetGroup) {
             throw new IllegalStateException("Can not add plan which is ancestor of the target plan");

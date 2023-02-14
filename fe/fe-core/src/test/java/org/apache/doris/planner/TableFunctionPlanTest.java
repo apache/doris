@@ -409,7 +409,7 @@ public class TableFunctionPlanTest {
                 "SlotDescriptor{id=1,col=k2,colUniqueId=1,type=VARCHAR(1)"
         ));
         Assert.assertTrue(formatString.contains(
-                "SlotDescriptor{id=2,col=null,colUniqueId=null,type=INT"
+                "SlotDescriptor{id=2,col=k1,colUniqueId=0,type=INT"
         ));
         Assert.assertTrue(formatString.contains(
                 "SlotDescriptor{id=3,col=null,colUniqueId=null,type=VARCHAR(*)"
