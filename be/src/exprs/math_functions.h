@@ -51,11 +51,8 @@ public:
     static bool handle_parse_result(int8_t dest_base, int64_t* num,
                                     StringParser::ParseResult parse_res);
 
-    static const int32_t MIN_BASE = 2;
-    static const int32_t MAX_BASE = 36;
-
-private:
-    static const char* _s_alphanumeric_chars;
+    static constexpr int32_t MIN_BASE = 2;
+    static constexpr int32_t MAX_BASE = 36;
 };
 
 } // namespace doris
