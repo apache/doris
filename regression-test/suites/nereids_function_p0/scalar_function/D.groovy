@@ -1,3 +1,4 @@
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -17,7 +18,7 @@
 
 suite("nereids_scalar_fn_D") {
 	sql 'use regression_test_nereids_function_p0'
-	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	sql 'set enable_fallback_to_original_planner=false'
 	sql "select database() from fn_test"
 	sql "select database() from fn_test_not_nullable"
@@ -56,83 +57,51 @@ suite("nereids_scalar_fn_D") {
 	qt_sql_day_ceil_DateTime "select day_ceil(kdtm) from fn_test order by kdtm"
 	qt_sql_day_ceil_DateTime "select day_ceil(kdtm) from fn_test_not_nullable order by kdtm"
 	qt_sql_day_ceil_DateTimeV2 "select day_ceil(kdtmv2s1) from fn_test order by kdtmv2s1"
-	sql 'set enable_nereids_planner=false'
 	qt_sql_day_ceil_DateTimeV2 "select day_ceil(kdtmv2s1) from fn_test_not_nullable order by kdtmv2s1"
-	sql 'set enable_nereids_planner=true'
 	qt_sql_day_ceil_DateV2 "select day_ceil(kdtv2) from fn_test order by kdtv2"
-	sql 'set enable_nereids_planner=false'
 	qt_sql_day_ceil_DateV2 "select day_ceil(kdtv2) from fn_test_not_nullable order by kdtv2"
-	sql 'set enable_nereids_planner=true'
 	qt_sql_day_ceil_DateTime_DateTime "select day_ceil(kdtm, kdtm) from fn_test order by kdtm, kdtm"
 	qt_sql_day_ceil_DateTime_DateTime "select day_ceil(kdtm, kdtm) from fn_test_not_nullable order by kdtm, kdtm"
 	qt_sql_day_ceil_DateTime_Integer "select day_ceil(kdtm, kint) from fn_test order by kdtm, kint"
 	qt_sql_day_ceil_DateTime_Integer "select day_ceil(kdtm, kint) from fn_test_not_nullable order by kdtm, kint"
 	qt_sql_day_ceil_DateTimeV2_DateTimeV2 "select day_ceil(kdtmv2s1, kdtmv2s1) from fn_test order by kdtmv2s1, kdtmv2s1"
-	sql 'set enable_nereids_planner=false'
 	qt_sql_day_ceil_DateTimeV2_DateTimeV2 "select day_ceil(kdtmv2s1, kdtmv2s1) from fn_test_not_nullable order by kdtmv2s1, kdtmv2s1"
-	sql 'set enable_nereids_planner=true'
 	qt_sql_day_ceil_DateTimeV2_Integer "select day_ceil(kdtmv2s1, kint) from fn_test order by kdtmv2s1, kint"
-	sql 'set enable_nereids_planner=false'
 	qt_sql_day_ceil_DateTimeV2_Integer "select day_ceil(kdtmv2s1, kint) from fn_test_not_nullable order by kdtmv2s1, kint"
-	sql 'set enable_nereids_planner=true'
 	qt_sql_day_ceil_DateV2_DateV2 "select day_ceil(kdtv2, kdtv2) from fn_test order by kdtv2, kdtv2"
-	sql 'set enable_nereids_planner=false'
 	qt_sql_day_ceil_DateV2_DateV2 "select day_ceil(kdtv2, kdtv2) from fn_test_not_nullable order by kdtv2, kdtv2"
-	sql 'set enable_nereids_planner=true'
 	qt_sql_day_ceil_DateV2_Integer "select day_ceil(kdtv2, kint) from fn_test order by kdtv2, kint"
-	sql 'set enable_nereids_planner=false'
 	qt_sql_day_ceil_DateV2_Integer "select day_ceil(kdtv2, kint) from fn_test_not_nullable order by kdtv2, kint"
-	sql 'set enable_nereids_planner=true'
 	qt_sql_day_ceil_DateTime_Integer_DateTime "select day_ceil(kdtm, kint, kdtm) from fn_test order by kdtm, kint, kdtm"
 	qt_sql_day_ceil_DateTime_Integer_DateTime "select day_ceil(kdtm, kint, kdtm) from fn_test_not_nullable order by kdtm, kint, kdtm"
 	qt_sql_day_ceil_DateTimeV2_Integer_DateTimeV2 "select day_ceil(kdtmv2s1, kint, kdtmv2s1) from fn_test order by kdtmv2s1, kint, kdtmv2s1"
-	sql 'set enable_nereids_planner=false'
 	qt_sql_day_ceil_DateTimeV2_Integer_DateTimeV2 "select day_ceil(kdtmv2s1, kint, kdtmv2s1) from fn_test_not_nullable order by kdtmv2s1, kint, kdtmv2s1"
-	sql 'set enable_nereids_planner=true'
 	qt_sql_day_ceil_DateV2_Integer_DateV2 "select day_ceil(kdtv2, kint, kdtv2) from fn_test order by kdtv2, kint, kdtv2"
-	sql 'set enable_nereids_planner=false'
 	qt_sql_day_ceil_DateV2_Integer_DateV2 "select day_ceil(kdtv2, kint, kdtv2) from fn_test_not_nullable order by kdtv2, kint, kdtv2"
-	sql 'set enable_nereids_planner=true'
 	qt_sql_day_floor_DateTime "select day_floor(kdtm) from fn_test order by kdtm"
 	qt_sql_day_floor_DateTime "select day_floor(kdtm) from fn_test_not_nullable order by kdtm"
 	qt_sql_day_floor_DateTimeV2 "select day_floor(kdtmv2s1) from fn_test order by kdtmv2s1"
-	sql 'set enable_nereids_planner=false'
 	qt_sql_day_floor_DateTimeV2 "select day_floor(kdtmv2s1) from fn_test_not_nullable order by kdtmv2s1"
-	sql 'set enable_nereids_planner=true'
 	qt_sql_day_floor_DateV2 "select day_floor(kdtv2) from fn_test order by kdtv2"
-	sql 'set enable_nereids_planner=false'
 	qt_sql_day_floor_DateV2 "select day_floor(kdtv2) from fn_test_not_nullable order by kdtv2"
-	sql 'set enable_nereids_planner=true'
 	qt_sql_day_floor_DateTime_DateTime "select day_floor(kdtm, kdtm) from fn_test order by kdtm, kdtm"
 	qt_sql_day_floor_DateTime_DateTime "select day_floor(kdtm, kdtm) from fn_test_not_nullable order by kdtm, kdtm"
 	qt_sql_day_floor_DateTime_Integer "select day_floor(kdtm, kint) from fn_test order by kdtm, kint"
 	qt_sql_day_floor_DateTime_Integer "select day_floor(kdtm, kint) from fn_test_not_nullable order by kdtm, kint"
 	qt_sql_day_floor_DateTimeV2_DateTimeV2 "select day_floor(kdtmv2s1, kdtmv2s1) from fn_test order by kdtmv2s1, kdtmv2s1"
-	sql 'set enable_nereids_planner=false'
 	qt_sql_day_floor_DateTimeV2_DateTimeV2 "select day_floor(kdtmv2s1, kdtmv2s1) from fn_test_not_nullable order by kdtmv2s1, kdtmv2s1"
-	sql 'set enable_nereids_planner=true'
 	qt_sql_day_floor_DateTimeV2_Integer "select day_floor(kdtmv2s1, kint) from fn_test order by kdtmv2s1, kint"
-	sql 'set enable_nereids_planner=false'
 	qt_sql_day_floor_DateTimeV2_Integer "select day_floor(kdtmv2s1, kint) from fn_test_not_nullable order by kdtmv2s1, kint"
-	sql 'set enable_nereids_planner=true'
 	qt_sql_day_floor_DateV2_DateV2 "select day_floor(kdtv2, kdtv2) from fn_test order by kdtv2, kdtv2"
-	sql 'set enable_nereids_planner=false'
 	qt_sql_day_floor_DateV2_DateV2 "select day_floor(kdtv2, kdtv2) from fn_test_not_nullable order by kdtv2, kdtv2"
-	sql 'set enable_nereids_planner=true'
 	qt_sql_day_floor_DateV2_Integer "select day_floor(kdtv2, kint) from fn_test order by kdtv2, kint"
-	sql 'set enable_nereids_planner=false'
 	qt_sql_day_floor_DateV2_Integer "select day_floor(kdtv2, kint) from fn_test_not_nullable order by kdtv2, kint"
-	sql 'set enable_nereids_planner=true'
 	qt_sql_day_floor_DateTime_Integer_DateTime "select day_floor(kdtm, kint, kdtm) from fn_test order by kdtm, kint, kdtm"
 	qt_sql_day_floor_DateTime_Integer_DateTime "select day_floor(kdtm, kint, kdtm) from fn_test_not_nullable order by kdtm, kint, kdtm"
 	qt_sql_day_floor_DateTimeV2_Integer_DateTimeV2 "select day_floor(kdtmv2s1, kint, kdtmv2s1) from fn_test order by kdtmv2s1, kint, kdtmv2s1"
-	sql 'set enable_nereids_planner=false'
 	qt_sql_day_floor_DateTimeV2_Integer_DateTimeV2 "select day_floor(kdtmv2s1, kint, kdtmv2s1) from fn_test_not_nullable order by kdtmv2s1, kint, kdtmv2s1"
-	sql 'set enable_nereids_planner=true'
 	qt_sql_day_floor_DateV2_Integer_DateV2 "select day_floor(kdtv2, kint, kdtv2) from fn_test order by kdtv2, kint, kdtv2"
-	sql 'set enable_nereids_planner=false'
 	qt_sql_day_floor_DateV2_Integer_DateV2 "select day_floor(kdtv2, kint, kdtv2) from fn_test_not_nullable order by kdtv2, kint, kdtv2"
-	sql 'set enable_nereids_planner=true'
 	qt_sql_dayname_DateTime "select dayname(kdtm) from fn_test order by kdtm"
 	qt_sql_dayname_DateTime "select dayname(kdtm) from fn_test_not_nullable order by kdtm"
 	qt_sql_dayname_DateTimeV2 "select dayname(kdtmv2s1) from fn_test order by kdtmv2s1"

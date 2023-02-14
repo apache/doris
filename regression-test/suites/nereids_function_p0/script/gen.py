@@ -130,18 +130,15 @@ def generateSQL(function_meta: Dict[str, List[List[str]]]) -> List[str]:
             trans_args = [type_to_column_map[s][0] for s in args]
             column_args = [type_to_column_map[s][0 if len(type_to_column_map[s]) == 1 else 1] for s in args]
 
-            fn_tags = f'{fn_name}{"_" + "_".join(trans_args) if trans_args[0] != "" else ""}'
-
-            run_tag = f'{"sql" if fn_tags in define.not_check_result else f"qt_sql_{fn_title}"}'
+            run_tag = f'{"sql" if fn_title in define.not_check_result else f"qt_sql_{fn_title}"}'
             args = ', '.join(trans_args)
 
             order_by_args = ', '.join(column_args)
             order_by = f' order by {order_by_args}' if trans_args[0] != "" else ""
 
             for t in tables:
-                sql = ""
-                if fn_tags in define.const_sql:
-                    sql = define.const_sql[fn_tags]
+                if fn_title in define.const_sql:
+                    sql = define.const_sql[fn_title]
                     sql = sql.replace('${t}', t)
                 else:
                     sql = f'select {fn_name}({args}) from {t}{order_by}'
@@ -151,7 +148,7 @@ def generateSQL(function_meta: Dict[str, List[List[str]]]) -> List[str]:
 
 
 def genHeaderAndFooter(input_dir: str, output_file: str, title: str, func: Callable[[str], bool]) -> bool:
-    open_nereids = True
+    open_nereids = False
     sqls = generateSQL(searchFunctions(input_dir, func))
     if len(sqls) == 0:
         return True

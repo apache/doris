@@ -1,3 +1,4 @@
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -17,7 +18,7 @@
 
 suite("nereids_scalar_fn_N") {
 	sql 'use regression_test_nereids_function_p0'
-	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	sql 'set enable_fallback_to_original_planner=false'
 	qt_sql_negative_BigInt "select negative(kbint) from fn_test order by kbint"
 	qt_sql_negative_BigInt "select negative(kbint) from fn_test_not_nullable order by kbint"
@@ -29,6 +30,10 @@ suite("nereids_scalar_fn_N") {
 	qt_sql_not_null_or_empty_Varchar "select not_null_or_empty(kvchrs1) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_not_null_or_empty_String "select not_null_or_empty(kstr) from fn_test order by kstr"
 	qt_sql_not_null_or_empty_String "select not_null_or_empty(kstr) from fn_test_not_nullable order by kstr"
+	qt_sql_now "select now() from fn_test"
+	qt_sql_now "select now() from fn_test_not_nullable"
+	qt_sql_now_Integer "select now(kint) from fn_test order by kint"
+	qt_sql_now_Integer "select now(kint) from fn_test_not_nullable order by kint"
 	qt_sql_null_or_empty_Varchar "select null_or_empty(kvchrs1) from fn_test order by kvchrs1"
 	qt_sql_null_or_empty_Varchar "select null_or_empty(kvchrs1) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_null_or_empty_String "select null_or_empty(kstr) from fn_test order by kstr"

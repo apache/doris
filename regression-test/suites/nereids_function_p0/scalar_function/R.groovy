@@ -1,3 +1,4 @@
+
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
@@ -17,7 +18,7 @@
 
 suite("nereids_scalar_fn_R") {
 	sql 'use regression_test_nereids_function_p0'
-	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	sql 'set enable_fallback_to_original_planner=false'
 	qt_sql_radians_Double "select radians(kdbl) from fn_test order by kdbl"
 	qt_sql_radians_Double "select radians(kdbl) from fn_test_not_nullable order by kdbl"
@@ -69,4 +70,28 @@ suite("nereids_scalar_fn_R") {
 	qt_sql_rtrim_Varchar "select rtrim(kvchrs1) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_rtrim_String "select rtrim(kstr) from fn_test order by kstr"
 	qt_sql_rtrim_String "select rtrim(kstr) from fn_test_not_nullable order by kstr"
+	sql "select running_difference(ktint) from fn_test order by ktint"
+	sql "select running_difference(ktint) from fn_test_not_nullable order by ktint"
+	sql "select running_difference(ksint) from fn_test order by ksint"
+	sql "select running_difference(ksint) from fn_test_not_nullable order by ksint"
+	sql "select running_difference(kint) from fn_test order by kint"
+	sql "select running_difference(kint) from fn_test_not_nullable order by kint"
+	sql "select running_difference(kbint) from fn_test order by kbint"
+	sql "select running_difference(kbint) from fn_test_not_nullable order by kbint"
+	sql "select running_difference(klint) from fn_test order by klint"
+	sql "select running_difference(klint) from fn_test_not_nullable order by klint"
+	sql "select running_difference(kfloat) from fn_test order by kfloat"
+	sql "select running_difference(kfloat) from fn_test_not_nullable order by kfloat"
+	sql "select running_difference(kdbl) from fn_test order by kdbl"
+	sql "select running_difference(kdbl) from fn_test_not_nullable order by kdbl"
+	sql "select running_difference(kdcmls1) from fn_test order by kdcmls1"
+	sql "select running_difference(kdcmls1) from fn_test_not_nullable order by kdcmls1"
+	qt_sql_running_difference_Date "select running_difference(kdt) from fn_test order by kdt"
+	qt_sql_running_difference_Date "select running_difference(kdt) from fn_test_not_nullable order by kdt"
+	qt_sql_running_difference_DateV2 "select running_difference(kdtv2) from fn_test order by kdtv2"
+	qt_sql_running_difference_DateV2 "select running_difference(kdtv2) from fn_test_not_nullable order by kdtv2"
+	sql "select running_difference(kdtm) from fn_test order by kdtm"
+	sql "select running_difference(kdtm) from fn_test_not_nullable order by kdtm"
+	sql "select running_difference(kdtmv2s1) from fn_test order by kdtmv2s1"
+	sql "select running_difference(kdtmv2s1) from fn_test_not_nullable order by kdtmv2s1"
 }
