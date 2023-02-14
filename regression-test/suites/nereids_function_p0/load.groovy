@@ -71,6 +71,7 @@ suite("load") {
             `st_point_vc` varchar(50) null,
             `khll` hll hll_union null
         ) engine=olap
+        AGGREGATE KEY(id)
         DISTRIBUTED BY HASH(`id`) BUCKETS 1
         properties("replication_num" = "1")
     """
@@ -125,6 +126,7 @@ suite("load") {
             `st_point_vc` varchar(50) not null,
             `khll` hll hll_union not null
         ) engine=olap
+        AGGREGATE KEY(id)
         DISTRIBUTED BY HASH(`id`) BUCKETS 1
         properties("replication_num" = "1")
     """
