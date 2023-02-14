@@ -49,7 +49,13 @@ Status BRpcService::start(int port, int num_threads) {
         options.num_threads = num_threads;
     }
 
-    if (_server->Start(port, &options) != 0) {
+    butil::EndPoint point;
+    if (butil::str2endpoint(BackendOptions::get_service_bind_address(), port, &point) < 0) {
+        return Status::InternalError("convert address failed, host={}, port={}", "[::0]", port);
+    }
+    LOG(INFO) << "BRPC server bind to host: " << BackendOptions::get_service_bind_address()
+              << ", port: " << port;
+    if (_server->Start(point, &options) != 0) {
         char buf[64];
         LOG(WARNING) << "start brpc failed, errno=" << errno
                      << ", errmsg=" << strerror_r(errno, buf, 64) << ", port=" << port;

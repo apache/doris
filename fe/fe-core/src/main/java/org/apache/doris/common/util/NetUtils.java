@@ -17,6 +17,9 @@
 
 package org.apache.doris.common.util;
 
+import org.apache.doris.system.SystemInfoService;
+
+import org.apache.commons.validator.routines.InetAddressValidator;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -114,4 +117,25 @@ public class NetUtils {
         }
         return false;
     }
+
+    // assemble an accessible HostPort str, the addr maybe an ipv4/ipv6/FQDN
+    // if ip is ipv6 return: [$addr}]:$port
+    // if ip is ipv4 or FQDN return: $addr:$port
+    public static String getHostPortInAccessibleFormat(String addr, int port) {
+        if (InetAddressValidator.getInstance().isValidInet6Address(addr)) {
+            return "[" + addr + "]:" + port;
+        }
+        return addr + ":" + port;
+    }
+
+    public static SystemInfoService.HostInfo resolveHostInfoFromHostPort(String hostPort) {
+        if (hostPort.charAt(0) == '[') {
+            String[] pair = hostPort.substring(1).split("]:");
+            return new SystemInfoService.HostInfo(null, pair[0], Integer.valueOf(pair[1]));
+        } else {
+            String[] pair = hostPort.split(":");
+            return new SystemInfoService.HostInfo(null, pair[0], Integer.valueOf(pair[1]));
+        }
+    }
+
 }

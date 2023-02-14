@@ -47,6 +47,7 @@
 #include "runtime/thread_context.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
+#include "util/network_util.h"
 #include "util/stopwatch.hpp"
 #include "util/telemetry/telemetry.h"
 #include "util/threadpool.h"
@@ -66,7 +67,7 @@ std::string to_load_error_http_path(const std::string& file_name) {
         return "";
     }
     std::stringstream url;
-    url << "http://" << BackendOptions::get_localhost() << ":" << config::webserver_port
+    url << "http://" << get_host_port(BackendOptions::get_localhost(), config::webserver_port)
         << "/api/_load_error_log?"
         << "file=" << file_name;
     return url.str();
@@ -257,7 +258,7 @@ Status FragmentExecState::cancel(const PPlanFragmentCancelReason& reason, const 
 
 std::string FragmentExecState::to_http_path(const std::string& file_name) {
     std::stringstream url;
-    url << "http://" << BackendOptions::get_localhost() << ":" << config::webserver_port
+    url << "http://" << get_host_port(BackendOptions::get_localhost(), config::webserver_port)
         << "/api/_download_load?"
         << "token=" << _exec_env->token() << "&file=" << file_name;
     return url.str();
