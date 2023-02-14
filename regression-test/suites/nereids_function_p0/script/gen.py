@@ -130,13 +130,15 @@ def generateSQL(function_meta: Dict[str, List[List[str]]]) -> List[str]:
             trans_args = [type_to_column_map[s][0] for s in args]
             column_args = [type_to_column_map[s][0 if len(type_to_column_map[s]) == 1 else 1] for s in args]
 
-            run_tag = f'{"sql" if fn_title in define.not_check_result else f"qt_sql_{fn_title}"}'
             args = ', '.join(trans_args)
+            run_tag = f'{"sql" if fn_title in define.not_check_result else f"qt_sql_{fn_title}"}'
 
             order_by_args = ', '.join(column_args)
             order_by = f' order by {order_by_args}' if trans_args[0] != "" else ""
 
             for t in tables:
+                if t != 'fn_test':
+                    run_tag += '_n'
                 if fn_title in define.const_sql:
                     sql = define.const_sql[fn_title]
                     sql = sql.replace('${t}', t)
