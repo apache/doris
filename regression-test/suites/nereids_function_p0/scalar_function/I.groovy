@@ -21,9 +21,9 @@ suite("nereids_scalar_fn_I") {
 	sql 'set enable_nereids_planner=false'
 	sql 'set enable_fallback_to_original_planner=false'
 	qt_sql_initcap_Varchar "select initcap(kvchrs1) from fn_test order by kvchrs1"
-	qt_sql_initcap_Varchar_n "select initcap(kvchrs1) from fn_test_not_nullable order by kvchrs1"
+	qt_sql_initcap_Varchar_notnull "select initcap(kvchrs1) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_instr_Varchar_Varchar "select instr(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
-	qt_sql_instr_Varchar_Varchar_n "select instr(kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1"
+	qt_sql_instr_Varchar_Varchar_notnull "select instr(kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1"
 	qt_sql_instr_String_String "select instr(kstr, kstr) from fn_test order by kstr, kstr"
-	qt_sql_instr_String_String_n "select instr(kstr, kstr) from fn_test_not_nullable order by kstr, kstr"
+	qt_sql_instr_String_String_notnull "select instr(kstr, kstr) from fn_test_not_nullable order by kstr, kstr"
 }

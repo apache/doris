@@ -137,8 +137,8 @@ def generateSQL(function_meta: Dict[str, List[List[str]]]) -> List[str]:
             order_by = f' order by {order_by_args}' if trans_args[0] != "" else ""
 
             for t in tables:
-                if t != 'fn_test':
-                    run_tag += '_n'
+                if t != 'fn_test' and run_tag != 'sql':
+                    run_tag += '_notnull'
                 if fn_title in define.const_sql:
                     sql = define.const_sql[fn_title]
                     sql = sql.replace('${t}', t)
