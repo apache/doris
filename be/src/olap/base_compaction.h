@@ -28,7 +28,7 @@ namespace doris {
 
 class BaseCompaction : public Compaction {
 public:
-    BaseCompaction(TabletSharedPtr tablet);
+    BaseCompaction(const TabletSharedPtr& tablet);
     ~BaseCompaction() override;
 
     Status prepare_compact() override;

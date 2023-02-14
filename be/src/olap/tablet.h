@@ -293,9 +293,16 @@ public:
 
     Status create_rowset(RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset);
 
+    // MUST hold EXCLUSIVE `_meta_lock`
+    void add_rowsets(const std::vector<RowsetSharedPtr>& to_add);
+    // MUST hold EXCLUSIVE `_meta_lock`
+    void delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete, bool move_to_stale);
+
     ////////////////////////////////////////////////////////////////////////////
     // begin cooldown functions
     ////////////////////////////////////////////////////////////////////////////
+    int64_t cooldown_replica_id() const { return _cooldown_replica_id; }
+
     // Cooldown to remote fs.
     Status cooldown();
 
@@ -320,6 +327,10 @@ public:
                                      int64_t num_segments);
 
     static void remove_unused_remote_files();
+
+    std::shared_mutex& get_remote_files_lock() { return _remote_files_lock; }
+
+    uint32_t calc_cold_data_compaction_score() const;
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////

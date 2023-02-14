@@ -308,6 +308,7 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
         VLOG_NOTICE << "return column is empty, using full column as default.";
     } else if ((read_params.reader_type == READER_CUMULATIVE_COMPACTION ||
                 read_params.reader_type == READER_BASE_COMPACTION ||
+                read_params.reader_type == READER_COLD_DATA_COMPACTION ||
                 read_params.reader_type == READER_ALTER_TABLE) &&
                !read_params.return_columns.empty()) {
         _return_columns = read_params.return_columns;
@@ -592,11 +593,12 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
     if (read_params.reader_type == READER_CUMULATIVE_COMPACTION) {
         return Status::OK();
     }
-    // Only BASE_COMPACTION need set filter_delete = true
+    // Only BASE_COMPACTION and COLD_DATA_COMPACTION need set filter_delete = true
     // other reader type:
     // QUERY will filter the row in query layer to keep right result use where clause.
     // CUMULATIVE_COMPACTION will lost the filter_delete info of base rowset
     if (read_params.reader_type == READER_BASE_COMPACTION ||
+        read_params.reader_type == READER_COLD_DATA_COMPACTION ||
         read_params.reader_type == READER_CHECKSUM) {
         _filter_delete = true;
     }
