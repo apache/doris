@@ -1457,7 +1457,6 @@ public class SessionVariable implements Serializable, Writable {
     public void setEnableUnicodeNameSupport(boolean enableUnicodeNameSupport) {
         this.enableUnicodeNameSupport = enableUnicodeNameSupport;
     }
-    
     public boolean isDropTableIfCtasFailed() {
         return dropTableIfCtasFailed;
     }
