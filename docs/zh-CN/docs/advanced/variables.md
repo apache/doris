@@ -558,7 +558,7 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 
 *   `group_by_and_having_use_alias_first`
 
-       指定group by和having语句是否优先使用列的别名，而非从From语句里寻找列的名字。默认为false。
+    指定group by和having语句是否优先使用列的别名，而非从From语句里寻找列的名字。默认为false。
 
 * `enable_file_cache`
 
@@ -567,3 +567,7 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 * `topn_opt_limit_threshold`
 
     设置topn优化的limit阈值 (例如：SELECT * FROM t ORDER BY k LIMIT n). 如果limit的n小于等于阈值，topn相关优化（动态过滤下推、两阶段获取结果、按key的顺序读数据）会自动启用，否则会禁用。默认值是1024。
+
+* `drop_table_if_ctas_failed`
+
+    控制create table as select在写入发生错误时是否删除已创建的表，默认为true。
