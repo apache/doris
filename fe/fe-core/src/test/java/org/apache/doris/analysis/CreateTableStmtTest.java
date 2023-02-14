@@ -43,6 +43,7 @@ import org.junit.rules.ExpectedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -238,6 +239,15 @@ public class CreateTableStmtTest {
         // make default db return empty;
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, invalidCols, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, invalidColsName), null, new RandomDistributionDesc(10), null, null, "");
+        stmt.analyze(analyzer);
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void testTypeAll() throws UserException {
+        final ArrayList<ColumnDef> colAllList = Lists.newArrayList();
+        colAllList.add(new ColumnDef("colAll", new TypeDef(ScalarType.createType(PrimitiveType.ALL))));
+        CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, colAllList, "olap", new KeysDesc(), null,
+                new RandomDistributionDesc(10), null, null, "");
         stmt.analyze(analyzer);
     }
 
