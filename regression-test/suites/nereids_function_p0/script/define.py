@@ -17,9 +17,6 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-# This file is copied from
-# https://github.com/apache/impala/blob/branch-2.9.0/common/function-registry/impala_functions.py
-# and modified by Doris
 
 const_sql = {
     'aes_decrypt_Varchar_Varchar_Varchar_Varchar': "select aes_decrypt(kvchrs1, kvchrs1, kvchrs1, 'AES_128_ECB') from ${t} order by kvchrs1, kvchrs1, kvchrs1",
@@ -137,8 +134,7 @@ denied_tag = {
     'quantile_percent',
 }
 
-header = '''
-// Licensed to the Apache Software Foundation (ASF) under one
+header = '''// Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
 // regarding copyright ownership.  The ASF licenses this file
