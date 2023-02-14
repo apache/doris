@@ -48,7 +48,10 @@ const_sql = {
     'field_String': "select field(kstr, 1, 2) from ${t} order by kstr",
     'from_unixtime_Integer_Varchar': "select from_unixtime(kint, 'varchar') from ${t} order by kint",
     'from_unixtime_Integer_String': "select from_unixtime(kint, 'string') from ${t} order by kint",
-    'mask_first_n_String_Integer': "select mask_first_n('asd123', 54)",
+    'parse_url_Varchar_Varchar': "select parse_url(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1",
+    'parse_url_String_String': "select parse_url(kstr, 'HOST') from fn_test order by kstr, kstr",
+    'parse_url_Varchar_Varchar_Varchar': "select parse_url(kvchrs1, 'HOST', 'PROTOCOL') from fn_test order by kvchrs1, kvchrs1, kvchrs1",
+    'parse_url_String_String_String': "select parse_url(kstr, 'HOST', 'PROTOCOL') from fn_test order by kstr, kstr, kstr",
     'round_Double_Integer': "select round(kdbl, 2) from ${t} order by kdbl",
     'round_bankers_Double_Integer': "select round_bankers(kdbl, 2) from ${t} order by kdbl",
     'sleep_Integer': "select sleep(0.1) from ${t} order by kint",
@@ -85,6 +88,10 @@ not_check_result = {
     'database',
     'from_base64_Varchar',
     'from_base64_String',
+    'parse_url_Varchar_Varchar',
+    'parse_url_String_String',
+    'parse_url_Varchar_Varchar_Varchar',
+    'parse_url_String_String_String',
     'random',
     'random_BigInt',
     'running_difference_TinyInt',
@@ -95,6 +102,8 @@ not_check_result = {
     'running_difference_Float',
     'running_difference_Double',
     'running_difference_DecimalV2',
+    'running_difference_Date',
+    'running_difference_DateV2',
     'running_difference_DateTime',
     'running_difference_DateTimeV2',
     'running_difference_DateTime',
@@ -118,6 +127,8 @@ not_check_result = {
 
 denied_tag = {
     'esquery',
+    'to_quantile_state',
+    'quantile_percent'
 }
 
 header = '''

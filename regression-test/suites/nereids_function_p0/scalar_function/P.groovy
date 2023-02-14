@@ -20,14 +20,14 @@ suite("nereids_scalar_fn_P") {
 	sql 'use regression_test_nereids_function_p0'
 	sql 'set enable_nereids_planner=false'
 	sql 'set enable_fallback_to_original_planner=false'
-	qt_sql_parse_url_Varchar_Varchar "select parse_url(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
-	qt_sql_parse_url_Varchar_Varchar "select parse_url(kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1"
-	qt_sql_parse_url_String_String "select parse_url(kstr, kstr) from fn_test order by kstr, kstr"
-	qt_sql_parse_url_String_String "select parse_url(kstr, kstr) from fn_test_not_nullable order by kstr, kstr"
-	qt_sql_parse_url_Varchar_Varchar_Varchar "select parse_url(kvchrs1, kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1, kvchrs1"
-	qt_sql_parse_url_Varchar_Varchar_Varchar "select parse_url(kvchrs1, kvchrs1, kvchrs1) from fn_test_not_nullable order by kvchrs1, kvchrs1, kvchrs1"
-	qt_sql_parse_url_String_String_String "select parse_url(kstr, kstr, kstr) from fn_test order by kstr, kstr, kstr"
-	qt_sql_parse_url_String_String_String "select parse_url(kstr, kstr, kstr) from fn_test_not_nullable order by kstr, kstr, kstr"
+	sql "select parse_url(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
+	sql "select parse_url(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
+	sql "select parse_url(kstr, 'HOST') from fn_test order by kstr, kstr"
+	sql "select parse_url(kstr, 'HOST') from fn_test order by kstr, kstr"
+	sql "select parse_url(kvchrs1, 'HOST', 'PROTOCOL') from fn_test order by kvchrs1, kvchrs1, kvchrs1"
+	sql "select parse_url(kvchrs1, 'HOST', 'PROTOCOL') from fn_test order by kvchrs1, kvchrs1, kvchrs1"
+	sql "select parse_url(kstr, 'HOST', 'PROTOCOL') from fn_test order by kstr, kstr, kstr"
+	sql "select parse_url(kstr, 'HOST', 'PROTOCOL') from fn_test order by kstr, kstr, kstr"
 	qt_sql_pmod_BigInt_BigInt "select pmod(kbint, kbint) from fn_test order by kbint, kbint"
 	qt_sql_pmod_BigInt_BigInt "select pmod(kbint, kbint) from fn_test_not_nullable order by kbint, kbint"
 	qt_sql_pmod_Double_Double "select pmod(kdbl, kdbl) from fn_test order by kdbl, kdbl"

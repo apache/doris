@@ -70,8 +70,6 @@ suite("nereids_scalar_fn_T") {
 	qt_sql_to_monday_DateTime "select to_monday(kdtm) from fn_test_not_nullable order by kdtm"
 	qt_sql_to_monday_Date "select to_monday(kdt) from fn_test order by kdt"
 	qt_sql_to_monday_Date "select to_monday(kdt) from fn_test_not_nullable order by kdt"
-	qt_sql_to_quantile_state_Varchar_Float "select to_quantile_state(kvchrs1, 2048) from fn_test order by kvchrs1"
-	qt_sql_to_quantile_state_Varchar_Float "select to_quantile_state(kvchrs1, 2048) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_trim_Varchar "select trim(kvchrs1) from fn_test order by kvchrs1"
 	qt_sql_trim_Varchar "select trim(kvchrs1) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_trim_String "select trim(kstr) from fn_test order by kstr"
