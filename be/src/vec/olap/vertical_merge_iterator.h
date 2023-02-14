@@ -136,7 +136,7 @@ public:
               _ori_return_cols(ori_return_cols),
               _order(order),
               _seq_col_idx(seq_col_idx),
-              _num_key_columns(iter->schema().num_key_columns()) {}
+              _num_key_columns(_iter->schema().num_key_columns()) {}
 
     VerticalMergeIteratorContext(const VerticalMergeIteratorContext&) = delete;
     VerticalMergeIteratorContext(VerticalMergeIteratorContext&&) = delete;

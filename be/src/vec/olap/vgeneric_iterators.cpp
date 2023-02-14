@@ -428,8 +428,8 @@ RowwiseIterator* new_vstatistics_iterator(std::shared_ptr<Segment> segment, cons
     return new VStatisticsIterator(segment, schema);
 }
 
-RowwiseIterator* new_auto_increment_iterator(const Schema& schema, size_t num_rows) {
-    return new VAutoIncrementIterator(schema, num_rows);
+RowwiseIteratorUPtr new_auto_increment_iterator(const Schema& schema, size_t num_rows) {
+    return std::make_unique<VAutoIncrementIterator>(schema, num_rows);
 }
 
 } // namespace vectorized

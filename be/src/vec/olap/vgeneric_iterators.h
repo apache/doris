@@ -71,8 +71,8 @@ public:
               _sequence_id_idx(sequence_id_idx),
               _is_unique(is_unique),
               _is_reverse(is_reverse),
-              _num_columns(iter->schema().num_column_ids()),
-              _num_key_columns(iter->schema().num_key_columns()),
+              _num_columns(_iter->schema().num_column_ids()),
+              _num_key_columns(_iter->schema().num_key_columns()),
               _compare_columns(read_orderby_key_columns) {}
 
     VMergeIteratorContext(const VMergeIteratorContext&) = delete;
@@ -319,7 +319,7 @@ RowwiseIteratorUPtr new_union_iterator(std::vector<RowwiseIteratorUPtr>&& inputs
 // This class aims to be used in unit test.
 //
 // Client should delete returned iterator.
-RowwiseIterator* new_auto_increment_iterator(const Schema& schema, size_t num_rows);
+RowwiseIteratorUPtr new_auto_increment_iterator(const Schema& schema, size_t num_rows);
 
 RowwiseIterator* new_vstatistics_iterator(std::shared_ptr<Segment> segment, const Schema& schema);
 
