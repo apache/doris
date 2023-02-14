@@ -23,12 +23,15 @@ package org.apache.doris.rewrite;
 import org.apache.doris.analysis.Analyzer;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.JoinOperator;
+import org.apache.doris.analysis.TupleId;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.rewrite.mvrewrite.ExprToSlotRefRule;
 
 import com.google.common.collect.Lists;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * Helper class that drives the transformation of Exprs according to a given list of
@@ -113,6 +116,14 @@ public class ExprRewriter {
 
     public ExprRewriter(ExprRewriteRule rule) {
         rules = Lists.newArrayList(rule);
+    }
+
+    public void setDisableTuplesMVRewriter(Set<TupleId> disableTuplesMVRewriter) {
+        for (ExprRewriteRule rule : rules) {
+            if (rule instanceof ExprToSlotRefRule) {
+                ((ExprToSlotRefRule) rule).setDisableTuplesMVRewriter(disableTuplesMVRewriter);
+            }
+        }
     }
 
     public Expr rewrite(Expr expr, Analyzer analyzer) throws AnalysisException {
