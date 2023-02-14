@@ -162,7 +162,7 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
         return Status::OK();
     }
 
-    vectorized::Block* scan_block = nullptr;
+    vectorized::BlockUPtr scan_block = nullptr;
     RETURN_IF_ERROR(_scanner_ctx->get_block_from_queue(&scan_block, eos));
     if (*eos) {
         DCHECK(scan_block == nullptr);
@@ -171,7 +171,7 @@ Status VScanNode::get_next(RuntimeState* state, vectorized::Block* block, bool* 
 
     // get scanner's block memory
     block->swap(*scan_block);
-    _scanner_ctx->return_free_block(scan_block);
+    _scanner_ctx->return_free_block(std::move(scan_block));
 
     reached_limit(block, eos);
     if (*eos) {

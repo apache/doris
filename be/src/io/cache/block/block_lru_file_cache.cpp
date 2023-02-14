@@ -576,7 +576,6 @@ void LRUFileCache::remove_if_releasable(bool is_persistent) {
 
     std::lock_guard cache_lock(_mutex);
     LRUQueue* queue = is_persistent ? &_persistent_queue : &_queue;
-    std::vector<FileBlock*> to_remove;
     for (auto it = queue->begin(); it != queue->end();) {
         const auto& [key, offset, size, _] = *it++;
         auto* cell = get_cell(key, is_persistent, offset, cache_lock);
