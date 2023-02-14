@@ -26,6 +26,7 @@
 #include <iomanip>
 #include <random>
 #include <sstream>
+#include <string_view>
 
 #include "common/compiler_util.h"
 #include "runtime/decimalv2_value.h"
@@ -35,9 +36,9 @@
 
 namespace doris {
 
-const char* MathFunctions::_s_alphanumeric_chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+constexpr std::string_view alphanumeric_chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
-const double log_10[] = {
+constexpr double log_10[] = {
         1e000, 1e001, 1e002, 1e003, 1e004, 1e005, 1e006, 1e007, 1e008, 1e009, 1e010, 1e011, 1e012,
         1e013, 1e014, 1e015, 1e016, 1e017, 1e018, 1e019, 1e020, 1e021, 1e022, 1e023, 1e024, 1e025,
         1e026, 1e027, 1e028, 1e029, 1e030, 1e031, 1e032, 1e033, 1e034, 1e035, 1e036, 1e037, 1e038,
@@ -116,7 +117,7 @@ StringVal MathFunctions::decimal_to_base(FunctionContext* ctx, int64_t src_num, 
     }
     int abs_base = std::abs(dest_base);
     do {
-        buf[buf_index] = _s_alphanumeric_chars[temp_num % abs_base];
+        buf[buf_index] = alphanumeric_chars[temp_num % abs_base];
         temp_num /= abs_base;
         --buf_index;
         ++result_len;
