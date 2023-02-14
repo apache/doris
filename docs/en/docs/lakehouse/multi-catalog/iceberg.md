@@ -33,7 +33,6 @@ When connecting to Iceberg, Doris:
 
 1. Supports Iceberg V1/V2 table formats;
 2. Supports Position Delete but not Equality Delete for V2 format;
-3. Only supports Hive Metastore Catalogs. The usage is the same as that of Hive Catalogs.
 
 ## Create Catalog
 

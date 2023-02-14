@@ -35,6 +35,8 @@ public class IcebergExternalCatalogFactory {
                 return new IcebergRestExternalCatalog(catalogId, name, resource, props);
             case IcebergExternalCatalog.ICEBERG_HMS:
                 return new IcebergHMSExternalCatalog(catalogId, name, resource, props);
+            case IcebergExternalCatalog.ICEBERG_GLUE:
+                return new IcebergGlueExternalCatalog(catalogId, name, resource, props);
             case IcebergExternalCatalog.ICEBERG_DLF:
                 return new IcebergDLFExternalCatalog(catalogId, name, resource, props);
             default:

@@ -28,6 +28,7 @@ import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
 import com.google.common.collect.Lists;
+import org.apache.iceberg.Schema;
 import org.apache.iceberg.types.Types;
 
 import java.util.HashMap;
@@ -51,13 +52,13 @@ public class IcebergExternalTable extends ExternalTable {
 
     @Override
     public List<Column> initSchema() {
-        List<Types.NestedField> columns = ((IcebergExternalCatalog) catalog).getIcebergTable(dbName, name).schema()
-                .columns();
+        Schema schema = ((IcebergExternalCatalog) catalog).getIcebergTable(dbName, name).schema();
+        List<Types.NestedField> columns = schema.columns();
         List<Column> tmpSchema = Lists.newArrayListWithCapacity(columns.size());
         for (Types.NestedField field : columns) {
             tmpSchema.add(new Column(field.name(),
-                    icebergTypeToDorisType(field.type()), true, null,
-                    true, field.doc(), true, -1));
+                    icebergTypeToDorisType(field.type()), true, null, true, field.doc(), true,
+                    schema.caseInsensitiveFindField(field.name()).fieldId()));
         }
         return tmpSchema;
     }

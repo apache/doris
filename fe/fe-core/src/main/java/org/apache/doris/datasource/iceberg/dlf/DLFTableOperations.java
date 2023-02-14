@@ -17,11 +17,11 @@
 
 package org.apache.doris.datasource.iceberg.dlf;
 
-import org.apache.doris.datasource.iceberg.dlf.client.DLFCachedClientPool;
-
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hive.metastore.IMetaStoreClient;
 import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
 import org.apache.hadoop.hive.metastore.api.Table;
+import org.apache.iceberg.ClientPool;
 import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.hive.HiveTableOperations;
 import org.apache.iceberg.io.FileIO;
@@ -29,17 +29,17 @@ import org.apache.thrift.TException;
 
 public class DLFTableOperations extends HiveTableOperations {
 
-    private final DLFCachedClientPool metaClients;
+    private final ClientPool<IMetaStoreClient, TException> metaClients;
     private final String database;
     private final String tableName;
     private final int metadataRefreshMaxRetries;
 
-    protected DLFTableOperations(Configuration conf,
-                                 DLFCachedClientPool metaClients,
-                                 FileIO fileIO,
-                                 String catalogName,
-                                 String database,
-                                 String table) {
+    public DLFTableOperations(Configuration conf,
+                              ClientPool<IMetaStoreClient, TException> metaClients,
+                              FileIO fileIO,
+                              String catalogName,
+                              String database,
+                              String table) {
         super(conf, metaClients, fileIO, catalogName, database, table);
         this.metaClients = metaClients;
         this.database = database;
