@@ -321,9 +321,10 @@ const uint8_t* BitPacking::UnpackUpTo31Values(const uint8_t* __restrict__ in, in
     }
 
 #pragma push_macro("UNPACK_VALUES_CASE")
-#define UNPACK_VALUES_CASE(ignore1, i, ignore2) \
-    case 31 - i:                                \
-        out[30 - i] = static_cast<OutType>(UnpackValue<BIT_WIDTH, 30 - i, false>(in_buffer));
+#define UNPACK_VALUES_CASE(ignore1, i, ignore2)                                               \
+    case 31 - i:                                                                              \
+        out[30 - i] = static_cast<OutType>(UnpackValue<BIT_WIDTH, 30 - i, false>(in_buffer)); \
+        [[fallthrough]];
 
     // Use switch with fall-through cases to minimise branching.
     switch (num_values) {
