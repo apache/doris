@@ -23,6 +23,7 @@ suite("load") {
 
     sql """
         CREATE TABLE IF NOT EXISTS `fn_test` (
+            `id` int null,
             `kbool` boolean null,
             `ktint` tinyint(4) null,
             `ksint` smallint(6) null,
@@ -67,7 +68,8 @@ suite("load") {
             `kastr` array<string> null,
             `kadcml` array<decimal(27, 9)> null,
             `st_point_str` string null,
-            `st_point_vc` varchar(50) null
+            `st_point_vc` varchar(50) null,
+            `khll` hll_union null
         ) engine=olap
         DISTRIBUTED BY HASH(`ktint`) BUCKETS 5
         properties("replication_num" = "1")
@@ -75,6 +77,7 @@ suite("load") {
 
     sql """
         CREATE TABLE IF NOT EXISTS `fn_test_not_nullable` (
+            `id` int not null,
             `kbool` boolean not null,
             `ktint` tinyint(4) not null,
             `ksint` smallint(6) not null,
@@ -119,7 +122,8 @@ suite("load") {
             `kastr` array<string> not null,
             `kadcml` array<decimal(27, 9)> not null,
             `st_point_str` string not null,
-            `st_point_vc` varchar(50) not null
+            `st_point_vc` varchar(50) not null,
+            `khll` hll_union not null
         ) engine=olap
         DISTRIBUTED BY HASH(`ktint`) BUCKETS 5
         properties("replication_num" = "1")
@@ -130,6 +134,13 @@ suite("load") {
         table "fn_test"
         db "regression_test_nereids_function_p0"
         set 'column_separator', ';'
+        set 'columns', '''
+            id, kbool, ktnt, ksint, kint, kbint, klint, kfloat, kdb,kdcmls1, kdcmls2, kdcmls3,
+            kdcmlv3s1, kdcmlv3s2, kdcmlv3s3, kchrs1, kchrs2, kchrs3, kvchrs1, kvchrs2, kvchrs3, kstr,
+            kdt ,kdtv2, kdtm, kdtmv2s1, kdtmv2s2, kdtmev2s3, kabool, katint, kasint, kaint,
+            kabint, kalint, kafloat, kadb, kadt, kadtm, kadtv2, kdtmv2, kachr, kavchr, kastr, kadcml,
+            khll=hll_union_agg(id)
+            '''
         file "fn_test.dat"
     }
 
