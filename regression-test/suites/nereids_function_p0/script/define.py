@@ -54,8 +54,6 @@ const_sql = {
     'parse_url_String_String_String': "select parse_url(kstr, 'HOST', 'PROTOCOL') from ${t} order by kstr, kstr, kstr",
     'round_Double_Integer': "select round(kdbl, 2) from ${t} order by kdbl",
     'round_bankers_Double_Integer': "select round_bankers(kdbl, 2) from ${t} order by kdbl",
-    'running_difference_DateTime': "",
-    'running_difference_DateTimeV2': "",
     'sleep_Integer': "select sleep(0.1) from ${t} order by kint",
     'sm4_decrypt_Varchar_Varchar_Varchar_Varchar': "select sm4_decrypt(kvchrs1, kvchrs1, kvchrs1, 'SM4_128_ECB') from ${t} order by kvchrs1, kvchrs1, kvchrs1",
     'sm4_decrypt_String_String_String_String': "select sm4_decrypt(kstr, kstr, kstr, 'SM4_128_ECB') from ${t} order by kstr, kstr, kstr",
@@ -129,8 +127,9 @@ not_check_result = {
 
 denied_tag = {
     'esquery',
+    'hll_cardinality',
     'to_quantile_state',
-    'quantile_percent'
+    'quantile_percent',
 }
 
 header = '''

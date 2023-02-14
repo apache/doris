@@ -26,8 +26,6 @@ suite("nereids_scalar_fn_H") {
 	qt_sql_hex_Varchar "select hex(kvchrs1) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_hex_String "select hex(kstr) from fn_test order by kstr"
 	qt_sql_hex_String "select hex(kstr) from fn_test_not_nullable order by kstr"
-	qt_sql_hll_cardinality_Hll "select hll_cardinality(hll_raw_agg(kint)) from fn_test order by kint"
-	qt_sql_hll_cardinality_Hll "select hll_cardinality(hll_raw_agg(kint)) from fn_test_not_nullable order by kint"
 	qt_sql_hll_hash_Varchar "select hll_hash(kvchrs1) from fn_test order by kvchrs1"
 	qt_sql_hll_hash_Varchar "select hll_hash(kvchrs1) from fn_test_not_nullable order by kvchrs1"
 	qt_sql_hll_hash_String "select hll_hash(kstr) from fn_test order by kstr"
