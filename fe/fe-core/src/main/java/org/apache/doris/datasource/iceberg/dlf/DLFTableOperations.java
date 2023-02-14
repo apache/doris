@@ -17,19 +17,55 @@
 
 package org.apache.doris.datasource.iceberg.dlf;
 
+import org.apache.doris.datasource.iceberg.dlf.client.DLFCachedClientPool;
+
 import org.apache.hadoop.conf.Configuration;
-import org.apache.iceberg.ClientPool;
+import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
+import org.apache.hadoop.hive.metastore.api.Table;
+import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.hive.HiveTableOperations;
 import org.apache.iceberg.io.FileIO;
+import org.apache.thrift.TException;
 
 public class DLFTableOperations extends HiveTableOperations {
 
+    private final DLFCachedClientPool metaClients;
+    private final String database;
+    private final String tableName;
+    private final int metadataRefreshMaxRetries;
+
     protected DLFTableOperations(Configuration conf,
-                                 ClientPool metaClients,
+                                 DLFCachedClientPool metaClients,
                                  FileIO fileIO,
                                  String catalogName,
                                  String database,
                                  String table) {
         super(conf, metaClients, fileIO, catalogName, database, table);
+        this.metaClients = metaClients;
+        this.database = database;
+        this.tableName = table;
+        metadataRefreshMaxRetries = conf.getInt(
+            "iceberg.hive.metadata-refresh-max-retries", 2);
+    }
+
+    @Override
+    protected void doRefresh() {
+        String metadataLocation = null;
+        try {
+            Table table = metaClients.run(client -> client.getTable(database, tableName));
+            metadataLocation = table.getParameters().get(METADATA_LOCATION_PROP);
+        } catch (NoSuchObjectException e) {
+            if (currentMetadataLocation() != null) {
+                throw new NoSuchTableException("No such table: %s.%s", database, tableName);
+            }
+        } catch (TException e) {
+            String errMsg = String.format("Failed to get table info from metastore %s.%s", database, tableName);
+            throw new RuntimeException(errMsg, e);
+
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted during refresh", e);
+        }
+        refreshFromMetadataLocation(metadataLocation, metadataRefreshMaxRetries);
     }
 }

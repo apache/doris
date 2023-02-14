@@ -304,6 +304,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
         switch (catalogType) {
             case IcebergExternalCatalog.ICEBERG_HMS:
             case IcebergExternalCatalog.ICEBERG_REST:
+            case IcebergExternalCatalog.ICEBERG_DLF:
                 IcebergSource icebergSource = new IcebergApiSource(
                         icebergTable, desc, columnNameToRange);
                 scanProvider = new IcebergScanProvider(icebergSource, analyzer);

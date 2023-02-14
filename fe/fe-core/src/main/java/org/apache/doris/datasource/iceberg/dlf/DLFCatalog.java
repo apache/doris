@@ -31,6 +31,7 @@ import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NamespaceNotEmptyException;
 import org.apache.iceberg.exceptions.NoSuchIcebergTableException;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
+import org.apache.iceberg.exceptions.NoSuchTableException;
 import org.apache.iceberg.hadoop.HadoopFileIO;
 import org.apache.iceberg.hive.MetastoreUtil;
 import org.apache.iceberg.io.FileIO;
@@ -68,7 +69,19 @@ public class DLFCatalog extends BaseMetastoreCatalog implements SupportsNamespac
     }
 
     @Override
+    protected boolean isValidIdentifier(TableIdentifier tableIdentifier) {
+        return tableIdentifier.namespace().levels().length == 1;
+    }
+
+    private boolean isValidNamespace(Namespace namespace) {
+        return namespace.levels().length == 1;
+    }
+
+    @Override
     public List<TableIdentifier> listTables(Namespace namespace) {
+        if (isValidNamespace(namespace)) {
+            throw new NoSuchTableException("Invalid namespace: %s", namespace);
+        }
         String dbName = namespace.level(0);
         try {
             return clients.run(client -> client.getAllTables(dbName))
@@ -82,6 +95,9 @@ public class DLFCatalog extends BaseMetastoreCatalog implements SupportsNamespac
 
     @Override
     public boolean dropTable(TableIdentifier tableIdentifier, boolean purge) {
+        if (!isValidIdentifier(tableIdentifier)) {
+            throw new NoSuchTableException("Invalid identifier: %s", tableIdentifier);
+        }
         try {
             String dbName = tableIdentifier.namespace().level(0);
             clients.run(client -> {
@@ -98,6 +114,9 @@ public class DLFCatalog extends BaseMetastoreCatalog implements SupportsNamespac
 
     @Override
     public void renameTable(TableIdentifier sourceTbl, TableIdentifier targetTbl) {
+        if (!isValidIdentifier(sourceTbl)) {
+            throw new NoSuchTableException("Invalid identifier: %s", sourceTbl);
+        }
         try {
             String sourceDbName = sourceTbl.namespace().level(0);
             String targetDbName = targetTbl.namespace().level(0);
@@ -111,7 +130,7 @@ public class DLFCatalog extends BaseMetastoreCatalog implements SupportsNamespac
                 return null;
             });
         } catch (Exception e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("Fail to renameTable.", e);
         }
     }
 
@@ -125,10 +144,19 @@ public class DLFCatalog extends BaseMetastoreCatalog implements SupportsNamespac
     }
 
     @Override
-    public void createNamespace(Namespace namespace, Map<String, String> props) {}
+    public void createNamespace(Namespace namespace, Map<String, String> props) {
+        throw new UnsupportedOperationException(
+            "Cannot create namespace " + namespace + " : createNamespace is not supported");
+    }
 
     @Override
     public List<Namespace> listNamespaces(Namespace namespace) throws NoSuchNamespaceException {
+        if (!isValidNamespace(namespace) && !namespace.isEmpty()) {
+            throw new NoSuchNamespaceException("Namespace does not exist: %s", namespace);
+        }
+        if (!namespace.isEmpty()) {
+            return new ArrayList<>();
+        }
         List<Namespace> namespaces = new ArrayList<>();
         List<String> databases;
         try {
@@ -144,6 +172,9 @@ public class DLFCatalog extends BaseMetastoreCatalog implements SupportsNamespac
 
     @Override
     public Map<String, String> loadNamespaceMetadata(Namespace namespace) throws NoSuchNamespaceException {
+        if (isValidNamespace(namespace)) {
+            throw new NoSuchTableException("Invalid namespace: %s", namespace);
+        }
         String dbName = namespace.level(0);
         try {
             return clients.run(client -> client.getDatabase(dbName)).getParameters();
@@ -154,6 +185,9 @@ public class DLFCatalog extends BaseMetastoreCatalog implements SupportsNamespac
 
     @Override
     public boolean dropNamespace(Namespace namespace) throws NamespaceNotEmptyException {
+        if (isValidNamespace(namespace)) {
+            throw new NoSuchTableException("Invalid namespace: %s", namespace);
+        }
         String dbName = namespace.level(0);
         try {
             clients.run(client -> {
@@ -168,12 +202,14 @@ public class DLFCatalog extends BaseMetastoreCatalog implements SupportsNamespac
 
     @Override
     public boolean setProperties(Namespace namespace, Map<String, String> props) throws NoSuchNamespaceException {
-        return false;
+        throw new UnsupportedOperationException(
+            "Cannot set namespace properties " + namespace + " : setProperties is not supported");
     }
 
     @Override
     public boolean removeProperties(Namespace namespace, Set<String> pNames) throws NoSuchNamespaceException {
-        return false;
+        throw new UnsupportedOperationException(
+            "Cannot remove properties " + namespace + " : removeProperties is not supported");
     }
 
     @Override
