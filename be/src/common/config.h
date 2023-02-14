@@ -35,10 +35,9 @@ CONF_Int32(be_port, "9060");
 // port for brpc
 CONF_Int32(brpc_port, "8060");
 
-// the number of bthreads for brpc, the default value is set to 32
-// brpc only for network service send or accept request
-// no more  process any logic
-CONF_Int32(brpc_num_threads, "32");
+// the number of bthreads for brpc, the default value is set to -1,
+// which means the number of bthreads is #cpu-cores
+CONF_Int32(brpc_num_threads, "-1");
 
 // port to brpc server for single replica load
 CONF_Int32(single_replica_load_brpc_port, "8070");

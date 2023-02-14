@@ -29,39 +29,6 @@ namespace doris {
 
 DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(fragment_requests_total, MetricUnit::REQUESTS,
                                      "Total fragment requests received.");
-
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(transmit_data, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(transmit_data_by_http, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(exec_plan_fragment, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(exec_plan_fragment_prepare, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(exec_plan_fragment_start, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(cancel_plan_fragment, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(fetch_data, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(fetch_table_schema, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(tablet_writer_open, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(tablet_writer_add_block, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(tablet_writer_add_block_by_http, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(tablet_writer_cancel, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(get_info, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(update_cache, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(fetch_cache, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(clear_cache, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(merge_filter, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(apply_filter, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(transmit_block, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(transmit_block_by_http, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(send_data, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(commit, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(rollback, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(fold_constant_expr, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(check_rpc_channel, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(reset_rpc_channel, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(hand_shake, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(request_slave_tablet_pull_rowset, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(response_slave_tablet_pull_rowset, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(multiget_data, MetricUnit::REQUESTS, "");
-DEFINE_COUNTER_METRIC_PROTOTYPE_3ARG(tablet_fetch_data, MetricUnit::REQUESTS, "");
-
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(fragment_request_duration_us, MetricUnit::MICROSECONDS);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_scan_bytes, MetricUnit::BYTES);
 DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(query_scan_rows, MetricUnit::ROWS);
@@ -230,37 +197,6 @@ DorisMetrics::DorisMetrics() : _metric_registry(_s_registry_name) {
     _server_metric_entity = _metric_registry.register_entity("server");
 
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, fragment_requests_total);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, transmit_data);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, transmit_data_by_http);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, exec_plan_fragment);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, exec_plan_fragment_prepare);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, exec_plan_fragment_start);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, cancel_plan_fragment);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, fetch_data);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, fetch_table_schema);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, tablet_writer_open);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, tablet_writer_add_block);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, tablet_writer_add_block_by_http);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, tablet_writer_cancel);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, get_info);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, update_cache);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, fetch_cache);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, clear_cache);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, merge_filter);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, apply_filter);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, transmit_block);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, transmit_block_by_http);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, send_data);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, commit);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, rollback);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, fold_constant_expr);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, check_rpc_channel);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, reset_rpc_channel);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, hand_shake);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, request_slave_tablet_pull_rowset);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, response_slave_tablet_pull_rowset);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, multiget_data);
-    INT_COUNTER_METRIC_REGISTER(_server_metric_entity, tablet_fetch_data);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, fragment_request_duration_us);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_scan_bytes);
     INT_COUNTER_METRIC_REGISTER(_server_metric_entity, query_scan_rows);
