@@ -14,7 +14,7 @@
 0
 0
 
--- !sql_pmod_BigInt_BigInt --
+-- !sql_pmod_BigInt_BigInt_notnull --
 0
 0
 0
@@ -43,7 +43,7 @@
 0.0
 0.0
 
--- !sql_pmod_Double_Double --
+-- !sql_pmod_Double_Double_notnull --
 0.0
 0.0
 0.0
@@ -72,7 +72,7 @@
 11
 12
 
--- !sql_positive_BigInt --
+-- !sql_positive_BigInt_notnull --
 1
 2
 3
@@ -101,7 +101,7 @@
 1.1
 1.2
 
--- !sql_positive_Double --
+-- !sql_positive_Double_notnull --
 0.1
 0.2
 0.3
@@ -130,7 +130,7 @@
 1.100000000
 1.200000000
 
--- !sql_positive_DecimalV2 --
+-- !sql_positive_DecimalV2_notnull --
 0.100000000
 0.200000000
 0.300000000
@@ -159,7 +159,7 @@
 1.1105342410545758
 1.2445647472039776
 
--- !sql_pow_Double_Double --
+-- !sql_pow_Double_Double_notnull --
 0.7943282347242815
 0.7247796636776955
 0.696845301935949
@@ -188,7 +188,7 @@
 1.1105342410545758
 1.2445647472039776
 
--- !sql_power_Double_Double --
+-- !sql_power_Double_Double_notnull --
 0.7943282347242815
 0.7247796636776955
 0.696845301935949
@@ -217,7 +217,7 @@
 
 
 
--- !sql_protocol_String --
+-- !sql_protocol_String_notnull --
 
 
 

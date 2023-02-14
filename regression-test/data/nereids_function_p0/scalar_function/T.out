@@ -14,7 +14,7 @@
 1.9647596572486523
 2.5721516221263188
 
--- !sql_tan_Double --
+-- !sql_tan_Double_notnull --
 0.10033467208545055
 0.2027100355086725
 0.30933624960962325
@@ -43,7 +43,7 @@
 00:00:00
 00:00:00
 
--- !sql_timediff_DateTime_DateTime --
+-- !sql_timediff_DateTime_DateTime_notnull --
 00:00:00
 00:00:00
 00:00:00
@@ -72,7 +72,7 @@
 00:00:00
 00:00:00
 
--- !sql_timediff_DateTimeV2_DateTimeV2 --
+-- !sql_timediff_DateTimeV2_DateTimeV2_notnull --
 00:00:00
 00:00:00
 00:00:00
@@ -101,7 +101,7 @@
 11:10:11
 12:11:12
 
--- !sql_timediff_DateTimeV2_DateV2 --
+-- !sql_timediff_DateTimeV2_DateV2_notnull --
 01:00:01
 02:01:02
 03:02:03
@@ -130,7 +130,7 @@
 -11:10:11
 -12:11:12
 
--- !sql_timediff_DateV2_DateTimeV2 --
+-- !sql_timediff_DateV2_DateTimeV2_notnull --
 -01:00:01
 -02:01:02
 -03:02:03
@@ -159,7 +159,7 @@
 00:00:00
 00:00:00
 
--- !sql_timediff_DateV2_DateV2 --
+-- !sql_timediff_DateV2_DateV2_notnull --
 00:00:00
 00:00:00
 00:00:00
@@ -188,7 +188,7 @@
 00:00:00
 00:00:00
 
--- !sql_timediff_DateTimeV2_DateTime --
+-- !sql_timediff_DateTimeV2_DateTime_notnull --
 00:00:00
 00:00:00
 00:00:00
@@ -217,7 +217,7 @@
 -11:10:11
 -12:11:12
 
--- !sql_timediff_DateV2_DateTime --
+-- !sql_timediff_DateV2_DateTime_notnull --
 -01:00:01
 -02:01:02
 -03:02:03
@@ -246,7 +246,7 @@
 2012-03-11T11:10:11
 2012-03-12T12:11:12
 
--- !sql_timestamp_DateTimeV2 --
+-- !sql_timestamp_DateTimeV2_notnull --
 2012-03-01T01:00:01
 2012-03-02T02:01:02
 2012-03-03T03:02:03
@@ -275,7 +275,7 @@
 2012-03-11T11:10:11
 2012-03-12T12:11:12
 
--- !sql_timestamp_DateTime --
+-- !sql_timestamp_DateTime_notnull --
 2012-03-01T01:00:01
 2012-03-02T02:01:02
 2012-03-03T03:02:03
@@ -304,7 +304,7 @@
 2012-03-11T11:10:11
 2012-03-12T12:11:12
 
--- !sql_timestamp_DateTime --
+-- !sql_timestamp_DateTime_notnull --
 2012-03-01T01:00:01
 2012-03-02T02:01:02
 2012-03-03T03:02:03
@@ -333,7 +333,7 @@
 2012-03-11T11:10:11
 2012-03-12T12:11:12
 
--- !sql_timestamp_DateTimeV2 --
+-- !sql_timestamp_DateTimeV2_notnull --
 2012-03-01T01:00:01
 2012-03-02T02:01:02
 2012-03-03T03:02:03
@@ -362,7 +362,7 @@ c3RyaW5nMw==
 c3RyaW5nMw==
 c3RyaW5nMw==
 
--- !sql_to_base64_String --
+-- !sql_to_base64_String_notnull --
 c3RyaW5nMQ==
 c3RyaW5nMQ==
 c3RyaW5nMQ==
@@ -391,7 +391,7 @@ c3RyaW5nMw==
 \N
 \N
 
--- !sql_to_bitmap_Varchar --
+-- !sql_to_bitmap_Varchar_notnull --
 \N
 \N
 \N
@@ -420,7 +420,7 @@ c3RyaW5nMw==
 \N
 \N
 
--- !sql_to_bitmap_String --
+-- !sql_to_bitmap_String_notnull --
 \N
 \N
 \N
@@ -449,7 +449,7 @@ c3RyaW5nMw==
 \N
 \N
 
--- !sql_to_bitmap_with_check_BigInt --
+-- !sql_to_bitmap_with_check_BigInt_notnull --
 \N
 \N
 \N
@@ -478,7 +478,7 @@ c3RyaW5nMw==
 2012-03-11
 2012-03-12
 
--- !sql_to_date_DateTime --
+-- !sql_to_date_DateTime_notnull --
 2012-03-01
 2012-03-02
 2012-03-03
@@ -507,7 +507,7 @@ c3RyaW5nMw==
 2012-03-11
 2012-03-12
 
--- !sql_to_date_DateTimeV2 --
+-- !sql_to_date_DateTimeV2_notnull --
 2012-03-01
 2012-03-02
 2012-03-03
@@ -536,7 +536,7 @@ c3RyaW5nMw==
 2012-03-11
 2012-03-12
 
--- !sql_to_datev2_DateTimeV2 --
+-- !sql_to_datev2_DateTimeV2_notnull --
 2012-03-01
 2012-03-02
 2012-03-03
@@ -565,7 +565,7 @@ c3RyaW5nMw==
 734938
 734939
 
--- !sql_to_days_Date --
+-- !sql_to_days_Date_notnull --
 734928
 734929
 734930
@@ -594,7 +594,7 @@ c3RyaW5nMw==
 734938
 734939
 
--- !sql_to_days_DateV2 --
+-- !sql_to_days_DateV2_notnull --
 734928
 734929
 734930
@@ -623,7 +623,7 @@ c3RyaW5nMw==
 2012-03-05
 2012-03-12
 
--- !sql_to_monday_DateTimeV2 --
+-- !sql_to_monday_DateTimeV2_notnull --
 2012-02-27
 2012-02-27
 2012-02-27
@@ -652,7 +652,7 @@ c3RyaW5nMw==
 2012-03-05
 2012-03-12
 
--- !sql_to_monday_DateV2 --
+-- !sql_to_monday_DateV2_notnull --
 2012-02-27
 2012-02-27
 2012-02-27
@@ -681,7 +681,7 @@ c3RyaW5nMw==
 2012-03-05
 2012-03-12
 
--- !sql_to_monday_DateTime --
+-- !sql_to_monday_DateTime_notnull --
 2012-02-27
 2012-02-27
 2012-02-27
@@ -710,7 +710,7 @@ c3RyaW5nMw==
 2012-03-05
 2012-03-12
 
--- !sql_to_monday_Date --
+-- !sql_to_monday_Date_notnull --
 2012-02-27
 2012-02-27
 2012-02-27
@@ -739,7 +739,7 @@ varchar13
 varchar13
 varchar13
 
--- !sql_trim_Varchar --
+-- !sql_trim_Varchar_notnull --
 varchar11
 varchar11
 varchar11
@@ -768,7 +768,7 @@ string3
 string3
 string3
 
--- !sql_trim_String --
+-- !sql_trim_String_notnull --
 string1
 string1
 string1
@@ -797,7 +797,7 @@ string3
 1.1
 1.2
 
--- !sql_truncate_Double_Integer --
+-- !sql_truncate_Double_Integer_notnull --
 0.1
 0.2
 0.3

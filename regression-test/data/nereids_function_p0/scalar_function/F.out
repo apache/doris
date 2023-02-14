@@ -14,7 +14,7 @@
 0
 0
 
--- !sql_field_TinyInt --
+-- !sql_field_TinyInt_notnull --
 1
 2
 0
@@ -43,7 +43,7 @@
 0
 0
 
--- !sql_field_SmallInt --
+-- !sql_field_SmallInt_notnull --
 1
 2
 0
@@ -72,7 +72,7 @@
 0
 0
 
--- !sql_field_Integer --
+-- !sql_field_Integer_notnull --
 1
 2
 0
@@ -101,7 +101,7 @@
 0
 0
 
--- !sql_field_BigInt --
+-- !sql_field_BigInt_notnull --
 1
 2
 0
@@ -130,7 +130,7 @@
 0
 0
 
--- !sql_field_LargeInt --
+-- !sql_field_LargeInt_notnull --
 1
 2
 0
@@ -159,7 +159,7 @@
 0
 0
 
--- !sql_field_Float --
+-- !sql_field_Float_notnull --
 0
 0
 0
@@ -188,7 +188,7 @@
 0
 0
 
--- !sql_field_Double --
+-- !sql_field_Double_notnull --
 0
 0
 0
@@ -217,7 +217,7 @@
 0
 0
 
--- !sql_field_DecimalV2 --
+-- !sql_field_DecimalV2_notnull --
 0
 0
 0
@@ -246,7 +246,7 @@
 0
 0
 
--- !sql_field_DateV2 --
+-- !sql_field_DateV2_notnull --
 0
 0
 0
@@ -275,7 +275,7 @@
 0
 0
 
--- !sql_field_DateTimeV2 --
+-- !sql_field_DateTimeV2_notnull --
 0
 0
 0
@@ -304,7 +304,7 @@
 0
 0
 
--- !sql_field_Varchar --
+-- !sql_field_Varchar_notnull --
 0
 0
 0
@@ -333,7 +333,7 @@
 0
 0
 
--- !sql_field_String --
+-- !sql_field_String_notnull --
 0
 0
 0
@@ -362,7 +362,7 @@
 1
 1
 
--- !sql_find_in_set_Varchar_Varchar --
+-- !sql_find_in_set_Varchar_Varchar_notnull --
 1
 1
 1
@@ -391,7 +391,7 @@
 1
 1
 
--- !sql_find_in_set_String_String --
+-- !sql_find_in_set_String_String_notnull --
 1
 1
 1
@@ -420,7 +420,7 @@
 1.0
 1.0
 
--- !sql_floor_Double --
+-- !sql_floor_Double_notnull --
 0.0
 0.0
 0.0
@@ -449,7 +449,7 @@
 0.0
 0.0
 
--- !sql_fmod_Float_Float --
+-- !sql_fmod_Float_Float_notnull --
 0.0
 0.0
 0.0
@@ -478,7 +478,7 @@
 0.0
 0.0
 
--- !sql_fmod_Double_Double --
+-- !sql_fmod_Double_Double_notnull --
 0.0
 0.0
 0.0
@@ -507,7 +507,7 @@
 1.1105342410545758
 1.2445647472039776
 
--- !sql_fpow_Double_Double --
+-- !sql_fpow_Double_Double_notnull --
 0.7943282347242815
 0.7247796636776955
 0.696845301935949
@@ -536,7 +536,7 @@
 0000-01-11
 0000-01-12
 
--- !sql_from_days_Integer --
+-- !sql_from_days_Integer_notnull --
 0000-01-01
 0000-01-02
 0000-01-03
@@ -565,7 +565,7 @@
 1970-01-01 08:00:11
 1970-01-01 08:00:12
 
--- !sql_from_unixtime_Integer --
+-- !sql_from_unixtime_Integer_notnull --
 1970-01-01 08:00:01
 1970-01-01 08:00:02
 1970-01-01 08:00:03
@@ -594,7 +594,7 @@ varchar
 varchar
 varchar
 
--- !sql_from_unixtime_Integer_Varchar --
+-- !sql_from_unixtime_Integer_Varchar_notnull --
 varchar
 varchar
 varchar
@@ -623,7 +623,7 @@ string
 string
 string
 
--- !sql_from_unixtime_Integer_String --
+-- !sql_from_unixtime_Integer_String_notnull --
 string
 string
 string

@@ -14,7 +14,7 @@
 1
 1
 
--- !sql_quarter_DateTime --
+-- !sql_quarter_DateTime_notnull --
 1
 1
 1
@@ -43,7 +43,7 @@
 1
 1
 
--- !sql_quarter_DateTimeV2 --
+-- !sql_quarter_DateTimeV2_notnull --
 1
 1
 1
@@ -72,7 +72,7 @@
 1
 1
 
--- !sql_quarter_DateV2 --
+-- !sql_quarter_DateV2_notnull --
 1
 1
 1

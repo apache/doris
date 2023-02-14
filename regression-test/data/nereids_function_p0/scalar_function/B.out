@@ -14,7 +14,7 @@
 1011
 1100
 
--- !sql_bin_BigInt --
+-- !sql_bin_BigInt_notnull --
 1
 10
 11
@@ -43,7 +43,7 @@
 72
 72
 
--- !sql_bit_length_Varchar --
+-- !sql_bit_length_Varchar_notnull --
 72
 72
 72
@@ -72,7 +72,7 @@
 56
 56
 
--- !sql_bit_length_String --
+-- !sql_bit_length_String_notnull --
 56
 56
 56
@@ -101,7 +101,7 @@
 \N
 \N
 
--- !sql_bitmap_and_Bitmap_Bitmap --
+-- !sql_bitmap_and_Bitmap_Bitmap_notnull --
 \N
 \N
 \N
@@ -130,7 +130,7 @@
 1
 1
 
--- !sql_bitmap_and_count_Bitmap_Bitmap --
+-- !sql_bitmap_and_count_Bitmap_Bitmap_notnull --
 1
 1
 1
@@ -159,7 +159,7 @@
 \N
 \N
 
--- !sql_bitmap_and_not_Bitmap_Bitmap --
+-- !sql_bitmap_and_not_Bitmap_Bitmap_notnull --
 \N
 \N
 \N
@@ -188,7 +188,7 @@
 0
 0
 
--- !sql_bitmap_and_not_count_Bitmap_Bitmap --
+-- !sql_bitmap_and_not_count_Bitmap_Bitmap_notnull --
 0
 0
 0
@@ -217,7 +217,7 @@ true
 true
 true
 
--- !sql_bitmap_contains_Bitmap_BigInt --
+-- !sql_bitmap_contains_Bitmap_BigInt_notnull --
 true
 true
 true
@@ -246,7 +246,7 @@ true
 1
 1
 
--- !sql_bitmap_count_Bitmap --
+-- !sql_bitmap_count_Bitmap_notnull --
 1
 1
 1
@@ -275,7 +275,7 @@ true
 \N
 \N
 
--- !sql_bitmap_from_string_Varchar --
+-- !sql_bitmap_from_string_Varchar_notnull --
 \N
 \N
 \N
@@ -304,7 +304,7 @@ true
 \N
 \N
 
--- !sql_bitmap_from_string_String --
+-- !sql_bitmap_from_string_String_notnull --
 \N
 \N
 \N
@@ -333,7 +333,7 @@ true
 true
 true
 
--- !sql_bitmap_has_all_Bitmap_Bitmap --
+-- !sql_bitmap_has_all_Bitmap_Bitmap_notnull --
 true
 true
 true
@@ -362,7 +362,7 @@ true
 true
 true
 
--- !sql_bitmap_has_any_Bitmap_Bitmap --
+-- !sql_bitmap_has_any_Bitmap_Bitmap_notnull --
 true
 true
 true
@@ -391,7 +391,7 @@ true
 \N
 \N
 
--- !sql_bitmap_hash_Varchar --
+-- !sql_bitmap_hash_Varchar_notnull --
 \N
 \N
 \N
@@ -420,7 +420,7 @@ true
 \N
 \N
 
--- !sql_bitmap_hash_String --
+-- !sql_bitmap_hash_String_notnull --
 \N
 \N
 \N
@@ -449,7 +449,7 @@ true
 \N
 \N
 
--- !sql_bitmap_hash64_Varchar --
+-- !sql_bitmap_hash64_Varchar_notnull --
 \N
 \N
 \N
@@ -478,7 +478,7 @@ true
 \N
 \N
 
--- !sql_bitmap_hash64_String --
+-- !sql_bitmap_hash64_String_notnull --
 \N
 \N
 \N
@@ -507,7 +507,7 @@ true
 11
 12
 
--- !sql_bitmap_max_Bitmap --
+-- !sql_bitmap_max_Bitmap_notnull --
 1
 2
 3
@@ -536,7 +536,7 @@ true
 11
 12
 
--- !sql_bitmap_min_Bitmap --
+-- !sql_bitmap_min_Bitmap_notnull --
 1
 2
 3
@@ -565,7 +565,7 @@ true
 \N
 \N
 
--- !sql_bitmap_not_Bitmap_Bitmap --
+-- !sql_bitmap_not_Bitmap_Bitmap_notnull --
 \N
 \N
 \N
@@ -594,7 +594,7 @@ true
 \N
 \N
 
--- !sql_bitmap_or_Bitmap_Bitmap --
+-- !sql_bitmap_or_Bitmap_Bitmap_notnull --
 \N
 \N
 \N
@@ -623,7 +623,7 @@ true
 1
 1
 
--- !sql_bitmap_or_count_Bitmap_Bitmap --
+-- !sql_bitmap_or_count_Bitmap_Bitmap_notnull --
 1
 1
 1
@@ -652,7 +652,7 @@ true
 \N
 \N
 
--- !sql_bitmap_subset_in_range_Bitmap_BigInt_BigInt --
+-- !sql_bitmap_subset_in_range_Bitmap_BigInt_BigInt_notnull --
 \N
 \N
 \N
@@ -681,7 +681,7 @@ true
 \N
 \N
 
--- !sql_bitmap_subset_limit_Bitmap_BigInt_BigInt --
+-- !sql_bitmap_subset_limit_Bitmap_BigInt_BigInt_notnull --
 \N
 \N
 \N
@@ -710,7 +710,7 @@ true
 11
 12
 
--- !sql_bitmap_to_string_Bitmap --
+-- !sql_bitmap_to_string_Bitmap_notnull --
 1
 2
 3
@@ -739,7 +739,7 @@ true
 \N
 \N
 
--- !sql_bitmap_xor_Bitmap_Bitmap --
+-- !sql_bitmap_xor_Bitmap_Bitmap_notnull --
 \N
 \N
 \N
@@ -768,7 +768,7 @@ true
 0
 0
 
--- !sql_bitmap_xor_count_Bitmap_Bitmap --
+-- !sql_bitmap_xor_count_Bitmap_Bitmap_notnull --
 0
 0
 0

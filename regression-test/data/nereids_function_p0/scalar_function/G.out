@@ -14,7 +14,7 @@
 11
 12
 
--- !sql_greatest_TinyInt --
+-- !sql_greatest_TinyInt_notnull --
 1
 2
 3
@@ -43,7 +43,7 @@
 11
 12
 
--- !sql_greatest_SmallInt --
+-- !sql_greatest_SmallInt_notnull --
 1
 2
 3
@@ -72,7 +72,7 @@
 11
 12
 
--- !sql_greatest_Integer --
+-- !sql_greatest_Integer_notnull --
 1
 2
 3
@@ -101,7 +101,7 @@
 11
 12
 
--- !sql_greatest_BigInt --
+-- !sql_greatest_BigInt_notnull --
 1
 2
 3
@@ -130,7 +130,7 @@
 11
 12
 
--- !sql_greatest_LargeInt --
+-- !sql_greatest_LargeInt_notnull --
 1
 2
 3
@@ -159,7 +159,7 @@
 1.1
 1.2
 
--- !sql_greatest_Float --
+-- !sql_greatest_Float_notnull --
 0.1
 0.2
 0.3
@@ -188,7 +188,7 @@
 1.1
 1.2
 
--- !sql_greatest_Double --
+-- !sql_greatest_Double_notnull --
 0.1
 0.2
 0.3
@@ -217,7 +217,7 @@
 1.100000000
 1.200000000
 
--- !sql_greatest_DecimalV2 --
+-- !sql_greatest_DecimalV2_notnull --
 0.100000000
 0.200000000
 0.300000000
@@ -246,7 +246,7 @@
 2012-03-11
 2012-03-12
 
--- !sql_greatest_Date --
+-- !sql_greatest_Date_notnull --
 2012-03-01
 2012-03-02
 2012-03-03
@@ -275,7 +275,7 @@
 2012-03-11
 2012-03-12
 
--- !sql_greatest_DateV2 --
+-- !sql_greatest_DateV2_notnull --
 2012-03-01
 2012-03-02
 2012-03-03
@@ -304,7 +304,7 @@
 2012-03-11T11:10:11
 2012-03-12T12:11:12
 
--- !sql_greatest_DateTime --
+-- !sql_greatest_DateTime_notnull --
 2012-03-01T01:00:01
 2012-03-02T02:01:02
 2012-03-03T03:02:03
@@ -333,7 +333,7 @@
 2012-03-11T11:10:11
 2012-03-12T12:11:12
 
--- !sql_greatest_DateTimeV2 --
+-- !sql_greatest_DateTimeV2_notnull --
 2012-03-01T01:00:01
 2012-03-02T02:01:02
 2012-03-03T03:02:03
@@ -362,7 +362,7 @@ varchar13
 varchar13
 varchar13
 
--- !sql_greatest_Varchar --
+-- !sql_greatest_Varchar_notnull --
 varchar11
 varchar11
 varchar11
@@ -391,7 +391,7 @@ string3
 string3
 string3
 
--- !sql_greatest_String --
+-- !sql_greatest_String_notnull --
 string1
 string1
 string1

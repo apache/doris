@@ -14,7 +14,7 @@
 2012
 2012
 
--- !sql_year_DateV2 --
+-- !sql_year_DateV2_notnull --
 2012
 2012
 2012
@@ -43,7 +43,7 @@
 2012
 2012
 
--- !sql_year_DateTime --
+-- !sql_year_DateTime_notnull --
 2012
 2012
 2012
@@ -72,7 +72,7 @@
 2012
 2012
 
--- !sql_year_DateTimeV2 --
+-- !sql_year_DateTimeV2_notnull --
 2012
 2012
 2012
@@ -101,7 +101,7 @@
 2013-01-01T00:00
 2013-01-01T00:00
 
--- !sql_year_ceil_DateTime --
+-- !sql_year_ceil_DateTime_notnull --
 2013-01-01T00:00
 2013-01-01T00:00
 2013-01-01T00:00
@@ -130,7 +130,7 @@
 2013-01-01T00:00
 2013-01-01T00:00
 
--- !sql_year_ceil_DateTimeV2 --
+-- !sql_year_ceil_DateTimeV2_notnull --
 2013-01-01T00:00
 2013-01-01T00:00
 2013-01-01T00:00
@@ -159,7 +159,7 @@
 2013-01-01
 2013-01-01
 
--- !sql_year_ceil_DateV2 --
+-- !sql_year_ceil_DateV2_notnull --
 2013-01-01
 2013-01-01
 2013-01-01
@@ -188,7 +188,7 @@
 2012-03-11T11:10:11
 2012-03-12T12:11:12
 
--- !sql_year_ceil_DateTime_DateTime --
+-- !sql_year_ceil_DateTime_DateTime_notnull --
 2012-03-01T01:00:01
 2012-03-02T02:01:02
 2012-03-03T03:02:03
@@ -217,7 +217,7 @@
 2014-01-01T00:00
 2018-01-01T00:00
 
--- !sql_year_ceil_DateTime_Integer --
+-- !sql_year_ceil_DateTime_Integer_notnull --
 2013-01-01T00:00
 2014-01-01T00:00
 2015-01-01T00:00
@@ -246,7 +246,7 @@
 2012-03-11T11:10:11
 2012-03-12T12:11:12
 
--- !sql_year_ceil_DateTimeV2_DateTimeV2 --
+-- !sql_year_ceil_DateTimeV2_DateTimeV2_notnull --
 2012-03-01T01:00:01
 2012-03-02T02:01:02
 2012-03-03T03:02:03
@@ -275,7 +275,7 @@
 2014-01-01T00:00
 2018-01-01T00:00
 
--- !sql_year_ceil_DateTimeV2_Integer --
+-- !sql_year_ceil_DateTimeV2_Integer_notnull --
 2013-01-01T00:00
 2014-01-01T00:00
 2015-01-01T00:00
@@ -304,7 +304,7 @@
 2012-03-11
 2012-03-12
 
--- !sql_year_ceil_DateV2_DateV2 --
+-- !sql_year_ceil_DateV2_DateV2_notnull --
 2012-03-01
 2012-03-02
 2012-03-03
@@ -333,7 +333,7 @@
 2014-01-01
 2018-01-01
 
--- !sql_year_ceil_DateV2_Integer --
+-- !sql_year_ceil_DateV2_Integer_notnull --
 2013-01-01
 2014-01-01
 2015-01-01
@@ -362,7 +362,7 @@
 2012-03-11T11:10:11
 2012-03-12T12:11:12
 
--- !sql_year_ceil_DateTime_Integer_DateTime --
+-- !sql_year_ceil_DateTime_Integer_DateTime_notnull --
 2012-03-01T01:00:01
 2012-03-02T02:01:02
 2012-03-03T03:02:03
@@ -391,7 +391,7 @@
 2012-03-11T11:10:11
 2012-03-12T12:11:12
 
--- !sql_year_ceil_DateTimeV2_Integer_DateTimeV2 --
+-- !sql_year_ceil_DateTimeV2_Integer_DateTimeV2_notnull --
 2012-03-01T01:00:01
 2012-03-02T02:01:02
 2012-03-03T03:02:03
@@ -420,7 +420,7 @@
 2012-03-11
 2012-03-12
 
--- !sql_year_ceil_DateV2_Integer_DateV2 --
+-- !sql_year_ceil_DateV2_Integer_DateV2_notnull --
 2012-03-01
 2012-03-02
 2012-03-03
@@ -449,7 +449,7 @@
 2012-01-01T00:00
 2012-01-01T00:00
 
--- !sql_year_floor_DateTime --
+-- !sql_year_floor_DateTime_notnull --
 2012-01-01T00:00
 2012-01-01T00:00
 2012-01-01T00:00
@@ -478,7 +478,7 @@
 2012-01-01T00:00
 2012-01-01T00:00
 
--- !sql_year_floor_DateTimeV2 --
+-- !sql_year_floor_DateTimeV2_notnull --
 2012-01-01T00:00
 2012-01-01T00:00
 2012-01-01T00:00
@@ -507,7 +507,7 @@
 2012-01-01
 2012-01-01
 
--- !sql_year_floor_DateV2 --
+-- !sql_year_floor_DateV2_notnull --
 2012-01-01
 2012-01-01
 2012-01-01
@@ -536,7 +536,7 @@
 2012-03-11T11:10:11
 2012-03-12T12:11:12
 
--- !sql_year_floor_DateTime_DateTime --
+-- !sql_year_floor_DateTime_DateTime_notnull --
 2012-03-01T01:00:01
 2012-03-02T02:01:02
 2012-03-03T03:02:03
@@ -565,7 +565,7 @@
 2003-01-01T00:00
 2006-01-01T00:00
 
--- !sql_year_floor_DateTime_Integer --
+-- !sql_year_floor_DateTime_Integer_notnull --
 2012-01-01T00:00
 2012-01-01T00:00
 2012-01-01T00:00
@@ -594,7 +594,7 @@
 2012-03-11T11:10:11
 2012-03-12T12:11:12
 
--- !sql_year_floor_DateTimeV2_DateTimeV2 --
+-- !sql_year_floor_DateTimeV2_DateTimeV2_notnull --
 2012-03-01T01:00:01
 2012-03-02T02:01:02
 2012-03-03T03:02:03
@@ -623,7 +623,7 @@
 2003-01-01T00:00
 2006-01-01T00:00
 
--- !sql_year_floor_DateTimeV2_Integer --
+-- !sql_year_floor_DateTimeV2_Integer_notnull --
 2012-01-01T00:00
 2012-01-01T00:00
 2012-01-01T00:00
@@ -652,7 +652,7 @@
 2012-03-11
 2012-03-12
 
--- !sql_year_floor_DateV2_DateV2 --
+-- !sql_year_floor_DateV2_DateV2_notnull --
 2012-03-01
 2012-03-02
 2012-03-03
@@ -681,7 +681,7 @@
 2003-01-01
 2006-01-01
 
--- !sql_year_floor_DateV2_Integer --
+-- !sql_year_floor_DateV2_Integer_notnull --
 2012-01-01
 2012-01-01
 2012-01-01
@@ -710,7 +710,7 @@
 2012-03-11T11:10:11
 2012-03-12T12:11:12
 
--- !sql_year_floor_DateTime_Integer_DateTime --
+-- !sql_year_floor_DateTime_Integer_DateTime_notnull --
 2012-03-01T01:00:01
 2012-03-02T02:01:02
 2012-03-03T03:02:03
@@ -739,7 +739,7 @@
 2012-03-11T11:10:11
 2012-03-12T12:11:12
 
--- !sql_year_floor_DateTimeV2_Integer_DateTimeV2 --
+-- !sql_year_floor_DateTimeV2_Integer_DateTimeV2_notnull --
 2012-03-01T01:00:01
 2012-03-02T02:01:02
 2012-03-03T03:02:03
@@ -768,7 +768,7 @@
 2012-03-11
 2012-03-12
 
--- !sql_year_floor_DateV2_Integer_DateV2 --
+-- !sql_year_floor_DateV2_Integer_DateV2_notnull --
 2012-03-01
 2012-03-02
 2012-03-03
@@ -797,7 +797,7 @@
 2023-03-11T11:10:11
 2024-03-12T12:11:12
 
--- !sql_years_add_DateTime_Integer --
+-- !sql_years_add_DateTime_Integer_notnull --
 2013-03-01T01:00:01
 2014-03-02T02:01:02
 2015-03-03T03:02:03
@@ -826,7 +826,7 @@
 2023-03-11T11:10:11
 2024-03-12T12:11:12
 
--- !sql_years_add_DateTimeV2_Integer --
+-- !sql_years_add_DateTimeV2_Integer_notnull --
 2013-03-01T01:00:01
 2014-03-02T02:01:02
 2015-03-03T03:02:03
@@ -855,7 +855,7 @@
 2023-03-11
 2024-03-12
 
--- !sql_years_add_Date_Integer --
+-- !sql_years_add_Date_Integer_notnull --
 2013-03-01
 2014-03-02
 2015-03-03
@@ -884,7 +884,7 @@
 2023-03-11
 2024-03-12
 
--- !sql_years_add_DateV2_Integer --
+-- !sql_years_add_DateV2_Integer_notnull --
 2013-03-01
 2014-03-02
 2015-03-03
@@ -913,7 +913,7 @@
 0
 0
 
--- !sql_years_diff_DateTime_DateTime --
+-- !sql_years_diff_DateTime_DateTime_notnull --
 0
 0
 0
@@ -942,7 +942,7 @@
 0
 0
 
--- !sql_years_diff_DateTimeV2_DateTimeV2 --
+-- !sql_years_diff_DateTimeV2_DateTimeV2_notnull --
 0
 0
 0
@@ -971,7 +971,7 @@
 0
 0
 
--- !sql_years_diff_DateV2_DateTimeV2 --
+-- !sql_years_diff_DateV2_DateTimeV2_notnull --
 0
 0
 0
@@ -1000,7 +1000,7 @@
 0
 0
 
--- !sql_years_diff_DateTimeV2_DateV2 --
+-- !sql_years_diff_DateTimeV2_DateV2_notnull --
 0
 0
 0
@@ -1029,7 +1029,7 @@
 0
 0
 
--- !sql_years_diff_DateV2_DateV2 --
+-- !sql_years_diff_DateV2_DateV2_notnull --
 0
 0
 0
@@ -1058,7 +1058,7 @@
 0
 0
 
--- !sql_years_diff_DateV2_DateTime --
+-- !sql_years_diff_DateV2_DateTime_notnull --
 0
 0
 0
@@ -1087,7 +1087,7 @@
 0
 0
 
--- !sql_years_diff_DateTime_DateV2 --
+-- !sql_years_diff_DateTime_DateV2_notnull --
 0
 0
 0
@@ -1116,7 +1116,7 @@
 0
 0
 
--- !sql_years_diff_DateTimeV2_DateTime --
+-- !sql_years_diff_DateTimeV2_DateTime_notnull --
 0
 0
 0
@@ -1145,7 +1145,7 @@
 0
 0
 
--- !sql_years_diff_DateTime_DateTimeV2 --
+-- !sql_years_diff_DateTime_DateTimeV2_notnull --
 0
 0
 0
@@ -1174,7 +1174,7 @@
 2001-03-11T11:10:11
 2000-03-12T12:11:12
 
--- !sql_years_sub_DateTime_Integer --
+-- !sql_years_sub_DateTime_Integer_notnull --
 2011-03-01T01:00:01
 2010-03-02T02:01:02
 2009-03-03T03:02:03
@@ -1203,7 +1203,7 @@
 2001-03-11T11:10:11
 2000-03-12T12:11:12
 
--- !sql_years_sub_DateTimeV2_Integer --
+-- !sql_years_sub_DateTimeV2_Integer_notnull --
 2011-03-01T01:00:01
 2010-03-02T02:01:02
 2009-03-03T03:02:03
@@ -1232,7 +1232,7 @@
 2001-03-11
 2000-03-12
 
--- !sql_years_sub_Date_Integer --
+-- !sql_years_sub_Date_Integer_notnull --
 2011-03-01
 2010-03-02
 2009-03-03
@@ -1261,7 +1261,7 @@
 2001-03-11
 2000-03-12
 
--- !sql_years_sub_DateV2_Integer --
+-- !sql_years_sub_DateV2_Integer_notnull --
 2011-03-01
 2010-03-02
 2009-03-03
@@ -1290,7 +1290,7 @@
 201211
 201211
 
--- !sql_yearweek_DateTime --
+-- !sql_yearweek_DateTime_notnull --
 201209
 201209
 201209
@@ -1319,7 +1319,7 @@
 201211
 201211
 
--- !sql_yearweek_DateTimeV2 --
+-- !sql_yearweek_DateTimeV2_notnull --
 201209
 201209
 201209
@@ -1348,7 +1348,7 @@
 201211
 201211
 
--- !sql_yearweek_DateV2 --
+-- !sql_yearweek_DateV2_notnull --
 201209
 201209
 201209
@@ -1377,7 +1377,7 @@
 201210
 201211
 
--- !sql_yearweek_DateTime_Integer --
+-- !sql_yearweek_DateTime_Integer_notnull --
 201209
 201209
 201209
@@ -1406,7 +1406,7 @@
 201210
 201211
 
--- !sql_yearweek_DateTimeV2_Integer --
+-- !sql_yearweek_DateTimeV2_Integer_notnull --
 201209
 201209
 201209
@@ -1435,7 +1435,7 @@
 201210
 201211
 
--- !sql_yearweek_DateV2_Integer --
+-- !sql_yearweek_DateV2_Integer_notnull --
 201209
 201209
 201209

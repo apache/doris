@@ -14,7 +14,7 @@
 1.1
 1.2
 
--- !sql_abs_Double --
+-- !sql_abs_Double_notnull --
 0.1
 0.2
 0.3
@@ -43,7 +43,7 @@
 1.1
 1.2
 
--- !sql_abs_Float --
+-- !sql_abs_Float_notnull --
 0.1
 0.2
 0.3
@@ -72,7 +72,7 @@
 11
 12
 
--- !sql_abs_LargeInt --
+-- !sql_abs_LargeInt_notnull --
 1
 2
 3
@@ -101,7 +101,7 @@
 11
 12
 
--- !sql_abs_BigInt --
+-- !sql_abs_BigInt_notnull --
 1
 2
 3
@@ -130,7 +130,7 @@
 11
 12
 
--- !sql_abs_SmallInt --
+-- !sql_abs_SmallInt_notnull --
 1
 2
 3
@@ -159,7 +159,7 @@
 11
 12
 
--- !sql_abs_Integer --
+-- !sql_abs_Integer_notnull --
 1
 2
 3
@@ -188,7 +188,7 @@
 11
 12
 
--- !sql_abs_TinyInt --
+-- !sql_abs_TinyInt_notnull --
 1
 2
 3
@@ -217,7 +217,7 @@
 1.100000000
 1.200000000
 
--- !sql_abs_DecimalV2 --
+-- !sql_abs_DecimalV2_notnull --
 0.100000000
 0.200000000
 0.300000000
@@ -246,7 +246,7 @@
 nan
 nan
 
--- !sql_acos_Double --
+-- !sql_acos_Double_notnull --
 1.4706289056333368
 1.369438406004566
 1.2661036727794992
@@ -275,7 +275,7 @@ nan
 \N
 \N
 
--- !sql_append_trailing_char_if_absent_Varchar_Varchar --
+-- !sql_append_trailing_char_if_absent_Varchar_Varchar_notnull --
 \N
 \N
 \N
@@ -304,7 +304,7 @@ nan
 \N
 \N
 
--- !sql_append_trailing_char_if_absent_String_String --
+-- !sql_append_trailing_char_if_absent_String_String_notnull --
 \N
 \N
 \N
@@ -333,7 +333,7 @@ nan
 118
 118
 
--- !sql_ascii_Varchar --
+-- !sql_ascii_Varchar_notnull --
 118
 118
 118
@@ -362,7 +362,7 @@ nan
 115
 115
 
--- !sql_ascii_String --
+-- !sql_ascii_String_notnull --
 115
 115
 115
@@ -391,7 +391,7 @@ nan
 nan
 nan
 
--- !sql_asin_Double --
+-- !sql_asin_Double_notnull --
 0.1001674211615598
 0.2013579207903308
 0.3046926540153975
@@ -420,7 +420,7 @@ nan
 0.8329812666744317
 0.8760580505981934
 
--- !sql_atan_Double --
+-- !sql_atan_Double_notnull --
 0.09966865249116204
 0.19739555984988078
 0.2914567944778671

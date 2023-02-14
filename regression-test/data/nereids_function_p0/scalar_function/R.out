@@ -14,7 +14,7 @@
 0.019198621771937627
 0.020943951023931952
 
--- !sql_radians_Double --
+-- !sql_radians_Double_notnull --
 0.0017453292519943296
 0.003490658503988659
 0.005235987755982988
@@ -43,7 +43,7 @@
 
 
 
--- !sql_regexp_extract_Varchar_Varchar_BigInt --
+-- !sql_regexp_extract_Varchar_Varchar_BigInt_notnull --
 
 
 
@@ -72,7 +72,7 @@
 
 
 
--- !sql_regexp_extract_String_String_BigInt --
+-- !sql_regexp_extract_String_String_BigInt_notnull --
 
 
 
@@ -101,7 +101,7 @@
 
 
 
--- !sql_regexp_extract_all_Varchar_Varchar --
+-- !sql_regexp_extract_all_Varchar_Varchar_notnull --
 
 
 
@@ -130,7 +130,7 @@
 
 
 
--- !sql_regexp_extract_all_String_String --
+-- !sql_regexp_extract_all_String_String_notnull --
 
 
 
@@ -159,7 +159,7 @@ varchar13
 varchar13
 varchar13
 
--- !sql_regexp_replace_Varchar_Varchar_Varchar --
+-- !sql_regexp_replace_Varchar_Varchar_Varchar_notnull --
 varchar11
 varchar11
 varchar11
@@ -188,7 +188,7 @@ string3
 string3
 string3
 
--- !sql_regexp_replace_String_String_String --
+-- !sql_regexp_replace_String_String_String_notnull --
 string1
 string1
 string1
@@ -217,7 +217,7 @@ varchar13
 varchar13
 varchar13
 
--- !sql_regexp_replace_one_Varchar_Varchar_Varchar --
+-- !sql_regexp_replace_one_Varchar_Varchar_Varchar_notnull --
 varchar11
 varchar11
 varchar11
@@ -246,7 +246,7 @@ string3
 string3
 string3
 
--- !sql_regexp_replace_one_String_String_String --
+-- !sql_regexp_replace_one_String_String_String_notnull --
 string1
 string1
 string1
@@ -275,7 +275,7 @@ varchar13varchar13varchar13varchar13varchar13varchar13
 varchar13varchar13varchar13varchar13varchar13varchar13varchar13varchar13varchar13
 varchar13varchar13varchar13varchar13varchar13varchar13varchar13varchar13varchar13varchar13varchar13varchar13
 
--- !sql_repeat_Varchar_Integer --
+-- !sql_repeat_Varchar_Integer_notnull --
 varchar11
 varchar11varchar11varchar11varchar11
 varchar11varchar11varchar11varchar11varchar11varchar11varchar11
@@ -304,7 +304,7 @@ string3string3string3string3string3string3
 string3string3string3string3string3string3string3string3string3
 string3string3string3string3string3string3string3string3string3string3string3string3
 
--- !sql_repeat_String_Integer --
+-- !sql_repeat_String_Integer_notnull --
 string1
 string1string1string1string1
 string1string1string1string1string1string1string1
@@ -333,7 +333,7 @@ varchar13
 varchar13
 varchar13
 
--- !sql_replace_Varchar_Varchar_Varchar --
+-- !sql_replace_Varchar_Varchar_Varchar_notnull --
 varchar11
 varchar11
 varchar11
@@ -362,7 +362,7 @@ string3
 string3
 string3
 
--- !sql_replace_String_String_String --
+-- !sql_replace_String_String_String_notnull --
 string1
 string1
 string1
@@ -391,7 +391,7 @@ char13
 varchar13
 varchar13
 
--- !sql_right_Varchar_Integer --
+-- !sql_right_Varchar_Integer_notnull --
 1
 ar11
 rchar11
@@ -420,7 +420,7 @@ tring3
 string3
 string3
 
--- !sql_right_String_Integer --
+-- !sql_right_String_Integer_notnull --
 1
 ing1
 string1
@@ -449,7 +449,7 @@ string3
 1.0
 1.0
 
--- !sql_round_Double --
+-- !sql_round_Double_notnull --
 0.0
 0.0
 0.0
@@ -478,7 +478,7 @@ string3
 1.1
 1.2
 
--- !sql_round_Double_Integer --
+-- !sql_round_Double_Integer_notnull --
 0.1
 0.2
 0.3
@@ -507,7 +507,7 @@ string3
 1.0
 1.0
 
--- !sql_round_bankers_Double --
+-- !sql_round_bankers_Double_notnull --
 0.0
 0.0
 0.0
@@ -536,7 +536,7 @@ string3
 1.1
 1.2
 
--- !sql_round_bankers_Double_Integer --
+-- !sql_round_bankers_Double_Integer_notnull --
 0.1
 0.2
 0.3
@@ -565,7 +565,7 @@ varcha
 varchar13
 varchar13var
 
--- !sql_rpad_Varchar_Integer_Varchar --
+-- !sql_rpad_Varchar_Integer_Varchar_notnull --
 v
 varc
 varchar
@@ -594,7 +594,7 @@ string
 string3st
 string3strin
 
--- !sql_rpad_String_Integer_String --
+-- !sql_rpad_String_Integer_String_notnull --
 s
 stri
 string1
@@ -623,7 +623,7 @@ varchar13
 varchar13
 varchar13
 
--- !sql_rtrim_Varchar --
+-- !sql_rtrim_Varchar_notnull --
 varchar11
 varchar11
 varchar11
@@ -652,7 +652,7 @@ string3
 string3
 string3
 
--- !sql_rtrim_String --
+-- !sql_rtrim_String_notnull --
 string1
 string1
 string1

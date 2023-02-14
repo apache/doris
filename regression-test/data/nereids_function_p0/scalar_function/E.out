@@ -14,7 +14,7 @@ varchar11
 \N
 \N
 
--- !sql_elt_Integer_Varchar --
+-- !sql_elt_Integer_Varchar_notnull --
 varchar11
 \N
 \N
@@ -43,7 +43,7 @@ string1
 \N
 \N
 
--- !sql_elt_Integer_String --
+-- !sql_elt_Integer_String_notnull --
 string1
 \N
 \N
@@ -72,7 +72,7 @@ true
 true
 true
 
--- !sql_ends_with_Varchar_Varchar --
+-- !sql_ends_with_Varchar_Varchar_notnull --
 true
 true
 true
@@ -101,7 +101,7 @@ true
 true
 true
 
--- !sql_ends_with_String_String --
+-- !sql_ends_with_String_String_notnull --
 true
 true
 true
@@ -130,7 +130,7 @@ true
 3.0041660239464334
 3.3201169227365472
 
--- !sql_exp_Double --
+-- !sql_exp_Double_notnull --
 1.1051709180756477
 1.2214027581601699
 1.3498588075760032
@@ -159,7 +159,7 @@ true
 
 
 
--- !sql_extract_url_parameter_Varchar_Varchar --
+-- !sql_extract_url_parameter_Varchar_Varchar_notnull --
 
 
 

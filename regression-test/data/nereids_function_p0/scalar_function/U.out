@@ -14,7 +14,7 @@
 
 
 
--- !sql_unhex_Varchar --
+-- !sql_unhex_Varchar_notnull --
 
 
 
@@ -43,7 +43,7 @@
 
 
 
--- !sql_unhex_String --
+-- !sql_unhex_String_notnull --
 
 
 
@@ -72,7 +72,7 @@
 1331435411
 1331525472
 
--- !sql_unix_timestamp_DateTime --
+-- !sql_unix_timestamp_DateTime_notnull --
 1330534801
 1330624862
 1330714923
@@ -101,7 +101,7 @@
 1331395200
 1331481600
 
--- !sql_unix_timestamp_Date --
+-- !sql_unix_timestamp_Date_notnull --
 1330531200
 1330617600
 1330704000
@@ -130,7 +130,7 @@
 1331435411
 1331525472
 
--- !sql_unix_timestamp_DateTimeV2 --
+-- !sql_unix_timestamp_DateTimeV2_notnull --
 1330534801
 1330624862
 1330714923
@@ -159,7 +159,7 @@
 1331395200
 1331481600
 
--- !sql_unix_timestamp_DateV2 --
+-- !sql_unix_timestamp_DateV2_notnull --
 1330531200
 1330617600
 1330704000
@@ -188,7 +188,7 @@
 0
 0
 
--- !sql_unix_timestamp_Varchar_Varchar --
+-- !sql_unix_timestamp_Varchar_Varchar_notnull --
 0
 0
 0
@@ -217,7 +217,7 @@
 0
 0
 
--- !sql_unix_timestamp_String_String --
+-- !sql_unix_timestamp_String_String_notnull --
 0
 0
 0
@@ -246,7 +246,7 @@ VARCHAR13
 VARCHAR13
 VARCHAR13
 
--- !sql_upper_Varchar --
+-- !sql_upper_Varchar_notnull --
 VARCHAR11
 VARCHAR11
 VARCHAR11
@@ -275,7 +275,7 @@ STRING3
 STRING3
 STRING3
 
--- !sql_upper_String --
+-- !sql_upper_String_notnull --
 STRING1
 STRING1
 STRING1

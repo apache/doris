@@ -14,7 +14,7 @@
 2012-03-31
 2012-03-31
 
--- !sql_last_day_DateTime --
+-- !sql_last_day_DateTime_notnull --
 2012-03-31
 2012-03-31
 2012-03-31
@@ -43,7 +43,7 @@
 2012-03-31
 2012-03-31
 
--- !sql_last_day_Date --
+-- !sql_last_day_Date_notnull --
 2012-03-31
 2012-03-31
 2012-03-31
@@ -72,7 +72,7 @@
 2012-03-31
 2012-03-31
 
--- !sql_last_day_DateTimeV2 --
+-- !sql_last_day_DateTimeV2_notnull --
 2012-03-31
 2012-03-31
 2012-03-31
@@ -101,7 +101,7 @@
 2012-03-31
 2012-03-31
 
--- !sql_last_day_DateV2 --
+-- !sql_last_day_DateV2_notnull --
 2012-03-31
 2012-03-31
 2012-03-31
@@ -130,7 +130,7 @@
 11
 12
 
--- !sql_least_TinyInt --
+-- !sql_least_TinyInt_notnull --
 1
 2
 3
@@ -159,7 +159,7 @@
 11
 12
 
--- !sql_least_SmallInt --
+-- !sql_least_SmallInt_notnull --
 1
 2
 3
@@ -188,7 +188,7 @@
 11
 12
 
--- !sql_least_Integer --
+-- !sql_least_Integer_notnull --
 1
 2
 3
@@ -217,7 +217,7 @@
 11
 12
 
--- !sql_least_BigInt --
+-- !sql_least_BigInt_notnull --
 1
 2
 3
@@ -246,7 +246,7 @@
 11
 12
 
--- !sql_least_LargeInt --
+-- !sql_least_LargeInt_notnull --
 1
 2
 3
@@ -275,7 +275,7 @@
 1.1
 1.2
 
--- !sql_least_Float --
+-- !sql_least_Float_notnull --
 0.1
 0.2
 0.3
@@ -304,7 +304,7 @@
 1.1
 1.2
 
--- !sql_least_Double --
+-- !sql_least_Double_notnull --
 0.1
 0.2
 0.3
@@ -333,7 +333,7 @@
 2012-03-11
 2012-03-12
 
--- !sql_least_Date --
+-- !sql_least_Date_notnull --
 2012-03-01
 2012-03-02
 2012-03-03
@@ -362,7 +362,7 @@
 2012-03-11
 2012-03-12
 
--- !sql_least_DateV2 --
+-- !sql_least_DateV2_notnull --
 2012-03-01
 2012-03-02
 2012-03-03
@@ -391,7 +391,7 @@
 2012-03-11T11:10:11
 2012-03-12T12:11:12
 
--- !sql_least_DateTime --
+-- !sql_least_DateTime_notnull --
 2012-03-01T01:00:01
 2012-03-02T02:01:02
 2012-03-03T03:02:03
@@ -420,7 +420,7 @@
 2012-03-11T11:10:11
 2012-03-12T12:11:12
 
--- !sql_least_DateTimeV2 --
+-- !sql_least_DateTimeV2_notnull --
 2012-03-01T01:00:01
 2012-03-02T02:01:02
 2012-03-03T03:02:03
@@ -449,7 +449,7 @@
 1.100000000
 1.200000000
 
--- !sql_least_DecimalV2 --
+-- !sql_least_DecimalV2_notnull --
 0.100000000
 0.200000000
 0.300000000
@@ -478,7 +478,7 @@ varchar13
 varchar13
 varchar13
 
--- !sql_least_Varchar --
+-- !sql_least_Varchar_notnull --
 varchar11
 varchar11
 varchar11
@@ -507,7 +507,7 @@ string3
 string3
 string3
 
--- !sql_least_String --
+-- !sql_least_String_notnull --
 string1
 string1
 string1
@@ -536,7 +536,7 @@ varcha
 varchar13
 varchar13
 
--- !sql_left_Varchar_Integer --
+-- !sql_left_Varchar_Integer_notnull --
 v
 varc
 varchar
@@ -565,7 +565,7 @@ string
 string3
 string3
 
--- !sql_left_String_Integer --
+-- !sql_left_String_Integer_notnull --
 s
 stri
 string1
@@ -594,7 +594,7 @@ string3
 9
 9
 
--- !sql_length_Varchar --
+-- !sql_length_Varchar_notnull --
 9
 9
 9
@@ -623,7 +623,7 @@ string3
 7
 7
 
--- !sql_length_String --
+-- !sql_length_String_notnull --
 7
 7
 7
@@ -652,7 +652,7 @@ string3
 0.09531017980432493
 0.1823215567939546
 
--- !sql_ln_Double --
+-- !sql_ln_Double_notnull --
 -2.3025850929940455
 -1.6094379124341003
 -1.2039728043259361
@@ -681,7 +681,7 @@ string3
 1
 1
 
--- !sql_locate_Varchar_Varchar --
+-- !sql_locate_Varchar_Varchar_notnull --
 1
 1
 1
@@ -710,7 +710,7 @@ string3
 1
 1
 
--- !sql_locate_String_String --
+-- !sql_locate_String_String_notnull --
 1
 1
 1
@@ -739,7 +739,7 @@ string3
 0
 0
 
--- !sql_locate_Varchar_Varchar_Integer --
+-- !sql_locate_Varchar_Varchar_Integer_notnull --
 1
 0
 0
@@ -768,7 +768,7 @@ string3
 0
 0
 
--- !sql_locate_String_String_Integer --
+-- !sql_locate_String_String_Integer_notnull --
 1
 0
 0
@@ -797,7 +797,7 @@ string3
 1.0
 1.0
 
--- !sql_log_Double_Double --
+-- !sql_log_Double_Double_notnull --
 1.0
 1.0
 1.0
@@ -826,7 +826,7 @@ string3
 0.04139268515822507
 0.07918124604762482
 
--- !sql_log10_Double --
+-- !sql_log10_Double_notnull --
 -1.0
 -0.6989700043360187
 -0.5228787452803376
@@ -855,7 +855,7 @@ string3
 0.13750352374993502
 0.2630344058337938
 
--- !sql_log2_Double --
+-- !sql_log2_Double_notnull --
 -3.321928094887362
 -2.321928094887362
 -1.7369655941662063
@@ -884,7 +884,7 @@ varchar13
 varchar13
 varchar13
 
--- !sql_lower_Varchar --
+-- !sql_lower_Varchar_notnull --
 varchar11
 varchar11
 varchar11
@@ -913,7 +913,7 @@ string3
 string3
 string3
 
--- !sql_lower_String --
+-- !sql_lower_String_notnull --
 string1
 string1
 string1
@@ -942,7 +942,7 @@ varcha
 varchar13
 varvarchar13
 
--- !sql_lpad_Varchar_Integer_Varchar --
+-- !sql_lpad_Varchar_Integer_Varchar_notnull --
 v
 varc
 varchar
@@ -971,7 +971,7 @@ string
 ststring3
 strinstring3
 
--- !sql_lpad_String_Integer_String --
+-- !sql_lpad_String_Integer_String_notnull --
 s
 stri
 string1
@@ -1000,7 +1000,7 @@ varchar13
 varchar13
 varchar13
 
--- !sql_ltrim_Varchar --
+-- !sql_ltrim_Varchar_notnull --
 varchar11
 varchar11
 varchar11
@@ -1029,7 +1029,7 @@ string3
 string3
 string3
 
--- !sql_ltrim_String --
+-- !sql_ltrim_String_notnull --
 string1
 string1
 string1

@@ -14,7 +14,7 @@
 -11
 -12
 
--- !sql_negative_BigInt --
+-- !sql_negative_BigInt_notnull --
 -1
 -2
 -3
@@ -43,7 +43,7 @@
 -1.1
 -1.2
 
--- !sql_negative_Double --
+-- !sql_negative_Double_notnull --
 -0.1
 -0.2
 -0.3
@@ -72,7 +72,7 @@
 -1.100000000
 -1.200000000
 
--- !sql_negative_DecimalV2 --
+-- !sql_negative_DecimalV2_notnull --
 -0.100000000
 -0.200000000
 -0.300000000
@@ -101,7 +101,7 @@ true
 true
 true
 
--- !sql_not_null_or_empty_Varchar --
+-- !sql_not_null_or_empty_Varchar_notnull --
 true
 true
 true
@@ -130,7 +130,7 @@ true
 true
 true
 
--- !sql_not_null_or_empty_String --
+-- !sql_not_null_or_empty_String_notnull --
 true
 true
 true
@@ -145,62 +145,62 @@ true
 true
 
 -- !sql_now --
-2023-02-14T18:56:26
-2023-02-14T18:56:26
-2023-02-14T18:56:26
-2023-02-14T18:56:26
-2023-02-14T18:56:26
-2023-02-14T18:56:26
-2023-02-14T18:56:26
-2023-02-14T18:56:26
-2023-02-14T18:56:26
-2023-02-14T18:56:26
-2023-02-14T18:56:26
-2023-02-14T18:56:26
-2023-02-14T18:56:26
+2023-02-14T20:43:06
+2023-02-14T20:43:06
+2023-02-14T20:43:06
+2023-02-14T20:43:06
+2023-02-14T20:43:06
+2023-02-14T20:43:06
+2023-02-14T20:43:06
+2023-02-14T20:43:06
+2023-02-14T20:43:06
+2023-02-14T20:43:06
+2023-02-14T20:43:06
+2023-02-14T20:43:06
+2023-02-14T20:43:06
 
--- !sql_now --
-2023-02-14T18:56:26
-2023-02-14T18:56:26
-2023-02-14T18:56:26
-2023-02-14T18:56:26
-2023-02-14T18:56:26
-2023-02-14T18:56:26
-2023-02-14T18:56:26
-2023-02-14T18:56:26
-2023-02-14T18:56:26
-2023-02-14T18:56:26
-2023-02-14T18:56:26
-2023-02-14T18:56:26
-
--- !sql_now_Integer --
-�692-11-18 03:00:00.000000
-2023-02-14T18:56:26.778
-2023-02-14T18:56:26.778
-2023-02-14T18:56:26.778
-2023-02-14T18:56:26.778
-2023-02-14T18:56:26.778
-2023-02-14T18:56:26.778
-2023-02-14T18:56:26.778
-2023-02-14T18:56:26.778
-2023-02-14T18:56:26.778
-2023-02-14T18:56:26.778
-2023-02-14T18:56:26.778
-2023-02-14T18:56:26.778
+-- !sql_now_notnull --
+2023-02-14T20:43:06
+2023-02-14T20:43:06
+2023-02-14T20:43:06
+2023-02-14T20:43:06
+2023-02-14T20:43:06
+2023-02-14T20:43:06
+2023-02-14T20:43:06
+2023-02-14T20:43:06
+2023-02-14T20:43:06
+2023-02-14T20:43:06
+2023-02-14T20:43:06
+2023-02-14T20:43:06
 
 -- !sql_now_Integer --
-2023-02-14T18:56:26.783
-2023-02-14T18:56:26.783
-2023-02-14T18:56:26.783
-2023-02-14T18:56:26.783
-2023-02-14T18:56:26.783
-2023-02-14T18:56:26.783
-2023-02-14T18:56:26.783
-2023-02-14T18:56:26.783
-2023-02-14T18:56:26.783
-2023-02-14T18:56:26.783
-2023-02-14T18:56:26.783
-2023-02-14T18:56:26.783
+h910-12-18 16:00:00.000000
+2023-02-14T20:43:06.768
+2023-02-14T20:43:06.768
+2023-02-14T20:43:06.768
+2023-02-14T20:43:06.768
+2023-02-14T20:43:06.768
+2023-02-14T20:43:06.768
+2023-02-14T20:43:06.768
+2023-02-14T20:43:06.768
+2023-02-14T20:43:06.768
+2023-02-14T20:43:06.768
+2023-02-14T20:43:06.768
+2023-02-14T20:43:06.768
+
+-- !sql_now_Integer_notnull --
+2023-02-14T20:43:06.772
+2023-02-14T20:43:06.772
+2023-02-14T20:43:06.772
+2023-02-14T20:43:06.772
+2023-02-14T20:43:06.772
+2023-02-14T20:43:06.772
+2023-02-14T20:43:06.772
+2023-02-14T20:43:06.772
+2023-02-14T20:43:06.772
+2023-02-14T20:43:06.772
+2023-02-14T20:43:06.772
+2023-02-14T20:43:06.772
 
 -- !sql_null_or_empty_Varchar --
 false
@@ -217,7 +217,7 @@ false
 false
 false
 
--- !sql_null_or_empty_Varchar --
+-- !sql_null_or_empty_Varchar_notnull --
 false
 false
 false
@@ -246,7 +246,7 @@ false
 false
 false
 
--- !sql_null_or_empty_String --
+-- !sql_null_or_empty_String_notnull --
 false
 false
 false
@@ -275,7 +275,7 @@ false
 \N
 \N
 
--- !sql_nullif_Boolean_Boolean --
+-- !sql_nullif_Boolean_Boolean_notnull --
 \N
 \N
 \N
@@ -304,7 +304,7 @@ false
 \N
 \N
 
--- !sql_nullif_TinyInt_TinyInt --
+-- !sql_nullif_TinyInt_TinyInt_notnull --
 \N
 \N
 \N
@@ -333,7 +333,7 @@ false
 \N
 \N
 
--- !sql_nullif_SmallInt_SmallInt --
+-- !sql_nullif_SmallInt_SmallInt_notnull --
 \N
 \N
 \N
@@ -362,7 +362,7 @@ false
 \N
 \N
 
--- !sql_nullif_Integer_Integer --
+-- !sql_nullif_Integer_Integer_notnull --
 \N
 \N
 \N
@@ -391,7 +391,7 @@ false
 \N
 \N
 
--- !sql_nullif_BigInt_BigInt --
+-- !sql_nullif_BigInt_BigInt_notnull --
 \N
 \N
 \N
@@ -420,7 +420,7 @@ false
 \N
 \N
 
--- !sql_nullif_LargeInt_LargeInt --
+-- !sql_nullif_LargeInt_LargeInt_notnull --
 \N
 \N
 \N
@@ -449,7 +449,7 @@ false
 \N
 \N
 
--- !sql_nullif_Float_Float --
+-- !sql_nullif_Float_Float_notnull --
 \N
 \N
 \N
@@ -478,7 +478,7 @@ false
 \N
 \N
 
--- !sql_nullif_Double_Double --
+-- !sql_nullif_Double_Double_notnull --
 \N
 \N
 \N
@@ -507,7 +507,7 @@ false
 \N
 \N
 
--- !sql_nullif_DateTime_DateTime --
+-- !sql_nullif_DateTime_DateTime_notnull --
 \N
 \N
 \N
@@ -536,7 +536,7 @@ false
 \N
 \N
 
--- !sql_nullif_Date_Date --
+-- !sql_nullif_Date_Date_notnull --
 \N
 \N
 \N
@@ -565,7 +565,7 @@ false
 \N
 \N
 
--- !sql_nullif_DateTimeV2_DateTimeV2 --
+-- !sql_nullif_DateTimeV2_DateTimeV2_notnull --
 \N
 \N
 \N
@@ -594,7 +594,7 @@ false
 \N
 \N
 
--- !sql_nullif_DateV2_DateV2 --
+-- !sql_nullif_DateV2_DateV2_notnull --
 \N
 \N
 \N
@@ -623,7 +623,7 @@ false
 \N
 \N
 
--- !sql_nullif_DecimalV2_DecimalV2 --
+-- !sql_nullif_DecimalV2_DecimalV2_notnull --
 \N
 \N
 \N
@@ -652,7 +652,7 @@ false
 \N
 \N
 
--- !sql_nullif_Varchar_Varchar --
+-- !sql_nullif_Varchar_Varchar_notnull --
 \N
 \N
 \N
@@ -681,7 +681,7 @@ false
 \N
 \N
 
--- !sql_nullif_String_String --
+-- !sql_nullif_String_String_notnull --
 \N
 \N
 \N
@@ -710,7 +710,7 @@ true
 true
 true
 
--- !sql_nvl_Boolean_Boolean --
+-- !sql_nvl_Boolean_Boolean_notnull --
 false
 false
 false
@@ -739,7 +739,7 @@ true
 11
 12
 
--- !sql_nvl_TinyInt_TinyInt --
+-- !sql_nvl_TinyInt_TinyInt_notnull --
 1
 2
 3
@@ -768,7 +768,7 @@ true
 11
 12
 
--- !sql_nvl_SmallInt_SmallInt --
+-- !sql_nvl_SmallInt_SmallInt_notnull --
 1
 2
 3
@@ -797,7 +797,7 @@ true
 11
 12
 
--- !sql_nvl_Integer_Integer --
+-- !sql_nvl_Integer_Integer_notnull --
 1
 2
 3
@@ -826,7 +826,7 @@ true
 11
 12
 
--- !sql_nvl_BigInt_BigInt --
+-- !sql_nvl_BigInt_BigInt_notnull --
 1
 2
 3
@@ -855,7 +855,7 @@ true
 11
 12
 
--- !sql_nvl_LargeInt_LargeInt --
+-- !sql_nvl_LargeInt_LargeInt_notnull --
 1
 2
 3
@@ -884,7 +884,7 @@ true
 1.1
 1.2
 
--- !sql_nvl_Float_Float --
+-- !sql_nvl_Float_Float_notnull --
 0.1
 0.2
 0.3
@@ -913,7 +913,7 @@ true
 1.1
 1.2
 
--- !sql_nvl_Double_Double --
+-- !sql_nvl_Double_Double_notnull --
 0.1
 0.2
 0.3
@@ -942,7 +942,7 @@ true
 2012-03-11
 2012-03-12
 
--- !sql_nvl_Date_Date --
+-- !sql_nvl_Date_Date_notnull --
 2012-03-01
 2012-03-02
 2012-03-03
@@ -971,7 +971,7 @@ true
 2012-03-11T11:10:11
 2012-03-12T12:11:12
 
--- !sql_nvl_DateTime_DateTime --
+-- !sql_nvl_DateTime_DateTime_notnull --
 2012-03-01T01:00:01
 2012-03-02T02:01:02
 2012-03-03T03:02:03
@@ -1000,7 +1000,7 @@ true
 2012-03-11
 2012-03-12
 
--- !sql_nvl_Date_DateTime --
+-- !sql_nvl_Date_DateTime_notnull --
 2012-03-01
 2012-03-02
 2012-03-03
@@ -1029,7 +1029,7 @@ true
 2012-03-11T11:10:11
 2012-03-12T12:11:12
 
--- !sql_nvl_DateTime_Date --
+-- !sql_nvl_DateTime_Date_notnull --
 2012-03-01T01:00:01
 2012-03-02T02:01:02
 2012-03-03T03:02:03
@@ -1058,7 +1058,7 @@ true
 2012-03-11T11:10:11
 2012-03-12T12:11:12
 
--- !sql_nvl_DateTimeV2_DateTimeV2 --
+-- !sql_nvl_DateTimeV2_DateTimeV2_notnull --
 2012-03-01T01:00:01
 2012-03-02T02:01:02
 2012-03-03T03:02:03
@@ -1087,7 +1087,7 @@ true
 2012-03-11
 2012-03-12
 
--- !sql_nvl_DateV2_DateV2 --
+-- !sql_nvl_DateV2_DateV2_notnull --
 2012-03-01
 2012-03-02
 2012-03-03
@@ -1116,7 +1116,7 @@ true
 1.100000000
 1.200000000
 
--- !sql_nvl_DecimalV2_DecimalV2 --
+-- !sql_nvl_DecimalV2_DecimalV2_notnull --
 0.100000000
 0.200000000
 0.300000000
@@ -1145,7 +1145,7 @@ true
 \N
 \N
 
--- !sql_nvl_Bitmap_Bitmap --
+-- !sql_nvl_Bitmap_Bitmap_notnull --
 \N
 \N
 \N
@@ -1174,7 +1174,7 @@ varchar13
 varchar13
 varchar13
 
--- !sql_nvl_Varchar_Varchar --
+-- !sql_nvl_Varchar_Varchar_notnull --
 varchar11
 varchar11
 varchar11
@@ -1203,7 +1203,7 @@ string3
 string3
 string3
 
--- !sql_nvl_String_String --
+-- !sql_nvl_String_String_notnull --
 string1
 string1
 string1
