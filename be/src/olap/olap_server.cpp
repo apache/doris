@@ -762,7 +762,7 @@ void StorageEngine::_remove_unused_remote_files_callback() {
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::seconds(config::remove_unused_remote_files_interval_sec))) {
         LOG(INFO) << "begin to remove unused remote files";
-        Tablet::remove_unused_remote_files();
+        TabletManager::remove_unused_remote_files();
     }
 }
 

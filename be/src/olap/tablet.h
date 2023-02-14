@@ -326,8 +326,6 @@ public:
     void record_unused_remote_rowset(const RowsetId& rowset_id, const std::string& resource,
                                      int64_t num_segments);
 
-    static void remove_unused_remote_files();
-
     std::shared_mutex& get_remote_files_lock() { return _remote_files_lock; }
 
     uint32_t calc_cold_data_compaction_score() const;

@@ -160,6 +160,8 @@ public:
 
     std::set<int64_t> check_all_tablet_segment(bool repair);
 
+    static void remove_unused_remote_files();
+
 private:
     // Add a tablet pointer to StorageEngine
     // If force, drop the existing tablet add this new one
