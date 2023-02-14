@@ -90,6 +90,8 @@ not_check_result = {
     'database',
     'from_base64_Varchar',
     'from_base64_String',
+    'now',
+    'now_Integer',
     'parse_url_Varchar_Varchar',
     'parse_url_String_String',
     'parse_url_Varchar_Varchar_Varchar',
