@@ -20,8 +20,8 @@ suite("nereids_scalar_fn_P") {
 	sql 'use regression_test_nereids_function_p0'
 	sql 'set enable_nereids_planner=false'
 	sql 'set enable_fallback_to_original_planner=false'
-	sql "select parse_url(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
-	sql "select parse_url(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1"
+	sql "select parse_url(kvchrs1, 'HOST') from fn_test order by kvchrs1, kvchrs1"
+	sql "select parse_url(kvchrs1, 'HOST') from fn_test order by kvchrs1, kvchrs1"
 	sql "select parse_url(kstr, 'HOST') from fn_test order by kstr, kstr"
 	sql "select parse_url(kstr, 'HOST') from fn_test order by kstr, kstr"
 	sql "select parse_url(kvchrs1, 'HOST', 'PROTOCOL') from fn_test order by kvchrs1, kvchrs1, kvchrs1"

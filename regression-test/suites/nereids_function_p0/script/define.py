@@ -48,7 +48,7 @@ const_sql = {
     'field_String': "select field(kstr, 1, 2) from ${t} order by kstr",
     'from_unixtime_Integer_Varchar': "select from_unixtime(kint, 'varchar') from ${t} order by kint",
     'from_unixtime_Integer_String': "select from_unixtime(kint, 'string') from ${t} order by kint",
-    'parse_url_Varchar_Varchar': "select parse_url(kvchrs1, kvchrs1) from fn_test order by kvchrs1, kvchrs1",
+    'parse_url_Varchar_Varchar': "select parse_url(kvchrs1, 'HOST') from fn_test order by kvchrs1, kvchrs1",
     'parse_url_String_String': "select parse_url(kstr, 'HOST') from fn_test order by kstr, kstr",
     'parse_url_Varchar_Varchar_Varchar': "select parse_url(kvchrs1, 'HOST', 'PROTOCOL') from fn_test order by kvchrs1, kvchrs1, kvchrs1",
     'parse_url_String_String_String': "select parse_url(kstr, 'HOST', 'PROTOCOL') from fn_test order by kstr, kstr, kstr",
