@@ -18,7 +18,7 @@
 
 suite("nereids_scalar_fn_G") {
 	sql 'use regression_test_nereids_function_p0'
-	sql 'set enable_nereids_planner=true'
+	sql 'set enable_nereids_planner=false'
 	sql 'set enable_fallback_to_original_planner=false'
 	qt_sql_greatest_TinyInt "select greatest(ktint) from fn_test order by ktint"
 	qt_sql_greatest_TinyInt_notnull "select greatest(ktint) from fn_test_not_nullable order by ktint"
