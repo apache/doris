@@ -151,7 +151,7 @@ public:
     std::shared_ptr<MemTrackerLimiter> query_mem_tracker;
 
 #ifdef ENABLE_QUERY_DEBUG_TRACE
-    // Thread information tracker of this query. Store records.
+    // Thread information tracker of this query. Store records actually.
     debug::QueryTrace* _query_trace;
 #endif
 

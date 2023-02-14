@@ -201,7 +201,7 @@ Status TaskScheduler::start() {
     _markers.reserve(cores);
     for (size_t i = 0; i < cores; ++i) {
         _markers.push_back(std::make_unique<std::atomic<bool>>(true));
-        SET_THREAD_BASELINE();
+        //SET_THREAD_BASELINE();
         RETURN_IF_ERROR(
                 _fix_thread_pool->submit_func(std::bind(&TaskScheduler::_do_work, this, i)));
     }
@@ -214,7 +214,7 @@ Status TaskScheduler::schedule_task(PipelineTask* task) {
 }
 
 void TaskScheduler::_do_work(size_t index) {
-    SET_THREAD_LOCAL_QUERY_TRACE_CONTEXT(query_ctx->query_trace(), fragment_ctx->fragment_instance_id(), driver);
+    
     auto queue = _task_queue;
     const auto& marker = _markers[index];
     while (*marker) {
@@ -226,6 +226,9 @@ void TaskScheduler::_do_work(size_t index) {
         doris::signal::query_id_hi = fragment_ctx->get_query_id().hi;
         doris::signal::query_id_lo = fragment_ctx->get_query_id().lo;
         bool canceled = fragment_ctx->is_canceled();
+
+        SET_THREAD_LOCAL_QUERY_TRACE_CONTEXT(fragment_ctx->get_query_context()->_query_trace,
+                                            fragment_ctx->get_fragment_id(), task);
 
         auto check_state = task->get_state();
         if (check_state == PENDING_FINISH) {

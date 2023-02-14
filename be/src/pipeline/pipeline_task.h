@@ -22,6 +22,10 @@
 #include "pipeline.h"
 #include "util/stopwatch.hpp"
 
+namespace doris{
+class QueryFragmentsCtx;
+}
+
 namespace doris::pipeline {
 
 /**
@@ -90,7 +94,6 @@ class PipelineTask;
 using PipelineTaskRawPtr = PipelineTask*;
 using PipelineTasks = std::vector<PipelineTaskRawPtr>;
 using PipelineTasksId = uint32_t;
-class QueryFragmentsCtx;
 
 // The class do the pipeline task. Minest schdule union by task scheduler
 class PipelineTask {
