@@ -135,10 +135,10 @@ suite("load") {
         db "regression_test_nereids_function_p0"
         set 'column_separator', ';'
         set 'columns', '''
-            id, kbool, ktnt, ksint, kint, kbint, klint, kfloat, kdb, kdcmls1, kdcmls2, kdcmls3,
+            id, kbool, ktint, ksint, kint, kbint, klint, kfloat, kdbl, kdcmls1, kdcmls2, kdcmls3,
             kdcmlv3s1, kdcmlv3s2, kdcmlv3s3, kchrs1, kchrs2, kchrs3, kvchrs1, kvchrs2, kvchrs3, kstr,
             kdt ,kdtv2, kdtm, kdtmv2s1, kdtmv2s2, kdtmev2s3, kabool, katint, kasint, kaint,
-            kabint, kalint, kafloat, kadb, kadt, kadtm, kadtv2, kdtmv2, kachr, kavchr, kastr, kadcml,
+            kabint, kalint, kafloat, kadbl, kadt, kadtm, kadtv2, kdtmv2, kachr, kavchr, kastr, kadcml,
             st_point_str, st_point_vc, khll=hll_union_agg(id)
             '''
         file "fn_test.dat"
