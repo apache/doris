@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_aggregate_group_array"){
+suite("test_aggregate_group_array") {
     sql "set enable_vectorized_engine = true"
 
     def tableName = "group_uniq_array_test"
