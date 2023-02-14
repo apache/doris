@@ -148,7 +148,7 @@ def generateSQL(function_meta: Dict[str, List[List[str]]]) -> List[str]:
 
 
 def genHeaderAndFooter(input_dir: str, output_file: str, title: str, func: Callable[[str], bool]) -> bool:
-    open_nereids = False
+    open_nereids = True
     sqls = generateSQL(searchFunctions(input_dir, func))
     if len(sqls) == 0:
         return True

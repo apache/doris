@@ -18,7 +18,7 @@
 
 suite("nereids_scalar_fn_R") {
 	sql 'use regression_test_nereids_function_p0'
-	sql 'set enable_nereids_planner=false'
+	sql 'set enable_nereids_planner=true'
 	sql 'set enable_fallback_to_original_planner=false'
 	qt_sql_radians_Double "select radians(kdbl) from fn_test order by kdbl"
 	qt_sql_radians_Double "select radians(kdbl) from fn_test_not_nullable order by kdbl"
@@ -92,6 +92,6 @@ suite("nereids_scalar_fn_R") {
 	sql "select running_difference(kdtv2) from fn_test_not_nullable order by kdtv2"
 	sql "select cast(running_difference(kdtm) as string) from fn_test order by kdtm"
 	sql "select cast(running_difference(kdtm) as string) from fn_test order by kdtm"
-	sql "select cast(running_difference(kdtmv2) as string) from fn_test order by kdtmv2"
-	sql "select cast(running_difference(kdtmv2) as string) from fn_test order by kdtmv2"
+	sql "select cast(running_difference(kdtmv2s1) as string) from fn_test order by kdtmv2s1"
+	sql "select cast(running_difference(kdtmv2s1) as string) from fn_test order by kdtmv2s1"
 }

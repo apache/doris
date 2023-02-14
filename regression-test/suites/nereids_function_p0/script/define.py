@@ -55,7 +55,7 @@ const_sql = {
     'round_Double_Integer': "select round(kdbl, 2) from ${t} order by kdbl",
     'round_bankers_Double_Integer': "select round_bankers(kdbl, 2) from ${t} order by kdbl",
     'running_difference_DateTime': "select cast(running_difference(kdtm) as string) from fn_test order by kdtm",
-    'running_difference_DateTimeV2': "select cast(running_difference(kdtmv2) as string) from fn_test order by kdtmv2",
+    'running_difference_DateTimeV2': "select cast(running_difference(kdtmv2s1) as string) from fn_test order by kdtmv2s1",
     'sleep_Integer': "select sleep(0.1) from ${t} order by kint",
     'sm4_decrypt_Varchar_Varchar_Varchar_Varchar': "select sm4_decrypt(kvchrs1, kvchrs1, kvchrs1, 'SM4_128_ECB') from ${t} order by kvchrs1, kvchrs1, kvchrs1",
     'sm4_decrypt_String_String_String_String': "select sm4_decrypt(kstr, kstr, kstr, 'SM4_128_ECB') from ${t} order by kstr, kstr, kstr",
