@@ -75,6 +75,7 @@ import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.ShowAlterStmt.AlterType;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
@@ -4036,6 +4037,16 @@ public class Env {
                 column.setName(newColName);
                 hasColumn = true;
             }
+
+            // todo: need change complex expr name also
+            Column mvColumn = entry.getValue().getColumnByName(CreateMaterializedViewStmt.mvColumnBuilder(colName));
+            if (mvColumn != null) {
+                mvColumn.setName(CreateMaterializedViewStmt.mvColumnBuilder(newColName));
+                SlotRef slot = (SlotRef) mvColumn.getDefineExpr();
+                slot.setCol(newColName);
+                slot.setLabel('`' + newColName + '`');
+                hasColumn = true;
+            }
         }
         if (!hasColumn) {
             throw new DdlException("Column[" + colName + "] does not exists");
@@ -4047,7 +4058,12 @@ public class Env {
         for (Column column : partitionColumns) {
             if (column.getName().equalsIgnoreCase(colName)) {
                 column.setName(newColName);
-                break;
+            }
+            if (column.getName().equalsIgnoreCase(CreateMaterializedViewStmt.mvColumnBuilder(colName))) {
+                column.setName(CreateMaterializedViewStmt.mvColumnBuilder(newColName));
+                SlotRef slot = (SlotRef) column.getDefineExpr();
+                slot.setCol(newColName);
+                slot.setLabel('`' + newColName + '`');
             }
         }
 
@@ -4059,6 +4075,9 @@ public class Env {
                 if (columns.get(i).equalsIgnoreCase(colName)) {
                     columns.set(i, newColName);
                 }
+                if (columns.get(i).equalsIgnoreCase(CreateMaterializedViewStmt.mvColumnBuilder(colName))) {
+                    columns.set(i, CreateMaterializedViewStmt.mvColumnBuilder(newColName));
+                }
             }
         }
 
@@ -4069,7 +4088,12 @@ public class Env {
             for (Column column : distributionColumns) {
                 if (column.getName().equalsIgnoreCase(colName)) {
                     column.setName(newColName);
-                    break;
+                }
+                if (column.getName().equalsIgnoreCase(CreateMaterializedViewStmt.mvColumnBuilder(colName))) {
+                    column.setName(CreateMaterializedViewStmt.mvColumnBuilder(newColName));
+                    SlotRef slot = (SlotRef) column.getDefineExpr();
+                    slot.setCol(newColName);
+                    slot.setLabel('`' + newColName + '`');
                 }
             }
         }
