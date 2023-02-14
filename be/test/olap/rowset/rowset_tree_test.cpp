@@ -256,10 +256,12 @@ TEST_F(TestRowsetTree, TestTreeRandomized) {
             switch (op) {
             case BOUND_LESS_THAN:
                 if (r == 0) continue; // pass through.
+                break;
             case BOUND_LESS_EQUAL:
                 return std::pair<string, string>(std::min(s1, s2), std::max(s1, s2));
             case BOUND_GREATER_THAN:
                 if (r == 0) continue; // pass through.
+                break;
             case BOUND_GREATER_EQUAL:
                 return std::pair<string, string>(std::max(s1, s2), std::min(s1, s2));
             case BOUND_EQUAL:

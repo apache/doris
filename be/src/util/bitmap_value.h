@@ -1512,6 +1512,7 @@ public:
             case BITMAP:
                 return cardinality() + 1 - 2 * (_bitmap.contains(rhs._sv));
             }
+            break;
         case BITMAP:
             switch (_type) {
             case EMPTY:
