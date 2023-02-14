@@ -69,9 +69,9 @@ suite("load") {
             `kadcml` array<decimal(27, 9)> null,
             `st_point_str` string null,
             `st_point_vc` varchar(50) null,
-            `khll` hll_union null
+            `khll` hll hll_union null
         ) engine=olap
-        DISTRIBUTED BY HASH(`ktint`) BUCKETS 5
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
         properties("replication_num" = "1")
     """
 
@@ -123,9 +123,9 @@ suite("load") {
             `kadcml` array<decimal(27, 9)> not null,
             `st_point_str` string not null,
             `st_point_vc` varchar(50) not null,
-            `khll` hll_union not null
+            `khll` hll hll_union not null
         ) engine=olap
-        DISTRIBUTED BY HASH(`ktint`) BUCKETS 5
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
         properties("replication_num" = "1")
     """
     // ddl end
@@ -145,6 +145,6 @@ suite("load") {
     }
 
     sql """
-        insert into fn_test_not_nullable select * from fn_test where kbool is not null
+        insert into fn_test_not_nullable select * from fn_test where id is not null
     """
 }
