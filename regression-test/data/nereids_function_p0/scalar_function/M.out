@@ -174,10 +174,33 @@ xarchar13
 xarchar13
 
 -- !sql_mask_first_n_String_Integer --
-xxxnnn
+\N
+string1
+string1
+string1
+string1
+string2
+string2
+string2
+string2
+string3
+string3
+string3
+string3
 
 -- !sql_mask_first_n_String_Integer --
-xxxnnn
+xtring1
+xtring1
+xtring1
+xtring1
+xtring2
+xtring2
+xtring2
+xtring2
+xtring3
+xtring3
+xtring3
+xtring3
 
 -- !sql_mask_last_n_Varchar --
 xxxx
