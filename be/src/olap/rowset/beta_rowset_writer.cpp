@@ -140,13 +140,12 @@ std::unique_ptr<vectorized::VerticalBlockReader> BetaRowsetWriter::_get_segcompa
         iterators.push_back(owned_it.release());
     }
 
-    //vectorized::RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(),
-    //                                             READER_CUMULATIVE_COMPACTION/*TODO:make our own type*/);
     auto reader = std::unique_ptr<vectorized::VerticalBlockReader>{new vectorized::VerticalBlockReader(&row_sources_buf)};
 
     TabletReader::ReaderParams reader_params;
+    reader_params.is_segcompaction = true;
     reader_params.segment_iters_ptr = &iterators;
-    reader_params.version = Version(100, 100); //TODO
+    // no reader_params.version shouldn't break segcompaction
     reader_params.tablet_schema = _context.tablet_schema;
     reader_params.tablet = tablet;
     reader_params.return_columns = return_columns;
@@ -158,7 +157,6 @@ std::unique_ptr<vectorized::VerticalBlockReader> BetaRowsetWriter::_get_segcompa
 
 std::unique_ptr<segment_v2::SegmentWriter> BetaRowsetWriter::_create_segcompaction_writer(
         uint64_t begin, uint64_t end) {
-    //TODO: ref to VerticalBetaRowsetWriter to create segment writer and init it every time changing group
     Status status;
     std::unique_ptr<segment_v2::SegmentWriter> writer = nullptr;
     status = _create_segment_writer_for_segcompaction(&writer, begin, end);
@@ -299,7 +297,7 @@ Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr s
 
     std::vector<std::vector<uint32_t>> column_groups;
     Merger::vertical_split_columns(_context.tablet_schema, &column_groups);
-    vectorized::RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(), READER_CUMULATIVE_COMPACTION/*TODO:make our own type*/);
+    vectorized::RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(), READER_SEGMENT_COMPACTION);
 
     KeyBoundsPB key_bounds;
     // compact group one by one
@@ -320,7 +318,7 @@ Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr s
         // ========= Merger Compaction
         Merger::Statistics stats;
 
-        RETURN_IF_ERROR(Merger::vertical_compact_one_group(tablet, READER_CUMULATIVE_COMPACTION /*TODO: make our own type*/,
+        RETURN_IF_ERROR(Merger::vertical_compact_one_group(tablet, READER_SEGMENT_COMPACTION,
                                                      _context.tablet_schema, is_key,
                                                      column_ids, &row_sources_buf,
                                                      *reader, *writer, INT_MAX, &stats, &index_size, key_bounds));
@@ -331,7 +329,7 @@ Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr s
         row_sources_buf.seek_to_begin();
     }
 
-    // TODO  RETURN_NOT_OK_LOG(_check_correctness(std::move(stat), merged_row_stat, row_count, begin, end),
+    // TODO(zhangzhengyu): RETURN_NOT_OK_LOG(_check_correctness(std::move(stat), merged_row_stat, row_count, begin, end),
     //                  "check correctness failed");
     {
         std::lock_guard<std::mutex> lock(_segid_statistics_map_mutex);

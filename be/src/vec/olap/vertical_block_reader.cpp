@@ -91,7 +91,7 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params) 
     if (!segment_iters_ptr) {
         RETURN_IF_ERROR(_get_segment_iterators(read_params, &segment_iters, &iterator_init_flag,
                                                &rowset_ids));
-        CHECK(segment_iters.size() == iterator_init_flag.size()); // TODO
+        CHECK(segment_iters.size() == iterator_init_flag.size());
         segment_iters_ptr = &segment_iters;
     } else {
         for (int i = 0; i < segment_iters_ptr->size(); ++i) {
@@ -99,6 +99,11 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params) 
             RowsetId rowsetid;
             rowset_ids.push_back(rowsetid); // TODO: _record_rowids need it
         }
+        // TODO(zhangzhengyu): is it enough for a context?
+        _reader_context.reader_type = read_params.reader_type;
+        _reader_context.need_ordered_result = true; // TODO: should it be?
+        _reader_context.is_unique = tablet()->keys_type() == UNIQUE_KEYS;
+        _reader_context.is_key_column_group = read_params.is_key_column_group;
     }
 
     // build heap if key column iterator or build vertical merge iterator if value column

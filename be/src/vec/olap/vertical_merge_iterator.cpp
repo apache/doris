@@ -137,7 +137,7 @@ Status RowSourcesBuffer::_create_buffer_file() {
     file_path_ss << _tablet_path << "/compaction_row_source_" << _tablet_id;
     if (_reader_type == READER_BASE_COMPACTION) {
         file_path_ss << "_base";
-    } else if (_reader_type == READER_CUMULATIVE_COMPACTION) {
+    } else if (_reader_type == READER_CUMULATIVE_COMPACTION || _reader_type == READER_SEGMENT_COMPACTION) {
         file_path_ss << "_cumu";
     } else if (_reader_type == READER_COLD_DATA_COMPACTION) {
         file_path_ss << "_cold";

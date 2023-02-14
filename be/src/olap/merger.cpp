@@ -259,13 +259,12 @@ Status Merger::vertical_compact_one_group(
         RETURN_NOT_OK_LOG(
                 src_block_reader.next_block_with_aggregation(&block, nullptr, nullptr, &eof),
                 "failed to read next block when merging rowsets of tablet " + tablet->full_name());
-        LOG(WARNING) << "block row num:" << block.rows();
         if (!block.rows()) {
             break;
         }
         RETURN_NOT_OK_LOG(
                 dst_segment_writer.append_block(&block, 0, block.rows()),
-                "failed to write block when merging rowsets of tablet " + tablet->full_name()); // TODO: change log
+                "failed to write block when merging rowsets of tablet " + tablet->full_name());
 
         output_rows += block.rows();
         block.clear_column_data();
