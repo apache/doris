@@ -538,8 +538,14 @@ public class DistributedPlanner {
         // they are naturally colocate relationship no need to check colocate group
         Collection<Long> leftPartitions = leftRoot.getSelectedPartitionIds();
         Collection<Long> rightPartitions = rightRoot.getSelectedPartitionIds();
-        boolean noNeedCheckColocateGroup = (leftTable.getId() == rightTable.getId())
-                && (leftPartitions.equals(rightPartitions)) && (leftPartitions.size() <= 1);
+
+        // For UT or no partition is selected, getSelectedIndexId() == -1, see selectMaterializedView()
+        boolean hitSameIndex = (leftTable.getId() == rightTable.getId())
+                && (leftRoot.getSelectedIndexId() != -1 && rightRoot.getSelectedIndexId() != -1)
+                && (leftRoot.getSelectedIndexId() == rightRoot.getSelectedIndexId());
+
+        boolean noNeedCheckColocateGroup = hitSameIndex && (leftPartitions.equals(rightPartitions))
+                && (leftPartitions.size() <= 1);
 
         if (!noNeedCheckColocateGroup) {
             ColocateTableIndex colocateIndex = Env.getCurrentColocateIndex();

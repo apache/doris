@@ -294,6 +294,10 @@ public class OlapScanNode extends ScanNode {
         this.selectedIndexId = olapTable.getBaseIndexId();
     }
 
+    public long getSelectedIndexId() {
+        return selectedIndexId;
+    }
+
     /**
      * This method is mainly used to update scan range info in OlapScanNode by the
      * new materialized selector.
