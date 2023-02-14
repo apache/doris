@@ -49,6 +49,19 @@ void InvertedIndexSearcherCache::create_global_instance(size_t capacity, uint32_
 InvertedIndexSearcherCache::InvertedIndexSearcherCache(size_t capacity, uint32_t num_shards)
         : _mem_tracker(std::make_unique<MemTracker>("InvertedIndexSearcherCache")) {
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+    uint64_t fd_number = config::min_file_descriptor_number;
+    struct rlimit l;
+    int ret = getrlimit(RLIMIT_NOFILE, &l);
+    if (ret != 0) {
+        LOG(WARNING) << "call getrlimit() failed. errno=" << strerror(errno)
+                     << ", use default configuration instead.";
+    } else {
+        fd_number = static_cast<uint64_t>(l.rlim_cur);
+    }
+
+    uint64_t open_searcher_limit = fd_number / 3 * 2;
+    LOG(INFO) << "open_searcher_limit = fd_number / 3 * 2, fd_number: " << fd_number
+              << " open_searcher_limit: " << open_searcher_limit;
 
     if (config::enable_inverted_index_cache_check_timestamp) {
         auto get_last_visit_time = [](const void* value) -> int64_t {
@@ -57,12 +70,12 @@ InvertedIndexSearcherCache::InvertedIndexSearcherCache(size_t capacity, uint32_t
             return cache_value->last_visit_time;
         };
         _cache = std::unique_ptr<Cache>(
-                new ShardedLRUCache("InvertedIndexSearcher:InvertedIndexSearcherCache", capacity,
-                                    LRUCacheType::SIZE, num_shards, get_last_visit_time, true));
+                new ShardedLRUCache("InvertedIndexSearcherCache", capacity, LRUCacheType::SIZE,
+                                    num_shards, get_last_visit_time, true, open_searcher_limit));
     } else {
-        _cache = std::unique_ptr<Cache>(
-                new_lru_cache("InvertedIndexSearcher:InvertedIndexSearcherCache", capacity,
-                              LRUCacheType::SIZE, num_shards));
+        _cache = std::unique_ptr<Cache>(new ShardedLRUCache("InvertedIndexSearcherCache", capacity,
+                                                            LRUCacheType::SIZE, num_shards,
+                                                            open_searcher_limit));
     }
 }
 
