@@ -944,7 +944,9 @@ public class SystemInfoService {
             throw new AnalysisException("Invalid host port: " + hostPort);
         }
 
-        String hostName = pair[0];
+        HostInfo hostInfo = NetUtils.resolveHostInfoFromHostPort(hostPort);
+
+        String hostName = hostInfo.getHostName();
         String ip = hostName;
         if (Strings.isNullOrEmpty(hostName)) {
             throw new AnalysisException("Host is null");
@@ -953,7 +955,7 @@ public class SystemInfoService {
         int heartbeatPort = -1;
         try {
             // validate port
-            heartbeatPort = Integer.parseInt(pair[1]);
+            heartbeatPort = hostInfo.getPort();
             if (heartbeatPort <= 0 || heartbeatPort >= 65536) {
                 throw new AnalysisException("Port is out of range: " + heartbeatPort);
             }
