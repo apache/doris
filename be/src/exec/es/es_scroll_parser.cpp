@@ -498,7 +498,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                 // ES process date/datetime field would use millisecond timestamp for index or docvalue
                 // processing date type field, if a number is encountered, Doris On ES will force it to be processed according to ms
                 // Doris On ES needs to be consistent with ES, so just divided by 1000 because the unit for from_unixtime is seconds
-                RETURN_IF_ERROR(fill_date_col_with_timestamp(col_ptr, col, type));
+                RETURN_IF_ERROR(fill_date_col(col_ptr, col, type, false));
             } else if (col.IsArray() && pure_doc_value) {
                 // this would happened just only when `enable_docvalue_scan = true`
                 // ES add default format for all field after ES 6.4, if we not provided format for `date` field ES would impose
@@ -506,16 +506,16 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                 // At present, we just process this string format date. After some PR were merged into Doris, we would impose `epoch_mills` for
                 // date field's docvalue
                 if (col[0].IsString()) {
-                    RETURN_IF_ERROR(fill_date_col_with_strval(col_ptr, col[0], type));
+                    RETURN_IF_ERROR(fill_date_col(col_ptr, col[0], type, true));
                     break;
                 }
                 // ES would return millisecond timestamp for date field, divided by 1000 because the unit for from_unixtime is seconds
-                RETURN_IF_ERROR(fill_date_col_with_timestamp(col_ptr, col, type));
+                RETURN_IF_ERROR(fill_date_col(col_ptr, col, type, false));
             } else {
                 // this would happened just only when `enable_docvalue_scan = false`, and field has string format date from _source
                 RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
                 RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
-                RETURN_IF_ERROR(fill_date_col_with_strval(col_ptr, col, type));
+                RETURN_IF_ERROR(fill_date_col(col_ptr, col, type, true));
             }
             break;
         }
@@ -530,14 +530,15 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
     return Status::OK();
 }
 
-Status ScrollParser::fill_date_col_with_strval(vectorized::IColumn* col_ptr,
-                                               const rapidjson::Value& col, PrimitiveType type) {
+Status ScrollParser::fill_date_col(vectorized::IColumn* col_ptr, const rapidjson::Value& col,
+                                   PrimitiveType type, bool is_date_str) {
     const std::string& val = col.GetString();
     size_t val_size = col.GetStringLength();
 
     if (type == TYPE_DATE || type == TYPE_DATETIME) {
         vectorized::VecDateTimeValue dt_val;
-        if (!dt_val.from_date_str(val.c_str(), val_size)) {
+        if ((is_date_str && !dt_val.from_date_str(val.c_str(), val_size)) ||
+            (!is_date_str && !dt_val.from_unixtime(col.GetInt64() / 1000, "+08:00"))) {
             RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
         }
         if (type == TYPE_DATE) {
@@ -550,81 +551,32 @@ Status ScrollParser::fill_date_col_with_strval(vectorized::IColumn* col_ptr,
                 *reinterpret_cast<vectorized::VecDateTimeValue*>(&dt_val));
         col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)), 0);
         return Status::OK();
-    } else if (type == TYPE_DATEV2 || type == TYPE_DATETIMEV2) {
-        if (type == TYPE_DATEV2) {
-            vectorized::DateV2Value<doris::vectorized::DateV2ValueType> dt_val;
-            if (!dt_val.from_date_str(val.c_str(), val_size)) {
-                RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
-            }
-            auto date_packed_int = binary_cast<
-                    doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>, uint32_t>(
-                    *reinterpret_cast<vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(
-                            &dt_val));
-            col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)),
-                                 0);
-        } else {
-            vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> dt_val;
-            if (!dt_val.from_date_str(val.c_str(), val_size)) {
-                RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
-            }
-            auto date_packed_int = binary_cast<
-                    vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>, uint64_t>(
-                    *reinterpret_cast<
-                            vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(
-                            &dt_val));
-            col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)),
-                                 0);
-        }
-        return Status::OK();
-    } else {
-        return Status::InternalError("Unsupported datetime type.");
-    }
-}
-
-Status ScrollParser::fill_date_col_with_timestamp(vectorized::IColumn* col_ptr,
-                                                  const rapidjson::Value& col, PrimitiveType type) {
-    if (type == TYPE_DATE || type == TYPE_DATETIME) {
-        vectorized::VecDateTimeValue dt_val;
-        if (!dt_val.from_unixtime(col.GetInt64() / 1000, "+08:00")) {
+    } else if (type == TYPE_DATEV2) {
+        vectorized::DateV2Value<doris::vectorized::DateV2ValueType> dt_val;
+        if ((is_date_str && !dt_val.from_date_str(val.c_str(), val_size)) ||
+            (!is_date_str && !dt_val.from_unixtime(col.GetInt64() / 1000, "+08:00"))) {
             RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
         }
-        if (type == TYPE_DATE) {
-            reinterpret_cast<vectorized::VecDateTimeValue*>(&dt_val)->cast_to_date();
-        } else {
-            reinterpret_cast<vectorized::VecDateTimeValue*>(&dt_val)->set_type(TIME_DATETIME);
-        }
-
-        auto date_packed_int = binary_cast<doris::vectorized::VecDateTimeValue, int64_t>(
-                *reinterpret_cast<vectorized::VecDateTimeValue*>(&dt_val));
+        auto date_packed_int = binary_cast<
+                doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>, uint32_t>(
+                *reinterpret_cast<vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(
+                        &dt_val));
         col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)), 0);
+        return Status::OK();
 
-        return Status::OK();
-    } else if (type == TYPE_DATEV2 || type == TYPE_DATETIMEV2) {
-        if (type == TYPE_DATEV2) {
-            vectorized::DateV2Value<doris::vectorized::DateV2ValueType> dt_val;
-            if (!dt_val.from_unixtime(col.GetInt64() / 1000, "+08:00")) {
-                RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
-            }
-            auto date_packed_int = binary_cast<
-                    doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>, uint32_t>(
-                    *reinterpret_cast<vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(
-                            &dt_val));
-            col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)),
-                                 0);
-        } else {
-            vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> dt_val;
-            if (!dt_val.from_unixtime(col.GetInt64() / 1000, "+08:00")) {
-                RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
-            }
-            auto date_packed_int = binary_cast<
-                    vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>, uint64_t>(
-                    *reinterpret_cast<
-                            vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(
-                            &dt_val));
-            col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)),
-                                 0);
+    } else if (type == TYPE_DATETIMEV2) {
+        vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> dt_val;
+        if ((is_date_str && !dt_val.from_date_str(val.c_str(), val_size)) ||
+            (!is_date_str && !dt_val.from_unixtime(col.GetInt64() / 1000, "+08:00"))) {
+            RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
         }
+        auto date_packed_int = binary_cast<
+                vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>, uint64_t>(
+                *reinterpret_cast<vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(
+                        &dt_val));
+        col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)), 0);
         return Status::OK();
+
     } else {
         return Status::InternalError("Unsupported datetime type.");
     }
