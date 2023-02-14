@@ -21,6 +21,7 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.NereidsException;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext.Lock;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -33,6 +34,7 @@ import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
 import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.metrics.event.CounterEvent;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
@@ -59,6 +61,8 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.PriorityQueue;
+import java.util.Queue;
 import java.util.stream.Collectors;
 
 /**
@@ -177,7 +181,9 @@ public class NereidsPlanner extends Planner {
                 optimize();
             }
 
-            PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), requireProperties);
+            PhysicalPlan physicalPlan;
+            int nth = ConnectContext.get().getSessionVariable().getNthOptimizedPlan();
+            physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
 
             physicalPlan = postProcess(physicalPlan);
             if (explainLevel == ExplainLevel.OPTIMIZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
@@ -248,6 +254,17 @@ public class NereidsPlanner extends Planner {
 
     public Group getRoot() {
         return cascadesContext.getMemo().getRoot();
+    }
+
+    private PhysicalPlan chooseNthPlan(Group rootGroup, PhysicalProperties physicalProperties, int nthPlan) {
+        if (nthPlan == 1) {
+            return chooseBestPlan(rootGroup, physicalProperties);
+        }
+        Memo memo = cascadesContext.getMemo();
+        Queue<Pair<Long, Double>> rankingQueue = new PriorityQueue<>(
+                (l, r) -> Double.compare(l.second, r.second));
+        memo.rank(rankingQueue);
+        return memo.unrank(rankingQueue.poll().first);
     }
 
     private PhysicalPlan chooseBestPlan(Group rootGroup, PhysicalProperties physicalProperties)

@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.memo;
 
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.CTEContext;
@@ -48,6 +49,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Optional;
+import java.util.Queue;
 import java.util.stream.Collectors;
 import javax.annotation.Nullable;
 
@@ -705,5 +707,13 @@ public class Memo {
             }
         }
         return builder.toString();
+    }
+
+    public void rank(Queue<Pair<Long, Double>> rankingQueue) {
+        throw new RuntimeException();
+    }
+
+    public PhysicalPlan unrank(long id) {
+        throw new RuntimeException();
     }
 }
