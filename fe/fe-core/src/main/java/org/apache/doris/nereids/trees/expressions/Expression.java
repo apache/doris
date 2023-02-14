@@ -117,7 +117,9 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
     }
 
     public final Expression withChildren(Expression... children) {
-        return withChildren(ImmutableList.copyOf(children));
+        Expression expr = withChildren(ImmutableList.copyOf(children));
+        expr.isGeneratedIsNotNull = this.isGeneratedIsNotNull;
+        return expr;
     }
 
     /**
