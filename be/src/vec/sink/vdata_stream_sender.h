@@ -403,7 +403,7 @@ public:
         ch_roll_pb_block();
     }
 
-    ~PipChannel() {
+    ~PipChannel() override {
         if (_ch_cur_pb_block) {
             delete _ch_cur_pb_block;
         }
