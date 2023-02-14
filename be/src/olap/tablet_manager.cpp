@@ -1381,7 +1381,7 @@ void TabletManager::remove_unused_remote_files() {
     req.__isset.confirm_list = true;
     // tablet_id -> [fs, unused_remote_files]
     using unused_remote_files_buffer_t = std::unordered_map<
-    int64_t, std::pair<std::shared_ptr<io::RemoteFileSystem>, std::vector<io::Path>>>;
+            int64_t, std::pair<std::shared_ptr<io::RemoteFileSystem>, std::vector<io::Path>>>;
     unused_remote_files_buffer_t buffer;
     int64_t num_files_in_buffer = 0;
     // assume a filename is 0.1KB, buffer size should not larger than 100MB
