@@ -224,10 +224,10 @@ suite("nereids_agg_fn") {
 	qt_sql_group_concat_Varchar_AnyData_gb_notnull_gb "select group_concat(distinct cast(abs(kint) as varchar) order by abs(ksint), kdt) from fn_test_not_nullable group by kbool order by kbool"
 	qt_sql_group_concat_Varchar_AnyData_gb_notnull_gb_notnull "select group_concat(distinct cast(abs(kint) as varchar) order by abs(ksint), kdt) from fn_test_not_nullable"
 
-	qt_sql_group_concat_Varchar_Varchar_AnyData_gb "select group_concat(kvchrs1, kvchrs1, kint) from fn_test group by kbool order by kbool"
-	qt_sql_group_concat_Varchar_Varchar_AnyData_gb "select group_concat(kvchrs1, kvchrs1, kint) from fn_test"
-	qt_sql_group_concat_Varchar_Varchar_AnyData_gb_notnull_gb "select group_concat(kvchrs1, kvchrs1, kint) from fn_test_not_nullable group by kbool order by kbool"
-	qt_sql_group_concat_Varchar_Varchar_AnyData_gb_notnull_gb_notnull "select group_concat(kvchrs1, kvchrs1, kint) from fn_test_not_nullable"
+	qt_sql_group_concat_Varchar_Varchar_AnyData_gb "select group_concat(distinct cast(abs(kint) as varchar) order by abs(ksint), kdt) from fn_test group by kbool order by kbool"
+	qt_sql_group_concat_Varchar_Varchar_AnyData_gb "select group_concat(distinct cast(abs(kint) as varchar) order by abs(ksint), kdt) from fn_test"
+	qt_sql_group_concat_Varchar_Varchar_AnyData_gb_notnull_gb "select group_concat(distinct cast(abs(kint) as varchar) order by abs(ksint), kdt) from fn_test_not_nullable group by kbool order by kbool"
+	qt_sql_group_concat_Varchar_Varchar_AnyData_gb_notnull_gb_notnull "select group_concat(distinct cast(abs(kint) as varchar) order by abs(ksint), kdt) from fn_test_not_nullable"
 
 	qt_sql_histogram_Boolean_gb "select histogram(kbool) from fn_test group by kbool order by kbool"
 	qt_sql_histogram_Boolean_gb "select histogram(kbool) from fn_test"
