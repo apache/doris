@@ -608,7 +608,6 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                             }
                         }
                     }
-<<<<<<< HEAD
                     same_to_prev.emplace_back(false);
                     for (int i = 0; i < current_offset - origin_offset - 1; ++i) {
                         same_to_prev.emplace_back(true);
@@ -621,30 +620,6 @@ Status ProcessHashTableProbe<JoinOpType>::do_process_with_other_join_conjuncts(
                     visited_map.emplace_back(nullptr);
                     // only full outer / left outer need insert the data of right table
                     // left anti use -1 use a default value
-=======
-                    all_match_one = false;
-                    continue;
-                }
-            }
-
-            auto last_offset = current_offset;
-            auto find_result =
-                    !need_null_map_for_probe
-                            ? key_getter.find_key(hash_table_ctx.hash_table, probe_index, *_arena)
-                    : (*null_map)[probe_index]
-                            ? decltype(key_getter.find_key(hash_table_ctx.hash_table, probe_index,
-                                                           *_arena)) {nullptr, false}
-                            : key_getter.find_key(hash_table_ctx.hash_table, probe_index, *_arena);
-            if (probe_index + PREFETCH_STEP < probe_rows)
-                key_getter.template prefetch<true>(hash_table_ctx.hash_table,
-                                                   probe_index + PREFETCH_STEP, *_arena);
-            if (find_result.is_found()) {
-                auto& mapped = find_result.get_mapped();
-                auto origin_offset = current_offset;
-                // TODO: Iterators are currently considered to be a heavy operation and have a certain impact on performance.
-                // We should rethink whether to use this iterator mode in the future. Now just opt the one row case
-                if (mapped.get_row_count() == 1) {
->>>>>>> 5e60591de... [Feature](aggregate-function) support funtion group_uniq_array
                     if (LIKELY(current_offset < _build_block_rows.size())) {
                         _build_block_offsets[current_offset] = -1;
                         _build_block_rows[current_offset] = -1;

@@ -33,6 +33,7 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import java_cup.symbol;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -1344,22 +1345,9 @@ public class FunctionSet<T> {
                 symbol, prepareFnSymbol, closeFnSymbol, userVisible));
     }
 
-<<<<<<< HEAD
     public void addScalarAndVectorizedBuiltin(String fnName, boolean userVisible,
-                                              Function.NullableMode nullableMode, Type retType,
-                                              boolean varArgs, Type ... args) {
-=======
-    public void addScalarAndVectorizedBuiltin(String fnName, String symbol, boolean userVisible,
-<<<<<<< HEAD
-            String prepareFnSymbol, String closeFnSymbol,
             Function.NullableMode nullableMode, Type retType,
-            boolean varArgs, Type... args) {
->>>>>>> a983c088c... support optional arguments
-=======
-                                              String prepareFnSymbol, String closeFnSymbol,
-                                              Function.NullableMode nullableMode, Type retType,
-                                              boolean varArgs, Type ... args) {
->>>>>>> 9cf0b4b38... fix reviewed problems
+            boolean varArgs, Type ... args) {
         ArrayList<Type> argsType = new ArrayList<Type>();
         for (Type type : args) {
             argsType.add(type);
@@ -1419,6 +1407,8 @@ public class FunctionSet<T> {
     public static final String SEQUENCE_COUNT = "sequence_count";
 
     public static final String GROUP_UNIQ_ARRAY = "group_uniq_array";
+
+    public static final String GROUP_ARRAY = "group_array";
 
     // Populate all the aggregate builtins in the catalog.
     // null symbols indicate the function does not need that step of the evaluation.
@@ -2638,6 +2628,11 @@ public class FunctionSet<T> {
                     "", "", "", "", "", true, false, true, true));
             addBuiltin(
                     AggregateFunction.createBuiltin(GROUP_UNIQ_ARRAY, Lists.newArrayList(t, Type.INT), new ArrayType(t),
+                            t, "", "", "", "", "", true, false, true, true));
+            addBuiltin(AggregateFunction.createBuiltin(GROUP_ARRAY, Lists.newArrayList(t), new ArrayType(t), t,
+                    "", "", "", "", "", true, false, true, true));
+            addBuiltin(
+                    AggregateFunction.createBuiltin(GROUP_ARRAY, Lists.newArrayList(t, Type.INT), new ArrayType(t),
                             t, "", "", "", "", "", true, false, true, true));
         }
 

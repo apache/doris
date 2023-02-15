@@ -110,5 +110,7 @@ AggregateFunctionPtr create_aggregate_function_collect(const std::string& name,
 void register_aggregate_function_collect_list(AggregateFunctionSimpleFactory& factory) {
     factory.register_function("collect_list", create_aggregate_function_collect);
     factory.register_function("collect_set", create_aggregate_function_collect);
+    factory.register_alias("collect_list", "group_array");
+    factory.register_alias("collect_set", "group_uniq_array");
 }
 } // namespace doris::vectorized

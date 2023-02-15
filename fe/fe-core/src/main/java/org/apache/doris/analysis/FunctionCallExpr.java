@@ -1305,7 +1305,8 @@ public class FunctionCallExpr extends Expr {
             fn.setReturnType(new ArrayType(getChild(0).type));
         }
 
-        if (fnName.getFunction().equalsIgnoreCase("group_uniq_array")) {
+        if (fnName.getFunction().equalsIgnoreCase("group_uniq_array")
+                || fnName.getFunction().equalsIgnoreCase("group_array")) {
             fn.setReturnType(new ArrayType(getChild(0).type));
         }
 
