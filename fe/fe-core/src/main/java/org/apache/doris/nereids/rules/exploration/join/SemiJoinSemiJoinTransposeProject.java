@@ -31,9 +31,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.JoinUtils;
 
-import com.google.common.collect.Lists;
+import com.google.common.collect.ImmutableList;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -62,7 +61,7 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                 .when(this::typeChecker)
                 .when(topSemi -> InnerJoinLAsscom.checkReorder(topSemi, topSemi.left().child()))
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
-                .when(join -> JoinReorderUtils.checkProjectForJoin(join.left()))
+                .when(join -> JoinReorderUtils.checkHyperEdgeProjectForJoin(join.left()))
                 .then(topSemi -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomSemi = topSemi.left().child();
                     LogicalProject abProject = topSemi.left();
@@ -75,8 +74,9 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                     /* ********** replace Conjuncts by projects ********** */
                     Map<ExprId, Expression> replaceMapForNewTopJoin = new HashMap<>();
                     Map<ExprId, Expression> replaceMapForNewBottomJoin = new HashMap<>();
-                    boolean needNewProjectChildForA = JoinReorderUtils.processProjects(abProject.getProjects(),
-                            aOutputExprIdSet, replaceMapForNewTopJoin, replaceMapForNewBottomJoin);
+                    boolean needNewProjectForA = JoinReorderUtils.needCreateLeftBottomChildProject(
+                            abProject.getProjects(), aOutputExprIdSet, replaceMapForNewTopJoin,
+                            replaceMapForNewBottomJoin);
 
                     /* ********** swap Conjuncts ********** */
                     List<Expression> newTopHashJoinConjuncts = bottomSemi.getHashJoinConjuncts();
@@ -98,31 +98,44 @@ public class SemiJoinSemiJoinTransposeProject extends OneExplorationRuleFactory 
                             }));
 
                     LogicalJoin newBottomSemi;
-                    if (needNewProjectChildForA) {
+                    if (needNewProjectForA) {
+                        /*
+                        *        topJoin                         newTopJoin
+                        *        /     \                         /        \
+                        *    project    C                newBottomJoin  newRightProject
+                        *      /            ──►                /     \      \
+                        * bottomJoin              needNewProjectForA  C      B
+                        *    /   \                           /
+                        *   A     B                         A
+                        */
+                        // create a new project node as A's parent
                         newBottomSemi =
                                 new LogicalJoin<>(topSemi.getJoinType(), newBottomHashJoinConjuncts,
                                         newBottomOtherJoinConjuncts, JoinHint.NONE,
-                                        JoinReorderUtils.projectOrSelf(Lists.newArrayList(acProjects), a),
+                                        JoinReorderUtils
+                                                .projectOrSelf(ImmutableList.copyOf(acProjects), a),
                                         c, bottomSemi.getJoinReorderContext());
                     } else {
-                        newBottomHashJoinConjuncts = JoinUtils
-                                .replaceJoinConjuncts(newBottomHashJoinConjuncts, replaceMapForNewBottomJoin);
-                        newBottomOtherJoinConjuncts = JoinUtils
-                                .replaceJoinConjuncts(newBottomOtherJoinConjuncts, replaceMapForNewBottomJoin);
+                        newBottomHashJoinConjuncts = JoinUtils.replaceJoinConjuncts(
+                                newBottomHashJoinConjuncts, replaceMapForNewBottomJoin);
+                        newBottomOtherJoinConjuncts = JoinUtils.replaceJoinConjuncts(
+                                newBottomOtherJoinConjuncts, replaceMapForNewBottomJoin);
                         newBottomSemi = new LogicalJoin<>(topSemi.getJoinType(),
                                 newBottomHashJoinConjuncts, newBottomOtherJoinConjuncts,
                                 JoinHint.NONE, a, c, bottomSemi.getJoinReorderContext());
                     }
-
                     newBottomSemi.getJoinReorderContext().setHasCommute(false);
                     newBottomSemi.getJoinReorderContext().setHasLAsscom(false);
 
-                    Plan left = JoinReorderUtils.projectOrSelf(Lists.newArrayList(acProjects), newBottomSemi);
+                    Plan left = needNewProjectForA ? newBottomSemi
+                            : JoinReorderUtils.projectOrSelf(ImmutableList.copyOf(acProjects),
+                                    newBottomSemi);
                     LogicalJoin newTopSemi = new LogicalJoin(bottomSemi.getJoinType(),
                             newTopHashJoinConjuncts, newTopOtherJoinConjuncts, JoinHint.NONE, left,
                             b, topSemi.getJoinReorderContext());
                     newTopSemi.getJoinReorderContext().setHasLAsscom(true);
-                    return JoinReorderUtils.projectOrSelf(new ArrayList<>(topSemi.getOutput()), newTopSemi);
+
+                    return JoinReorderUtils.projectOrSelf(ImmutableList.copyOf(topSemi.getOutput()), newTopSemi);
                 }).toRule(RuleType.LOGICAL_SEMI_JOIN_SEMI_JOIN_TRANPOSE_PROJECT);
     }
 

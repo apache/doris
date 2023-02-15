@@ -86,14 +86,14 @@ public class LogicalPlanBuilder {
     }
 
     public LogicalPlanBuilder complexAlias(List<Integer> slotsIndex, List<String> alias) {
-        Preconditions.checkArgument(slotsIndex.size() == alias.size());
-
-        List<NamedExpression> projectExprs = Lists.newArrayList();
+        Preconditions.checkArgument(slotsIndex.size() == alias.size(),
+                "slotsIndex's size should be same as alias's size");
+        ImmutableList.Builder<NamedExpression> projectExprs = ImmutableList.builder();
         for (int i = 0; i < slotsIndex.size(); i++) {
-            projectExprs.add(new Alias(new Abs(this.plan.getOutput().get(slotsIndex.get(i))),
-                    alias.get(i)));
+            projectExprs.add(
+                    new Alias(new Abs(this.plan.getOutput().get(slotsIndex.get(i))), alias.get(i)));
         }
-        LogicalProject<LogicalPlan> project = new LogicalProject<>(projectExprs, this.plan);
+        LogicalProject<LogicalPlan> project = new LogicalProject<>(projectExprs.build(), this.plan);
         return from(project);
     }
 

@@ -32,8 +32,8 @@ import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.ImmutableList;
 
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -61,7 +61,7 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
         return innerLogicalJoin(logicalProject(innerLogicalJoin()), group())
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
                 .when(topJoin -> InnerJoinLAsscom.checkReorder(topJoin, topJoin.left().child()))
-                .when(join -> JoinReorderUtils.checkProjectForJoin(join.left()))
+                .when(join -> JoinReorderUtils.checkHyperEdgeProjectForJoin(join.left()))
                 .then(topJoin -> {
 
                     /* ********** init ********** */
@@ -101,8 +101,9 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                     // find replace map for join conjuncts and figure out if need a new project child for A
                     Map<ExprId, Expression> replaceMapForNewTopJoin = new HashMap<>();
                     Map<ExprId, Expression> replaceMapForNewBottomJoin = new HashMap<>();
-                    boolean needNewProjectChildForA = JoinReorderUtils.processProjects(projects, a.getOutputExprIdSet(),
-                            replaceMapForNewTopJoin, replaceMapForNewBottomJoin);
+                    boolean needNewProjectForA = JoinReorderUtils.needCreateLeftBottomChildProject(
+                            projects, a.getOutputExprIdSet(), replaceMapForNewTopJoin,
+                            replaceMapForNewBottomJoin);
 
                     // replace top join conjuncts
                     newTopHashConjuncts = JoinUtils.replaceJoinConjuncts(newTopHashConjuncts,
@@ -129,19 +130,17 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
 
                     /* ********** new Plan ********** */
                     LogicalJoin newBottomJoin;
-                    if (needNewProjectChildForA) {
+                    if (needNewProjectForA) {
                         /*
-                        *        topJoin                   newTopJoin
-                        *        /     \                   /        \
-                        *    project    C          newLeftProject newRightProject
-                        *      /            ──►          /            \
-                        * bottomJoin                newBottomJoin      B
-                        *    /   \                     /   \
-                        *   A     B                   A     C
-                        *                            /
-                        *                  needNewProjectChildForA
-                        */
-                        // create a new project node as A's child
+                         *        topJoin                         newTopJoin
+                         *        /     \                         /        \
+                         *    project    C                newBottomJoin  newRightProject
+                         *      /            ──►                /     \      \
+                         * bottomJoin              needNewProjectForA  C      B
+                         *    /   \                           /
+                         *   A     B                         A
+                         */
+                        // create a new project node as A's parent
                         newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
                                 newBottomHashConjuncts, newBottomOtherConjuncts,
                                 JoinHint.NONE, JoinReorderUtils.projectOrSelf(newLeftProjects, a), c,
@@ -164,7 +163,8 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                         newLeftProjects.addAll(cOutputSet);
                     }
 
-                    Plan left = JoinReorderUtils.projectOrSelf(newLeftProjects, newBottomJoin);
+                    Plan left = needNewProjectForA ? newBottomJoin
+                            : JoinReorderUtils.projectOrSelf(newLeftProjects, newBottomJoin);
                     Plan right = JoinReorderUtils.projectOrSelf(newRightProjects, b);
 
                     LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
@@ -172,7 +172,7 @@ public class InnerJoinLAsscomProject extends OneExplorationRuleFactory {
                             left, right, topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 
-                    return JoinReorderUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()), newTopJoin);
+                    return JoinReorderUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);
                 }).toRule(RuleType.LOGICAL_INNER_JOIN_LASSCOM_PROJECT);
     }
 

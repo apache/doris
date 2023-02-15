@@ -90,7 +90,7 @@ class JoinReorderUtils {
     /**
      * - prevent reorder when hyper edge is in projection. like project A.id + B.id as ab join C on ab = C.id
      */
-    static boolean checkProjectForJoin(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
+    static boolean checkHyperEdgeProjectForJoin(LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project) {
         List<NamedExpression> exprs = project.getProjects();
         Set<ExprId> leftExprIds = project.child().left().getOutputExprIdSet();
         Set<ExprId> rightExprIds = project.child().right().getOutputExprIdSet();
@@ -116,15 +116,18 @@ class JoinReorderUtils {
      *   A     B                   A     C
      *
      * calculate the replace map for new top and bottom join conjuncts
+     *
      * @param projects project's output
      * @param leftBottomOutputs A's output
      * @param replaceMapForNewTopJoin output param, as the name indicated
      * @param replaceMapForNewBottomJoin output param, as the name indicated
-     * @return return true, if a new project node should be created as A's child
+     *
+     * @return return true, if a new project node should be created as A's parent
      */
-    public static boolean processProjects(List<NamedExpression> projects, Set<ExprId> leftBottomOutputs,
-            Map<ExprId, Expression> replaceMapForNewTopJoin, Map<ExprId, Expression> replaceMapForNewBottomJoin) {
-        boolean needCreateLeftBottomChildProject = false;
+    public static boolean needCreateLeftBottomChildProject(List<NamedExpression> projects,
+            Set<ExprId> leftBottomOutputs, Map<ExprId, Expression> replaceMapForNewTopJoin,
+            Map<ExprId, Expression> replaceMapForNewBottomJoin) {
+        boolean needCreateNewProjectForA = false;
         for (NamedExpression expr : projects) {
             if (expr instanceof Alias) {
                 Alias alias = (Alias) expr;
@@ -135,12 +138,12 @@ class JoinReorderUtils {
                 } else {
                     // the project expr is not a simple slot but some complex expr come from left bottom child A
                     // like abs(A.slot), add(A.slot, 1), etc
-                    needCreateLeftBottomChildProject = needCreateLeftBottomChildProject
+                    needCreateNewProjectForA = needCreateNewProjectForA
                             || leftBottomOutputs.containsAll(expr.getInputSlotExprIds());
                 }
                 replaceMapForNewBottomJoin.put(outputSlot.getExprId(), alias.child());
             }
         }
-        return needCreateLeftBottomChildProject;
+        return needCreateNewProjectForA;
     }
 }

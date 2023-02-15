@@ -467,7 +467,7 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
         LogicalProject<LogicalPlan> leftProject = new LogicalProject<>(projectExprs, bottomJoin);
 
         List<Expression> topHashJoinConjunct = ImmutableList.of(
-                new EqualTo(leftProject.getOutput().get(1), scan3.getOutput().get(0)),
+                new EqualTo(leftProject.getOutput().get(0), scan3.getOutput().get(0)),
                 new EqualTo(new Add(leftProject.getOutput().get(1), leftProject.getOutput().get(1)),
                         scan3.getOutput().get(1)));
         List<Expression> topOtherJoinConjunct = ImmutableList.of(
@@ -486,12 +486,12 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
                                 innerLogicalJoin(logicalProject(
                                                 innerLogicalJoin().when(
                                                         join -> Objects.equals(join.getHashJoinConjuncts().toString(),
-                                                                "[(id#0 = id#8), ((id#0 + id#0) = name#9)]")
+                                                                "[((id#0 + id#0) = name#9)]")
                                                                 && Objects.equals(join.getOtherJoinConjuncts().toString(),
                                                                 "[((id#0 + id#0) > name#9)]"))),
                                         group()
                                 ).when(join ->
-                                        Objects.equals(join.getHashJoinConjuncts().toString(), "[(id#0#5 = id#2)]")
+                                        Objects.equals(join.getHashJoinConjuncts().toString(), "[(abs(t2.id)#4 = id#8), (id#0#5 = id#2)]")
                                                 && Objects.equals(join.getOtherJoinConjuncts().toString(),
                                                 "[(t1.name#6 > t2.name#7)]")))
                 );

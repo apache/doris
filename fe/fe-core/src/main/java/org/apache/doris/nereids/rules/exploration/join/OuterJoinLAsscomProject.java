@@ -34,7 +34,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 
-import java.util.ArrayList;
+import com.google.common.collect.ImmutableList;
+
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -64,7 +65,7 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                 .when(join -> OuterJoinLAsscom.VALID_TYPE_PAIR_SET.contains(
                         Pair.of(join.left().child().getJoinType(), join.getJoinType())))
                 .when(topJoin -> OuterJoinLAsscom.checkReorder(topJoin, topJoin.left().child()))
-                .when(join -> JoinReorderUtils.checkProjectForJoin(join.left()))
+                .when(join -> JoinReorderUtils.checkHyperEdgeProjectForJoin(join.left()))
                 .when(topJoin -> checkCondition(topJoin,
                         topJoin.left().child().right().getOutputExprIdSet()))
                 .then(topJoin -> {
@@ -92,8 +93,9 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     /* ********** replace Conjuncts by projects ********** */
                     Map<ExprId, Expression> replaceMapForNewTopJoin = new HashMap<>();
                     Map<ExprId, Expression> replaceMapForNewBottomJoin = new HashMap<>();
-                    boolean needNewProjectChildForA = JoinReorderUtils.processProjects(projects, aOutputExprIdSet,
-                            replaceMapForNewTopJoin, replaceMapForNewBottomJoin);
+                    boolean needNewProjectForA = JoinReorderUtils.needCreateLeftBottomChildProject(
+                            projects, aOutputExprIdSet, replaceMapForNewTopJoin,
+                            replaceMapForNewBottomJoin);
 
                     // replace top join conjuncts
                     newTopHashConjuncts = JoinUtils.replaceJoinConjuncts(
@@ -119,19 +121,17 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
 
                     /* ********** new Plan ********** */
                     LogicalJoin newBottomJoin;
-                    if (needNewProjectChildForA) {
+                    if (needNewProjectForA) {
                         /*
-                        *        topJoin                   newTopJoin
-                        *        /     \                   /        \
-                        *    project    C          newLeftProject newRightProject
-                        *      /            ──►          /            \
-                        * bottomJoin                newBottomJoin      B
-                        *    /   \                     /   \
-                        *   A     B                   A     C
-                        *                            /
-                        *                  needNewProjectChildForA
-                        */
-                        // create a new project node as A's child
+                         *        topJoin                         newTopJoin
+                         *        /     \                         /        \
+                         *    project    C                newBottomJoin  newRightProject
+                         *      /            ──►                /     \      \
+                         * bottomJoin              needNewProjectForA  C      B
+                         *    /   \                           /
+                         *   A     B                         A
+                         */
+                        // create a new project node as A's parent
                         newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
                                 newBottomHashConjuncts, newBottomOtherConjuncts,
                                 JoinHint.NONE, JoinReorderUtils.projectOrSelf(newLeftProjects, a), c,
@@ -159,14 +159,16 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                         }
                     }
 
-                    Plan left = JoinReorderUtils.projectOrSelf(newLeftProjects, newBottomJoin);
+                    Plan left = needNewProjectForA ? newBottomJoin
+                            : JoinReorderUtils.projectOrSelf(newLeftProjects, newBottomJoin);
                     Plan right = JoinReorderUtils.projectOrSelf(newRightProjects, b);
 
                     LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
                             newTopHashConjuncts, newTopOtherConjuncts, JoinHint.NONE,
                             left, right, topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLAsscom(true);
-                    return JoinReorderUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()), newTopJoin);
+
+                    return JoinReorderUtils.projectOrSelf(ImmutableList.copyOf(topJoin.getOutput()), newTopJoin);
                 }).toRule(RuleType.LOGICAL_OUTER_JOIN_LASSCOM_PROJECT);
     }
 
