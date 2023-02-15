@@ -141,11 +141,6 @@ public class ColumnDef {
         this.defaultValue = defaultValue;
         this.comment = comment;
         this.visible = visible;
-        // if typeDef is NULL_TYPE, be will core when executing CTAS expression, we change it to tinyint nullable.
-        if (this.typeDef.getType().isNull()) {
-            this.typeDef = TypeDef.create(PrimitiveType.TINYINT);
-            this.isAllowNull = true;
-        }
     }
 
     public static ColumnDef newDeleteSignColumnDef() {

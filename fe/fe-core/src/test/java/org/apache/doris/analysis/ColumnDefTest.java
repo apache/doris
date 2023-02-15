@@ -142,12 +142,4 @@ public class ColumnDefTest {
         Assert.assertEquals(Type.INT, childColumn.getType());
         Assert.assertTrue(childColumn.isAllowNull());
     }
-
-    @Test
-    public void testNullTypeReplaceToTinyIntNullable() {
-        TypeDef typeDef = TypeDef.create(PrimitiveType.NULL_TYPE);
-        ColumnDef columnDef = new ColumnDef("null_type", typeDef, false, null, true, DefaultValue.NOT_SET, "");
-        Assert.assertEquals(Type.TINYINT, columnDef.getType());
-        Assert.assertTrue(columnDef.isAllowNull());
-    }
 }
