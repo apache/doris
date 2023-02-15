@@ -267,7 +267,7 @@ public class ExprToSlotRefRule implements ExprRewriteRule {
     private Expr rewriteExpr(TableName tableName, Column mvColumn, Analyzer analyzer) {
         Preconditions.checkNotNull(mvColumn);
         Preconditions.checkNotNull(tableName);
-        SlotRef mvSlotRef = new SlotRef(tableName, mvColumn.getName());
+        SlotRef mvSlotRef = new SlotRef(tableName, mvColumn.getDefineName());
         mvSlotRef.analyzeNoThrow(analyzer);
         return mvSlotRef;
     }

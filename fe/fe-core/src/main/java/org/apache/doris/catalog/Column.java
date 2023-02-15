@@ -111,6 +111,7 @@ public class Column implements Writable, GsonPostProcessable {
     // so the define expr in RollupJob must be analyzed.
     // In other cases, such as define expr in `MaterializedIndexMeta`, it may not be analyzed after being replayed.
     private Expr defineExpr; // use to define column in materialize view
+    private String defineName = null;
     @SerializedName(value = "visible")
     private boolean visible;
     @SerializedName(value = "defaultValueExprDef")
@@ -234,6 +235,17 @@ public class Column implements Writable, GsonPostProcessable {
 
     private void addChildrenColumn(Column column) {
         this.children.add(column);
+    }
+
+    public void setDefineName(String defineName) {
+        this.defineName = defineName;
+    }
+
+    public String getDefineName() {
+        if (defineName != null) {
+            return defineName;
+        }
+        return name;
     }
 
     public void setName(String newName) {
