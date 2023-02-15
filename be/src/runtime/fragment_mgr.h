@@ -116,6 +116,14 @@ public:
 
     std::shared_ptr<io::StreamLoadPipe> get_pipe(const TUniqueId& fragment_instance_id);
 
+    std::string to_http_path(const std::string& file_name);
+
+    void coordinator_callback(
+            const Status& status, RuntimeProfile* profile, bool done, TNetworkAddress coord_addr,
+            TUniqueId query_id, int fragment_id, TUniqueId fragment_instance_id, int backend_num,
+            RuntimeState* runtime_state, std::function<Status(Status)> update_fn,
+            std::function<void(const PPlanFragmentCancelReason&, const std::string&)> cancel_fn);
+
 private:
     void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb);
 
