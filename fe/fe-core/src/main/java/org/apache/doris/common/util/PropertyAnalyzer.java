@@ -42,7 +42,6 @@ import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTabletType;
 
-import com.google.common.base.Joiner;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
 import com.google.common.collect.Maps;
@@ -814,25 +813,18 @@ public class PropertyAnalyzer {
         // validate access controller properties
         // eg:
         // (
-        // "access_controller.name" = "my_access",
-        // "access_controller.my_access.class" = "org.apache.doris.mysql.privilege.RangerAccessControllerFactory",
-        // "access_controller.my_access.properties.prop1" = "xxx",
-        // "access_controller.my_access.properties.prop2" = "yyy",
+        // "access_controller.class" = "org.apache.doris.mysql.privilege.RangerAccessControllerFactory",
+        // "access_controller.properties.prop1" = "xxx",
+        // "access_controller.properties.prop2" = "yyy",
         // )
-        // 1. get access controller name
-        String acName = properties.getOrDefault(CatalogMgr.ACCESS_CONTROLLER_NAME_PROP, "");
-        if (!Strings.isNullOrEmpty(acName)) {
-            // 2. get access controller class name
-            String className = properties.getOrDefault(
-                    Joiner.on(".").join(CatalogMgr.ACCESS_CONTROLLER_PREFIX_PROP, acName, "class"), "");
-            if (Strings.isNullOrEmpty(className)) {
-                throw new AnalysisException("missing factory class name for access controller: " + acName);
-            }
-            // 3. check if class exists
+        // 1. get access controller class
+        String acClass = properties.getOrDefault(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "");
+        if (!Strings.isNullOrEmpty(acClass)) {
+            // 2. check if class exists
             try {
-                Class.forName(className);
+                Class.forName(acClass);
             } catch (ClassNotFoundException e) {
-                throw new AnalysisException("failed to find class " + className, e);
+                throw new AnalysisException("failed to find class " + acClass, e);
             }
         }
     }

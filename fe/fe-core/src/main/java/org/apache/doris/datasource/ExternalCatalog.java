@@ -33,7 +33,6 @@ import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.MasterCatalogExecutor;
 
-import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
@@ -155,38 +154,31 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     /**
      * eg:
      * (
-     * "access_controller.name" = "my_access",
-     * ""access_controller.my_access.class" = "org.apache.doris.mysql.privilege.RangerAccessControllerFactory",
-     * "access_controller.my_access.properties.prop1" = "xxx",
-     * "access_controller.my_access.properties.prop2" = "yyy",
+     * ""access_controller.class" = "org.apache.doris.mysql.privilege.RangerAccessControllerFactory",
+     * "access_controller.properties.prop1" = "xxx",
+     * "access_controller.properties.prop2" = "yyy",
      * )
      */
     private void initAccessController() {
         Map<String, String> properties = getCatalogProperty().getProperties();
-        // 1. get access controller name
-        String acName = properties.getOrDefault(CatalogMgr.ACCESS_CONTROLLER_NAME_PROP, "");
-        if (Strings.isNullOrEmpty(acName)) {
-            // Do nothing
+        // 1. get access controller class name
+        String className = properties.getOrDefault(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "");
+        if (Strings.isNullOrEmpty(className)) {
+            // not set access controller, use internal access controller
             return;
         }
-        // 2. get access controller class name
-        String className = properties.getOrDefault(
-                Joiner.on(".").join(CatalogMgr.ACCESS_CONTROLLER_PREFIX_PROP, acName, "class"), "");
-        if (Strings.isNullOrEmpty(className)) {
-            throw new RuntimeException("missing class name for access controller: " + acName);
-        }
 
-        // 3. get access controller properties
-        String propPrefix = Joiner.on(".")
-                .join(CatalogMgr.ACCESS_CONTROLLER_PREFIX_PROP, acName, "properties") + ".";
+        // 2. get access controller properties
         Map<String, String> acProperties = Maps.newHashMap();
         for (Map.Entry<String, String> entry : properties.entrySet()) {
-            if (entry.getKey().startsWith(propPrefix)) {
-                acProperties.put(StringUtils.removeStart(entry.getKey(), propPrefix), entry.getValue());
+            if (entry.getKey().startsWith(CatalogMgr.ACCESS_CONTROLLER_PROPERTY_PREFIX_PROP)) {
+                acProperties.put(
+                        StringUtils.removeStart(entry.getKey(), CatalogMgr.ACCESS_CONTROLLER_PROPERTY_PREFIX_PROP),
+                        entry.getValue());
             }
         }
 
-        // 4. create access controller
+        // 3. create access controller
         Env.getCurrentEnv().getAccessManager().createAccessController(name, className, acProperties);
     }
 

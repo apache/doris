@@ -71,11 +71,10 @@ public class ColumnPrivTest extends TestWithFeService {
                         + "    \"type\" = \"test\",\n"
                         + "    \"catalog_provider.class\" "
                         + "= \"org.apache.doris.datasource.ColumnPrivTest$MockedCatalogProvider\",\n"
-                        + "    \"access_controller.name\" = \"my_access\",\n"
-                        + "    \"access_controller.my_access.class\" "
+                        + "    \"access_controller.class\" "
                         + "= \"org.apache.doris.datasource.ColumnPrivTest$TestAccessControllerFactory\",\n"
-                        + "    \"access_controller.my_access.properties.key1\" = \"val1\",\n"
-                        + "    \"access_controller.my_access.properties.key2\" = \"val2\"\n"
+                        + "    \"access_controller.properties.key1\" = \"val1\",\n"
+                        + "    \"access_controller.properties.key2\" = \"val2\"\n"
                         + ");",
                 rootCtx);
         env.getCatalogMgr().createCatalog(testCatalog);
