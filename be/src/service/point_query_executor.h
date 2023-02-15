@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "gutil/int128.h"
+#include "olap/rowset/rowset.h"
 #include "olap/tablet.h"
 #include "util/runtime_profile.h"
 #include "vec/core/block.h"
@@ -253,11 +254,28 @@ private:
 
     Status _output_data();
 
+    static void release_rowset(RowsetSharedPtr* r) {
+        if (r && *r) {
+            VLOG_DEBUG << "release rowset " << (*r)->unique_id();
+            (*r)->release();
+        }
+        delete r;
+    }
+
+    // Read context for each row
+    struct RowReadContext {
+        RowReadContext() : _rowset_ptr(nullptr, &release_rowset) {}
+        std::string _primary_key;
+        RowCache::CacheHandle _cached_row_data;
+        std::optional<RowLocation> _row_location;
+        // rowset will be aquired during read
+        // and released after used
+        std::unique_ptr<RowsetSharedPtr, decltype(&release_rowset)> _rowset_ptr;
+    };
+
     PTabletKeyLookupResponse* _response;
     TabletSharedPtr _tablet;
-    std::vector<std::string> _primary_keys;
-    std::vector<RowCache::CacheHandle> _cached_row_data;
-    std::vector<std::optional<RowLocation>> _row_locations;
+    std::vector<RowReadContext> _row_read_ctxs;
     std::shared_ptr<Reusable> _reusable;
     std::unique_ptr<vectorized::Block> _result_block;
     Metrics _profile_metrics;
