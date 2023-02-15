@@ -21,13 +21,22 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_map.h"
 #include "vec/common/assert_cast.h"
-#include "vec/data_types/data_type_factory.hpp"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 
 DataTypeMap::DataTypeMap(const DataTypePtr& keys_, const DataTypePtr& values_) {
-    key_type = keys_;
-    value_type = values_;
+    if (!keys_->is_nullable()) {
+        key_type = make_nullable(keys_);
+    } else {
+        key_type = keys_;
+    }
+    if (!values_->is_nullable()) {
+        value_type = make_nullable(values_);
+    } else {
+        value_type = values_;
+    }
 
     keys = std::make_shared<DataTypeArray>(key_type);
     values = std::make_shared<DataTypeArray>(value_type);
@@ -53,7 +62,7 @@ std::string DataTypeMap::to_string(const IColumn& column, size_t row_num) const 
             ss << ", ";
         }
         if (nested_keys_column.is_null_at(i)) {
-            ss << "NULL";
+            ss << "null";
         } else if (WhichDataType(remove_nullable(key_type)).is_string_or_fixed_string()) {
             ss << "'" << key_type->to_string(nested_keys_column, i) << "'";
         } else {
@@ -61,7 +70,7 @@ std::string DataTypeMap::to_string(const IColumn& column, size_t row_num) const 
         }
         ss << ":";
         if (nested_values_column.is_null_at(i)) {
-            ss << "NULL";
+            ss << "null";
         } else if (WhichDataType(remove_nullable(value_type)).is_string_or_fixed_string()) {
             ss << "'" << value_type->to_string(nested_values_column, i) << "'";
         } else {
@@ -78,6 +87,68 @@ void DataTypeMap::to_string(const class doris::vectorized::IColumn& column, size
     ostr.write(ss.c_str(), strlen(ss.c_str()));
 }
 
+bool next_slot_from_string(ReadBuffer& rb, StringRef& output) {
+    StringRef element(rb.position(), 0);
+    bool has_quota = false;
+    if (rb.eof()) {
+        return false;
+    }
+
+    // ltrim
+    while (!rb.eof() && isspace(*rb.position())) {
+        ++rb.position();
+        element.data = rb.position();
+    }
+
+    // parse string
+    if (*rb.position() == '"' || *rb.position() == '\'') {
+        const char str_sep = *rb.position();
+        size_t str_len = 1;
+        // search until next '"' or '\''
+        while (str_len < rb.count() && *(rb.position() + str_len) != str_sep) {
+            ++str_len;
+        }
+        // invalid string
+        if (str_len >= rb.count()) {
+            rb.position() = rb.end();
+            return false;
+        }
+        has_quota = true;
+        rb.position() += str_len + 1;
+        element.size += str_len + 1;
+    }
+
+    // parse array element until map separator ':' or ',' or end '}'
+    while (!rb.eof() && (*rb.position() != ':') && (*rb.position() != ',') &&
+           (rb.count() != 1 || *rb.position() != '}')) {
+        if (has_quota && !isspace(*rb.position())) {
+            return false;
+        }
+        ++rb.position();
+        ++element.size;
+    }
+    // invalid array element
+    if (rb.eof()) {
+        return false;
+    }
+    // adjust read buffer position to first char of next array element
+    ++rb.position();
+
+    // rtrim
+    while (element.size > 0 && isspace(element.data[element.size - 1])) {
+        --element.size;
+    }
+
+    // trim '"' and '\'' for string
+    if (element.size >= 2 && (element.data[0] == '"' || element.data[0] == '\'') &&
+        element.data[0] == element.data[element.size - 1]) {
+        ++element.data;
+        element.size -= 2;
+    }
+    output = element;
+    return true;
+}
+
 Status DataTypeMap::from_string(ReadBuffer& rb, IColumn* column) const {
     DCHECK(!rb.eof());
     auto* map_column = assert_cast<ColumnMap*>(column);
@@ -91,57 +162,51 @@ Status DataTypeMap::from_string(ReadBuffer& rb, IColumn* column) const {
                                        *(rb.end() - 1));
     }
 
-    std::stringstream keyCharset;
-    std::stringstream valCharset;
-
     if (rb.count() == 2) {
         // empty map {} , need to make empty array to add offset
-        keyCharset << "[]";
-        valCharset << "[]";
+        map_column->insert_default();
     } else {
-        // {"aaa": 1, "bbb": 20}, need to handle key and value to make key column arr and value arr
+        // {"aaa": 1, "bbb": 20}, need to handle key slot and value slot to make key column arr and value arr
         // skip "{"
         ++rb.position();
-        keyCharset << "[";
-        valCharset << "[";
+        auto& keys_arr = reinterpret_cast<ColumnArray&>(map_column->get_keys());
+        ColumnArray::Offsets64& key_off = keys_arr.get_offsets();
+        auto& values_arr = reinterpret_cast<ColumnArray&>(map_column->get_values());
+        ColumnArray::Offsets64& val_off = values_arr.get_offsets();
+
+        IColumn& nested_key_column = keys_arr.get_data();
+        DCHECK(nested_key_column.is_nullable());
+        IColumn& nested_val_column = values_arr.get_data();
+        DCHECK(nested_val_column.is_nullable());
+
+        size_t element_num = 0;
         while (!rb.eof()) {
-            size_t kv_len = 0;
-            auto start = rb.position();
-            while (!rb.eof() && *start != ',' && *start != '}') {
-                kv_len++;
-                start++;
+            StringRef key_element(rb.position(), rb.count());
+            if (!next_slot_from_string(rb, key_element)) {
+                return Status::InvalidArgument("Cannot read map key from text '{}'",
+                                               key_element.to_string());
             }
-            if (kv_len >= rb.count()) {
-                return Status::InvalidArgument("Invalid Length");
+            StringRef value_element(rb.position(), rb.count());
+            if (!next_slot_from_string(rb, value_element)) {
+                return Status::InvalidArgument("Cannot read map value from text '{}'",
+                                               value_element.to_string());
+            }
+            ReadBuffer krb(const_cast<char*>(key_element.data), key_element.size);
+            ReadBuffer vrb(const_cast<char*>(value_element.data), value_element.size);
+            if (auto st = key_type->from_string(krb, &nested_key_column); !st.ok()) {
+                map_column->pop_back(element_num);
+                return st;
+            }
+            if (auto st = value_type->from_string(vrb, &nested_val_column); !st.ok()) {
+                map_column->pop_back(element_num);
+                return st;
             }
 
-            size_t k_len = 0;
-            auto k_rb = rb.position();
-            while (kv_len > 0 && *k_rb != ':') {
-                k_len++;
-                k_rb++;
-            }
-            ReadBuffer key_rb(rb.position(), k_len);
-            ReadBuffer val_rb(k_rb + 1, kv_len - k_len - 1);
-
-            // handle key
-            keyCharset << key_rb.to_string();
-            keyCharset << ",";
-
-            // handle value
-            valCharset << val_rb.to_string();
-            valCharset << ",";
-
-            rb.position() += kv_len + 1;
+            ++element_num;
         }
-        keyCharset << ']';
-        valCharset << ']';
+        key_off.push_back(key_off.back() + element_num);
+        val_off.push_back(val_off.back() + element_num);
     }
-
-    ReadBuffer kb(keyCharset.str().data(), keyCharset.str().length());
-    ReadBuffer vb(valCharset.str().data(), valCharset.str().length());
-    keys->from_string(kb, &map_column->get_keys());
-    values->from_string(vb, &map_column->get_values());
     return Status::OK();
 }
 

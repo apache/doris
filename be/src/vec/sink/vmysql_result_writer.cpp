@@ -195,6 +195,12 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                 return Status::InternalError("pack mysql buffer failed.");
             }
 
+            if constexpr (is_nullable) {
+                if (column_ptr->is_null_at(i)) {
+                    buf_ret = rows_buffer[i].push_null();
+                    continue;
+                }
+            }
             rows_buffer[i].open_dynamic_mode();
             std::string cell_str = map_type.to_string(*column, i);
             buf_ret = rows_buffer[i].push_string(cell_str.c_str(), strlen(cell_str.c_str()));

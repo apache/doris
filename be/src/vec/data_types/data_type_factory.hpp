@@ -113,7 +113,8 @@ public:
                 return entity.second;
             }
         }
-        if (type_ptr->get_type_id() == TypeIndex::Struct) {
+        if (type_ptr->get_type_id() == TypeIndex::Struct ||
+            type_ptr->get_type_id() == TypeIndex::Map) {
             DataTypeFactory::instance().register_data_type(type_ptr->get_name(), type_ptr);
             for (const auto& entity : _invert_data_type_map) {
                 if (entity.first->equals(*type_ptr)) {

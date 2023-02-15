@@ -1541,6 +1541,16 @@ private:
             return &ConvertImplGenericToJsonb::execute;
         }
     }
+
+    WrapperType create_map_wrapper(const DataTypePtr& from_type, const DataTypeMap& to_type) const {
+        switch (from_type->get_type_id()) {
+        case TypeIndex::String:
+            return &ConvertImplGenericFromString<ColumnString>::execute;
+        default:
+            return create_unsupport_wrapper(from_type->get_name(), to_type.get_name());
+        }
+    }
+
     // check struct value type and get to_type value
     // TODO: need handle another type to cast struct
     WrapperType create_struct_wrapper(const DataTypePtr& from_type,
@@ -1727,6 +1737,8 @@ private:
                                         static_cast<const DataTypeArray&>(*to_type));
         case TypeIndex::Struct:
             return create_struct_wrapper(from_type, static_cast<const DataTypeStruct&>(*to_type));
+        case TypeIndex::Map:
+            return create_map_wrapper(from_type, static_cast<const DataTypeMap&>(*to_type));
         default:
             break;
         }

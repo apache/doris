@@ -1000,16 +1000,21 @@ Status MapColumnWriter::finish() {
     return Status::OK();
 }
 
-// todo. make keys and values write
+Status MapColumnWriter::append_nullable(const uint8_t* null_map, const uint8_t** ptr,
+                                        size_t num_rows) {
+    if (is_nullable()) {
+        RETURN_IF_ERROR(_null_writer->append_data(&null_map, num_rows));
+    }
+    RETURN_IF_ERROR(append_data(ptr, num_rows));
+    return Status::OK();
+}
+
 Status MapColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
     auto kv_ptr = reinterpret_cast<const uint64_t*>(*ptr);
     for (size_t i = 0; i < 2; ++i) {
         auto data = *(kv_ptr + i);
         const uint8_t* val_ptr = (const uint8_t*)data;
         RETURN_IF_ERROR(_kv_writers[i]->append_data(&val_ptr, num_rows));
-    }
-    if (is_nullable()) {
-        return write_null_column(num_rows, false);
     }
     return Status::OK();
 }
