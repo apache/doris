@@ -441,16 +441,21 @@ public abstract class TestWithFeService {
     }
 
     public String getSQLPlanOrErrorMsg(String sql, boolean isVerbose) throws Exception {
-        connectContext.getState().reset();
-        StmtExecutor stmtExecutor = new StmtExecutor(connectContext, sql);
-        connectContext.setExecutor(stmtExecutor);
+        return getSQLPlanOrErrorMsg(connectContext, sql, isVerbose);
+    }
+
+    public String getSQLPlanOrErrorMsg(ConnectContext ctx, String sql, boolean isVerbose) throws Exception {
+        ctx.setThreadLocalInfo();
+        ctx.getState().reset();
+        StmtExecutor stmtExecutor = new StmtExecutor(ctx, sql);
+        ctx.setExecutor(stmtExecutor);
         ConnectContext.get().setExecutor(stmtExecutor);
         stmtExecutor.execute();
-        if (connectContext.getState().getStateType() != QueryState.MysqlStateType.ERR) {
+        if (ctx.getState().getStateType() != QueryState.MysqlStateType.ERR) {
             Planner planner = stmtExecutor.planner();
             return planner.getExplainString(new ExplainOptions(isVerbose, false));
         } else {
-            return connectContext.getState().getErrorMessage();
+            return ctx.getState().getErrorMessage();
         }
     }
 

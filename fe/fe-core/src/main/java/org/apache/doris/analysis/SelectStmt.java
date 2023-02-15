@@ -381,7 +381,7 @@ public class SelectStmt extends QueryStmt {
                             .checkTblPriv(ConnectContext.get(), tblRef.getName(), PrivPredicate.SELECT)) {
                         ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
                                 ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                                dbName + ": " + tableName);
+                                dbName + "." + tableName);
                     }
                     tableMap.put(table.getId(), table);
                 }

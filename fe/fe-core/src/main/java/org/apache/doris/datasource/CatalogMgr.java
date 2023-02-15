@@ -76,6 +76,10 @@ import java.util.stream.Collectors;
 public class CatalogMgr implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(CatalogMgr.class);
 
+    public static final String ACCESS_CONTROLLER_PREFIX_PROP = "access_controller";
+    public static final String ACCESS_CONTROLLER_NAME_PROP = "access_controller.name";
+    public static final String CATALOG_TYPE_PROP = "type";
+
     private static final String YES = "yes";
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
