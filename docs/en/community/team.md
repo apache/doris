@@ -28,7 +28,7 @@ under the License.
 
 We'd like to thank the following committers to the Apache Doris project who have helped get the project to where it is today. This list might be stale, the canonical list is located on [Apache's website](https://people.apache.org/committers-by-project.html#doris).
 
-## PMC (15)
+## PMC (17)
 
 | Apache ID                                                    | Github Username       | Public Name        |
 | :----------------------------------------------------------- | :------------------ | :------------ |
@@ -50,7 +50,7 @@ We'd like to thank the following committers to the Apache Doris project who have
 | [yangzhg](https://people.apache.org/committer-index.html#yangzhg) | yangzhg             | Zhengguo Yang |
 | [weizuo](https://people.apache.org/committer-index.html#weizuo) | weizuo93            | Zuo Wei       |
 
-## Committers (45)
+## Committers (53)
 
 (the listing excludes PMC members above)
 
