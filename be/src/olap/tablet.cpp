@@ -1669,8 +1669,12 @@ Status Tablet::cooldown() {
         // this replica is cooldown replica
         RETURN_IF_ERROR(_cooldown_data());
     } else {
-        // try to follow cooldowned data from cooldown replica
-        RETURN_IF_ERROR(_follow_cooldowned_data());
+        Status st = _follow_cooldowned_data();
+        if (UNLIKELY(!st.ok())) {
+            _last_failed_follow_cooldown_time = time(nullptr);
+            return st;
+        }
+        _last_failed_follow_cooldown_time = 0;
     }
     return Status::OK();
 }
