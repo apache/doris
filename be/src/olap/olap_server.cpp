@@ -168,9 +168,9 @@ Status StorageEngine::start_bg_threads() {
     LOG(INFO) << "remove unused remote files thread started";
 
     RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "remove_unused_remote_files_thread",
+            "StorageEngine", "cold_data_compaction_producer_thread",
             [this]() { this->_cold_data_compaction_producer_callback(); },
-            &_remove_unused_remote_files_thread));
+            &_cold_data_compaction_producer_thread));
     LOG(INFO) << "cold data compaction producer thread started";
 
     RETURN_IF_ERROR(Thread::create(
