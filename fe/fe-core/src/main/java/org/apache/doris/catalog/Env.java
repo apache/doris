@@ -75,6 +75,7 @@ import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.ShowAlterStmt.AlterType;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
@@ -115,6 +116,7 @@ import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.MetaLockUtils;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.QueryableReentrantLock;
@@ -122,7 +124,7 @@ import org.apache.doris.common.util.SmallFileMgr;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.consistency.ConsistencyChecker;
-import org.apache.doris.cooldown.CooldownHandler;
+import org.apache.doris.cooldown.CooldownConfHandler;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.datasource.EsExternalCatalog;
@@ -166,7 +168,8 @@ import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVJobManager;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendReplicasInfo;
@@ -252,7 +255,9 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
+import java.net.InetAddress;
 import java.net.URL;
+import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -314,7 +319,7 @@ public class Env {
     private DeleteHandler deleteHandler;
     private DbUsedDataQuotaInfoCollector dbUsedDataQuotaInfoCollector;
     private PartitionInMemoryInfoCollector partitionInMemoryInfoCollector;
-    private CooldownHandler cooldownHandler;
+    private CooldownConfHandler cooldownConfHandler;
     private MetastoreEventsProcessor metastoreEventsProcessor;
 
     private MasterDaemon labelCleaner; // To clean old LabelInfo, ExportJobInfos
@@ -393,7 +398,8 @@ public class Env {
 
     private TabletStatMgr tabletStatMgr;
 
-    private PaloAuth auth;
+    private Auth auth;
+    private AccessControllerManager accessManager;
 
     private DomainResolver domainResolver;
 
@@ -551,7 +557,9 @@ public class Env {
         this.deleteHandler = new DeleteHandler();
         this.dbUsedDataQuotaInfoCollector = new DbUsedDataQuotaInfoCollector();
         this.partitionInMemoryInfoCollector = new PartitionInMemoryInfoCollector();
-        this.cooldownHandler = new CooldownHandler();
+        if (Config.enable_storage_policy) {
+            this.cooldownConfHandler = new CooldownConfHandler();
+        }
         this.metastoreEventsProcessor = new MetastoreEventsProcessor();
 
         this.replayedJournalId = new AtomicLong(0L);
@@ -591,7 +599,8 @@ public class Env {
 
         this.tabletStatMgr = new TabletStatMgr();
 
-        this.auth = new PaloAuth();
+        this.auth = new Auth();
+        this.accessManager = new AccessControllerManager(auth);
         this.domainResolver = new DomainResolver(auth);
 
         this.metaContext = new MetaContext();
@@ -688,8 +697,12 @@ public class Env {
         return pluginMgr;
     }
 
-    public PaloAuth getAuth() {
+    public Auth getAuth() {
         return auth;
+    }
+
+    public AccessControllerManager getAccessManager() {
+        return accessManager;
     }
 
     public TabletScheduler getTabletScheduler() {
@@ -1029,7 +1042,7 @@ public class Env {
                 clusterId = storage.getClusterID();
                 token = storage.getToken();
                 try {
-                    URL idURL = new URL("http://" + rightHelperNode.first + ":" + Config.http_port + "/check");
+                    URL idURL = new URL("http://" + NetUtils.getHostPortInAccessibleFormat(rightHelperNode.first, Config.http_port) + "/check");
                     HttpURLConnection conn = null;
                     conn = (HttpURLConnection) idURL.openConnection();
                     conn.setConnectTimeout(2 * 1000);
@@ -1094,7 +1107,8 @@ public class Env {
         Pair<String, Integer> rightHelperNode = null;
         for (Pair<String, Integer> helperNode : helperNodes) {
             try {
-                URL url = new URL("http://" + helperNode.first + ":" + Config.http_port + "/role?host=" + selfNode.first
+                URL url = new URL("http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.first, Config.http_port)
+                        + "/role?host=" + selfNode.first
                         + "&port=" + selfNode.second);
                 HttpURLConnection conn = null;
                 conn = (HttpURLConnection) url.openConnection();
@@ -1398,8 +1412,8 @@ public class Env {
         dbUsedDataQuotaInfoCollector.start();
         // start daemon thread to update global partition in memory information periodically
         partitionInMemoryInfoCollector.start();
-        if (Config.cooldown_single_remote_file) {
-            cooldownHandler.start();
+        if (Config.enable_storage_policy) {
+            cooldownConfHandler.start();
         }
         streamLoadRecordMgr.start();
         getInternalCatalog().getIcebergTableCreationRecordMgr().start();
@@ -1537,7 +1551,7 @@ public class Env {
 
     private boolean getVersionFileFromHelper(Pair<String, Integer> helperNode) throws IOException {
         try {
-            String url = "http://" + helperNode.first + ":" + Config.http_port + "/version";
+            String url = "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.first, Config.http_port) + "/version";
             File dir = new File(this.imageDir);
             MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000,
                     MetaHelper.getOutputStream(Storage.VERSION_FILE, dir));
@@ -1556,11 +1570,12 @@ public class Env {
         localImageVersion = storage.getLatestImageSeq();
 
         try {
-            URL infoUrl = new URL("http://" + helperNode.first + ":" + Config.http_port + "/info");
+            String hostPort = NetUtils.getHostPortInAccessibleFormat(helperNode.first, Config.http_port);
+            URL infoUrl = new URL("http://" + hostPort + "/info");
             StorageInfo info = getStorageInfo(infoUrl);
             long version = info.getImageSeq();
             if (version > localImageVersion) {
-                String url = "http://" + helperNode.first + ":" + Config.http_port + "/image?version=" + version;
+                String url = "http://" + hostPort + "/image?version=" + version;
                 String filename = Storage.IMAGE + "." + version;
                 File dir = new File(this.imageDir);
                 MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000, MetaHelper.getOutputStream(filename, dir));
@@ -1583,6 +1598,7 @@ public class Env {
         for (Pair<String, Integer> helperNode : helperNodes) {
             if (selfNode.equals(helperNode)) {
                 containSelf = true;
+                break;
             }
         }
         if (containSelf) {
@@ -1738,12 +1754,6 @@ public class Env {
         return checksum;
     }
 
-    public long loadCooldownJob(DataInputStream dis, long checksum) throws IOException {
-        cooldownHandler.readField(dis);
-        LOG.info("finished replay loadCooldownJob from image");
-        return checksum;
-    }
-
     public long loadAlterJob(DataInputStream dis, long checksum) throws IOException {
         long newChecksum = checksum;
         for (JobType type : JobType.values()) {
@@ -1811,7 +1821,7 @@ public class Env {
     }
 
     public long loadPaloAuth(DataInputStream dis, long checksum) throws IOException {
-        // CAN NOT use PaloAuth.read(), cause this auth instance is already passed to DomainResolver
+        // CAN NOT use Auth.read(), cause this auth instance is already passed to DomainResolver
         auth.readFields(dis);
         LOG.info("finished replay paloAuth from image");
         return checksum;
@@ -2152,14 +2162,6 @@ public class Env {
      */
     public long saveCatalog(CountingDataOutputStream out, long checksum) throws IOException {
         Env.getCurrentEnv().getCatalogMgr().write(out);
-        return checksum;
-    }
-
-    /**
-     * Save CooldownJob.
-     */
-    public long saveCooldownJob(CountingDataOutputStream out, long checksum) throws IOException {
-        Env.getCurrentEnv().getCooldownHandler().write(out);
         return checksum;
     }
 
@@ -2518,7 +2520,16 @@ public class Env {
 
     public Frontend getFeByHost(String host) {
         for (Frontend fe : frontends.values()) {
-            if (fe.getHost().equals(host)) {
+            InetAddress hostAddr = null;
+            InetAddress feAddr = null;
+            try {
+                hostAddr = InetAddress.getByName(host);
+                feAddr = InetAddress.getByName(fe.getHost());
+            } catch (UnknownHostException e) {
+                LOG.warn("get address failed: {}", e.getMessage());
+                return null;
+            }
+            if (feAddr.equals(hostAddr)) {
                 return fe;
             }
         }
@@ -2928,6 +2939,12 @@ public class Env {
             if (olapTable.storeRowColumn()) {
                 sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_STORE_ROW_COLUMN).append("\" = \"");
                 sb.append(olapTable.storeRowColumn()).append("\"");
+            }
+
+            // dynamic schema
+            if (olapTable.isDynamicSchema()) {
+                sb.append(",\n\"").append(PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA).append("\" = \"");
+                sb.append(olapTable.isDynamicSchema()).append("\"");
             }
 
             // disable auto compaction
@@ -3387,8 +3404,8 @@ public class Env {
         return (MaterializedViewHandler) this.alter.getMaterializedViewHandler();
     }
 
-    public CooldownHandler getCooldownHandler() {
-        return cooldownHandler;
+    public CooldownConfHandler getCooldownConfHandler() {
+        return cooldownConfHandler;
     }
 
     public SystemHandler getClusterHandler() {
@@ -4042,6 +4059,16 @@ public class Env {
                 column.setName(newColName);
                 hasColumn = true;
             }
+
+            // todo: need change complex expr name also
+            Column mvColumn = entry.getValue().getColumnByName(CreateMaterializedViewStmt.mvColumnBuilder(colName));
+            if (mvColumn != null) {
+                mvColumn.setName(CreateMaterializedViewStmt.mvColumnBuilder(newColName));
+                SlotRef slot = (SlotRef) mvColumn.getDefineExpr();
+                slot.setCol(newColName);
+                slot.setLabel('`' + newColName + '`');
+                hasColumn = true;
+            }
         }
         if (!hasColumn) {
             throw new DdlException("Column[" + colName + "] does not exists");
@@ -4053,7 +4080,12 @@ public class Env {
         for (Column column : partitionColumns) {
             if (column.getName().equalsIgnoreCase(colName)) {
                 column.setName(newColName);
-                break;
+            }
+            if (column.getName().equalsIgnoreCase(CreateMaterializedViewStmt.mvColumnBuilder(colName))) {
+                column.setName(CreateMaterializedViewStmt.mvColumnBuilder(newColName));
+                SlotRef slot = (SlotRef) column.getDefineExpr();
+                slot.setCol(newColName);
+                slot.setLabel('`' + newColName + '`');
             }
         }
 
@@ -4065,6 +4097,9 @@ public class Env {
                 if (columns.get(i).equalsIgnoreCase(colName)) {
                     columns.set(i, newColName);
                 }
+                if (columns.get(i).equalsIgnoreCase(CreateMaterializedViewStmt.mvColumnBuilder(colName))) {
+                    columns.set(i, CreateMaterializedViewStmt.mvColumnBuilder(newColName));
+                }
             }
         }
 
@@ -4075,7 +4110,12 @@ public class Env {
             for (Column column : distributionColumns) {
                 if (column.getName().equalsIgnoreCase(colName)) {
                     column.setName(newColName);
-                    break;
+                }
+                if (column.getName().equalsIgnoreCase(CreateMaterializedViewStmt.mvColumnBuilder(colName))) {
+                    column.setName(CreateMaterializedViewStmt.mvColumnBuilder(newColName));
+                    SlotRef slot = (SlotRef) column.getDefineExpr();
+                    slot.setCol(newColName);
+                    slot.setLabel('`' + newColName + '`');
                 }
             }
         }
@@ -4392,7 +4432,7 @@ public class Env {
 
     // Change current database of this session.
     public void changeDb(ConnectContext ctx, String qualifiedDb) throws DdlException {
-        if (!auth.checkDbPriv(ctx, ctx.getDefaultCatalog(), qualifiedDb, PrivPredicate.SHOW)) {
+        if (!accessManager.checkDbPriv(ctx, ctx.getDefaultCatalog(), qualifiedDb, PrivPredicate.SHOW)) {
             ErrorReport.reportDdlException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, ctx.getQualifiedUser(), qualifiedDb);
         }
 

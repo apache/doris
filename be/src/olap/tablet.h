@@ -293,9 +293,16 @@ public:
 
     Status create_rowset(RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset);
 
+    // MUST hold EXCLUSIVE `_meta_lock`
+    void add_rowsets(const std::vector<RowsetSharedPtr>& to_add);
+    // MUST hold EXCLUSIVE `_meta_lock`
+    void delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete, bool move_to_stale);
+
     ////////////////////////////////////////////////////////////////////////////
     // begin cooldown functions
     ////////////////////////////////////////////////////////////////////////////
+    int64_t cooldown_replica_id() const { return _cooldown_replica_id; }
+
     // Cooldown to remote fs.
     Status cooldown();
 
@@ -305,9 +312,10 @@ public:
 
     void update_cooldown_conf(int64_t cooldown_term, int64_t cooldown_replica_id) {
         if (cooldown_term > _cooldown_term) {
-            LOG(INFO) << "update cooldown conf. cooldown_replica_id: " << _cooldown_replica_id
-                      << " -> " << cooldown_replica_id << ", cooldown_term: " << _cooldown_term
-                      << " -> " << cooldown_term;
+            LOG(INFO) << "update cooldown conf. tablet_id=" << tablet_id()
+                      << " cooldown_replica_id: " << _cooldown_replica_id << " -> "
+                      << cooldown_replica_id << ", cooldown_term: " << _cooldown_term << " -> "
+                      << cooldown_term;
             _cooldown_replica_id = cooldown_replica_id;
             _cooldown_term = cooldown_term;
         }
@@ -317,6 +325,14 @@ public:
 
     void record_unused_remote_rowset(const RowsetId& rowset_id, const std::string& resource,
                                      int64_t num_segments);
+
+    static void remove_unused_remote_files();
+
+    std::shared_mutex& get_remote_files_lock() { return _remote_files_lock; }
+
+    uint32_t calc_cold_data_compaction_score() const;
+
+    std::mutex& get_cold_compaction_lock() { return _cold_compaction_lock; }
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
@@ -359,6 +375,16 @@ public:
     bool should_skip_compaction(CompactionType compaction_type, int64_t now);
 
     RowsetSharedPtr get_rowset(const RowsetId& rowset_id);
+
+    void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor) {
+        std::shared_lock rlock(_meta_lock);
+        for (auto& [v, rs] : _rs_version_map) {
+            visitor(rs);
+        }
+        for (auto& [v, rs] : _stale_rs_version_map) {
+            visitor(rs);
+        }
+    }
 
 private:
     Status _init_once_action();
@@ -403,7 +429,8 @@ private:
     Status _follow_cooldowned_data(io::RemoteFileSystem* fs, int64_t cooldown_replica_id);
     Status _read_cooldown_meta(io::RemoteFileSystem* fs, int64_t cooldown_replica_id,
                                TabletMetaPB* tablet_meta_pb);
-    Status _write_cooldown_meta(io::RemoteFileSystem* fs, RowsetMeta* new_rs_meta);
+    Status _write_cooldown_meta(io::RemoteFileSystem* fs, UniqueId cooldown_meta_id,
+                                RowsetMeta* new_rs_meta);
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
@@ -480,9 +507,11 @@ private:
     bool _skip_base_compaction = false;
     int64_t _skip_base_compaction_ts;
 
-    // cooldown conf
+    // cooldown related
     int64_t _cooldown_replica_id = -1;
     int64_t _cooldown_term = -1;
+    std::shared_mutex _remote_files_lock;
+    std::mutex _cold_compaction_lock;
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 

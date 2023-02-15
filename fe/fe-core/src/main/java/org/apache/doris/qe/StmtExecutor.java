@@ -52,6 +52,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtRewriter;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.SwitchStmt;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TransactionBeginStmt;
 import org.apache.doris.analysis.TransactionCommitStmt;
 import org.apache.doris.analysis.TransactionRollbackStmt;
@@ -391,6 +392,10 @@ public class StmtExecutor implements ProfileWriter {
 
     public boolean isQueryStmt() {
         return parsedStmt != null && parsedStmt instanceof QueryStmt;
+    }
+
+    public boolean isInsertStmt() {
+        return parsedStmt != null && parsedStmt instanceof InsertStmt;
     }
 
     /**
@@ -1019,7 +1024,7 @@ public class StmtExecutor implements ProfileWriter {
             // Check auth
             // Only user itself and user with admin priv can kill connection
             if (!killCtx.getQualifiedUser().equals(ConnectContext.get().getQualifiedUser())
-                    && !Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(),
+                    && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(),
                     PrivPredicate.ADMIN)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_KILL_DENIED_ERROR, id);
             }
@@ -1484,18 +1489,17 @@ public class StmtExecutor implements ProfileWriter {
                             TransactionState.TxnSourceType.FE, FrontendOptions.getLocalHostAddress()),
                     sourceType, timeoutSecond);
             txnConf.setTxnId(txnId);
-            String authCodeUuid = Env.getCurrentGlobalTransactionMgr().getTransactionState(
-                    txnConf.getDbId(), txnConf.getTxnId()).getAuthCode();
-            txnConf.setAuthCodeUuid(authCodeUuid);
+            String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
+            txnConf.setToken(token);
         } else {
-            String authCodeUuid = UUID.randomUUID().toString();
+            String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
             MasterTxnExecutor masterTxnExecutor = new MasterTxnExecutor(context);
             TLoadTxnBeginRequest request = new TLoadTxnBeginRequest();
-            request.setDb(txnConf.getDb()).setTbl(txnConf.getTbl()).setAuthCodeUuid(authCodeUuid)
+            request.setDb(txnConf.getDb()).setTbl(txnConf.getTbl()).setToken(token)
                     .setCluster(dbObj.getClusterName()).setLabel(label).setUser("").setUserIp("").setPasswd("");
             TLoadTxnBeginResult result = masterTxnExecutor.beginTxn(request);
             txnConf.setTxnId(result.getTxnId());
-            txnConf.setAuthCodeUuid(authCodeUuid);
+            txnConf.setToken(token);
         }
 
         TStreamLoadPutRequest request = new TStreamLoadPutRequest();
@@ -1562,8 +1566,9 @@ public class StmtExecutor implements ProfileWriter {
                 QeProcessorImpl.INSTANCE.registerQuery(context.queryId(), coord);
 
                 coord.exec();
-
-                boolean notTimeout = coord.join(context.getSessionVariable().getQueryTimeoutS());
+                int execTimeout = context.getExecTimeout();
+                LOG.debug("Insert execution timeout:{}", execTimeout);
+                boolean notTimeout = coord.join(execTimeout);
                 if (!coord.isDone()) {
                     coord.cancel();
                     if (notTimeout) {
@@ -1880,7 +1885,8 @@ public class StmtExecutor implements ProfileWriter {
                             + " to load client local file.");
                     return;
                 }
-                LoadJobRowResult submitResult = loadManager.executeMySqlLoadJobFromStmt(context, loadStmt);
+                LoadJobRowResult submitResult = loadManager.getMysqlLoadManager()
+                        .executeMySqlLoadJobFromStmt(context, loadStmt);
                 context.getState().setOk(submitResult.getRecords(), submitResult.getWarnings(),
                         submitResult.toString());
             } else {
@@ -1954,18 +1960,26 @@ public class StmtExecutor implements ProfileWriter {
             try {
                 parsedStmt = ctasStmt.getInsertStmt();
                 execute();
-            } catch (Exception e) {
-                e.printStackTrace();
-                LOG.warn("CTAS insert data error, stmt={}", ctasStmt.toSql(), e);
-                // insert error drop table
-                DropTableStmt dropTableStmt = new DropTableStmt(true, ctasStmt.getCreateTableStmt().getDbTbl(), true);
-                try {
-                    DdlExecutor.execute(context.getEnv(), dropTableStmt);
-                } catch (Exception ex) {
-                    LOG.warn("CTAS drop table error, stmt={}", parsedStmt.toSql(), ex);
-                    context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
-                            "Unexpected exception: " + ex.getMessage());
+                if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
+                    LOG.warn("CTAS insert data error, stmt={}", ctasStmt.toSql());
+                    handleCtasRollback(ctasStmt.getCreateTableStmt().getDbTbl());
                 }
+            } catch (Exception e) {
+                LOG.warn("CTAS insert data error, stmt={}", ctasStmt.toSql(), e);
+                handleCtasRollback(ctasStmt.getCreateTableStmt().getDbTbl());
+            }
+        }
+    }
+
+    private void handleCtasRollback(TableName table) {
+        if (context.getSessionVariable().isDropTableIfCtasFailed()) {
+            // insert error drop table
+            DropTableStmt dropTableStmt = new DropTableStmt(true, table, true);
+            try {
+                DdlExecutor.execute(context.getEnv(), dropTableStmt);
+            } catch (Exception ex) {
+                LOG.warn("CTAS drop table error, stmt={}", parsedStmt.toSql(), ex);
+                context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + ex.getMessage());
             }
         }
     }

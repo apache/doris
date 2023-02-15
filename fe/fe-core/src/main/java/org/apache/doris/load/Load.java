@@ -720,20 +720,46 @@ public class Load {
                         slotDesc.setIsNullable(tblColumn.isAllowNull());
                     }
                 } else {
-                    // columns default be varchar type
-                    slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-                    slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
-                    // ISSUE A: src slot should be nullable even if the column is not nullable.
-                    // because src slot is what we read from file, not represent to real column value.
-                    // If column is not nullable, error will be thrown when filling the dest slot,
-                    // which is not nullable.
-                    slotDesc.setIsNullable(true);
+                    if (formatType == TFileFormatType.FORMAT_JSON
+                                && tbl instanceof OlapTable && ((OlapTable) tbl).isDynamicSchema()) {
+                        slotDesc.setType(tblColumn.getType());
+                        slotDesc.setColumn(new Column(realColName, tblColumn.getType()));
+                        slotDesc.setIsNullable(tblColumn.isAllowNull());
+                    } else {
+                        // columns default be varchar type
+                        slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                        slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
+                        // ISSUE A: src slot should be nullable even if the column is not nullable.
+                        // because src slot is what we read from file, not represent to real column value.
+                        // If column is not nullable, error will be thrown when filling the dest slot,
+                        // which is not nullable.
+                        slotDesc.setIsNullable(true);
+                    }
                 }
                 slotDesc.setIsMaterialized(true);
                 srcSlotIds.add(slotDesc.getId().asInt());
                 slotDescByName.put(realColName, slotDesc);
             }
         }
+
+        // add a implict container column "DORIS_DYNAMIC_COL" for dynamic columns
+        if (tbl instanceof OlapTable && ((OlapTable) tbl).isDynamicSchema()) {
+            analyzer.getDescTbl().addReferencedTable(tbl);
+            SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
+            String name = Column.DYNAMIC_COLUMN_NAME;
+            Column col = new Column(name, Type.VARIANT, false, null, false, "",
+                                    "stream load auto dynamic column");
+            slotDesc.setType(Type.VARIANT);
+            slotDesc.setColumn(col);
+            // alaways nullable
+            slotDesc.setIsNullable(true);
+            slotDesc.setIsMaterialized(true);
+            srcSlotIds.add(slotDesc.getId().asInt());
+            slotDescByName.put(name, slotDesc);
+            LOG.debug("add dynamic column to srcTupleDesc with name:{} id:{}", name, slotDesc.getId().asInt());
+        }
+        LOG.debug("plan srcTupleDesc {}", srcTupleDesc.toString());
+
         /*
          * The extension column of the materialized view is added to the expression evaluation of load
          * To avoid nested expressions. eg : column(a, tmp_c, c = expr(tmp_c)) ,
@@ -1354,14 +1380,14 @@ public class Load {
                 Set<String> tableNames = loadJob.getTableNames();
                 if (tableNames.isEmpty()) {
                     // forward compatibility
-                    if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), dbName,
+                    if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName,
                             PrivPredicate.LOAD)) {
                         continue;
                     }
                 } else {
                     boolean auth = true;
                     for (String tblName : tableNames) {
-                        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), dbName,
+                        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName,
                                 tblName, PrivPredicate.LOAD)) {
                             auth = false;
                             break;

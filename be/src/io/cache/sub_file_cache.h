@@ -39,6 +39,8 @@ public:
     Status read_at(size_t offset, Slice result, const IOContext& io_ctx,
                    size_t* bytes_read) override;
 
+    Status read_at_impl(size_t offset, Slice result, const IOContext& io_ctx, size_t* bytes_read);
+
     const Path& path() const override { return _remote_file_reader->path(); }
 
     size_t size() const override { return _remote_file_reader->size(); }

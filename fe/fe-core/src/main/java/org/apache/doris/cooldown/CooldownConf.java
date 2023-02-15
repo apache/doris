@@ -22,19 +22,17 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import lombok.Data;
 
 import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 
 /**
- * This class represents the olap replica related metadata.
+ * This class is used to log update cooldown conf operation.
  */
+@Data
 public class CooldownConf implements Writable {
-    private static final Logger LOG = LogManager.getLogger(CooldownConf.class);
-
     @SerializedName(value = "dbId")
     protected long dbId;
     @SerializedName(value = "tableId")
@@ -46,74 +44,27 @@ public class CooldownConf implements Writable {
     @SerializedName(value = "tabletId")
     protected long tabletId;
     @SerializedName(value = "cooldownReplicaId")
-    protected long cooldownReplicaId;
+    protected long cooldownReplicaId = -1;
     @SerializedName(value = "cooldownTerm")
-    protected long cooldownTerm;
+    protected long cooldownTerm = -1;
 
-    public CooldownConf(long dbId, long tableId, long partitionId, long indexId, long tabletId, long cooldownReplicaId,
-                        long cooldownTerm) {
+    public CooldownConf() {
+    }
+
+    // for update
+    public CooldownConf(long dbId, long tableId, long partitionId, long indexId, long tabletId, long cooldownTerm) {
         this.dbId = dbId;
         this.tableId = tableId;
         this.partitionId = partitionId;
         this.indexId = indexId;
         this.tabletId = tabletId;
-        this.cooldownReplicaId = cooldownReplicaId;
         this.cooldownTerm = cooldownTerm;
     }
 
-    public long getDbId() {
-        return dbId;
-    }
-
-    public void setDbId(long dbId) {
-        this.dbId = dbId;
-    }
-
-    public long getTableId() {
-        return tableId;
-    }
-
-    public void setTableId(long tableId) {
-        this.tableId = tableId;
-    }
-
-    public long getPartitionId() {
-        return partitionId;
-    }
-
-    public void setPartitionId(long partitionId) {
-        this.partitionId = partitionId;
-    }
-
-    public long getIndexId() {
-        return indexId;
-    }
-
-    public void setIndexId(long indexId) {
-        this.indexId = indexId;
-    }
-
-    public long getTabletId() {
-        return tabletId;
-    }
-
-    public void setTabletId(long tabletId) {
+    // for push
+    public CooldownConf(long tabletId, long cooldownReplicaId, long cooldownTerm) {
         this.tabletId = tabletId;
-    }
-
-    public long getCooldownReplicaId() {
-        return cooldownReplicaId;
-    }
-
-    public void setCooldownReplicaId(long cooldownReplicaId) {
         this.cooldownReplicaId = cooldownReplicaId;
-    }
-
-    public long getCooldownTerm() {
-        return cooldownTerm;
-    }
-
-    public void setCooldownTerm(long cooldownTerm) {
         this.cooldownTerm = cooldownTerm;
     }
 
@@ -123,8 +74,9 @@ public class CooldownConf implements Writable {
         Text.writeString(out, json);
     }
 
-    public static CooldownJob read(DataInput in) throws IOException {
+    public static CooldownConf read(DataInput in) throws IOException {
         String json = Text.readString(in);
-        return GsonUtils.GSON.fromJson(json, CooldownJob.class);
+        return GsonUtils.GSON.fromJson(json, CooldownConf.class);
     }
 }
+

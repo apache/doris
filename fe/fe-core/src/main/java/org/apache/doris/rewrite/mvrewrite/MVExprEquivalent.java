@@ -17,9 +17,11 @@
 
 package org.apache.doris.rewrite.mvrewrite;
 
+import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
 import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.collect.ImmutableList;
@@ -47,9 +49,6 @@ public class MVExprEquivalent {
     }
 
     public static boolean aggregateArgumentEqual(Expr expr, Expr mvArgument) {
-        if (mvArgument == null) {
-            return false;
-        }
         if (!(expr instanceof FunctionCallExpr)) {
             return false;
         }
@@ -61,6 +60,12 @@ public class MVExprEquivalent {
 
         String fnName = fnExpr.getFnName().getFunction();
 
+        String slotName = MaterializedIndexMeta.normalizeName(fnExpr.getChild(0).toSqlWithoutTbl());
+
+        if (!CreateMaterializedViewStmt.isMVColumnAggregate(slotName)) {
+            return false;
+        }
+
         if (fnName.equalsIgnoreCase(FunctionSet.COUNT)) {
             return sumArgumentEqual(fnExpr.getChild(0), mvArgument);
         }
@@ -70,7 +75,8 @@ public class MVExprEquivalent {
             return bitmapArgumentEqual(fnExpr.getChild(0), mvArgument);
         }
 
-        return false;
+        return CreateMaterializedViewStmt
+                .mvColumnBreaker(slotName).equals(MaterializedIndexMeta.normalizeName(mvArgument.toSqlWithoutTbl()));
     }
 
     // count(k1) = sum(case when ... k1)
@@ -86,8 +92,11 @@ public class MVExprEquivalent {
 
     // to_bitmap(k1) = to_bitmap_with_check(k1)
     public static boolean bitmapArgumentEqual(Expr expr, Expr mvArgument) {
-        String lhs = expr.toSqlWithoutTbl().replace(FunctionSet.TO_BITMAP_WITH_CHECK, FunctionSet.TO_BITMAP);
-        String rhs = mvArgument.toSqlWithoutTbl().replace(FunctionSet.TO_BITMAP_WITH_CHECK, FunctionSet.TO_BITMAP);
-        return lhs.equalsIgnoreCase(rhs);
+        String lhs = MaterializedIndexMeta
+                .normalizeName(expr.toSqlWithoutTbl().replace(FunctionSet.TO_BITMAP_WITH_CHECK, FunctionSet.TO_BITMAP));
+        String rhs = MaterializedIndexMeta.normalizeName(
+                mvArgument.toSqlWithoutTbl().replace(FunctionSet.TO_BITMAP_WITH_CHECK, FunctionSet.TO_BITMAP));
+        return CreateMaterializedViewStmt
+                .mvColumnBreaker(lhs).equalsIgnoreCase(rhs);
     }
 }

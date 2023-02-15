@@ -54,8 +54,7 @@ Java UDF 为用户提供UDF编写的Java接口，以方便用户使用Java语言
 |Double|Double|
 |Date|LocalDate|
 |Datetime|LocalDateTime|
-|Char|String|
-|Varchar|String|
+|String|String|
 |Decimal|BigDecimal|
 
 ## 编写 UDF 函数

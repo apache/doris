@@ -16,8 +16,6 @@
 // under the License.
 
 suite("show_policy") {
-    sql """ADMIN SET FRONTEND CONFIG ("enable_storage_policy" = "true");"""
-
     def get_storage_policy = { name ->
         def show_storage_policy = sql """
         SHOW STORAGE POLICY;

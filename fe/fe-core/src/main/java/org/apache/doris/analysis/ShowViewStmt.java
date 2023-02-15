@@ -92,7 +92,7 @@ public class ShowViewStmt extends ShowStmt {
         Util.prohibitExternalCatalog(tbl.getCtl(), this.getClass().getSimpleName());
 
         String dbName = tbl.getDb();
-        if (!Env.getCurrentEnv().getAuth().checkTblPriv(
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
                 ConnectContext.get(), dbName, getTbl(), PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW VIEW",
                     ConnectContext.get().getQualifiedUser(),

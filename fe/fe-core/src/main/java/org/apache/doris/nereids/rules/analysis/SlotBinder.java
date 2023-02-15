@@ -37,9 +37,25 @@ import java.util.Optional;
 import java.util.stream.Collectors;
 
 class SlotBinder extends SubExprAnalyzer {
+    /*
+    bounded={table.a, a}
+    unbound=a
+    if enableExactMatch, 'a' is bound to bounded 'a',
+    if not enableExactMatch, 'a' is ambiguous
+    in order to be compatible to original planner,
+    exact match mode is not enabled for having clause
+    but enabled for order by clause
+    TODO after remove original planner, always enable exact match mode.
+     */
+    private boolean enableExactMatch = true;
 
     public SlotBinder(Scope scope, CascadesContext cascadesContext) {
+        this(scope, cascadesContext, true);
+    }
+
+    public SlotBinder(Scope scope, CascadesContext cascadesContext, boolean enableExactMatch) {
         super(scope, cascadesContext);
+        this.enableExactMatch = enableExactMatch;
     }
 
     public Expression bind(Expression expression) {
@@ -84,21 +100,23 @@ class SlotBinder extends SubExprAnalyzer {
                 }
                 return bounded.get(0);
             default:
-                // select t1.k k, t2.k
-                // from t1 join t2 order by k
-                //
-                // 't1.k k' is denoted by alias_k, its full name is 'k'
-                // 'order by k' is denoted as order_k, it full name is 'k'
-                // 't2.k' in select list, its full name is 't2.k'
-                //
-                // order_k can be bound on alias_k and t2.k
-                // alias_k is exactly matched, since its full name is exactly match full name of order_k
-                // t2.k is not exactly matched, since t2.k's full name is larger than order_k
-                List<Slot> exactMatch = bounded.stream()
-                        .filter(bound -> unboundSlot.getNameParts().size() == bound.getQualifier().size() + 1)
-                        .collect(Collectors.toList());
-                if (exactMatch.size() == 1) {
-                    return exactMatch.get(0);
+                if (enableExactMatch) {
+                    // select t1.k k, t2.k
+                    // from t1 join t2 order by k
+                    //
+                    // 't1.k k' is denoted by alias_k, its full name is 'k'
+                    // 'order by k' is denoted as order_k, it full name is 'k'
+                    // 't2.k' in select list, its full name is 't2.k'
+                    //
+                    // order_k can be bound on alias_k and t2.k
+                    // alias_k is exactly matched, since its full name is exactly match full name of order_k
+                    // t2.k is not exactly matched, since t2.k's full name is larger than order_k
+                    List<Slot> exactMatch = bounded.stream()
+                            .filter(bound -> unboundSlot.getNameParts().size() == bound.getQualifier().size() + 1)
+                            .collect(Collectors.toList());
+                    if (exactMatch.size() == 1) {
+                        return exactMatch.get(0);
+                    }
                 }
                 throw new AnalysisException(String.format("%s is ambiguous: %s.",
                         unboundSlot.toSql(),

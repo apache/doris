@@ -50,7 +50,7 @@ public class LockTablesStmt extends StatementBase {
             db.getTableOrAnalysisException(tableName.getTbl());
 
             // check auth
-            if (!Env.getCurrentEnv().getAuth().checkTblPriv(
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
                     ConnectContext.get(), tableName, PrivPredicate.SELECT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
                         ConnectContext.get().getQualifiedUser(),

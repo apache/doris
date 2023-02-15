@@ -26,7 +26,7 @@ import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TUserIdentity;
@@ -66,11 +66,11 @@ public class UserIdentity implements Writable, GsonPostProcessable {
     public static final UserIdentity UNKNOWN;
 
     static {
-        ROOT = new UserIdentity(PaloAuth.ROOT_USER, "%");
+        ROOT = new UserIdentity(Auth.ROOT_USER, "%");
         ROOT.setIsAnalyzed();
-        ADMIN = new UserIdentity(PaloAuth.ADMIN_USER, "%");
+        ADMIN = new UserIdentity(Auth.ADMIN_USER, "%");
         ADMIN.setIsAnalyzed();
-        UNKNOWN = new UserIdentity(PaloAuth.UNKNOWN_USER, "%");
+        UNKNOWN = new UserIdentity(Auth.UNKNOWN_USER, "%");
         UNKNOWN.setIsAnalyzed();
     }
 
@@ -134,7 +134,7 @@ public class UserIdentity implements Writable, GsonPostProcessable {
         }
 
         FeNameFormat.checkUserName(user);
-        if (!user.equals(PaloAuth.ROOT_USER) && !user.equals(PaloAuth.ADMIN_USER)) {
+        if (!user.equals(Auth.ROOT_USER) && !user.equals(Auth.ADMIN_USER)) {
             user = ClusterNamespace.getFullName(clusterName, user);
         }
 
@@ -183,11 +183,11 @@ public class UserIdentity implements Writable, GsonPostProcessable {
     }
 
     public boolean isRootUser() {
-        return user.equals(PaloAuth.ROOT_USER);
+        return user.equals(Auth.ROOT_USER);
     }
 
     public boolean isAdminUser() {
-        return user.equals(PaloAuth.ADMIN_USER);
+        return user.equals(Auth.ADMIN_USER);
     }
 
     public TUserIdentity toThrift() {

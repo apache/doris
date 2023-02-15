@@ -39,7 +39,8 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.DeleteJob.DeleteState;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.persist.EditLog;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryStateException;
@@ -98,7 +99,8 @@ public class DeleteHandlerTest {
     private SystemInfoService systemInfoService;
 
     private Database db;
-    private PaloAuth auth;
+    private Auth auth;
+    private AccessControllerManager accessManager;
 
     Analyzer analyzer;
 
@@ -113,10 +115,11 @@ public class DeleteHandlerTest {
         globalTransactionMgr = new GlobalTransactionMgr(env);
         globalTransactionMgr.setEditLog(editLog);
         deleteHandler = new DeleteHandler();
-        auth = AccessTestUtil.fetchAdminAccess();
+        accessManager = AccessTestUtil.fetchAdminAccess();
+        auth = accessManager.getAuth();
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
         db = CatalogMocker.mockDb();
-        TabletMeta tabletMeta = new TabletMeta(DB_ID, TBL_ID, PARTITION_ID, TBL_ID, 0, null, -1, -1);
+        TabletMeta tabletMeta = new TabletMeta(DB_ID, TBL_ID, PARTITION_ID, TBL_ID, 0, null);
         invertedIndex.addTablet(TABLET_ID, tabletMeta);
         invertedIndex.addReplica(TABLET_ID, new Replica(REPLICA_ID_1, BACKEND_ID_1, 0, Replica.ReplicaState.NORMAL));
         invertedIndex.addReplica(TABLET_ID, new Replica(REPLICA_ID_2, BACKEND_ID_2, 0, Replica.ReplicaState.NORMAL));
@@ -154,6 +157,10 @@ public class DeleteHandlerTest {
                 env.getEditLog();
                 minTimes = 0;
                 result = editLog;
+
+                env.getAccessManager();
+                minTimes = 0;
+                result = accessManager;
 
                 env.getAuth();
                 minTimes = 0;

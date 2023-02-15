@@ -23,9 +23,9 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.PaloAuth.PrivLevel;
-import org.apache.doris.mysql.privilege.PaloRole;
+import org.apache.doris.mysql.privilege.Auth.PrivLevel;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
@@ -121,7 +121,7 @@ public class CreateUserStmt extends DdlStmt {
         if (role != null) {
             if (role.equalsIgnoreCase("SUPERUSER")) {
                 // for forward compatibility
-                role = PaloRole.ADMIN_ROLE;
+                role = Role.ADMIN_ROLE;
             }
             FeNameFormat.checkRoleName(role, true /* can be admin */, "Can not granted user to role");
             role = ClusterNamespace.getFullName(analyzer.getClusterName(), role);
@@ -130,7 +130,7 @@ public class CreateUserStmt extends DdlStmt {
         passwordOptions.analyze();
 
         // check if current user has GRANT priv on GLOBAL or DATABASE level.
-        if (!Env.getCurrentEnv().getAuth().checkHasPriv(ConnectContext.get(),
+        if (!Env.getCurrentEnv().getAccessManager().checkHasPriv(ConnectContext.get(),
                 PrivPredicate.GRANT, PrivLevel.GLOBAL, PrivLevel.DATABASE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
         }

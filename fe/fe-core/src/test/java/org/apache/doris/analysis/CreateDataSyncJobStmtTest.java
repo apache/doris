@@ -24,7 +24,7 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.sync.DataSyncJobType;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -57,7 +57,7 @@ public class CreateDataSyncJobStmtTest {
     @Mocked
     Analyzer analyzer;
     @Mocked
-    PaloAuth auth;
+    AccessControllerManager accessManager;
     @Injectable
     Database database;
     @Injectable
@@ -76,15 +76,15 @@ public class CreateDataSyncJobStmtTest {
                 minTimes = 0;
                 result = database;
 
-                env.getAuth();
+                env.getAccessManager();
                 minTimes = 0;
-                result = auth;
+                result = accessManager;
 
                 analyzer.getClusterName();
                 minTimes = 0;
                 result = "testCluster";
 
-                auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
 

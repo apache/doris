@@ -127,6 +127,7 @@ private:
     jmethodID _executor_get_largeint_result;
     jmethodID _executor_get_float_result;
     jmethodID _executor_get_double_result;
+    jmethodID _executor_get_char_result;
     jmethodID _executor_get_string_result;
     jmethodID _executor_get_date_result;
     jmethodID _executor_get_datev2_result;

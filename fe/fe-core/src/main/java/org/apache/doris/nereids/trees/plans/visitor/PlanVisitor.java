@@ -52,6 +52,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
@@ -79,6 +80,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggrega
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 
 /**
  * Base class for the processing of logical and physical plan.
@@ -235,6 +237,10 @@ public abstract class PlanVisitor<R, C> {
         return visit(generate, context);
     }
 
+    public R visitLogicalWindow(LogicalWindow<? extends Plan> window, C context) {
+        return visit(window, context);
+    }
+
     // *******************************
     // Physical plans
     // *******************************
@@ -285,6 +291,10 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitPhysicalQuickSort(PhysicalQuickSort<? extends Plan> sort, C context) {
         return visitAbstractPhysicalSort(sort, context);
+    }
+
+    public R visitPhysicalWindow(PhysicalWindow<? extends Plan> window, C context) {
+        return visit(window, context);
     }
 
     public R visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, C context) {

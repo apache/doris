@@ -125,7 +125,7 @@ public class AlterJobV2Test {
     @Test
     public void testRollup() throws Exception {
         // 1. process a rollup job
-        String alterStmtStr = "alter table test.schema_change_test add rollup test_rollup(k1, k2);";
+        String alterStmtStr = "alter table test.schema_change_test add rollup test_rollup(k2, k1);";
         AlterTableStmt alterTableStmt = (AlterTableStmt) UtFrameUtils.parseAndAnalyzeStmt(alterStmtStr, connectContext);
         Env.getCurrentEnv().getAlterInstance().processAlterTable(alterTableStmt);
         // 2. check alter job

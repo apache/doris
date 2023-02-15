@@ -1410,4 +1410,9 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 * Description: Default dirs to put jdbc drivers.
 * Default value: `${DORIS_HOME}/jdbc_drivers`
 
+#### `enable_parse_multi_dimession_array`
+
+* Description: Whether parse multidimensional array, if false encountering will return ERROR
+* Default value: true
+
 </version>

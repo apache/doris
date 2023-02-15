@@ -1278,7 +1278,7 @@ public class FunctionCallExpr extends Expr {
                     String dbName = fnName.analyzeDb(analyzer);
                     if (!Strings.isNullOrEmpty(dbName)) {
                         // check operation privilege
-                        if (!Env.getCurrentEnv().getAuth()
+                        if (!Env.getCurrentEnv().getAccessManager()
                                 .checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SELECT)) {
                             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
                         }
@@ -1418,12 +1418,12 @@ public class FunctionCallExpr extends Expr {
             Expr child1Result = getChild(1).getResultValue();
             if (child1Result instanceof StringLiteral) {
                 if (DateLiteral.hasTimePart(((StringLiteral) child1Result).getStringValue())) {
-                    this.type = ScalarType.getDefaultDateType(Type.DATETIME);
+                    this.type = Type.DATETIME;
                 } else {
-                    this.type = ScalarType.getDefaultDateType(Type.DATE);
+                    this.type = Type.DATE;
                 }
             } else {
-                this.type = ScalarType.getDefaultDateType(Type.DATETIME);
+                this.type = Type.DATETIME;
             }
         } else if (TIME_FUNCTIONS_WITH_PRECISION.contains(fnName.getFunction().toLowerCase())
                 && fn.getReturnType().isDatetimeV2()) {

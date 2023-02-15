@@ -36,6 +36,7 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -167,6 +168,24 @@ public class StreamLoadPlanner {
             if (negative && !col.isKey() && col.getAggregationType() != AggregateType.SUM) {
                 throw new DdlException("Column is not SUM AggregateType. column:" + col.getName());
             }
+        }
+
+        // Plan scan tuple of dynamic table
+        if (destTable.isDynamicSchema()) {
+            if (!Config.enable_vectorized_load) {
+                throw new UserException("Only support vectorized load for dyanmic table: " + destTable.getName());
+            }
+            descTable.addReferencedTable(destTable);
+            scanTupleDesc.setTable(destTable);
+            // add a implict container column "DORIS_DYNAMIC_COL" for dynamic columns
+            SlotDescriptor slotDesc = descTable.addSlotDescriptor(scanTupleDesc);
+            Column col = new Column(Column.DYNAMIC_COLUMN_NAME, Type.VARIANT, false, null, false, "",
+                                    "stream load auto dynamic column");
+            slotDesc.setIsMaterialized(true);
+            slotDesc.setColumn(col);
+            // alaways nullable
+            slotDesc.setIsNullable(true);
+            LOG.debug("plan tupleDesc {}", scanTupleDesc.toString());
         }
 
         // create scan node

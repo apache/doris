@@ -19,6 +19,7 @@
 
 #include <iostream>
 
+#include "vec/common/string_buffer.hpp"
 #include "vec/core/types.h"
 
 namespace doris::vectorized {

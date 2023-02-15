@@ -32,7 +32,7 @@ ALTER SYSTEM DROP OBSERVER
 
 ### Description
 
-改语句是增加 FRONTEND 的 OBSERVER 角色的节点,（仅管理员使用！）
+该语句是删除 FRONTEND 的 OBSERVER 角色的节点,（仅管理员使用！）
 
 语法：
 
