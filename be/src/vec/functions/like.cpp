@@ -391,11 +391,6 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
 
 Status FunctionLikeBase::close(FunctionContext* context,
                                FunctionContext::FunctionStateScope scope) {
-    if (scope == FunctionContext::THREAD_LOCAL) {
-        auto* state = reinterpret_cast<LikeState*>(
-                context->get_function_state(FunctionContext::THREAD_LOCAL));
-        delete state;
-    }
     return Status::OK();
 }
 
