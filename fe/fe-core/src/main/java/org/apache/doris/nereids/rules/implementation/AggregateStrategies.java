@@ -268,7 +268,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             // over the length: https://github.com/apache/doris/pull/6293
             if (mergeOp == PushDownAggOp.MIN_MAX || mergeOp == PushDownAggOp.MIX) {
                 PrimitiveType colType = column.getType().getPrimitiveType();
-                if (colType.isArrayType() || colType.isComplexType() || colType == PrimitiveType.STRING) {
+                if (colType.isComplexType() || colType.isHllType() || colType.isBitmapType()
+                         || colType == PrimitiveType.STRING) {
                     return canNotPush;
                 }
                 if (colType.isCharFamily() && mergeOp != PushDownAggOp.COUNT && column.getType().getLength() > 512) {

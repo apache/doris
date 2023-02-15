@@ -555,10 +555,11 @@ public class MaterializedViewHandler extends AlterHandler {
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasSequenceCol()) {
             newMVColumns.add(new Column(olapTable.getSequenceCol()));
         }
-        // if the column is array type, we forbid to create materialized view
+        // if the column is complex type, we forbid to create materialized view
         for (Column column : newMVColumns) {
-            if (column.getDataType() == PrimitiveType.ARRAY) {
-                throw new DdlException("The array column[" + column + "] not support to create materialized view");
+            if (column.getDataType().isComplexType()) {
+                throw new DdlException("The " + column.getDataType() + " column[" + column + "] not support "
+                        + "to create materialized view");
             }
             if (addMVClause.getMVKeysType() != KeysType.AGG_KEYS
                     && (column.getType().isBitmapType() || column.getType().isHllType())) {
