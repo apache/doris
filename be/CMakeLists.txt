@@ -474,7 +474,6 @@ add_compile_options(-g
                     -fno-omit-frame-pointer)
 
 add_compile_options(-Wno-unused-parameter
-                    -Wno-implicit-fallthrough
                     -Wno-sign-compare
                     -Wno-array-bounds)
 
