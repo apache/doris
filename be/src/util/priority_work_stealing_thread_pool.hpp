@@ -30,7 +30,7 @@ class BlockingPriorityQueue;
 
 // Work-Stealing threadpool which processes items (of type T) in parallel which were placed on multi
 // blocking queues by Offer(). Each item is processed by a single user-supplied method.
-class PriorityWorkStealingThreadPool : public PriorityThreadPool {
+class PriorityWorkStealingThreadPool final : public PriorityThreadPool {
 public:
     // Creates a new thread pool and start num_threads threads.
     //  -- num_threads: how many threads are part of this pool
@@ -40,7 +40,7 @@ public:
     //     capacity available.
     PriorityWorkStealingThreadPool(uint32_t num_threads, uint32_t num_queues, uint32_t queue_size,
                                    std::string name);
-    virtual ~PriorityWorkStealingThreadPool();
+    ~PriorityWorkStealingThreadPool() override;
 
     bool offer(Task task) override;
     bool offer(WorkFunction func) override;

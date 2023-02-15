@@ -19,6 +19,7 @@
 
 #include <mutex>
 #include <thread>
+#include <utility>
 
 #include "util/blocking_priority_queue.hpp"
 #include "util/lock.h"
@@ -54,8 +55,8 @@ public:
     //  -- queue_size: the maximum size of the queue on which work items are offered. If the
     //     queue exceeds this size, subsequent calls to Offer will block until there is
     //     capacity available.
-    PriorityThreadPool(uint32_t num_threads, uint32_t queue_size, const std::string& name)
-            : _work_queue(queue_size), _shutdown(false), _name(name), _active_threads(0) {
+    PriorityThreadPool(uint32_t num_threads, uint32_t queue_size, std::string name)
+            : _work_queue(queue_size), _name(std::move(name)) {
         for (int i = 0; i < num_threads; ++i) {
             _threads.create_thread(
                     std::bind<void>(std::mem_fn(&PriorityThreadPool::work_thread), this, i));
@@ -154,9 +155,9 @@ private:
     BlockingPriorityQueue<Task> _work_queue;
 
     // Set to true when threads should stop doing work and terminate.
-    std::atomic<bool> _shutdown;
+    std::atomic<bool> _shutdown {false};
     std::string _name;
-    std::atomic<int> _active_threads;
+    std::atomic<int> _active_threads {0};
 };
 
 } // namespace doris

@@ -17,6 +17,8 @@
 
 #include "scanner_scheduler.h"
 
+#include <memory>
+
 #include "common/config.h"
 #include "util/async_io.h"
 #include "util/priority_thread_pool.hpp"
@@ -73,9 +75,9 @@ Status ScannerScheduler::init(ExecEnv* env) {
     }
 
     // 2. local scan thread pool
-    _local_scan_thread_pool.reset(new PriorityWorkStealingThreadPool(
+    _local_scan_thread_pool = std::make_unique<PriorityWorkStealingThreadPool>(
             config::doris_scanner_thread_pool_thread_num, env->store_paths().size(),
-            config::doris_scanner_thread_pool_queue_size, "local_scan"));
+            config::doris_scanner_thread_pool_queue_size, "local_scan");
 
     // 3. remote scan thread pool
     ThreadPoolBuilder("RemoteScanThreadPool")
