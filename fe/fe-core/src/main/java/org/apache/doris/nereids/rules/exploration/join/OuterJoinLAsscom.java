@@ -28,7 +28,7 @@ import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableSet;
 
@@ -104,7 +104,7 @@ public class OuterJoinLAsscom extends OneExplorationRuleFactory {
                             .stream()
                             .map(SlotReference::getExprId)
                             .collect(Collectors.toSet());
-                    return !ExpressionUtils.isIntersecting(usedExprIdSet, bOutputExprIdSet);
+                    return !Utils.isIntersecting(usedExprIdSet, bOutputExprIdSet);
                 });
     }
 
