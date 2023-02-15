@@ -20,7 +20,7 @@ package org.apache.doris.nereids.properties;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
+import org.apache.doris.nereids.trees.plans.SortPhase;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 
 import com.google.common.collect.Lists;
@@ -66,7 +66,8 @@ public class OrderSpec {
      */
     public GroupExpression addLocalQuickSortEnforcer(Group child) {
         return new GroupExpression(
-                new PhysicalLocalQuickSort<>(orderKeys, child.getLogicalProperties(), new GroupPlan(child)),
+                new PhysicalQuickSort<>(orderKeys, child.getLogicalProperties(),
+                        new GroupPlan(child), SortPhase.LOCAL_SORT),
                 Lists.newArrayList(child)
         );
     }
@@ -76,7 +77,8 @@ public class OrderSpec {
      */
     public GroupExpression addGlobalQuickSortEnforcer(Group child) {
         return new GroupExpression(
-                new PhysicalQuickSort<>(orderKeys, child.getLogicalProperties(), new GroupPlan(child)),
+                new PhysicalQuickSort<>(orderKeys, child.getLogicalProperties(),
+                        new GroupPlan(child), SortPhase.MERGE_SORT),
                 Lists.newArrayList(child)
         );
     }
