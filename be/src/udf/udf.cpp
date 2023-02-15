@@ -310,14 +310,14 @@ void FunctionContext::free(int64_t bytes) {
     _impl->_external_bytes_tracked -= bytes;
 }
 
-void FunctionContext::set_function_state(FunctionStateScope scope, void* ptr) {
+void FunctionContext::set_function_state(FunctionStateScope scope, std::shared_ptr<void> ptr) {
     assert(!_impl->_closed);
     switch (scope) {
     case THREAD_LOCAL:
-        _impl->_thread_local_fn_state = ptr;
+        _impl->_thread_local_fn_state = std::move(ptr);
         break;
     case FRAGMENT_LOCAL:
-        _impl->_fragment_local_fn_state = ptr;
+        _impl->_fragment_local_fn_state = std::move(ptr);
         break;
     default:
         std::stringstream ss;
@@ -475,9 +475,9 @@ void* FunctionContext::get_function_state(FunctionStateScope scope) const {
     // assert(!_impl->_closed);
     switch (scope) {
     case THREAD_LOCAL:
-        return _impl->_thread_local_fn_state;
+        return _impl->_thread_local_fn_state.get();
     case FRAGMENT_LOCAL:
-        return _impl->_fragment_local_fn_state;
+        return _impl->_fragment_local_fn_state.get();
     default:
         // TODO: signal error somehow
         return nullptr;

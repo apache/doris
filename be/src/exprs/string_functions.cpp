@@ -62,8 +62,9 @@ bool StringFunctions::set_re2_options(const StringVal& match_parameter, std::str
 }
 
 // The caller owns the returned regex. Returns nullptr if the pattern could not be compiled.
-re2::RE2* StringFunctions::compile_regex(const StringVal& pattern, std::string* error_str,
-                                         const StringVal& match_parameter) {
+bool StringFunctions::compile_regex(const StringVal& pattern, std::string* error_str,
+                                    const StringVal& match_parameter,
+                                    std::unique_ptr<re2::RE2>& re) {
     re2::StringPiece pattern_sp(reinterpret_cast<char*>(pattern.ptr), pattern.len);
     re2::RE2::Options options;
     // Disable error logging in case e.g. every row causes an error
@@ -74,19 +75,19 @@ re2::RE2* StringFunctions::compile_regex(const StringVal& pattern, std::string* 
     options.set_dot_nl(true);
     if (!match_parameter.is_null &&
         !StringFunctions::set_re2_options(match_parameter, error_str, &options)) {
-        return nullptr;
+        return false;
     }
-    re2::RE2* re = new re2::RE2(pattern_sp, options);
+    re.reset(new re2::RE2(pattern_sp, options));
     if (!re->ok()) {
         std::stringstream ss;
         ss << "Could not compile regexp pattern: "
            << std::string(reinterpret_cast<char*>(pattern.ptr), pattern.len) << std::endl
            << "Error: " << re->error();
         *error_str = ss.str();
-        delete re;
-        return nullptr;
+        re.reset();
+        return false;
     }
-    return re;
+    return true;
 }
 
 } // namespace doris

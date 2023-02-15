@@ -66,7 +66,7 @@ public:
         if (scope == FunctionContext::THREAD_LOCAL) {
             return Status::OK();
         }
-        auto* state = new InState();
+        std::shared_ptr<InState> state = std::make_shared<InState>();
         context->set_function_state(scope, state);
         if (context->get_arg_type(0)->type == FunctionContext::Type::TYPE_CHAR ||
             context->get_arg_type(0)->type == FunctionContext::Type::TYPE_VARCHAR ||
@@ -223,10 +223,6 @@ public:
     }
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::FRAGMENT_LOCAL) {
-            delete reinterpret_cast<InState*>(
-                    context->get_function_state(FunctionContext::FRAGMENT_LOCAL));
-        }
         return Status::OK();
     }
 };

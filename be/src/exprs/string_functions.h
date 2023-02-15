@@ -38,7 +38,7 @@ public:
                                 re2::RE2::Options* opts);
 
     // The caller owns the returned regex. Returns nullptr if the pattern could not be compiled.
-    static re2::RE2* compile_regex(const StringVal& pattern, std::string* error_str,
-                                   const StringVal& match_parameter);
+    static bool compile_regex(const StringVal& pattern, std::string* error_str,
+                              const StringVal& match_parameter, std::unique_ptr<re2::RE2>& re);
 };
 } // namespace doris

@@ -540,7 +540,7 @@ Status FunctionLike::prepare(FunctionContext* context, FunctionContext::Function
     if (scope != FunctionContext::THREAD_LOCAL) {
         return Status::OK();
     }
-    auto* state = new LikeState();
+    std::shared_ptr<LikeState> state = std::make_shared<LikeState>();
     context->set_function_state(scope, state);
     state->function = like_fn;
     state->predicate_like_function = like_fn_predicate;
@@ -600,7 +600,7 @@ Status FunctionRegexp::prepare(FunctionContext* context,
     if (scope != FunctionContext::THREAD_LOCAL) {
         return Status::OK();
     }
-    auto* state = new LikeState();
+    std::shared_ptr<LikeState> state = std::make_shared<LikeState>();
     context->set_function_state(scope, state);
     state->function = regexp_fn;
     state->predicate_like_function = regexp_fn_predicate;

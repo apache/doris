@@ -152,8 +152,8 @@ private:
     std::vector<uint8_t*> _local_allocations;
 
     /// The function state accessed via FunctionContext::Get/SetFunctionState()
-    void* _thread_local_fn_state;
-    void* _fragment_local_fn_state;
+    std::shared_ptr<void> _thread_local_fn_state;
+    std::shared_ptr<void> _fragment_local_fn_state;
 
     // The number of bytes allocated externally by the user function. In some cases,
     // it is too inconvenient to use the Allocate()/Free() APIs in the FunctionContext,

@@ -146,7 +146,6 @@ public:
                 }
             }
         } else {
-            should_delete = false;
             _values = ((HybridSetType*)hybrid_set.get())->get_inner_set();
         }
 
@@ -156,20 +155,9 @@ public:
     }
 
     ~InListPredicateBase() override {
-        if (should_delete) {
+        if constexpr (is_string_type(Type) || Type == TYPE_DECIMALV2 || is_date_type(Type)) {
             delete _values;
         }
-    }
-
-    // Only for test
-    InListPredicateBase(uint32_t column_id, phmap::flat_hash_set<T>& values,
-                        T min_value = type_limit<T>::min(), T max_value = type_limit<T>::max(),
-                        bool is_opposite = false)
-            : ColumnPredicate(column_id, is_opposite),
-              _values(&values),
-              _min_value(min_value),
-              _max_value(max_value) {
-        should_delete = false;
     }
 
     PredicateType type() const override { return PT; }
@@ -552,7 +540,6 @@ private:
     }
 
     phmap::flat_hash_set<T>* _values;
-    bool should_delete = true;
     mutable std::map<std::pair<RowsetId, uint32_t>, std::vector<vectorized::UInt8>>
             _segment_id_to_value_in_dict_flags;
     T _min_value;

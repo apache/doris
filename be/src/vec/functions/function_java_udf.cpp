@@ -62,7 +62,8 @@ Status JavaFunctionCall::prepare(FunctionContext* context,
     executor_close_id_ = env->GetMethodID(executor_cl_, "close", EXECUTOR_CLOSE_SIGNATURE);
     RETURN_ERROR_IF_EXC(env);
 
-    JniContext* jni_ctx = new JniContext(_argument_types.size(), this);
+    std::shared_ptr<JniContext> jni_ctx =
+            std::make_shared<JniContext>(_argument_types.size(), this);
     context->set_function_state(FunctionContext::THREAD_LOCAL, jni_ctx);
 
     // Add a scoped cleanup jni reference object. This cleans up local refs made below.
@@ -213,12 +214,6 @@ Status JavaFunctionCall::execute(FunctionContext* context, Block& block,
 
 Status JavaFunctionCall::close(FunctionContext* context,
                                FunctionContext::FunctionStateScope scope) {
-    JniContext* jni_ctx = reinterpret_cast<JniContext*>(
-            context->get_function_state(FunctionContext::THREAD_LOCAL));
-    if (jni_ctx != nullptr) {
-        delete jni_ctx;
-        context->set_function_state(FunctionContext::THREAD_LOCAL, nullptr);
-    }
     return Status::OK();
 }
 } // namespace doris::vectorized
