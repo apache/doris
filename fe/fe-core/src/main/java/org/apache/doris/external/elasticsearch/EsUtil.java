@@ -17,32 +17,15 @@
 
 package org.apache.doris.external.elasticsearch;
 
-import org.apache.doris.analysis.BinaryPredicate;
-import org.apache.doris.analysis.BoolLiteral;
-import org.apache.doris.analysis.CastExpr;
-import org.apache.doris.analysis.CompoundPredicate;
-import org.apache.doris.analysis.DecimalLiteral;
 import org.apache.doris.analysis.DistributionDesc;
-import org.apache.doris.analysis.Expr;
-import org.apache.doris.analysis.FloatLiteral;
-import org.apache.doris.analysis.FunctionCallExpr;
-import org.apache.doris.analysis.InPredicate;
-import org.apache.doris.analysis.IntLiteral;
-import org.apache.doris.analysis.IsNullPredicate;
-import org.apache.doris.analysis.LargeIntLiteral;
-import org.apache.doris.analysis.LikePredicate;
-import org.apache.doris.analysis.LikePredicate.Operator;
 import org.apache.doris.analysis.PartitionDesc;
 import org.apache.doris.analysis.RangePartitionDesc;
-import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.external.elasticsearch.QueryBuilders.QueryBuilder;
-import org.apache.doris.thrift.TExprOpcode;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -50,12 +33,10 @@ import org.json.simple.JSONObject;
 import org.json.simple.JSONValue;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * Util for ES, some static method.
