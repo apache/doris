@@ -19,6 +19,9 @@ suite("test_colocate_join") {
     sql """ DROP TABLE IF EXISTS `test_colo1` """
     sql """ DROP TABLE IF EXISTS `test_colo2` """
     sql """ DROP TABLE IF EXISTS `test_colo3` """
+    sql """ DROP TABLE IF EXISTS `test_colo4` """
+    sql """ DROP TABLE IF EXISTS `test_colo5` """
+
     sql """
         CREATE TABLE `test_colo1` (
         `id` varchar(64) NULL,
@@ -36,6 +39,7 @@ suite("test_colocate_join") {
         "disable_auto_compaction" = "false"
         );
     """
+
     sql """
         CREATE TABLE `test_colo2` (
         `id` varchar(64) NULL,
@@ -72,12 +76,52 @@ suite("test_colocate_join") {
         );
     """
 
+    sql """
+        CREATE TABLE `test_colo4` (
+        `id` varchar(64) NULL,
+        `name` varchar(64) NULL,
+        `age` int NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`,`name`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`id`,`name`) BUCKETS 4
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "colocate_with" = "group",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "disable_auto_compaction" = "false"
+        );
+    """
+
+    sql """
+        CREATE TABLE `test_colo5` (
+        `id` varchar(64) NULL,
+        `name` varchar(64) NULL,
+        `age` int NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`id`,`name`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`id`,`name`) BUCKETS 4
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "colocate_with" = "group",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "disable_auto_compaction" = "false"
+        );
+    """
+
     sql """insert into test_colo1 values('1','a',12);"""
     sql """insert into test_colo2 values('1','a',12);"""
     sql """insert into test_colo3 values('1','a',12);"""
+    sql """insert into test_colo4 values('1','a',12);"""
+    sql """insert into test_colo5 values('1','a',12);"""
 
     explain {
-        sql("select a.id,a.name,b.id,b.name,c.id,c.name from test_colo1 a inner join test_colo2 b on a.id = b.id and a.name = b.name inner join test_colo3 c on a.id=c.id and a.name= c.name")
+        sql("select * from test_colo1 a inner join test_colo2 b on a.id = b.id and a.name = b.name inner join test_colo3 c on a.id=c.id and a.name= c.name inner join test_colo4 d on a.id=d.id and a.name= d.name inner join test_colo5 e on a.id=e.id and a.name= e.name;")
+        contains "8:VHASH JOIN\n  |  join op: INNER JOIN(COLOCATE[])[]"
+        contains "6:VHASH JOIN\n  |  join op: INNER JOIN(COLOCATE[])[]"
         contains "4:VHASH JOIN\n  |  join op: INNER JOIN(COLOCATE[])[]"
         contains "2:VHASH JOIN\n  |  join op: INNER JOIN(COLOCATE[])[]"
     }
