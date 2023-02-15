@@ -168,6 +168,7 @@ import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVJobManager;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
@@ -398,6 +399,7 @@ public class Env {
     private TabletStatMgr tabletStatMgr;
 
     private Auth auth;
+    private AccessControllerManager accessManager;
 
     private DomainResolver domainResolver;
 
@@ -598,6 +600,7 @@ public class Env {
         this.tabletStatMgr = new TabletStatMgr();
 
         this.auth = new Auth();
+        this.accessManager = new AccessControllerManager(auth);
         this.domainResolver = new DomainResolver(auth);
 
         this.metaContext = new MetaContext();
@@ -696,6 +699,10 @@ public class Env {
 
     public Auth getAuth() {
         return auth;
+    }
+
+    public AccessControllerManager getAccessManager() {
+        return accessManager;
     }
 
     public TabletScheduler getTabletScheduler() {
@@ -4425,7 +4432,7 @@ public class Env {
 
     // Change current database of this session.
     public void changeDb(ConnectContext ctx, String qualifiedDb) throws DdlException {
-        if (!auth.checkDbPriv(ctx, ctx.getDefaultCatalog(), qualifiedDb, PrivPredicate.SHOW)) {
+        if (!accessManager.checkDbPriv(ctx, ctx.getDefaultCatalog(), qualifiedDb, PrivPredicate.SHOW)) {
             ErrorReport.reportDdlException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, ctx.getQualifiedUser(), qualifiedDb);
         }
 

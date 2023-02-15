@@ -207,7 +207,7 @@ public class InsertStmt extends DdlStmt {
         TableIf table = db.getTableOrAnalysisException(tblName.getTbl());
 
         // check access
-        if (!Env.getCurrentEnv().getAuth()
+        if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), dbName, tableName, PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
@@ -276,7 +276,7 @@ public class InsertStmt extends DdlStmt {
         }
 
         // Check privilege
-        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), tblName.getDb(),
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tblName.getDb(),
                                                                 tblName.getTbl(), PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(),

@@ -44,7 +44,7 @@ public class AlterMaterializedViewStmt extends DdlStmt  {
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
         mvName.analyze(analyzer);
-        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), mvName.getDb(), mvName.getTbl(),
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), mvName.getDb(), mvName.getTbl(),
                 PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "MATERIALIZED VIEW",
                     ConnectContext.get().getQualifiedUser(),

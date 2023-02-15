@@ -22,7 +22,7 @@ import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -51,12 +51,13 @@ public class CreateResourceStmtTest {
     }
 
     @Test
-    public void testNormal(@Mocked Env env, @Injectable Auth auth) throws UserException {
+    public void testNormal(@Mocked Env env, @Injectable AccessControllerManager accessManager)
+            throws UserException {
         new Expectations() {
             {
-                env.getAuth();
-                result = auth;
-                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                env.getAccessManager();
+                result = accessManager;
+                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
             }
         };
@@ -88,12 +89,13 @@ public class CreateResourceStmtTest {
     }
 
     @Test(expected = AnalysisException.class)
-    public void testUnsupportedResourceType(@Mocked Env env, @Injectable Auth auth) throws UserException {
+    public void testUnsupportedResourceType(@Mocked Env env, @Injectable AccessControllerManager accessManager)
+            throws UserException {
         new Expectations() {
             {
-                env.getAuth();
-                result = auth;
-                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                env.getAccessManager();
+                result = accessManager;
+                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
             }
         };
