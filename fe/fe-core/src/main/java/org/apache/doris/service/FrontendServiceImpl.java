@@ -1970,7 +1970,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             long txnId = -1;
             Throwable throwable = null;
             String label = "";
-            ConnectContext context = ConnectContext.get();
+            ConnectContext context = coord.getConnectContext();
             StmtExecutor exec = context.getExecutor();
             InsertStmt insertStmt = (InsertStmt) exec.getParsedStmt();
             label = insertStmt.getLabel();

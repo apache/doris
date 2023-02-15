@@ -146,7 +146,6 @@ void StreamLoadWithSqlAction::handle(HttpRequest* req) {
         if (!stream_load_status.ok()) {
             continue;
         }
-        sleep(1);
         break;
     }
     auto str = std::string("Stream Load OK");
