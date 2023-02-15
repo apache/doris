@@ -66,10 +66,15 @@ Status ColdDataCompaction::modify_rowsets() {
         _tablet->delete_rowsets(_input_rowsets, false);
         _tablet->add_rowsets({_output_rowset});
         // TODO(plat1ko): process primary key
-        _tablet->tablet_meta()->set_cooldown_meta_id(UniqueId::gen_uid());
+        UniqueId cooldown_meta_id = UniqueId::gen_uid();
+        _tablet->tablet_meta()->set_cooldown_meta_id(cooldown_meta_id);
     }
     {
         std::shared_lock rlock(_tablet->get_header_lock());
+        // write remote tablet meta
+        io::FileSystemSPtr dest_fs;
+        RETURN_IF_ERROR(_tablet->get_remote_file_system(_tablet->storage_policy_id(), &dest_fs));
+        RETURN_IF_ERROR(_tablet->write_cooldown_meta(dest_fs.get(), cooldown_meta_id, nullptr));
         _tablet->save_meta();
     }
     return Status::OK();

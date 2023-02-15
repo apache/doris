@@ -31,6 +31,23 @@ struct StoragePolicyMgr {
 
 static StoragePolicyMgr s_storage_policy_mgr;
 
+Status get_remote_file_system(int64_t storage_policy_id, io::FileSystemSPtr* dest_fs) {
+    auto storage_policy = get_storage_policy(storage_policy_id);
+    if (storage_policy == nullptr) {
+        return Status::InternalError("could not find storage_policy, storage_policy_id={}",
+                                     storage_policy_id);
+    }
+    auto resource = get_storage_resource(storage_policy->resource_id);
+    *dest_fs = std::static_pointer_cast<io::RemoteFileSystem>(resource.fs);
+    if (*dest_fs == nullptr) {
+        return Status::InternalError("could not find resource, resouce_id={}",
+                                     storage_policy->resource_id);
+    }
+    DCHECK(atol((*dest_fs)->id().c_str()) == storage_policy->resource_id);
+    DCHECK((*dest_fs)->type() != io::FileSystemType::LOCAL);
+    return Status::OK();
+}
+
 StoragePolicyPtr get_storage_policy(int64_t id) {
     std::lock_guard lock(s_storage_policy_mgr.mtx);
     if (auto it = s_storage_policy_mgr.map.find(id); it != s_storage_policy_mgr.map.end()) {

@@ -1709,19 +1709,10 @@ Status Tablet::cooldown() {
     if (cooldown_replica_id <= 0) { // wait for FE to push cooldown conf
         return Status::InternalError("invalid cooldown_replica_id");
     }
-    auto storage_policy = get_storage_policy(storage_policy_id());
-    if (storage_policy == nullptr) {
-        return Status::InternalError("could not find storage_policy, storage_policy_id={}",
-                                     storage_policy_id());
-    }
-    auto resource = get_storage_resource(storage_policy->resource_id);
-    auto dest_fs = std::static_pointer_cast<io::RemoteFileSystem>(resource.fs);
-    if (dest_fs == nullptr) {
-        return Status::InternalError("could not find resource, resouce_id={}",
-                                     storage_policy->resource_id);
-    }
-    DCHECK(atol(dest_fs->id().c_str()) == storage_policy->resource_id);
-    DCHECK(dest_fs->type() != io::FileSystemType::LOCAL);
+
+    io::FileSystemSPtr dest_fs;
+    RETURN_IF_ERROR(get_remote_file_system(storage_policy_id(), &dest_fs));
+
     if (cooldown_replica_id == replica_id()) {
         RETURN_IF_ERROR(_cooldown_data(dest_fs));
     } else {
@@ -1768,7 +1759,7 @@ Status Tablet::_cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_
     UniqueId cooldown_meta_id = UniqueId::gen_uid();
 
     // upload cooldowned rowset meta to remote fs
-    RETURN_IF_ERROR(_write_cooldown_meta(dest_fs.get(), cooldown_meta_id, new_rowset_meta.get()));
+    RETURN_IF_ERROR(write_cooldown_meta(dest_fs.get(), cooldown_meta_id, new_rowset_meta.get()));
 
     RowsetSharedPtr new_rowset;
     RowsetFactory::create_rowset(_schema, _tablet_path, new_rowset_meta, &new_rowset);
@@ -1807,8 +1798,8 @@ Status Tablet::_read_cooldown_meta(io::RemoteFileSystem* fs, int64_t cooldown_re
     return Status::OK();
 }
 
-Status Tablet::_write_cooldown_meta(io::RemoteFileSystem* fs, UniqueId cooldown_meta_id,
-                                    RowsetMeta* new_rs_meta) {
+Status Tablet::write_cooldown_meta(io::RemoteFileSystem* fs, UniqueId cooldown_meta_id,
+                                   RowsetMeta* new_rs_meta) {
     std::vector<RowsetMetaSharedPtr> cooldowned_rs_metas;
     {
         std::shared_lock meta_rlock(_meta_lock);
@@ -1819,7 +1810,7 @@ Status Tablet::_write_cooldown_meta(io::RemoteFileSystem* fs, UniqueId cooldown_
         }
     }
     std::sort(cooldowned_rs_metas.begin(), cooldowned_rs_metas.end(), RowsetMeta::comparator);
-    if (UNLIKELY(!cooldowned_rs_metas.empty() &&
+    if (new_rs_meta != nullptr && UNLIKELY(!cooldowned_rs_metas.empty() &&
                  new_rs_meta->start_version() != cooldowned_rs_metas.back()->end_version() + 1)) {
         return Status::InternalError("version not continuous");
     }
@@ -1829,7 +1820,9 @@ Status Tablet::_write_cooldown_meta(io::RemoteFileSystem* fs, UniqueId cooldown_
     for (auto& rs_meta : cooldowned_rs_metas) {
         rs_metas->Add(rs_meta->get_rowset_pb());
     }
-    rs_metas->Add(new_rs_meta->get_rowset_pb());
+    if (new_rs_meta != nullptr) {
+        rs_metas->Add(new_rs_meta->get_rowset_pb());
+    }
     tablet_meta_pb.mutable_cooldown_meta_id()->set_hi(cooldown_meta_id.hi);
     tablet_meta_pb.mutable_cooldown_meta_id()->set_lo(cooldown_meta_id.lo);
 
