@@ -211,9 +211,8 @@ struct AggregateFunctionCollectListData<StringRef> {
             merge(rhs);
             return;
         }
-        data->insert_range_from(*rhs.data, 0, std::min(static_cast <size_t>(max_size - size()), rhs.size()));
-	data->insert_range_from(*rhs.data, 0,
-                                 std::min(static_cast<size_t>(max_size - size()), rhs.size()));
+        data->insert_range_from(*rhs.data, 0,
+                                std::min(static_cast<size_t>(max_size - size()), rhs.size()));
     }
 
     void write(BufferWritable& buf) const {
