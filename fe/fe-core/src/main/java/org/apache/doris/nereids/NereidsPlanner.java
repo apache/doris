@@ -170,8 +170,10 @@ public class NereidsPlanner extends Planner {
             }
             deriveStats();
 
-            if (statementContext.getConnectContext().getSessionVariable().isEnableDPHypOptimizer()) {
-                // TODO: use DPHyp according the number of join table
+            if (!statementContext.getConnectContext().getSessionVariable().isDisableJoinReorder()
+                    && statementContext.getConnectContext().getSessionVariable().isEnableDPHypOptimizer()
+                    && statementContext.getMaxNAryInnerJoin() > statementContext.getConnectContext()
+                    .getSessionVariable().getMaxTableCountUseCascadesJoinReorder()) {
                 dpHypOptimize();
             } else {
                 optimize();
