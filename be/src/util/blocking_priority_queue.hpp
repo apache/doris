@@ -86,7 +86,7 @@ public:
                     T v = _queue.top();
                     _queue.pop();
                     ++v;
-                    tmp_queue.push(v);
+                    tmp_queue.push(std::move(v));
                 }
                 swap(_queue, tmp_queue);
                 _upgrade_counter = 0;
@@ -122,7 +122,7 @@ public:
                     T v = _queue.top();
                     _queue.pop();
                     ++v;
-                    tmp_queue.push(v);
+                    tmp_queue.push(std::move(v));
                 }
                 swap(_queue, tmp_queue);
                 _upgrade_counter = 0;
@@ -140,7 +140,7 @@ public:
 
     // Puts an element into the queue, waiting indefinitely until there is space.
     // If the queue is shut down, returns false.
-    bool blocking_put(const T& val) {
+    bool blocking_put(T val) {
         MonotonicStopWatch timer;
         timer.start();
         std::unique_lock unique_lock(_lock);
@@ -153,7 +153,7 @@ public:
             return false;
         }
 
-        _queue.push(val);
+        _queue.push(std::move(val));
         _get_cv.notify_one();
         return true;
     }

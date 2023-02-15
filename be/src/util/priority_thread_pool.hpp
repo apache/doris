@@ -80,12 +80,9 @@ public:
     //
     // Returns true if the work item was successfully added to the queue, false otherwise
     // (which typically means that the thread pool has already been shut down).
-    virtual bool offer(Task task) { return _work_queue.blocking_put(task); }
+    virtual bool offer(Task task) { return _work_queue.blocking_put(std::move(task)); }
 
-    virtual bool offer(WorkFunction func) {
-        PriorityThreadPool::Task task = {0, func, 0};
-        return _work_queue.blocking_put(task);
-    }
+    virtual bool offer(WorkFunction func) { return _work_queue.blocking_put({0, func, 0}); }
 
     virtual bool try_offer(WorkFunction func) {
         PriorityThreadPool::Task task = {0, func, 0};

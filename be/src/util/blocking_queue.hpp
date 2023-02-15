@@ -26,6 +26,7 @@
 #include <condition_variable>
 #include <list>
 #include <mutex>
+#include <utility>
 
 #include "common/logging.h"
 #include "util/stopwatch.hpp"
@@ -66,7 +67,7 @@ public:
 
     // Puts an element into the queue, waiting indefinitely until there is space.
     // If the queue is shut down, returns false.
-    bool blocking_put(const T& val) {
+    bool blocking_put(T val) {
         MonotonicStopWatch timer;
         timer.start();
         std::unique_lock<std::mutex> unique_lock(_lock);
@@ -77,7 +78,7 @@ public:
             return false;
         }
 
-        _list.push_back(val);
+        _list.push_back(std::move(val));
         _get_cv.notify_one();
         return true;
     }

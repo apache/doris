@@ -83,6 +83,7 @@ set(UTIL_FILES
   file_cache.cpp
   thread.cpp
   threadpool.cpp
+  priority_work_stealing_thread_pool.cpp
   trace.cpp
   trace_metrics.cpp
   timezone_utils.cpp

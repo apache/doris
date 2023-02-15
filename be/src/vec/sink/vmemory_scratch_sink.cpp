@@ -71,7 +71,7 @@ Status MemoryScratchSink::send(RuntimeState* state, Block* block, bool eos) {
     std::shared_ptr<arrow::RecordBatch> result;
     RETURN_IF_ERROR(
             convert_to_arrow_batch(*block, _arrow_schema, arrow::default_memory_pool(), &result));
-    _queue->blocking_put(result);
+    _queue->blocking_put(std::move(result));
     return Status::OK();
 }
 
