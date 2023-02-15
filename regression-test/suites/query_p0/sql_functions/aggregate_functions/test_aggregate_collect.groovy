@@ -135,7 +135,8 @@ suite("test_aggregate_collect") {
     """
 
     qt_select """
-        collect_list(c_bool),
+        SELECT
+            collect_list(c_bool),
             collect_list(c_tinyint),
             collect_list(c_smallint),
             collect_list(c_int),
@@ -152,6 +153,8 @@ suite("test_aggregate_collect") {
             collect_list(c_date_time),
             collect_list(c_date_timev2),
             collect_list(c_string_not_null)
+        FROM
+            ${tableName}
     """
 
     qt_select """
