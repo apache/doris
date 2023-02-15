@@ -2535,7 +2535,7 @@ public:
         res_offset.resize(input_rows_count);
         iconv_t cd = reinterpret_cast<IconvWrapper*>(
                              context->get_function_state(FunctionContext::THREAD_LOCAL))
-                             ->cd;
+                             ->cd_;
         DCHECK(cd != nullptr);
 
         size_t in_len = 0, out_len = 0;
