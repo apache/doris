@@ -2477,7 +2477,7 @@ struct SubReplaceFourImpl {
 class IconvWrapper {
     iconv_t cd_;
     IconvWrapper(iconv_t cd) : cd_(cd) {}
-    ~IconvWrapper() { iconv_close(cd); }
+    ~IconvWrapper() { iconv_close(cd_); }
 };
 
 class FunctionConvertTo : public IFunction {
@@ -2533,9 +2533,9 @@ public:
         auto& res_offset = col_res->get_offsets();
         auto& res_chars = col_res->get_chars();
         res_offset.resize(input_rows_count);
-        iconv_t cd = reinterpret_cast<IconvWrapper>(
+        iconv_t cd = reinterpret_cast<IconvWrapper*>(
                              context->get_function_state(FunctionContext::THREAD_LOCAL))
-                             .cd;
+                             ->cd;
         DCHECK(cd != nullptr);
 
         size_t in_len = 0, out_len = 0;
