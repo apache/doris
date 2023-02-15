@@ -46,8 +46,8 @@ public class MysqlSslContext {
     private String protocol;
     private ByteBuffer serverAppData;
     private ByteBuffer serverNetData;
-    private static final String keyStoreFile = "/Users/lian/Work/clientkeystore";
-    private static final String trustStoreFile = "/Users/lian/Work/clientkeystore";
+    private static final String keyStoreFile = "/Users/lian/Work/certificate.p12";
+    private static final String trustStoreFile = "/Users/lian/Work/certificate.p12";
     private ByteBuffer clientAppData;
     private ByteBuffer clientNetData;
 
@@ -59,10 +59,10 @@ public class MysqlSslContext {
 
     private void initSslContext() {
         try {
-            KeyStore ks = KeyStore.getInstance("JKS");
-            KeyStore ts = KeyStore.getInstance("JKS");
+            KeyStore ks = KeyStore.getInstance("PKCS12");
+            KeyStore ts = KeyStore.getInstance("PKCS12");
 
-            char[] password = "bigwork".toCharArray();
+            char[] password = "doris".toCharArray();
 
             ks.load(Files.newInputStream(Paths.get(keyStoreFile)), password);
             ts.load(Files.newInputStream(Paths.get(trustStoreFile)), password);
