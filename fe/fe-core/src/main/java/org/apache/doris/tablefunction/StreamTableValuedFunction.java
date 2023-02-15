@@ -18,14 +18,11 @@
 package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.BrokerDesc;
-import org.apache.doris.analysis.StorageBackend.StorageType;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.S3URI;
 import org.apache.doris.thrift.TFileType;
 
 import com.google.common.collect.ImmutableSet;
-import com.google.common.collect.Maps;
 import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -72,51 +69,7 @@ public class StreamTableValuedFunction extends ExternalFileTableValuedFunction {
             }
             validParams.put(key, params.get(key));
         }
-
-        String originUri = "s3://my_bucket.cos.ap-beijing.myqcloud.com/file.txt";
-        if (originUri.toLowerCase().startsWith("s3")) {
-            // s3 protocol, default virtual-hosted style
-            forceVirtualHosted = true;
-        } else {
-            // not s3 protocol, forceVirtualHosted is determined by USE_PATH_STYLE.
-            forceVirtualHosted = !Boolean.valueOf(validParams.get(USE_PATH_STYLE)).booleanValue();
-        }
-
-        try {
-            s3uri = S3URI.create(originUri, forceVirtualHosted);
-        } catch (UserException e) {
-            throw new AnalysisException("parse s3 uri failed, uri = " + originUri, e);
-        }
-        if (forceVirtualHosted) {
-            // s3uri.getVirtualBucket() is: virtualBucket.endpoint, Eg:
-            //          uri: http://my_bucket.cos.ap-beijing.myqcloud.com/file.txt
-            // s3uri.getVirtualBucket() = my_bucket.cos.ap-beijing.myqcloud.com,
-            // so we need separate virtualBucket and endpoint.
-            String[] fileds = s3uri.getVirtualBucket().split("\\.", 2);
-            virtualBucket = fileds[0];
-            if (fileds.length > 1) {
-                endPoint = fileds[1];
-            } else {
-                throw new AnalysisException("can not parse endpoint, please check uri.");
-            }
-        } else {
-            endPoint = s3uri.getBucketScheme();
-        }
-        s3AK = validParams.getOrDefault(AK, "");
-        s3SK = validParams.getOrDefault(SK, "");
-        String usePathStyle = validParams.getOrDefault(USE_PATH_STYLE, "false");
-
         parseProperties(validParams);
-
-        // set S3 location properties
-        // these five properties is necessary, no one can be lost.
-        locationProperties = Maps.newHashMap();
-        locationProperties.put(S3_ENDPOINT, endPoint);
-        locationProperties.put(S3_AK, s3AK);
-        locationProperties.put(S3_SK, s3SK);
-        locationProperties.put(S3_REGION, validParams.getOrDefault(REGION, ""));
-        locationProperties.put(USE_PATH_STYLE, usePathStyle);
-
         parseFile();
     }
 
@@ -128,12 +81,12 @@ public class StreamTableValuedFunction extends ExternalFileTableValuedFunction {
 
     @Override
     public String getFilePath() {
-        return "s3://my_bucket.cos.ap-beijing.myqcloud.com/file.txt";
+        return null;
     }
 
     @Override
     public BrokerDesc getBrokerDesc() {
-        return new BrokerDesc("StreamTvfBroker", StorageType.STREAM, locationProperties);
+        return null;
     }
 
     // =========== implement abstract methods of TableValuedFunctionIf =================
