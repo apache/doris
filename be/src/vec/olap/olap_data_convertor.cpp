@@ -786,6 +786,12 @@ Status OlapBlockDataConvertor::OlapColumnDataConvertorArray::convert_to_olap(
     return Status::OK();
 }
 
+void OlapBlockDataConvertor::OlapColumnDataConvertorMap::set_source_column(
+        const ColumnWithTypeAndName& typed_column, size_t row_pos, size_t num_rows) {
+    OlapBlockDataConvertor::OlapColumnDataConvertorBase::set_source_column(typed_column, row_pos,
+                                                                           num_rows);
+}
+
 Status OlapBlockDataConvertor::OlapColumnDataConvertorMap::convert_to_olap() {
     const ColumnMap* column_map = nullptr;
     const DataTypeMap* data_type_map = nullptr;
