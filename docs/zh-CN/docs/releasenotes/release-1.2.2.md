@@ -117,7 +117,7 @@ under the License.
 
 # BugFix
 
-- 修复了使用 Doris-Flink-Connectore 导入数据时的内存泄漏问题；[#16430](https://github.com/apache/doris/pull/16430)
+- 修复了使用 Doris-Flink-Connector 导入数据时的内存泄漏问题；[#16430](https://github.com/apache/doris/pull/16430)
 
 - 修复了 BE 可能的线程调度问题，并减少了 BE 线程耗尽导致的 Fragment_sent_timeout。
 
