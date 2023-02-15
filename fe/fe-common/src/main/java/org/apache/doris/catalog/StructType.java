@@ -85,8 +85,15 @@ public class StructType extends Type {
     }
 
     public static boolean canCastTo(StructType type, StructType targetType) {
-        // TODO(xy) : support cast struct type
-        return false;
+        if (type.fields.size() != targetType.fields.size()) {
+            return false;
+        }
+        for (int i = 0; i < type.fields.size(); i++) {
+            if (!StructField.canCastTo(type.fields.get(i), targetType.fields.get(i))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override
