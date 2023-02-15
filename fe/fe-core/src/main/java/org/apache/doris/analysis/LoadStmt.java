@@ -424,7 +424,7 @@ public class LoadStmt extends DdlStmt {
             resourceDesc.analyze();
             etlJobType = resourceDesc.getEtlJobType();
             // check resource usage privilege
-            if (!Env.getCurrentEnv().getAuth().checkResourcePriv(ConnectContext.get(),
+            if (!Env.getCurrentEnv().getAccessManager().checkResourcePriv(ConnectContext.get(),
                                                                          resourceDesc.getName(),
                                                                          PrivPredicate.USAGE)) {
                 throw new AnalysisException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()

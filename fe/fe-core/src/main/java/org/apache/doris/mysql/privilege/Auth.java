@@ -30,10 +30,8 @@ import org.apache.doris.analysis.RevokeStmt;
 import org.apache.doris.analysis.SetLdapPassVar;
 import org.apache.doris.analysis.SetPassVar;
 import org.apache.doris.analysis.SetUserPropertyStmt;
-import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TablePattern;
 import org.apache.doris.analysis.UserIdentity;
-import org.apache.doris.catalog.AuthorizationInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -99,7 +97,6 @@ public class Auth implements Writable {
     private UserManager userManager = new UserManager();
     private UserRoleManager userRoleManager = new UserRoleManager();
     private UserPropertyMgr propertyMgr = new UserPropertyMgr();
-
 
     private LdapInfo ldapInfo = new LdapInfo();
 
@@ -219,10 +216,7 @@ public class Auth implements Writable {
         }
     }
 
-    public boolean checkGlobalPriv(ConnectContext ctx, PrivPredicate wanted) {
-        return checkGlobalPriv(ctx.getCurrentUserIdentity(), wanted);
-    }
-
+    // ==== Global ====
     public boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
         if (isLdapAuthEnabled() && LdapPrivsChecker.hasGlobalPrivFromLdap(currentUser, wanted)) {
             return true;
@@ -239,13 +233,9 @@ public class Auth implements Writable {
         } finally {
             readUnlock();
         }
-
     }
 
-    public boolean checkCtlPriv(ConnectContext ctx, String ctl, PrivPredicate wanted) {
-        return checkCtlPriv(ctx.getCurrentUserIdentity(), ctl, wanted);
-    }
-
+    // ==== Catalog ====
     public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
         if (wanted.getPrivs().containsNodePriv()) {
             LOG.debug("should not check NODE priv in catalog level. user: {}, catalog: {}",
@@ -265,25 +255,9 @@ public class Auth implements Writable {
         } finally {
             readUnlock();
         }
-
     }
 
-    public boolean checkDbPriv(ConnectContext ctx, String qualifiedDb, PrivPredicate wanted) {
-        return checkDbPriv(ctx.getCurrentUserIdentity(), qualifiedDb, wanted);
-    }
-
-    public boolean checkDbPriv(UserIdentity currentUser, String db, PrivPredicate wanted) {
-        return checkDbPriv(currentUser, DEFAULT_CATALOG, db, wanted);
-    }
-
-    public boolean checkDbPriv(ConnectContext ctx, String ctl, String db, PrivPredicate wanted) {
-        return checkDbPriv(ctx.getCurrentUserIdentity(), ctl, db, wanted);
-    }
-
-    /*
-     * Check if 'user'@'host' on 'db' has 'wanted' priv.
-     * If the given db is null, which means it will no check if database name is matched.
-     */
+    // ==== Database ====
     public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
         if (isLdapAuthEnabled() && (LdapPrivsChecker.hasDbPrivFromLdap(currentUser, wanted) || LdapPrivsChecker
                 .hasPrivsOfDb(currentUser, db))) {
@@ -309,24 +283,7 @@ public class Auth implements Writable {
 
     }
 
-    public boolean checkTblPriv(ConnectContext ctx, String qualifiedCtl,
-            String qualifiedDb, String tbl, PrivPredicate wanted) {
-        return checkTblPriv(ctx.getCurrentUserIdentity(), qualifiedCtl, qualifiedDb, tbl, wanted);
-    }
-
-    public boolean checkTblPriv(ConnectContext ctx, String qualifiedDb, String tbl, PrivPredicate wanted) {
-        return checkTblPriv(ctx, DEFAULT_CATALOG, qualifiedDb, tbl, wanted);
-    }
-
-    public boolean checkTblPriv(ConnectContext ctx, TableName tableName, PrivPredicate wanted) {
-        Preconditions.checkState(tableName.isFullyQualified());
-        return checkTblPriv(ctx, tableName.getCtl(), tableName.getDb(), tableName.getTbl(), wanted);
-    }
-
-    public boolean checkTblPriv(UserIdentity currentUser, String db, String tbl, PrivPredicate wanted) {
-        return checkTblPriv(currentUser, DEFAULT_CATALOG, db, tbl, wanted);
-    }
-
+    // ==== Table ====
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
         if (isLdapAuthEnabled() && LdapPrivsChecker.hasTblPrivFromLdap(currentUser, db, tbl, wanted)) {
             return true;
@@ -349,10 +306,7 @@ public class Auth implements Writable {
         }
     }
 
-    public boolean checkResourcePriv(ConnectContext ctx, String resourceName, PrivPredicate wanted) {
-        return checkResourcePriv(ctx.getCurrentUserIdentity(), resourceName, wanted);
-    }
-
+    // ==== Resource ====
     public boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
         if (isLdapAuthEnabled() && LdapPrivsChecker.hasResourcePrivFromLdap(currentUser, resourceName, wanted)) {
             return true;
@@ -371,24 +325,7 @@ public class Auth implements Writable {
         }
     }
 
-    public boolean checkPrivByAuthInfo(ConnectContext ctx, AuthorizationInfo authInfo, PrivPredicate wanted) {
-        if (authInfo == null) {
-            return false;
-        }
-        if (authInfo.getDbName() == null) {
-            return false;
-        }
-        if (authInfo.getTableNameList() == null || authInfo.getTableNameList().isEmpty()) {
-            return checkDbPriv(ctx, authInfo.getDbName(), wanted);
-        }
-        for (String tblName : authInfo.getTableNameList()) {
-            if (!checkTblPriv(ConnectContext.get(), authInfo.getDbName(), tblName, wanted)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
+    // ==== Other ====
     /*
      * Check if current user has certain privilege.
      * This method will check the given privilege levels
@@ -409,10 +346,9 @@ public class Auth implements Writable {
         } finally {
             readUnlock();
         }
-
     }
 
-    public boolean checkHasPrivLdap(UserIdentity currentUser, PrivPredicate priv, PrivLevel... levels) {
+    private boolean checkHasPrivLdap(UserIdentity currentUser, PrivPredicate priv, PrivLevel... levels) {
         for (PrivLevel privLevel : levels) {
             switch (privLevel) {
                 case GLOBAL:
@@ -435,7 +371,6 @@ public class Auth implements Writable {
             }
         }
         return false;
-
     }
 
     // Check if LDAP authentication is enabled.
@@ -1263,7 +1198,7 @@ public class Auth implements Writable {
                             String tblName = tablePrivEntry.getOrigTbl();
                             // Don't show privileges in information_schema
                             if (InfoSchemaDb.DATABASE_NAME.equals(dbName)
-                                    || !checkTblPriv(currentUser, tablePrivEntry.getOrigDb(), tblName,
+                                    || !checkTblPriv(currentUser, DEFAULT_CATALOG, tablePrivEntry.getOrigDb(), tblName,
                                     PrivPredicate.SHOW)) {
                                 continue;
                             }
@@ -1314,7 +1249,8 @@ public class Auth implements Writable {
                             String dbName = ClusterNamespace.getNameFromFullName(dbPrivEntry.getOrigDb());
                             // Don't show privileges in information_schema
                             if (InfoSchemaDb.DATABASE_NAME.equals(dbName)
-                                    || !checkDbPriv(currentUser, origDb, PrivPredicate.SHOW)) {
+                                    || !checkDbPriv(currentUser, InternalCatalog.INTERNAL_CATALOG_NAME, origDb,
+                                    PrivPredicate.SHOW)) {
                                 continue;
                             }
 

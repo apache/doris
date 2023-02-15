@@ -231,12 +231,12 @@ public class ExportMgr {
                     if (db == null) {
                         continue;
                     }
-                    if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(),
+                    if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
                                                                            db.getFullName(), PrivPredicate.SHOW)) {
                         continue;
                     }
                 } else {
-                    if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(),
+                    if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
                                                                             tableName.getDb(), tableName.getTbl(),
                                                                             PrivPredicate.SHOW)) {
                         continue;

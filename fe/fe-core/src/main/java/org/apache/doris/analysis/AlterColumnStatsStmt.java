@@ -119,7 +119,7 @@ public class AlterColumnStatsStmt extends DdlStmt {
         }
 
         // check auth
-        if (!Env.getCurrentEnv().getAuth()
+        if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), tableName.getDb(), tableName.getTbl(), PrivPredicate.ALTER)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "ALTER COLUMN STATS",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),

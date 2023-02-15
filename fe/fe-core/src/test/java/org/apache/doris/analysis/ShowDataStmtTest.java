@@ -25,6 +25,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -41,7 +42,7 @@ import java.util.Arrays;
 public class ShowDataStmtTest {
 
     @Mocked
-    private Auth auth;
+    private AccessControllerManager accessManager;
     @Mocked
     private Analyzer analyzer;
     @Mocked
@@ -57,7 +58,7 @@ public class ShowDataStmtTest {
 
     @Before
     public void setUp() throws UserException {
-        auth = new Auth();
+        accessManager = new AccessControllerManager(new Auth());
         new Expectations() {
             {
                 Env.getCurrentInvertedIndex();
@@ -91,9 +92,9 @@ public class ShowDataStmtTest {
                 minTimes = 0;
                 result = invertedIndex;
 
-                env.getAuth();
+                env.getAccessManager();
                 minTimes = 0;
-                result = auth;
+                result = accessManager;
 
                 env.getInternalCatalog();
                 minTimes = 0;
@@ -119,19 +120,20 @@ public class ShowDataStmtTest {
 
         new Expectations() {
             {
-                auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                accessManager.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
 
-                auth.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                accessManager.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
 
-                auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
 
-                auth.checkTblPriv((ConnectContext) any, anyString, anyString, anyString, (PrivPredicate) any);
+                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, anyString,
+                        (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
             }

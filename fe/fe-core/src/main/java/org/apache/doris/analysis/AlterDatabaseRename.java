@@ -56,7 +56,7 @@ public class AlterDatabaseRename extends DdlStmt {
             throw new AnalysisException("Database name is not set");
         }
 
-        if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), dbName,
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName,
                 PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV, Privilege.ALTER_PRIV), Operator.OR))) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,
                     analyzer.getQualifiedUser(), dbName);
