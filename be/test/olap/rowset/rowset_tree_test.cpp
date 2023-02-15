@@ -255,11 +255,13 @@ TEST_F(TestRowsetTree, TestTreeRandomized) {
             int r = strcmp(s1.c_str(), s2.c_str());
             switch (op) {
             case BOUND_LESS_THAN:
-                if (r == 0) continue; // pass through.
+                if (r == 0) continue;
+                [[fallthrough]];
             case BOUND_LESS_EQUAL:
                 return std::pair<string, string>(std::min(s1, s2), std::max(s1, s2));
             case BOUND_GREATER_THAN:
-                if (r == 0) continue; // pass through.
+                if (r == 0) continue;
+                [[fallthrough]];
             case BOUND_GREATER_EQUAL:
                 return std::pair<string, string>(std::max(s1, s2), std::min(s1, s2));
             case BOUND_EQUAL:

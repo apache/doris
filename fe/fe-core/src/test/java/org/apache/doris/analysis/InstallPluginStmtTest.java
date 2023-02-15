@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -35,7 +35,7 @@ public class InstallPluginStmtTest {
 
     private Analyzer analyzer;
     @Mocked
-    private Auth auth;
+    private AccessControllerManager accessManager;
 
     @Before
     public void setUp() {
@@ -43,7 +43,7 @@ public class InstallPluginStmtTest {
 
         new Expectations() {
             {
-                auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                accessManager.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
             }

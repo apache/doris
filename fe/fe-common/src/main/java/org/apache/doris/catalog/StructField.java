@@ -123,8 +123,14 @@ public class StructField {
     }
 
     public static boolean canCastTo(StructField field, StructField targetField) {
-        // TODO(xy): support cast field
-        return false;
+        // not support cast not null to nullable
+        if (targetField.containsNull != field.containsNull) {
+            return false;
+        }
+        if (targetField.type.isStringType() && field.type.isStringType()) {
+            return true;
+        }
+        return Type.canCastTo(field.type, targetField.type);
     }
 
     public boolean matchesField(StructField f) {

@@ -32,6 +32,8 @@ import org.apache.doris.nereids.util.PlanConstructor;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.Objects;
+
 class EliminateOuterJoinTest implements PatternMatchSupported {
     private final LogicalOlapScan scan1 = PlanConstructor.newLogicalOlapScan(0, "t1", 0);
     private final LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
@@ -44,11 +46,14 @@ class EliminateOuterJoinTest implements PatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new InferFilterNotNull())
                 .applyTopDown(new EliminateOuterJoin())
+                .applyTopDown(new EliminateNotNull())
+                .printlnTree()
                 .matchesFromRoot(
                         logicalFilter(
                                 logicalJoin().when(join -> join.getJoinType().isInnerJoin())
-                        )
+                        ).when(filter -> filter.getConjuncts().size() == 1)
                 );
     }
 
@@ -60,11 +65,15 @@ class EliminateOuterJoinTest implements PatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new InferFilterNotNull())
                 .applyTopDown(new EliminateOuterJoin())
+                .applyTopDown(new EliminateNotNull())
+                .printlnTree()
                 .matchesFromRoot(
                         logicalFilter(
                                 logicalJoin().when(join -> join.getJoinType().isInnerJoin())
-                        )
+                        ).when(filter -> filter.getConjuncts().size() == 1)
+                                .when(filter -> Objects.equals(filter.getConjuncts().toString(), "[(id#0 > 1)]"))
                 );
     }
 
@@ -78,11 +87,14 @@ class EliminateOuterJoinTest implements PatternMatchSupported {
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .applyTopDown(new InferFilterNotNull())
                 .applyTopDown(new EliminateOuterJoin())
+                .applyTopDown(new EliminateNotNull())
+                .printlnTree()
                 .matchesFromRoot(
                         logicalFilter(
                                 logicalJoin().when(join -> join.getJoinType().isInnerJoin())
-                        )
+                        ).when(filter -> filter.getConjuncts().size() == 2)
                 );
     }
 }

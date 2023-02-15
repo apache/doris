@@ -31,7 +31,7 @@ import org.junit.Test;
 public class ShowMTMVJobStmtTest {
     @Test
     public void testNormal() throws UserException, AnalysisException {
-        final Analyzer analyzer =  AccessTestUtil.fetchEmptyDbAnalyzer();
+        final Analyzer analyzer = AccessTestUtil.fetchEmptyDbAnalyzer();
         ShowMTMVJobStmt stmt = new ShowMTMVJobStmt();
         stmt.analyze(analyzer);
         Assert.assertNull(stmt.getJobName());
@@ -81,17 +81,15 @@ public class ShowMTMVJobStmtTest {
 
     @Test(expected = UserException.class)
     public void testConflictDbName() throws UserException, AnalysisException {
-        final Analyzer analyzer =  AccessTestUtil.fetchBlockAnalyzer();
+        final Analyzer analyzer = AccessTestUtil.fetchBlockAnalyzer();
         TableName tableName = new TableName(null, "db2", "mv1");
-
         ShowMTMVJobStmt stmt = new ShowMTMVJobStmt("db1", tableName);
         stmt.analyze(analyzer);
     }
 
-
     @Test
     public void testDefaultDb() throws UserException {
-        final Analyzer analyzer =  AccessTestUtil.fetchBlockAnalyzer();
+        final Analyzer analyzer = AccessTestUtil.fetchBlockAnalyzer();
         ShowMTMVJobStmt stmt = new ShowMTMVJobStmt();
         stmt.analyze(analyzer);
         Assert.assertNull(stmt.getJobName());

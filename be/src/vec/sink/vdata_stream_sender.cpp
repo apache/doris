@@ -38,8 +38,6 @@ namespace doris::vectorized {
 Status Channel::init(RuntimeState* state) {
     _be_number = state->be_number();
 
-    _capacity = std::max(1, _buffer_size / std::max(_row_desc.get_row_size(), 1));
-
     if (_brpc_dest_addr.hostname.empty()) {
         LOG(WARNING) << "there is no brpc destination address's hostname"
                         ", maybe version is not compatible.";

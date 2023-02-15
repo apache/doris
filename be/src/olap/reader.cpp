@@ -133,10 +133,8 @@ bool TabletReader::_optimize_for_single_rowset(
     return !has_overlapping && nonoverlapping_count == 1 && !has_delete_rowset;
 }
 
-Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
-                                         std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
-    const std::vector<RowsetReaderSharedPtr>* rs_readers = &read_params.rs_readers;
-    if (rs_readers->empty()) {
+Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
+    if (read_params.rs_readers.empty()) {
         return Status::InternalError("fail to acquire data sources. tablet={}",
                                      _tablet->full_name());
     }
@@ -228,8 +226,6 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.is_key_column_group = read_params.is_key_column_group;
     _reader_context.remaining_vconjunct_root = read_params.remaining_vconjunct_root;
     _reader_context.output_columns = &read_params.output_columns;
-
-    *valid_rs_readers = *rs_readers;
 
     return Status::OK();
 }

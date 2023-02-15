@@ -92,7 +92,6 @@ jobs:
           )
 
           sudo apt update
-          sudo apt upgrade --yes
           sudo DEBIAN_FRONTEND=noninteractive apt install --yes "${packages[@]}"
 
           mkdir -p "${DEFAULT_DIR}"
