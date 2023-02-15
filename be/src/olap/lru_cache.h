@@ -324,8 +324,8 @@ public:
 
     // Separate from constructor so caller can easily make an array of LRUCache
     void set_capacity(size_t capacity) { _capacity = capacity; }
-    void set_element_count_limit(uint32_t element_count_limit) {
-        _element_count_limit = element_count_limit;
+    void set_element_count_capacity(uint32_t element_count_capacity) {
+        _element_count_capacity = element_count_capacity;
     }
 
     // Like Cache methods, but with an extra "hash" parameter.
@@ -383,17 +383,17 @@ private:
     LRUHandleHeap _sorted_normal_entries_with_timestamp;
     LRUHandleHeap _sorted_durable_entries_with_timestamp;
 
-    uint32_t _element_count_limit = 0;
+    uint32_t _element_count_capacity = 0;
 };
 
 class ShardedLRUCache : public Cache {
 public:
     explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
-                             uint32_t num_shards, uint32_t element_count_limit = 0);
+                             uint32_t num_shards, uint32_t element_count_capacity = 0);
     explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
                              uint32_t num_shards,
                              CacheValueTimeExtractor cache_value_time_extractor,
-                             bool cache_value_check_timestamp, uint32_t element_count_limit = 0);
+                             bool cache_value_check_timestamp, uint32_t element_count_capacity = 0);
     // TODO(fdy): 析构时清除所有cache元素
     virtual ~ShardedLRUCache();
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,

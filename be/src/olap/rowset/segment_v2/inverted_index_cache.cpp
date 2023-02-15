@@ -59,9 +59,12 @@ InvertedIndexSearcherCache::InvertedIndexSearcherCache(size_t capacity, uint32_t
         fd_number = static_cast<uint64_t>(l.rlim_cur);
     }
 
-    uint64_t open_searcher_limit = fd_number / 3 * 2;
-    LOG(INFO) << "open_searcher_limit = fd_number / 3 * 2, fd_number: " << fd_number
-              << " open_searcher_limit: " << open_searcher_limit;
+    uint64_t open_searcher_limit = fd_number * config::inverted_index_fd_number_limit_percent / 100;
+    LOG(INFO) << "fd_number: " << fd_number
+              << ", inverted index open searcher limit: " << open_searcher_limit;
+#ifdef BE_TEST
+    open_searcher_limit = 2;
+#endif
 
     if (config::enable_inverted_index_cache_check_timestamp) {
         auto get_last_visit_time = [](const void* value) -> int64_t {

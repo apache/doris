@@ -346,7 +346,7 @@ void LRUCache::_evict_one_entry(LRUHandle* e) {
 }
 
 bool LRUCache::_check_element_count_limit() {
-    return _element_count_limit != 0 && _table.element_count() > _element_count_limit;
+    return _element_count_capacity != 0 && _table.element_count() >= _element_count_capacity;
 }
 
 Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
@@ -510,7 +510,7 @@ inline uint32_t ShardedLRUCache::_hash_slice(const CacheKey& s) {
 }
 
 ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
-                                 uint32_t num_shards, uint32_t element_count_limit)
+                                 uint32_t num_shards, uint32_t total_element_count_capacity)
         : _name(name),
           _num_shard_bits(Bits::FindLSBSetNonZero(num_shards)),
           _num_shards(num_shards),
@@ -522,13 +522,13 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
             << "num_shards should be power of two, but got " << num_shards;
 
     const size_t per_shard = (total_capacity + (_num_shards - 1)) / _num_shards;
-    const size_t per_shard_element_count_limit =
-            (element_count_limit + (_num_shards - 1)) / _num_shards;
+    const size_t per_shard_element_count_capacity =
+            (total_element_count_capacity + (_num_shards - 1)) / _num_shards;
     LRUCache** shards = new (std::nothrow) LRUCache*[_num_shards];
     for (int s = 0; s < _num_shards; s++) {
         shards[s] = new LRUCache(type);
         shards[s]->set_capacity(per_shard);
-        shards[s]->set_element_count_limit(per_shard_element_count_limit);
+        shards[s]->set_element_count_capacity(per_shard_element_count_capacity);
     }
     _shards = shards;
 
@@ -546,8 +546,9 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
 ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
                                  uint32_t num_shards,
                                  CacheValueTimeExtractor cache_value_time_extractor,
-                                 bool cache_value_check_timestamp, uint32_t element_count_limit)
-        : ShardedLRUCache(name, total_capacity, type, num_shards, element_count_limit) {
+                                 bool cache_value_check_timestamp,
+                                 uint32_t total_element_count_capacity)
+        : ShardedLRUCache(name, total_capacity, type, num_shards, total_element_count_capacity) {
     for (int s = 0; s < _num_shards; s++) {
         _shards[s]->set_cache_value_time_extractor(cache_value_time_extractor);
         _shards[s]->set_cache_value_check_timestamp(cache_value_check_timestamp);
