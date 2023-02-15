@@ -43,6 +43,11 @@ Status ColdDataCompaction::execute_compact_impl() {
     }
 #endif
     SCOPED_ATTACH_TASK(_mem_tracker);
+    std::unique_lock<std::mutex> lock(_tablet->get_cooldown_compaction_lock(), std::try_to_lock);
+    if (!lock.owns_lock()) {
+        LOG(WARNING) << "another cooldown compaction is running. tablet=" << _tablet->full_name();
+        return Status::Error<TRY_LOCK_FAILED>();
+    }
     int64_t permits = get_compaction_permits();
     RETURN_IF_ERROR(do_compaction(permits));
     _state = CompactionState::SUCCESS;
@@ -60,6 +65,7 @@ Status ColdDataCompaction::pick_rowsets_to_compact() {
 }
 
 Status ColdDataCompaction::modify_rowsets() {
+
     {
         std::lock_guard wlock(_tablet->get_header_lock());
         // Merged cooldowned rowsets MUST NOT be managed by version graph, they will be reclaimed by `remove_unused_remote_files`.
