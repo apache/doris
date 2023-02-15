@@ -43,7 +43,7 @@ import org.apache.doris.utframe.TestWithFeService;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.glassfish.jersey.internal.guava.Sets;
+import com.google.common.collect.Sets;
 import org.junit.Assert;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
