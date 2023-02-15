@@ -27,7 +27,6 @@ import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -294,40 +293,6 @@ public class JoinUtils {
         return false;
     }
 
-    /**
-     * replace JoinConjuncts by using slots map.
-     */
-    public static List<Expression> replaceJoinConjuncts(List<Expression> joinConjuncts,
-            Map<ExprId, Slot> replaceMaps) {
-        return joinConjuncts.stream()
-                .map(expr ->
-                        expr.rewriteUp(e -> {
-                            if (e instanceof Slot && replaceMaps.containsKey(((Slot) e).getExprId())) {
-                                return replaceMaps.get(((Slot) e).getExprId());
-                            } else {
-                                return e;
-                            }
-                        })
-                ).collect(ImmutableList.toImmutableList());
-    }
-
-    /**
-     * When project not empty, we add all slots used by hashOnCondition into projects.
-     */
-    public static void addSlotsUsedByOn(Set<Slot> usedSlots, List<NamedExpression> projects) {
-        if (projects.isEmpty()) {
-            return;
-        }
-        Set<ExprId> projectExprIdSet = projects.stream()
-                .map(NamedExpression::getExprId)
-                .collect(Collectors.toSet());
-        usedSlots.forEach(slot -> {
-            if (!projectExprIdSet.contains(slot.getExprId())) {
-                projects.add(slot);
-            }
-        });
-    }
-
     public static Set<ExprId> getJoinOutputExprIdSet(Plan left, Plan right) {
         Set<ExprId> joinOutputExprIdSet = new HashSet<>();
         joinOutputExprIdSet.addAll(left.getOutputExprIdSet());
@@ -342,6 +307,7 @@ public class JoinUtils {
 
     /**
      * calculate the output slot of a join operator according join type and its children
+     *
      * @param joinType the type of join operator
      * @param left left child
      * @param right right child

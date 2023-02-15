@@ -23,8 +23,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -40,28 +38,26 @@ import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
- * Rule for change inner join LAsscom (associative and commutive).
+ * OuterJoinAssocProject.
  */
-public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
-    public static final OuterJoinLAsscomProject INSTANCE = new OuterJoinLAsscomProject();
-
+public class OuterJoinAssocProject extends OneExplorationRuleFactory {
     /*
-     *        topJoin                   newTopJoin
-     *        /     \                   /        \
-     *    project    C          newLeftProject newRightProject
-     *      /            ──►          /            \
-     * bottomJoin                newBottomJoin      B
-     *    /   \                     /   \
-     *   A     B                   A     C
+     *        topJoin        newTopJoin
+     *        /     \         /     \
+     *   bottomJoin  C  ->   A   newBottomJoin
+     *    /    \                     /    \
+     *   A      B                   B      C
      */
+    public static final OuterJoinAssocProject INSTANCE = new OuterJoinAssocProject();
+
     @Override
     public Rule build() {
         return logicalJoin(logicalProject(logicalJoin()), group())
-                .when(join -> OuterJoinLAsscom.VALID_TYPE_PAIR_SET.contains(
+                .when(join -> OuterJoinAssoc.VALID_TYPE_PAIR_SET.contains(
                         Pair.of(join.left().child().getJoinType(), join.getJoinType())))
                 .when(topJoin -> OuterJoinLAsscom.checkReorder(topJoin, topJoin.left().child()))
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
-                .when(join -> JoinReorderUtils.checkProject(join.left()))
+                .when(join -> OuterJoinAssoc.checkCondition(join, join.left().child().left().getOutputSet()))
                 .then(topJoin -> {
                     /* ********** init ********** */
                     List<NamedExpression> projects = topJoin.left().getProjects();
@@ -73,16 +69,16 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     /* ********** Split projects ********** */
                     Map<Boolean, List<NamedExpression>> map = JoinReorderUtils.splitProjection(projects, a);
                     List<NamedExpression> aProjects = map.get(true);
-                    if (aProjects.isEmpty()) {
+                    List<NamedExpression> bProjects = map.get(false);
+                    if (bProjects.isEmpty()) {
                         return null;
                     }
-                    List<NamedExpression> bProjects = map.get(false);
-                    Set<ExprId> bProjectsExprIds = bProjects.stream().map(NamedExpression::getExprId)
+                    Set<ExprId> aProjectsExprIds = aProjects.stream().map(NamedExpression::getExprId)
                             .collect(Collectors.toSet());
 
-                    // topJoin condition can't contain bProject output. just can (A C)
+                    // topJoin condition can't contain aProject. just can (B C)
                     if (Stream.concat(topJoin.getHashJoinConjuncts().stream(), topJoin.getOtherJoinConjuncts().stream())
-                            .anyMatch(expr -> Utils.isIntersecting(expr.getInputSlotExprIds(), bProjectsExprIds))) {
+                            .anyMatch(expr -> Utils.isIntersecting(expr.getInputSlotExprIds(), aProjectsExprIds))) {
                         return null;
                     }
 
@@ -95,36 +91,21 @@ public class OuterJoinLAsscomProject extends OneExplorationRuleFactory {
                     helper.addSlotsUsedByOn(JoinReorderUtils.combineProjectAndChildExprId(a, helper.newLeftProjects),
                             Collections.EMPTY_SET);
 
-                    aProjects.addAll(forceToNullable(c.getOutputSet()));
-
+                    bProjects.addAll(OuterJoinLAsscomProject.forceToNullable(c.getOutputSet()));
                     /* ********** new Plan ********** */
                     LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
                             helper.newBottomHashConjuncts, helper.newBottomOtherConjuncts, JoinHint.NONE,
-                            a, c, bottomJoin.getJoinReorderContext());
-                    newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
-                    newBottomJoin.getJoinReorderContext().setHasCommute(false);
+                            b, c, bottomJoin.getJoinReorderContext());
 
-                    Plan left = JoinReorderUtils.projectOrSelf(aProjects, newBottomJoin);
-                    Plan right = JoinReorderUtils.projectOrSelf(bProjects, b);
+                    Plan left = JoinReorderUtils.projectOrSelf(aProjects, a);
+                    Plan right = JoinReorderUtils.projectOrSelf(bProjects, newBottomJoin);
 
                     LogicalJoin<Plan, Plan> newTopJoin = new LogicalJoin<>(bottomJoin.getJoinType(),
                             helper.newTopHashConjuncts, helper.newTopOtherConjuncts, JoinHint.NONE,
                             left, right, topJoin.getJoinReorderContext());
-                    newTopJoin.getJoinReorderContext().setHasLAsscom(true);
-                    return JoinReorderUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()), newTopJoin);
-                }).toRule(RuleType.LOGICAL_OUTER_JOIN_LASSCOM_PROJECT);
-    }
+                    OuterJoinAssoc.setReorderContext(newTopJoin, newBottomJoin);
 
-    /**
-     * Force all slots in set to nullable.
-     */
-    public static Set<Slot> forceToNullable(Set<Slot> slotSet) {
-        return slotSet.stream().map(s -> (Slot) s.rewriteUp(e -> {
-            if (e instanceof SlotReference) {
-                return ((SlotReference) e).withNullable(true);
-            } else {
-                return e;
-            }
-        })).collect(Collectors.toSet());
+                    return JoinReorderUtils.projectOrSelf(new ArrayList<>(topJoin.getOutput()), newTopJoin);
+                }).toRule(RuleType.LOGICAL_OUTER_JOIN_ASSOC_PROJECT);
     }
 }

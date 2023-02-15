@@ -27,7 +27,7 @@ import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 
@@ -111,7 +111,7 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
                 .collect(Collectors.partitioningBy(topHashOn -> {
                     Set<ExprId> usedExprIdSet = topHashOn.getInputSlotExprIds();
                     Set<ExprId> bOutputExprIdSet = bottomJoin.right().getOutputExprIdSet();
-                    return ExpressionUtils.isIntersecting(bOutputExprIdSet, usedExprIdSet);
+                    return Utils.isIntersecting(bOutputExprIdSet, usedExprIdSet);
                 }));
         // * don't include B, just include (A C)
         // we add it into newBottomJoin HashJoinConjuncts.
