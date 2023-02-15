@@ -857,7 +857,8 @@ Status BetaRowsetWriter::_do_create_segment_writer(
         }
     }
 
-    auto s = (*writer)->init(block);
+    auto s = (*writer)->init(_context.schema_change_recorder->has_extended_columns() ? block
+                                                                                     : nullptr);
     if (!s.ok()) {
         LOG(WARNING) << "failed to init segment writer: " << s.to_string();
         writer->reset(nullptr);
