@@ -1193,10 +1193,10 @@ public class SingleNodePlanner {
             // create left-deep sequence of binary hash joins; assign node ids as we go along
             TableRef tblRef = selectStmt.getTableRefs().get(0);
             materializeTableResultForCrossJoinOrCountStar(tblRef, analyzer);
-            if (selectStmt.getSelectList().getItems().size() == 1) {
+            if (selectStmt.getResultExprs().size() == 1) {
                 final List<SlotId> slotIds = Lists.newArrayList();
                 final List<TupleId> tupleIds = Lists.newArrayList();
-                Expr resultExprSelected = selectStmt.getSelectList().getItems().get(0).getExpr();
+                Expr resultExprSelected =  selectStmt.getResultExprs().get(0);
                 if (resultExprSelected != null && resultExprSelected instanceof SlotRef) {
                     resultExprSelected.getIds(tupleIds, slotIds);
                     for (SlotId id : slotIds) {
