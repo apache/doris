@@ -69,7 +69,21 @@ const_sql = {
     'random': "select random() from ${t}",
     'random_BigInt': "select random(1000) from ${t} order by kbint",
     'to_quantile_state_Varchar_Float': 'select to_quantile_state(kvchrs1, 2048) from ${t} order by kvchrs1',
-    # generator
+    # agg
+    'group_concat_Varchar_AnyData': 'select group_concat(distinct cast(abs(kint) as varchar) order by abs(ksint), kdt) from ${t}',
+    'percentile_BigInt_Double': 'select percentile(kbint, 0.6) from ${t}',
+    'percentile_approx_Double_Double': 'select percentile_approx(kdbl, 0.6) from ${t}',
+    'percentile_approx_Double_Double_Double': 'select percentile_approx(kdbl, 0.6, 4096.0) from ${t}',
+    'sequence_count_String_DateV2_Boolean': 'select sequence_count(\'(?1)(?2)\', kdtv2, kint = 1, kint = 2) from ${t}',
+    'sequence_count_String_DateTime_Boolean': 'select sequence_count(\'(?1)(?2)\', kdtm, kint = 1, kint = 2) from ${t}',
+    'sequence_count_String_DateTimeV2_Boolean': 'select sequence_count(\'(?1)(?2)\', kdtmv2s1, kint = 1, kint = 5) from ${t}',
+    'sequence_match_String_DateV2_Boolean': 'select sequence_match(\'(?1)(?2)\', kdtv2, kint = 1, kint = 2) from ${t}',
+    'sequence_match_String_DateTime_Boolean': 'select sequence_match(\'(?1)(?2)\', kdtm, kint = 1, kint = 2) from ${t}',
+    'sequence_match_String_DateTimeV2_Boolean': 'select sequence_match(\'(?1)(?2)\', kdtmv2s1, kint = 1, kint = 2) from ${t}',
+    'topn_Varchar_Integer': 'select topn(kvchrs1, 3) from ${t}',
+    'topn_String_Integer': 'select topn(kstr, 3) from ${t}',
+    'topn_Varchar_Integer_Integer': 'select topn(kvchrs1, 3, 100) from ${t}',
+    'topn_String_Integer_Integer': 'select topn(kstr, 3, 100) from ${t}',
 }
 
 not_check_result = {
@@ -132,8 +146,11 @@ not_check_result = {
 denied_tag = {
     'esquery',
     'hll_cardinality',
+    'hll_union',
+    'hll_union_agg',
     'to_quantile_state',
     'quantile_percent',
+    'quantile_union'
 }
 
 header = '''// Licensed to the Apache Software Foundation (ASF) under one
