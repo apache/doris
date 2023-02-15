@@ -183,8 +183,7 @@ protected:
 
     Status _init_params(const ReaderParams& read_params);
 
-    Status _capture_rs_readers(const ReaderParams& read_params,
-                               std::vector<RowsetReaderSharedPtr>* valid_rs_readers);
+    Status _capture_rs_readers(const ReaderParams& read_params);
 
     bool _optimize_for_single_rowset(const std::vector<RowsetReaderSharedPtr>& rs_readers);
 
