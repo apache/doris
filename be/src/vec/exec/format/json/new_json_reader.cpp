@@ -113,7 +113,8 @@ Status NewJsonReader::init_reader() {
     if (_is_dynamic_schema) {
         _json_parser = std::make_unique<vectorized::JSONDataParser<vectorized::SimdJSONParser>>();
     }
-    LOG_INFO("parsed_jsonpaths empty {}, strip outer array {}", _parsed_jsonpaths.empty(), _strip_outer_array);
+    LOG_INFO("parsed_jsonpaths empty {}, strip outer array {}", _parsed_jsonpaths.empty(),
+             _strip_outer_array);
     return Status::OK();
 }
 
