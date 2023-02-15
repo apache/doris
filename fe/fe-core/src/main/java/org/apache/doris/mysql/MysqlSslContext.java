@@ -171,6 +171,10 @@ public class MysqlSslContext {
 
     private void handleNeedWrap(MysqlChannel channel) {
         try {
+            serverAppData.flip();
+            serverAppData.clear();
+            serverNetData.flip();
+            serverNetData.clear();
             while (true) {
                 SSLEngineResult sslEngineResult = sslEngine.wrap(serverAppData, serverNetData);
                 if (handleWrapResult(sslEngineResult)) {
@@ -203,7 +207,6 @@ public class MysqlSslContext {
                 // if BUFFER_OVERFLOW or BUFFER_UNDERFLOW, need to unwrap again, so we do nothing.
             }
         } catch (SSLException e) {
-            sslEngine.closeOutbound();
         } catch (IOException e) {
             throw new RuntimeException("send failed");
         }
@@ -216,7 +219,8 @@ public class MysqlSslContext {
             case OK:
                 return true;
             case CLOSED:
-                throw new SSLException("SSL engine closed.");
+                sslEngine.closeOutbound();
+                return true;
             case BUFFER_OVERFLOW:
                 // Could attempt to drain the serverNetData buffer of any already obtained
                 // data, but we'll just increase it to the size needed.
