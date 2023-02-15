@@ -34,7 +34,7 @@ public:
     Status init(RowsetReaderContext* read_context) override;
 
     Status get_segment_iterators(RowsetReaderContext* read_context,
-                                 std::vector<RowwiseIterator*>* out_iters,
+                                 std::vector<RowwiseIteratorUPtr>* out_iters,
                                  bool use_cache = false) override;
     void reset_read_options() override;
     Status next_block(vectorized::Block* block) override;
