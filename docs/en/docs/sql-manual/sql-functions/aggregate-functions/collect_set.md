@@ -50,7 +50,7 @@ Only supported in vectorized engine
 ```
 mysql> set enable_vectorized_engine=true;
 
-mysql> select k1,k2,k3 from group_uniq_array_test order by k1;
+mysql> select k1,k2,k3 from collect_set_test order by k1;
 +------+------------+-------+
 | k1   | k2         | k3    |
 +------+------------+-------+
@@ -63,16 +63,16 @@ mysql> select k1,k2,k3 from group_uniq_array_test order by k1;
 |    4 | 2023-01-03 | sql   |
 +------+------------+-------+
 
-mysql> select group_uniq_array(k1),group_uniq_array(k1,2) from group_uniq_array_test;
+mysql> select collect_set(k1),collect_set(k1,2) from collect_set_test;
 +-------------------------+--------------------------+
-| group_uniq_array(`k1`)  | group_uniq_array(`k1`,2) |
+| collect_set(`k1`)       | collect_set(`k1`,2)      |
 +-------------------------+--------------------------+
 | [4,3,2,1]               | [1,2]                    |
 +----------------------------------------------------+
 
-mysql> select k1,group_uniq_array(k2),group_uniq_array(k3,1) from group_uniq_array_test group by k1 order by k1;
+mysql> select k1,collect_set(k2),collect_set(k3,1) from collect_set_test group by k1 order by k1;
 +------+-------------------------+--------------------------+
-| k1   | group_uniq_array(`k2`)  | group_uniq_array(`k3`,1) |
+| k1   | collect_set(`k2`)       | collect_set(`k3`,1)      |
 +------+-------------------------+--------------------------+
 |    1 | [2023-01-01]            | [hello]                  |
 |    2 | [2023-01-01,2023-01-02] | [hello]                  |
