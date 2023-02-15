@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <vector>
 
 // This is the only Doris header required to develop UDFs and UDAs. This header
