@@ -85,6 +85,8 @@ const_sql = {
     'topn_String_Integer': 'select topn(kstr, 3) from ${t}',
     'topn_Varchar_Integer_Integer': 'select topn(kvchrs1, 3, 100) from ${t}',
     'topn_String_Integer_Integer': 'select topn(kstr, 3, 100) from ${t}',
+    'window_funnel_BigInt_String_DateTime_Boolean': '',
+    'window_funnel_BigInt_String_DateTimeV2_Boolean': '',
 }
 
 not_check_result = {
