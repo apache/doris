@@ -106,6 +106,8 @@ suite("test_ctas") {
         sql """ DROP TABLE IF EXISTS test_ctas_json_object """
         
         sql """ DROP TABLE IF EXISTS test_ctas_json_object1 """
+
+        sql """drop table if exists a"""
     }
 
 }
