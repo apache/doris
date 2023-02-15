@@ -2475,6 +2475,7 @@ struct SubReplaceFourImpl {
 
 // Wrap iconv_open and iconv_close to a shared ptr call
 class IconvWrapper {
+public:
     iconv_t cd_;
     IconvWrapper(iconv_t cd) : cd_(cd) {}
     ~IconvWrapper() { iconv_close(cd_); }
