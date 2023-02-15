@@ -161,6 +161,7 @@ private:
     RuntimeProfile::Counter* _bytes_read_counter;
     RuntimeProfile::Counter* _read_timer;
     RuntimeProfile::Counter* _file_read_timer;
+    RuntimeProfile::Counter* _convert_to_doris_col_timer;
 
     bool _is_dynamic_schema = false;
     std::unique_ptr<JSONDataParser<SimdJSONParser>> _json_parser;

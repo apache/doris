@@ -63,6 +63,7 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
 
     _text_converter.reset(new (std::nothrow) TextConverter('\\'));
     _split_values.reserve(sizeof(Slice) * _file_slot_descs.size());
+    _convert_to_doris_col_timer = ADD_TIMER(_profile, "CSVConvertDorisColTime");
 }
 
 CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
@@ -81,6 +82,7 @@ CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params
     _file_format_type = _params.format_type;
     _file_compress_type = _params.compress_type;
     _size = _range.size;
+    _convert_to_doris_col_timer = ADD_TIMER(_profile, "CSVConvertDorisColTime");
 }
 
 CsvReader::~CsvReader() = default;
@@ -331,6 +333,7 @@ Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
                                      std::vector<MutableColumnPtr>& columns, size_t* rows) {
     bool is_success = false;
 
+    SCOPED_TIMER(_convert_to_doris_col_timer);
     RETURN_IF_ERROR(_line_split_to_values(line, &is_success));
     if (UNLIKELY(!is_success)) {
         // If not success, which means we met an invalid row, filter this row and return.

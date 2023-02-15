@@ -65,7 +65,8 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
           _is_dynamic_schema(is_dynamic_schema) {
     _bytes_read_counter = ADD_COUNTER(_profile, "BytesRead", TUnit::BYTES);
     _read_timer = ADD_TIMER(_profile, "ReadTime");
-    _file_read_timer = ADD_TIMER(_profile, "FileReadTime");
+    _file_read_timer = ADD_TIMER(_profile, "JsonFileReadTime");
+    _convert_to_doris_col_timer = ADD_TIMER(_profile, "JsonConvertDorisColTime");
 }
 
 NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
@@ -112,6 +113,7 @@ Status NewJsonReader::init_reader() {
     if (_is_dynamic_schema) {
         _json_parser = std::make_unique<vectorized::JSONDataParser<vectorized::SimdJSONParser>>();
     }
+    LOG_INFO("parsed_jsonpaths empty {}, strip outer array {}", _parsed_jsonpaths.empty(), _strip_outer_array);
     return Status::OK();
 }
 
@@ -739,6 +741,7 @@ Status NewJsonReader::_set_column_value(rapidjson::Value& objectValue,
         return Status::OK();
     }
 
+    SCOPED_TIMER(_convert_to_doris_col_timer);
     int ctx_idx = 0;
     bool has_valid_value = false;
     size_t cur_row_count = columns[0]->size();

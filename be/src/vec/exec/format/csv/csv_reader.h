@@ -119,6 +119,8 @@ private:
 
     // save source text which have been splitted.
     std::vector<Slice> _split_values;
+
+    RuntimeProfile::Counter* _convert_to_doris_col_timer = nullptr;
 };
 } // namespace vectorized
 } // namespace doris

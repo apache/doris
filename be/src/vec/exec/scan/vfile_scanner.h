@@ -132,6 +132,8 @@ private:
     RuntimeProfile::Counter* _fill_missing_columns_timer = nullptr;
     RuntimeProfile::Counter* _pre_filter_timer = nullptr;
     RuntimeProfile::Counter* _convert_to_output_block_timer = nullptr;
+    // to monitor reader create time(S3 reader may take too long)
+    RuntimeProfile::Counter* _next_reader_timer = nullptr;
 
 private:
     Status _init_expr_ctxes();
