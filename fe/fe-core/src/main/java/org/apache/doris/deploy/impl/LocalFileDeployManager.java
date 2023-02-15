@@ -54,6 +54,7 @@ public class LocalFileDeployManager extends DeployManager {
     public static final String ENV_FE_OBSERVER_SERVICE = "FE_OBSERVER_SERVICE";
     public static final String ENV_BE_SERVICE = "BE_SERVICE";
     public static final String ENV_BROKER_SERVICE = "BROKER_SERVICE";
+    public static final String ENV_CN_SERVICE = "CN_SERVICE";
 
     public static final String ENV_BROKER_NAME = "BROKER_NAME";
 
@@ -61,14 +62,14 @@ public class LocalFileDeployManager extends DeployManager {
 
     public LocalFileDeployManager(Env env, long intervalMs) {
         super(env, intervalMs);
-        initEnvVariables(ENV_FE_SERVICE, ENV_FE_OBSERVER_SERVICE, ENV_BE_SERVICE, ENV_BROKER_SERVICE);
+        initEnvVariables(ENV_FE_SERVICE, ENV_FE_OBSERVER_SERVICE, ENV_BE_SERVICE, ENV_BROKER_SERVICE, ENV_CN_SERVICE);
     }
 
     @Override
     protected void initEnvVariables(String envElectableFeServiceGroup, String envObserverFeServiceGroup,
-            String envBackendServiceGroup, String envBrokerServiceGroup) {
+            String envBackendServiceGroup, String envBrokerServiceGroup, String envCnServiceGroup) {
         super.initEnvVariables(envElectableFeServiceGroup, envObserverFeServiceGroup, envBackendServiceGroup,
-                               envBrokerServiceGroup);
+                envBrokerServiceGroup, envCnServiceGroup);
 
         // namespace
         clusterInfoFile = Strings.nullToEmpty(System.getenv(ENV_APP_NAMESPACE));
