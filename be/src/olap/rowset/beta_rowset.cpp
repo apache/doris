@@ -157,11 +157,7 @@ Status BetaRowset::load_segments(int64_t seg_id_begin, int64_t seg_id_end,
         if (!s.ok()) {
             LOG(WARNING) << "failed to open segment. " << seg_path << " under rowset "
                          << unique_id() << " : " << s.to_string();
-            if (s.is_io_error()) {
-                return s;
-            } else {
-                return Status::Error<ROWSET_LOAD_FAILED>();
-            }
+            return s;
         }
         segments->push_back(std::move(segment));
         seg_id++;

@@ -237,12 +237,10 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
     do {
         auto s = _iterator->next_batch(block);
         if (!s.ok()) {
-            if (s.is<END_OF_FILE>() || s.is_io_error()) {
-                return s;
-            } else {
+            if (!s.is<END_OF_FILE>()) {
                 LOG(WARNING) << "failed to read next block: " << s.to_string();
-                return Status::Error<ROWSET_READ_FAILED>();
             }
+            return s;
         }
     } while (block->empty());
 
@@ -255,12 +253,10 @@ Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
         do {
             auto s = _iterator->next_block_view(block_view);
             if (!s.ok()) {
-                if (s.is<END_OF_FILE>() || s.is_io_error()) {
-                    return s;
-                } else {
+                if (!s.is<END_OF_FILE>()) {
                     LOG(WARNING) << "failed to read next block view: " << s.to_string();
-                    return Status::Error<ROWSET_READ_FAILED>();
                 }
+                return s;
             }
         } while (block_view->empty());
     } else {

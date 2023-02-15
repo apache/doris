@@ -382,7 +382,7 @@ Status BetaRowsetWriter::_load_noncompacted_segments(
                                            _context.tablet_schema, reader_options, &segment);
         if (!s.ok()) {
             LOG(WARNING) << "failed to open segment. " << seg_path << ":" << s.to_string();
-            return Status::Error<ROWSET_LOAD_FAILED>();
+            return s;
         }
         segments->push_back(std::move(segment));
     }
