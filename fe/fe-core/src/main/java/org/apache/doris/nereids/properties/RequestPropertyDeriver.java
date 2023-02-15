@@ -96,7 +96,11 @@ public class RequestPropertyDeriver extends PlanVisitor<Void, PlanContext> {
 
     @Override
     public Void visitPhysicalQuickSort(PhysicalQuickSort<? extends Plan> sort, PlanContext context) {
-        addRequestPropertyToChildren(PhysicalProperties.ANY);
+        if (!sort.getSortPhase().isLocal()) {
+            addRequestPropertyToChildren(PhysicalProperties.GATHER);
+        } else {
+            addRequestPropertyToChildren(PhysicalProperties.ANY);
+        }
         return null;
     }
 

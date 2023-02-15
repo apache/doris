@@ -310,14 +310,14 @@ public class PlanEqualsTest {
                         new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()), true,
                         true)),
                 logicalProperties,
-                child);
+                child, SortPhase.LOCAL_SORT);
 
         PhysicalQuickSort<Plan> expected = new PhysicalQuickSort<>(
                 ImmutableList.of(new OrderKey(
                         new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()), true,
                         true)),
                 logicalProperties,
-                child);
+                child, SortPhase.LOCAL_SORT);
         Assertions.assertEquals(expected, actual);
 
         PhysicalQuickSort<Plan> unexpected = new PhysicalQuickSort<>(
@@ -325,7 +325,7 @@ public class PlanEqualsTest {
                         new SlotReference(new ExprId(2), "a", BigIntType.INSTANCE, true, Lists.newArrayList()), true,
                         true)),
                 logicalProperties,
-                child);
+                child, SortPhase.LOCAL_SORT);
         Assertions.assertNotEquals(unexpected, actual);
     }
 }
