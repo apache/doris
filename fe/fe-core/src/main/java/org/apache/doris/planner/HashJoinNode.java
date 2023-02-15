@@ -849,7 +849,11 @@ public class HashJoinNode extends JoinNodeBase {
             if (mappedExpr != null && mappedExpr instanceof SlotRef) {
                 return (SlotRef) mappedExpr;
             } else {
-                return null;
+                if (outputSmap.containsMappingFor(slotRef)) {
+                    return slotRef;
+                } else {
+                    return null;
+                }
             }
         } else {
             return slotRef;
