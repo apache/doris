@@ -2512,7 +2512,8 @@ public:
                 return Status::RuntimeError("function {} is convert to gbk failed in iconv_open",
                                             get_name());
             }
-            std::shared_ptr<IconvWrapper> cd_wrapper = std::make_shared<iconv_t>(cd);
+            // IconvWrapper will call iconv_close during deconstructor
+            std::shared_ptr<IconvWrapper> cd_wrapper = std::make_shared<IconvWrapper>(cd);
             context->set_function_state(scope, cd_wrapper);
         } else {
             return Status::RuntimeError(
