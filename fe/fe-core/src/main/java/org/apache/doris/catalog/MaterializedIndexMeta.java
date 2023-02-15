@@ -177,10 +177,9 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
                         if (matchedColumn == null) {
                             matchedColumn = column;
                         } else {
-                            throw new IOException(
-                                    "DefineExpr match multiple column in MaterializedIndex, ExprName=" + entry.getKey()
-                                            + ", Expr=" + entry.getValue().toSqlWithoutTbl() + ", Slot=" + name
-                                            + ", Columns=" + columnList);
+                            LOG.warn("DefineExpr match multiple column in MaterializedIndex, ExprName=" + entry.getKey()
+                                    + ", Expr=" + entry.getValue().toSqlWithoutTbl() + ", Slot=" + name
+                                    + ", Columns=" + columnList);
                         }
                     }
                 }
@@ -190,10 +189,9 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
                     matchedColumn.setDefineExpr(entry.getValue());
                     matchedColumn.setDefineName(entry.getKey());
                 } else {
-                    throw new IOException(
-                            "DefineExpr does not match any column in MaterializedIndex, ExprName=" + entry.getKey()
-                                    + ", Expr=" + entry.getValue().toSqlWithoutTbl() + ", Slot=" + name
-                                    + ", Columns=" + columnList);
+                    LOG.warn("DefineExpr does not match any column in MaterializedIndex, ExprName=" + entry.getKey()
+                            + ", Expr=" + entry.getValue().toSqlWithoutTbl() + ", Slot=" + name
+                            + ", Columns=" + columnList);
                 }
             }
         }
