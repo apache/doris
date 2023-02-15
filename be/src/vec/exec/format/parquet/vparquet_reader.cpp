@@ -190,8 +190,9 @@ Status ParquetReader::init_reader(
         auto name = schema_desc.get_column(i)->name;
         // If the column in parquet file is included in all_column_names and not in missing_column_names,
         // add it to _map_column, which means the reader should read the data of this column.
-        // Here to check against missing_column_names is to for the 'Add a column with back to the table
-        // with the same column name' case. Shouldn't read this column data in this case.
+        // Here to check against missing_column_names is for the 'Add a column back to the table
+        // with the same column name' case. (drop column a then add column a).
+        // Shouldn't read this column data in this case.
         if (find(all_column_names.begin(), all_column_names.end(), name) !=
                     all_column_names.end() &&
             find(missing_column_names.begin(), missing_column_names.end(), name) ==

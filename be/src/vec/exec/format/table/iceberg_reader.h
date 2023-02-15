@@ -113,6 +113,7 @@ private:
     std::vector<std::string> _not_in_file_col_names;
 
     bool _has_schema_change = false;
+    bool _has_iceberg_schema = false;
 };
 
 } // namespace doris::vectorized

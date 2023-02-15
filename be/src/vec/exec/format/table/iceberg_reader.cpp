@@ -422,6 +422,7 @@ Status IcebergTableReader::_gen_col_name_maps(std::vector<tparquet::KeyValue> pa
     for (int i = 0; i < parquet_meta_kv.size(); ++i) {
         tparquet::KeyValue kv = parquet_meta_kv[i];
         if (kv.key == "iceberg.schema") {
+            _has_iceberg_schema = true;
             std::string schema = kv.value;
             rapidjson::Document json;
             json.Parse(schema.c_str());
@@ -475,7 +476,9 @@ void IcebergTableReader::_gen_file_col_names() {
         auto iter = _table_col_to_file_col.find(name);
         if (iter == _table_col_to_file_col.end()) {
             _all_required_col_names.emplace_back(name);
-            _not_in_file_col_names.emplace_back(name);
+            if (_has_iceberg_schema) {
+                _not_in_file_col_names.emplace_back(name);
+            }
         } else {
             _all_required_col_names.emplace_back(iter->second);
         }
