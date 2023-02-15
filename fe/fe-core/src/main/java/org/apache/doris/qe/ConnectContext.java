@@ -75,6 +75,10 @@ public class ConnectContext {
     protected volatile long stmtId;
     protected volatile long forwardedStmtId;
 
+    // set for stream load with sql
+    protected volatile TUniqueId loadId;
+    protected volatile long backendId;
+
     protected volatile TUniqueId queryId;
     protected volatile String traceId;
     // id for this connection
@@ -322,6 +326,22 @@ public class ConnectContext {
 
     public long getStmtId() {
         return stmtId;
+    }
+
+    public long getBackendId() {
+        return backendId;
+    }
+
+    public void setBackendId(long backendId) {
+        this.backendId = backendId;
+    }
+
+    public TUniqueId getLoadId() {
+        return loadId;
+    }
+
+    public void setLoadId(TUniqueId loadId) {
+        this.loadId = loadId;
     }
 
     public void setStmtId(long stmtId) {

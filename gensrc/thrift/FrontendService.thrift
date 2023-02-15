@@ -605,6 +605,9 @@ struct TStreamLoadPutRequest {
     44: optional bool enable_profile
     45: optional bool partial_update
     46: optional list<string> table_names
+    47: optional string load_sql // insert into sql used by stream load
+    48: optional i64 backend_id
+    49: optional i32 version // version 1 means use load_sql
 }
 
 struct TStreamLoadPutResult {
@@ -619,6 +622,15 @@ struct TStreamLoadMultiTablePutResult {
     // valid when status is OK
     2: optional list<PaloInternalService.TExecPlanFragmentParams> params
     3: optional list<PaloInternalService.TPipelineFragmentParams> pipeline_params
+}
+
+// StreamLoadWith request status
+struct TStreamLoadWithLoadStatusRequest {
+    1: required Types.TUniqueId loadId
+}
+
+struct TStreamLoadWithLoadStatusResult {
+    1: required Status.TStatus status
 }
 
 struct TKafkaRLTaskProgress {
@@ -1120,6 +1132,7 @@ service FrontendService {
     TWaitingTxnStatusResult waitingTxnStatus(1: TWaitingTxnStatusRequest request)
 
     TStreamLoadPutResult streamLoadPut(1: TStreamLoadPutRequest request)
+    TStreamLoadWithLoadStatusResult StreamLoadWithLoadStatus(1: TStreamLoadWithLoadStatusRequest request)
 
     TStreamLoadMultiTablePutResult streamLoadMultiTablePut(1: TStreamLoadPutRequest request)
 

@@ -212,6 +212,13 @@ Status CsvReader::init_reader(bool is_load) {
     // _decompressor may be nullptr if this is not a compressed file
     RETURN_IF_ERROR(_create_decompressor());
 
+    // for test
+    _value_separator = ",";
+    _value_separator_length = 1;
+    _line_delimiter = '\n';
+    _line_delimiter_length = 1;
+    _size = -1;
+
     switch (_file_format_type) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
         [[fallthrough]];

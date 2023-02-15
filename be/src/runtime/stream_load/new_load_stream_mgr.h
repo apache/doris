@@ -64,6 +64,17 @@ public:
         return nullptr;
     }
 
+    void* get_bufer(const UniqueId& id) {
+        std::lock_guard<std::mutex> l(_buffer_lock);
+        auto it = _stream_schema_buffer_map.find(id);
+        if (it == std::end(_stream_schema_buffer_map)) {
+            return nullptr;
+        }
+        void* buffer = it->second;
+        _stream_schema_buffer_map.erase(it);
+        return buffer;
+    }
+
     void remove(const UniqueId& id) {
         std::lock_guard<std::mutex> l(_lock);
         if (auto iter = _stream_map.find(id); iter != _stream_map.end()) {

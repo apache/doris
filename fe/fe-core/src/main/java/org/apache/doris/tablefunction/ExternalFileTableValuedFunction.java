@@ -44,6 +44,7 @@ import org.apache.doris.proto.InternalService.PFetchTableSchemaRequest;
 import org.apache.doris.proto.Types.PScalarType;
 import org.apache.doris.proto.Types.PTypeDesc;
 import org.apache.doris.proto.Types.PTypeNode;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
@@ -187,10 +188,19 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected void parseFile() throws AnalysisException {
         String path = getFilePath();
         BrokerDesc brokerDesc = getBrokerDesc();
-        try {
-            BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
-        } catch (UserException e) {
-            throw new AnalysisException("parse file failed, path = " + path, e);
+        // create dummy file status for stream load
+        if (getTFileType() == TFileType.FILE_STREAM) {
+            TBrokerFileStatus fileStatus = new TBrokerFileStatus();
+            fileStatus.setPath("");
+            fileStatus.setIsDir(false);
+            fileStatus.setSize(-1); // must set to -1, means stream.
+            fileStatuses.add(fileStatus);
+        } else {
+            try {
+                BrokerUtil.parseFile(path, brokerDesc, fileStatuses);
+            } catch (UserException e) {
+                throw new AnalysisException("parse file failed, path = " + path, e);
+            }
         }
     }
 
@@ -367,6 +377,15 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         TNetworkAddress address = null;
         columns = Lists.newArrayList();
         for (Backend be : org.apache.doris.catalog.Env.getCurrentSystemInfo().getIdToBackend().values()) {
+            // for stream load
+            if (getTFileType() == TFileType.FILE_STREAM) {
+                ConnectContext ctx = ConnectContext.get();
+                long streamLoadBackendId = ctx.getBackendId();
+                if (be.getId() == streamLoadBackendId) {
+                    address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
+                    break;
+                }
+            }
             if (be.isAlive()) {
                 address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
                 break;
@@ -470,6 +489,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileScanRangeParams.setFormatType(fileFormatType);
         fileScanRangeParams.setProperties(locationProperties);
         fileScanRangeParams.setFileAttributes(getFileAttributes());
+        ConnectContext ctx = ConnectContext.get();
+        fileScanRangeParams.setLoadId(ctx.getLoadId());
         if (getTFileType() == TFileType.FILE_HDFS) {
             THdfsParams tHdfsParams = HdfsResource.generateHdfsParam(locationProperties);
             String fsNmae = getLocationProperties().get(HdfsResource.HADOOP_FS_NAME);
