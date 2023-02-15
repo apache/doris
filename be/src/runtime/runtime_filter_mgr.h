@@ -169,7 +169,8 @@ public:
     Status add_entity(const TExecPlanFragmentParams& params,
                       std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
                       RuntimeState* state);
-    Status add_entity(const TPipelineParams& params, const TPipelineLocalParams& local_params,
+    Status add_entity(const TPipelineFragmentParams& params,
+                      const TPipelineInstanceParams& local_params,
                       std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
                       RuntimeState* state);
     // thread safe

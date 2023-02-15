@@ -25,7 +25,7 @@ import org.apache.doris.proto.Types;
 import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TFoldConstantParams;
 import org.apache.doris.thrift.TNetworkAddress;
-import org.apache.doris.thrift.TPipelineParamsList;
+import org.apache.doris.thrift.TPipelineFragmentParamsList;
 import org.apache.doris.thrift.TUniqueId;
 
 import com.google.common.collect.Maps;
@@ -141,7 +141,7 @@ public class BackendServiceProxy {
     }
 
     public Future<InternalService.PExecPlanFragmentResult> execPlanFragmentsAsync(TNetworkAddress address,
-            TPipelineParamsList params, boolean twoPhaseExecution) throws TException, RpcException {
+            TPipelineFragmentParamsList params, boolean twoPhaseExecution) throws TException, RpcException {
         InternalService.PExecPlanFragmentRequest.Builder builder =
                 InternalService.PExecPlanFragmentRequest.newBuilder();
         if (Config.use_compact_thrift_rpc) {
@@ -152,7 +152,7 @@ public class BackendServiceProxy {
             builder.setRequest(ByteString.copyFrom(new TSerializer().serialize(params))).build();
             builder.setCompact(false);
         }
-        // VERSION 3 means we send TPipelineParamsList
+        // VERSION 3 means we send TPipelineFragmentParamsList
         builder.setVersion(InternalService.PFragmentRequestVersion.VERSION_3);
 
         final InternalService.PExecPlanFragmentRequest pRequest = builder.build();

@@ -273,11 +273,12 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
     return Status::OK();
 }
 
-Status PipelineFragmentContext::prepare(const doris::TPipelineParams& request, const size_t idx) {
+Status PipelineFragmentContext::prepare(const doris::TPipelineFragmentParams& request,
+                                        const size_t idx) {
     if (_prepared) {
         return Status::InternalError("Already prepared");
     }
-    TPipelineLocalParams local_params = request.local_params[idx];
+    const auto& local_params = request.local_params[idx];
     _runtime_profile.reset(new RuntimeProfile("PipelineContext"));
     _start_timer = ADD_TIMER(_runtime_profile, "StartTime");
     COUNTER_UPDATE(_start_timer, _fragment_watcher.elapsed_time());
@@ -430,7 +431,8 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
     return Status::OK();
 }
 
-Status PipelineFragmentContext::_build_pipeline_tasks(const doris::TPipelineParams& request) {
+Status PipelineFragmentContext::_build_pipeline_tasks(
+        const doris::TPipelineFragmentParams& request) {
     for (PipelinePtr& pipeline : _pipelines) {
         // if sink
         auto sink = pipeline->sink()->build_operator();

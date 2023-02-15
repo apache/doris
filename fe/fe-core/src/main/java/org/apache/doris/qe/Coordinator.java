@@ -82,9 +82,9 @@ import org.apache.doris.thrift.TExecPlanFragmentParamsList;
 import org.apache.doris.thrift.TFileRangeDesc;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPaloScanRange;
-import org.apache.doris.thrift.TPipelineLocalParams;
-import org.apache.doris.thrift.TPipelineParams;
-import org.apache.doris.thrift.TPipelineParamsList;
+import org.apache.doris.thrift.TPipelineInstanceParams;
+import org.apache.doris.thrift.TPipelineFragmentParams;
+import org.apache.doris.thrift.TPipelineFragmentParamsList;
 import org.apache.doris.thrift.TPlanFragmentDestination;
 import org.apache.doris.thrift.TPlanFragmentExecParams;
 import org.apache.doris.thrift.TQueryGlobals;
@@ -827,7 +827,7 @@ public class Coordinator {
                 // 1. set up exec states
                 int instanceNum = params.instanceExecParams.size();
                 Preconditions.checkState(instanceNum > 0);
-                Map<TNetworkAddress, TPipelineParams> tParams = params.toTPipelineParams(backendIdx);
+                Map<TNetworkAddress, TPipelineFragmentParams> tParams = params.toTPipelineParams(backendIdx);
 
                 boolean needCheckBackendState = false;
                 if (queryOptions.getQueryType() == TQueryType.LOAD && profileFragmentId == 0) {
@@ -839,7 +839,7 @@ public class Coordinator {
 
                 // 3. group BackendExecState by BE. So that we can use one RPC to send all fragment instances of a BE.
 
-                for (Map.Entry<TNetworkAddress, TPipelineParams> entry : tParams.entrySet()) {
+                for (Map.Entry<TNetworkAddress, TPipelineFragmentParams> entry : tParams.entrySet()) {
                     PipelineExecContext pipelineExecContext =
                             new PipelineExecContext(fragment.getFragmentId(),
                                     profileFragmentId, entry.getValue(), this.addressToBackendID, entry.getKey());
@@ -2666,7 +2666,7 @@ public class Coordinator {
     }
 
     public class PipelineExecContext {
-        TPipelineParams rpcParams;
+        TPipelineFragmentParams rpcParams;
         PlanFragmentId fragmentId;
         boolean initiated;
         volatile boolean done;
@@ -2684,7 +2684,7 @@ public class Coordinator {
         private final int numInstances;
 
         public PipelineExecContext(PlanFragmentId fragmentId, int profileFragmentId,
-                TPipelineParams rpcParams, Map<TNetworkAddress, Long> addressToBackendID, TNetworkAddress addr) {
+                TPipelineFragmentParams rpcParams, Map<TNetworkAddress, Long> addressToBackendID, TNetworkAddress addr) {
             this.profileFragmentId = profileFragmentId;
             this.fragmentId = fragmentId;
             this.rpcParams = rpcParams;
@@ -2760,7 +2760,7 @@ public class Coordinator {
             if (this.hasCanceled) {
                 return false;
             }
-            for (TPipelineLocalParams localParam : rpcParams.local_params) {
+            for (TPipelineInstanceParams localParam : rpcParams.local_params) {
                 if (LOG.isDebugEnabled()) {
                     LOG.debug("cancelRemoteFragments initiated={} done={} hasCanceled={} backend: {},"
                                     + " fragment instance id={}, reason: {}",
@@ -2960,7 +2960,7 @@ public class Coordinator {
         public Future<InternalService.PExecPlanFragmentResult> execRemoteFragmentsAsync(BackendServiceProxy proxy)
                 throws TException {
             try {
-                TPipelineParamsList paramsList = new TPipelineParamsList();
+                TPipelineFragmentParamsList paramsList = new TPipelineFragmentParamsList();
                 for (PipelineExecContext cts : ctxs) {
                     cts.initiated = true;
                     paramsList.addToParamsList(cts.rpcParams);
@@ -3094,7 +3094,7 @@ public class Coordinator {
             return paramsList;
         }
 
-        Map<TNetworkAddress, TPipelineParams> toTPipelineParams(int backendNum) {
+        Map<TNetworkAddress, TPipelineFragmentParams> toTPipelineParams(int backendNum) {
             long memLimit = queryOptions.getMemLimit();
             // 2. update memory limit for colocate join
             if (colocateFragmentIds.contains(fragment.getFragmentId().asInt())) {
@@ -3102,11 +3102,11 @@ public class Coordinator {
                 memLimit = queryOptions.getMemLimit() / rate;
             }
 
-            Map<TNetworkAddress, TPipelineParams> res = new HashMap();
+            Map<TNetworkAddress, TPipelineFragmentParams> res = new HashMap();
             for (int i = 0; i < instanceExecParams.size(); ++i) {
                 final FInstanceExecParam instanceExecParam = instanceExecParams.get(i);
                 if (!res.containsKey(instanceExecParam.host)) {
-                    TPipelineParams params = new TPipelineParams();
+                    TPipelineFragmentParams params = new TPipelineFragmentParams();
 
                     // Set global param
                     params.setProtocolVersion(PaloInternalServiceVersion.V1);
@@ -3126,8 +3126,8 @@ public class Coordinator {
                     params.setLocalParams(Lists.newArrayList());
                     res.put(instanceExecParam.host, params);
                 }
-                TPipelineParams params = res.get(instanceExecParam.host);
-                TPipelineLocalParams localParams = new TPipelineLocalParams();
+                TPipelineFragmentParams params = res.get(instanceExecParam.host);
+                TPipelineInstanceParams localParams = new TPipelineInstanceParams();
 
                 localParams.setBuildHashTableForBroadcastJoin(instanceExecParam.buildHashTableForBroadcastJoin);
                 localParams.setFragmentInstanceId(instanceExecParam.instanceId);

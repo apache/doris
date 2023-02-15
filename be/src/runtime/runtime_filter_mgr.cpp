@@ -311,7 +311,7 @@ Status RuntimeFilterMergeController::add_entity(
 }
 
 Status RuntimeFilterMergeController::add_entity(
-        const TPipelineParams& params, const TPipelineLocalParams& local_params,
+        const TPipelineFragmentParams& params, const TPipelineInstanceParams& local_params,
         std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle, RuntimeState* state) {
     if (!local_params.__isset.runtime_filter_params ||
         local_params.runtime_filter_params.rid_to_runtime_filter.size() == 0) {

@@ -72,7 +72,7 @@ public:
     // execute one plan fragment
     Status exec_plan_fragment(const TExecPlanFragmentParams& params);
 
-    Status exec_plan_fragment(const TPipelineParams& params);
+    Status exec_plan_fragment(const TPipelineFragmentParams& params);
 
     void remove_pipeline_context(
             std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_context);
@@ -80,7 +80,7 @@ public:
     // TODO(zc): report this is over
     Status exec_plan_fragment(const TExecPlanFragmentParams& params, FinishCallback cb);
 
-    Status exec_plan_fragment(const TPipelineParams& params, FinishCallback cb);
+    Status exec_plan_fragment(const TPipelineFragmentParams& params, FinishCallback cb);
 
     Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 
@@ -122,7 +122,8 @@ private:
     void _set_scan_concurrency(const TExecPlanFragmentParams& params,
                                QueryFragmentsCtx* fragments_ctx);
 
-    void _set_scan_concurrency(const TPipelineParams& params, QueryFragmentsCtx* fragments_ctx);
+    void _set_scan_concurrency(const TPipelineFragmentParams& params,
+                               QueryFragmentsCtx* fragments_ctx);
 
     bool _is_scan_node(const TPlanNodeType::type& type);
 
@@ -130,8 +131,8 @@ private:
                                                     RuntimeState* state,
                                                     QueryFragmentsCtx* fragments_ctx);
 
-    void _setup_shared_hashtable_for_broadcast_join(const TPipelineParams& params,
-                                                    const TPipelineLocalParams& local_params,
+    void _setup_shared_hashtable_for_broadcast_join(const TPipelineFragmentParams& params,
+                                                    const TPipelineInstanceParams& local_params,
                                                     RuntimeState* state,
                                                     QueryFragmentsCtx* fragments_ctx);
 

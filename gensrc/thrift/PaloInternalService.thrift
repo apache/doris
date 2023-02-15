@@ -554,7 +554,7 @@ struct TExportStatusResult {
     3: optional list<string> files
 }
 
-struct TPipelineLocalParams {
+struct TPipelineInstanceParams {
   1: required Types.TUniqueId fragment_instance_id
   2: optional bool build_hash_table_for_broadcast_join = false;
   3: required map<Types.TPlanNodeId, list<TScanRangeParams>> per_node_scan_ranges
@@ -564,7 +564,7 @@ struct TPipelineLocalParams {
 }
 
 // ExecPlanFragment
-struct TPipelineParams {
+struct TPipelineFragmentParams {
   1: required PaloInternalServiceVersion protocol_version
   2: required Types.TUniqueId query_id
   3: optional i32 fragment_id
@@ -589,9 +589,9 @@ struct TPipelineParams {
   21: optional bool is_simplified_param = false;
   22: optional TGlobalDict global_dict  // scan node could use the global dict to encode the string value to an integer
   23: optional Planner.TPlanFragment fragment
-  24: list<TPipelineLocalParams> local_params
+  24: list<TPipelineInstanceParams> local_params
 }
 
-struct TPipelineParamsList {
-    1: optional list<TPipelineParams> params_list;
+struct TPipelineFragmentParamsList {
+    1: optional list<TPipelineFragmentParams> params_list;
 }

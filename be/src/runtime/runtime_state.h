@@ -58,7 +58,7 @@ public:
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                  ExecEnv* exec_env);
 
-    RuntimeState(const TPipelineLocalParams& pipeline_params, const TUniqueId& query_id,
+    RuntimeState(const TPipelineInstanceParams& pipeline_params, const TUniqueId& query_id,
                  const TQueryOptions& query_options, const TQueryGlobals& query_globals,
                  ExecEnv* exec_env);
 

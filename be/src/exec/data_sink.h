@@ -80,9 +80,10 @@ public:
 
     static Status create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink,
                                    const std::vector<TExpr>& output_exprs,
-                                   const TPipelineParams& params, const size_t& local_param_idx,
-                                   const RowDescriptor& row_desc, RuntimeState* state,
-                                   std::unique_ptr<DataSink>* sink, DescriptorTbl& desc_tbl);
+                                   const TPipelineFragmentParams& params,
+                                   const size_t& local_param_idx, const RowDescriptor& row_desc,
+                                   RuntimeState* state, std::unique_ptr<DataSink>* sink,
+                                   DescriptorTbl& desc_tbl);
 
     // Returns the runtime profile for the sink.
     virtual RuntimeProfile* profile() = 0;

@@ -179,11 +179,12 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
 
 Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink,
                                   const std::vector<TExpr>& output_exprs,
-                                  const TPipelineParams& params, const size_t& local_param_idx,
-                                  const RowDescriptor& row_desc, RuntimeState* state,
-                                  std::unique_ptr<DataSink>* sink, DescriptorTbl& desc_tbl) {
+                                  const TPipelineFragmentParams& params,
+                                  const size_t& local_param_idx, const RowDescriptor& row_desc,
+                                  RuntimeState* state, std::unique_ptr<DataSink>* sink,
+                                  DescriptorTbl& desc_tbl) {
     DataSink* tmp_sink = nullptr;
-    TPipelineLocalParams local_params = params.local_params[local_param_idx];
+    const auto& local_params = params.local_params[local_param_idx];
     switch (thrift_sink.type) {
     case TDataSinkType::DATA_STREAM_SINK: {
         if (!thrift_sink.__isset.stream_sink) {

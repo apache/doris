@@ -282,14 +282,14 @@ Status PInternalServiceImpl::_exec_plan_fragment(const std::string& ser_request,
         }
         return Status::OK();
     } else if (version == PFragmentRequestVersion::VERSION_3) {
-        TPipelineParamsList t_request;
+        TPipelineFragmentParamsList t_request;
         {
             const uint8_t* buf = (const uint8_t*)ser_request.data();
             uint32_t len = ser_request.size();
             RETURN_IF_ERROR(deserialize_thrift_msg(buf, &len, compact, &t_request));
         }
 
-        for (const TPipelineParams& params : t_request.params_list) {
+        for (const TPipelineFragmentParams& params : t_request.params_list) {
             RETURN_IF_ERROR(_exec_env->fragment_mgr()->exec_plan_fragment(params));
         }
         return Status::OK();

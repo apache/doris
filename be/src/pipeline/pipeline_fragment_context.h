@@ -57,7 +57,7 @@ public:
 
     Status prepare(const doris::TExecPlanFragmentParams& request);
 
-    Status prepare(const doris::TPipelineParams& request, const size_t idx);
+    Status prepare(const doris::TPipelineFragmentParams& request, const size_t idx);
 
     Status submit();
 
@@ -145,7 +145,7 @@ private:
     Status _create_sink(const TDataSink& t_data_sink);
     Status _build_pipelines(ExecNode*, PipelinePtr);
     Status _build_pipeline_tasks(const doris::TExecPlanFragmentParams& request);
-    Status _build_pipeline_tasks(const doris::TPipelineParams& request);
+    Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request);
 
     template <bool is_intersect>
     Status _build_operators_for_set_operation_node(ExecNode*, PipelinePtr);

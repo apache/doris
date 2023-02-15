@@ -95,9 +95,9 @@ RuntimeState::RuntimeState(const TPlanFragmentExecParams& fragment_exec_params,
     DCHECK(status.ok());
 }
 
-RuntimeState::RuntimeState(const TPipelineLocalParams& pipeline_params, const TUniqueId& query_id,
-                           const TQueryOptions& query_options, const TQueryGlobals& query_globals,
-                           ExecEnv* exec_env)
+RuntimeState::RuntimeState(const TPipelineInstanceParams& pipeline_params,
+                           const TUniqueId& query_id, const TQueryOptions& query_options,
+                           const TQueryGlobals& query_globals, ExecEnv* exec_env)
         : _profile("Fragment " + print_id(pipeline_params.fragment_instance_id)),
           _obj_pool(new ObjectPool()),
           _runtime_filter_mgr(new RuntimeFilterMgr(query_id, this)),

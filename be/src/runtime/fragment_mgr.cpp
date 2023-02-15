@@ -530,7 +530,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
     }
 }
 
-Status FragmentMgr::exec_plan_fragment(const TPipelineParams& params) {
+Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params) {
     // TODO
     return exec_plan_fragment(params, empty_function);
 }
@@ -782,7 +782,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
     return Status::OK();
 }
 
-Status FragmentMgr::exec_plan_fragment(const TPipelineParams& params, FinishCallback cb) {
+Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params, FinishCallback cb) {
     auto tracer = telemetry::is_current_span_valid() ? telemetry::get_tracer("tracer")
                                                      : telemetry::get_noop_tracer();
     VLOG_ROW << "exec_plan_fragment params is "
@@ -875,7 +875,7 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineParams& params, FinishCall
     }
 
     for (size_t i = 0; i < params.local_params.size(); i++) {
-        TPipelineLocalParams local_params = params.local_params[i];
+        const auto& local_params = params.local_params[i];
 
         const TUniqueId& fragment_instance_id = local_params.fragment_instance_id;
         {
@@ -945,7 +945,7 @@ void FragmentMgr::_set_scan_concurrency(const TExecPlanFragmentParams& params,
 #endif
 }
 
-void FragmentMgr::_set_scan_concurrency(const TPipelineParams& params,
+void FragmentMgr::_set_scan_concurrency(const TPipelineFragmentParams& params,
                                         QueryFragmentsCtx* fragments_ctx) {
 #ifndef BE_TEST
     // set thread token
@@ -1306,7 +1306,7 @@ void FragmentMgr::_setup_shared_hashtable_for_broadcast_join(const TExecPlanFrag
 }
 
 void FragmentMgr::_setup_shared_hashtable_for_broadcast_join(
-        const TPipelineParams& params, const TPipelineLocalParams& local_params,
+        const TPipelineFragmentParams& params, const TPipelineInstanceParams& local_params,
         RuntimeState* state, QueryFragmentsCtx* fragments_ctx) {
     if (!params.query_options.__isset.enable_share_hash_table_for_broadcast_join ||
         !params.query_options.enable_share_hash_table_for_broadcast_join) {
