@@ -222,7 +222,6 @@ public:
             PlanNodeId dest_node_id, int buffer_size, bool is_transfer_chain,
             bool send_query_statistics_with_every_batch)
             : _parent(parent),
-              _buffer_size(buffer_size),
               _row_desc(row_desc),
               _fragment_instance_id(fragment_instance_id),
               _dest_node_id(dest_node_id),
@@ -231,7 +230,8 @@ public:
               _need_close(false),
               _brpc_dest_addr(brpc_dest),
               _is_transfer_chain(is_transfer_chain),
-              _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch) {
+              _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch),
+              _capacity(std::max(1, buffer_size / std::max(_row_desc.get_row_size(), 1))) {
         std::string localhost = BackendOptions::get_localhost();
         _is_local = (_brpc_dest_addr.hostname == localhost) &&
                     (_brpc_dest_addr.port == config::brpc_port);
@@ -331,7 +331,6 @@ protected:
     Status close_internal();
 
     VDataStreamSender* _parent;
-    int _buffer_size;
 
     const RowDescriptor& _row_desc;
     TUniqueId _fragment_instance_id;
