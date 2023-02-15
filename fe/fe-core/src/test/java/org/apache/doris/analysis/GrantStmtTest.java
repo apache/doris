@@ -21,6 +21,7 @@ import org.apache.doris.catalog.AccessPrivilege;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.qe.ConnectContext;
 
@@ -46,7 +47,8 @@ public class GrantStmtTest {
     @Before
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
-        auth = new Auth();
+        Auth auth = new Auth();
+        AccessControllerManager accessManager = new AccessControllerManager(auth);
 
         new Expectations() {
             {
@@ -70,9 +72,9 @@ public class GrantStmtTest {
                 minTimes = 0;
                 result = env;
 
-                env.getAuth();
+                env.getAccessManager();
                 minTimes = 0;
-                result = auth;
+                result = accessManager;
             }
         };
     }
