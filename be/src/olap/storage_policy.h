@@ -18,6 +18,7 @@
 #pragma once
 
 #include "io/fs/file_system.h"
+#include "io/fs/remote_file_system.h"
 
 namespace doris {
 
