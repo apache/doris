@@ -101,6 +101,9 @@ public enum RuleType {
     ELIMINATE_GROUP_BY_CONSTANT(RuleTypeClass.REWRITE),
     ELIMINATE_ORDER_BY_CONSTANT(RuleTypeClass.REWRITE),
     INFER_PREDICATES(RuleTypeClass.REWRITE),
+    INFER_FILTER_NOT_NULL(RuleTypeClass.REWRITE),
+    INFER_JOIN_NOT_NULL(RuleTypeClass.REWRITE),
+    ELIMINATE_NOT_NULL(RuleTypeClass.REWRITE),
 
     // subquery analyze
     ANALYZE_FILTER_SUBQUERY(RuleTypeClass.REWRITE),
