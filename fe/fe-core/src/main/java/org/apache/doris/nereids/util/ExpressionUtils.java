@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.util;
 
+import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
+import org.apache.doris.nereids.rules.expression.rewrite.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.TreeNode;
 import org.apache.doris.nereids.trees.expressions.And;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -45,12 +47,14 @@ import com.google.common.collect.Sets;
 
 import java.util.Arrays;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * Expression rewrite helper class.
@@ -196,30 +200,6 @@ public class ExpressionUtils {
     }
 
     /**
-     * Check whether lhs and rhs are intersecting.
-     */
-    public static <T> boolean isIntersecting(Set<T> lhs, List<T> rhs) {
-        for (T rh : rhs) {
-            if (lhs.contains(rh)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Check whether lhs and rhs are intersecting.
-     */
-    public static <T> boolean isIntersecting(Set<T> lhs, Set<T> rhs) {
-        for (T rh : rhs) {
-            if (lhs.contains(rh)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /**
      * Choose the minimum slot from input parameter.
      */
     public static Slot selectMinimumColumn(List<Slot> slots) {
@@ -325,6 +305,7 @@ public class ExpressionUtils {
 
     /**
      * merge arguments into an expression array
+     *
      * @param arguments instance of Expression or Expression Array
      * @return Expression Array
      */
@@ -361,16 +342,49 @@ public class ExpressionUtils {
     }
 
     /**
-     * extract the predicate that is covered by `slots`
+     * infer notNulls slot from predicate
      */
-    public static Set<Expression> extractCoveredConjunction(Set<Expression> predicates, Set<Slot> slots) {
-        Set<Expression> coveredPredicates = Sets.newHashSet();
+    public static Set<Slot> inferNotNullSlots(Set<Expression> predicates) {
+        Literal nullLiteral = Literal.of(null);
+        Set<Slot> notNullSlots = Sets.newHashSet();
         for (Expression predicate : predicates) {
-            if (slots.containsAll(predicate.getInputSlots())) {
-                coveredPredicates.add(predicate);
+            for (Slot slot : predicate.getInputSlots()) {
+                Map<Expression, Expression> replaceMap = new HashMap<>();
+                replaceMap.put(slot, nullLiteral);
+                Expression evalExpr = FoldConstantRule.INSTANCE.rewrite(
+                        ExpressionUtils.replace(predicate, replaceMap),
+                        new ExpressionRewriteContext(null));
+                if (nullLiteral.equals(evalExpr) || BooleanLiteral.FALSE.equals(evalExpr)) {
+                    notNullSlots.add(slot);
+                }
             }
         }
-        return coveredPredicates;
+        return notNullSlots;
+    }
+
+    /**
+     * infer notNulls slot from predicate
+     */
+    public static Set<Expression> inferNotNull(Set<Expression> predicates) {
+        return inferNotNullSlots(predicates).stream()
+                .map(slot -> {
+                    Not isNotNull = new Not(new IsNull(slot));
+                    isNotNull.isGeneratedIsNotNull = true;
+                    return isNotNull;
+                }).collect(Collectors.toSet());
+    }
+
+    /**
+     * infer notNulls slot from predicate but these slots must be in the given slots.
+     */
+    public static Set<Expression> inferNotNull(Set<Expression> predicates, Set<Slot> slots) {
+        return inferNotNullSlots(predicates).stream()
+                .filter(slots::contains)
+                .map(slot -> {
+                    Not isNotNull = new Not(new IsNull(slot));
+                    isNotNull.isGeneratedIsNotNull = true;
+                    return isNotNull;
+                }).collect(Collectors.toSet());
     }
 
     public static <E extends Expression> List<E> flatExpressions(List<List<E>> expressions) {

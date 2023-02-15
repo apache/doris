@@ -230,6 +230,7 @@ Status KafkaDataConsumer::group_consume(BlockingQueue<RdKafka::Message*>* queue,
                 std::this_thread::sleep_for(std::chrono::milliseconds(200));
                 break;
             }
+            [[fallthrough]];
         default:
             LOG(WARNING) << "kafka consume failed: " << _id << ", msg: " << msg->errstr();
             done = true;

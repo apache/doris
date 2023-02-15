@@ -56,7 +56,7 @@ public class DropCatalogStmt extends DdlStmt {
             throw new AnalysisException("Internal catalog can't be drop.");
         }
 
-        if (!Env.getCurrentEnv().getAuth().checkCtlPriv(
+        if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(
                 ConnectContext.get(), catalogName, PrivPredicate.DROP)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
                     analyzer.getQualifiedUser(), catalogName);

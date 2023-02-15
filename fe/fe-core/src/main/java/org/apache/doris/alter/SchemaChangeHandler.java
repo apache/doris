@@ -1616,7 +1616,7 @@ public class SchemaChangeHandler extends AlterHandler {
                 continue;
             }
             if (ctx != null) {
-                if (!Env.getCurrentEnv().getAuth().checkTblPriv(
+                if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
                         ctx, db.getFullName(), alterJob.getTableName(), PrivPredicate.ALTER)) {
                     continue;
                 }

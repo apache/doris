@@ -135,7 +135,7 @@ public class ShowDataStmt extends ShowStmt {
                 });
 
                 for (Table table : tables) {
-                    if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), dbName,
+                    if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName,
                             table.getName(),
                             PrivPredicate.SHOW)) {
                         continue;
@@ -222,7 +222,7 @@ public class ShowDataStmt extends ShowStmt {
                 db.readUnlock();
             }
         } else {
-            if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), tableName,
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tableName,
                     PrivPredicate.SHOW)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW DATA",
                         ConnectContext.get().getQualifiedUser(),

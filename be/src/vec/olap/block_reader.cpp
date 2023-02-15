@@ -58,10 +58,8 @@ bool BlockReader::_rowsets_overlapping(const std::vector<RowsetReaderSharedPtr>&
     }
     return false;
 }
-Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
-                                       std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
-    std::vector<RowsetReaderSharedPtr> rs_readers;
-    auto res = _capture_rs_readers(read_params, &rs_readers);
+Status BlockReader::_init_collect_iter(const ReaderParams& read_params) {
+    auto res = _capture_rs_readers(read_params);
     if (!res.ok()) {
         LOG(WARNING) << "fail to init reader when _capture_rs_readers. res:" << res
                      << ", tablet_id:" << read_params.tablet->tablet_id()
@@ -71,13 +69,14 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
         return res;
     }
     // check if rowsets are noneoverlapping
-    _is_rowsets_overlapping = _rowsets_overlapping(rs_readers);
+    _is_rowsets_overlapping = _rowsets_overlapping(read_params.rs_readers);
     _vcollect_iter.init(this, _is_rowsets_overlapping, read_params.read_orderby_key,
                         read_params.read_orderby_key_reverse);
 
     _reader_context.is_vec = true;
     _reader_context.push_down_agg_type_opt = read_params.push_down_agg_type_opt;
-    for (auto& rs_reader : rs_readers) {
+    std::vector<RowsetReaderSharedPtr> valid_rs_readers;
+    for (auto& rs_reader : read_params.rs_readers) {
         // _vcollect_iter.topn_next() will init rs_reader by itself
         if (!_vcollect_iter.use_topn_next()) {
             RETURN_NOT_OK(rs_reader->init(&_reader_context));
@@ -88,11 +87,11 @@ Status BlockReader::_init_collect_iter(const ReaderParams& read_params,
             return res;
         }
         if (res.ok()) {
-            valid_rs_readers->push_back(rs_reader);
+            valid_rs_readers.push_back(rs_reader);
         }
     }
 
-    RETURN_IF_ERROR(_vcollect_iter.build_heap(*valid_rs_readers));
+    RETURN_IF_ERROR(_vcollect_iter.build_heap(valid_rs_readers));
     // _vcollect_iter.topn_next() can not use current_row
     if (!_vcollect_iter.use_topn_next()) {
         auto status = _vcollect_iter.current_row(&_next_row);
@@ -157,8 +156,7 @@ Status BlockReader::init(const ReaderParams& read_params) {
         }
     }
 
-    std::vector<RowsetReaderSharedPtr> rs_readers;
-    auto status = _init_collect_iter(read_params, &rs_readers);
+    auto status = _init_collect_iter(read_params);
     if (!status.ok()) {
         return status;
     }
