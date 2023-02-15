@@ -380,12 +380,6 @@ struct StContains {
     }
 
     static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        if (scope != FunctionContext::FRAGMENT_LOCAL) {
-            return Status::OK();
-        }
-        StContainsState* state =
-                reinterpret_cast<StContainsState*>(context->get_function_state(scope));
-        delete state;
         return Status::OK();
     }
 };

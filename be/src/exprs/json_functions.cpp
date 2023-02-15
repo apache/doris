@@ -43,40 +43,6 @@ namespace doris {
 // json path cannot contains: ", [, ]
 static const re2::RE2 JSON_PATTERN("^([^\\\"\\[\\]]*)(?:\\[([0-9]+|\\*)\\])?");
 
-rapidjson::Value JsonFunctions::parse_str_with_flag(const StringVal& arg, const StringVal& flag,
-                                                    const int num,
-                                                    rapidjson::Document::AllocatorType& allocator) {
-    rapidjson::Value val;
-    if (arg.is_null || *(flag.ptr + num) == '0') { //null
-        rapidjson::Value nullObject(rapidjson::kNullType);
-        val = nullObject;
-    } else if (*(flag.ptr + num) == '1') { //bool
-        bool res = ((arg == "1") ? true : false);
-        val.SetBool(res);
-    } else if (*(flag.ptr + num) == '2') { //int
-        std::stringstream ss;
-        ss << arg.ptr;
-        int number = 0;
-        ss >> number;
-        val.SetInt(number);
-    } else if (*(flag.ptr + num) == '3') { //double
-        std::stringstream ss;
-        ss << arg.ptr;
-        double number = 0.0;
-        ss >> number;
-        val.SetDouble(number);
-    } else if (*(flag.ptr + num) == '4' || *(flag.ptr + num) == '5') {
-        StringPiece str((char*)arg.ptr, arg.len);
-        if (*(flag.ptr + num) == '4') {
-            str = str.substr(1, str.length() - 2);
-        }
-        val.SetString(str.data(), str.length(), allocator);
-    } else {
-        DCHECK(false) << "parse json type error with unknown type";
-    }
-    return val;
-}
-
 rapidjson::Value* JsonFunctions::match_value(const std::vector<JsonPath>& parsed_paths,
                                              rapidjson::Value* document,
                                              rapidjson::Document::AllocatorType& mem_allocator,
