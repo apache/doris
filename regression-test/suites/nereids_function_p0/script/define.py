@@ -19,6 +19,7 @@
 # under the License.
 
 const_sql = {
+    # scalar_function
     'aes_decrypt_Varchar_Varchar_Varchar_Varchar': "select aes_decrypt(kvchrs1, kvchrs1, kvchrs1, 'AES_128_ECB') from ${t} order by kvchrs1, kvchrs1, kvchrs1",
     'aes_decrypt_String_String_String_String': "select aes_decrypt(kstr, kstr, kstr, 'AES_128_ECB') from ${t} order by kstr, kstr, kstr, kstr",
     'aes_encrypt_Varchar_Varchar_Varchar_Varchar': "select aes_encrypt(kvchrs1, kvchrs1, kvchrs1, 'AES_128_ECB') from ${t} order by kvchrs1, kvchrs1, kvchrs1",
@@ -67,7 +68,8 @@ const_sql = {
     'truncate_Double_Integer': "select truncate(kdbl, 2) from ${t} order by kdbl",
     'random': "select random() from ${t}",
     'random_BigInt': "select random(1000) from ${t} order by kbint",
-    'to_quantile_state_Varchar_Float': 'select to_quantile_state(kvchrs1, 2048) from ${t} order by kvchrs1'
+    'to_quantile_state_Varchar_Float': 'select to_quantile_state(kvchrs1, 2048) from ${t} order by kvchrs1',
+    # generator
 }
 
 not_check_result = {
