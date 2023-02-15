@@ -37,7 +37,7 @@ struct StoragePolicy {
 
 using StoragePolicyPtr = std::shared_ptr<StoragePolicy>;
 
-Status get_remote_file_system(int64_t storage_policy_id, io::FileSystemSPtr* fs);
+Status get_remote_file_system(int64_t storage_policy_id, std::shared_ptr<io::RemoteFileSystem>* fs);
 
 // return nullptr if not found
 StoragePolicyPtr get_storage_policy(int64_t id);

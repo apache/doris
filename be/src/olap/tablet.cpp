@@ -1710,13 +1710,13 @@ Status Tablet::cooldown() {
         return Status::InternalError("invalid cooldown_replica_id");
     }
 
-    io::FileSystemSPtr dest_fs;
-    RETURN_IF_ERROR(get_remote_file_system(storage_policy_id(), &dest_fs));
+    std::shared_ptr<io::RemoteFileSystem> fs;
+    RETURN_IF_ERROR(get_remote_file_system(storage_policy_id(), &fs));
 
     if (cooldown_replica_id == replica_id()) {
-        RETURN_IF_ERROR(_cooldown_data(dest_fs));
+        RETURN_IF_ERROR(_cooldown_data(fs));
     } else {
-        RETURN_IF_ERROR(_follow_cooldowned_data(dest_fs.get(), cooldown_replica_id));
+        RETURN_IF_ERROR(_follow_cooldowned_data(fs.get(), cooldown_replica_id));
     }
     return Status::OK();
 }

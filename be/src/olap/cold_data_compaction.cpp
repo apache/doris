@@ -69,9 +69,9 @@ Status ColdDataCompaction::modify_rowsets() {
         UniqueId cooldown_meta_id = UniqueId::gen_uid();
         _tablet->tablet_meta()->set_cooldown_meta_id(cooldown_meta_id);
         // write remote tablet meta
-        io::FileSystemSPtr dest_fs;
-        RETURN_IF_ERROR(get_remote_file_system(_tablet->storage_policy_id(), &dest_fs));
-        RETURN_IF_ERROR(_tablet->write_cooldown_meta(dest_fs.get(), cooldown_meta_id, nullptr));
+        std::shared_ptr<io::RemoteFileSystem> fs;
+        RETURN_IF_ERROR(get_remote_file_system(_tablet->storage_policy_id(), &fs));
+        RETURN_IF_ERROR(_tablet->write_cooldown_meta(fs.get(), cooldown_meta_id, nullptr));
     }
     {
         std::shared_lock rlock(_tablet->get_header_lock());
