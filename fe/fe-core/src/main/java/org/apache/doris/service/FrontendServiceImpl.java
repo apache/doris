@@ -282,7 +282,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
             }
             for (String fullName : dbNames) {
-                if (!env.getAuth().checkDbPriv(currentUser, fullName, PrivPredicate.SHOW)) {
+                if (!env.getAccessManager().checkDbPriv(currentUser, fullName, PrivPredicate.SHOW)) {
                     continue;
                 }
 
@@ -494,7 +494,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             Set<String> tableNames = db.getTableNamesOrEmptyWithLock();
             for (String tableName : tableNames) {
                 LOG.debug("get table: {}, wait to check", tableName);
-                if (!Env.getCurrentEnv().getAuth()
+                if (!Env.getCurrentEnv().getAccessManager()
                         .checkTblPriv(currentUser, params.db, tableName, PrivPredicate.SHOW)) {
                     continue;
                 }
@@ -553,13 +553,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     }
                 }
                 for (TableIf table : tables) {
-                    if (!Env.getCurrentEnv().getAuth().checkTblPriv(currentUser, params.db,
+                    if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser, params.db,
                             table.getName(), PrivPredicate.SHOW)) {
                         continue;
                     }
                     table.readLock();
                     try {
-                        if (!Env.getCurrentEnv().getAuth().checkTblPriv(currentUser, params.db,
+                        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser, params.db,
                                 table.getName(), PrivPredicate.SHOW)) {
                             continue;
                         }
@@ -664,7 +664,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         } else {
             currentUser = UserIdentity.createAnalyzedUserIdentWithIp(params.user, params.user_ip);
         }
-        if (!Env.getCurrentEnv().getAuth()
+        if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(currentUser, params.db, params.getTableName(), PrivPredicate.SHOW)) {
             return result;
         }
@@ -789,7 +789,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, clientIp, passwd, currentUser);
 
         Preconditions.checkState(currentUser.size() == 1);
-        if (!Env.getCurrentEnv().getAuth().checkTblPriv(currentUser.get(0), fullDbName, tbl, predicate)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser.get(0), fullDbName, tbl, predicate)) {
             throw new AuthenticationException(
                     "Access denied; you need (at least one of) the LOAD privilege(s) for this operation");
         }

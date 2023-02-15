@@ -66,7 +66,7 @@ public class RecoverTableStmt extends DdlStmt {
         // disallow external catalog
         Util.prohibitExternalCatalog(dbTblName.getCtl(), this.getClass().getSimpleName());
 
-        if (!Env.getCurrentEnv().getAuth().checkTblPriv(
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(
                 ConnectContext.get(), dbTblName.getDb(), dbTblName.getTbl(), PrivPredicate.of(
                         PrivBitSet.of(Privilege.ALTER_PRIV, Privilege.CREATE_PRIV, Privilege.ADMIN_PRIV),
                         Operator.OR))) {

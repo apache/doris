@@ -55,7 +55,7 @@ public class CleanLabelStmt extends DdlStmt {
         db = ClusterNamespace.getFullName(SystemInfoService.DEFAULT_CLUSTER, db);
         label = Strings.nullToEmpty(label);
         // check auth
-        if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), db, PrivPredicate.LOAD)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), db, PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "LOAD");
         }
     }
