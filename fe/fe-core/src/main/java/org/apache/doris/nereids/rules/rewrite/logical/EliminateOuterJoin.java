@@ -25,8 +25,8 @@ import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.TypeUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.ImmutableSet.Builder;
@@ -57,8 +57,8 @@ public class EliminateOuterJoin extends OneRewriteRuleFactory {
                     conjunctsBuilder.add(predicate);
                 }
             }
-            boolean canFilterLeftNull = ExpressionUtils.isIntersecting(join.left().getOutputSet(), notNullSlots);
-            boolean canFilterRightNull = ExpressionUtils.isIntersecting(join.right().getOutputSet(), notNullSlots);
+            boolean canFilterLeftNull = Utils.isIntersecting(join.left().getOutputSet(), notNullSlots);
+            boolean canFilterRightNull = Utils.isIntersecting(join.right().getOutputSet(), notNullSlots);
             if (!canFilterRightNull && !canFilterLeftNull) {
                 return null;
             }
