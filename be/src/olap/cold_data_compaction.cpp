@@ -77,7 +77,7 @@ Status ColdDataCompaction::modify_rowsets() {
         // write remote tablet meta
         std::shared_ptr<io::RemoteFileSystem> fs;
         RETURN_IF_ERROR(get_remote_file_system(_tablet->storage_policy_id(), &fs));
-        RETURN_IF_ERROR(_tablet->write_cooldown_meta(fs.get(), cooldown_meta_id, nullptr));
+        RETURN_IF_ERROR(_tablet->write_cooldown_meta(fs, cooldown_meta_id, nullptr));
     }
     {
         std::shared_lock rlock(_tablet->get_header_lock());

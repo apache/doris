@@ -1721,7 +1721,7 @@ Status Tablet::cooldown() {
     if (cooldown_replica_id == replica_id()) {
         RETURN_IF_ERROR(_cooldown_data(fs));
     } else {
-        RETURN_IF_ERROR(_follow_cooldowned_data(fs.get(), cooldown_replica_id));
+        RETURN_IF_ERROR(_follow_cooldowned_data(fs, cooldown_replica_id));
     }
     return Status::OK();
 }
@@ -1764,7 +1764,7 @@ Status Tablet::_cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_
     UniqueId cooldown_meta_id = UniqueId::gen_uid();
 
     // upload cooldowned rowset meta to remote fs
-    RETURN_IF_ERROR(write_cooldown_meta(dest_fs.get(), cooldown_meta_id, new_rowset_meta.get()));
+    RETURN_IF_ERROR(write_cooldown_meta(dest_fs, cooldown_meta_id, new_rowset_meta.get()));
 
     RowsetSharedPtr new_rowset;
     RowsetFactory::create_rowset(_schema, _tablet_path, new_rowset_meta, &new_rowset);
@@ -1785,8 +1785,8 @@ Status Tablet::_cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_
     return Status::OK();
 }
 
-Status Tablet::_read_cooldown_meta(io::RemoteFileSystem* fs, int64_t cooldown_replica_id,
-                                   TabletMetaPB* tablet_meta_pb) {
+Status Tablet::_read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
+                                   int64_t cooldown_replica_id, TabletMetaPB* tablet_meta_pb) {
     std::string remote_meta_path =
             BetaRowset::remote_tablet_meta_path(tablet_id(), cooldown_replica_id);
     IOContext io_ctx;
@@ -1803,8 +1803,8 @@ Status Tablet::_read_cooldown_meta(io::RemoteFileSystem* fs, int64_t cooldown_re
     return Status::OK();
 }
 
-Status Tablet::write_cooldown_meta(io::RemoteFileSystem* fs, UniqueId cooldown_meta_id,
-                                   RowsetMeta* new_rs_meta) {
+Status Tablet::write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
+                                   UniqueId cooldown_meta_id, RowsetMeta* new_rs_meta) {
     std::vector<RowsetMetaSharedPtr> cooldowned_rs_metas;
     {
         std::shared_lock meta_rlock(_meta_lock);
@@ -1840,7 +1840,8 @@ Status Tablet::write_cooldown_meta(io::RemoteFileSystem* fs, UniqueId cooldown_m
     return tablet_meta_writer->close();
 }
 
-Status Tablet::_follow_cooldowned_data(io::RemoteFileSystem* fs, int64_t cooldown_replica_id) {
+Status Tablet::_follow_cooldowned_data(const std::shared_ptr<io::RemoteFileSystem>& fs,
+                                       int64_t cooldown_replica_id) {
     LOG(INFO) << "try to follow cooldowned data. tablet_id=" << tablet_id()
               << " cooldown_replica_id=" << cooldown_replica_id
               << " local replica=" << replica_id();

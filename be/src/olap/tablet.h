@@ -387,8 +387,8 @@ public:
         }
     }
 
-    Status write_cooldown_meta(io::RemoteFileSystem* fs, UniqueId cooldown_meta_id,
-                               RowsetMeta* new_rs_meta);
+    Status write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
+                               UniqueId cooldown_meta_id, RowsetMeta* new_rs_meta);
 
 private:
     Status _init_once_action();
@@ -430,9 +430,10 @@ private:
     // begin cooldown functions
     ////////////////////////////////////////////////////////////////////////////
     Status _cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_fs);
-    Status _follow_cooldowned_data(io::RemoteFileSystem* fs, int64_t cooldown_replica_id);
-    Status _read_cooldown_meta(io::RemoteFileSystem* fs, int64_t cooldown_replica_id,
-                               TabletMetaPB* tablet_meta_pb);
+    Status _follow_cooldowned_data(const std::shared_ptr<io::RemoteFileSystem>& fs,
+                                   int64_t cooldown_replica_id);
+    Status _read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
+                               int64_t cooldown_replica_id, TabletMetaPB* tablet_meta_pb);
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
