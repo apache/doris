@@ -513,25 +513,29 @@ public class Alter {
     public void processAlterMaterializedView(AlterMultiMaterializedView alterView, boolean isReplay)
             throws UserException {
         TableName tbl = alterView.getMvName();
-        boolean stopped = Env.getCurrentEnv().getMTMVJobManager().killJobByMvName(tbl.getDb(), tbl.getTbl());
-        if (!stopped) {
-            throw new DdlException("Alter MaterializedView with failed");
-        }
-        Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(tbl.getDb());
         MaterializedView olapTable = null;
         try {
+            // 1. check mv exist
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(tbl.getDb());
             olapTable = (MaterializedView) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
+
+            // 2. drop old job and kill the associated tasks
+            Env.getCurrentEnv().getMTMVJobManager().dropJobByName(tbl.getDb(), tbl.getTbl());
+
+            // 3. overwrite the refresh info in the memory of fe.
             olapTable.writeLock();
             olapTable.setRefreshInfo(alterView.getInfo());
+
+            // 4. log it and replay it in the follower
             if (!isReplay) {
                 Env.getCurrentEnv().getEditLog().logAlterMTMV(alterView);
-                // slave don't generate jobs
+                // 5. master node generate new jobs
                 if (Config.enable_mtmv_scheduler_framework && MTMVJobFactory.isGenerateJob(olapTable)) {
                     List<MTMVJob> jobs = MTMVJobFactory.buildJob(olapTable, db.getFullName());
                     for (MTMVJob job : jobs) {
                         Env.getCurrentEnv().getMTMVJobManager().createJob(job, false);
                     }
-                    LOG.info("Create related {} mv job.", jobs.size());
+                    LOG.info("Alter mv success with new mv job created.");
                 }
             }
         } finally {
