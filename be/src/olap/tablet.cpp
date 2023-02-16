@@ -1802,24 +1802,14 @@ Status Tablet::write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& 
                                    UniqueId cooldown_meta_id,
                                    const RowsetMetaSharedPtr& new_rs_meta,
                                    const std::vector<RowsetMetaSharedPtr>& to_deletes) {
+    std::set<std::string> to_delete_set;
+    for (auto& rs_meta : to_deletes) {
+        to_delete_set.emplace(rs_meta->version().to_string());
+    }
+
     std::vector<RowsetMetaSharedPtr> cooldowned_rs_metas;
     {
         std::shared_lock meta_rlock(_meta_lock);
-        std::set<std::string> rs_meta_set;
-        for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
-            if (!rs_meta->is_local()) {
-                rs_meta_set.emplace(rs_meta->version().to_string());
-            }
-        }
-
-        std::set<std::string> to_delete_set;
-        for (auto& rs_meta : to_deletes) {
-            if (rs_meta_set.find(rs_meta->version().to_string()) == rs_meta_set.end()) {
-                return Status::InternalError("deleted version not continuous");
-            }
-            to_delete_set.emplace(rs_meta->version().to_string());
-        }
-
         for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
             if (!rs_meta->is_local()) {
                 if (to_delete_set.find(rs_meta->version().to_string()) != to_delete_set.end()) {
@@ -1834,6 +1824,24 @@ Status Tablet::write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& 
                  new_rs_meta->start_version() != cooldowned_rs_metas.back()->end_version() + 1)) {
         return Status::InternalError("version not continuous");
     }
+
+    // check_version_continuity
+    if (!cooldowned_rs_metas.empty()) {
+        RowsetSharedPtr prev_rowset = cooldowned_rs_metas.front();
+        for (size_t i = 1; i < cooldowned_rs_metas.size(); ++i) {
+            RowsetSharedPtr rowset = cooldowned_rs_metas[i];
+            if (rowset->start_version() != prev_rowset->end_version() + 1) {
+                LOG(WARNING) << "There are missed versions among rowsets. "
+                             << "prev_rowset version=" << prev_rowset->start_version() << "-"
+                             << prev_rowset->end_version()
+                             << ", rowset version=" << rowset->start_version() << "-"
+                             << rowset->end_version();
+                return Status::Error<CUMULATIVE_MISS_VERSION>();
+            }
+            prev_rowset = rowset;
+        }
+    }
+
     TabletMetaPB tablet_meta_pb;
     auto rs_metas = tablet_meta_pb.mutable_rs_metas();
     rs_metas->Reserve(cooldowned_rs_metas.size() + 1);
