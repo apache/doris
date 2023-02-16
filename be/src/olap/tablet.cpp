@@ -1705,11 +1705,6 @@ Status Tablet::cooldown() {
         LOG(WARNING) << "Failed to own cumu_compaction_lock. tablet=" << tablet_id();
         return Status::Error<TRY_LOCK_FAILED>();
     }
-    std::unique_lock cooldown_compaction_lock(_cooldown_compaction_lock, std::try_to_lock);
-    if (!cooldown_compaction_lock.owns_lock()) {
-        LOG(WARNING) << "Failed to own cooldown_compaction_lock. tablet=" << tablet_id();
-        return Status::Error<TRY_LOCK_FAILED>();
-    }
     int64_t cooldown_replica_id = _cooldown_replica_id;
     if (cooldown_replica_id <= 0) { // wait for FE to push cooldown conf
         return Status::InternalError("invalid cooldown_replica_id");

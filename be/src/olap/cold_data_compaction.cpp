@@ -44,7 +44,7 @@ Status ColdDataCompaction::execute_compact_impl() {
     }
 #endif
     SCOPED_ATTACH_TASK(_mem_tracker);
-    std::unique_lock<std::mutex> lock(_tablet->get_cooldown_compaction_lock(), std::try_to_lock);
+    std::unique_lock<std::mutex> lock(_tablet->get_cold_compaction_lock(), std::try_to_lock);
     if (!lock.owns_lock()) {
         LOG(WARNING) << "another cooldown compaction is running. tablet=" << _tablet->full_name();
         return Status::Error<TRY_LOCK_FAILED>();
@@ -77,35 +77,38 @@ Status ColdDataCompaction::modify_rowsets() {
         _tablet->tablet_meta()->set_cooldown_meta_id(cooldown_meta_id);
     }
 
+    // write remote tablet meta
+    TabletMetaPB tablet_meta_pb;
     {
         std::shared_lock rlock(_tablet->get_header_lock());
-        // write remote tablet meta
-        std::shared_ptr<io::RemoteFileSystem> fs;
+        std::shared_ptr <io::RemoteFileSystem> fs;
         RETURN_IF_ERROR(get_remote_file_system(_tablet->storage_policy_id(), &fs));
-        std::vector<RowsetMetaSharedPtr> cooldowned_rs_metas;
-        for (auto& rs_meta : _tablet->tablet_meta()->all_rs_metas()) {
+        std::vector <RowsetMetaSharedPtr> cooldowned_rs_metas;
+        for (auto &rs_meta: _tablet->tablet_meta()->all_rs_metas()) {
             if (!rs_meta->is_local()) {
                 cooldowned_rs_metas.push_back(rs_meta);
             }
         }
         std::sort(cooldowned_rs_metas.begin(), cooldowned_rs_metas.end(), RowsetMeta::comparator);
-        TabletMetaPB tablet_meta_pb;
         auto rs_metas = tablet_meta_pb.mutable_rs_metas();
         rs_metas->Reserve(cooldowned_rs_metas.size() + 1);
-        for (auto& rs_meta : cooldowned_rs_metas) {
+        for (auto &rs_meta: cooldowned_rs_metas) {
             rs_metas->Add(rs_meta->get_rowset_pb());
         }
         tablet_meta_pb.mutable_cooldown_meta_id()->set_hi(cooldown_meta_id.hi);
         tablet_meta_pb.mutable_cooldown_meta_id()->set_lo(cooldown_meta_id.lo);
+    }
+    std::string remote_meta_path =
+            BetaRowset::remote_tablet_meta_path(_tablet->tablet_id(),
+                                                _tablet->tablet_meta()->replica_id());
+    io::FileWriterPtr tablet_meta_writer;
+    RETURN_IF_ERROR(fs->create_file(remote_meta_path, &tablet_meta_writer));
+    auto val = tablet_meta_pb.SerializeAsString();
+    RETURN_IF_ERROR(tablet_meta_writer->append({val.data(), val.size()}));
+    RETURN_IF_ERROR(tablet_meta_writer->close());
 
-        std::string remote_meta_path =
-                BetaRowset::remote_tablet_meta_path(_tablet->tablet_id(),
-                                                    _tablet->tablet_meta()->replica_id());
-        io::FileWriterPtr tablet_meta_writer;
-        RETURN_IF_ERROR(fs->create_file(remote_meta_path, &tablet_meta_writer));
-        auto val = tablet_meta_pb.SerializeAsString();
-        RETURN_IF_ERROR(tablet_meta_writer->append({val.data(), val.size()}));
-        RETURN_IF_ERROR(tablet_meta_writer->close());
+    {
+        std::shared_lock rlock(_tablet->get_header_lock());
         _tablet->save_meta();
     }
     return Status::OK();
