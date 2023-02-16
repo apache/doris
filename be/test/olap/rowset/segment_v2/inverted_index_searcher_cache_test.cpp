@@ -229,6 +229,10 @@ TEST_F(InvertedIndexSearcherCacheTest, evict_by_element_count_limit) {
         InvertedIndexCacheHandle cache_handle;
         // lookup key_1
         EXPECT_TRUE(index_searcher_cache->_lookup(key_1, &cache_handle));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    {
+        InvertedIndexCacheHandle cache_handle;
         // lookup key_2
         EXPECT_TRUE(index_searcher_cache->_lookup(key_2, &cache_handle));
     }
@@ -246,8 +250,16 @@ TEST_F(InvertedIndexSearcherCacheTest, evict_by_element_count_limit) {
         InvertedIndexCacheHandle cache_handle;
         // lookup key_1
         EXPECT_FALSE(index_searcher_cache->_lookup(key_1, &cache_handle));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    {
+        InvertedIndexCacheHandle cache_handle;
         // lookup key_2
         EXPECT_TRUE(index_searcher_cache->_lookup(key_2, &cache_handle));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    {
+        InvertedIndexCacheHandle cache_handle;
         // lookup key_3
         EXPECT_TRUE(index_searcher_cache->_lookup(key_3, &cache_handle));
     }
@@ -267,8 +279,16 @@ TEST_F(InvertedIndexSearcherCacheTest, evict_by_element_count_limit) {
         EXPECT_FALSE(index_searcher_cache->_lookup(key_1, &cache_handle));
         // lookup key_2
         EXPECT_FALSE(index_searcher_cache->_lookup(key_2, &cache_handle));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    {
+        InvertedIndexCacheHandle cache_handle;
         // lookup key_3
         EXPECT_TRUE(index_searcher_cache->_lookup(key_3, &cache_handle));
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    {
+        InvertedIndexCacheHandle cache_handle;
         // lookup key_4
         EXPECT_TRUE(index_searcher_cache->_lookup(key_4, &cache_handle));
     }
