@@ -230,6 +230,7 @@ message TabletSchemaPB {
     repeated TabletIndexPB index = 16;
     optional bool store_row_column = 17 [default=false]; // store tuplerow oriented column
     optional bool is_dynamic_schema = 18 [default=false];
+    optional int32 version_col_idx = 19 [default = -1];
 }
 
 enum TabletStatePB {

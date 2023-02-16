@@ -592,6 +592,8 @@ void TabletSchema::append_column(TabletColumn column, bool is_dropped_column) {
         _delete_sign_idx = _num_columns;
     } else if (UNLIKELY(column.name() == SEQUENCE_COL)) {
         _sequence_col_idx = _num_columns;
+    } else if (UNLIKELY(column.name() == VERSION_COL)) {
+        _version_col_idx = _num_columns;
     }
     // The dropped column may have same name with exsiting column, so that
     // not add to name to index map, only for uid to index map
@@ -658,6 +660,7 @@ void TabletSchema::init_from_pb(const TabletSchemaPB& schema) {
     _is_dynamic_schema = schema.is_dynamic_schema();
     _delete_sign_idx = schema.delete_sign_idx();
     _sequence_col_idx = schema.sequence_col_idx();
+    _version_col_idx = schema.version_col_idx();
     _sort_type = schema.sort_type();
     _sort_col_num = schema.sort_col_num();
     _compression_type = schema.compression_type();
@@ -718,6 +721,8 @@ void TabletSchema::build_current_tablet_schema(int64_t index_id, int32_t version
             _delete_sign_idx = _num_columns;
         } else if (UNLIKELY(column->name() == SEQUENCE_COL)) {
             _sequence_col_idx = _num_columns;
+        } else if (UNLIKELY(column->name() == VERSION_COL)) {
+            _version_col_idx = _num_columns;
         }
         _field_name_to_index[column->name()] = _num_columns;
         _field_id_to_index[column->unique_id()] = _num_columns;
@@ -793,6 +798,7 @@ void TabletSchema::to_schema_pb(TabletSchemaPB* tablet_schema_pb) const {
     tablet_schema_pb->set_schema_version(_schema_version);
     tablet_schema_pb->set_compression_type(_compression_type);
     tablet_schema_pb->set_is_dynamic_schema(_is_dynamic_schema);
+    tablet_schema_pb->set_version_col_idx(_version_col_idx);
 }
 
 size_t TabletSchema::row_size() const {
