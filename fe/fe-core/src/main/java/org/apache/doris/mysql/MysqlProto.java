@@ -41,6 +41,7 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
+import javax.net.ssl.SSLEngine;
 
 // MySQL protocol util
 public class MysqlProto {
@@ -210,7 +211,16 @@ public class MysqlProto {
                 } catch (Exception e) {
                     throw new RuntimeException(e);
                 }
-                handshakeResponse = channel.fetchOneSslPacket();
+                SSLEngine sslEngine = mysqlSslContext.getSslEngine();
+                handshakeResponse = ByteBuffer.allocate(sslEngine.getSession().getPacketBufferSize());
+                sslEngine.unwrap(channel.fetchOneSslHandshakePacket(), handshakeResponse);
+                handshakeResponse.flip();
+                capability = new MysqlCapability(MysqlProto.readLowestInt4(handshakeResponse));
+                if(!capability.isSsl()){
+                    ErrorReport.report(ErrorCode.ERR_NONSSL_HANDSHAKE_RESPONSE);
+                    sendResponsePacket(context);
+                    return false;
+                }
             } else {
                 handshakeResponse = clientRequestPacket;
             }

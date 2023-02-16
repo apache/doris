@@ -181,7 +181,7 @@ public class MysqlSslContext {
                     // if wrap normal, send packet.
                     // todo: refactor sendAndFlush.
                     serverNetData.flip();
-                    channel.sendSslAndFlush(serverNetData);
+                    channel.sendAndFlush(serverNetData);
                     serverNetData.clear();
                     break;
                 }
@@ -197,7 +197,7 @@ public class MysqlSslContext {
     private void handleNeedUnwrap(MysqlChannel channel) {
         try {
             // todo: refactor readAll.
-            clientNetData = channel.fetchOneSslPacket();
+            clientNetData = channel.fetchOneSslHandshakePacket();
             while (true) {
                 SSLEngineResult sslEngineResult = sslEngine.unwrap(clientNetData, clientAppData);
                 if (handleUnwrapResult(sslEngineResult)) {

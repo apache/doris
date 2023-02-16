@@ -215,7 +215,7 @@ public class MysqlChannel {
     // read one ssl protocol packet
     // null for channel is closed.
     // NOTE: all of the following code is assumed that the channel is in block mode.
-    public ByteBuffer fetchOneSslPacket() throws IOException {
+    public ByteBuffer fetchOneSslHandshakePacket() throws IOException {
         int readLen;
         ByteBuffer result = defaultBuffer;
         result.clear();
@@ -378,13 +378,13 @@ public class MysqlChannel {
     }
 
     public void sendAndFlush(ByteBuffer packet) throws IOException {
-        sendOnePacket(packet);
-        flush();
-    }
-
-    public void sendSslAndFlush(ByteBuffer packet) throws IOException {
-        sendOneSslPacket(packet);
-        sslFlush();
+        if (isSslMode) {
+            sendOneSslPacket(packet);
+            sslFlush();
+        } else {
+            sendOnePacket(packet);
+            flush();
+        }
     }
 
     // Call this function before send query before
