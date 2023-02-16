@@ -60,7 +60,7 @@ Status ColdDataCompaction::pick_rowsets_to_compact() {
     return check_version_continuity(_input_rowsets);
 }
 
-Status ColdDataCompaction::modify_rowsets() {
+Status ColdDataCompaction::modify_rowsets(const Merger::Statistics* stats) {
     UniqueId cooldown_meta_id = UniqueId::gen_uid();
 
     // write remote tablet meta
