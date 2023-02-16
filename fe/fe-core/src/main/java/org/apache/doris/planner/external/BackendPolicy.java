@@ -58,7 +58,7 @@ public class BackendPolicy {
                 .needLoadAvailable()
                 .addTags(tags)
                 .preferComputeNode()
-                .assignCandidateNum(Config.backend_num_for_federation)
+                .assignExpectBeNum(Config.backend_num_for_federation)
                 .build();
         backends.addAll(policy.getCandidateBackends(Env.getCurrentSystemInfo().getIdToBackend().values()));
         if (backends.isEmpty()) {
