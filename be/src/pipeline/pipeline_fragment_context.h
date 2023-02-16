@@ -38,15 +38,15 @@ class PipelineTask;
 class PipelineFragmentContext : public std::enable_shared_from_this<PipelineFragmentContext> {
 public:
     PipelineFragmentContext(const TUniqueId& query_id, const TUniqueId& instance_id,
-                            int backend_num, std::shared_ptr<QueryFragmentsCtx> query_ctx,
-                            ExecEnv* exec_env,
+                            const int fragment_id, int backend_num,
+                            std::shared_ptr<QueryFragmentsCtx> query_ctx, ExecEnv* exec_env,
                             std::function<void(RuntimeState*, Status*)> call_back);
 
     ~PipelineFragmentContext();
 
     PipelinePtr add_pipeline();
 
-    TUniqueId get_fragment_id() { return _fragment_id; }
+    TUniqueId get_fragment_instance_id() { return _fragment_instance_id; }
 
     RuntimeState* get_runtime_state() { return _runtime_state.get(); }
 
@@ -56,6 +56,8 @@ public:
     int32_t next_operator_builder_id() { return _next_operator_builder_id++; }
 
     Status prepare(const doris::TExecPlanFragmentParams& request);
+
+    Status prepare(const doris::TPipelineFragmentParams& request, const size_t idx);
 
     Status submit();
 
@@ -93,7 +95,8 @@ public:
 private:
     // Id of this query
     TUniqueId _query_id;
-    TUniqueId _fragment_id;
+    TUniqueId _fragment_instance_id;
+    int _fragment_id;
 
     int _backend_num;
 
@@ -142,6 +145,7 @@ private:
     Status _create_sink(const TDataSink& t_data_sink);
     Status _build_pipelines(ExecNode*, PipelinePtr);
     Status _build_pipeline_tasks(const doris::TExecPlanFragmentParams& request);
+    Status _build_pipeline_tasks(const doris::TPipelineFragmentParams& request);
 
     template <bool is_intersect>
     Status _build_operators_for_set_operation_node(ExecNode*, PipelinePtr);

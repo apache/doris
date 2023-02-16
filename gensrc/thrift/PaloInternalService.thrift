@@ -553,3 +553,45 @@ struct TExportStatusResult {
     2: required Types.TExportState state
     3: optional list<string> files
 }
+
+struct TPipelineInstanceParams {
+  1: required Types.TUniqueId fragment_instance_id
+  2: optional bool build_hash_table_for_broadcast_join = false;
+  3: required map<Types.TPlanNodeId, list<TScanRangeParams>> per_node_scan_ranges
+  4: optional i32 sender_id
+  5: optional TRuntimeFilterParams runtime_filter_params
+  6: optional i32 backend_num
+}
+
+// ExecPlanFragment
+struct TPipelineFragmentParams {
+  1: required PaloInternalServiceVersion protocol_version
+  2: required Types.TUniqueId query_id
+  3: optional i32 fragment_id
+  4: required map<Types.TPlanNodeId, i32> per_exch_num_senders
+  5: optional Descriptors.TDescriptorTable desc_tbl
+  6: optional Types.TResourceInfo resource_info
+  7: list<TPlanFragmentDestination> destinations
+  8: optional i32 num_senders
+  9: optional bool send_query_statistics_with_every_batch
+  10: optional Types.TNetworkAddress coord
+  11: optional TQueryGlobals query_globals
+  12: optional TQueryOptions query_options
+  // load job related
+  13: optional string import_label
+  14: optional string db_name
+  15: optional i64 load_job_id
+  16: optional TLoadErrorHubInfo load_error_hub_info
+  17: optional i32 fragment_num_on_host
+  18: optional i64 backend_id
+  19: optional bool need_wait_execution_trigger = false
+  20: optional list<Types.TUniqueId> instances_sharing_hash_table
+  21: optional bool is_simplified_param = false;
+  22: optional TGlobalDict global_dict  // scan node could use the global dict to encode the string value to an integer
+  23: optional Planner.TPlanFragment fragment
+  24: list<TPipelineInstanceParams> local_params
+}
+
+struct TPipelineFragmentParamsList {
+    1: optional list<TPipelineFragmentParams> params_list;
+}

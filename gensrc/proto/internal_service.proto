@@ -192,6 +192,7 @@ message PTabletWriterCancelResult {
 enum PFragmentRequestVersion {
     VERSION_1 = 1;  // only one TExecPlanFragmentParams in request
     VERSION_2 = 2;  // multi TExecPlanFragmentParams in request
+    VERSION_3 = 3;  // multi TPipelineFragmentParams in request
 };
 
 message PExecPlanFragmentRequest {
