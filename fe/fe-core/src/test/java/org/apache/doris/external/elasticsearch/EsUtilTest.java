@@ -36,6 +36,7 @@ import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.external.elasticsearch.QueryBuilders.BuilderOptions;
 
 import mockit.Expectations;
 import mockit.Injectable;
@@ -234,7 +235,7 @@ public class EsUtilTest extends EsTestCase {
         Assertions.assertEquals("{\"wildcard\":{\"k1\":\"*1*\"}}", QueryBuilders.toEsDsl(regexPredicate).toJson());
         Assertions.assertEquals("{\"wildcard\":{\"k1\":\"1?2\"}}", QueryBuilders.toEsDsl(likePredicate2).toJson());
         List<Expr> notPushDownList = new ArrayList<>();
-        Assertions.assertNull(QueryBuilders.toEsDsl(likePredicate2, notPushDownList, new HashMap<>(), false));
+        Assertions.assertNull(QueryBuilders.toEsDsl(likePredicate2, notPushDownList, new HashMap<>(), BuilderOptions.builder().likePushDown(false).build()));
         Assertions.assertFalse(notPushDownList.isEmpty());
     }
 
@@ -281,8 +282,9 @@ public class EsUtilTest extends EsTestCase {
         BinaryPredicate castPredicate = new BinaryPredicate(Operator.EQ, castExpr, new IntLiteral(3));
         List<Expr> notPushDownList = new ArrayList<>();
         Map<String, String> fieldsContext = new HashMap<>();
-        boolean likePushDown = Boolean.parseBoolean(EsResource.LIKE_PUSH_DOWN_DEFAULT_VALUE);
-        Assertions.assertNull(QueryBuilders.toEsDsl(castPredicate, notPushDownList, fieldsContext, likePushDown));
+        BuilderOptions builderOptions = BuilderOptions.builder()
+                .likePushDown(Boolean.parseBoolean(EsResource.LIKE_PUSH_DOWN_DEFAULT_VALUE)).build();
+        Assertions.assertNull(QueryBuilders.toEsDsl(castPredicate, notPushDownList, fieldsContext, builderOptions));
         Assertions.assertEquals(1, notPushDownList.size());
 
         SlotRef k2 = new SlotRef(null, "k2");
@@ -291,7 +293,7 @@ public class EsUtilTest extends EsTestCase {
         CompoundPredicate compoundPredicate = new CompoundPredicate(CompoundPredicate.Operator.OR, castPredicate,
                 eqPredicate);
 
-        QueryBuilders.toEsDsl(compoundPredicate, notPushDownList, fieldsContext, likePushDown);
+        QueryBuilders.toEsDsl(compoundPredicate, notPushDownList, fieldsContext, builderOptions);
         Assertions.assertEquals(3, notPushDownList.size());
 
         SlotRef k3 = new SlotRef(null, "k3");
@@ -299,7 +301,7 @@ public class EsUtilTest extends EsTestCase {
         CastExpr castDoubleExpr = new CastExpr(Type.DOUBLE, k3);
         BinaryPredicate castDoublePredicate = new BinaryPredicate(Operator.GE, castDoubleExpr,
                 new FloatLiteral(3.0, Type.DOUBLE));
-        QueryBuilders.toEsDsl(castDoublePredicate, notPushDownList, fieldsContext, likePushDown);
+        QueryBuilders.toEsDsl(castDoublePredicate, notPushDownList, fieldsContext, builderOptions);
         Assertions.assertEquals(3, notPushDownList.size());
     }
 

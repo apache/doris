@@ -38,6 +38,8 @@ import org.apache.doris.thrift.TExprOpcode;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.Builder;
+import lombok.Data;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -63,14 +65,14 @@ public final class QueryBuilders {
      * Generate dsl from compound expr.
      **/
     private static QueryBuilder toCompoundEsDsl(Expr expr, List<Expr> notPushDownList,
-            Map<String, String> fieldsContext, boolean likePushdown) {
+            Map<String, String> fieldsContext, BuilderOptions builderOptions) {
         CompoundPredicate compoundPredicate = (CompoundPredicate) expr;
         switch (compoundPredicate.getOp()) {
             case AND: {
                 QueryBuilder left = toEsDsl(compoundPredicate.getChild(0), notPushDownList, fieldsContext,
-                        likePushdown);
+                        builderOptions);
                 QueryBuilder right = toEsDsl(compoundPredicate.getChild(1), notPushDownList, fieldsContext,
-                        likePushdown);
+                        builderOptions);
                 if (left != null && right != null) {
                     return QueryBuilders.boolQuery().must(left).must(right);
                 }
@@ -79,9 +81,9 @@ public final class QueryBuilders {
             case OR: {
                 int beforeSize = notPushDownList.size();
                 QueryBuilder left = toEsDsl(compoundPredicate.getChild(0), notPushDownList, fieldsContext,
-                        likePushdown);
+                        builderOptions);
                 QueryBuilder right = toEsDsl(compoundPredicate.getChild(1), notPushDownList, fieldsContext,
-                        likePushdown);
+                        builderOptions);
                 int afterSize = notPushDownList.size();
                 if (left != null && right != null) {
                     return QueryBuilders.boolQuery().should(left).should(right);
@@ -100,7 +102,7 @@ public final class QueryBuilders {
             }
             case NOT: {
                 QueryBuilder child = toEsDsl(compoundPredicate.getChild(0), notPushDownList, fieldsContext,
-                        likePushdown);
+                        builderOptions);
                 if (child != null) {
                     return QueryBuilders.boolQuery().mustNot(child);
                 }
@@ -123,7 +125,8 @@ public final class QueryBuilders {
 
     public static QueryBuilder toEsDsl(Expr expr) {
         return toEsDsl(expr, new ArrayList<>(), new HashMap<>(),
-                Boolean.parseBoolean(EsResource.LIKE_PUSH_DOWN_DEFAULT_VALUE));
+                BuilderOptions.builder().likePushDown(Boolean.parseBoolean(EsResource.LIKE_PUSH_DOWN_DEFAULT_VALUE))
+                        .build());
     }
 
     private static QueryBuilder parseBinaryPredicate(Expr expr, TExprOpcode opCode, String column) {
@@ -212,13 +215,13 @@ public final class QueryBuilders {
      * Doris expr to es dsl.
      **/
     public static QueryBuilder toEsDsl(Expr expr, List<Expr> notPushDownList, Map<String, String> fieldsContext,
-            boolean likePushDown) {
+            BuilderOptions builderOptions) {
         if (expr == null) {
             return null;
         }
         // CompoundPredicate, `between` also converted to CompoundPredicate.
         if (expr instanceof CompoundPredicate) {
-            return toCompoundEsDsl(expr, notPushDownList, fieldsContext, likePushDown);
+            return toCompoundEsDsl(expr, notPushDownList, fieldsContext, builderOptions);
         }
         TExprOpcode opCode = expr.getOpcode();
         String column;
@@ -249,7 +252,7 @@ public final class QueryBuilders {
             return parseIsNullPredicate(expr, column);
         }
         if (expr instanceof LikePredicate) {
-            if (!likePushDown) {
+            if (!builderOptions.isLikePushDown()) {
                 notPushDownList.add(expr);
                 return null;
             } else {
@@ -417,6 +420,16 @@ public final class QueryBuilders {
      */
     public static RangeQueryBuilder rangeQuery(String name) {
         return new RangeQueryBuilder(name);
+    }
+
+    /**
+     * Used to pass some parameters to generate the dsl
+     **/
+    @Builder
+    @Data
+    public static class BuilderOptions {
+
+        private boolean likePushDown;
     }
 
 
