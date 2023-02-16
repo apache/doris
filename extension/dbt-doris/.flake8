@@ -1,0 +1,12 @@
+[flake8]
+select =
+    E
+    W
+    F
+ignore =
+    W503 # makes Flake8 work like black
+    W504
+    E203 # makes Flake8 work like black
+    E741
+    E501
+exclude = tests

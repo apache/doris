@@ -42,7 +42,7 @@
                  else table_type
             end as table_type,
             null as table_owner
-        from {{ information_schema }}.tables
+        from information_schema.tables
     ),
     columns as (
         select
@@ -54,7 +54,7 @@
             ordinal_position as "column_index",
             data_type as "column_type",
             null as "column_comment"
-        from {{ information_schema }}.columns
+        from information_schema.columns
     )
     select
         columns.table_database,
@@ -69,7 +69,7 @@
         columns.column_comment
     from tables
     join columns using (table_schema, table_name)
-    where tables.table_schema not in ('information_schema', '__statistics__')
+    where tables.table_schema not in ('information_schema')
     and (
     {%- for schema in schemas -%}
       upper(tables.table_schema) = upper('{{ schema }}'){%- if not loop.last %} or {% endif -%}

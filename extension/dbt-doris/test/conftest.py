@@ -18,25 +18,25 @@
 # specific language governing permissions and limitations
 # under the License.
 
-fixed:
-  type: doris
-prompts:
-  host:
-    hint: 'hostname for your instance(your doris fe host)'
-  port:
-    default: 9030
-    type: 'int'
-    hint: 'port for your instance(your doris fe query_port)'
-  schema:
-    default: 'dbt'
-    hint: 'the schema name as stored in the database,doris have not schema to make a collection of table or view'
-  username:
-    hint: 'your doris username'
-  password:
-    hint: 'your doris password, if no password, just Enter'
-    hide_input: true
-    default: ''
-  threads:
-    hint: "1 or more"
-    type: "int"
-    default: 1
+import pytest
+
+import os
+import json
+
+# Import the fuctional fixtures as a plugin
+# Note: fixtures with session scope need to be local
+
+pytest_plugins = ["dbt.tests.fixtures.project"]
+
+
+# The profile dictionary, used to write out profiles.yml
+@pytest.fixture(scope="class")
+def dbt_profile_target():
+        return {
+        "type": "doris",
+        "threads": 1,
+        "host": os.getenv("DORIS_TEST_HOST", "127.0.0.1"),
+        "user": os.getenv("DORIS_TEST_USER", "root"),
+        "password": os.getenv("DORIS_TEST_PASSWORD", ""),
+        "port": os.getenv("DORIS_TEST_PORT", 9030),
+    }
