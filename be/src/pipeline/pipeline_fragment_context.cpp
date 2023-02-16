@@ -861,12 +861,12 @@ void PipelineFragmentContext::send_report(bool done) {
     }
 
     _report_status_cb(
-            exec_status, _is_report_success ? _runtime_state->runtime_profile() : nullptr,
-            done || !exec_status.ok(), _query_ctx->coord_addr, _query_id, _fragment_id,
-            _fragment_instance_id, _backend_num, _runtime_state.get(),
-            std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
-            std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
-                      std::placeholders::_2));
+            {exec_status, _is_report_success ? _runtime_state->runtime_profile() : nullptr,
+             done || !exec_status.ok(), _query_ctx->coord_addr, _query_id, _fragment_id,
+             _fragment_instance_id, _backend_num, _runtime_state.get(),
+             std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
+             std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
+                       std::placeholders::_2)});
 }
 
 } // namespace doris::pipeline

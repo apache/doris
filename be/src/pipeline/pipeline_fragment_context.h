@@ -25,6 +25,7 @@
 namespace doris {
 class ExecNode;
 class DataSink;
+struct ReportStatusRequest;
 
 namespace vectorized {
 template <bool is_intersect>
@@ -43,10 +44,7 @@ public:
     // Note: this does not take a const RuntimeProfile&, because it might need to call
     // functions like PrettyPrint() or to_thrift(), neither of which is const
     // because they take locks.
-    using report_status_callback = std::function<void(
-            const Status&, RuntimeProfile*, bool, TNetworkAddress, TUniqueId, int, TUniqueId, int,
-            RuntimeState*, std::function<Status(Status)>,
-            std::function<void(const PPlanFragmentCancelReason&, const std::string&)>)>;
+    using report_status_callback = std::function<void(const ReportStatusRequest)>;
     PipelineFragmentContext(const TUniqueId& query_id, const TUniqueId& instance_id,
                             const int fragment_id, int backend_num,
                             std::shared_ptr<QueryFragmentsCtx> query_ctx, ExecEnv* exec_env,
