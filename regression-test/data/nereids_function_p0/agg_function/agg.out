@@ -1652,3 +1652,244 @@ true
 -- !sql_window_funnel_BigInt_String_DateTimeV2_Boolean_notnull --
 1
 
+-- !sql_agg_phase_0 --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_agg_phase_0_notnull --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_agg_phase_1 --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+0
+
+-- !sql_agg_phase_1_notnull --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_agg_phase_2 --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+0
+
+-- !sql_agg_phase_2_notnull --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_agg_phase_3 --
+1	1
+2	1
+3	1
+4	1
+5	1
+6	1
+7	1
+8	1
+9	1
+10	1
+11	1
+12	1
+\N	0
+
+-- !sql_agg_phase_3_notnull --
+1	1
+2	1
+3	1
+4	1
+5	1
+6	1
+7	1
+8	1
+9	1
+10	1
+11	1
+12	1
+
+-- !sql_agg_phase_4 --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+0
+
+-- !sql_agg_phase_4_notnull --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_agg_phase_5 --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+0
+
+-- !sql_agg_phase_5_notnull --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_agg_phase_6 --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+0
+
+-- !sql_agg_phase_6_notnull --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_agg_phase_7 --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+0
+
+-- !sql_agg_phase_7_notnull --
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+1
+
+-- !sql_agg_phase_8 --
+7	28	4.0
+5	50	10.0
+0	\N	\N
+
+-- !sql_agg_phase_8_notnull --
+7	28	4.0
+5	50	10.0
+
