@@ -1827,18 +1827,18 @@ Status Tablet::write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& 
 
     // check_version_continuity
     if (!cooldowned_rs_metas.empty()) {
-        RowsetSharedPtr prev_rowset = cooldowned_rs_metas.front();
+        RowsetMetaSharedPtr prev_rowset = cooldowned_rs_metas.front();
         for (size_t i = 1; i < cooldowned_rs_metas.size(); ++i) {
-            RowsetSharedPtr rowset = cooldowned_rs_metas[i];
-            if (rowset->start_version() != prev_rowset->end_version() + 1) {
+            RowsetMetaSharedPtr rowset_meta = cooldowned_rs_metas[i];
+            if (rowset_meta->start_version() != prev_rowset->end_version() + 1) {
                 LOG(WARNING) << "There are missed versions among rowsets. "
                              << "prev_rowset version=" << prev_rowset->start_version() << "-"
                              << prev_rowset->end_version()
-                             << ", rowset version=" << rowset->start_version() << "-"
-                             << rowset->end_version();
+                             << ", rowset_meta version=" << rowset_meta->start_version() << "-"
+                             << rowset_meta->end_version();
                 return Status::Error<CUMULATIVE_MISS_VERSION>();
             }
-            prev_rowset = rowset;
+            prev_rowset = rowset_meta;
         }
     }
 
