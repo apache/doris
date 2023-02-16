@@ -45,11 +45,23 @@ AggregateFunctionPtr create_aggregate_function_avg(const std::string& name,
 
     AggregateFunctionPtr res;
     DataTypePtr data_type = argument_types[0];
-    if (is_decimal(data_type)) {
-        res.reset(
-                create_with_decimal_type<AggregateFuncAvg>(*data_type, *data_type, argument_types));
+    if (data_type->is_nullable()) {
+        auto no_null_argument_types = remove_nullable(argument_types);
+        if (is_decimal(no_null_argument_types[0])) {
+            res.reset(create_with_decimal_type_null<AggregateFuncAvg>(
+                    no_null_argument_types, parameters, *no_null_argument_types[0],
+                    no_null_argument_types));
+        } else {
+            res.reset(create_with_numeric_type_null<AggregateFuncAvg>(
+                    no_null_argument_types, parameters, no_null_argument_types));
+        }
     } else {
-        res.reset(create_with_numeric_type<AggregateFuncAvg>(*data_type, argument_types));
+        if (is_decimal(data_type)) {
+            res.reset(create_with_decimal_type<AggregateFuncAvg>(*data_type, *data_type,
+                                                                 argument_types));
+        } else {
+            res.reset(create_with_numeric_type<AggregateFuncAvg>(*data_type, argument_types));
+        }
     }
 
     if (!res) {
@@ -61,5 +73,6 @@ AggregateFunctionPtr create_aggregate_function_avg(const std::string& name,
 
 void register_aggregate_function_avg(AggregateFunctionSimpleFactory& factory) {
     factory.register_function("avg", create_aggregate_function_avg);
+    factory.register_function("avg", create_aggregate_function_avg, true);
 }
 } // namespace doris::vectorized
