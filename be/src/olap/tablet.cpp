@@ -1805,15 +1805,15 @@ Status Tablet::write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& 
     {
         std::shared_lock meta_rlock(_meta_lock);
         std::set<std::string> rs_meta_set;
-        for (auto &rs_meta: _tablet_meta->all_rs_metas()) {
+        for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
             if (!rs_meta->is_local()) {
-                rs_meta_set.emplace(rs_meta.version().to_string());
+                rs_meta_set.emplace(rs_meta->version().to_string());
             }
         }
 
         std::set<std::string> to_delete_set;
         for (auto& rs_meta : to_deletes) {
-            if (rs_meta_set.find(rs_meta.version().to_string()) == rs_meta_set.end()) {
+            if (rs_meta_set.find(rs_meta->version().to_string()) == rs_meta_set.end()) {
                 return Status::InternalError("deleted version not continuous");
             }
             to_delete_set.emplace(rs_meta->version().to_string());
