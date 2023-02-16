@@ -1078,7 +1078,6 @@ public abstract class BaseExecutor {
                         UdfUtils.UNSAFE
                                 .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 0);
                         strOffset += bytes.length;
-                        Long newOff = UdfUtils.UNSAFE.getLong(null, outputArrayStringOffsetsPtr) + 4L * (offset + i);
                         UdfUtils.UNSAFE.putInt(null,
                                 UdfUtils.UNSAFE.getLong(null, outputArrayStringOffsetsPtr) + 4L * (offset + i),
                                 Integer.parseUnsignedInt(String.valueOf(strOffset)));

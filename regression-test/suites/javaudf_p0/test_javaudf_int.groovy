@@ -60,7 +60,7 @@ suite("test_javaudf_int") {
 
         sql """ CREATE FUNCTION java_udf_int_test(int) RETURNS int PROPERTIES (
             "file"="file://${jarPath}",
-            "symbol"="org.apache.doris.udf.ArrayIntTest",
+            "symbol"="org.apache.doris.udf.IntTest",
             "type"="JAVA_UDF"
         ); """
 
