@@ -39,9 +39,9 @@ Vertical compaction is a new compaction algorithm implemented in Doris 2.0, whic
 In vertical compaction, merging by row is changed to merging by column group. The granularity of each merge is changed to column group, which reduces the amount of data involved in single compaction and reduces the memory usage during compaction.
 
 BE configuration：
-`enable_vertical_compaction = true` will turn on vertical compaction
-`vertical_compaction_num_columns_per_group = 5` The number of columns contained in each column group, by testing, the efficiency and memory usage of a group of 5 columns by default is more friendly
-`vertical_compaction_max_segment_size` is used to configure the size of the disk file after vertical compaction, the default value is 268435456 (bytes)
+- `enable_vertical_compaction = true` will turn on vertical compaction
+- `vertical_compaction_num_columns_per_group = 5` The number of columns contained in each column group, by testing, the efficiency and memory usage of a group of 5 columns by default is more friendly
+- `vertical_compaction_max_segment_size` is used to configure the size of the disk file after vertical compaction, the default value is 268435456 (bytes)
 
 
 ## Segment compaction
