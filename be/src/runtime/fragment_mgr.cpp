@@ -355,7 +355,6 @@ void FragmentMgr::coordinator_callback(
     params.__set_backend_num(backend_num);
     params.__set_fragment_instance_id(fragment_instance_id);
     params.__set_fragment_id(fragment_id);
-    params.__set_fragment_instance_id(fragment_instance_id);
     exec_status.set_t_status(&params);
     params.__set_done(done);
 
@@ -923,8 +922,14 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params, Fi
 
         fragments_ctx->fragment_ids.push_back(fragment_instance_id);
 
-        exec_state.reset(new FragmentExecState(fragments_ctx->query_id, fragment_instance_id,
-                                               local_params.backend_num, _exec_env, fragments_ctx));
+        exec_state.reset(new FragmentExecState(
+                fragments_ctx->query_id, fragment_instance_id, local_params.backend_num, _exec_env,
+                fragments_ctx,
+                std::bind<void>(std::mem_fn(&FragmentMgr::coordinator_callback), this,
+                                std::placeholders::_1, std::placeholders::_2, std::placeholders::_3,
+                                std::placeholders::_4, std::placeholders::_5, std::placeholders::_6,
+                                std::placeholders::_7, std::placeholders::_8, std::placeholders::_9,
+                                std::placeholders::_10, std::placeholders::_11)));
         if (params.__isset.need_wait_execution_trigger && params.need_wait_execution_trigger) {
             // set need_wait_execution_trigger means this instance will not actually being executed
             // until the execPlanFragmentStart RPC trigger to start it.
@@ -940,7 +945,13 @@ Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params, Fi
         std::shared_ptr<pipeline::PipelineFragmentContext> context =
                 std::make_shared<pipeline::PipelineFragmentContext>(
                         fragments_ctx->query_id, fragment_instance_id, params.fragment_id,
-                        local_params.backend_num, fragments_ctx, _exec_env, cb);
+                        local_params.backend_num, fragments_ctx, _exec_env, cb,
+                        std::bind<void>(
+                                std::mem_fn(&FragmentMgr::coordinator_callback), this,
+                                std::placeholders::_1, std::placeholders::_2, std::placeholders::_3,
+                                std::placeholders::_4, std::placeholders::_5, std::placeholders::_6,
+                                std::placeholders::_7, std::placeholders::_8, std::placeholders::_9,
+                                std::placeholders::_10, std::placeholders::_11));
         {
             SCOPED_RAW_TIMER(&duration_ns);
             auto prepare_st = context->prepare(params, i);

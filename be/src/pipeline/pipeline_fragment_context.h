@@ -50,7 +50,7 @@ public:
     PipelineFragmentContext(const TUniqueId& query_id, const TUniqueId& instance_id,
                             const int fragment_id, int backend_num,
                             std::shared_ptr<QueryFragmentsCtx> query_ctx, ExecEnv* exec_env,
-                            const std::function<void(RuntimeState*, Status*)>& call_back,
+                            std::function<void(RuntimeState*, Status*)> call_back,
                             const report_status_callback& report_status_cb);
 
     ~PipelineFragmentContext();
