@@ -1815,40 +1815,36 @@ Status Tablet::write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& 
                 if (to_delete_set.find(rs_meta->version().to_string()) != to_delete_set.end()) {
                     continue;
                 }
-                cooldowned_rs_metas.push_back(rs_meta);
+                cooldowned_rs_metas.emplace_back(rs_meta);
             }
         }
     }
+    cooldowned_rs_metas.emplace_back(new_rs_meta);
     std::sort(cooldowned_rs_metas.begin(), cooldowned_rs_metas.end(), RowsetMeta::comparator);
-    if (UNLIKELY(!cooldowned_rs_metas.empty() &&
-                 new_rs_meta->start_version() != cooldowned_rs_metas.back()->end_version() + 1)) {
-        return Status::InternalError("version not continuous");
-    }
 
     // check_version_continuity
     if (!cooldowned_rs_metas.empty()) {
-        RowsetMetaSharedPtr prev_rowset = cooldowned_rs_metas.front();
+        RowsetMetaSharedPtr prev_rowset_meta = cooldowned_rs_metas.front();
         for (size_t i = 1; i < cooldowned_rs_metas.size(); ++i) {
             RowsetMetaSharedPtr rowset_meta = cooldowned_rs_metas[i];
-            if (rowset_meta->start_version() != prev_rowset->end_version() + 1) {
+            if (rowset_meta->start_version() != prev_rowset_meta->end_version() + 1) {
                 LOG(WARNING) << "There are missed versions among rowsets. "
-                             << "prev_rowset version=" << prev_rowset->start_version() << "-"
-                             << prev_rowset->end_version()
+                             << "prev_rowset_meta version=" << prev_rowset_meta->start_version() << "-"
+                             << prev_rowset_meta->end_version()
                              << ", rowset_meta version=" << rowset_meta->start_version() << "-"
                              << rowset_meta->end_version();
                 return Status::Error<CUMULATIVE_MISS_VERSION>();
             }
-            prev_rowset = rowset_meta;
+            prev_rowset_meta = rowset_meta;
         }
     }
 
     TabletMetaPB tablet_meta_pb;
     auto rs_metas = tablet_meta_pb.mutable_rs_metas();
-    rs_metas->Reserve(cooldowned_rs_metas.size() + 1);
+    rs_metas->Reserve(cooldowned_rs_metas.size());
     for (auto& rs_meta : cooldowned_rs_metas) {
         rs_metas->Add(rs_meta->get_rowset_pb());
     }
-    rs_metas->Add(new_rs_meta->get_rowset_pb());
     tablet_meta_pb.mutable_cooldown_meta_id()->set_hi(cooldown_meta_id.hi);
     tablet_meta_pb.mutable_cooldown_meta_id()->set_lo(cooldown_meta_id.lo);
 
