@@ -89,9 +89,8 @@ void ConfigHandler::handle_update_config(brpc::Controller* cntl) {
                 if (*persist_param == "true") {
                     need_persist = true;
                 }
-		auto uri = get_uri(cntl);
-                for (auto iter = uri.QueryBegin(); iter != uri.QueryEnd();
-                     ++iter) {
+                auto uri = get_uri(cntl);
+                for (auto iter = uri.QueryBegin(); iter != uri.QueryEnd(); ++iter) {
                     if (iter->first.compare(PERSIST_PARAM) == 0) {
                         continue;
                     }

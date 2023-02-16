@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "common/status.h"
 #include "http/brpc/brpc_http_handler.h"
 #include "olap/tablet.h"
 

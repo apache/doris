@@ -35,10 +35,10 @@ void MetricsHandler::handle_sync(brpc::Controller* cntl) {
     std::string type;
     std::string with_tablet;
     if (type_ptr != nullptr) {
-	type = *type_ptr;
+        type = *type_ptr;
     }
     if (with_tablet_ptr != nullptr) {
-	with_tablet = *with_tablet_ptr;
+        with_tablet = *with_tablet_ptr;
     }
     std::string str;
     if (type == "core") {

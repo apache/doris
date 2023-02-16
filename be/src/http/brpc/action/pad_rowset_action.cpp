@@ -19,8 +19,9 @@
 
 #include <brpc/http_method.h>
 
-#include "olap/rowset/rowset_writer.h"
-#include "olap/rowset/rowset_writer_context.h"
+#include "olap/olap_common.h"
+#include "olap/rowset/beta_rowset_writer.h"
+#include "olap/rowset/rowset.h"
 #include "olap/storage_engine.h"
 
 namespace doris {

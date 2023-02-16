@@ -55,8 +55,9 @@ public:
     void pad_rowset(::google::protobuf::RpcController* controller,
                     const ::doris::PHttpRequest* request, ::doris::PHttpResponse* response,
                     ::google::protobuf::Closure* done) override;
-    void pprofile(::google::protobuf::RpcController* controller, const ::doris::PHttpRequest* request,
-               ::doris::PHttpResponse* response, ::google::protobuf::Closure* done) override;
+    void pprofile(::google::protobuf::RpcController* controller,
+                  const ::doris::PHttpRequest* request, ::doris::PHttpResponse* response,
+                  ::google::protobuf::Closure* done) override;
     void snapshot(::google::protobuf::RpcController* controller,
                   const ::doris::PHttpRequest* request, ::doris::PHttpResponse* response,
                   ::google::protobuf::Closure* done) override;

@@ -102,29 +102,30 @@ BrpcHttpService::BrpcHttpService(ExecEnv* exec_env) : _dispatcher(new HandlerDis
 }
 
 void add_brpc_http_service(brpc::Server* server, ExecEnv* env) {
-    const int stat = server->AddService(new BrpcHttpService(env), brpc::SERVER_OWNS_SERVICE,
-                                        "/api/check_rpc_channel/* => check_rpc_channel,"
-                                        "/api/checksum => check_sum,"
-                                        "/api/check_tablet_segment_lost => check_tablet_segement,"
-                                        "/api/compaction/* => compaction,"
-                                        "/api/*_config => config,"
-                                        "/api/_download_load => download,"
-                                        "/api/health => health,"
-                                        "/jeheap/dump => jeprofile,"
-                                        "/api/meta/header/* => meta,"
-                                        "/metrics => metrics,"
-                                        "/api/pad_rowset => pad_rowset,"
-                                        // adjust pprof uri to resolve the confict with brpc internal service
-                                        "/api/pprof/* => pprofile,"
-                                        "/api/reload_tablet => reload_tablet,"
-                                        "/api/reset_rpc_channel/* => reset_rpc_channel,"
-                                        "/api/restore_tablet => restore_tablet,"
-                                        "/api/snapshot => snapshot,"
-                                        "/api/*/_stream_load_2pc => stream_load_2pc,"
-                                        "/api/tablet_migration => tablet_migration,"
-                                        "/api/tablets_distribution => tablets_distribution,"
-                                        "/tablets_json => tablets_info,"
-                                        "/api/be_version_info => version");
+    const int stat =
+            server->AddService(new BrpcHttpService(env), brpc::SERVER_OWNS_SERVICE,
+                               "/api/check_rpc_channel/* => check_rpc_channel,"
+                               "/api/checksum => check_sum,"
+                               "/api/check_tablet_segment_lost => check_tablet_segement,"
+                               "/api/compaction/* => compaction,"
+                               "/api/*_config => config,"
+                               "/api/_download_load => download,"
+                               "/api/health => health,"
+                               "/jeheap/dump => jeprofile,"
+                               "/api/meta/header/* => meta,"
+                               "/metrics => metrics,"
+                               "/api/pad_rowset => pad_rowset,"
+                               // adjust pprof uri to resolve the confict with brpc internal service
+                               "/api/pprof/* => pprofile,"
+                               "/api/reload_tablet => reload_tablet,"
+                               "/api/reset_rpc_channel/* => reset_rpc_channel,"
+                               "/api/restore_tablet => restore_tablet,"
+                               "/api/snapshot => snapshot,"
+                               "/api/*/_stream_load_2pc => stream_load_2pc,"
+                               "/api/tablet_migration => tablet_migration,"
+                               "/api/tablets_distribution => tablets_distribution,"
+                               "/tablets_json => tablets_info,"
+                               "/api/be_version_info => version");
     if (stat != 0) {
         LOG(WARNING) << "fail to add brpc http service";
     }

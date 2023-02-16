@@ -28,7 +28,7 @@ void TabletsInfoHandler::handle_sync(brpc::Controller* cntl) {
     const std::string* limit = get_param(cntl, "limit");
     std::string tablet_num_to_return;
     if (limit != nullptr) {
-    	tablet_num_to_return = *limit;
+        tablet_num_to_return = *limit;
     }
     on_succ_json(cntl, get_tablets_info(cntl, tablet_num_to_return).ToString());
 }
