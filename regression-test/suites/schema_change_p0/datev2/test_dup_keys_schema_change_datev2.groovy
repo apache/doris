@@ -128,7 +128,7 @@ suite("test_dup_keys_schema_change_datev2") {
 
     sql """ alter table ${tbName} modify column `datev1` datev2 DEFAULT '2022-01-01' """
     int max_try_time = 1000
-    while(max_try_time--){
+    while (max_try_time--){
         String result = getJobState(tbName)
         if (result == "FINISHED") {
             break
@@ -155,7 +155,7 @@ suite("test_dup_keys_schema_change_datev2") {
     qt_sql """select  * from ${tbName} ORDER BY `datek1`;"""
     sql """ alter  table ${tbName} modify column `datev2` datetimev2 DEFAULT '2022-01-01 11:11:11' """
     max_try_time = 1000
-    while(max_try_time--){
+    while (max_try_time--){
         String result = getJobState(tbName)
         if (result == "FINISHED") {
             break
@@ -182,7 +182,7 @@ suite("test_dup_keys_schema_change_datev2") {
     qt_sql """select  * from ${tbName} ORDER BY `datek1`;"""
     sql """ alter  table ${tbName} modify column `datev2` datetimev2(3) DEFAULT '2022-01-01 11:11:11' """
     max_try_time = 1000
-    while(max_try_time--){
+    while (max_try_time--){
         String result = getJobState(tbName)
         if (result == "FINISHED") {
             break
