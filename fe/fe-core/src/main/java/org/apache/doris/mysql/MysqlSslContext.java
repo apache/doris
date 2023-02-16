@@ -122,6 +122,8 @@ public class MysqlSslContext {
         // long startTime = System.currentTimeMillis();
         // init data buffer
         initDataBuffer();
+        // set channel sslengine.
+        channel.setSslEngine(sslEngine);
         // begin handshake.
         sslEngine.beginHandshake();
         while (sslEngine.getHandshakeStatus() != HandshakeStatus.FINISHED
@@ -197,7 +199,7 @@ public class MysqlSslContext {
     private void handleNeedUnwrap(MysqlChannel channel) {
         try {
             // todo: refactor readAll.
-            clientNetData = channel.fetchOneSslHandshakePacket();
+            clientNetData = channel.fetchOnePacket();
             while (true) {
                 SSLEngineResult sslEngineResult = sslEngine.unwrap(clientNetData, clientAppData);
                 if (handleUnwrapResult(sslEngineResult)) {

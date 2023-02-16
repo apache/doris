@@ -50,7 +50,7 @@ public class MysqlHandshakePacket extends MysqlPacket {
 
     @Override
     public void writeTo(MysqlSerializer serializer) {
-        MysqlCapability capability = MysqlProto.USE_SSL ? SSL_CAPABILITY : CAPABILITY;
+        MysqlCapability capability = MysqlProto.SERVER_USE_SSL ? SSL_CAPABILITY : CAPABILITY;
 
         serializer.writeInt1(PROTOCOL_VERSION);
         serializer.writeNulTerminateString(SERVER_VERSION);

@@ -46,7 +46,7 @@ import javax.net.ssl.SSLEngine;
 // MySQL protocol util
 public class MysqlProto {
     private static final Logger LOG = LogManager.getLogger(MysqlProto.class);
-    public static final boolean USE_SSL = Config.enable_ssl;
+    public static final boolean SERVER_USE_SSL = Config.enable_ssl;
 
     // scramble: data receive from server.
     // randomString: data send by server in plug-in data field
@@ -184,11 +184,9 @@ public class MysqlProto {
         // Server receive authenticate packet from client.
         ByteBuffer handshakeResponse;
 
-        if (capability.isSsl()) {
+        if (capability.isClientUseSsl()) {
             // During development, we set SSL mode to true by default.
-            if (USE_SSL) {
-                // Set channel mode to ssl mode to handle socket packet in ssl format.
-                channel.setSslMode(true);
+            if (SERVER_USE_SSL) {
                 sslConnectionRequest = clientRequestPacket;
                 if (sslConnectionRequest == null) {
                     // receive response failed.
@@ -202,7 +200,9 @@ public class MysqlProto {
                 }
                 // try to establish ssl connection.
                 try {
-                    // todo: return false or throw exception ?
+                    // set channel to handshake mode to process data packet as ssl packet.
+                    channel.setHandshaking(true);
+                    // The ssl handshake phase still uses plaintext.
                     if (!mysqlSslContext.sslExchange(channel)) {
                         ErrorReport.report(ErrorCode.ERR_NOT_SUPPORTED_AUTH_MODE);
                         sendResponsePacket(context);
@@ -211,12 +211,14 @@ public class MysqlProto {
                 } catch (Exception e) {
                     throw new RuntimeException(e);
                 }
-                SSLEngine sslEngine = mysqlSslContext.getSslEngine();
-                handshakeResponse = ByteBuffer.allocate(sslEngine.getSession().getPacketBufferSize());
-                sslEngine.unwrap(channel.fetchOneSslHandshakePacket(), handshakeResponse);
-                handshakeResponse.flip();
+                // if the exchange is successful, the channel will switch to ssl communication mode
+                // which means all data after this moment will be ciphertext.
+
+                // Set channel mode to ssl mode to handle socket packet in ssl format.
+                channel.setSslMode(true);
+                handshakeResponse=channel.fetchOnePacket();
                 capability = new MysqlCapability(MysqlProto.readLowestInt4(handshakeResponse));
-                if(!capability.isSsl()){
+                if(!capability.isClientUseSsl()){
                     ErrorReport.report(ErrorCode.ERR_NONSSL_HANDSHAKE_RESPONSE);
                     sendResponsePacket(context);
                     return false;

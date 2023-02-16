@@ -119,7 +119,7 @@ public class MysqlCapability {
         return (flags & Flag.CLIENT_PROTOCOL_41.getFlagBit()) != 0;
     }
 
-    public boolean isSsl() {
+    public boolean isClientUseSsl() {
         return (flags & Flag.CLIENT_SSL.getFlagBit()) != 0;
     }
 
