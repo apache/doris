@@ -106,7 +106,7 @@ public class EsExternalCatalog extends ExternalCatalog {
                 EsResource.MAPPING_ES_ID_DEFAULT_VALUE));
     }
 
-    public boolean enableLikePushdown() {
+    public boolean enableLikePushDown() {
         return Boolean.parseBoolean(catalogProperty.getOrDefault(EsResource.LIKE_PUSH_DOWN,
                 EsResource.LIKE_PUSH_DOWN_DEFAULT_VALUE));
     }
