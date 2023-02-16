@@ -19,9 +19,11 @@ suite("load") {
 
     // ddl begin
     sql "drop table if exists fn_test"
+    sql "drop table if exists fn_test_not_nullable"
 
     sql """
         CREATE TABLE IF NOT EXISTS `fn_test` (
+            `id` int null,
             `kbool` boolean null,
             `ktint` tinyint(4) null,
             `ksint` smallint(6) null,
@@ -68,7 +70,60 @@ suite("load") {
             `st_point_str` string null,
             `st_point_vc` varchar(50) null
         ) engine=olap
-        DISTRIBUTED BY HASH(`ktint`) BUCKETS 5
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
+        properties("replication_num" = "1")
+    """
+
+    sql """
+        CREATE TABLE IF NOT EXISTS `fn_test_not_nullable` (
+            `id` int not null,
+            `kbool` boolean not null,
+            `ktint` tinyint(4) not null,
+            `ksint` smallint(6) not null,
+            `kint` int(11) not null,
+            `kbint` bigint(20) not null,
+            `klint` largeint(40) not null,
+            `kfloat` float not null,
+            `kdbl` double not null,
+            `kdcmls1` decimal(9, 3) not null,
+            `kdcmls2` decimal(15, 5) not null,
+            `kdcmls3` decimal(27, 9) not null,
+            `kdcmlv3s1` decimalv3(9, 3) not null,
+            `kdcmlv3s2` decimalv3(15, 5) not null,
+            `kdcmlv3s3` decimalv3(27, 9) not null,
+            `kchrs1` char(10) not null,
+            `kchrs2` char(20) not null,
+            `kchrs3` char(50) not null,
+            `kvchrs1` varchar(10) not null,
+            `kvchrs2` varchar(20) not null,
+            `kvchrs3` varchar(50) not null,
+            `kstr` string not null,
+            `kdt` date not null,
+            `kdtv2` datev2 not null,
+            `kdtm` datetime not null,
+            `kdtmv2s1` datetimev2(0) not null,
+            `kdtmv2s2` datetimev2(4) not null,
+            `kdtmv2s3` datetimev2(6) not null,
+            `kabool` array<boolean> not null,
+            `katint` array<tinyint(4)> not null,
+            `kasint` array<smallint(6)> not null,
+            `kaint` array<int> not null,
+            `kabint` array<bigint(20)> not null,
+            `kalint` array<largeint(40)> not null,
+            `kafloat` array<float> not null,
+            `kadbl` array<double> not null,
+            `kadt` array<date> not null,
+            `kadtm` array<datetime> not null,
+            `kadtv2` array<datev2> not null,
+            `kadtmv2` array<datetimev2(6)> not null,
+            `kachr` array<char(50)> not null,
+            `kavchr` array<varchar(50)> not null,
+            `kastr` array<string> not null,
+            `kadcml` array<decimal(27, 9)> not null,
+            `st_point_str` string not null,
+            `st_point_vc` varchar(50) not null
+        ) engine=olap
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1
         properties("replication_num" = "1")
     """
     // ddl end
@@ -77,6 +132,17 @@ suite("load") {
         table "fn_test"
         db "regression_test_nereids_function_p0"
         set 'column_separator', ';'
+        set 'columns', '''
+            id, kbool, ktint, ksint, kint, kbint, klint, kfloat, kdbl, kdcmls1, kdcmls2, kdcmls3,
+            kdcmlv3s1, kdcmlv3s2, kdcmlv3s3, kchrs1, kchrs2, kchrs3, kvchrs1, kvchrs2, kvchrs3, kstr,
+            kdt ,kdtv2, kdtm, kdtmv2s1, kdtmv2s2, kdtmv2s3, kabool, katint, kasint, kaint,
+            kabint, kalint, kafloat, kadbl, kadt, kadtm, kadtv2, kadtmv2, kachr, kavchr, kastr, kadcml,
+            st_point_str, st_point_vc
+            '''
         file "fn_test.dat"
     }
+
+    sql """
+        insert into fn_test_not_nullable select * from fn_test where id is not null
+    """
 }
