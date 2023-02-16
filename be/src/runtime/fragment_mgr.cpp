@@ -473,7 +473,8 @@ void FragmentMgr::coordinator_callback(
 
 static void empty_function(RuntimeState*, Status*) {}
 
-void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb) {
+void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state,
+                               const FinishCallback& cb) {
     std::string func_name {"PlanFragmentExecutor::_exec_actual"};
 #ifndef BE_TEST
     auto span = exec_state->executor()->runtime_state()->get_tracer()->StartSpan(func_name);
@@ -619,7 +620,8 @@ void FragmentMgr::remove_pipeline_context(
     }
 }
 
-Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, FinishCallback cb) {
+Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
+                                       const FinishCallback& cb) {
     auto tracer = telemetry::is_current_span_valid() ? telemetry::get_tracer("tracer")
                                                      : telemetry::get_noop_tracer();
     VLOG_ROW << "exec_plan_fragment params is "
@@ -815,7 +817,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params, Fi
     return Status::OK();
 }
 
-Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params, FinishCallback cb) {
+Status FragmentMgr::exec_plan_fragment(const TPipelineFragmentParams& params,
+                                       const FinishCallback& cb) {
     auto tracer = telemetry::is_current_span_valid() ? telemetry::get_tracer("tracer")
                                                      : telemetry::get_noop_tracer();
     VLOG_ROW << "exec_plan_fragment params is "

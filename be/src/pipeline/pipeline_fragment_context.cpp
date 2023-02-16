@@ -90,7 +90,7 @@ namespace doris::pipeline {
 PipelineFragmentContext::PipelineFragmentContext(
         const TUniqueId& query_id, const TUniqueId& instance_id, const int fragment_id,
         int backend_num, std::shared_ptr<QueryFragmentsCtx> query_ctx, ExecEnv* exec_env,
-        std::function<void(RuntimeState*, Status*)> call_back,
+        const std::function<void(RuntimeState*, Status*)>& call_back,
         const report_status_callback& report_status_cb)
         : _query_id(query_id),
           _fragment_instance_id(instance_id),

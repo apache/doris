@@ -78,9 +78,9 @@ public:
             std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_context);
 
     // TODO(zc): report this is over
-    Status exec_plan_fragment(const TExecPlanFragmentParams& params, FinishCallback cb);
+    Status exec_plan_fragment(const TExecPlanFragmentParams& params, const FinishCallback& cb);
 
-    Status exec_plan_fragment(const TPipelineFragmentParams& params, FinishCallback cb);
+    Status exec_plan_fragment(const TPipelineFragmentParams& params, const FinishCallback& cb);
 
     Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 
@@ -125,7 +125,7 @@ public:
             std::function<void(const PPlanFragmentCancelReason&, const std::string&)> cancel_fn);
 
 private:
-    void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb);
+    void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, const FinishCallback& cb);
 
     void _set_scan_concurrency(const TExecPlanFragmentParams& params,
                                QueryFragmentsCtx* fragments_ctx);
