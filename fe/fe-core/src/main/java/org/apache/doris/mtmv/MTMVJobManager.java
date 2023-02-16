@@ -232,6 +232,16 @@ public class MTMVJobManager {
         return isCancel;
     }
 
+    public boolean killJobByMvName(String dbName, String mvName) {
+        for (String jobName : nameToJobMap.keySet()) {
+            MTMVJob job = nameToJobMap.get(jobName);
+            if (job.getMVName().equals(mvName) && job.getDBName().equals(dbName)) {
+                return killJobTask(jobName, true);
+            }
+        }
+        return false;
+    }
+
     public boolean killJobTask(String jobName, boolean clearPending) {
         MTMVJob job = nameToJobMap.get(jobName);
         if (job == null) {

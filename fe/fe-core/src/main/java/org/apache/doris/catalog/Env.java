@@ -171,6 +171,7 @@ import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.AlterMultiMaterializedView;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
@@ -3666,7 +3667,8 @@ public class Env {
     }
 
     public void alterMaterializedView(AlterMaterializedViewStmt stmt) throws UserException {
-        this.alter.processAlterMaterializedView(stmt);
+        AlterMultiMaterializedView alter = new AlterMultiMaterializedView(stmt.getTable(), stmt.getRefreshInfo());
+        this.alter.processAlterMaterializedView(alter, false);
     }
 
     /**
