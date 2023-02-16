@@ -21,7 +21,7 @@ suite ("test_uniq_mv_schema_change") {
     def tableName = "schema_change_uniq_mv_regression_test"
     def getMVJobState = { tbName ->
          def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1 """
-         return jobStateResult[0][9]
+         return jobStateResult[0][8]
     }
 
     try {

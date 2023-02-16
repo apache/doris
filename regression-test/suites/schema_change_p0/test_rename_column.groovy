@@ -19,11 +19,11 @@ suite ("test_rename_column") {
     def tableName = "rename_column_test"
     def getMVJobState = { tbName ->
          def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1 """
-         return jobStateResult[0][9]
+         return jobStateResult[0][8]
     }
     def getRollupJobState = { tbName ->
          def jobStateResult = sql """  SHOW ALTER TABLE ROLLUP WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1 """
-         return jobStateResult[0][9]
+         return jobStateResult[0][8]
     }
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """

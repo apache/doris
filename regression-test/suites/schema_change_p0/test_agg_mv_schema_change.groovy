@@ -25,7 +25,7 @@ suite ("test_agg_mv_schema_change") {
     }
     def getMVJobState = { tbName ->
          def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1 """
-         return jobStateResult[0][9]
+         return jobStateResult[0][8]
     }
     def tableName = "schema_change_agg_mv_regression_test"
 

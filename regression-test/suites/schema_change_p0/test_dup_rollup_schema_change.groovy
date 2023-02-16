@@ -20,7 +20,7 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 suite ("test_dup_rollup_schema_change") {
     def getMVJobState = { tableName ->
          def jobStateResult = sql """  SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1 """
-         return jobStateResult[0][9]
+         return jobStateResult[0][8]
     }
     def getJobState = { tableName ->
          def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """

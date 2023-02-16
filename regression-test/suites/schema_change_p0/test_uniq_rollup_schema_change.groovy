@@ -21,7 +21,7 @@ suite ("test_uniq_rollup_schema_change") {
     def tableName = "schema_change_uniq_rollup_regression_test"
     def getMVJobState = { tbName ->
          def jobStateResult = sql """  SHOW ALTER TABLE ROLLUP WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1 """
-         return jobStateResult[0][9]
+         return jobStateResult[0][8]
     }
     def getJobState = { tbName ->
          def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName}' ORDER BY createtime DESC LIMIT 1 """
