@@ -119,10 +119,10 @@ suite("nereids_agg_fn") {
 	qt_sql_bitmap_union_int_Integer_notnull_gb "select bitmap_union_int(kint) from fn_test_not_nullable group by kbool order by kbool"
 	qt_sql_bitmap_union_int_Integer_notnull "select bitmap_union_int(kint) from fn_test_not_nullable"
 
-//	qt_sql_bitmap_union_int_BigInt_gb "select bitmap_union_int(kbint) from fn_test group by kbool order by kbool"
-//	qt_sql_bitmap_union_int_BigInt "select bitmap_union_int(kbint) from fn_test"
-//	qt_sql_bitmap_union_int_BigInt_notnull_gb "select bitmap_union_int(kbint) from fn_test_not_nullable group by kbool order by kbool"
-//	qt_sql_bitmap_union_int_BigInt_notnull "select bitmap_union_int(kbint) from fn_test_not_nullable"
+	qt_sql_bitmap_union_int_BigInt_gb "select bitmap_union_int(kbint) from fn_test group by kbool order by kbool"
+	qt_sql_bitmap_union_int_BigInt "select bitmap_union_int(kbint) from fn_test"
+	qt_sql_bitmap_union_int_BigInt_notnull_gb "select bitmap_union_int(kbint) from fn_test_not_nullable group by kbool order by kbool"
+	qt_sql_bitmap_union_int_BigInt_notnull "select bitmap_union_int(kbint) from fn_test_not_nullable"
 
 	qt_sql_count_gb "select count() from fn_test group by kbool order by kbool"
 	qt_sql_count "select count() from fn_test"
