@@ -74,12 +74,12 @@ Status ColdDataCompaction::modify_rowsets() {
 
     // write remote tablet meta
     TabletMetaPB tablet_meta_pb;
-    std::shared_ptr <io::RemoteFileSystem> fs;
+    std::shared_ptr<io::RemoteFileSystem> fs;
     {
         std::shared_lock rlock(_tablet->get_header_lock());
         RETURN_IF_ERROR(get_remote_file_system(_tablet->storage_policy_id(), &fs));
         std::vector <RowsetMetaSharedPtr> cooldowned_rs_metas;
-        for (auto &rs_meta: _tablet->tablet_meta()->all_rs_metas()) {
+        for (auto &rs_meta : _tablet->tablet_meta()->all_rs_metas()) {
             if (!rs_meta->is_local()) {
                 cooldowned_rs_metas.push_back(rs_meta);
             }
@@ -87,7 +87,7 @@ Status ColdDataCompaction::modify_rowsets() {
         std::sort(cooldowned_rs_metas.begin(), cooldowned_rs_metas.end(), RowsetMeta::comparator);
         auto rs_metas = tablet_meta_pb.mutable_rs_metas();
         rs_metas->Reserve(cooldowned_rs_metas.size() + 1);
-        for (auto &rs_meta: cooldowned_rs_metas) {
+        for (auto &rs_meta : cooldowned_rs_metas) {
             rs_metas->Add(rs_meta->get_rowset_pb());
         }
         tablet_meta_pb.mutable_cooldown_meta_id()->set_hi(cooldown_meta_id.hi);
