@@ -117,7 +117,7 @@ suite("test_alter_table_column") {
     // vector search
     def check_load_result = {checklabel, testTablex ->
         Integer max_try_milli_secs = 10000
-        while(max_try_milli_secs) {
+        while (max_try_milli_secs) {
             def result = sql "show load where label = '${checklabel}'"
             if(result[0][2] == "FINISHED") {
                 qt_select "select * from ${testTablex} order by k1"
