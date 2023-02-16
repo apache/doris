@@ -106,6 +106,7 @@ public final class QueryBuilders {
                 if (child != null) {
                     return QueryBuilders.boolQuery().mustNot(child);
                 }
+                return null;
             }
             default:
                 return null;
