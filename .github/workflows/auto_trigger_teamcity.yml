@@ -27,7 +27,7 @@ on:
     types: [created, edited]
 
 env:
-  TEAMCITY_URL: 'X POST -H "Content-Type:text/plain" -u OneMoreChance:OneMoreChance http://43.132.222.7:8111/httpAuth/action.html'
+  TEAMCITY_URL: '-X POST -H \"Content-Type:text/plain\" -u OneMoreChance:OneMoreChance http://43.132.222.7:8111/httpAuth/action.html'
 
 
 jobs:
@@ -62,7 +62,7 @@ jobs:
           
 
   run_p0_external_pipeline:
-    if: contains(github.event.comment.body, 'p0') ||  || contains(github.event.comment.body, 'external')
+    if: contains(github.event.comment.body, 'p0') || contains(github.event.comment.body, 'external')
 
     runs-on: ubuntu-latest
 
@@ -158,5 +158,30 @@ jobs:
           encoded_string=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${comment}")
           echo ${encoded_string}
           execute_command="curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_DorisBeUt_BeUt\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
+          echo "{$execute_command}"
+          eval ${execute_command}
+
+  run_compile_only_pipeline:
+    if: contains(github.event.comment.body, 'compile')
+
+    runs-on: ubuntu-latest
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Run compile pipeline by restful
+        run: |
+          echo "trigger compile_only pipeline"
+          
+          if [ "_xx""${{ github.event.issue.pull_request.url }}" != "_xx" ]; then
+            echo "Comment was made on pull request: $(echo ${{ github.event.issue.pull_request.url }} | awk -F/ '{print $NF}')"
+          else
+            echo "Comment was made on an issue, not a pull request."
+          fi
+          pull_request_num=$(echo "${{ github.event.issue.pull_request.url }}" | awk -F/ '{print $NF}')
+          comment="${{ github.event.comment.body }}"
+          encoded_string=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${comment}")
+          echo ${encoded_string}
+          execute_command="curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_DorisCompile_Compile\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
           echo "{$execute_command}"
           eval ${execute_command}
