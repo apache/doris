@@ -96,6 +96,9 @@ Status ScalarColumnReader::init(io::FileReaderSPtr file, FieldSchema* field,
 }
 
 Status ScalarColumnReader::_skip_values(size_t num_values) {
+    if (num_values == 0) {
+        return Status::OK();
+    }
     if (_chunk_reader->max_def_level() > 0) {
         LevelDecoder& def_decoder = _chunk_reader->def_level_decoder();
         size_t skipped = 0;
@@ -114,8 +117,12 @@ Status ScalarColumnReader::_skip_values(size_t num_values) {
             }
             skipped += loop_skip;
         }
-        RETURN_IF_ERROR(_chunk_reader->skip_values(null_size, false));
-        RETURN_IF_ERROR(_chunk_reader->skip_values(nonnull_size, true));
+        if (null_size > 0) {
+            RETURN_IF_ERROR(_chunk_reader->skip_values(null_size, false));
+        }
+        if (nonnull_size > 0) {
+            RETURN_IF_ERROR(_chunk_reader->skip_values(nonnull_size, true));
+        }
     } else {
         RETURN_IF_ERROR(_chunk_reader->skip_values(num_values));
     }

@@ -29,18 +29,6 @@ const uint32_t ParquetInt96::JULIAN_EPOCH_OFFSET_DAYS = 2440588;
 const uint64_t ParquetInt96::MICROS_IN_DAY = 86400000000;
 const uint64_t ParquetInt96::NANOS_PER_MICROSECOND = 1000;
 
-#define FOR_LOGICAL_NUMERIC_TYPES(M) \
-    M(TypeIndex::Int8, Int8)         \
-    M(TypeIndex::UInt8, UInt8)       \
-    M(TypeIndex::Int16, Int16)       \
-    M(TypeIndex::UInt16, UInt16)     \
-    M(TypeIndex::Int32, Int32)       \
-    M(TypeIndex::UInt32, UInt32)     \
-    M(TypeIndex::Int64, Int64)       \
-    M(TypeIndex::UInt64, UInt64)     \
-    M(TypeIndex::Float32, Float32)   \
-    M(TypeIndex::Float64, Float64)
-
 ColumnSelectVector::ColumnSelectVector(const uint8_t* filter_map, size_t filter_map_size,
                                        bool filter_all) {
     build(filter_map, filter_map_size, filter_all);
@@ -205,12 +193,8 @@ Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type 
                             std::unique_ptr<Decoder>& decoder) {
     switch (encoding) {
     case tparquet::Encoding::PLAIN:
-    case tparquet::Encoding::RLE_DICTIONARY:
         switch (type) {
         case tparquet::Type::BOOLEAN:
-            if (encoding != tparquet::Encoding::PLAIN) {
-                return Status::InternalError("Bool type can't has dictionary page");
-            }
             decoder.reset(new BoolPlainDecoder());
             break;
         case tparquet::Type::BYTE_ARRAY:
@@ -223,6 +207,38 @@ Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type 
         case tparquet::Type::DOUBLE:
         case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
             decoder.reset(new FixLengthDecoder(type));
+            break;
+        default:
+            return Status::InternalError("Unsupported type {}(encoding={}) in parquet decoder",
+                                         tparquet::to_string(type), tparquet::to_string(encoding));
+        }
+        break;
+    case tparquet::Encoding::RLE_DICTIONARY:
+        switch (type) {
+        case tparquet::Type::BOOLEAN:
+            if (encoding != tparquet::Encoding::PLAIN) {
+                return Status::InternalError("Bool type can't has dictionary page");
+            }
+        case tparquet::Type::BYTE_ARRAY:
+            decoder.reset(new ByteArrayDictDecoder());
+            break;
+        case tparquet::Type::INT32:
+            decoder.reset(new FixLengthDictDecoder<Int32>(type));
+            break;
+        case tparquet::Type::INT64:
+            decoder.reset(new FixLengthDictDecoder<Int64>(type));
+            break;
+        case tparquet::Type::INT96:
+            decoder.reset(new FixLengthDictDecoder<ParquetInt96>(type));
+            break;
+        case tparquet::Type::FLOAT:
+            decoder.reset(new FixLengthDictDecoder<Float32>(type));
+            break;
+        case tparquet::Type::DOUBLE:
+            decoder.reset(new FixLengthDictDecoder<Float64>(type));
+            break;
+        case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
+            decoder.reset(new FixLengthDictDecoder<char*>(type));
             break;
         default:
             return Status::InternalError("Unsupported type {}(encoding={}) in parquet decoder",
@@ -274,72 +290,15 @@ void Decoder::init(FieldSchema* field_schema, cctz::time_zone* ctz) {
     }
 }
 
-Status Decoder::_decode_dict_values(MutableColumnPtr& doris_column,
-                                    ColumnSelectVector& select_vector) {
-    DCHECK(doris_column->is_column_dictionary());
-    size_t dict_index = 0;
-    ColumnSelectVector::DataReadType read_type;
-    auto& column_data = assert_cast<ColumnDictI32&>(*doris_column).get_data();
-    while (size_t run_length = select_vector.get_next_run(&read_type)) {
-        switch (read_type) {
-        case ColumnSelectVector::CONTENT: {
-            uint32_t* start_index = &_indexes[0];
-            column_data.insert(start_index + dict_index, start_index + dict_index + run_length);
-            dict_index += run_length;
-            break;
-        }
-        case ColumnSelectVector::NULL_DATA: {
-            doris_column->insert_many_defaults(run_length);
-            break;
-        }
-        case ColumnSelectVector::FILTERED_CONTENT: {
-            dict_index += run_length;
-            break;
-        }
-        case ColumnSelectVector::FILTERED_NULL: {
-            break;
-        }
-        }
-    }
-    return Status::OK();
-}
-
-Status FixLengthDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length,
-                                  size_t num_values) {
-    if (num_values * _type_length != length) {
-        return Status::Corruption("Wrong dictionary data for fixed length type");
-    }
-    _has_dict = true;
-    _dict = std::move(dict);
-    char* dict_item_address = reinterpret_cast<char*>(_dict.get());
-    _dict_items.resize(num_values);
-    for (size_t i = 0; i < num_values; ++i) {
-        _dict_items[i] = dict_item_address;
-        dict_item_address += _type_length;
-    }
-    return Status::OK();
-}
-
 void FixLengthDecoder::set_data(Slice* data) {
     _data = data;
     _offset = 0;
-    if (_has_dict) {
-        uint8_t bit_width = *data->data;
-        _index_batch_decoder.reset(
-                new RleBatchDecoder<uint32_t>(reinterpret_cast<uint8_t*>(data->data) + 1,
-                                              static_cast<int>(data->size) - 1, bit_width));
-    }
 }
 
 Status FixLengthDecoder::skip_values(size_t num_values) {
-    if (_has_dict) {
-        _indexes.resize(num_values);
-        _index_batch_decoder->GetBatch(&_indexes[0], num_values);
-    } else {
-        _offset += _type_length * num_values;
-        if (UNLIKELY(_offset > _data->size)) {
-            return Status::IOError("Out-of-bounds access in parquet data decoder");
-        }
+    _offset += _type_length * num_values;
+    if (UNLIKELY(_offset > _data->size)) {
+        return Status::IOError("Out-of-bounds access in parquet data decoder");
     }
     return Status::OK();
 }
@@ -347,31 +306,13 @@ Status FixLengthDecoder::skip_values(size_t num_values) {
 Status FixLengthDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                        ColumnSelectVector& select_vector) {
     size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
-    if (_has_dict) {
-        if (doris_column->is_column_dictionary() &&
-            assert_cast<ColumnDictI32&>(*doris_column).dict_size() == 0) {
-            std::vector<StringRef> dict_items;
-            dict_items.reserve(_dict_items.size());
-            for (int i = 0; i < _dict_items.size(); ++i) {
-                dict_items.emplace_back(_dict_items[i], _type_length);
-            }
-            assert_cast<ColumnDictI32&>(*doris_column)
-                    .insert_many_dict_data(&dict_items[0], dict_items.size());
-        }
-        _indexes.resize(non_null_size);
-        _index_batch_decoder->GetBatch(&_indexes[0], non_null_size);
-    } else if (UNLIKELY(_offset + _type_length * non_null_size > _data->size)) {
+    if (UNLIKELY(_offset + _type_length * non_null_size > _data->size)) {
         return Status::IOError("Out-of-bounds access in parquet data decoder");
     }
-
-    if (doris_column->is_column_dictionary()) {
-        return _decode_dict_values(doris_column, select_vector);
-    }
-
     TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
     switch (logical_type) {
-#define DISPATCH(NUMERIC_TYPE, CPP_NUMERIC_TYPE) \
-    case NUMERIC_TYPE:                           \
+#define DISPATCH(NUMERIC_TYPE, CPP_NUMERIC_TYPE, PHYSICAL_TYPE) \
+    case NUMERIC_TYPE:                                          \
         return _decode_numeric<CPP_NUMERIC_TYPE>(doris_column, select_vector);
         FOR_LOGICAL_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
@@ -455,7 +396,6 @@ Status FixLengthDecoder::decode_values(MutableColumnPtr& doris_column, DataTypeP
 
 Status FixLengthDecoder::_decode_string(MutableColumnPtr& doris_column,
                                         ColumnSelectVector& select_vector) {
-    size_t dict_index = 0;
     ColumnSelectVector::DataReadType read_type;
     while (size_t run_length = select_vector.get_next_run(&read_type)) {
         switch (read_type) {
@@ -463,9 +403,9 @@ Status FixLengthDecoder::_decode_string(MutableColumnPtr& doris_column,
             std::vector<StringRef> string_values;
             string_values.reserve(run_length);
             for (size_t i = 0; i < run_length; ++i) {
-                char* buf_start = _FIXED_GET_DATA_OFFSET(dict_index++);
+                char* buf_start = _data->data + _offset;
                 string_values.emplace_back(buf_start, _type_length);
-                _FIXED_SHIFT_DATA_OFFSET();
+                _offset += _type_length;
             }
             doris_column->insert_many_strings(&string_values[0], run_length);
             break;
@@ -475,11 +415,7 @@ Status FixLengthDecoder::_decode_string(MutableColumnPtr& doris_column,
             break;
         }
         case ColumnSelectVector::FILTERED_CONTENT: {
-            if (_has_dict) {
-                dict_index += run_length;
-            } else {
-                _offset += _type_length * run_length;
-            }
+            _offset += _type_length * run_length;
             break;
         }
         case ColumnSelectVector::FILTERED_NULL: {
@@ -491,83 +427,33 @@ Status FixLengthDecoder::_decode_string(MutableColumnPtr& doris_column,
     return Status::OK();
 }
 
-Status ByteArrayDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length,
-                                  size_t num_values) {
-    _has_dict = true;
-    _dict = std::move(dict);
-    _dict_items.reserve(num_values);
-    uint32_t offset_cursor = 0;
-    char* dict_item_address = reinterpret_cast<char*>(_dict.get());
-    for (int i = 0; i < num_values; ++i) {
-        uint32_t l = decode_fixed32_le(_dict.get() + offset_cursor);
-        offset_cursor += 4;
-        _dict_items.emplace_back(dict_item_address + offset_cursor, l);
-        offset_cursor += l;
-        if (offset_cursor > length) {
-            return Status::Corruption("Wrong data length in dictionary");
-        }
-    }
-    if (offset_cursor != length) {
-        return Status::Corruption("Wrong dictionary data for byte array type");
-    }
-    return Status::OK();
-}
-
 void ByteArrayDecoder::set_data(Slice* data) {
     _data = data;
     _offset = 0;
-    if (_has_dict) {
-        uint8_t bit_width = *data->data;
-        _index_batch_decoder.reset(
-                new RleBatchDecoder<uint32_t>(reinterpret_cast<uint8_t*>(data->data) + 1,
-                                              static_cast<int>(data->size) - 1, bit_width));
-    }
 }
 
 Status ByteArrayDecoder::skip_values(size_t num_values) {
-    if (_has_dict) {
-        _indexes.resize(num_values);
-        _index_batch_decoder->GetBatch(&_indexes[0], num_values);
-    } else {
-        for (int i = 0; i < num_values; ++i) {
-            if (UNLIKELY(_offset + 4 > _data->size)) {
-                return Status::IOError("Can't read byte array length from plain decoder");
-            }
-            uint32_t length =
-                    decode_fixed32_le(reinterpret_cast<const uint8_t*>(_data->data) + _offset);
-            _offset += 4;
-            if (UNLIKELY(_offset + length) > _data->size) {
-                return Status::IOError("Can't skip enough bytes in plain decoder");
-            }
-            _offset += length;
+    for (int i = 0; i < num_values; ++i) {
+        if (UNLIKELY(_offset + 4 > _data->size)) {
+            return Status::IOError("Can't read byte array length from plain decoder");
         }
+        uint32_t length =
+                decode_fixed32_le(reinterpret_cast<const uint8_t*>(_data->data) + _offset);
+        _offset += 4;
+        if (UNLIKELY(_offset + length) > _data->size) {
+            return Status::IOError("Can't skip enough bytes in plain decoder");
+        }
+        _offset += length;
     }
     return Status::OK();
 }
 
 Status ByteArrayDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
                                        ColumnSelectVector& select_vector) {
-    size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
-    if (_has_dict) {
-        if (doris_column->is_column_dictionary() &&
-            assert_cast<ColumnDictI32&>(*doris_column).dict_size() == 0) {
-            assert_cast<ColumnDictI32&>(*doris_column)
-                    .insert_many_dict_data(&_dict_items[0], _dict_items.size());
-        }
-        _indexes.resize(non_null_size);
-        _index_batch_decoder->GetBatch(&_indexes[0], non_null_size);
-    }
-
-    if (doris_column->is_column_dictionary()) {
-        return _decode_dict_values(doris_column, select_vector);
-    }
-
     TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
     switch (logical_type) {
     case TypeIndex::String:
     case TypeIndex::FixedString: {
-        size_t dict_index = 0;
-
         ColumnSelectVector::DataReadType read_type;
         while (size_t run_length = select_vector.get_next_run(&read_type)) {
             switch (read_type) {
@@ -575,22 +461,17 @@ Status ByteArrayDecoder::decode_values(MutableColumnPtr& doris_column, DataTypeP
                 std::vector<StringRef> string_values;
                 string_values.reserve(run_length);
                 for (size_t i = 0; i < run_length; ++i) {
-                    if (_has_dict) {
-                        string_values.emplace_back(_dict_items[_indexes[dict_index++]]);
-                    } else {
-                        if (UNLIKELY(_offset + 4 > _data->size)) {
-                            return Status::IOError(
-                                    "Can't read byte array length from plain decoder");
-                        }
-                        uint32_t length = decode_fixed32_le(
-                                reinterpret_cast<const uint8_t*>(_data->data) + _offset);
-                        _offset += 4;
-                        if (UNLIKELY(_offset + length) > _data->size) {
-                            return Status::IOError("Can't read enough bytes in plain decoder");
-                        }
-                        string_values.emplace_back(_data->data + _offset, length);
-                        _offset += length;
+                    if (UNLIKELY(_offset + 4 > _data->size)) {
+                        return Status::IOError("Can't read byte array length from plain decoder");
                     }
+                    uint32_t length = decode_fixed32_le(
+                            reinterpret_cast<const uint8_t*>(_data->data) + _offset);
+                    _offset += 4;
+                    if (UNLIKELY(_offset + length) > _data->size) {
+                        return Status::IOError("Can't read enough bytes in plain decoder");
+                    }
+                    string_values.emplace_back(_data->data + _offset, length);
+                    _offset += length;
                 }
                 doris_column->insert_many_strings(&string_values[0], run_length);
                 break;
@@ -600,22 +481,17 @@ Status ByteArrayDecoder::decode_values(MutableColumnPtr& doris_column, DataTypeP
                 break;
             }
             case ColumnSelectVector::FILTERED_CONTENT: {
-                if (_has_dict) {
-                    dict_index += run_length;
-                } else {
-                    for (int i = 0; i < run_length; ++i) {
-                        if (UNLIKELY(_offset + 4 > _data->size)) {
-                            return Status::IOError(
-                                    "Can't read byte array length from plain decoder");
-                        }
-                        uint32_t length = decode_fixed32_le(
-                                reinterpret_cast<const uint8_t*>(_data->data) + _offset);
-                        _offset += 4;
-                        if (UNLIKELY(_offset + length) > _data->size) {
-                            return Status::IOError("Can't read enough bytes in plain decoder");
-                        }
-                        _offset += length;
+                for (int i = 0; i < run_length; ++i) {
+                    if (UNLIKELY(_offset + 4 > _data->size)) {
+                        return Status::IOError("Can't read byte array length from plain decoder");
                     }
+                    uint32_t length = decode_fixed32_le(
+                            reinterpret_cast<const uint8_t*>(_data->data) + _offset);
+                    _offset += 4;
+                    if (UNLIKELY(_offset + length) > _data->size) {
+                        return Status::IOError("Can't read enough bytes in plain decoder");
+                    }
+                    _offset += length;
                 }
                 break;
             }
@@ -641,6 +517,157 @@ Status ByteArrayDecoder::decode_values(MutableColumnPtr& doris_column, DataTypeP
     return Status::InvalidArgument(
             "Can't decode parquet physical type BYTE_ARRAY to doris logical type {}",
             getTypeName(logical_type));
+}
+
+void ByteArrayDictDecoder::set_data(Slice* data) {
+    _data = data;
+    _offset = 0;
+    uint8_t bit_width = *data->data;
+    _index_batch_decoder.reset(
+            new RleBatchDecoder<uint32_t>(reinterpret_cast<uint8_t*>(data->data) + 1,
+                                          static_cast<int>(data->size) - 1, bit_width));
+}
+
+Status ByteArrayDictDecoder::set_dict(std::unique_ptr<uint8_t[]>& dict, int32_t length,
+                                      size_t num_values) {
+    _dict = std::move(dict);
+    _dict_items.reserve(num_values);
+    uint32_t offset_cursor = 0;
+    char* dict_item_address = reinterpret_cast<char*>(_dict.get());
+
+    size_t total_length = 0;
+    for (int i = 0; i < num_values; ++i) {
+        uint32_t l = decode_fixed32_le(_dict.get() + offset_cursor);
+        offset_cursor += 4;
+        offset_cursor += l;
+        total_length += l;
+    }
+
+    // For insert_many_strings_overflow
+    _dict_data.resize(total_length + MAX_STRINGS_OVERFLOW_SIZE);
+    _max_value_length = 0;
+    size_t offset = 0;
+    offset_cursor = 0;
+    for (int i = 0; i < num_values; ++i) {
+        uint32_t l = decode_fixed32_le(_dict.get() + offset_cursor);
+        offset_cursor += 4;
+        memcpy(&_dict_data[offset], dict_item_address + offset_cursor, l);
+        _dict_items.emplace_back(&_dict_data[offset], l);
+        offset_cursor += l;
+        offset += l;
+        if (offset_cursor > length) {
+            return Status::Corruption("Wrong data length in dictionary");
+        }
+        if (l > _max_value_length) {
+            _max_value_length = l;
+        }
+    }
+    if (offset_cursor != length) {
+        return Status::Corruption("Wrong dictionary data for byte array type");
+    }
+    return Status::OK();
+}
+
+Status ByteArrayDictDecoder::skip_values(size_t num_values) {
+    _indexes.resize(num_values);
+    _index_batch_decoder->GetBatch(&_indexes[0], num_values);
+    return Status::OK();
+}
+
+Status ByteArrayDictDecoder::decode_values(MutableColumnPtr& doris_column, DataTypePtr& data_type,
+                                           ColumnSelectVector& select_vector) {
+    size_t non_null_size = select_vector.num_values() - select_vector.num_nulls();
+    if (doris_column->is_column_dictionary() &&
+        assert_cast<ColumnDictI32&>(*doris_column).dict_size() == 0) {
+        assert_cast<ColumnDictI32&>(*doris_column)
+                .insert_many_dict_data(&_dict_items[0], _dict_items.size());
+    }
+    _indexes.resize(non_null_size);
+    _index_batch_decoder->GetBatch(&_indexes[0], non_null_size);
+
+    if (doris_column->is_column_dictionary()) {
+        return _decode_dict_values(doris_column, select_vector);
+    }
+
+    TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
+    switch (logical_type) {
+    case TypeIndex::String:
+    case TypeIndex::FixedString: {
+        size_t dict_index = 0;
+
+        ColumnSelectVector::DataReadType read_type;
+        while (size_t run_length = select_vector.get_next_run(&read_type)) {
+            switch (read_type) {
+            case ColumnSelectVector::CONTENT: {
+                std::vector<StringRef> string_values;
+                string_values.reserve(run_length);
+                for (size_t i = 0; i < run_length; ++i) {
+                    string_values.emplace_back(_dict_items[_indexes[dict_index++]]);
+                }
+                doris_column->insert_many_strings_overflow(&string_values[0], run_length,
+                                                           _max_value_length);
+                break;
+            }
+            case ColumnSelectVector::NULL_DATA: {
+                doris_column->insert_many_defaults(run_length);
+                break;
+            }
+            case ColumnSelectVector::FILTERED_CONTENT: {
+                dict_index += run_length;
+                break;
+            }
+            case ColumnSelectVector::FILTERED_NULL: {
+                // do nothing
+                break;
+            }
+            }
+        }
+        return Status::OK();
+    }
+    case TypeIndex::Decimal32:
+        return _decode_binary_decimal<Int32>(doris_column, data_type, select_vector);
+    case TypeIndex::Decimal64:
+        return _decode_binary_decimal<Int64>(doris_column, data_type, select_vector);
+    case TypeIndex::Decimal128:
+        return _decode_binary_decimal<Int128>(doris_column, data_type, select_vector);
+    case TypeIndex::Decimal128I:
+        return _decode_binary_decimal<Int128>(doris_column, data_type, select_vector);
+    default:
+        break;
+    }
+    return Status::InvalidArgument(
+            "Can't decode parquet physical type BYTE_ARRAY to doris logical type {}",
+            getTypeName(logical_type));
+}
+
+Status ByteArrayDictDecoder::_decode_dict_values(MutableColumnPtr& doris_column,
+                                                 ColumnSelectVector& select_vector) {
+    DCHECK(doris_column->is_column_dictionary());
+    size_t dict_index = 0;
+    ColumnSelectVector::DataReadType read_type;
+    auto& column_data = assert_cast<ColumnDictI32&>(*doris_column).get_data();
+    while (size_t run_length = select_vector.get_next_run(&read_type)) {
+        switch (read_type) {
+        case ColumnSelectVector::CONTENT: {
+            uint32_t* start_index = &_indexes[0];
+            column_data.insert(start_index + dict_index, start_index + dict_index + run_length);
+            dict_index += run_length;
+            break;
+        }
+        case ColumnSelectVector::NULL_DATA: {
+            doris_column->insert_many_defaults(run_length);
+            break;
+        }
+        case ColumnSelectVector::FILTERED_CONTENT: {
+            dict_index += run_length;
+            break;
+        }
+        case ColumnSelectVector::FILTERED_NULL: {
+            break;
+        }
+        }
+    }
+    return Status::OK();
 }
 
 Status BoolPlainDecoder::skip_values(size_t num_values) {
