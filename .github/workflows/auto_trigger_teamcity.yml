@@ -26,6 +26,10 @@ on:
   pull_request_review_comment:
     types: [created, edited]
 
+env:
+  TEAMCITY_URL: 'X POST -H "Content-Type:text/plain" -u OneMoreChance:OneMoreChance http://43.132.222.7:8111/httpAuth/action.html'
+
+
 jobs:
   run_compile_pipeline:
     if: contains(github.event.comment.body, 'buildall')
@@ -48,14 +52,14 @@ jobs:
           comment="${{ github.event.comment.body }}"
           encoded_string=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${comment}")
           echo ${encoded_string}
-          echo "curl -X POST -H "Content-Type:text/plain" -u OneMoreChance:OneMoreChance http://43.132.222.7:8111/httpAuth/action.html\?add2Queue\=Doris_Doris_FeUt\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
-          curl -X POST -H "Content-Type:text/plain" -u OneMoreChance:OneMoreChance http://43.132.222.7:8111/httpAuth/action.html\?add2Queue\=Doris_Doris_FeUt\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string} 
+          echo "curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_Doris_FeUt\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
+          curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_Doris_FeUt\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string} 
 
-          echo "curl -X POST -H "Content-Type:text/plain" -u OneMoreChance:OneMoreChance http://43.132.222.7:8111/httpAuth/action.html\?add2Queue\=Doris_DorisBeUt_BeUt\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
-          curl -X POST -H "Content-Type:text/plain" -u OneMoreChance:OneMoreChance http://43.132.222.7:8111/httpAuth/action.html\?add2Queue\=Doris_DorisBeUt_BeUt\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string} 
+          echo "curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_DorisBeUt_BeUt\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
+          curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_DorisBeUt_BeUt\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string} 
 
-          echo "curl -X POST -H "Content-Type:text/plain" -u OneMoreChance:OneMoreChance http://43.132.222.7:8111/httpAuth/action.html\?add2Queue\=Doris_DorisCompile_Compile\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
-          curl -X POST -H "Content-Type:text/plain" -u OneMoreChance:OneMoreChance http://43.132.222.7:8111/httpAuth/action.html\?add2Queue\=Doris_DorisCompile_Compile\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string} 
+          echo "curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_DorisCompile_Compile\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
+          curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_DorisCompile_Compile\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string} 
   
   
 
@@ -80,8 +84,8 @@ jobs:
           comment="${{ github.event.comment.body }}"
           encoded_string=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${comment}")
           echo ${encoded_string}
-          echo "curl -X POST -H "Content-Type:text/plain" -u OneMoreChance:OneMoreChance http://43.132.222.7:8111/httpAuth/action.html\?add2Queue\=Doris_DorisRegression_ExternalRegression\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
-          curl -X POST -H "Content-Type:text/plain" -u OneMoreChance:OneMoreChance http://43.132.222.7:8111/httpAuth/action.html\?add2Queue\=Doris_DorisRegression_ExternalRegression\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string} 
+          echo "curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_DorisRegression_ExternalRegression\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
+          curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_DorisRegression_ExternalRegression\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string} 
 
 
   run_fe_ut_pipeline:
@@ -105,8 +109,8 @@ jobs:
           comment="${{ github.event.comment.body }}"
           encoded_string=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${comment}")
           echo ${encoded_string}
-          echo "curl -X POST -H "Content-Type:text/plain" -u OneMoreChance:OneMoreChance http://43.132.222.7:8111/httpAuth/action.html\?add2Queue\=Doris_Doris_FeUt\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
-          curl -X POST -H "Content-Type:text/plain" -u OneMoreChance:OneMoreChance http://43.132.222.7:8111/httpAuth/action.html\?add2Queue\=Doris_Doris_FeUt\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string} 
+          echo "curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_Doris_FeUt\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
+          curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_Doris_FeUt\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string} 
 
 
   run_be_ut_pipeline:
@@ -130,5 +134,5 @@ jobs:
           comment="${{ github.event.comment.body }}"
           encoded_string=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${comment}")
           echo ${encoded_string}
-          echo "curl -X POST -H "Content-Type:text/plain" -u OneMoreChance:OneMoreChance http://43.132.222.7:8111/httpAuth/action.html\?add2Queue\=Doris_DorisBeUt_BeUt\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
-          curl -X POST -H "Content-Type:text/plain" -u OneMoreChance:OneMoreChance http://43.132.222.7:8111/httpAuth/action.html\?add2Queue\=Doris_DorisBeUt_BeUt\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string} 
+          echo "curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_DorisBeUt_BeUt\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
+          curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_DorisBeUt_BeUt\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string} 
