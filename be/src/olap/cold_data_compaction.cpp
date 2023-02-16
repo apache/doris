@@ -61,7 +61,6 @@ Status ColdDataCompaction::pick_rowsets_to_compact() {
 }
 
 Status ColdDataCompaction::modify_rowsets() {
-
     UniqueId cooldown_meta_id = UniqueId::gen_uid();
     {
         std::lock_guard wlock(_tablet->get_header_lock());
