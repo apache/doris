@@ -19,22 +19,22 @@ suite("nereids_gen_fn") {
 	sql 'use regression_test_nereids_function_p0'
 	sql 'set enable_nereids_planner=true'
 	sql 'set enable_fallback_to_original_planner=false'
-	qt_sql_explode_bitmap_Bitmap "select kint, e from (select kint, kbint from fn_test) t lateral view explode_bitmap(to_bitmap(kbint)) lv as e"
-	qt_sql_explode_bitmap_Bitmap_notnull "select kint, e from (select kint, kbint from fn_test_not_nullable) t lateral view explode_bitmap(to_bitmap(kbint)) lv as e"
+	qt_sql_explode_bitmap_Bitmap "select id, e from fn_test lateral view explode_bitmap(to_bitmap(kbint)) lv as e"
+	qt_sql_explode_bitmap_Bitmap_notnull "select id, e from fn_test_not_nullable lateral view explode_bitmap(to_bitmap(kbint)) lv as e"
 
-	qt_sql_explode_bitmap_outer_Bitmap "select kint, e from (select kint, kbint from fn_test) t lateral view explode_bitmap_outer(to_bitmap(kbint)) lv as e"
-	qt_sql_explode_bitmap_outer_Bitmap_notnull "select kint, e from (select kint, kbint from fn_test_not_nullable) t lateral view explode_bitmap_outer(to_bitmap(kbint)) lv as e"
+	qt_sql_explode_bitmap_outer_Bitmap "select id, e from fn_test lateral view explode_bitmap_outer(to_bitmap(kbint)) lv as e"
+	qt_sql_explode_bitmap_outer_Bitmap_notnull "select id, e from fn_test_not_nullable lateral view explode_bitmap_outer(to_bitmap(kbint)) lv as e"
 
-	qt_sql_explode_numbers_Integer "select id, e from (select id, kint from fn_test) t lateral view explode_numbers(kint) lv as e"
-	qt_sql_explode_numbers_Integer_notnull "select id, e from (select id, kint from fn_test_not_nullable) t lateral view explode_numbers(kint) lv as e"
+	qt_sql_explode_numbers_Integer "select id, e from fn_test lateral view explode_numbers(kint) lv as e"
+	qt_sql_explode_numbers_Integer_notnull "select id, e from fn_test_not_nullable lateral view explode_numbers(kint) lv as e"
 
-	qt_sql_explode_numbers_outer_Integer "select id, e from (select id, kint from fn_test) t lateral view explode_numbers_outer(kint) lv as e"
-	qt_sql_explode_numbers_outer_Integer_notnull "select id, e from (select id, kint from fn_test_not_nullable) t lateral view explode_numbers_outer(kint) lv as e"
+	qt_sql_explode_numbers_outer_Integer "select id, e from fn_test lateral view explode_numbers_outer(kint) lv as e"
+	qt_sql_explode_numbers_outer_Integer_notnull "select id, e from fn_test_not_nullable lateral view explode_numbers_outer(kint) lv as e"
 
-	qt_sql_explode_split_Varchar_Varchar "select id, e from (select id, kvchrs1, kvchrs1 from fn_test) t lateral view explode_split(kvchrs1, kvchrs1) lv as e"
-	qt_sql_explode_split_Varchar_Varchar_notnull "select id, e from (select id, kvchrs1, kvchrs1 from fn_test_not_nullable) t lateral view explode_split(kvchrs1, kvchrs1) lv as e"
+	qt_sql_explode_split_Varchar_Varchar "select id, e from fn_test lateral view explode_split(kvchrs1, kvchrs1) lv as e"
+	qt_sql_explode_split_Varchar_Varchar_notnull "select id, e from fn_test_not_nullable lateral view explode_split(kvchrs1, kvchrs1) lv as e"
 
-	qt_sql_explode_split_outer_Varchar_Varchar "select id, e from (select id, kvchrs1, kvchrs1 from fn_test) t lateral view explode_split_outer(kvchrs1, kvchrs1) lv as e"
-	qt_sql_explode_split_outer_Varchar_Varchar_notnull "select id, e from (select id, kvchrs1, kvchrs1 from fn_test_not_nullable) t lateral view explode_split_outer(kvchrs1, kvchrs1) lv as e"
+	qt_sql_explode_split_outer_Varchar_Varchar "select id, e from fn_test lateral view explode_split_outer(kvchrs1, kvchrs1) lv as e"
+	qt_sql_explode_split_outer_Varchar_Varchar_notnull "select id, e from fn_test_not_nullable lateral view explode_split_outer(kvchrs1, kvchrs1) lv as e"
 
 }

@@ -87,9 +87,6 @@ const_sql = {
     'topn_String_Integer_Integer': 'select topn(kstr, 3, 100) from ${t}',
     'window_funnel_BigInt_String_DateTime_Boolean': 'select window_funnel(3600 * 3, \'default\', kdtm, kint = 1, kint = 2) from ${t}',
     'window_funnel_BigInt_String_DateTimeV2_Boolean': 'select window_funnel(3600 * 3, \'default\', kdtmv2s1, kint = 1, kint = 2) from ${t}',
-    # gen
-    'explode_bitmap_Bitmap': 'select kint, e from (select kint, kbint from ${t}) t lateral view explode_bitmap(to_bitmap(kbint)) lv as e',
-    'explode_bitmap_outer_Bitmap': 'select kint, e from (select kint, kbint from ${t}) t lateral view explode_bitmap_outer(to_bitmap(kbint)) lv as e',
 }
 
 not_check_result = {
