@@ -38,7 +38,7 @@ namespace pipeline {
 using InstanceLoId = int64_t;
 struct TransmitInfo {
     vectorized::PipChannel* channel;
-    PBlock* block;
+    std::unique_ptr<PBlock> block;
     bool eos;
 };
 

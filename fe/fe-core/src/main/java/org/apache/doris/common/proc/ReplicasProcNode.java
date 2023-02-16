@@ -19,6 +19,7 @@ package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.system.Backend;
 
@@ -56,14 +57,13 @@ public class ReplicasProcNode implements ProcNodeInterface {
             Backend be = backendMap.get(replica.getBackendId());
             String host = (be == null ? Backend.DUMMY_IP : be.getHost());
             int port = (be == null ? 0 : be.getHttpPort());
-            String metaUrl = String.format("http://%s:%d/api/meta/header/%d",
-                    host, port,
+            String hostPort = NetUtils.getHostPortInAccessibleFormat(host, port);
+            String metaUrl = String.format("http://" + hostPort + "/api/meta/header/%d",
                     tabletId,
                     replica.getSchemaHash());
 
             String compactionUrl = String.format(
-                    "http://%s:%d/api/compaction/show?tablet_id=%d",
-                    host, port,
+                    "http://" + hostPort + "/api/compaction/show?tablet_id=%d",
                     tabletId,
                     replica.getSchemaHash());
 

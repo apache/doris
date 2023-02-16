@@ -36,11 +36,10 @@ VerticalBlockReader::~VerticalBlockReader() {
 }
 
 Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_params,
-                                                   std::vector<RowwiseIterator*>* segment_iters,
+                                                   std::vector<RowwiseIteratorUPtr>* segment_iters,
                                                    std::vector<bool>* iterator_init_flag,
                                                    std::vector<RowsetId>* rowset_ids) {
-    std::vector<RowsetReaderSharedPtr> rs_readers;
-    auto res = _capture_rs_readers(read_params, &rs_readers);
+    auto res = _capture_rs_readers(read_params);
     if (!res.ok()) {
         LOG(WARNING) << "fail to init reader when _capture_rs_readers. res:" << res
                      << ", tablet_id:" << read_params.tablet->tablet_id()
@@ -51,7 +50,7 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
     }
     _reader_context.is_vec = true;
     _reader_context.is_vertical_compaction = true;
-    for (auto& rs_reader : rs_readers) {
+    for (auto& rs_reader : read_params.rs_readers) {
         // segment iterator will be inited here
         // In vertical compaction, every group will load segment so we should cache
         // segment to avoid tot many s3 head request
@@ -84,7 +83,7 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
 
 Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params) {
     // get segment iterators
-    std::vector<RowwiseIterator*> segment_iters;
+    std::vector<RowwiseIteratorUPtr> segment_iters;
     std::vector<bool> iterator_init_flag;
     std::vector<RowsetId> rowset_ids;
     RETURN_IF_ERROR(
@@ -99,11 +98,11 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params) 
             seq_col_idx = read_params.tablet->tablet_schema()->sequence_col_idx();
         }
         _vcollect_iter = new_vertical_heap_merge_iterator(
-                segment_iters, iterator_init_flag, rowset_ids, ori_return_col_size,
+                std::move(segment_iters), iterator_init_flag, rowset_ids, ori_return_col_size,
                 read_params.tablet->keys_type(), seq_col_idx, _row_sources_buffer);
     } else {
-        _vcollect_iter = new_vertical_mask_merge_iterator(segment_iters, ori_return_col_size,
-                                                          _row_sources_buffer);
+        _vcollect_iter = new_vertical_mask_merge_iterator(std::move(segment_iters),
+                                                          ori_return_col_size, _row_sources_buffer);
     }
     // init collect iterator
     StorageReadOptions opts;

@@ -207,6 +207,7 @@ protected:
     segment_v2::CompressionTypePB _compression_type;
 
     bool _new_shuffle_hash_method = false;
+    bool _only_local_exchange = false;
 };
 
 class Channel {
@@ -222,7 +223,6 @@ public:
             PlanNodeId dest_node_id, int buffer_size, bool is_transfer_chain,
             bool send_query_statistics_with_every_batch)
             : _parent(parent),
-              _buffer_size(buffer_size),
               _row_desc(row_desc),
               _fragment_instance_id(fragment_instance_id),
               _dest_node_id(dest_node_id),
@@ -231,7 +231,8 @@ public:
               _need_close(false),
               _brpc_dest_addr(brpc_dest),
               _is_transfer_chain(is_transfer_chain),
-              _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch) {
+              _send_query_statistics_with_every_batch(send_query_statistics_with_every_batch),
+              _capacity(std::max(1, buffer_size / std::max(_row_desc.get_row_size(), 1))) {
         std::string localhost = BackendOptions::get_localhost();
         _is_local = (_brpc_dest_addr.hostname == localhost) &&
                     (_brpc_dest_addr.port == config::brpc_port);
@@ -293,7 +294,7 @@ public:
 
     bool is_local() const { return _is_local; }
 
-    void ch_roll_pb_block();
+    virtual void ch_roll_pb_block();
 
     bool can_write() {
         if (!is_local()) {
@@ -331,7 +332,6 @@ protected:
     Status close_internal();
 
     VDataStreamSender* _parent;
-    int _buffer_size;
 
     const RowDescriptor& _row_desc;
     TUniqueId _fragment_instance_id;
@@ -392,14 +392,32 @@ Status VDataStreamSender::channel_add_rows(Channels& channels, int num_channels,
     return Status::OK();
 }
 
-class PipChannel : public Channel {
+class PipChannel final : public Channel {
 public:
     PipChannel(VDataStreamSender* parent, const RowDescriptor& row_desc,
                const TNetworkAddress& brpc_dest, const TUniqueId& fragment_instance_id,
                PlanNodeId dest_node_id, int buffer_size, bool is_transfer_chain,
                bool send_query_statistics_with_every_batch)
             : Channel(parent, row_desc, brpc_dest, fragment_instance_id, dest_node_id, buffer_size,
-                      is_transfer_chain, send_query_statistics_with_every_batch) {}
+                      is_transfer_chain, send_query_statistics_with_every_batch) {
+        ch_roll_pb_block();
+    }
+
+    ~PipChannel() override {
+        if (_ch_cur_pb_block) {
+            delete _ch_cur_pb_block;
+        }
+    }
+
+    void ch_roll_pb_block() override {
+        // We have two choices here.
+        // 1. Use a PBlock pool and fetch an available PBlock if we need one. In this way, we can
+        //    reuse the memory, but we have to use a lock to synchronize.
+        // 2. Create a new PBlock every time. In this way we don't need a lock but have to allocate
+        //    new memory.
+        // Now we use the second way.
+        _ch_cur_pb_block = new PBlock();
+    }
 
     // Asynchronously sends a block
     // Returns the status of the most recently finished transmit_data
@@ -414,7 +432,8 @@ public:
             }
         }
         if (eos || block->column_metas_size()) {
-            RETURN_IF_ERROR(_buffer->add_block({this, block, eos}));
+            RETURN_IF_ERROR(_buffer->add_block(
+                    {this, block ? std::make_unique<PBlock>(*block) : nullptr, eos}));
         }
         return Status::OK();
     }

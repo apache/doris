@@ -208,7 +208,6 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 // check duplicate column
                 List<SlotRef> slots = new ArrayList<>();
                 functionCallExpr.collect(SlotRef.class, slots);
-                Preconditions.checkArgument(slots.size() == 1);
 
                 if (beginIndexOfAggregation == -1) {
                     beginIndexOfAggregation = i;
@@ -268,7 +267,8 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             if (slotRef.getColumnName() == null) {
                 throw new AnalysisException("slotRef.getColumnName() is null");
             }
-            if (!MaterializedIndexMeta.matchColumnName(mvColumnItem.getName(), slotRef.getColumnName())) {
+            if (!MaterializedIndexMeta.matchColumnName(mvColumnBreaker(mvColumnItem.getName()),
+                    slotRef.getColumnName())) {
                 throw new AnalysisException("The order of columns in order by clause must be same as "
                         + "the order of columns in select list, " + mvColumnItem.getName() + " vs "
                         + slotRef.getColumnName());
@@ -419,7 +419,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         for (SelectListItem selectListItem : selectList.getItems()) {
             Expr selectListItemExpr = selectListItem.getExpr();
             Expr expr = selectListItemExpr;
-            String name = MaterializedIndexMeta.normalizeName(expr.toSql());
+            String name = mvColumnBuilder(MaterializedIndexMeta.normalizeName(expr.toSql()));
             if (selectListItemExpr instanceof FunctionCallExpr) {
                 FunctionCallExpr functionCallExpr = (FunctionCallExpr) selectListItemExpr;
                 switch (functionCallExpr.getFnName().getFunction().toLowerCase()) {
@@ -494,6 +494,35 @@ public class CreateMaterializedViewStmt extends DdlStmt {
             return mvColumnBreaker(name.substring(MATERIALIZED_VIEW_NAME_PREFIX.length()));
         }
         return name;
+    }
+
+    public static String oldmvColumnBreaker(String name) {
+        if (name.startsWith(MATERIALIZED_VIEW_NAME_PREFIX)) {
+            // mv_count_k2 -> k2
+            name = name.substring(MATERIALIZED_VIEW_NAME_PREFIX.length());
+            for (String prefix : FN_NAME_TO_PATTERN.keySet()) {
+                if (name.startsWith(prefix)) {
+                    return name.substring(prefix.length() + 1);
+                }
+            }
+        }
+        if (name.startsWith(MATERIALIZED_VIEW_NAME_PREFIX)) {
+            // mv_k2 -> k2
+            return mvColumnBreaker(name.substring(MATERIALIZED_VIEW_NAME_PREFIX.length()));
+        }
+        return name;
+    }
+
+    public static boolean isMVColumn(String name) {
+        return isMVColumnAggregate(name) || isMVColumnNormal(name);
+    }
+
+    public static boolean isMVColumnAggregate(String name) {
+        return name.startsWith(MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX);
+    }
+
+    public static boolean isMVColumnNormal(String name) {
+        return name.startsWith(MATERIALIZED_VIEW_NAME_PREFIX);
     }
 
     @Override

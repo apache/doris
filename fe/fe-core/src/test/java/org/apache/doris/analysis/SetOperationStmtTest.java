@@ -18,7 +18,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.common.util.SqlParserUtils;
-import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.qe.ConnectContext;
 
@@ -33,14 +33,14 @@ public class SetOperationStmtTest {
     private Analyzer analyzer;
 
     @Mocked
-    private Auth auth;
+    private AccessControllerManager accessManager;
     @Mocked
     private ConnectContext ctx;
 
     @Before
     public void setUp() {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(true);
-        MockedAuth.mockedAuth(auth);
+        MockedAuth.mockedAccess(accessManager);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
     }
 

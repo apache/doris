@@ -77,7 +77,7 @@ public class CreateCatalogStmt extends DdlStmt {
             throw new AnalysisException("Internal catalog name can't be create.");
         }
 
-        if (!Env.getCurrentEnv().getAuth().checkCtlPriv(
+        if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(
                 ConnectContext.get(), catalogName, PrivPredicate.CREATE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
                     analyzer.getQualifiedUser(), catalogName);

@@ -75,7 +75,8 @@ public class IcebergTableValuedFunction extends MetadataTableValuedFunction {
         }
         this.tableName = new TableName(names[0], names[1], names[2]);
         // check auth
-        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), this.tableName, PrivPredicate.SELECT)) {
+        if (!Env.getCurrentEnv().getAccessManager()
+                .checkTblPriv(ConnectContext.get(), this.tableName, PrivPredicate.SELECT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
                     this.tableName.getDb() + ": " + this.tableName.getTbl());

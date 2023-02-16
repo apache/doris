@@ -28,7 +28,7 @@ import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
-import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
 import org.apache.doris.qe.ConnectContext;
 
@@ -65,7 +65,7 @@ public class CreateTableStmtTest {
     private Analyzer analyzer;
 
     @Mocked
-    private Auth auth;
+    private AccessControllerManager accessManager;
     @Mocked
     private ConnectContext ctx;
 
@@ -98,7 +98,7 @@ public class CreateTableStmtTest {
         invalidColsName.add("col2");
         invalidColsName.add("col2");
 
-        MockedAuth.mockedAuth(auth);
+        MockedAuth.mockedAccess(accessManager);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
     }
 
