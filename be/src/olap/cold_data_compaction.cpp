@@ -98,9 +98,8 @@ Status ColdDataCompaction::modify_rowsets() {
         tablet_meta_pb.mutable_cooldown_meta_id()->set_hi(cooldown_meta_id.hi);
         tablet_meta_pb.mutable_cooldown_meta_id()->set_lo(cooldown_meta_id.lo);
     }
-    std::string remote_meta_path =
-            BetaRowset::remote_tablet_meta_path(_tablet->tablet_id(),
-                                                _tablet->tablet_meta()->replica_id());
+    std::string remote_meta_path = BetaRowset::remote_tablet_meta_path(
+            _tablet->tablet_id(), _tablet->tablet_meta()->replica_id());
     io::FileWriterPtr tablet_meta_writer;
     RETURN_IF_ERROR(fs->create_file(remote_meta_path, &tablet_meta_writer));
     auto val = tablet_meta_pb.SerializeAsString();
