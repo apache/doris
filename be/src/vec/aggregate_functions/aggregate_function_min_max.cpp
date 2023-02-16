@@ -25,7 +25,6 @@
 #include "vec/aggregate_functions/helpers.h"
 
 namespace doris::vectorized {
-
 /// min, max, any
 template <template <typename, bool> class AggregateFunctionTemplate, template <typename> class Data>
 static IAggregateFunction* create_aggregate_function_single_value(const String& name,
