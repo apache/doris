@@ -44,11 +44,6 @@ Status ColdDataCompaction::execute_compact_impl() {
     }
 #endif
     SCOPED_ATTACH_TASK(_mem_tracker);
-    std::unique_lock<std::mutex> lock(_tablet->get_cold_compaction_lock(), std::try_to_lock);
-    if (!lock.owns_lock()) {
-        LOG(WARNING) << "another cooldown compaction is running. tablet=" << _tablet->full_name();
-        return Status::Error<TRY_LOCK_FAILED>();
-    }
     int64_t permits = get_compaction_permits();
     RETURN_IF_ERROR(do_compaction(permits));
     _state = CompactionState::SUCCESS;
@@ -79,9 +74,9 @@ Status ColdDataCompaction::modify_rowsets() {
 
     // write remote tablet meta
     TabletMetaPB tablet_meta_pb;
+    std::shared_ptr <io::RemoteFileSystem> fs;
     {
         std::shared_lock rlock(_tablet->get_header_lock());
-        std::shared_ptr <io::RemoteFileSystem> fs;
         RETURN_IF_ERROR(get_remote_file_system(_tablet->storage_policy_id(), &fs));
         std::vector <RowsetMetaSharedPtr> cooldowned_rs_metas;
         for (auto &rs_meta: _tablet->tablet_meta()->all_rs_metas()) {
