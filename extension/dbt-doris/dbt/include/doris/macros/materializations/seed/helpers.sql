@@ -32,7 +32,7 @@
     {{ doris__engine() }}
     {{ doris__duplicate_key() }}
     {{ doris__partition_by() }}
-    {{ doris__distributed_by(agate_table.column_names) }}
+    {{ doris__distributed_by(agate_table.column_names[0:1]) }}
     {{ doris__properties() }}
     {% endset %}
 
