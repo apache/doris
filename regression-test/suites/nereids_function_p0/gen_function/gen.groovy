@@ -31,10 +31,10 @@ suite("nereids_gen_fn") {
 	qt_sql_explode_numbers_outer_Integer "select id, e from fn_test lateral view explode_numbers_outer(kint) lv as e"
 	qt_sql_explode_numbers_outer_Integer_notnull "select id, e from fn_test_not_nullable lateral view explode_numbers_outer(kint) lv as e"
 
-	qt_sql_explode_split_Varchar_Varchar "select id, e from fn_test lateral view explode_split(kvchrs1, kvchrs1) lv as e"
-	qt_sql_explode_split_Varchar_Varchar_notnull "select id, e from fn_test_not_nullable lateral view explode_split(kvchrs1, kvchrs1) lv as e"
+	qt_sql_explode_split_Varchar_Varchar "select id, e from fn_test lateral view explode_split('a, b, c, d', ',') lv as e"
+	qt_sql_explode_split_Varchar_Varchar_notnull "select id, e from fn_test lateral view explode_split('a, b, c, d', ',') lv as e"
 
-	qt_sql_explode_split_outer_Varchar_Varchar "select id, e from fn_test lateral view explode_split_outer(kvchrs1, kvchrs1) lv as e"
-	qt_sql_explode_split_outer_Varchar_Varchar_notnull "select id, e from fn_test_not_nullable lateral view explode_split_outer(kvchrs1, kvchrs1) lv as e"
+	qt_sql_explode_split_outer_Varchar_Varchar "select id, e from fn_test lateral view explode_split_outer('a, b, c, d', ',') lv as e"
+	qt_sql_explode_split_outer_Varchar_Varchar_notnull "select id, e from fn_test lateral view explode_split_outer('a, b, c, d', ',') lv as e"
 
 }

@@ -87,6 +87,9 @@ const_sql = {
     'topn_String_Integer_Integer': 'select topn(kstr, 3, 100) from ${t}',
     'window_funnel_BigInt_String_DateTime_Boolean': 'select window_funnel(3600 * 3, \'default\', kdtm, kint = 1, kint = 2) from ${t}',
     'window_funnel_BigInt_String_DateTimeV2_Boolean': 'select window_funnel(3600 * 3, \'default\', kdtmv2s1, kint = 1, kint = 2) from ${t}',
+    # gen
+    'explode_split_Varchar_Varchar': 'select id, e from fn_test lateral view explode_split(\'a, b, c, d\', \',\') lv as e',
+    'explode_split_outer_Varchar_Varchar': 'select id, e from fn_test lateral view explode_split_outer(\'a, b, c, d\', \',\') lv as e',
 }
 
 not_check_result = {
