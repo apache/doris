@@ -119,6 +119,12 @@ public class BrokerUtil {
         if (columnsFromPath == null || columnsFromPath.isEmpty()) {
             return Collections.emptyList();
         }
+        if (!caseSensitive) {
+            for (int i = 0; i < columnsFromPath.size(); i++) {
+                String path = columnsFromPath.remove(i);
+                columnsFromPath.add(i, path.toLowerCase());
+            }
+        }
         String[] strings = filePath.split("/");
         if (strings.length < 2) {
             throw new UserException("Fail to parse columnsFromPath, expected: "
