@@ -439,13 +439,11 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                     _input_rowsets, _rowid_conversion, version.second, UINT64_MAX, &location_map,
                     &output_rowset_delete_bitmap);
             RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
-
             _tablet->merge_delete_bitmap(output_rowset_delete_bitmap);
             RETURN_NOT_OK(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
         }
         if (compaction_type() == READER_CUMULATIVE_COMPACTION) {
-            std::string err_msg =
-                    "The merged rows is not equal to missed rows in rowid conversion";
+            std::string err_msg = "The merged rows is not equal to missed rows in rowid conversion";
             DCHECK(stats != nullptr || stats->merged_rows == missed_rows) << err_msg;
             if (stats != nullptr && stats->merged_rows != missed_rows) {
                 return Status::InternalError(err_msg);
