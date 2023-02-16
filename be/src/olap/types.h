@@ -247,8 +247,7 @@ public:
         if (src_value->has_null()) {
             // direct copy null_signs
             dest_value->set_null_signs(reinterpret_cast<bool*>(*base));
-            memcpy(dest_value->mutable_null_signs(), src_value->null_signs(),
-                        src_value->length());
+            memcpy(dest_value->mutable_null_signs(), src_value->null_signs(), src_value->length());
         }
         *base += nulls_size + src_value->length() * _item_type_info->size();
 
