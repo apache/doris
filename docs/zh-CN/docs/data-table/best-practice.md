@@ -182,7 +182,7 @@ ALTER TABLE session_data ADD ROLLUP rollup_brower(brower,province,ip,url) DUPLIC
 具体请参照 [Schema 变更](../advanced/alter-table/schema-change)
 
 ## 行存
-用户可以在Olap表中开启行存模式，但是需要额外的空建来存储行存。目前的行存实现是将行存编码后存在单独的一列中，这样做是用于简化行存的实现。行存模式默认是关闭的，如果您想开启则可以在建表语句的property中指定如下属性
+用户可以在Olap表中开启行存模式，但是需要额外的空间来存储行存。目前的行存实现是将行存编码后存在单独的一列中，这样做是用于简化行存的实现。行存模式默认是关闭的，如果您想开启则可以在建表语句的property中指定如下属性
 ```
 "store_row_column" = "true"
 ```
