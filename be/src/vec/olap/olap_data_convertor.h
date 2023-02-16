@@ -416,8 +416,6 @@ private:
         const void* get_data_at(size_t offset) const override {
             LOG(FATAL) << "now not support get_data_at for OlapColumnDataConvertorMap";
         };
-        void set_source_column(const ColumnWithTypeAndName& typed_column, size_t row_pos,
-                               size_t num_rows) override;
 
     private:
         Status convert_to_olap(const ColumnMap* column_map, const DataTypeMap* data_type_map);

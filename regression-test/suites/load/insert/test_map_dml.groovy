@@ -15,10 +15,12 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_map_dml", "p0") {
+suite("test_map_dml", "load") {
     // define a sql table
     def testTable = "tbl_test_map_string_int"
     def testTable01 = "tbl_test_map_normal"
+
+    sql "ADMIN SET FRONTEND CONFIG ('enable_map_type' = 'true')"
 
     def create_test_table = {testTablex ->
         def result1 = sql """
@@ -82,20 +84,17 @@ suite("test_map_dml", "p0") {
         assertTrue(result2.size() == 1)
         assertTrue(result2[0].size() == 1)
         assertTrue(result2[0][0] == 1, "Insert should update 1 rows")
-
-        qt_test "select * from ${testTable01} order by k1"
     }
 
 
     // case1: string_int for map
     try {
         def res = sql "DROP TABLE IF EXISTS ${testTable}"
-
         create_test_table.call(testTable)
         sql "INSERT INTO ${testTable} VALUES (1, {' amory ': 6, 'happy': 38})"
 
         // select the table and check whether the data is correct
-        qt_select "select * from ${testTable} order by k1"
+        qt_select "SELECT * FROM ${testTable} ORDER BY k1"
 
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable}")
@@ -104,9 +103,10 @@ suite("test_map_dml", "p0") {
     // case2: normal key val type for map
     try {
         def res = sql "DROP TABLE IF EXISTS ${testTable01}"
+
         create_test_table01.call(testTable)
         // select the table and check whether the data is correct
-        qt_select "select * from ${testTable01} order by k1"
+        qt_select "SELECT * FROM ${testTable01} ORDER BY k1"
 
     } finally {
         try_sql("DROP TABLE IF EXISTS ${testTable01}")

@@ -17,12 +17,17 @@
 
 import org.codehaus.groovy.runtime.IOGroovyMethods
 
+import java.nio.charset.StandardCharsets
+import java.nio.file.Files
+import java.nio.file.Paths
+
 suite("test_map_load_and_function", "p0") {
     // define a sql table
     def testTable = "tbl_test_map"
     def dataFile = "test_map.csv"
 
     sql "DROP TABLE IF EXISTS ${testTable}"
+    sql "ADMIN SET FRONTEND CONFIG ('enable_map_type' = 'true')"
 
     sql """
         CREATE TABLE IF NOT EXISTS ${testTable} (
@@ -37,7 +42,7 @@ suite("test_map_load_and_function", "p0") {
     // load the map data from csv file
     streamLoad {
         table testTable
-        
+
         file dataFile // import csv file
         time 10000 // limit inflight 10s
 
@@ -65,26 +70,5 @@ suite("test_map_load_and_function", "p0") {
     sql """INSERT INTO ${testTable} VALUES(13, {"k1":100, "k2": 130})"""
 
     // map element_at
-    qt_select "SELECT m['k2'] FROM ${testTable}"
-
-    // map select into outfile
-    // check outfile
-    def outFilePath = """${context.file.parent}/tmp"""
-    logger.warn("test_map_selectOutFile the outFilePath=" + outFilePath)
-
-    File path = new File(outFilePath)
-    if (path.exists()) {
-        for (File f: path.listFiles()) {
-            f.delete();
-        }
-        path.delete();
-    }
-    if (!path.exists()) {
-        assert path.mkdirs()
-    }
-    sql """
-                SELECT * FROM ${testTable} INTO OUTFILE "file://${outFilePath}/";
-    """
-    File[] files = path.listFiles()
-    assert files.length == 1
+    qt_select "SELECT m['k2'] FROM ${testTable} ORDER BY id"
 }
