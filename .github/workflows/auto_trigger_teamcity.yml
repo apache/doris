@@ -27,7 +27,7 @@ on:
     types: [created, edited]
 
 env:
-  TEAMCITY_URL: 'X POST -H \"Content-Type:text/plain\" -u OneMoreChance:OneMoreChance http://43.132.222.7:8111/httpAuth/action.html'
+  TEAMCITY_URL: '-X POST -H \"Content-Type:text/plain\" -u OneMoreChance:OneMoreChance http://43.132.222.7:8111/httpAuth/action.html'
 
 
 jobs:
