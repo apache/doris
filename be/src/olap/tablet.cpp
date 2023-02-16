@@ -1764,7 +1764,7 @@ Status Tablet::_cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_
     UniqueId cooldown_meta_id = UniqueId::gen_uid();
 
     // upload cooldowned rowset meta to remote fs
-    RETURN_IF_ERROR(write_cooldown_meta(dest_fs, cooldown_meta_id, new_rowset_meta.get()));
+    RETURN_IF_ERROR(_write_cooldown_meta(dest_fs, cooldown_meta_id, new_rowset_meta.get()));
 
     RowsetSharedPtr new_rowset;
     RowsetFactory::create_rowset(_schema, _tablet_path, new_rowset_meta, &new_rowset);
@@ -1803,8 +1803,8 @@ Status Tablet::_read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& 
     return Status::OK();
 }
 
-Status Tablet::write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
-                                   UniqueId cooldown_meta_id, RowsetMeta* new_rs_meta) {
+Status Tablet::_write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
+                                    UniqueId cooldown_meta_id, RowsetMeta* new_rs_meta) {
     std::vector<RowsetMetaSharedPtr> cooldowned_rs_metas;
     {
         std::shared_lock meta_rlock(_meta_lock);
@@ -1815,7 +1815,7 @@ Status Tablet::write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& 
         }
     }
     std::sort(cooldowned_rs_metas.begin(), cooldowned_rs_metas.end(), RowsetMeta::comparator);
-    if (new_rs_meta != nullptr && UNLIKELY(!cooldowned_rs_metas.empty() &&
+    if (UNLIKELY(!cooldowned_rs_metas.empty() &&
                  new_rs_meta->start_version() != cooldowned_rs_metas.back()->end_version() + 1)) {
         return Status::InternalError("version not continuous");
     }
@@ -1825,9 +1825,7 @@ Status Tablet::write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& 
     for (auto& rs_meta : cooldowned_rs_metas) {
         rs_metas->Add(rs_meta->get_rowset_pb());
     }
-    if (new_rs_meta != nullptr) {
-        rs_metas->Add(new_rs_meta->get_rowset_pb());
-    }
+    rs_metas->Add(new_rs_meta->get_rowset_pb());
     tablet_meta_pb.mutable_cooldown_meta_id()->set_hi(cooldown_meta_id.hi);
     tablet_meta_pb.mutable_cooldown_meta_id()->set_lo(cooldown_meta_id.lo);
 
