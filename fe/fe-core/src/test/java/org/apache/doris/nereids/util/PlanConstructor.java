@@ -25,11 +25,15 @@ import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.PartitionInfo;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.IdGenerator;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
 import org.apache.doris.nereids.trees.plans.RelationId;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.thrift.TStorageType;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
 
 import java.util.List;
 
@@ -111,5 +115,9 @@ public class PlanConstructor {
 
     public static RelationId getNextRelationId() {
         return RELATION_ID_GENERATOR.getNextId();
+    }
+
+    public static LogicalEmptyRelation newEmptyRelation() {
+        return new LogicalEmptyRelation(Lists.newArrayList(new Alias(new IntegerLiteral(1), "id")));
     }
 }
