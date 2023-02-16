@@ -109,7 +109,7 @@ public class DeployManager extends MasterDaemon {
     public static final String ENV_FE_INIT_NUMBER = "FE_INIT_NUMBER";
 
     public enum NodeType {
-        ELECTABLE, OBSERVER, BACKEND, BROKER, CN
+        ELECTABLE, OBSERVER, BACKEND, BROKER, BACKEND_CN
     }
 
     protected Env env;
@@ -413,7 +413,7 @@ public class DeployManager extends MasterDaemon {
                     localCnHosts.add(Pair.of(backend.getHost(), backend.getHeartbeatPort()));
                 }
                 LOG.debug("get local cn addrs: {}", localCnHosts);
-                if (inspectNodeChange(remoteCnHosts, localCnHosts, NodeType.CN)) {
+                if (inspectNodeChange(remoteCnHosts, localCnHosts, NodeType.BACKEND_CN)) {
                     return;
                 }
             }
@@ -588,7 +588,7 @@ public class DeployManager extends MasterDaemon {
                             env.dropFrontend(FrontendNodeType.OBSERVER, localIp, localPort);
                             break;
                         case BACKEND:
-                        case CN:
+                        case BACKEND_CN:
                             Env.getCurrentSystemInfo().dropBackend(localIp, null, localPort);
                             break;
                         default:
@@ -622,7 +622,7 @@ public class DeployManager extends MasterDaemon {
                             env.addFrontend(FrontendNodeType.OBSERVER, remoteIp, remotePort);
                             break;
                         case BACKEND:
-                        case CN:
+                        case BACKEND_CN:
                             List<HostInfo> newBackends = Lists.newArrayList();
                             String remoteHostName = NetUtils.getHostnameByIp(remoteIp);
                             if (remoteHostName.equals(remoteIp)) {
