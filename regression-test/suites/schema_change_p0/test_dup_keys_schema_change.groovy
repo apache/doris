@@ -19,8 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_dup_keys_schema_change") {
     def tableName = "schema_change_dup_keys_regression_test"
-    def getJobState = { tableName ->
-         def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+    def getJobState = { tbName ->
+         def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName}' ORDER BY createtime DESC LIMIT 1 """
          return jobStateResult[0][9]
     }
 

@@ -19,12 +19,12 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_uniq_rollup_schema_change") {
     def tableName = "schema_change_uniq_rollup_regression_test"
-    def getMVJobState = { tableName ->
-         def jobStateResult = sql """  SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1 """
+    def getMVJobState = { tbName ->
+         def jobStateResult = sql """  SHOW ALTER TABLE ROLLUP WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1 """
          return jobStateResult[0][9]
     }
-    def getJobState = { tableName ->
-         def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+    def getJobState = { tbName ->
+         def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName}' ORDER BY createtime DESC LIMIT 1 """
          return jobStateResult[0][9]
     }
 
@@ -84,7 +84,6 @@ suite ("test_uniq_rollup_schema_change") {
         """
 
     //add rollup
-    def result = "null"
     def rollupName = "rollup_cost"
     sql "ALTER TABLE ${tableName} ADD ROLLUP ${rollupName}(`user_id`,`date`,`city`,`sex`, `age`, cost);"
     int max_try_time = 1200
@@ -148,7 +147,7 @@ suite ("test_uniq_rollup_schema_change") {
           ALTER TABLE ${tableName} DROP COLUMN cost
           """
 
-    int max_try_time = 1200
+    max_try_time = 1200
     while (max_try_time--){
         String result = getJobState(tableName)
         if (result == "FINISHED") {

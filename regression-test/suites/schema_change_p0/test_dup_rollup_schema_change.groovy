@@ -84,7 +84,6 @@ suite ("test_dup_rollup_schema_change") {
             """
 
         //add rollup
-        def result = "null"
         def rollupName = "rollup_cost"
         sql "ALTER TABLE ${tableName} ADD ROLLUP ${rollupName}(`user_id`,`date`,`city`,`age`, cost);"
         int max_try_time = 1200

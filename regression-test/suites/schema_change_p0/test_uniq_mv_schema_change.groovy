@@ -19,8 +19,8 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_uniq_mv_schema_change") {
     def tableName = "schema_change_uniq_mv_regression_test"
-    def getMVJobState = { tableName ->
-         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1 """
+    def getMVJobState = { tbName ->
+         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1 """
          return jobStateResult[0][9]
     }
 
@@ -80,7 +80,6 @@ suite ("test_uniq_mv_schema_change") {
         """
 
     //add materialized view
-    def result = "null"
     def mvName = "mv1"
     sql "create materialized view ${mvName} as select user_id, date, city, age from ${tableName} group by user_id, date, city, age;"
     int max_try_time = 1200

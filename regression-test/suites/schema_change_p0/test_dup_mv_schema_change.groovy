@@ -19,12 +19,12 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_dup_mv_schema_change") {
     def tableName = "schema_change_dup_mv_regression_test"
-    def getJobState = { tableName ->
-         def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY createtime DESC LIMIT 1 """
+    def getJobState = { tbName ->
+         def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName}' ORDER BY createtime DESC LIMIT 1 """
          return jobStateResult[0][9]
     }
-    def getMVJobState = { tableName ->
-         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1 """
+    def getMVJobState = { tbName ->
+         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1 """
          return jobStateResult[0][9]
     }
 
@@ -85,7 +85,6 @@ suite ("test_dup_mv_schema_change") {
             """
 
         //add materialized view
-        def result = "null"
         def mvName = "mv1"
         sql "create materialized view ${mvName} as select date, user_id, city, age from ${tableName};"
         int max_try_time = 1200

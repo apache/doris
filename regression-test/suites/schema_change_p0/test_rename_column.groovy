@@ -17,12 +17,12 @@
 
 suite ("test_rename_column") {
     def tableName = "rename_column_test"
-    def getMVJobState = { tableName ->
-         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1 """
+    def getMVJobState = { tbName ->
+         def jobStateResult = sql """  SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1 """
          return jobStateResult[0][9]
     }
-    def getRollupJobState = { tableName ->
-         def jobStateResult = sql """  SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1 """
+    def getRollupJobState = { tbName ->
+         def jobStateResult = sql """  SHOW ALTER TABLE ROLLUP WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1 """
          return jobStateResult[0][9]
     }
     sql """ DROP TABLE IF EXISTS ${tableName} """
@@ -213,7 +213,7 @@ suite ("test_rename_column") {
     def resMv = "null"
     def mvName = "mv1"
     sql "create materialized view ${mvName} as select user_id, sum(cost) from ${tableName} group by user_id;"
-    int max_try_time = 1200
+    max_try_time = 1200
     while (max_try_time--){
         String result = getMVJobState(tableName)
         if (result == "FINISHED") {
