@@ -111,8 +111,8 @@ public class SlotDescriptor {
         return isAgg;
     }
 
-    public void setInvalid() {
-        this.needMaterialize = false;
+    public void setNeedMaterialize(boolean needMaterialize) {
+        this.needMaterialize = needMaterialize;
     }
 
     public boolean isInvalid() {
