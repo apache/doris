@@ -590,6 +590,8 @@ endif()
 #   -O3: Enable all compiler optimizations
 #   -DNDEBUG: Turn off dchecks/asserts/debug only code.
 set(CXX_FLAGS_RELEASE "${CXX_GCC_FLAGS} -O3 -DNDEBUG")
+# used for stressing testing
+set(CXX_FLAGS_DEBUG_O3 "${CXX_GCC_FLAGS} -O3")
 set(CXX_FLAGS_ASAN "${CXX_GCC_FLAGS} -O0 -fsanitize=address -DADDRESS_SANITIZER")
 set(CXX_FLAGS_LSAN "${CXX_GCC_FLAGS} -O0 -fsanitize=leak -DLEAK_SANITIZER")
 
@@ -608,6 +610,8 @@ if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG")
     set(CMAKE_CXX_FLAGS ${CXX_FLAGS_DEBUG})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
     set(CMAKE_CXX_FLAGS ${CXX_FLAGS_RELEASE})
+elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG_O3")
+    set(CMAKE_CXX_FLAGS ${CXX_FLAGS_DEBUG_O3})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN")
     set(CMAKE_CXX_FLAGS "${CXX_FLAGS_ASAN}")
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "LSAN")
@@ -853,7 +857,8 @@ else ()
 endif ()
 
 # Add sanitize static link flags
-if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG" OR "${CMAKE_BUILD_TYPE}" STREQUAL "RELEASE")
+if ("${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG" OR "${CMAKE_BUILD_TYPE}" STREQUAL
+    "RELEASE" OR "${CMAKE_BUILD_TYPE}" STREQUAL "DEBUG_O3")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${MALLOCLIB})
 elseif ("${CMAKE_BUILD_TYPE}" STREQUAL "ASAN")
     set(DORIS_LINK_LIBS ${DORIS_LINK_LIBS} ${ASAN_LIBS})
