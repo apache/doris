@@ -1759,7 +1759,7 @@ Status Tablet::_cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_
     UniqueId cooldown_meta_id = UniqueId::gen_uid();
 
     // upload cooldowned rowset meta to remote fs
-    RETURN_IF_ERROR(write_cooldown_meta(dest_fs, cooldown_meta_id, new_rowset_meta.get(), {}));
+    RETURN_IF_ERROR(write_cooldown_meta(dest_fs, cooldown_meta_id, new_rowset_meta, {}));
 
     RowsetSharedPtr new_rowset;
     RowsetFactory::create_rowset(_schema, _tablet_path, new_rowset_meta, &new_rowset);
@@ -1799,15 +1799,26 @@ Status Tablet::_read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& 
 }
 
 Status Tablet::write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
-                                   UniqueId cooldown_meta_id, RowsetMeta* new_rs_meta,
+                                   UniqueId cooldown_meta_id, const RowsetMetaSharedPtr& new_rs_meta,
                                    const std::vector<RowsetMetaSharedPtr>& to_deletes) {
-    std::set<std::string> to_delete_set;
-    for (auto& rs_meta : to_deletes) {
-        to_delete_set.emplace(rs_meta->version().to_string());
-    }
     std::vector<RowsetMetaSharedPtr> cooldowned_rs_metas;
     {
         std::shared_lock meta_rlock(_meta_lock);
+        std::set<std::string> rs_meta_set;
+        for (auto &rs_meta: _tablet_meta->all_rs_metas()) {
+            if (!rs_meta->is_local()) {
+                rs_meta_set.emplace(rs_meta.version().to_string());
+            }
+        }
+
+        std::set<std::string> to_delete_set;
+        for (auto& rs_meta : to_deletes) {
+            if (rs_meta_set.find(rs_meta.version().to_string()) == rs_meta_set.end()) {
+                return Status::InternalError("deleted version not continuous");
+            }
+            to_delete_set.emplace(rs_meta->version().to_string());
+        }
+
         for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
             if (!rs_meta->is_local()) {
                 if (to_delete_set.find(rs_meta->version().to_string()) != to_delete_set.end()) {

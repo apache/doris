@@ -71,7 +71,7 @@ Status ColdDataCompaction::modify_rowsets() {
         to_deletes.emplace_back(rs->rowset_meta());
     }
     RETURN_IF_ERROR(_tablet->write_cooldown_meta(fs, cooldown_meta_id,
-                                                 _output_rowset->rowset_meta().get(), to_deletes));
+                                                 _output_rowset->rowset_meta(), to_deletes));
     {
         std::lock_guard wlock(_tablet->get_header_lock());
         // Merged cooldowned rowsets MUST NOT be managed by version graph, they will be reclaimed by `remove_unused_remote_files`.
