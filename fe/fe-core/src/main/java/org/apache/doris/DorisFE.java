@@ -162,6 +162,11 @@ public class DorisFE {
                 httpServer.setAcceptors(Config.jetty_server_acceptors);
                 httpServer.setSelectors(Config.jetty_server_selectors);
                 httpServer.setWorkers(Config.jetty_server_workers);
+                httpServer.setKeyStorePath(Config.key_store_path);
+                httpServer.setKeyStorePassword(Config.key_store_password);
+                httpServer.setKeyStoreType(Config.key_store_type);
+                httpServer.setKeyStoreAlias(Config.key_store_alias);
+                httpServer.setSslEnable(Config.ssl_enable);
                 httpServer.setMaxThreads(Config.jetty_threadPool_maxThreads);
                 httpServer.setMinThreads(Config.jetty_threadPool_minThreads);
                 httpServer.setMaxHttpHeaderSize(Config.jetty_server_max_http_header_size);

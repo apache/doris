@@ -43,6 +43,12 @@ public class HttpServer extends SpringBootServletInitializer {
     private int maxHttpPostSize;
     private int workers;
 
+    private String keyStorePath;
+    private String keyStorePassword;
+    private String keyStoreType;
+    private String keyStoreAlias;
+    private boolean sslEnable;
+
     private int minThreads;
     private int maxThreads;
     private int maxHttpHeaderSize;
@@ -91,6 +97,26 @@ public class HttpServer extends SpringBootServletInitializer {
         this.port = port;
     }
 
+    public void setKeyStorePath(String keyStorePath) {
+        this.keyStorePath = keyStorePath;
+    }
+
+    public void setKeyStorePassword(String keyStorePassword) {
+        this.keyStorePassword = keyStorePassword;
+    }
+
+    public void setKeyStoreType(String keyStoreType) {
+        this.keyStoreType = keyStoreType;
+    }
+
+    public void setKeyStoreAlias(String keyStoreAlias) {
+        this.keyStoreAlias = keyStoreAlias;
+    }
+
+    public void setSslEnable(boolean sslEnable) {
+        this.sslEnable = sslEnable;
+    }
+
     @Override
     protected SpringApplicationBuilder configure(SpringApplicationBuilder application) {
         return application.sources(HttpServer.class);
@@ -109,14 +135,20 @@ public class HttpServer extends SpringBootServletInitializer {
         properties.put("spring.http.encoding.charset", "UTF-8");
         properties.put("spring.http.encoding.enabled", true);
         properties.put("spring.http.encoding.force", true);
-        //enable jetty config
+        // ssl config
+        properties.put("server.ssl.key-store", keyStorePath);
+        properties.put("server.ssl.key-store-password", keyStorePassword);
+        properties.put("server.ssl.key-store-type", keyStoreType);
+        properties.put("server.ssl.keyalias", keyStoreAlias);
+        properties.put("server.ssl.enabled", sslEnable);
+        // enable jetty config
         properties.put("server.jetty.acceptors", this.acceptors);
         properties.put("server.jetty.max-http-post-size", this.maxHttpPostSize);
         properties.put("server.jetty.selectors", this.selectors);
         properties.put("server.jetty.threadPool.maxThreads", this.maxThreads);
         properties.put("server.jetty.threadPool.minThreads", this.minThreads);
         properties.put("server.max-http-header-size", this.maxHttpHeaderSize);
-        //Worker thread pool is not set by default, set according to your needs
+        // Worker thread pool is not set by default, set according to your needs
         if (this.workers > 0) {
             properties.put("server.jetty.workers", this.workers);
         }

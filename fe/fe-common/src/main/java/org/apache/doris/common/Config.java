@@ -350,6 +350,35 @@ public class Config extends ConfigBase {
     @ConfField public static boolean enable_all_http_auth = false;
 
     /**
+     * ssl key store path.
+     * If you want to change the path, you need to create corresponding directory.
+     */
+    @ConfField public static String key_store_path = System.getenv("DORIS_HOME")
+        + "/conf/ssl/doris_ssl_certificate.keystore";
+
+    /**
+     * ssl key store password. Null by default.
+     */
+    @ConfField public static String key_store_password = "";
+
+    /**
+     * ssl key store type. "JKS" by default.
+     */
+    @ConfField public static String key_store_type = "JKS";
+
+    /**
+     * ssl key store alias. "doris_ssl_certificate" by default.
+     */
+    @ConfField public static String key_store_alias = "doris_ssl_certificate";
+
+    /**
+     * ssl enable flag. false by default.
+     * If the value is false, http is supported. Otherwise, https is supported.
+     * Currently doris uses many ports, so http and https are not supported at the same time.
+     */
+    @ConfField public static boolean ssl_enable = false;
+
+    /**
      * Jetty container default configuration
      * Jetty's thread architecture model is very simple, divided into three thread pools:
      * acceptors,selectors and workers. Acceptors are responsible for accepting new connections,
