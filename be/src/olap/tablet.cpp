@@ -1818,7 +1818,6 @@ Status Tablet::write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& 
         }
     }
     std::sort(cooldowned_rs_metas.begin(), cooldowned_rs_metas.end(), RowsetMeta::comparator);
-    std::sort(to_adds.begin(), to_adds.end(), RowsetMeta::comparator);
     if (UNLIKELY(!cooldowned_rs_metas.empty() &&
                  new_rs_meta->start_version() != cooldowned_rs_metas.back()->end_version() + 1)) {
         return Status::InternalError("version not continuous");
