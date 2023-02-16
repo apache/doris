@@ -46,6 +46,7 @@ import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
@@ -1491,9 +1492,19 @@ public class SelectStmt extends QueryStmt {
         // check that all post-agg exprs point to agg output
         for (int i = 0; i < selectList.getItems().size(); ++i) {
             if (!resultExprs.get(i).isBoundByTupleIds(groupingByTupleIds)) {
-                throw new AnalysisException(
-                        "select list expression not produced by aggregation output " + "(missing from "
-                                + "GROUP BY clause?): " + selectList.getItems().get(i).getExpr().toSql());
+                if (CreateMaterializedViewStmt.isMVColumn(resultExprs.get(i).toSqlWithoutTbl())) {
+                    List<TupleId> tupleIds = Lists.newArrayList();
+                    List<SlotId> slotIds = Lists.newArrayList();
+                    resultExprs.get(i).getIds(tupleIds, slotIds);
+                    for (TupleId id : tupleIds) {
+                        updateDisableTuplesMVRewriter(id);
+                    }
+                    throw new MVSelectFailedException("Materialized View rewrite invalid");
+                } else {
+                    throw new AnalysisException(
+                            "select list expression not produced by aggregation output " + "(missing from "
+                                    + "GROUP BY clause?): " + selectList.getItems().get(i).getExpr().toSql());
+                }
             }
         }
         if (orderByElements != null) {
