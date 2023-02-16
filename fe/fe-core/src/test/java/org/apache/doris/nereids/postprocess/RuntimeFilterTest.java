@@ -229,7 +229,7 @@ public class RuntimeFilterTest extends SSBTestBase {
         List<RuntimeFilter> filters = getRuntimeFilters(sql).get();
         Assertions.assertEquals(1, filters.size());
         checkRuntimeFilterExprs(filters, ImmutableList.of(
-                Pair.of("s_name", "p_name")));
+                Pair.of("cast(s_name as VARCHAR(*))", "p_name")));
     }
 
     private Optional<List<RuntimeFilter>> getRuntimeFilters(String sql) {

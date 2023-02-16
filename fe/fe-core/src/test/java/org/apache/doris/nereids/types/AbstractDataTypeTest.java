@@ -22,7 +22,6 @@ import org.apache.doris.nereids.types.coercion.CharacterType;
 import org.apache.doris.nereids.types.coercion.FractionalType;
 import org.apache.doris.nereids.types.coercion.IntegralType;
 import org.apache.doris.nereids.types.coercion.NumericType;
-import org.apache.doris.nereids.types.coercion.TypeCollection;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -455,28 +454,6 @@ public class AbstractDataTypeTest {
         Assertions.assertFalse(dataType.acceptsType(BooleanType.INSTANCE));
         Assertions.assertFalse(dataType.acceptsType(TinyIntType.INSTANCE));
         Assertions.assertFalse(dataType.acceptsType(SmallIntType.INSTANCE));
-        Assertions.assertFalse(dataType.acceptsType(IntegerType.INSTANCE));
-        Assertions.assertFalse(dataType.acceptsType(BigIntType.INSTANCE));
-        Assertions.assertFalse(dataType.acceptsType(LargeIntType.INSTANCE));
-        Assertions.assertFalse(dataType.acceptsType(FloatType.INSTANCE));
-        Assertions.assertFalse(dataType.acceptsType(DoubleType.INSTANCE));
-        int precision = Math.abs(new Random().nextInt() % (DecimalV2Type.MAX_PRECISION - 1)) + 1;
-        int scale = Math.min(precision, Math.abs(new Random().nextInt() % DecimalV2Type.MAX_SCALE));
-        Assertions.assertFalse(dataType.acceptsType(new DecimalV2Type(precision, scale)));
-        Assertions.assertFalse(dataType.acceptsType(new CharType(new Random().nextInt())));
-        Assertions.assertFalse(dataType.acceptsType(new VarcharType(new Random().nextInt())));
-        Assertions.assertFalse(dataType.acceptsType(StringType.INSTANCE));
-        Assertions.assertFalse(dataType.acceptsType(DateType.INSTANCE));
-        Assertions.assertTrue(dataType.acceptsType(DateTimeType.INSTANCE));
-    }
-
-    @Test
-    public void testTypeCollectionAccept() {
-        TypeCollection dataType = new TypeCollection(SmallIntType.INSTANCE, DateTimeType.INSTANCE);
-        Assertions.assertFalse(dataType.acceptsType(NullType.INSTANCE));
-        Assertions.assertFalse(dataType.acceptsType(BooleanType.INSTANCE));
-        Assertions.assertFalse(dataType.acceptsType(TinyIntType.INSTANCE));
-        Assertions.assertTrue(dataType.acceptsType(SmallIntType.INSTANCE));
         Assertions.assertFalse(dataType.acceptsType(IntegerType.INSTANCE));
         Assertions.assertFalse(dataType.acceptsType(BigIntType.INSTANCE));
         Assertions.assertFalse(dataType.acceptsType(LargeIntType.INSTANCE));
