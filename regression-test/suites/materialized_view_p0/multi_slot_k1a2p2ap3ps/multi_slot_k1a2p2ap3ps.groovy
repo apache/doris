@@ -36,6 +36,14 @@ suite ("multi_slot_k1a2p2ap3ps") {
     sql "insert into d_table select 2,2,2,'b';"
     sql "insert into d_table select 3,-3,null,'c';"
 
+    boolean createFail = false;
+    try {
+        sql "create materialized view k1a2p2ap3ps as select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2;"
+    } catch (Exception e) {
+        createFail = true;
+    }
+    assertTrue(createFail);
+
     def result = "null"
     sql "create materialized view k1a2p2ap3ps as select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1;"
     while (!result.contains("FINISHED")){
@@ -57,4 +65,10 @@ suite ("multi_slot_k1a2p2ap3ps") {
         contains "(k1a2p2ap3ps)"
     }
     qt_select_mv "select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1 order by abs(k1)+k2+1;"
+
+    explain {
+        sql("select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2 order by abs(k1)+k2")
+        contains "(d_table)"
+    }
+    qt_select_base "select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2 order by abs(k1)+k2;"
 }
