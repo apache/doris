@@ -293,7 +293,8 @@ public class StreamLoadRecordMgr extends MasterDaemon {
                                     String.valueOf(streamLoadItem.getLoadedRows()),
                                     String.valueOf(streamLoadItem.getFilteredRows()),
                                     String.valueOf(streamLoadItem.getUnselectedRows()),
-                                    String.valueOf(streamLoadItem.getLoadBytes()), startTime, finishTime);
+                                    String.valueOf(streamLoadItem.getLoadBytes()),
+                                    startTime, finishTime, streamLoadItem.getComment());
 
                     String cluster = streamLoadItem.getCluster();
                     if (Strings.isNullOrEmpty(cluster)) {

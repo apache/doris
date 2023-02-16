@@ -69,6 +69,7 @@ public class ShowRoutineLoadStmt extends ShowStmt {
             new ImmutableList.Builder<String>()
                     .add("Id")
                     .add("Name")
+                    .add("User")
                     .add("CreateTime")
                     .add("PauseTime")
                     .add("EndTime")
@@ -86,6 +87,7 @@ public class ShowRoutineLoadStmt extends ShowStmt {
                     .add("ReasonOfStateChanged")
                     .add("ErrorLogUrls")
                     .add("OtherMsg")
+                    .add("Comment")
                     .build();
 
     private final LabelName labelName;

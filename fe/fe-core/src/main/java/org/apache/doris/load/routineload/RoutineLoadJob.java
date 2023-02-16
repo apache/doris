@@ -232,6 +232,8 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
     // User who submit this job. Maybe null for the old version job(before v1.1)
     protected UserIdentity userIdentity;
 
+    protected String comment = "";
+
     protected ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
     protected LoadTask.MergeType mergeType = LoadTask.MergeType.APPEND; // default is all data is load no delete
     protected Expr deleteCondition;
@@ -616,6 +618,10 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
 
     public boolean hasSequenceCol() {
         return !Strings.isNullOrEmpty(sequenceCol);
+    }
+
+    public void setComment(String comment) {
+        this.comment = comment;
     }
 
     public int getSizeOfRoutineLoadTaskInfoList() {
@@ -1296,6 +1302,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             List<String> row = Lists.newArrayList();
             row.add(String.valueOf(id));
             row.add(name);
+            row.add(userIdentity.getQualifiedUser());
             row.add(TimeUtils.longToTimeString(createTimestamp));
             row.add(TimeUtils.longToTimeString(pauseTimestamp));
             row.add(TimeUtils.longToTimeString(endTimestamp));
@@ -1322,6 +1329,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             }
             row.add(Joiner.on(", ").join(errorLogUrls));
             row.add(otherMsg);
+            row.add(comment);
             return row;
         } finally {
             readUnlock();
@@ -1562,6 +1570,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             out.writeBoolean(true);
             userIdentity.write(out);
         }
+        Text.writeString(out, comment);
     }
 
     public void readFields(DataInput in) throws IOException {
@@ -1645,6 +1654,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             } else {
                 userIdentity = null;
             }
+        }
+        if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_117) {
+            comment = Text.readString(in);
+        } else {
+            comment = null;
         }
     }
 

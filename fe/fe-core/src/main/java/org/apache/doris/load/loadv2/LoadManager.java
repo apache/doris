@@ -21,6 +21,7 @@ import org.apache.doris.analysis.CancelLoadStmt;
 import org.apache.doris.analysis.CleanLabelStmt;
 import org.apache.doris.analysis.CompoundPredicate.Operator;
 import org.apache.doris.analysis.LoadStmt;
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
@@ -200,7 +201,8 @@ public class LoadManager implements Writable {
      * Record finished load job by editLog.
      **/
     public void recordFinishedLoadJob(String label, long transactionId, String dbName, long tableId, EtlJobType jobType,
-            long createTimestamp, String failMsg, String trackingUrl) throws MetaNotFoundException {
+            long createTimestamp, String failMsg, String trackingUrl,
+            UserIdentity userInfo) throws MetaNotFoundException {
 
         // get db id
         Database db = Env.getCurrentInternalCatalog().getDbOrMetaException(dbName);
@@ -209,7 +211,7 @@ public class LoadManager implements Writable {
         switch (jobType) {
             case INSERT:
                 loadJob = new InsertLoadJob(label, transactionId, db.getId(), tableId, createTimestamp, failMsg,
-                        trackingUrl);
+                        trackingUrl, userInfo);
                 break;
             default:
                 return;

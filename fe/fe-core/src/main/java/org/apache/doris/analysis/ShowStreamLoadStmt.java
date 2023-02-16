@@ -65,7 +65,7 @@ public class ShowStreamLoadStmt extends ShowStmt {
             .add("Label").add("Db").add("Table").add("User")
             .add("ClientIp").add("Status").add("Message").add("Url").add("TotalRows")
             .add("LoadedRows").add("FilteredRows").add("UnselectedRows").add("LoadBytes")
-            .add("StartTime").add("FinishTime")
+            .add("StartTime").add("FinishTime").add("Comment")
             .build();
 
     public ShowStreamLoadStmt(String db, Expr labelExpr,
