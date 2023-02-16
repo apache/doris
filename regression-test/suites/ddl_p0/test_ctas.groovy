@@ -90,6 +90,11 @@ suite("test_ctas") {
 
       qt_select """select * from test_ctas_json_object1 order by c1;"""
 
+        sql """create table a properties("replication_num"="1") as select null as c;"""
+        test {
+            sql "select * from a"
+            result([[null]])
+        }
 
     } finally {
         sql """ DROP TABLE IF EXISTS test_ctas """
@@ -101,6 +106,8 @@ suite("test_ctas") {
         sql """ DROP TABLE IF EXISTS test_ctas_json_object """
         
         sql """ DROP TABLE IF EXISTS test_ctas_json_object1 """
+
+        sql """drop table if exists a"""
     }
 
 }
