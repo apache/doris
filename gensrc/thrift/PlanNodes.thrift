@@ -325,6 +325,8 @@ struct TFileScanRangeParams {
     17: optional TTableFormatFileDesc table_format_params
     // For csv query task, same the column index in file, order by dest_tuple
     18: optional list<i32> column_idxs
+    // Map of slot to its position in table schema. Only for Hive external table.
+    19: optional map<string, i32> slot_name_to_schema_pos
 }
 
 struct TFileRangeDesc {
@@ -575,6 +577,7 @@ struct TOlapScanNode {
   12: optional TPushAggOp push_down_agg_type_opt
   13: optional bool use_topn_opt
   14: optional list<Descriptors.TOlapTableIndex> indexes_desc
+  15: optional set<i32> output_column_unique_ids
 }
 
 struct TEqJoinCondition {

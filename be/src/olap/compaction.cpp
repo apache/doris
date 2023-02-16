@@ -33,7 +33,7 @@ using std::vector;
 namespace doris {
 using namespace ErrorCode;
 
-Compaction::Compaction(TabletSharedPtr tablet, const std::string& label)
+Compaction::Compaction(const TabletSharedPtr& tablet, const std::string& label)
         : _tablet(tablet),
           _input_rowsets_size(0),
           _input_row_num(0),
@@ -197,6 +197,10 @@ bool Compaction::handle_ordered_data_compaction() {
     if (!config::enable_ordered_data_compaction) {
         return false;
     }
+    if (compaction_type() == ReaderType::READER_COLD_DATA_COMPACTION) {
+        // The remote file system does not support to link files.
+        return false;
+    }
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
         return false;
@@ -204,7 +208,7 @@ bool Compaction::handle_ordered_data_compaction() {
     // check delete version: if compaction type is base compaction and
     // has a delete version, use original compaction
     if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
-        for (auto rowset : _input_rowsets) {
+        for (auto& rowset : _input_rowsets) {
             if (rowset->rowset_meta()->has_delete_predicate()) {
                 return false;
             }
@@ -247,7 +251,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
         int64_t now = UnixMillis();
         if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
             _tablet->set_last_cumu_compaction_success_time(now);
-        } else {
+        } else if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
             _tablet->set_last_base_compaction_success_time(now);
         }
         auto cumu_policy = _tablet->cumulative_compaction_policy();
@@ -273,41 +277,52 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     // 2. write merged rows to output rowset
     // The test results show that merger is low-memory-footprint, there is no need to tracker its mem pool
     Merger::Statistics stats;
-    Status res;
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
         stats.rowid_conversion = &_rowid_conversion;
     }
 
-    if (use_vectorized_compaction) {
-        if (vertical_compaction) {
-            res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
-                                                 _input_rs_readers, _output_rs_writer.get(),
-                                                 get_avg_segment_rows(), &stats);
+    auto build_output_rowset = [&]() {
+        Status res;
+        if (use_vectorized_compaction) {
+            if (vertical_compaction) {
+                res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
+                                                     _input_rs_readers, _output_rs_writer.get(),
+                                                     get_avg_segment_rows(), &stats);
+            } else {
+                res = Merger::vmerge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
+                                             _input_rs_readers, _output_rs_writer.get(), &stats);
+            }
         } else {
-            res = Merger::vmerge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
-                                         _input_rs_readers, _output_rs_writer.get(), &stats);
+            LOG(FATAL) << "Only support vectorized compaction";
         }
-    } else {
-        LOG(FATAL) << "Only support vectorized compaction";
-    }
 
-    if (!res.ok()) {
-        LOG(WARNING) << "fail to do " << merge_type << compaction_name() << ". res=" << res
-                     << ", tablet=" << _tablet->full_name()
-                     << ", output_version=" << _output_version;
+        if (!res.ok()) {
+            LOG(WARNING) << "fail to do " << merge_type << compaction_name() << ". res=" << res
+                         << ", tablet=" << _tablet->full_name()
+                         << ", output_version=" << _output_version;
+            return res;
+        }
+        TRACE("merge rowsets finished");
+        TRACE_COUNTER_INCREMENT("merged_rows", stats.merged_rows);
+        TRACE_COUNTER_INCREMENT("filtered_rows", stats.filtered_rows);
+
+        _output_rowset = _output_rs_writer->build();
+        if (_output_rowset == nullptr) {
+            LOG(WARNING) << "rowset writer build failed. writer version:"
+                         << ", output_version=" << _output_version;
+            return Status::Error<ROWSET_BUILDER_INIT>();
+        }
         return res;
-    }
-    TRACE("merge rowsets finished");
-    TRACE_COUNTER_INCREMENT("merged_rows", stats.merged_rows);
-    TRACE_COUNTER_INCREMENT("filtered_rows", stats.filtered_rows);
+    };
 
-    _output_rowset = _output_rs_writer->build();
-    if (_output_rowset == nullptr) {
-        LOG(WARNING) << "rowset writer build failed. writer version:"
-                     << ", output_version=" << _output_version;
-        return Status::Error<ROWSET_BUILDER_INIT>();
+    if (compaction_type() == ReaderType::READER_COLD_DATA_COMPACTION) {
+        std::shared_lock slock(_tablet->get_remote_files_lock());
+        RETURN_IF_ERROR(build_output_rowset());
+    } else {
+        RETURN_IF_ERROR(build_output_rowset());
     }
+
     TRACE_COUNTER_INCREMENT("output_rowset_data_size", _output_rowset->data_disk_size());
     TRACE_COUNTER_INCREMENT("output_row_num", _output_rowset->num_rows());
     TRACE_COUNTER_INCREMENT("output_segments_num", _output_rowset->num_segments());
@@ -326,7 +341,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     // TODO(yingchun): do the judge in Tablet class
     if (compaction_type() == ReaderType::READER_CUMULATIVE_COMPACTION) {
         _tablet->set_last_cumu_compaction_success_time(now);
-    } else {
+    } else if (compaction_type() == ReaderType::READER_BASE_COMPACTION) {
         _tablet->set_last_base_compaction_success_time(now);
     }
 
@@ -364,6 +379,22 @@ Status Compaction::construct_output_rowset_writer(bool is_vertical) {
     ctx.segments_overlap = NONOVERLAPPING;
     ctx.tablet_schema = _cur_tablet_schema;
     ctx.newest_write_timestamp = _newest_write_timestamp;
+    if (compaction_type() == ReaderType::READER_COLD_DATA_COMPACTION) {
+        // write output rowset to storage policy resource
+        auto storage_policy = get_storage_policy(_tablet->storage_policy_id());
+        if (storage_policy == nullptr) {
+            return Status::InternalError("could not find storage_policy, storage_policy_id={}",
+                                         _tablet->storage_policy_id());
+        }
+        auto resource = get_storage_resource(storage_policy->resource_id);
+        if (resource.fs == nullptr) {
+            return Status::InternalError("could not find resource, resouce_id={}",
+                                         storage_policy->resource_id);
+        }
+        DCHECK(atol(resource.fs->id().c_str()) == storage_policy->resource_id);
+        DCHECK(resource.fs->type() != io::FileSystemType::LOCAL);
+        ctx.fs = std::move(resource.fs);
+    }
     if (is_vertical) {
         return _tablet->create_vertical_rowset_writer(ctx, &_output_rs_writer);
     }
@@ -382,19 +413,36 @@ Status Compaction::construct_input_rowset_readers() {
 Status Compaction::modify_rowsets() {
     std::vector<RowsetSharedPtr> output_rowsets;
     output_rowsets.push_back(_output_rowset);
-    {
-        std::lock_guard<std::mutex> wrlock_(_tablet->get_rowset_update_lock());
-        std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
 
-        // update dst rowset delete bitmap
-        if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
-            _tablet->enable_unique_key_merge_on_write()) {
-            _tablet->tablet_meta()->update_delete_bitmap(
-                    _input_rowsets, _output_rs_writer->version(), _rowid_conversion);
+    if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
+        _tablet->enable_unique_key_merge_on_write()) {
+        Version version = _tablet->max_version();
+        DeleteBitmap output_rowset_delete_bitmap(_tablet->tablet_id());
+        // Convert the delete bitmap of the input rowsets to output rowset.
+        // New loads are not blocked, so some keys of input rowsets might
+        // be deleted during the time. We need to deal with delete bitmap
+        // of incremental data later.
+        _tablet->calc_compaction_output_rowset_delete_bitmap(_input_rowsets, _rowid_conversion, 0,
+                                                             version.second + 1,
+                                                             &output_rowset_delete_bitmap);
+        {
+            std::lock_guard<std::mutex> wrlock_(_tablet->get_rowset_update_lock());
+            std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
+
+            // Convert the delete bitmap of the input rowsets to output rowset for
+            // incremental data.
+            _tablet->calc_compaction_output_rowset_delete_bitmap(_input_rowsets, _rowid_conversion,
+                                                                 version.second, UINT64_MAX,
+                                                                 &output_rowset_delete_bitmap);
+
+            _tablet->merge_delete_bitmap(output_rowset_delete_bitmap);
+            RETURN_NOT_OK(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
         }
-
+    } else {
+        std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
         RETURN_NOT_OK(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
     }
+
     {
         std::shared_lock rlock(_tablet->get_header_lock());
         _tablet->save_meta();
@@ -404,6 +452,12 @@ Status Compaction::modify_rowsets() {
 
 void Compaction::gc_output_rowset() {
     if (_state != CompactionState::SUCCESS && _output_rowset != nullptr) {
+        if (!_output_rowset->is_local()) {
+            _tablet->record_unused_remote_rowset(_output_rowset->rowset_id(),
+                                                 _output_rowset->rowset_meta()->resource_id(),
+                                                 _output_rowset->num_segments());
+            return;
+        }
         StorageEngine::instance()->add_unused_rowset(_output_rowset);
     }
 }

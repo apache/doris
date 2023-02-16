@@ -119,12 +119,15 @@ public:
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
     IOContext io_ctx;
     vectorized::VExpr* remaining_vconjunct_root = nullptr;
+    const std::set<int32_t>* output_columns = nullptr;
     // runtime state
     RuntimeState* runtime_state = nullptr;
     RowsetId rowset_id;
     int32_t tablet_id = 0;
 };
 
+class RowwiseIterator;
+using RowwiseIteratorUPtr = std::unique_ptr<RowwiseIterator>;
 class RowwiseIterator {
 public:
     RowwiseIterator() = default;

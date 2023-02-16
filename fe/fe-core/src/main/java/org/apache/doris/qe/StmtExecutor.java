@@ -52,6 +52,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.analysis.StmtRewriter;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.SwitchStmt;
+import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TransactionBeginStmt;
 import org.apache.doris.analysis.TransactionCommitStmt;
 import org.apache.doris.analysis.TransactionRollbackStmt;
@@ -1023,7 +1024,7 @@ public class StmtExecutor implements ProfileWriter {
             // Check auth
             // Only user itself and user with admin priv can kill connection
             if (!killCtx.getQualifiedUser().equals(ConnectContext.get().getQualifiedUser())
-                    && !Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(),
+                    && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(),
                     PrivPredicate.ADMIN)) {
                 ErrorReport.reportDdlException(ErrorCode.ERR_KILL_DENIED_ERROR, id);
             }
@@ -1959,18 +1960,26 @@ public class StmtExecutor implements ProfileWriter {
             try {
                 parsedStmt = ctasStmt.getInsertStmt();
                 execute();
-            } catch (Exception e) {
-                e.printStackTrace();
-                LOG.warn("CTAS insert data error, stmt={}", ctasStmt.toSql(), e);
-                // insert error drop table
-                DropTableStmt dropTableStmt = new DropTableStmt(true, ctasStmt.getCreateTableStmt().getDbTbl(), true);
-                try {
-                    DdlExecutor.execute(context.getEnv(), dropTableStmt);
-                } catch (Exception ex) {
-                    LOG.warn("CTAS drop table error, stmt={}", parsedStmt.toSql(), ex);
-                    context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
-                            "Unexpected exception: " + ex.getMessage());
+                if (MysqlStateType.ERR.equals(context.getState().getStateType())) {
+                    LOG.warn("CTAS insert data error, stmt={}", ctasStmt.toSql());
+                    handleCtasRollback(ctasStmt.getCreateTableStmt().getDbTbl());
                 }
+            } catch (Exception e) {
+                LOG.warn("CTAS insert data error, stmt={}", ctasStmt.toSql(), e);
+                handleCtasRollback(ctasStmt.getCreateTableStmt().getDbTbl());
+            }
+        }
+    }
+
+    private void handleCtasRollback(TableName table) {
+        if (context.getSessionVariable().isDropTableIfCtasFailed()) {
+            // insert error drop table
+            DropTableStmt dropTableStmt = new DropTableStmt(true, table, true);
+            try {
+                DdlExecutor.execute(context.getEnv(), dropTableStmt);
+            } catch (Exception ex) {
+                LOG.warn("CTAS drop table error, stmt={}", parsedStmt.toSql(), ex);
+                context.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR, "Unexpected exception: " + ex.getMessage());
             }
         }
     }

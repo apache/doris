@@ -67,8 +67,10 @@ std::shared_ptr<VDataStreamRecvr> VDataStreamMgr::find_recvr(const TUniqueId& fr
                                                              bool acquire_lock) {
     VLOG_ROW << "looking up fragment_instance_id=" << fragment_instance_id << ", node=" << node_id;
     size_t hash_value = get_hash_value(fragment_instance_id, node_id);
+    // Create lock guard and not own lock currently and will lock conditionally
+    std::unique_lock recvr_lock(_lock, std::defer_lock);
     if (acquire_lock) {
-        _lock.lock();
+        recvr_lock.lock();
     }
     std::pair<StreamMap::iterator, StreamMap::iterator> range =
             _receiver_map.equal_range(hash_value);
@@ -76,15 +78,9 @@ std::shared_ptr<VDataStreamRecvr> VDataStreamMgr::find_recvr(const TUniqueId& fr
         auto recvr = range.first->second;
         if (recvr->fragment_instance_id() == fragment_instance_id &&
             recvr->dest_node_id() == node_id) {
-            if (acquire_lock) {
-                _lock.unlock();
-            }
             return recvr;
         }
         ++range.first;
-    }
-    if (acquire_lock) {
-        _lock.unlock();
     }
     return std::shared_ptr<VDataStreamRecvr>();
 }

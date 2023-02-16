@@ -36,10 +36,10 @@ Vertical compaction 是 Doris 2.0 版本中实现的新的 Compaction 算法，�
 
 Vertical compaction中将按行合并的方式改变为按列组合并，每次参与合并的粒度变成列组，降低单次compaction内部参与的数据量，减少compaction期间的内存使用。
 
-BE配置：
-`enable_vertical_compaction = true` 可以开启该功能
-`vertical_compaction_num_columns_per_group = 5` 每个列组包含的列个数，经测试，默认5列一组compaction的效率及内存使用较友好
-`vertical_compaction_max_segment_size` 用于配置vertical compaction之后落盘文件的大小，默认值268435456(字节)
+开启和配置方法(BE 配置)：
+- `enable_vertical_compaction = true` 可以开启该功能
+- `vertical_compaction_num_columns_per_group = 5` 每个列组包含的列个数，经测试，默认5列一组compaction的效率及内存使用较友好
+- `vertical_compaction_max_segment_size` 用于配置vertical compaction之后落盘文件的大小，默认值268435456(字节)
 
 
 ## Segment compaction

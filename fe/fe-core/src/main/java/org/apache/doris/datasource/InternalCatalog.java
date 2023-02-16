@@ -210,7 +210,7 @@ import java.util.stream.Collectors;
  */
 public class InternalCatalog implements CatalogIf<Database> {
     public static final String INTERNAL_CATALOG_NAME = "internal";
-    public static final long INTERNAL_DS_ID = 0L;
+    public static final long INTERNAL_CATALOG_ID = 0L;
 
     private static final Logger LOG = LogManager.getLogger(InternalCatalog.class);
 
@@ -228,7 +228,7 @@ public class InternalCatalog implements CatalogIf<Database> {
 
     @Override
     public long getId() {
-        return INTERNAL_DS_ID;
+        return INTERNAL_CATALOG_ID;
     }
 
     @Override
@@ -1239,6 +1239,10 @@ public class InternalCatalog implements CatalogIf<Database> {
                 } else if (resultType.isDecimalV3()) {
                     typeDef = new TypeDef(ScalarType.createDecimalV3Type(resultType.getPrecision(),
                             ((ScalarType) resultType).getScalarScale()));
+                } else if (resultType.isNull()) {
+                    // if typeDef is NULL_TYPE, be will core when executing CTAS expression,
+                    // we change it to tinyint nullable.
+                    typeDef = TypeDef.create(PrimitiveType.TINYINT);
                 } else {
                     typeDef = new TypeDef(resultExpr.getType());
                 }

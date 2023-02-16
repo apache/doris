@@ -245,6 +245,7 @@ TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNod
         children.push_back(TypeDescriptor(types, idx));
         ++(*idx);
         children.push_back(TypeDescriptor(types, idx));
+        break;
     }
     case TTypeNodeType::STRUCT: {
         type = TYPE_STRUCT;
@@ -258,6 +259,7 @@ TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNod
             ++(*idx);
             children.push_back(TypeDescriptor(types, idx));
         }
+        break;
     }
     case TTypeNodeType::VARIANT: {
         type = TYPE_VARIANT;

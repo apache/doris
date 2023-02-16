@@ -215,6 +215,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.version = Version(0, _version);
     _tablet_reader_params.remaining_vconjunct_root =
             (_vconjunct_ctx == nullptr) ? nullptr : _vconjunct_ctx->root();
+    _tablet_reader_params.output_columns = ((NewOlapScanNode*)_parent)->_maybe_read_column_ids;
 
     // Condition
     for (auto& filter : filters) {
@@ -367,14 +368,9 @@ Status NewOlapScanner::_init_return_columns() {
                                 : _tablet_schema->field_index(slot->col_name());
 
         if (index < 0) {
-            const std::string MATERIALIZED_VIEW_NAME_PREFIX = "mv_";
-            index = _tablet_schema->field_index(MATERIALIZED_VIEW_NAME_PREFIX + slot->col_name());
-        }
-
-        if (index < 0) {
             std::stringstream ss;
-            ss << "field name is invalid. field=" << slot->col_name();
-            LOG(WARNING) << ss.str();
+            ss << "field name is invalid. field=" << slot->col_name()
+               << ", field_name_to_index=" << _tablet_schema->get_all_field_names();
             return Status::InternalError(ss.str());
         }
         _return_columns.push_back(index);

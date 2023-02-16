@@ -23,6 +23,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "exception.h"
+#include "network_util.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/brpc_client_cache.h"
@@ -72,8 +73,9 @@ inline Status transmit_block_http(RuntimeState* state, Closure* closure,
                                   PTransmitDataParams& params, TNetworkAddress brpc_dest_addr) {
     RETURN_IF_ERROR(request_embed_attachment_contain_block(&params, closure));
 
-    std::string brpc_url =
-            fmt::format("http://{}:{}", brpc_dest_addr.hostname, brpc_dest_addr.port);
+    //format an ipv6 address
+    std::string brpc_url = get_brpc_http_url(brpc_dest_addr.hostname, brpc_dest_addr.port);
+
     std::shared_ptr<PBackendService_Stub> brpc_http_stub =
             state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url,
                                                                                      "http");

@@ -35,7 +35,8 @@ public:
 
     void _update_block_queue_empty() override { _blocks_queue_empty = _blocks_queue.empty(); }
 
-    Status get_block_from_queue(vectorized::Block** block, bool* eos, bool wait = false) override {
+    Status get_block_from_queue(vectorized::BlockUPtr* block, bool* eos,
+                                bool wait = false) override {
         return vectorized::ScannerContext::get_block_from_queue(block, eos, false);
     }
 

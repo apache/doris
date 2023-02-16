@@ -62,7 +62,7 @@ public class ShowCreateDbStmt extends ShowStmt {
         }
         db = ClusterNamespace.getFullName(getClusterName(), db);
 
-        if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), db,
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), db,
                 PrivPredicate.of(PrivBitSet.of(Privilege.ADMIN_PRIV,
                                 Privilege.ALTER_PRIV,
                                 Privilege.CREATE_PRIV,

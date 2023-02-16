@@ -1066,6 +1066,14 @@ public class Config extends ConfigBase {
     public static int max_query_retry_time = 1;
 
     /**
+     * The number of point query retries in executor.
+     * A query may retry if we encounter RPC exception and no result has been sent to user.
+     * You may reduce this number to avoid Avalanche disaster.
+     */
+    @ConfField(mutable = true)
+    public static int max_point_query_retry_time = 2;
+
+    /**
      * The tryLock timeout configuration of catalog lock.
      * Normally it does not need to change, unless you need to test something.
      */
@@ -1992,6 +2000,15 @@ public class Config extends ConfigBase {
     /**
      * TokenManager will generate token every token_generate_period_hour.
      */
+    @ConfField(mutable = false, masterOnly = true)
     public static int token_generate_period_hour = 12;
+
+    /**
+     * The secure local path of the FE node the place the data which will be loaded in doris.
+     * The default value is empty for this config which means this feature is not allowed.
+     * User who want to load fe server local file should config the value to a right local path.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String mysql_load_server_secure_path = "";
 }
 

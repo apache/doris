@@ -170,6 +170,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
 
     public static final String ENABLE_PIPELINE_ENGINE = "enable_pipeline_engine";
+    public static final String ENABLE_RPC_OPT_FOR_PIPELINE = "enable_rpc_opt_for_pipeline";
 
     public static final String ENABLE_SINGLE_DISTINCT_COLUMN_OPT = "enable_single_distinct_column_opt";
 
@@ -265,6 +266,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_FILE_CACHE = "enable_file_cache";
 
     public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
+    public static final String DROP_TABLE_IF_CTAS_FAILED = "drop_table_if_ctas_failed";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -488,6 +490,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = true)
     public boolean enablePipelineEngine = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_RPC_OPT_FOR_PIPELINE)
+    public boolean enableRpcOptForPipeline = true;
+
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_OUTFILE)
     public boolean enableParallelOutfile = false;
 
@@ -698,6 +703,10 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE, needForward = true)
     public boolean enableFileCache = true;
 
+    // Whether drop table when create table as select insert data appear error.
+    @VariableMgr.VarAttr(name = DROP_TABLE_IF_CTAS_FAILED, needForward = true)
+    public boolean dropTableIfCtasFailed = true;
+
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
     public void initFuzzyModeVariables() {
@@ -732,11 +741,11 @@ public class SessionVariable implements Serializable, Writable {
         }
         // pull_request_id default value is 0
         if (Config.pull_request_id % 2 == 1) {
-            // this.enablePipelineEngine = true;
+            this.enablePipelineEngine = true;
             // this.enableFoldConstantByBe = true;
             // this.enableTwoPhaseReadOpt = false;
         } else {
-            // this.enablePipelineEngine = false;
+            this.enablePipelineEngine = false;
             // this.enableFoldConstantByBe = false;
             // this.enableTwoPhaseReadOpt = true;
         }
@@ -1233,6 +1242,10 @@ public class SessionVariable implements Serializable, Writable {
         return enablePipelineEngine;
     }
 
+    public boolean enableRpcOptForPipeline() {
+        return enableRpcOptForPipeline;
+    }
+
     public void setEnablePipelineEngine(boolean enablePipelineEngine) {
         this.enablePipelineEngine = enablePipelineEngine;
     }
@@ -1436,6 +1449,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setFragmentTransmissionCompressionCodec(String codec) {
         this.fragmentTransmissionCompressionCodec = codec;
+    }
+
+    public boolean isDropTableIfCtasFailed() {
+        return dropTableIfCtasFailed;
     }
 
     public void checkExternalSortBytesThreshold(String externalSortBytesThreshold) {
