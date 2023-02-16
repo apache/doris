@@ -80,7 +80,7 @@ class RuntimeProfile;
 class FragmentExecState {
 public:
     using report_status_callback_impl = std::function<void(
-            const Status&, RuntimeProfile*, bool, TNetworkAddress, TUniqueId, TUniqueId, int,
+            const Status&, RuntimeProfile*, bool, TNetworkAddress, TUniqueId, int, TUniqueId, int,
             RuntimeState*, std::function<Status(Status)>,
             std::function<void(const PPlanFragmentCancelReason&, const std::string&)>)>;
     // Constructor by using QueryFragmentsCtx
