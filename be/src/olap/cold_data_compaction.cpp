@@ -19,6 +19,7 @@
 
 #include "common/compiler_util.h"
 #include "olap/compaction.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 
 namespace doris {
