@@ -66,7 +66,7 @@ SegmentWriter::SegmentWriter(io::FileWriter* file_writer, uint32_t segment_id,
     if (_tablet_schema->has_sequence_col() && _tablet_schema->keys_type() == UNIQUE_KEYS &&
         _opts.enable_unique_key_merge_on_write) {
         const auto& column = _tablet_schema->column(_tablet_schema->sequence_col_idx());
-        _key_coders.push_back(get_key_coder(column.type()));
+        _seq_coder = get_key_coder(column.type());
     }
 }
 
@@ -304,6 +304,7 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
 
     // convert column data from engine format to storage layer format
     std::vector<vectorized::IOlapColumnDataAccessor*> key_columns;
+    vectorized::IOlapColumnDataAccessor* seq_column = nullptr;
     for (size_t id = 0; id < _column_writers.size(); ++id) {
         // olap data convertor alway start from id = 0
         auto converted_result = _olap_data_convertor->convert_column_data(id);
@@ -311,11 +312,11 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
             return converted_result.first;
         }
         auto cid = _column_ids[id];
-        if (_has_key && (cid < _num_key_columns || (_tablet_schema->has_sequence_col() &&
-                                                    _tablet_schema->keys_type() == UNIQUE_KEYS &&
-                                                    _opts.enable_unique_key_merge_on_write &&
-                                                    cid == _tablet_schema->sequence_col_idx()))) {
+        if (_has_key && cid < _num_key_columns) {
             key_columns.push_back(converted_result.second);
+        } else if (_has_key && _tablet_schema->has_sequence_col() &&
+                   cid == _tablet_schema->sequence_col_idx()) {
+            seq_column = converted_result.second;
         }
         RETURN_IF_ERROR(_column_writers[id]->append(converted_result.second->get_nullmap(),
                                                     converted_result.second->get_data(), num_rows));
@@ -324,7 +325,10 @@ Status SegmentWriter::append_block(const vectorized::Block* block, size_t row_po
         if (_tablet_schema->keys_type() == UNIQUE_KEYS && _opts.enable_unique_key_merge_on_write) {
             // create primary indexes
             for (size_t pos = 0; pos < num_rows; pos++) {
-                const std::string& key = _full_encode_keys(key_columns, pos);
+                std::string key = _full_encode_keys(key_columns, pos);
+                if (_tablet_schema->has_sequence_col()) {
+                    _encode_seq_column(seq_column, pos, &key);
+                }
                 RETURN_IF_ERROR(_primary_key_index_builder->add_item(key));
                 _maybe_invalid_row_cache(key);
             }
@@ -362,12 +366,7 @@ std::string SegmentWriter::_full_encode_keys(
         const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
         bool null_first) {
     assert(_key_index_size.size() == _num_key_columns);
-    if (_tablet_schema->has_sequence_col() && _opts.enable_unique_key_merge_on_write) {
-        assert(key_columns.size() == _num_key_columns + 1 &&
-               _key_coders.size() == _num_key_columns + 1);
-    } else {
-        assert(key_columns.size() == _num_key_columns && _key_coders.size() == _num_key_columns);
-    }
+    assert(key_columns.size() == _num_key_columns && _key_coders.size() == _num_key_columns);
 
     std::string encoded_keys;
     size_t cid = 0;
@@ -387,6 +386,22 @@ std::string SegmentWriter::_full_encode_keys(
         ++cid;
     }
     return encoded_keys;
+}
+
+void SegmentWriter::_encode_seq_column(const vectorized::IOlapColumnDataAccessor* seq_column,
+                                       size_t pos, string* encoded_keys) {
+    auto field = seq_column->get_data_at(pos);
+    // To facilitate the use of the primary key index, encode the seq column
+    // to the minimum value of the corresponding length when the seq column
+    // is null
+    if (UNLIKELY(!field)) {
+        encoded_keys->push_back(KEY_NULL_FIRST_MARKER);
+        size_t seq_col_length = _tablet_schema->column(_tablet_schema->sequence_col_idx()).length();
+        encoded_keys->append(seq_col_length, KEY_MINIMAL_MARKER);
+        return;
+    }
+    encoded_keys->push_back(KEY_NORMAL_MARKER);
+    _seq_coder->full_encode_ascending(field, encoded_keys);
 }
 
 std::string SegmentWriter::_encode_keys(
