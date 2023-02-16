@@ -43,38 +43,38 @@ After the user submits the import task, FE will generate the corresponding Plan 
 
 BE pulls data from the broker during execution, and imports the data into the system after transforming the data. All BEs are imported, and FE ultimately decides whether the import is successful.
 
-````
+```
                  +
                  | 1. user create broker load
                  v
             +----+----+
-            | |
-            | FE |
-            | |
+            |         |
+            |   FE    |
+            |         |
             +----+----+
                  |
                  | 2. BE etl and load the data
-    +--------------------------------------+
-    | | |
-+---v---+ +--v----+ +---v---+
-| | | | | |
-| BE | | BE | | BE |
-| | | | | |
-+---+-^-+ +---+-^-+ +--+-^--+
-    | | | | | |
-    | | | | | | 3. pull data from broker
-+---v-+-+ +---v-+-+ +--v-+--+
-| | | | | |
-|Broker | |Broker | |Broker |
-| | | | | |
-+---+-^-+ +---+-^-+ +---+-^-+
-    | | | | | |
-+---v-+-------------v-+------------v-+-+
-| HDFS/BOS/AFS cluster |
-| |
-+-----------------------------------+
+    +--------------------------+
+    |            |             |
++---v---+     +--v----+    +---v---+
+|       |     |       |    |       |
+|  BE   |     |  BE   |    |   BE  |
+|       |     |       |    |       |
++---+-^-+     +---+-^-+    +--+-^--+
+    | |           | |         | |
+    | |           | |         | | 3. pull data from broker
++---v-+-+     +---v-+-+    +--v-+--+
+|       |     |       |    |       |
+|Broker |     |Broker |    |Broker |
+|       |     |       |    |       |
++---+-^-+     +---+-^-+    +---+-^-+
+    | |           | |          | |
++---v-+-----------v-+----------v-+-+
+|       HDFS/BOS/AFS cluster       |
+|                                  |
++----------------------------------+
 
-````
+```
 
 ## start import
 

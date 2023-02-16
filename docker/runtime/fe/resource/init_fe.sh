@@ -138,9 +138,6 @@ docker_setup_db() {
         return
     fi
     for i in {1..300}; do
-        if [[ $(($i % 20)) == 1 ]]; then
-            doris_note "ADD FOLLOWER failed, retry."
-        fi
         docker_process_sql <<<"alter system add FOLLOWER '${CURRENT_FE_IP}:${CURRENT_FE_EDIT_PORT}'"
         register_fe_status=$?
         if [[ $register_fe_status == 0 ]]; then
@@ -158,6 +155,9 @@ docker_setup_db() {
                 doris_warn "FE failed registered!"
             fi
         fi
+        if [[ $(($i % 20)) == 1 ]]; then
+            doris_note "ADD FOLLOWER failed, retry."
+        fi
         sleep 1
     done
     if ! [[ $is_fe_start ]]; then
@@ -173,7 +173,6 @@ check_arg() {
     fi
 }
 
-# 这里可用 docker_process_sql() 函数封装，为了方便调试，暂未封装
 check_fe_status() {
     set +e
     declare -g CURRENT_FE_ALREADY_EXISTS
@@ -182,9 +181,6 @@ check_fe_status() {
         return
     fi
     for i in {1..300}; do
-        if [[ $(($i % 20)) == 1 ]]; then
-            doris_note "try session Master FE."
-        fi
         if [[ $1 == true ]]; then
             docker_process_sql <<<"show frontends" | grep "[[:space:]]${MASTER_FE_IP}[[:space:]]" | grep "[[:space:]]${MASTER_FE_EDIT_PORT}[[:space:]]"
         else
@@ -207,6 +203,9 @@ check_fe_status() {
                     doris_warn "Verify that CURRENT_FE is registered to FE failed, retry."
                 fi
             fi
+        fi
+        if [[ $(($i % 20)) == 1 ]]; then
+            doris_note "try session Master FE."
         fi
         sleep 1
     done
