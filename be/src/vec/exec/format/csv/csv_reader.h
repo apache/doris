@@ -19,6 +19,7 @@
 
 #include "io/fs/file_reader.h"
 #include "olap/iterators.h"
+#include "vec/exec/format/csv/csv.hpp"
 #include "vec/exec/format/generic_reader.h"
 
 namespace doris {
@@ -76,8 +77,8 @@ private:
                               std::vector<MutableColumnPtr>& columns, size_t* rows);
 
     // used for csv parser
-    // Status _fill_dest_columns2(const csv::CSVRow& row, Block* block,
-    //                            std::vector<MutableColumnPtr>& columns, size_t* rows);
+    Status _fill_dest_columns2(const csv::CSVRow& row, Block* block,
+                               std::vector<MutableColumnPtr>& columns, size_t* rows);
 
     Status _fill_dest_columns3(const CsvRow& row, Block* block,
                                std::vector<MutableColumnPtr>& columns, size_t* rows);
@@ -149,9 +150,11 @@ private:
     // correct start of a field
     std::vector<std::pair<int, int>> _fields_pos;
 
-    // std::unique_ptr<csv::CSVReader> _csv_reader;
+    std::unique_ptr<csv::CSVReader> _csv_reader;
     csv::CSVReader::iterator _csv_row_iterator;
     std::vector<CsvColumn> _one_row_cols;
+
+    std::chrono::system_clock::time_point _start;
 };
 } // namespace vectorized
 } // namespace doris

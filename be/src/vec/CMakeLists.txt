@@ -298,6 +298,7 @@ set(VEC_FILES
   exec/scan/vmeta_scan_node.cpp
   exec/scan/vmeta_scanner.cpp
   exec/format/csv/csv_reader.cpp
+  exec/format/csv/csv.hpp
   exec/format/orc/vorc_reader.cpp
   exec/format/json/new_json_reader.cpp
   exec/format/table/table_format_reader.cpp
