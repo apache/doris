@@ -594,4 +594,30 @@ suite("nereids_agg_fn") {
 	qt_sql_window_funnel_BigInt_String_DateTimeV2_Boolean_notnull_gb "select window_funnel(3600 * 3, 'default', kdtmv2s1, kint = 1, kint = 2) from fn_test_not_nullable group by kbool order by kbool"
 	qt_sql_window_funnel_BigInt_String_DateTimeV2_Boolean_notnull "select window_funnel(3600 * 3, 'default', kdtmv2s1, kint = 1, kint = 2) from fn_test_not_nullable"
 
+	qt_sql_agg_phase_0 "select count(*) from fn_test group by id"
+	qt_sql_agg_phase_0_notnull "select count(*) from fn_test_not_nullable group by id"
+
+	qt_sql_agg_phase_1 "select count(distinct id) from (select kint, id from fn_test) t group by kint"
+	qt_sql_agg_phase_1_notnull "select count(distinct id) from (select kint, id from fn_test_not_nullable) t group by kint"
+
+	qt_sql_agg_phase_2 "select count(distinct id) from fn_test group by id"
+	qt_sql_agg_phase_2_notnull "select count(distinct id) from fn_test_not_nullable group by id"
+
+	qt_sql_agg_phase_3 "select kint, count(id) from fn_test group by kint"
+	qt_sql_agg_phase_3_notnull "select kint, count(id) from fn_test_not_nullable group by kint"
+
+	qt_sql_agg_phase_4 "select count(distinct id, kint) from fn_test group by id"
+	qt_sql_agg_phase_4_notnull "select count(distinct id, kint) from fn_test_not_nullable group by id"
+
+	qt_sql_agg_phase_5 "select count(ksint) from fn_test group by kint"
+	qt_sql_agg_phase_5_notnull "select count(ksint) from fn_test_not_nullable group by kint"
+
+	qt_sql_agg_phase_6 "select count(distinct id, kint) from fn_test group by kint"
+	qt_sql_agg_phase_6_notnull "select count(distinct id, kint) from fn_test_not_nullable group by kint"
+
+	qt_sql_agg_phase_7 "select count(distinct id) from fn_test group by kint"
+	qt_sql_agg_phase_7_notnull "select count(distinct id) from fn_test_not_nullable group by kint"
+
+	qt_sql_agg_phase_8 "select count(distinct id, kint), sum(kint), avg(kbint) from fn_test group by kbool"
+	qt_sql_agg_phase_8_notnull "select count(distinct id, kint), sum(kint), avg(kbint) from fn_test_not_nullable group by kbool"
 }

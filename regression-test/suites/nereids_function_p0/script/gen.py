@@ -180,6 +180,37 @@ def generateAggFnSQL(function_meta: Dict[str, List[List[str]]]) -> List[str]:
 
                     SQLs.append(f'\t{run_tag + tag_app} "{sql}"\n')
             SQLs.append('\n')
+
+    # current it's distributed by hash(id), generate one to four phase agg.
+    # storage layer: select count(*) from ${t}
+    # one phase: select count(*) from ${t} group by id
+    #            select count(distinct id) from (select kint, id from ${t}) t group by kint
+    # two phase: select count(distinct id) from ${t} group by id
+    #            select kint, count(id) from ${t} group by kint
+    #            select count(distinct id, kint) from ${t} group by id
+    #            select count(ksint) from ${t} group by kint
+    # three phase: select count(distinct id, kint) from ${t} group by kint
+    #              select count(distinct id) from ${t} group by kint
+    # four phase: select count(distinct id, kint), sum(kint), avg(kbint) from ${t} group by kbool
+    agg_test_sqls = ['select count(*) from ${t} group by id',
+                     'select count(distinct id) from (select kint, id from ${t}) t group by kint',
+                     'select count(distinct id) from ${t} group by id',
+                     'select kint, count(id) from ${t} group by kint',
+                     'select count(distinct id, kint) from ${t} group by id',
+                     'select count(ksint) from ${t} group by kint',
+                     'select count(distinct id, kint) from ${t} group by kint',
+                     'select count(distinct id) from ${t} group by kint',
+                     'select count(distinct id, kint), sum(kint), avg(kbint) from ${t} group by kbool']
+
+    agg_test_tag = 'qt_sql_agg_phase'
+
+    for i, sql in enumerate(agg_test_sqls):
+        for t in tables:
+            tag = agg_test_tag + f'_{i}'
+            if t != 'fn_test':
+                tag += '_notnull'
+            SQLs.append(f'\t{tag} "{sql.replace("${t}", t)}"\n')
+        SQLs.append('\n')
     return SQLs
 
 
@@ -236,8 +267,8 @@ getCharRange: Callable[[int, int], Callable[[str], bool]] = lambda c1, c2: \
 
 FUNCTION_DIR = '../../../../fe/fe-core/src/main/java/org/apache/doris/nereids/trees/expressions/functions/'
 
-genHeaderAndFooter('gen',
-                   f'{FUNCTION_DIR}generator',
-                   f'../gen_function/gen.groovy',
-                   f'nereids_gen_fn',
+genHeaderAndFooter('agg',
+                   f'{FUNCTION_DIR}/agg',
+                   f'../agg_function/agg1.groovy',
+                   f'nereids_agg_fn',
                    lambda c: True)
