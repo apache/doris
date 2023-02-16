@@ -118,6 +118,7 @@ private:
 
     IOContext* _io_ctx;
     bool _has_schema_change = false;
+    bool _has_iceberg_schema = false;
 };
 } // namespace vectorized
 } // namespace doris
