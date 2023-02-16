@@ -33,12 +33,14 @@ AggregateFunctionPtr do_create_agg_function_collect(bool distinct, const DataTyp
                                                     TArgs... args) {
     if (distinct) {
         return AggregateFunctionPtr(
-                new AggregateFunctionCollect<AggregateFunctionCollectSetData<T>, HasLimit>(
-                        argument_type, std::forward<TArgs>(args)...));
+                new AggregateFunctionCollect<AggregateFunctionCollectSetData<T, HasLimit>,
+                                             HasLimit>(argument_type,
+                                                       std::forward<TArgs>(args)...));
     } else {
         return AggregateFunctionPtr(
-                new AggregateFunctionCollect<AggregateFunctionCollectListData<T>, HasLimit>(
-                        argument_type, std::forward<TArgs>(args)...));
+                new AggregateFunctionCollect<AggregateFunctionCollectListData<T, HasLimit>,
+                                             HasLimit>(argument_type,
+                                                       std::forward<TArgs>(args)...));
     }
 }
 
