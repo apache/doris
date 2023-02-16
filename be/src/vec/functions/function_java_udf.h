@@ -89,9 +89,17 @@ private:
         std::unique_ptr<int64_t[]> input_values_buffer_ptr;
         std::unique_ptr<int64_t[]> input_nulls_buffer_ptr;
         std::unique_ptr<int64_t[]> input_offsets_ptrs;
+        //used for array type nested column null map, because array nested column must be nullable
+        std::unique_ptr<int64_t[]> input_array_nulls_buffer_ptr;
+        //used for array type of nested string column offset, not the array column offset
+        std::unique_ptr<int64_t[]> input_array_string_offsets_ptrs;
         std::unique_ptr<int64_t> output_value_buffer;
         std::unique_ptr<int64_t> output_null_value;
         std::unique_ptr<int64_t> output_offsets_ptr;
+        //used for array type nested column null map
+        std::unique_ptr<int64_t> output_array_null_ptr;
+        //used for array type of nested string column offset
+        std::unique_ptr<int64_t> output_array_string_offsets_ptr;
         std::unique_ptr<int32_t> batch_size_ptr;
         // intermediate_state includes two parts: reserved / used buffer size and rows
         std::unique_ptr<IntermediateState> output_intermediate_state_ptr;
@@ -101,9 +109,13 @@ private:
                   input_values_buffer_ptr(new int64_t[num_args]),
                   input_nulls_buffer_ptr(new int64_t[num_args]),
                   input_offsets_ptrs(new int64_t[num_args]),
+                  input_array_nulls_buffer_ptr(new int64_t[num_args]),
+                  input_array_string_offsets_ptrs(new int64_t[num_args]),
                   output_value_buffer(new int64_t()),
                   output_null_value(new int64_t()),
                   output_offsets_ptr(new int64_t()),
+                  output_array_null_ptr(new int64_t()),
+                  output_array_string_offsets_ptr(new int64_t()),
                   batch_size_ptr(new int32_t()),
                   output_intermediate_state_ptr(new IntermediateState()) {}
 
