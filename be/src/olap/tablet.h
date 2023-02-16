@@ -387,8 +387,7 @@ public:
     }
 
     Status write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
-                               UniqueId cooldown_meta_id,
-                               const std::vector<RowsetMetaSharedPtr>& to_adds,
+                               UniqueId cooldown_meta_id, RowsetMeta* new_rs_meta,
                                const std::vector<RowsetMetaSharedPtr>& to_deletes);
 
 private:

@@ -1759,7 +1759,7 @@ Status Tablet::_cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_
     UniqueId cooldown_meta_id = UniqueId::gen_uid();
 
     // upload cooldowned rowset meta to remote fs
-    RETURN_IF_ERROR(write_cooldown_meta(dest_fs, cooldown_meta_id, {new_rowset_meta}, {}));
+    RETURN_IF_ERROR(write_cooldown_meta(dest_fs, cooldown_meta_id, new_rowset_meta.get(), {}));
 
     RowsetSharedPtr new_rowset;
     RowsetFactory::create_rowset(_schema, _tablet_path, new_rowset_meta, &new_rowset);
@@ -1799,19 +1799,18 @@ Status Tablet::_read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& 
 }
 
 Status Tablet::write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
-                                   UniqueId cooldown_meta_id,
-                                   const std::vector<RowsetMetaSharedPtr>& to_adds,
+                                   UniqueId cooldown_meta_id, RowsetMeta* new_rs_meta,
                                    const std::vector<RowsetMetaSharedPtr>& to_deletes) {
-    std::set<Version> to_delete_map;
+    std::set<std::string> to_delete_set;
     for (auto& rs_meta : to_deletes) {
-        to_delete_map.emplace(rs_meta->version());
+        to_delete_set.emplace(rs_meta->version().to_string());
     }
     std::vector<RowsetMetaSharedPtr> cooldowned_rs_metas;
     {
         std::shared_lock meta_rlock(_meta_lock);
         for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
             if (!rs_meta->is_local()) {
-                if (to_delete_map.contains(rs_meta->version())) {
+                if (to_delete_set.find(rs_meta->version().to_string()) != to_delete_set.end()) {
                     continue;
                 }
                 cooldowned_rs_metas.push_back(rs_meta);
@@ -1820,19 +1819,17 @@ Status Tablet::write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& 
     }
     std::sort(cooldowned_rs_metas.begin(), cooldowned_rs_metas.end(), RowsetMeta::comparator);
     std::sort(to_adds.begin(), to_adds.end(), RowsetMeta::comparator);
-    if (UNLIKELY(!cooldowned_rs_metas.empty() && !to_adds.empty() &&
-                 to_adds.front()->start_version() != cooldowned_rs_metas.back()->end_version() + 1)) {
+    if (UNLIKELY(!cooldowned_rs_metas.empty() &&
+                 new_rs_meta->start_version() != cooldowned_rs_metas.back()->end_version() + 1)) {
         return Status::InternalError("version not continuous");
     }
     TabletMetaPB tablet_meta_pb;
     auto rs_metas = tablet_meta_pb.mutable_rs_metas();
-    rs_metas->Reserve(cooldowned_rs_metas.size() + to_adds.size());
+    rs_metas->Reserve(cooldowned_rs_metas.size() + 1);
     for (auto& rs_meta : cooldowned_rs_metas) {
         rs_metas->Add(rs_meta->get_rowset_pb());
     }
-    for (auto& new_rs_meta : to_adds) {
-        rs_metas->Add(new_rs_meta->get_rowset_pb());
-    }
+    rs_metas->Add(new_rs_meta->get_rowset_pb());
     tablet_meta_pb.mutable_cooldown_meta_id()->set_hi(cooldown_meta_id.hi);
     tablet_meta_pb.mutable_cooldown_meta_id()->set_lo(cooldown_meta_id.lo);
 
