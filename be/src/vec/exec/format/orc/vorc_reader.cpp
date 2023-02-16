@@ -195,11 +195,13 @@ Status OrcReader::init_reader(
     auto& selected_type = _row_reader->getSelectedType();
     _col_orc_type.resize(selected_type.getSubtypeCount());
     for (int i = 0; i < selected_type.getSubtypeCount(); ++i) {
-        auto name = _get_field_name_lower_case(&selected_type, i);
+        std::string name;
         // For hive engine, translate the column name in orc file to schema column name.
         // This is for Hive 1.x which use internal column name _col0, _col1...
         if (_is_hive) {
-            name = _file_col_to_schema_col[name];
+            name = _file_col_to_schema_col[selected_type.getFieldName(i)];
+        } else {
+            name = _get_field_name_lower_case(&selected_type, i);
         }
         _colname_to_idx[name] = i;
         _col_orc_type[i] = selected_type.getSubtype(i);
