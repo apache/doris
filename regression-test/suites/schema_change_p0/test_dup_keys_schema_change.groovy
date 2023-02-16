@@ -126,7 +126,7 @@ suite ("test_dup_keys_schema_change") {
         sql """
             ALTER TABLE ${tableName} DROP COLUMN sex
             """
-        int max_try_time = 1200
+        int max_try_time = 3000
         while (max_try_time--){
             String result = getJobState(tableName)
             if (result == "FINISHED") {

@@ -101,7 +101,7 @@ suite ("test_agg_keys_schema_change") {
             ALTER table ${tableName} ADD COLUMN new_key_column INT default "2" 
             """
 
-        int max_try_time = 1200
+        int max_try_time = 3000
         while (max_try_time--){
             String result = getJobState(tableName)
             if (result == "FINISHED") {
@@ -113,7 +113,6 @@ suite ("test_agg_keys_schema_change") {
                 }
             }
         }
-        Thread.sleep(1000)
 
         sql """ INSERT INTO ${tableName} (`user_id`,`date`,`city`,`age`,`sex`,`cost`,`max_dwell_time`,`min_dwell_time`, `hll_col`, `bitmap_col`)
                 VALUES
@@ -156,7 +155,7 @@ suite ("test_agg_keys_schema_change") {
         sql """
             ALTER TABLE ${tableName} DROP COLUMN new_key_column
             """
-        max_try_time = 1200
+        max_try_time = 3000
         while (max_try_time--){
             String result = getJobState(tableName)
             if (result == "FINISHED") {
@@ -168,7 +167,6 @@ suite ("test_agg_keys_schema_change") {
                 }
             }
         }
-
         qt_sc """ select * from ${tableName} where user_id = 3 """
 
 

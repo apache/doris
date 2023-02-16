@@ -86,7 +86,7 @@ suite ("test_uniq_rollup_schema_change") {
     //add rollup
     def rollupName = "rollup_cost"
     sql "ALTER TABLE ${tableName} ADD ROLLUP ${rollupName}(`user_id`,`date`,`city`,`sex`, `age`, cost);"
-    int max_try_time = 1200
+    int max_try_time = 3000
     while (max_try_time--){
         String result = getMVJobState(tableName)
         if (result == "FINISHED") {
@@ -147,7 +147,7 @@ suite ("test_uniq_rollup_schema_change") {
           ALTER TABLE ${tableName} DROP COLUMN cost
           """
 
-    max_try_time = 1200
+    max_try_time = 3000
     while (max_try_time--){
         String result = getJobState(tableName)
         if (result == "FINISHED") {

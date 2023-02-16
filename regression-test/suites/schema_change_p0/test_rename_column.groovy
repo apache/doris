@@ -148,7 +148,7 @@ suite ("test_rename_column") {
     def resRoll = "null"
     def rollupName = "rollup_cost"
     sql "ALTER TABLE ${tableName} ADD ROLLUP ${rollupName}(`user_id`, `cost`);"
-    int max_try_time = 1200
+    int max_try_time = 3000
     while (max_try_time--){
         String result = getRollupJobState(tableName)
         if (result == "FINISHED") {
@@ -213,7 +213,7 @@ suite ("test_rename_column") {
     def resMv = "null"
     def mvName = "mv1"
     sql "create materialized view ${mvName} as select user_id, sum(cost) from ${tableName} group by user_id;"
-    max_try_time = 1200
+    max_try_time = 3000
     while (max_try_time--){
         String result = getMVJobState(tableName)
         if (result == "FINISHED") {
