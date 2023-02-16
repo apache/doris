@@ -1829,8 +1829,8 @@ Status Tablet::write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& 
             RowsetMetaSharedPtr rowset_meta = cooldowned_rs_metas[i];
             if (rowset_meta->start_version() != prev_rowset_meta->end_version() + 1) {
                 LOG(WARNING) << "There are missed versions among rowsets. "
-                             << "prev_rowset_meta version=" << prev_rowset_meta->start_version() << "-"
-                             << prev_rowset_meta->end_version()
+                             << "prev_rowset_meta version=" << prev_rowset_meta->start_version()
+                             << "-" << prev_rowset_meta->end_version()
                              << ", rowset_meta version=" << rowset_meta->start_version() << "-"
                              << rowset_meta->end_version();
                 return Status::Error<CUMULATIVE_MISS_VERSION>();
