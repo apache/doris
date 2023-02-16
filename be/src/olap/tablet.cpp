@@ -38,6 +38,7 @@
 #include <set>
 #include <shared_mutex>
 #include <string>
+#include <unordered_set>
 
 #include "agent/utils.h"
 #include "common/config.h"
@@ -1802,7 +1803,7 @@ Status Tablet::write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& 
                                    UniqueId cooldown_meta_id,
                                    const RowsetMetaSharedPtr& new_rs_meta,
                                    const std::vector<RowsetMetaSharedPtr>& to_deletes) {
-    std::set<std::string> to_delete_set;
+    std::unordered_set<std::string> to_delete_set;
     for (auto& rs_meta : to_deletes) {
         to_delete_set.emplace(rs_meta->version().to_string());
     }
