@@ -39,6 +39,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.EliminateFilter;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateNotNull;
+import org.apache.doris.nereids.rules.rewrite.logical.EliminateNullAwareLeftAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateOrderByConstant;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateUnnecessaryProject;
 import org.apache.doris.nereids.rules.rewrite.logical.ExtractAndNormalizeWindowExpression;
@@ -131,6 +132,7 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .add(bottomUpBatch(ImmutableList.of(new MergeSetOperations())))
                 .add(topDownBatch(ImmutableList.of(new LimitPushDown())))
                 .add(topDownBatch(ImmutableList.of(new BuildAggForUnion())))
+                .add(topDownBatch(ImmutableList.of(new EliminateNullAwareLeftAntiJoin())))
                 // this rule batch must keep at the end of rewrite to do some plan check
                 .add(bottomUpBatch(ImmutableList.of(
                         new AdjustNullable(),

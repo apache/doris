@@ -63,7 +63,9 @@ public class InApplyToJoin extends OneRewriteRuleFactory {
                 throw new AnalysisException("nereids don't support bitmap runtime filter");
             }
             if (((InSubquery) apply.getSubqueryExpr()).isNot()) {
-                return new LogicalJoin<>(JoinType.NULL_AWARE_LEFT_ANTI_JOIN, Lists.newArrayList(),
+                return new LogicalJoin<>(
+                        predicate.nullable() ? JoinType.NULL_AWARE_LEFT_ANTI_JOIN : JoinType.LEFT_ANTI_JOIN,
+                        Lists.newArrayList(),
                         conjuncts,
                         JoinHint.NONE,
                         apply.left(), apply.right());
