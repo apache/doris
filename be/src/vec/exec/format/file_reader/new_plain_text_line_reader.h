@@ -17,9 +17,12 @@
 
 #pragma once
 
+#include <queue>
+
 #include "exec/line_reader.h"
 #include "io/fs/file_reader.h"
 #include "util/runtime_profile.h"
+#include "vec/exec/format/csv/csv_reader.h"
 
 namespace doris {
 
@@ -48,6 +51,8 @@ public:
     Status read_fields(const uint8_t** ptr, size_t* size, bool* eof,
                        std::vector<std::pair<int, int>>* fields) override;
 
+    Status next_row(vectorized::CsvReader::CsvRow* row, bool* eof) override;
+
     void close() override;
 
 private:
@@ -65,6 +70,9 @@ private:
     // save positions of fields and return and line delimiter.
     uint8_t* _update_field_pos_and_find_line_delimiter(const uint8_t* start, size_t len,
                                                        std::vector<std::pair<int, int>>* fields);
+    Status _read_more_rows();
+    uint8_t* _parse_rows(size_t len, size_t offset);
+
     void trim_space_and_quote();
 
     bool _read_more_data();
@@ -122,6 +130,9 @@ private:
     // point to the current pos of separator matching sequence.
     // this is an offset from the start of line_delimiter.
     size_t _line_delimiter_cur_pos = 0;
+
+    std::vector<vectorized::CsvReader::CsvColumn> _tmp_columns;
+    std::queue<vectorized::CsvReader::CsvRow> _rows;
 
     // Profile counters
     RuntimeProfile::Counter* _bytes_read_counter;

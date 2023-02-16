@@ -151,6 +151,11 @@ Status CsvReader::init_reader(bool is_load) {
     if (_params.file_attributes.__isset.trim_double_quotes) {
         _trim_double_quotes = _params.file_attributes.trim_double_quotes;
     }
+    // csv::CSVFormat csv_format;
+    // csv_format.delimiter('\t');
+    // _csv_reader.reset(new csv::CSVReader(
+    //         "/mnt/disk1/ftw/projects/doris/tools/clickbench-tools/hits_split0", csv_format));
+    // _csv_row_iterator = _csv_reader->begin();
 
     // create decompressor.
     // _decompressor may be nullptr if this is not a compressed file
@@ -247,34 +252,87 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
             delete[] row_ptr;
             RETURN_IF_ERROR(_fill_dest_columns(line, block, columns, &rows));
         } else {
-            _fields_pos.clear();
-            RETURN_IF_ERROR(
-                    _line_reader->read_fields(&ptr, &size, &_line_reader_eof, &_fields_pos));
-            if (_skip_lines > 0) {
-                _skip_lines--;
-                continue;
-            }
-            if (size == 0) {
-                // Read empty row, just continue
-                continue;
-            }
-            Slice line(ptr, size);
-            if (!validate_utf8(line.data, line.size)) {
-                if (!_is_load) {
-                    return Status::InternalError("Only support csv data in utf8 codec");
-                } else {
-                    RETURN_IF_ERROR(_state->append_error_msg_to_file(
-                            []() -> std::string { return "Unable to display"; },
-                            []() -> std::string {
-                                fmt::memory_buffer error_msg;
-                                fmt::format_to(error_msg, "{}", "Unable to display");
-                                return fmt::to_string(error_msg);
-                            },
-                            &_line_reader_eof));
-                    _counter->num_rows_filtered++;
+            // ===== csv-parser
+            // add UNLIKELY
+            // if (_csv_row_iterator == _csv_reader->end()) {
+            //     _line_reader_eof = true;
+            //     break;
+            // }
+            // if (_skip_lines > 0) {
+            //     _skip_lines--;
+            //     _csv_row_iterator++;
+            //     continue;
+            // }
+            // // add UNLIKELY
+            // if (_csv_row_iterator->empty()) {
+            //     // Read empty row, just continue
+            //     _csv_row_iterator++;
+            //     continue;
+            // }
+            // RETURN_IF_ERROR(_fill_dest_columns2(*_csv_row_iterator, block, columns, &rows));
+            // _csv_row_iterator++;
+
+            // ===== doris
+            while (rows < batch_size && !_line_reader_eof) {
+                _fields_pos.clear();
+                RETURN_IF_ERROR(
+                        _line_reader->read_fields(&ptr, &size, &_line_reader_eof, &_fields_pos));
+                if (_skip_lines > 0) {
+                    _skip_lines--;
+                    continue;
                 }
+                if (size == 0) {
+                    // Read empty row, just continue
+                    continue;
+                }
+                Slice line(ptr, size);
+                if (!validate_utf8(line.data, line.size)) {
+                    if (!_is_load) {
+                        return Status::InternalError("Only support csv data in utf8 codec");
+                    } else {
+                        RETURN_IF_ERROR(_state->append_error_msg_to_file(
+                                []() -> std::string { return "Unable to display"; },
+                                []() -> std::string {
+                                    fmt::memory_buffer error_msg;
+                                    fmt::format_to(error_msg, "{}", "Unable to display");
+                                    return fmt::to_string(error_msg);
+                                },
+                                &_line_reader_eof));
+                        _counter->num_rows_filtered++;
+                    }
+                }
+                RETURN_IF_ERROR(_fill_dest_columns(line, block, columns, &rows));
             }
-            RETURN_IF_ERROR(_fill_dest_columns(line, block, columns, &rows));
+
+            // use queue
+
+            // CsvRow one_row;
+            // RETURN_IF_ERROR(_line_reader->next_row(&one_row, &_line_reader_eof));
+            // if (_skip_lines > 0) {
+            //     _skip_lines--;
+            //     continue;
+            // }
+            // if (one_row.len == 0) {
+            //     // Read empty row, just continue
+            //     break;
+            // }
+            // Slice line(one_row.start_ptr, one_row.len);
+            // if (!validate_utf8(line.data, line.size)) {
+            //     if (!_is_load) {
+            //         return Status::InternalError("Only support csv data in utf8 codec");
+            //     } else {
+            //         RETURN_IF_ERROR(_state->append_error_msg_to_file(
+            //                 []() -> std::string { return "Unable to display"; },
+            //                 []() -> std::string {
+            //                     fmt::memory_buffer error_msg;
+            //                     fmt::format_to(error_msg, "{}", "Unable to display");
+            //                     return fmt::to_string(error_msg);
+            //                 },
+            //                 &_line_reader_eof));
+            //         _counter->num_rows_filtered++;
+            //     }
+            // }
+            // RETURN_IF_ERROR(_fill_dest_columns3(one_row, block, columns, &rows));
         }
     }
 
@@ -374,6 +432,158 @@ Status CsvReader::_create_decompressor() {
 
     return Status::OK();
 }
+
+Status CsvReader::_fill_dest_columns3(const CsvRow& row, Block* block,
+                                      std::vector<MutableColumnPtr>& columns, size_t* rows) {
+    size_t fields_size = _is_proto_format ? _split_values.size() : row.cols.size();
+    if (_is_load) {
+        // Only check for load task. For query task, the non exist column will be filled "null".
+        // if actual column number in csv file is not equal to _file_slot_descs.size()
+        // then filter this line.
+        if (fields_size != _file_slot_descs.size()) {
+            std::string cmp_str = fields_size > _file_slot_descs.size() ? "more than" : "less than";
+            RETURN_IF_ERROR(_state->append_error_msg_to_file(
+                    [&]() -> std::string { return std::string("ftwftwftw"); },
+                    [&]() -> std::string {
+                        fmt::memory_buffer error_msg;
+                        fmt::format_to(error_msg, "{} {} {}",
+                                       "actual column number in csv file is ", cmp_str,
+                                       " schema column number.");
+                        fmt::format_to(error_msg, "actual number: {}, column separator: [{}], ",
+                                       fields_size, _value_separator);
+                        fmt::format_to(error_msg,
+                                       "line delimiter: [{}], schema column number: {}; ",
+                                       _line_delimiter, _file_slot_descs.size());
+                        return fmt::to_string(error_msg);
+                    },
+                    &_line_reader_eof));
+            _counter->num_rows_filtered++;
+            // meet an invalid row, filter this row and return.
+            return Status::OK();
+        }
+
+        for (int i = 0; i < _file_slot_descs.size(); ++i) {
+            auto src_slot_desc = _file_slot_descs[i];
+            int col_idx = _col_idxs[i];
+            // col idx is out of range, fill with null.
+            if (col_idx >= fields_size) {
+                const Slice& value = _s_null_slice;
+                // For load task, we always read "string" from file, so use "write_string_column"
+                _text_converter->write_string_column(src_slot_desc, &columns[i], value.data,
+                                                     value.size);
+            } else {
+                const Slice& value = _is_proto_format
+                                             ? _split_values[col_idx]
+                                             : Slice(row.start_ptr + row.cols[col_idx].start_pos,
+                                                     row.cols[col_idx].len);
+                // For load task, we always read "string" from file, so use "write_string_column"
+                _text_converter->write_string_column(src_slot_desc, &columns[i], value.data,
+                                                     value.size);
+            }
+        }
+    } else {
+        // if fields_size > _file_slot_descs.size()
+        // we only take the first few columns
+        for (int i = 0; i < _file_slot_descs.size(); ++i) {
+            auto src_slot_desc = _file_slot_descs[i];
+            int col_idx = _col_idxs[i];
+            // col idx is out of range, fill with null.
+            IColumn* col_ptr = const_cast<IColumn*>(
+                    block->get_by_position(_file_slot_idx_map[i]).column.get());
+            if (col_idx >= fields_size) {
+                const Slice& value = _s_null_slice;
+                // For query task, we will convert values to final column type, so use "write_vec_column"
+                _text_converter->write_vec_column(src_slot_desc, col_ptr, value.data, value.size,
+                                                  true, false);
+            } else {
+                const Slice& value = _is_proto_format
+                                             ? _split_values[col_idx]
+                                             : Slice(row.start_ptr + row.cols[col_idx].start_pos,
+                                                     row.cols[col_idx].len);
+                // For query task, we will convert values to final column type, so use "write_vec_column"
+                _text_converter->write_vec_column(src_slot_desc, col_ptr, value.data, value.size,
+                                                  true, false);
+            }
+        }
+    }
+    ++(*rows);
+
+    return Status::OK();
+}
+
+// Status CsvReader::_fill_dest_columns2(const csv::CSVRow& row, Block* block,
+//                                       std::vector<MutableColumnPtr>& columns, size_t* rows) {
+//     size_t fields_size = _is_proto_format ? _split_values.size() : row.size();
+//     if (_is_load) {
+//         // Only check for load task. For query task, the non exist column will be filled "null".
+//         // if actual column number in csv file is not equal to _file_slot_descs.size()
+//         // then filter this line.
+//         if (fields_size != _file_slot_descs.size()) {
+//             std::string cmp_str = fields_size > _file_slot_descs.size() ? "more than" : "less than";
+//             RETURN_IF_ERROR(_state->append_error_msg_to_file(
+//                     [&]() -> std::string { return std::string(row.to_json_array()); },
+//                     [&]() -> std::string {
+//                         fmt::memory_buffer error_msg;
+//                         fmt::format_to(error_msg, "{} {} {}",
+//                                        "actual column number in csv file is ", cmp_str,
+//                                        " schema column number.");
+//                         fmt::format_to(error_msg, "actual number: {}, column separator: [{}], ",
+//                                        fields_size, _value_separator);
+//                         fmt::format_to(error_msg,
+//                                        "line delimiter: [{}], schema column number: {}; ",
+//                                        _line_delimiter, _file_slot_descs.size());
+//                         return fmt::to_string(error_msg);
+//                     },
+//                     &_line_reader_eof));
+//             _counter->num_rows_filtered++;
+//             // meet an invalid row, filter this row and return.
+//             return Status::OK();
+//         }
+
+//         for (int i = 0; i < _file_slot_descs.size(); ++i) {
+//             auto src_slot_desc = _file_slot_descs[i];
+//             int col_idx = _col_idxs[i];
+//             // col idx is out of range, fill with null.
+//             if (col_idx >= fields_size) {
+//                 const Slice& value = _s_null_slice;
+//                 // For load task, we always read "string" from file, so use "write_string_column"
+//                 _text_converter->write_string_column(src_slot_desc, &columns[i], value.data,
+//                                                      value.size);
+//             } else {
+//                 const Slice& value =
+//                         _is_proto_format ? _split_values[col_idx] : Slice(row[col_idx].get());
+//                 // For load task, we always read "string" from file, so use "write_string_column"
+//                 _text_converter->write_string_column(src_slot_desc, &columns[i], value.data,
+//                                                      value.size);
+//             }
+//         }
+//     } else {
+//         // if fields_size > _file_slot_descs.size()
+//         // we only take the first few columns
+//         for (int i = 0; i < _file_slot_descs.size(); ++i) {
+//             auto src_slot_desc = _file_slot_descs[i];
+//             int col_idx = _col_idxs[i];
+//             // col idx is out of range, fill with null.
+//             IColumn* col_ptr = const_cast<IColumn*>(
+//                     block->get_by_position(_file_slot_idx_map[i]).column.get());
+//             if (col_idx >= fields_size) {
+//                 const Slice& value = _s_null_slice;
+//                 // For query task, we will convert values to final column type, so use "write_vec_column"
+//                 _text_converter->write_vec_column(src_slot_desc, col_ptr, value.data, value.size,
+//                                                   true, false);
+//             } else {
+//                 const Slice& value = _is_proto_format ? _split_values[col_idx]
+//                                                       : Slice(row[col_idx].get<std::string>());
+//                 // For query task, we will convert values to final column type, so use "write_vec_column"
+//                 _text_converter->write_vec_column(src_slot_desc, col_ptr, value.data, value.size,
+//                                                   true, false);
+//             }
+//         }
+//     }
+//     ++(*rows);
+
+//     return Status::OK();
+// }
 
 Status CsvReader::_fill_dest_columns(const Slice& line, Block* block,
                                      std::vector<MutableColumnPtr>& columns, size_t* rows) {

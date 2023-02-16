@@ -21,6 +21,7 @@
 #include "exec/decompressor.h"
 #include "io/fs/file_reader.h"
 #include "olap/iterators.h"
+#include "vec/exec/format/csv/csv_reader.h"
 
 // INPUT_CHUNK must
 //  larger than 15B for correct lz4 file decompressing
@@ -251,6 +252,81 @@ void NewPlainTextLineReader::extend_output_buf() {
         _output_buf_limit -= _output_buf_pos;
         _output_buf_pos = 0;
     } while (false);
+}
+
+Status NewPlainTextLineReader::next_row(vectorized::CsvReader::CsvRow* row, bool* eof) {
+    if (_rows.empty()) {
+        RETURN_IF_ERROR(_read_more_rows());
+    }
+    if (UNLIKELY(_rows.empty())) {
+        *eof = true;
+        return Status::OK();
+    }
+    const vectorized::CsvReader::CsvRow new_row = _rows.front();
+    _rows.pop();
+    row->start_ptr = new_row.start_ptr;
+    row->len = new_row.len;
+    row->cols = new_row.cols;
+    return Status::OK();
+}
+
+Status NewPlainTextLineReader::_read_more_rows() {
+    if (_eof || update_eof()) {
+        return Status::OK();
+    }
+
+    size_t offset = output_buf_read_remaining();
+    extend_output_buf();
+    if (!_read_more_data()) {
+        // end of file
+        // check if there any data in buff
+
+        // if (!_tmp_columns.empty()) {
+        //     _tmp_columns.emplace_back(_field_start, offset - _line_cur_pos - _field_start -
+        //                                                     _value_delimiter_length + 1);
+        //     vectorized::CsvReader::CsvRow row(line_start() + _line_cur_pos,
+        //                                       offset - _line_cur_pos - _line_delimiter_length + 1);
+        //     row.cols = std::move(_tmp_columns);
+        //     _rows.push(std::move(row));
+        // }
+        return Status::OK();
+    }
+    uint8_t* pos = _parse_rows(output_buf_read_remaining() - offset, offset);
+    _output_buf_pos += pos - _output_buf;
+
+    return Status::OK();
+}
+
+uint8_t* NewPlainTextLineReader::_parse_rows(size_t len, size_t offset) {
+    assert(start);
+    size_t line_start = 0;
+    const uint8_t* start = _output_buf + offset;
+    for (size_t cur = 0; cur < len; ++cur) {
+        // TODO(ftw): Can not handle the case:
+        // value delimiter: ABAC
+        // source line: 1ABACdorisABABAC18
+
+        if (*(start + cur) == _line_delimiter[0]) {
+            // trim_space_and_quote();
+            _tmp_columns.emplace_back(
+                    _field_start, offset - line_start - _field_start - _value_delimiter_length + 1);
+            vectorized::CsvReader::CsvRow row(_output_buf + line_start,
+                                              offset - line_start - _line_delimiter_length + 1);
+            row.cols = std::move(_tmp_columns);
+            _rows.push(std::move(row));
+            _tmp_columns.clear();
+            line_start = offset + 1;
+            _field_start = 0;
+        } else if (*(start + cur) == _value_delimiter[0]) {
+            // trim_space_and_quote();
+            _tmp_columns.emplace_back(
+                    _field_start, offset - line_start - _field_start - _value_delimiter_length + 1);
+            // _value_delimiter_cur_pos = 0;
+            _field_start = offset - line_start + 1;
+        }
+        ++offset;
+    }
+    return _output_buf + line_start;
 }
 
 Status NewPlainTextLineReader::read_fields(const uint8_t** ptr, size_t* size, bool* eof,

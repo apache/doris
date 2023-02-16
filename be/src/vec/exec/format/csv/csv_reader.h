@@ -55,11 +55,32 @@ public:
     Status get_parsed_schema(std::vector<std::string>* col_names,
                              std::vector<TypeDescriptor>* col_types) override;
 
+    struct CsvColumn {
+        size_t start_pos;
+        size_t len;
+        CsvColumn(size_t start_pos_, size_t len_) : start_pos(start_pos_), len(len_) {}
+    };
+
+    struct CsvRow {
+        const uint8_t* start_ptr;
+        size_t len = 0;
+        std::vector<CsvColumn> cols;
+        CsvRow() = default;
+        CsvRow(const uint8_t* start_ptr_, size_t len_) : start_ptr(start_ptr_), len(len_) {}
+    };
+
 private:
     // used for stream/broker load of csv file.
     Status _create_decompressor();
     Status _fill_dest_columns(const Slice& line, Block* block,
                               std::vector<MutableColumnPtr>& columns, size_t* rows);
+
+    // used for csv parser
+    // Status _fill_dest_columns2(const csv::CSVRow& row, Block* block,
+    //                            std::vector<MutableColumnPtr>& columns, size_t* rows);
+
+    Status _fill_dest_columns3(const CsvRow& row, Block* block,
+                               std::vector<MutableColumnPtr>& columns, size_t* rows);
     void _split_line(const Slice& line);
     Status _check_array_format(std::vector<Slice>& split_values, bool* is_success);
     bool _is_null(const Slice& slice);
@@ -127,6 +148,10 @@ private:
     // we can use (line_start() + _field_start) to find the
     // correct start of a field
     std::vector<std::pair<int, int>> _fields_pos;
+
+    // std::unique_ptr<csv::CSVReader> _csv_reader;
+    csv::CSVReader::iterator _csv_row_iterator;
+    std::vector<CsvColumn> _one_row_cols;
 };
 } // namespace vectorized
 } // namespace doris

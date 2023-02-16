@@ -19,6 +19,7 @@
 
 #include "common/status.h"
 #include "util/slice.h"
+#include "vec/exec/format/csv/csv_reader.h"
 
 namespace doris {
 
@@ -30,6 +31,10 @@ public:
 
     virtual Status read_fields(const uint8_t** ptr, size_t* size, bool* eof,
                                std::vector<std::pair<int, int>>* fields) {
+        return Status::NotSupported("Not supported to read fields");
+    }
+
+    virtual Status next_row(vectorized::CsvReader::CsvRow* row, bool* eof) {
         return Status::NotSupported("Not supported to read fields");
     }
 
