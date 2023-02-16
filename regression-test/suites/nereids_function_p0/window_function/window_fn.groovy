@@ -22,20 +22,20 @@ suite("nereids_window_fn") {
     qt_sql_dense_rank "select ktint, ksint, dense_rank() over(partition by ktint order by ksint) as rank from fn_test"
     qt_sql_dense_rank_notnull "select ktint, ksint, dense_rank() over(partition by ktint order by ksint) as rank from fn_test_not_nullable"
 
-    qt_sql_first_value "select ktint, ksint, first_value() over(partition by ktint order by ksint) as fv from fn_test"
-    qt_sql_first_value_notnull "select ktint, ksint, first_value() over(partition by ktint order by ksint) as fv from fn_test_not_nullable"
+    qt_sql_first_value "select ktint, ksint, first_value(kint) over(partition by ktint order by ksint) as fv from fn_test"
+    qt_sql_first_value_notnull "select ktint, ksint, first_value(kint) over(partition by ktint order by ksint) as fv from fn_test_not_nullable"
 
-    qt_sql_lag "select ktint, ksint, lag() over(partition by ktint order by ksint) as lag from fn_test"
-    qt_sql_lag_notnull "select ktint, ksint, lag() over(partition by ktint order by ksint) as lag from fn_test_not_nullable"
+    qt_sql_lag "select ktint, ksint, lag(kint, 2, 1) over(partition by ktint order by ksint) as lag from fn_test"
+    qt_sql_lag_notnull "select ktint, ksint, lag(kint, 2, 1) over(partition by ktint order by ksint) as lag from fn_test_not_nullable"
 
-    qt_sql_last_value "select ktint, ksint, last_value() over(partition by ktint order by ksint) as lv from fn_test"
-    qt_sql_last_value_notnull "select ktint, ksint, last_value() over(partition by ktint order by ksint) as lv from fn_test_not_nullable"
+    qt_sql_last_value "select ktint, ksint, last_value(kint) over(partition by ktint order by ksint) as lv from fn_test"
+    qt_sql_last_value_notnull "select ktint, ksint, last_value(kint) over(partition by ktint order by ksint) as lv from fn_test_not_nullable"
 
-    qt_sql_lead "select ktint, ksint, lead() over(partition by ktint order by ksint) as ld from fn_test"
-    qt_sql_lead_notnull "select ktint, ksint, lead() over(partition by ktint order by ksint) as ld from fn_test_not_nullable"
+    qt_sql_lead "select ktint, ksint, lead(kint, 2, 1) over(partition by ktint order by ksint) as ld from fn_test"
+    qt_sql_lead_notnull "select ktint, ksint, lead(kint, 2, 1) over(partition by ktint order by ksint) as ld from fn_test_not_nullable"
 
-    qt_sql_ntile "select ktint, ksint, ntile() over(partition by ktint order by ksint) as nt from fn_test"
-    qt_sql_ntile_notnull "select ktint, ksint, ntile() over(partition by ktint order by ksint) as nt from fn_test_not_nullable"
+    qt_sql_ntile "select ktint, ksint, ntile(3) over(partition by ktint order by ksint) as nt from fn_test"
+    qt_sql_ntile_notnull "select ktint, ksint, ntile(3) over(partition by ktint order by ksint) as nt from fn_test_not_nullable"
 
     qt_sql_rank "select ktint, ksint, rank() over(partition by ktint order by ksint) as rank from fn_test"
     qt_sql_rank_notnull "select ktint, ksint, rank() over(partition by ktint order by ksint) as rank from fn_test_not_nullable"
