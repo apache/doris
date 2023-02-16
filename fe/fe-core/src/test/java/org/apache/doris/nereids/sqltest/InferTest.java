@@ -19,7 +19,6 @@ package org.apache.doris.nereids.sqltest;
 
 import org.apache.doris.nereids.util.PlanChecker;
 
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
 public class InferTest extends SqlTestBase {
@@ -75,14 +74,20 @@ public class InferTest extends SqlTestBase {
     }
 
     @Test
-    @Disabled
     void testInferNotNullFromJoinAndEliminateOuter() {
+        // Is Not Null will infer from semi join, so right outer join can be eliminated.
         String sql
-                = "select * from (select T1.id from T1 left outer join T2 on T1.id = T2.id) T1 left semi join T3 on T1.id = T3.id";
+                = "select * from (select T1.id from T1 right outer join T2 on T1.id = T2.id) T1 left semi join T3 on T1.id = T3.id";
         PlanChecker.from(connectContext)
                 .analyze(sql)
-                .printlnTree()
                 .rewrite()
-                .printlnTree();
+                .matches(
+                        leftSemiLogicalJoin(
+                                logicalProject(
+                                        innerLogicalJoin()
+                                ),
+                                logicalProject()
+                        )
+                );
     }
 }
