@@ -132,8 +132,7 @@ public:
 
     std::string to_http_path(const std::string& file_name);
 
-    void coordinator_callback(
-            const ReportStatusRequest& req);
+    void coordinator_callback(const ReportStatusRequest& req);
 
 private:
     void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, const FinishCallback& cb);
