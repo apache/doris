@@ -210,7 +210,8 @@
                         "lakehouse/external-table/hive"
                     ]
                 },
-                "lakehouse/file"
+                "lakehouse/file",
+                "lakehouse/filecache"
             ]
         },
         {
