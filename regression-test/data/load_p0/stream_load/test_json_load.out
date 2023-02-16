@@ -102,7 +102,11 @@
 200	changsha	3456789
 
 -- !select10 --
+\N	\N	\N
 200	changsha	3456789
+19210	\N	\N
+12811110	\N	\N
+171171710	\N	\N
 
 -- !select11 --
 1	beijing	2345671
@@ -162,5 +166,12 @@
 4	shangcheng	2345674
 5	tonglu	2345675
 6	fuyang	2345676
+7	fuyang	2345676
+200	changsha	3456789
+
+-- !select17 --
+
+-- !select18 --
+1	xihu	2345671
 200	changsha	3456789
 

@@ -19,9 +19,11 @@
 
 #include <fmt/core.h>
 #include <rapidjson/document.h>
+#include <simdjson.h>
 
 #include <sstream>
 
+#include "common/status.h"
 #include "udf/udf.h"
 
 namespace doris {
@@ -63,26 +65,6 @@ struct JsonPath {
         return ss.str();
     }
 
-    std::string to_simdjson_pointer(bool* valid) const {
-        std::stringstream ss;
-        if (!is_valid) {
-            *valid = false;
-            return "";
-        }
-        ss << "/";
-        if (!key.empty()) {
-            ss << key;
-        }
-        if (idx == -2) {
-            // not support [*]
-            *valid = false;
-            return "";
-        } else if (idx > -1) {
-            ss << "/" << idx;
-        }
-        return ss.str();
-    }
-
     std::string debug_string() const {
         return fmt::format("key:{}, idx:{}, valid:{}", key, idx, is_valid);
     }
@@ -113,6 +95,11 @@ public:
 
     static void parse_json_paths(const std::string& path_strings,
                                  std::vector<JsonPath>* parsed_paths);
+    // extract_from_object extracts value from object according to the json path.
+    // Now, we do not support complete functions of json path.
+    static Status extract_from_object(simdjson::ondemand::object& obj,
+                                      const std::vector<JsonPath>& jsonpath,
+                                      simdjson::ondemand::value* value) noexcept;
 
 private:
     static rapidjson::Value* match_value(const std::vector<JsonPath>& parsed_paths,
