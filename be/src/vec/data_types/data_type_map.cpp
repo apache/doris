@@ -20,6 +20,7 @@
 #include "gen_cpp/data.pb.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_map.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/common/assert_cast.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_nullable.h"
@@ -27,16 +28,8 @@
 namespace doris::vectorized {
 
 DataTypeMap::DataTypeMap(const DataTypePtr& keys_, const DataTypePtr& values_) {
-    if (!keys_->is_nullable()) {
-        key_type = make_nullable(keys_);
-    } else {
-        key_type = keys_;
-    }
-    if (!values_->is_nullable()) {
-        value_type = make_nullable(values_);
-    } else {
-        value_type = values_;
-    }
+    key_type = make_nullable(keys_);
+    value_type = make_nullable(values_);
 
     keys = std::make_shared<DataTypeArray>(key_type);
     values = std::make_shared<DataTypeArray>(value_type);
@@ -87,9 +80,9 @@ void DataTypeMap::to_string(const class doris::vectorized::IColumn& column, size
     ostr.write(ss.c_str(), strlen(ss.c_str()));
 }
 
-bool next_slot_from_string(ReadBuffer& rb, StringRef& output) {
+bool next_slot_from_string(ReadBuffer& rb, StringRef& output, bool& has_quota) {
     StringRef element(rb.position(), 0);
-    bool has_quota = false;
+    has_quota = false;
     if (rb.eof()) {
         return false;
     }
@@ -149,6 +142,23 @@ bool next_slot_from_string(ReadBuffer& rb, StringRef& output) {
     return true;
 }
 
+bool is_empty_null_element(StringRef element, IColumn* nested_column, bool has_quota) {
+    auto& nested_null_col = reinterpret_cast<ColumnNullable&>(*nested_column);
+    // handle empty element
+    if (element.size == 0) {
+        nested_null_col.get_nested_column().insert_default();
+        nested_null_col.get_null_map_data().push_back(0);
+        return true;
+    }
+
+    // handle null element
+    if (!has_quota && element.size == 4 && strncmp(element.data, "null", 4) == 0) {
+        nested_null_col.get_nested_column().insert_default();
+        nested_null_col.get_null_map_data().push_back(1);
+        return true;
+    }
+    return false;
+}
 Status DataTypeMap::from_string(ReadBuffer& rb, IColumn* column) const {
     DCHECK(!rb.eof());
     auto* map_column = assert_cast<ColumnMap*>(column);
@@ -182,26 +192,32 @@ Status DataTypeMap::from_string(ReadBuffer& rb, IColumn* column) const {
         size_t element_num = 0;
         while (!rb.eof()) {
             StringRef key_element(rb.position(), rb.count());
-            if (!next_slot_from_string(rb, key_element)) {
+            bool has_quota = false;
+            if (!next_slot_from_string(rb, key_element, has_quota)) {
                 return Status::InvalidArgument("Cannot read map key from text '{}'",
                                                key_element.to_string());
             }
+            if (!is_empty_null_element(key_element, &nested_key_column, has_quota)) {
+                ReadBuffer krb(const_cast<char*>(key_element.data), key_element.size);
+                if (auto st = key_type->from_string(krb, &nested_key_column); !st.ok()) {
+                    map_column->pop_back(element_num);
+                    return st;
+                }
+            }
+
+            has_quota = false;
             StringRef value_element(rb.position(), rb.count());
-            if (!next_slot_from_string(rb, value_element)) {
+            if (!next_slot_from_string(rb, value_element, has_quota)) {
                 return Status::InvalidArgument("Cannot read map value from text '{}'",
                                                value_element.to_string());
             }
-            ReadBuffer krb(const_cast<char*>(key_element.data), key_element.size);
-            ReadBuffer vrb(const_cast<char*>(value_element.data), value_element.size);
-            if (auto st = key_type->from_string(krb, &nested_key_column); !st.ok()) {
-                map_column->pop_back(element_num);
-                return st;
+            if (!is_empty_null_element(value_element, &nested_val_column, has_quota)) {
+                ReadBuffer vrb(const_cast<char*>(value_element.data), value_element.size);
+                if (auto st = value_type->from_string(vrb, &nested_val_column); !st.ok()) {
+                    map_column->pop_back(element_num);
+                    return st;
+                }
             }
-            if (auto st = value_type->from_string(vrb, &nested_val_column); !st.ok()) {
-                map_column->pop_back(element_num);
-                return st;
-            }
-
             ++element_num;
         }
         key_off.push_back(key_off.back() + element_num);
