@@ -64,6 +64,7 @@ public class VariableMgrTest {
         long originExecMemLimit = var.getMaxExecMemByte();
         boolean originEnableProfile = var.enableProfile();
         long originQueryTimeOut = var.getQueryTimeoutS();
+        final int originInsertTimeout = var.getInsertTimeoutS();
 
         List<List<String>> rows = VariableMgr.dump(SetType.SESSION, var, null);
         Assert.assertTrue(rows.size() > 5);
@@ -76,6 +77,8 @@ public class VariableMgrTest {
                 Assert.assertEquals(String.valueOf(originQueryTimeOut), row.get(1));
             } else if (row.get(0).equalsIgnoreCase("sql_mode")) {
                 Assert.assertEquals("", row.get(1));
+            } else if (row.get(0).equalsIgnoreCase("insert_timeout")) {
+                Assert.assertEquals(String.valueOf(originInsertTimeout), row.get(1));
             }
         }
 

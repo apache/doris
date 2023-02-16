@@ -99,6 +99,9 @@ visible_functions = [
     [['element_at', '%element_extract%'], 'VARCHAR', ['ARRAY_VARCHAR', 'BIGINT'], 'ALWAYS_NULLABLE'],
     [['element_at', '%element_extract%'], 'STRING', ['ARRAY_STRING', 'BIGINT'], 'ALWAYS_NULLABLE'],
 
+    # map element
+    [['element_at', '%element_extract%'], 'INT', ['MAP_STRING_INT', 'STRING'], 'ALWAYS_NULLABLE'],
+
     [['arrays_overlap'], 'BOOLEAN', ['ARRAY_BOOLEAN', 'ARRAY_BOOLEAN'], 'ALWAYS_NULLABLE'],
     [['arrays_overlap'], 'BOOLEAN', ['ARRAY_TINYINT', 'ARRAY_TINYINT'], 'ALWAYS_NULLABLE'],
     [['arrays_overlap'], 'BOOLEAN', ['ARRAY_SMALLINT', 'ARRAY_SMALLINT'], 'ALWAYS_NULLABLE'],
@@ -1056,7 +1059,10 @@ visible_functions = [
     [['least'], 'LARGEINT', ['LARGEINT', '...'], ''],
     [['least'], 'FLOAT', ['FLOAT', '...'], ''],
     [['least'], 'DOUBLE', ['DOUBLE', '...'], ''],
+    [['least'], 'DATE', ['DATE', '...'], ''],
+    [['least'], 'DATEV2', ['DATEV2', '...'], ''],
     [['least'], 'DATETIME', ['DATETIME', '...'], ''],
+    [['least'], 'DATETIMEV2', ['DATETIMEV2', '...'], ''],
     [['least'], 'DECIMALV2', ['DECIMALV2', '...'], ''],
     [['least'], 'DECIMAL32', ['DECIMAL32', '...'], ''],
     [['least'], 'DECIMAL64', ['DECIMAL64', '...'], ''],
@@ -1075,6 +1081,8 @@ visible_functions = [
     [['greatest'], 'DECIMAL32', ['DECIMAL32', '...'], ''],
     [['greatest'], 'DECIMAL64', ['DECIMAL64', '...'], ''],
     [['greatest'], 'DECIMAL128', ['DECIMAL128', '...'], ''],
+    [['greatest'], 'DATE', ['DATE', '...'], ''],
+    [['greatest'], 'DATEV2', ['DATEV2', '...'], ''],
     [['greatest'], 'DATETIME', ['DATETIME', '...'], ''],
     [['greatest'], 'DATETIMEV2', ['DATETIMEV2', '...'], ''],
     [['greatest'], 'VARCHAR', ['VARCHAR', '...'], ''],

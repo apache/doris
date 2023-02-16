@@ -28,8 +28,8 @@ import org.apache.doris.common.ExceptionChecker;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.datasource.InternalCatalog;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
-import org.apache.doris.mysql.privilege.PaloAuth;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.Lists;
@@ -43,6 +43,7 @@ import org.junit.rules.ExpectedException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -65,7 +66,7 @@ public class CreateTableStmtTest {
     private Analyzer analyzer;
 
     @Mocked
-    private PaloAuth auth;
+    private AccessControllerManager accessManager;
     @Mocked
     private ConnectContext ctx;
 
@@ -98,7 +99,7 @@ public class CreateTableStmtTest {
         invalidColsName.add("col2");
         invalidColsName.add("col2");
 
-        MockedAuth.mockedAuth(auth);
+        MockedAuth.mockedAccess(accessManager);
         MockedAuth.mockedConnectContext(ctx, "root", "192.168.1.1");
     }
 
@@ -238,6 +239,15 @@ public class CreateTableStmtTest {
         // make default db return empty;
         CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, invalidCols, "olap",
                 new KeysDesc(KeysType.AGG_KEYS, invalidColsName), null, new RandomDistributionDesc(10), null, null, "");
+        stmt.analyze(analyzer);
+    }
+
+    @Test(expected = AnalysisException.class)
+    public void testTypeAll() throws UserException {
+        final ArrayList<ColumnDef> colAllList = Lists.newArrayList();
+        colAllList.add(new ColumnDef("colAll", new TypeDef(ScalarType.createType(PrimitiveType.ALL))));
+        CreateTableStmt stmt = new CreateTableStmt(false, false, tblNameNoDb, colAllList, "olap", new KeysDesc(), null,
+                new RandomDistributionDesc(10), null, null, "");
         stmt.analyze(analyzer);
     }
 

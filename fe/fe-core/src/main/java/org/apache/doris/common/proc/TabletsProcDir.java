@@ -26,6 +26,7 @@ import org.apache.doris.catalog.TabletInvertedIndex;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.util.ListComparator;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.system.Backend;
 
@@ -122,20 +123,16 @@ public class TabletsProcDir implements ProcDirInterface {
                         tabletInfo.add(tablet.getCheckedVersion());
                         tabletInfo.add(replica.getVersionCount());
                         tabletInfo.add(replica.getPathHash());
-
                         Backend be = backendMap.get(replica.getBackendId());
                         String host = (be == null ? Backend.DUMMY_IP : be.getHost());
                         int port = (be == null ? 0 : be.getHttpPort());
-                        String metaUrl = String.format("http://%s:%d/api/meta/header/%d",
-                                host,
-                                port,
+                        String hostPort = NetUtils.getHostPortInAccessibleFormat(host, port);
+                        String metaUrl = String.format("http://" + hostPort + "/api/meta/header/%d",
                                 tabletId,
                                 replica.getSchemaHash());
                         tabletInfo.add(metaUrl);
                         String compactionUrl = String.format(
-                                "http://%s:%d/api/compaction/show?tablet_id=%d",
-                                host,
-                                port,
+                                "http://" + hostPort + "/api/compaction/show?tablet_id=%d",
                                 tabletId,
                                 replica.getSchemaHash());
                         tabletInfo.add(compactionUrl);

@@ -57,6 +57,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String EXEC_MEM_LIMIT = "exec_mem_limit";
     public static final String QUERY_TIMEOUT = "query_timeout";
+    public static final String INSERT_TIMEOUT = "insert_timeout";
     public static final String ENABLE_PROFILE = "enable_profile";
     public static final String SQL_MODE = "sql_mode";
     public static final String RESOURCE_VARIABLE = "resource_group";
@@ -169,6 +170,7 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_VECTORIZED_ENGINE = "enable_vectorized_engine";
 
     public static final String ENABLE_PIPELINE_ENGINE = "enable_pipeline_engine";
+    public static final String ENABLE_RPC_OPT_FOR_PIPELINE = "enable_rpc_opt_for_pipeline";
 
     public static final String ENABLE_SINGLE_DISTINCT_COLUMN_OPT = "enable_single_distinct_column_opt";
 
@@ -259,10 +261,12 @@ public class SessionVariable implements Serializable, Writable {
     public static final String EXTERNAL_SORT_BYTES_THRESHOLD = "external_sort_bytes_threshold";
 
     public static final String ENABLE_TWO_PHASE_READ_OPT = "enable_two_phase_read_opt";
-    public static final String TWO_PHASE_READ_OPT_LIMIT_THRESHOLD = "two_phase_read_opt_limit_threshold";
+    public static final String TOPN_OPT_LIMIT_THRESHOLD = "topn_opt_limit_threshold";
+
     public static final String ENABLE_FILE_CACHE = "enable_file_cache";
 
     public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
+    public static final String DROP_TABLE_IF_CTAS_FAILED = "drop_table_if_ctas_failed";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -291,6 +295,9 @@ public class SessionVariable implements Serializable, Writable {
     // query timeout in second.
     @VariableMgr.VarAttr(name = QUERY_TIMEOUT)
     public int queryTimeoutS = 300;
+
+    @VariableMgr.VarAttr(name = INSERT_TIMEOUT)
+    public int insertTimeoutS = 14400;
 
     // if true, need report to coordinator when plan fragment execute successfully.
     @VariableMgr.VarAttr(name = ENABLE_PROFILE, needForward = true)
@@ -483,6 +490,9 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_PIPELINE_ENGINE, fuzzy = true)
     public boolean enablePipelineEngine = false;
 
+    @VariableMgr.VarAttr(name = ENABLE_RPC_OPT_FOR_PIPELINE)
+    public boolean enableRpcOptForPipeline = true;
+
     @VariableMgr.VarAttr(name = ENABLE_PARALLEL_OUTFILE)
     public boolean enableParallelOutfile = false;
 
@@ -553,7 +563,7 @@ public class SessionVariable implements Serializable, Writable {
     private boolean checkOverflowForDecimal = false;
 
     @VariableMgr.VarAttr(name = ENABLE_DPHYP_OPTIMIZER)
-    private boolean enableDPHypOptimizer = true;
+    private boolean enableDPHypOptimizer = false;
     /**
      * as the new optimizer is not mature yet, use this var
      * to control whether to use new optimizer, remove it when
@@ -681,8 +691,8 @@ public class SessionVariable implements Serializable, Writable {
     // 2. spawn fetch RPC to other nodes to get related data by sorted rowids
     @VariableMgr.VarAttr(name = ENABLE_TWO_PHASE_READ_OPT, fuzzy = true)
     public boolean enableTwoPhaseReadOpt = true;
-    @VariableMgr.VarAttr(name = TWO_PHASE_READ_OPT_LIMIT_THRESHOLD)
-    public long twoPhaseReadLimitThreshold = 512;
+    @VariableMgr.VarAttr(name = TOPN_OPT_LIMIT_THRESHOLD)
+    public long topnOptLimitThreshold = 1024;
 
     // Default value is false, which means the group by and having clause
     // should first use column name not alias. According to mysql.
@@ -692,6 +702,10 @@ public class SessionVariable implements Serializable, Writable {
     // Whether enable block file cache. Only take effect when BE config item enable_file_cache is true.
     @VariableMgr.VarAttr(name = ENABLE_FILE_CACHE, needForward = true)
     public boolean enableFileCache = true;
+
+    // Whether drop table when create table as select insert data appear error.
+    @VariableMgr.VarAttr(name = DROP_TABLE_IF_CTAS_FAILED, needForward = true)
+    public boolean dropTableIfCtasFailed = true;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -727,14 +741,17 @@ public class SessionVariable implements Serializable, Writable {
         }
         // pull_request_id default value is 0
         if (Config.pull_request_id % 2 == 1) {
-            // this.enablePipelineEngine = true;
+            this.enablePipelineEngine = true;
             // this.enableFoldConstantByBe = true;
             // this.enableTwoPhaseReadOpt = false;
         } else {
-            // this.enablePipelineEngine = false;
+            this.enablePipelineEngine = false;
             // this.enableFoldConstantByBe = false;
             // this.enableTwoPhaseReadOpt = true;
         }
+
+        // set random 1, 10, 100, 1000, 10000
+        this.topnOptLimitThreshold = 10 ^ (random.nextInt(5));
     }
 
     public String printFuzzyVariables() {
@@ -814,6 +831,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getQueryTimeoutS() {
         return queryTimeoutS;
+    }
+
+    public int getInsertTimeoutS() {
+        return insertTimeoutS;
+    }
+
+    public void setInsertTimeoutS(int insertTimeoutS) {
+        this.insertTimeoutS = insertTimeoutS;
     }
 
     public boolean enableProfile() {
@@ -1217,6 +1242,10 @@ public class SessionVariable implements Serializable, Writable {
         return enablePipelineEngine;
     }
 
+    public boolean enableRpcOptForPipeline() {
+        return enableRpcOptForPipeline;
+    }
+
     public void setEnablePipelineEngine(boolean enablePipelineEngine) {
         this.enablePipelineEngine = enablePipelineEngine;
     }
@@ -1420,6 +1449,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setFragmentTransmissionCompressionCodec(String codec) {
         this.fragmentTransmissionCompressionCodec = codec;
+    }
+
+    public boolean isDropTableIfCtasFailed() {
+        return dropTableIfCtasFailed;
     }
 
     public void checkExternalSortBytesThreshold(String externalSortBytesThreshold) {
@@ -1669,6 +1702,9 @@ public class SessionVariable implements Serializable, Writable {
         }
         if (queryOptions.isSetQueryTimeout()) {
             setQueryTimeoutS(queryOptions.getQueryTimeout());
+        }
+        if (queryOptions.isSetInsertTimeout()) {
+            setInsertTimeoutS(queryOptions.getInsertTimeout());
         }
     }
 

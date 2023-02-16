@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
@@ -36,6 +37,7 @@ import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * normalize aggregate's group keys and AggregateFunction's child to SlotReference
@@ -78,10 +80,16 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
             // replace groupBy and arguments of aggregate function to slot, may be this output contains
             // some expression on the aggregate functions, e.g. `sum(value) + 1`, we should replace
             // the sum(value) to slot and move the `slot + 1` to the upper project later.
-            List<NamedExpression> normalizeOutputPhase1 = groupByAndArgumentToSlotContext
-                    .normalizeToUseSlotRef(aggregate.getOutputExpressions());
+            List<NamedExpression> normalizeOutputPhase1 = aggregate.getOutputExpressions().stream()
+                    .map(expr -> {
+                        if (expr.anyMatch(WindowExpression.class::isInstance)) {
+                            return expr;
+                        }
+                        return groupByAndArgumentToSlotContext.normalizeToUseSlotRef(expr);
+                    }).collect(Collectors.toList());
+
             Set<AggregateFunction> normalizedAggregateFunctions =
-                    ExpressionUtils.collect(normalizeOutputPhase1, AggregateFunction.class::isInstance);
+                    collectNonWindowedAggregateFunctions(normalizeOutputPhase1);
 
             existsAliases = ExpressionUtils.collect(normalizeOutputPhase1, Alias.class::isInstance);
 
@@ -107,9 +115,14 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
             LogicalAggregate<Plan> normalizedAggregate = aggregate.withNormalized(
                     (List) normalizedGroupBy, normalizedAggregateOutput, normalizedChild);
 
-            // replace aggregate function to slot
-            List<NamedExpression> upperProjects =
-                    aggregateFunctionToSlotContext.normalizeToUseSlotRef(normalizeOutputPhase1);
+            // exclude same-name functions in WindowExpression
+            List<NamedExpression> upperProjects = normalizeOutputPhase1.stream()
+                    .map(expr -> {
+                        if (expr.anyMatch(WindowExpression.class::isInstance)) {
+                            return expr;
+                        }
+                        return aggregateFunctionToSlotContext.normalizeToUseSlotRef(expr);
+                    }).collect(Collectors.toList());
             return new LogicalProject<>(upperProjects, normalizedAggregate);
         }).toRule(RuleType.NORMALIZE_AGGREGATE);
     }
@@ -120,8 +133,8 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
 
         Set<Expression> groupingByExpr = ImmutableSet.copyOf(aggregate.getGroupByExpressions());
 
-        Set<AggregateFunction> aggregateFunctions = ExpressionUtils.collect(
-                aggregate.getOutputExpressions(), AggregateFunction.class::isInstance);
+        Set<AggregateFunction> aggregateFunctions = collectNonWindowedAggregateFunctions(
+                aggregate.getOutputExpressions());
 
         ImmutableSet<Expression> argumentsOfAggregateFunction = aggregateFunctions.stream()
                 .flatMap(function -> function.getArguments().stream().map(arg -> {
@@ -141,5 +154,13 @@ public class NormalizeAggregate extends OneRewriteRuleFactory implements Normali
                 .addAll(argumentsOfAggregateFunction)
                 .build();
         return needPushDown;
+    }
+
+    private Set<AggregateFunction> collectNonWindowedAggregateFunctions(List<NamedExpression> aggOutput) {
+        List<Expression> expressionsWithoutWindow = aggOutput.stream()
+                .filter(expr -> !expr.anyMatch(WindowExpression.class::isInstance))
+                .collect(Collectors.toList());
+
+        return ExpressionUtils.collect(expressionsWithoutWindow, AggregateFunction.class::isInstance);
     }
 }

@@ -32,6 +32,9 @@ class FileWriter;
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
+namespace vectorized::schema_util {
+class LocalSchemaChangeRecorder;
+}
 
 class BetaRowsetWriter : public RowsetWriter {
 public:
@@ -80,6 +83,11 @@ public:
 
     int32_t get_atomic_num_segment() const override { return _num_segment.load(); }
 
+    // Maybe modified by local schema change
+    vectorized::schema_util::LocalSchemaChangeRecorder* mutable_schema_change_recorder() {
+        return _context.schema_change_recorder.get();
+    }
+
 private:
     Status _add_block(const vectorized::Block* block,
                       std::unique_ptr<segment_v2::SegmentWriter>* writer);
@@ -87,8 +95,10 @@ private:
                                         std::unique_ptr<segment_v2::SegmentWriter>* writer);
 
     Status _do_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
-                                     bool is_segcompaction, int64_t begin, int64_t end);
-    Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer);
+                                     bool is_segcompaction, int64_t begin, int64_t end,
+                                     const vectorized::Block* block = nullptr);
+    Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
+                                  const vectorized::Block* block = nullptr);
     Status _create_segment_writer_for_segcompaction(
             std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t begin, uint64_t end);
 
@@ -97,10 +107,10 @@ private:
     void _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta);
     Status _segcompaction_if_necessary();
     Status _segcompaction_ramaining_if_necessary();
-    vectorized::VMergeIterator* _get_segcompaction_reader(SegCompactionCandidatesSharedPtr segments,
-                                                          std::shared_ptr<Schema> schema,
-                                                          OlapReaderStatistics* stat,
-                                                          uint64_t* merged_row_stat);
+    RowwiseIteratorUPtr _get_segcompaction_reader(SegCompactionCandidatesSharedPtr segments,
+                                                  std::shared_ptr<Schema> schema,
+                                                  OlapReaderStatistics* stat,
+                                                  uint64_t* merged_row_stat);
     std::unique_ptr<segment_v2::SegmentWriter> _create_segcompaction_writer(uint64_t begin,
                                                                             uint64_t end);
     Status _delete_original_segments(uint32_t begin, uint32_t end);

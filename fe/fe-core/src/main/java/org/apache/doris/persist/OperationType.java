@@ -77,6 +77,9 @@ public class OperationType {
     //schema change for add and drop columns
     public static final short OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS = 128;
 
+    //schema change for add and drop inverted indices
+    public static final short OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES = 220;
+
     // 30~39 130~139 230~239 ...
     // load job for only hadoop load
     public static final short OP_LOAD_START = 30;
@@ -264,8 +267,9 @@ public class OperationType {
     public static final short OP_REFRESH_EXTERNAL_PARTITIONS = 356;
 
     public static final short OP_ALTER_USER = 400;
-    // cooldown conf
+    // cooldown related
     public static final short OP_UPDATE_COOLDOWN_CONF = 401;
+    public static final short OP_COOLDOWN_DELETE = 402;
 
     /**
      * Get opcode name by op code.

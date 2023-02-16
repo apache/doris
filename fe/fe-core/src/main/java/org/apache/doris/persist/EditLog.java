@@ -43,6 +43,7 @@ import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.SmallFileMgr.SmallFile;
 import org.apache.doris.cooldown.CooldownConfHandler;
 import org.apache.doris.cooldown.CooldownConfList;
+import org.apache.doris.cooldown.CooldownDelete;
 import org.apache.doris.datasource.CatalogLog;
 import org.apache.doris.datasource.ExternalObjectLog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -725,6 +726,9 @@ public class EditLog {
                     CooldownConfList cooldownConfList = (CooldownConfList) journal.getData();
                     CooldownConfHandler.replayUpdateCooldownConf(cooldownConfList);
                     break;
+                case OperationType.OP_COOLDOWN_DELETE:
+                    // noop
+                    break;
                 case OperationType.OP_BATCH_ADD_ROLLUP: {
                     BatchAlterJobPersistInfo batchAlterJobV2 = (BatchAlterJobPersistInfo) journal.getData();
                     for (AlterJobV2 alterJobV2 : batchAlterJobV2.getAlterJobV2List()) {
@@ -868,6 +872,12 @@ public class EditLog {
                 case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS: {
                     final TableAddOrDropColumnsInfo info = (TableAddOrDropColumnsInfo) journal.getData();
                     env.getSchemaChangeHandler().replayModifyTableAddOrDropColumns(info);
+                    break;
+                }
+                case OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES: {
+                    final TableAddOrDropInvertedIndicesInfo info =
+                            (TableAddOrDropInvertedIndicesInfo) journal.getData();
+                    env.getSchemaChangeHandler().replaymodifyTableAddOrDropInvertedIndices(info);
                     break;
                 }
                 case OperationType.OP_CLEAN_LABEL: {
@@ -1520,6 +1530,10 @@ public class EditLog {
         logEdit(OperationType.OP_UPDATE_COOLDOWN_CONF, cooldownConf);
     }
 
+    public void logCooldownDelete(CooldownDelete cooldownDelete) {
+        logEdit(OperationType.OP_COOLDOWN_DELETE, cooldownDelete);
+    }
+
     public void logBatchAlterJob(BatchAlterJobPersistInfo batchAlterJobV2) {
         logEdit(OperationType.OP_BATCH_ADD_ROLLUP, batchAlterJobV2);
     }
@@ -1686,6 +1700,10 @@ public class EditLog {
 
     public void logModifyTableAddOrDropColumns(TableAddOrDropColumnsInfo info) {
         logEdit(OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS, info);
+    }
+
+    public void logModifyTableAddOrDropInvertedIndices(TableAddOrDropInvertedIndicesInfo info) {
+        logEdit(OperationType.OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES, info);
     }
 
     public void logCleanLabel(CleanLabelOperationLog log) {

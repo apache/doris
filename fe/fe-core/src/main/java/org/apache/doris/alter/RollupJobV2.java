@@ -249,7 +249,8 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                                 tbl.getCompressionType(),
                                 tbl.getEnableUniqueKeyMergeOnWrite(), tbl.getStoragePolicy(),
                                 tbl.disableAutoCompaction(),
-                                tbl.storeRowColumn());
+                                tbl.storeRowColumn(),
+                                tbl.isDynamicSchema());
                         createReplicaTask.setBaseTablet(tabletIdMap.get(rollupTabletId), baseSchemaHash);
                         if (this.storageFormat != null) {
                             createReplicaTask.setStorageFormat(this.storageFormat);
@@ -396,7 +397,6 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                     }
 
                     for (Column column : rollupColumns) {
-
                         SlotDescriptor destSlotDesc = descTable.addSlotDescriptor(destTupleDesc);
                         destSlotDesc.setIsMaterialized(true);
                         destSlotDesc.setColumn(column);
@@ -408,16 +408,20 @@ public class RollupJobV2 extends AlterJobV2 implements GsonPostProcessable {
                     for (Column column : rollupColumns) {
                         if (column.getDefineExpr() != null) {
                             defineExprs.put(column.getName(), column.getDefineExpr());
-
                             List<SlotRef> slots = new ArrayList<>();
                             column.getDefineExpr().collect(SlotRef.class, slots);
-                            Preconditions.checkArgument(slots.size() == 1);
-                            SlotDescriptor slotDesc = descMap.get(slots.get(0).getColumnName());
-                            if (slotDesc == null) {
-                                slotDesc = descMap.get(column.getName());
+
+                            for (SlotRef slot : slots) {
+                                SlotDescriptor slotDesc = descMap.get(slot.getColumnName());
+                                if (slotDesc == null) {
+                                    slotDesc = descMap.get(column.getName());
+                                }
+                                if (slotDesc == null) {
+                                    throw new AlterCancelException("slotDesc is null, slot=" + slot.getColumnName()
+                                            + ", column=" + column.getName());
+                                }
+                                slot.setDesc(slotDesc);
                             }
-                            Preconditions.checkArgument(slotDesc != null);
-                            slots.get(0).setDesc(slotDesc);
                         }
                     }
 

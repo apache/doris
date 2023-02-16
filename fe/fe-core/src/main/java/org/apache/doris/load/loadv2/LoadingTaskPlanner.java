@@ -27,6 +27,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.LoadException;
 import org.apache.doris.common.MetaNotFoundException;
@@ -98,7 +99,7 @@ public class LoadingTaskPlanner {
         this.sendBatchParallelism = sendBatchParallelism;
         this.useNewLoadScanNode = useNewLoadScanNode;
         this.userInfo = userInfo;
-        if (Env.getCurrentEnv().getAuth()
+        if (Env.getCurrentEnv().getAccessManager()
                 .checkDbPriv(userInfo, Env.getCurrentInternalCatalog().getDbNullable(dbId).getFullName(),
                         PrivPredicate.SELECT)) {
             this.analyzer.setUDFAllowed(true);
@@ -141,6 +142,22 @@ public class LoadingTaskPlanner {
                     }
                 }
             }
+        }
+
+        if (table.isDynamicSchema()) {
+            // Dynamic table for s3load ...
+            descTable.addReferencedTable(table);
+            // For reference table
+            scanTupleDesc.setTableId((int) table.getId());
+            // Add a implict container column "DORIS_DYNAMIC_COL" for dynamic columns
+            SlotDescriptor slotDesc = descTable.addSlotDescriptor(scanTupleDesc);
+            Column col = new Column(Column.DYNAMIC_COLUMN_NAME, Type.VARIANT, false, null, false, "",
+                                    "stream load auto dynamic column");
+            slotDesc.setIsMaterialized(true);
+            slotDesc.setColumn(col);
+            // alaways nullable
+            slotDesc.setIsNullable(true);
+            LOG.debug("plan scanTupleDesc{}", scanTupleDesc.toString());
         }
 
         // Generate plan trees

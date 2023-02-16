@@ -169,6 +169,10 @@ public:
     Status add_entity(const TExecPlanFragmentParams& params,
                       std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
                       RuntimeState* state);
+    Status add_entity(const TPipelineFragmentParams& params,
+                      const TPipelineInstanceParams& local_params,
+                      std::shared_ptr<RuntimeFilterMergeControllerEntity>* handle,
+                      RuntimeState* state);
     // thread safe
     // increase a reference count
     // if a query-id is not exist

@@ -207,7 +207,7 @@ public class InsertStmt extends DdlStmt {
         TableIf table = db.getTableOrAnalysisException(tblName.getTbl());
 
         // check access
-        if (!Env.getCurrentEnv().getAuth()
+        if (!Env.getCurrentEnv().getAccessManager()
                 .checkTblPriv(ConnectContext.get(), dbName, tableName, PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
@@ -276,7 +276,7 @@ public class InsertStmt extends DdlStmt {
         }
 
         // Check privilege
-        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), tblName.getDb(),
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tblName.getDb(),
                                                                 tblName.getTbl(), PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "LOAD",
                     ConnectContext.get().getQualifiedUser(),
@@ -304,7 +304,7 @@ public class InsertStmt extends DdlStmt {
 
         db = analyzer.getEnv().getCatalogMgr().getCatalog(tblName.getCtl()).getDbOrAnalysisException(tblName.getDb());
         // create label and begin transaction
-        long timeoutSecond = ConnectContext.get().getSessionVariable().getQueryTimeoutS();
+        long timeoutSecond = ConnectContext.get().getExecTimeout();
         if (Strings.isNullOrEmpty(label)) {
             label = "insert_" + DebugUtil.printId(analyzer.getContext().queryId()).replace("-", "_");
         }
@@ -474,17 +474,19 @@ public class InsertStmt extends DdlStmt {
             }
             if (column.isNameWithPrefix(CreateMaterializedViewStmt.MATERIALIZED_VIEW_NAME_PREFIX)
                     || column.isNameWithPrefix(CreateMaterializedViewStmt.MATERIALIZED_VIEW_AGGREGATE_NAME_PREFIX)) {
-                SlotRef refColumn = column.getRefColumn();
-                if (refColumn == null) {
+                List<SlotRef> refColumns = column.getRefColumns();
+                if (refColumns == null) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_BAD_FIELD_ERROR,
                             column.getName(), targetTable.getName());
                 }
-                String origName = refColumn.getColumnName();
-                for (int originColumnIdx = 0; originColumnIdx < targetColumns.size(); originColumnIdx++) {
-                    if (targetColumns.get(originColumnIdx).nameEquals(origName, false)) {
-                        origColIdxsForExtendCols.add(Pair.of(originColumnIdx, column));
-                        targetColumns.add(column);
-                        break;
+                for (SlotRef refColumn : refColumns) {
+                    String origName = refColumn.getColumnName();
+                    for (int originColumnIdx = 0; originColumnIdx < targetColumns.size(); originColumnIdx++) {
+                        if (targetColumns.get(originColumnIdx).nameEquals(origName, false)) {
+                            origColIdxsForExtendCols.add(Pair.of(originColumnIdx, column));
+                            targetColumns.add(column);
+                            break;
+                        }
                     }
                 }
             }
@@ -544,8 +546,11 @@ public class InsertStmt extends DdlStmt {
                     } else {
                         //substitute define expr slot with select statement result expr
                         ExprSubstitutionMap smap = new ExprSubstitutionMap();
-                        smap.getLhs().add(entry.second.getRefColumn());
-                        smap.getRhs().add(queryStmt.getResultExprs().get(entry.first));
+                        List<SlotRef> columns = entry.second.getRefColumns();
+                        for (SlotRef slot : columns) {
+                            smap.getLhs().add(slot);
+                            smap.getRhs().add(queryStmt.getResultExprs().get(entry.first));
+                        }
                         Expr e = Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()),
                                 smap, analyzer, false).get(0);
                         queryStmt.getResultExprs().add(e);
@@ -570,8 +575,11 @@ public class InsertStmt extends DdlStmt {
                     } else {
                         //substitute define expr slot with select statement result expr
                         ExprSubstitutionMap smap = new ExprSubstitutionMap();
-                        smap.getLhs().add(entry.second.getRefColumn());
-                        smap.getRhs().add(queryStmt.getResultExprs().get(entry.first));
+                        List<SlotRef> columns = entry.second.getRefColumns();
+                        for (SlotRef slot : columns) {
+                            smap.getLhs().add(slot);
+                            smap.getRhs().add(queryStmt.getResultExprs().get(entry.first));
+                        }
                         Expr e = Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()),
                                 smap, analyzer, false).get(0);
                         queryStmt.getBaseTblResultExprs().add(e);
@@ -625,8 +633,11 @@ public class InsertStmt extends DdlStmt {
                         extentedRow.add(extentedRow.get(entry.first));
                     } else {
                         ExprSubstitutionMap smap = new ExprSubstitutionMap();
-                        smap.getLhs().add(entry.second.getRefColumn());
-                        smap.getRhs().add(extentedRow.get(entry.first));
+                        List<SlotRef> columns = entry.second.getRefColumns();
+                        for (SlotRef slot : columns) {
+                            smap.getLhs().add(slot);
+                            smap.getRhs().add(extentedRow.get(entry.first));
+                        }
                         extentedRow.add(Expr.substituteList(Lists.newArrayList(entry.second.getDefineExpr()),
                                 smap, analyzer, false).get(0));
                     }

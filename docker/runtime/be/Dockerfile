@@ -35,6 +35,8 @@ RUN apt-get update && \
 	mv apache-doris-be-x.x.x-bin-x86_64 /opt/apache-doris/be
 
 ADD resource/init_be.sh /opt/apache-doris/be/bin
+ADD resource/entry_point.sh /usr/local/bin
+RUN chmod 755 /usr/local/bin/entry_point.sh
 RUN chmod 755 /opt/apache-doris/be/bin/init_be.sh
 
-ENTRYPOINT ["/opt/apache-doris/be/bin/init_be.sh"]
+ENTRYPOINT ["bash","entry_point.sh"]

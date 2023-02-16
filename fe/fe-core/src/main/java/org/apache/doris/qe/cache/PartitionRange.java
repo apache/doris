@@ -32,7 +32,6 @@ import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.catalog.RangePartitionItem;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
@@ -456,7 +455,7 @@ public class PartitionRange {
                 LiteralExpr newLiteral;
                 if (key.keyType == KeyType.DATE) {
                     try {
-                        newLiteral = new DateLiteral(key.toString(), ScalarType.getDefaultDateType(Type.DATE));
+                        newLiteral = new DateLiteral(key.toString(), Type.DATE);
                     } catch (Exception e) {
                         LOG.warn("Date's format is error {},{}", key.toString(), e);
                         continue;

@@ -73,6 +73,8 @@ public class CreateReplicaTask extends AgentTask {
 
     private boolean isInMemory;
 
+    private boolean isDynamicSchema;
+
     private TTabletType tabletType;
 
     // used for synchronous process
@@ -112,7 +114,8 @@ public class CreateReplicaTask extends AgentTask {
                              TCompressionType compressionType,
                              boolean enableUniqueKeyMergeOnWrite,
                              String storagePolicy, boolean disableAutoCompaction,
-                             boolean storeRowColumn) {
+                             boolean storeRowColumn,
+                             boolean isDynamicSchema) {
         super(null, backendId, TTaskType.CREATE, dbId, tableId, partitionId, indexId, tabletId);
 
         this.replicaId = replicaId;
@@ -135,6 +138,7 @@ public class CreateReplicaTask extends AgentTask {
         this.latch = latch;
 
         this.isInMemory = isInMemory;
+        this.isDynamicSchema = isDynamicSchema;
         this.tabletType = tabletType;
         this.dataSortInfo = dataSortInfo;
         this.enableUniqueKeyMergeOnWrite = (keysType == KeysType.UNIQUE_KEYS && enableUniqueKeyMergeOnWrite);
@@ -247,6 +251,7 @@ public class CreateReplicaTask extends AgentTask {
         tSchema.setIsInMemory(isInMemory);
         tSchema.setDisableAutoCompaction(disableAutoCompaction);
         tSchema.setStoreRowColumn(storeRowColumn);
+        tSchema.setIsDynamicSchema(isDynamicSchema);
         createTabletReq.setTabletSchema(tSchema);
 
         createTabletReq.setVersion(version);

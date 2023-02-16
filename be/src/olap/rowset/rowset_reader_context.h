@@ -77,6 +77,7 @@ struct RowsetReaderContext {
     bool record_rowids = false;
     bool is_vertical_compaction = false;
     bool is_key_column_group = false;
+    const std::set<int32_t>* output_columns = nullptr;
 };
 
 } // namespace doris

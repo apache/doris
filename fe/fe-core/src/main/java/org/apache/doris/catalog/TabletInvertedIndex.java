@@ -193,6 +193,7 @@ public class TabletInvertedIndex {
                             if (Config.enable_storage_policy) {
                                 handleCooldownConf(tabletMeta, backendTabletInfo, cooldownConfToPush,
                                         cooldownConfToUpdate);
+                                replica.setCooldownMetaId(backendTabletInfo.getCooldownMetaId());
                             }
 
                             long partitionId = tabletMeta.getPartitionId();

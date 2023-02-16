@@ -1023,7 +1023,7 @@ current running txns on db xxx is xx, larger than limit xx
 
 该遇到该错误时，说明当前集群内正在运行的导入任务超过了该配置值。此时建议在业务侧进行等待并重试导入任务。
 
-一般来说不推荐增大这个配置值。过高的并发数可能导致系统负载过大
+如果使用Connector方式写入，该参数的值可以适当调大，上千也没有问题
 
 #### `using_old_load_usage_pattern`
 

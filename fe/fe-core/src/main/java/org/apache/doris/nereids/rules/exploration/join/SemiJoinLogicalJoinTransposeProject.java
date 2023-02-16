@@ -29,7 +29,7 @@ import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
-import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 
@@ -59,11 +59,11 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
         return logicalJoin(logicalProject(logicalJoin()), group())
                 .when(topJoin -> (topJoin.getJoinType().isLeftSemiOrAntiJoin()
                         && (topJoin.left().child().getJoinType().isInnerJoin()
-                                || topJoin.left().child().getJoinType().isLeftOuterJoin()
-                                || topJoin.left().child().getJoinType().isRightOuterJoin())))
+                        || topJoin.left().child().getJoinType().isLeftOuterJoin()
+                        || topJoin.left().child().getJoinType().isRightOuterJoin())))
                 .whenNot(topJoin -> topJoin.left().child().getJoinType().isSemiOrAntiJoin())
                 .whenNot(join -> join.hasJoinHint() || join.left().child().hasJoinHint())
-                .when(join -> JoinReorderCommon.checkProject(join.left()))
+                .when(join -> JoinReorderUtils.checkProject(join.left()))
                 .when(this::conditionChecker)
                 .then(topSemiJoin -> {
                     LogicalProject<LogicalJoin<GroupPlan, GroupPlan>> project = topSemiJoin.left();
@@ -79,7 +79,7 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                     boolean lasscom = false;
                     for (Expression hashJoinConjunct : hashJoinConjuncts) {
                         Set<ExprId> usedSlotExprIdSet = hashJoinConjunct.getInputSlotExprIds();
-                        lasscom = ExpressionUtils.isIntersecting(usedSlotExprIdSet, aOutputExprIdSet) || lasscom;
+                        lasscom = Utils.isIntersecting(usedSlotExprIdSet, aOutputExprIdSet) || lasscom;
                     }
 
                     if (lasscom) {
@@ -106,8 +106,7 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                                 bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(),
                                 JoinHint.NONE,
                                 newBottomSemiJoin, b);
-
-                        return new LogicalProject<>(new ArrayList<>(topSemiJoin.getOutput()), newTopJoin);
+                        return JoinReorderUtils.projectOrSelf(new ArrayList<>(topSemiJoin.getOutput()), newTopJoin);
                     } else {
                         /*-
                          *     topSemiJoin                  project
@@ -132,8 +131,7 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
                                 bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(),
                                 JoinHint.NONE,
                                 a, newBottomSemiJoin);
-
-                        return new LogicalProject<>(new ArrayList<>(topSemiJoin.getOutput()), newTopJoin);
+                        return JoinReorderUtils.projectOrSelf(new ArrayList<>(topSemiJoin.getOutput()), newTopJoin);
                     }
                 }).toRule(RuleType.LOGICAL_SEMI_JOIN_LOGICAL_JOIN_TRANSPOSE_PROJECT);
     }
@@ -150,8 +148,8 @@ public class SemiJoinLogicalJoinTransposeProject extends OneExplorationRuleFacto
         boolean hashContainsB = false;
         for (Expression hashJoinConjunct : hashJoinConjuncts) {
             Set<Slot> usedSlot = hashJoinConjunct.collect(Slot.class::isInstance);
-            hashContainsA = ExpressionUtils.isIntersecting(usedSlot, aOutput) || hashContainsA;
-            hashContainsB = ExpressionUtils.isIntersecting(usedSlot, bOutput) || hashContainsB;
+            hashContainsA = Utils.isIntersecting(usedSlot, aOutput) || hashContainsA;
+            hashContainsB = Utils.isIntersecting(usedSlot, bOutput) || hashContainsB;
         }
         if (leftDeep && hashContainsB) {
             return false;
