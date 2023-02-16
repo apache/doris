@@ -1799,7 +1799,8 @@ Status Tablet::_read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& 
 }
 
 Status Tablet::write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
-                                   UniqueId cooldown_meta_id, const RowsetMetaSharedPtr& new_rs_meta,
+                                   UniqueId cooldown_meta_id,
+                                   const RowsetMetaSharedPtr& new_rs_meta,
                                    const std::vector<RowsetMetaSharedPtr>& to_deletes) {
     std::vector<RowsetMetaSharedPtr> cooldowned_rs_metas;
     {
