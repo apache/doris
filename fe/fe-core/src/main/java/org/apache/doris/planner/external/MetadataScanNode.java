@@ -81,6 +81,11 @@ public class MetadataScanNode extends ScanNode {
         buildScanRanges();
     }
 
+    @Override
+    public boolean needToCheckColumnPriv() {
+        return super.needToCheckColumnPriv();
+    }
+
     private void buildScanRanges() {
         if (tvf.getMetaType() == MetadataTableValuedFunction.MetaType.ICEBERG) {
             IcebergTableValuedFunction icebergTvf = (IcebergTableValuedFunction) tvf;

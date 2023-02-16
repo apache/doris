@@ -118,4 +118,9 @@ public class DataGenScanNode extends ScanNode {
             throw new NereidsException("Can not compute shard locations for DataGenScanNode: " + e.getMessage(), e);
         }
     }
+
+    @Override
+    public boolean needToCheckColumnPriv() {
+        return false;
+    }
 }

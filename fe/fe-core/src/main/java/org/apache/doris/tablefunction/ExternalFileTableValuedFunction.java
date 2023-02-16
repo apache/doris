@@ -207,7 +207,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
-        return new ExternalFileScanNode(id, desc);
+        return new ExternalFileScanNode(id, desc, false);
     }
 
     @Override

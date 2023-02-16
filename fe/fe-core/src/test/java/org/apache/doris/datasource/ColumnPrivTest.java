@@ -186,6 +186,8 @@ public class ColumnPrivTest extends TestWithFeService {
                 "Access deny to column a11");
         testSql(user1Ctx, "select a12 from (select * from test1.db1.tbl11) x", "TABLE: tbl11");
         testSql(user1Ctx, "select * from v1", "Access deny to column a11");
+
+        testSql(user1Ctx, "select * from numbers(\"number\" = \"1\");", "0:VDataGenScanNode");
     }
 
     private void testSql(ConnectContext ctx, String sql, String expectedMsg) throws Exception {

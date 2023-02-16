@@ -322,6 +322,9 @@ public class OriginalPlanner extends Planner {
         // catalog : <db.table : column>
         Map<String, HashMultimap<TableName, String>> ctlToTableColumnMap = Maps.newHashMap();
         for (ScanNode scanNode : scanNodes) {
+            if (!scanNode.needToCheckColumnPriv()) {
+                continue;
+            }
             TupleDescriptor tupleDesc = scanNode.getTupleDesc();
             TableIf table = tupleDesc.getTable();
             if (table == null) {
