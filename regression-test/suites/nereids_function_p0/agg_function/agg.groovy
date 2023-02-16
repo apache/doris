@@ -584,14 +584,14 @@ suite("nereids_agg_fn") {
 	qt_sql_variance_samp_DecimalV2_notnull_gb "select variance_samp(kdcmls1) from fn_test_not_nullable group by kbool order by kbool"
 	qt_sql_variance_samp_DecimalV2_notnull "select variance_samp(kdcmls1) from fn_test_not_nullable"
 
-	qt_sql_window_funnel_BigInt_String_DateTime_Boolean_gb "select window_funnel(kbint, kstr, kdtm, kbool) from fn_test group by kbool order by kbool"
-	qt_sql_window_funnel_BigInt_String_DateTime_Boolean "select window_funnel(kbint, kstr, kdtm, kbool) from fn_test"
-	qt_sql_window_funnel_BigInt_String_DateTime_Boolean_notnull_gb "select window_funnel(kbint, kstr, kdtm, kbool) from fn_test_not_nullable group by kbool order by kbool"
-	qt_sql_window_funnel_BigInt_String_DateTime_Boolean_notnull "select window_funnel(kbint, kstr, kdtm, kbool) from fn_test_not_nullable"
+	qt_sql_window_funnel_BigInt_String_DateTime_Boolean_gb "select window_funnel(3600 * 3, 'default', kdtm, kint = 1, kint = 2) from fn_test group by kbool order by kbool"
+	qt_sql_window_funnel_BigInt_String_DateTime_Boolean "select window_funnel(3600 * 3, 'default', kdtm, kint = 1, kint = 2) from fn_test"
+	qt_sql_window_funnel_BigInt_String_DateTime_Boolean_notnull_gb "select window_funnel(3600 * 3, 'default', kdtm, kint = 1, kint = 2) from fn_test_not_nullable group by kbool order by kbool"
+	qt_sql_window_funnel_BigInt_String_DateTime_Boolean_notnull "select window_funnel(3600 * 3, 'default', kdtm, kint = 1, kint = 2) from fn_test_not_nullable"
 
-	qt_sql_window_funnel_BigInt_String_DateTimeV2_Boolean_gb "select window_funnel(kbint, kstr, kdtmv2s1, kbool) from fn_test group by kbool order by kbool"
-	qt_sql_window_funnel_BigInt_String_DateTimeV2_Boolean "select window_funnel(kbint, kstr, kdtmv2s1, kbool) from fn_test"
-	qt_sql_window_funnel_BigInt_String_DateTimeV2_Boolean_notnull_gb "select window_funnel(kbint, kstr, kdtmv2s1, kbool) from fn_test_not_nullable group by kbool order by kbool"
-	qt_sql_window_funnel_BigInt_String_DateTimeV2_Boolean_notnull "select window_funnel(kbint, kstr, kdtmv2s1, kbool) from fn_test_not_nullable"
+	qt_sql_window_funnel_BigInt_String_DateTimeV2_Boolean_gb "select window_funnel(3600 * 3, 'default', kdtmv2s1, kint = 1, kint = 2) from fn_test group by kbool order by kbool"
+	qt_sql_window_funnel_BigInt_String_DateTimeV2_Boolean "select window_funnel(3600 * 3, 'default', kdtmv2s1, kint = 1, kint = 2) from fn_test"
+	qt_sql_window_funnel_BigInt_String_DateTimeV2_Boolean_notnull_gb "select window_funnel(3600 * 3, 'default', kdtmv2s1, kint = 1, kint = 2) from fn_test_not_nullable group by kbool order by kbool"
+	qt_sql_window_funnel_BigInt_String_DateTimeV2_Boolean_notnull "select window_funnel(3600 * 3, 'default', kdtmv2s1, kint = 1, kint = 2) from fn_test_not_nullable"
 
 }
