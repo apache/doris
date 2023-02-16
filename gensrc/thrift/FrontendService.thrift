@@ -631,6 +631,11 @@ struct TStreamLoadWithLoadStatusRequest {
 
 struct TStreamLoadWithLoadStatusResult {
     1: required Status.TStatus status
+    2: required i64 txn_id
+    3: optional i64 total_rows
+    4: optional i64 loaded_rows
+    5: optional i64 filtered_rows
+    6: optional i64 unselected_rows
 }
 
 struct TKafkaRLTaskProgress {

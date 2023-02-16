@@ -71,6 +71,7 @@ import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.EtlJobType;
+import org.apache.doris.load.loadv2.LoadJob;
 import org.apache.doris.master.MasterImpl;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
@@ -1959,28 +1960,36 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         TStreamLoadWithLoadStatusResult result = new TStreamLoadWithLoadStatusResult();
         TUniqueId loadId = request.getLoadId();
         Coordinator coord = QeProcessorImpl.INSTANCE.getCoordinator(loadId);
+        long totalRows = 0;
+        long loadedRows = 0;
+        int filteredRows = 0;
+        int unselectedRows = 0;
+        long txnId = -1;
+        Throwable throwable = null;
+        String label = "";
+        ConnectContext context = coord.getConnectContext();
+        StmtExecutor exec = context.getExecutor();
+        InsertStmt insertStmt = (InsertStmt) exec.getParsedStmt();
+        label = insertStmt.getLabel();
+        txnId = insertStmt.getTransactionId();
+        result.setTxnId(txnId);
+        TransactionStatus txnStatus = TransactionStatus.ABORTED;
         if (coord == null) {
             result.setStatus(new TStatus(TStatusCode.RUNTIME_ERROR));
             LOG.info("runtime error, query {} does not exist", DebugUtil.printId(loadId));
             return result;
         }
         if (coord.getExecStatus().ok()) {
-            long loadedRows = 0;
-            int filteredRows = 0;
-            long txnId = -1;
-            Throwable throwable = null;
-            String label = "";
-            ConnectContext context = coord.getConnectContext();
-            StmtExecutor exec = context.getExecutor();
-            InsertStmt insertStmt = (InsertStmt) exec.getParsedStmt();
-            label = insertStmt.getLabel();
-            TransactionStatus txnStatus = TransactionStatus.ABORTED;
             if (coord.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL) != null) {
-                loadedRows = Long.parseLong(coord.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL));
+                totalRows = Long.parseLong(coord.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL));
             }
             if (coord.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL) != null) {
                 filteredRows = Integer.parseInt(coord.getLoadCounters().get(LoadEtlTask.DPP_ABNORMAL_ALL));
             }
+            if (coord.getLoadCounters().get(LoadJob.UNSELECTED_ROWS) != null) {
+                unselectedRows = Integer.parseInt(coord.getLoadCounters().get(LoadJob.UNSELECTED_ROWS));
+            }
+            loadedRows = totalRows - filteredRows - unselectedRows;
             try {
                 if (Env.getCurrentGlobalTransactionMgr().commitAndPublishTransaction(
                         insertStmt.getDbObj(), Lists.newArrayList(insertStmt.getTargetTable()),
@@ -2006,7 +2015,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 throwable = t;
             }
             QeProcessorImpl.INSTANCE.unregisterQuery(loadId);
-            txnId = insertStmt.getTransactionId();
             try {
                 context.getEnv().getLoadManager()
                         .recordFinishedLoadJob(label, txnId, insertStmt.getDb(), insertStmt.getTargetTable().getId(),
@@ -2016,13 +2024,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             } catch (MetaNotFoundException e) {
                 LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
             }
-            // set insert result in connection context,
-            // so that user can use `show insert result` to get info of the last insert operation.
             context.setOrUpdateInsertResult(txnId, label, insertStmt.getDb(), insertStmt.getTbl(),
                     txnStatus, loadedRows, filteredRows);
-            // update it, so that user can get loaded rows in fe.audit.log
             context.updateReturnRows((int) loadedRows);
             result.setStatus(new TStatus(TStatusCode.OK));
+            result.setTotalRows(totalRows);
+            result.setLoadedRows(loadedRows);
+            result.setFilteredRows(filteredRows);
+            result.setUnselectedRows(unselectedRows);
         } else {
             result.setStatus(new TStatus(TStatusCode.CANCELLED));
         }

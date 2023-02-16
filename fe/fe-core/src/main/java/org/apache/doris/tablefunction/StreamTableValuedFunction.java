@@ -19,10 +19,8 @@ package org.apache.doris.tablefunction;
 
 import org.apache.doris.analysis.BrokerDesc;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.util.S3URI;
 import org.apache.doris.thrift.TFileType;
 
-import com.google.common.collect.ImmutableSet;
 import org.apache.commons.collections.map.CaseInsensitiveMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -36,35 +34,11 @@ import java.util.Map;
 public class StreamTableValuedFunction extends ExternalFileTableValuedFunction {
     private static final Logger LOG = LogManager.getLogger(StreamTableValuedFunction.class);
     public static final String NAME = "stream";
-    public static final String S3_URI = "uri";
-    public static final String S3_AK = "AWS_ACCESS_KEY";
-    public static final String S3_SK = "AWS_SECRET_KEY";
-    public static final String S3_ENDPOINT = "AWS_ENDPOINT";
-    public static final String S3_REGION = "AWS_REGION";
-    private static final String AK = "access_key";
-    private static final String SK = "secret_key";
-
-    private static final String USE_PATH_STYLE = "use_path_style";
-    private static final String REGION = "region";
-
-    private static final ImmutableSet<String> PROPERTIES_SET = new ImmutableSet.Builder<String>()
-                        .add(S3_URI)
-                        .add(AK)
-                        .add(SK)
-                        .add(USE_PATH_STYLE)
-                        .add(REGION)
-                        .build();
-    private S3URI s3uri;
-    private String s3AK;
-    private String s3SK;
-    private String endPoint;
-    private String virtualBucket;
-    private boolean forceVirtualHosted;
 
     public StreamTableValuedFunction(Map<String, String> params) throws AnalysisException {
         Map<String, String> validParams = new CaseInsensitiveMap();
         for (String key : params.keySet()) {
-            if (!PROPERTIES_SET.contains(key.toLowerCase()) && !FILE_FORMAT_PROPERTIES.contains(key.toLowerCase())) {
+            if (!FILE_FORMAT_PROPERTIES.contains(key.toLowerCase())) {
                 throw new AnalysisException(key + " is invalid property");
             }
             validParams.put(key, params.get(key));

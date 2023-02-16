@@ -143,17 +143,19 @@ void StreamLoadWithSqlAction::handle(HttpRequest* req) {
                     client->StreamLoadWithLoadStatus(result, request);
                 });
         Status stream_load_status(result.status);
-        if (!stream_load_status.ok()) {
-            continue;
+        if (stream_load_status.ok()) {
+            ctx->txn_id = result.txn_id;
+            ctx->number_total_rows = result.total_rows;
+            ctx->number_loaded_rows = result.loaded_rows;
+            ctx->number_filtered_rows = result.filtered_rows;
+            ctx->number_unselected_rows = result.unselected_rows;
+            break;
         }
-        break;
     }
-    auto str = std::string("Stream Load OK");
+
+    auto str = std::string(ctx->to_json());
     // add new line at end
     str = str + '\n';
-    if (!is_stream_load_put_success) {
-        str = std::string("Stream Load is failed\n");
-    }
     HttpChannel::send_reply(req, str);
 #ifndef BE_TEST
     if (config::enable_stream_load_record) {
@@ -175,9 +177,6 @@ Status StreamLoadWithSqlAction::_handle(StreamLoadContext* ctx) {
     }
 
     RETURN_IF_ERROR(ctx->body_sink->finish());
-
-    // wait stream load finish
-    // RETURN_IF_ERROR(ctx->future.get());
 
     if (ctx->two_phase_commit) {
         int64_t pre_commit_start_time = MonotonicNanos();
@@ -349,13 +348,7 @@ Status StreamLoadWithSqlAction::_process_put(HttpRequest* http_req, StreamLoadCo
     request.__set_load_sql(http_req->header(HTTP_SQL));
     request.__set_loadId(ctx->id.to_thrift());
     if (_exec_env->master_info()->__isset.backend_id) {
-        LOG(WARNING) << "_exec_env->master_info backend_id: "
-                     << _exec_env->master_info()->backend_id;
-        if (_exec_env->master_info()->backend_id < 1) {
-            request.__set_backend_id(10046);
-        } else {
-            request.__set_backend_id(_exec_env->master_info()->backend_id);
-        }
+        request.__set_backend_id(_exec_env->master_info()->backend_id);
     } else {
         LOG(WARNING) << "_exec_env->master_info not set backend_id";
     }
