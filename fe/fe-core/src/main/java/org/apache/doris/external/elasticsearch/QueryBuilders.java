@@ -90,13 +90,7 @@ public final class QueryBuilders {
                 }
                 // One 'or' association cannot be pushed down and the other cannot be pushed down
                 if (afterSize > beforeSize) {
-                    if (left != null) {
-                        // add right if right don't pushdown
-                        notPushDownList.add(compoundPredicate.getChild(0));
-                    } else if (right != null) {
-                        // add left if left don't pushdown
-                        notPushDownList.add(compoundPredicate.getChild(1));
-                    }
+                    notPushDownList.add(compoundPredicate);
                 }
                 return null;
             }
