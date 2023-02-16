@@ -17,12 +17,11 @@
 
 package org.apache.doris.datasource.iceberg;
 
-import org.apache.commons.lang3.StringUtils;
 import org.apache.doris.datasource.CatalogProperty;
 
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
-import org.apache.iceberg.aws.AwsProperties;
 import org.apache.iceberg.aws.glue.GlueCatalog;
 import org.apache.iceberg.catalog.Namespace;
 

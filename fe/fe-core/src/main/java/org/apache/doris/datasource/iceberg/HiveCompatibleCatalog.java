@@ -20,18 +20,17 @@ package org.apache.doris.datasource.iceberg;
 import org.apache.hadoop.conf.Configurable;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.metastore.IMetaStoreClient;
-import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.iceberg.BaseMetastoreCatalog;
-import org.apache.iceberg.BaseMetastoreTableOperations;
+import org.apache.iceberg.CatalogProperties;
+import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.ClientPool;
+import org.apache.iceberg.aws.s3.S3FileIO;
 import org.apache.iceberg.catalog.Namespace;
 import org.apache.iceberg.catalog.SupportsNamespaces;
 import org.apache.iceberg.catalog.TableIdentifier;
 import org.apache.iceberg.exceptions.NamespaceNotEmptyException;
-import org.apache.iceberg.exceptions.NoSuchIcebergTableException;
 import org.apache.iceberg.exceptions.NoSuchNamespaceException;
 import org.apache.iceberg.exceptions.NoSuchTableException;
-import org.apache.iceberg.hive.MetastoreUtil;
 import org.apache.iceberg.io.FileIO;
 import org.apache.thrift.TException;
 
@@ -41,7 +40,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public abstract class ThirdPartyCatalog extends BaseMetastoreCatalog implements SupportsNamespaces, Configurable {
+public abstract class HiveCompatibleCatalog extends BaseMetastoreCatalog implements SupportsNamespaces, Configurable {
 
     protected Configuration conf;
     protected ClientPool<IMetaStoreClient, TException> clients;
@@ -55,6 +54,17 @@ public abstract class ThirdPartyCatalog extends BaseMetastoreCatalog implements 
         this.clients = clients;
     }
 
+    protected FileIO initializeFileIO(Map<String, String> properties, Configuration hadoopConf) {
+        String fileIOImpl = properties.get(CatalogProperties.FILE_IO_IMPL);
+        if (fileIOImpl == null) {
+            FileIO io = new S3FileIO();
+            io.initialize(properties);
+            return io;
+        } else {
+            return CatalogUtil.loadFileIO(fileIOImpl, properties, hadoopConf);
+        }
+    }
+
     @Override
     protected String defaultWarehouseLocation(TableIdentifier tableIdentifier) {
         return null;
@@ -66,12 +76,12 @@ public abstract class ThirdPartyCatalog extends BaseMetastoreCatalog implements 
     }
 
     protected boolean isValidNamespace(Namespace namespace) {
-        return namespace.levels().length == 1;
+        return namespace.levels().length != 1;
     }
 
     @Override
     public List<TableIdentifier> listTables(Namespace namespace) {
-        if (!isValidNamespace(namespace)) {
+        if (isValidNamespace(namespace)) {
             throw new NoSuchTableException("Invalid namespace: %s", namespace);
         }
         String dbName = namespace.level(0);
@@ -87,52 +97,14 @@ public abstract class ThirdPartyCatalog extends BaseMetastoreCatalog implements 
 
     @Override
     public boolean dropTable(TableIdentifier tableIdentifier, boolean purge) {
-        if (!isValidIdentifier(tableIdentifier)) {
-            throw new NoSuchTableException("Invalid identifier: %s", tableIdentifier);
-        }
-        try {
-            String dbName = tableIdentifier.namespace().level(0);
-            clients.run(client -> {
-                client.dropTable(dbName, tableIdentifier.name(),
-                        false /* do not delete data */,
-                        false /* throw NoSuchObjectException if the table doesn't exist */);
-                return true;
-            });
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-        return false;
+        throw new UnsupportedOperationException(
+            "Cannot drop table " + tableIdentifier + " : dropTable is not supported");
     }
 
     @Override
     public void renameTable(TableIdentifier sourceTbl, TableIdentifier targetTbl) {
-        if (!isValidIdentifier(sourceTbl)) {
-            throw new NoSuchTableException("Invalid identifier: %s", sourceTbl);
-        }
-        try {
-            String sourceDbName = sourceTbl.namespace().level(0);
-            String targetDbName = targetTbl.namespace().level(0);
-            if (!sourceDbName.equals(targetDbName)) {
-                throw new RuntimeException("The two table not belong to a database.");
-            }
-            Table table = clients.run(client -> client.getTable(sourceDbName, sourceTbl.name()));
-            validateTableIsIceberg(table, fullTableName(sourceDbName, sourceTbl));
-            clients.run(client -> {
-                MetastoreUtil.alterTable(client, sourceDbName, sourceTbl.name(), table);
-                return null;
-            });
-        } catch (Exception e) {
-            throw new RuntimeException("Fail to renameTable.", e);
-        }
-    }
-
-    static void validateTableIsIceberg(Table table, String fullName) {
-        String type = table.getParameters().get(BaseMetastoreTableOperations.TABLE_TYPE_PROP);
-        NoSuchIcebergTableException.check(
-                type != null && type.equalsIgnoreCase(BaseMetastoreTableOperations.ICEBERG_TABLE_TYPE_VALUE),
-                "Not an iceberg table: %s (type=%s)",
-                fullName,
-                type);
+        throw new UnsupportedOperationException(
+            "Cannot rename table " + sourceTbl + " : renameTable is not supported");
     }
 
     @Override
@@ -143,7 +115,7 @@ public abstract class ThirdPartyCatalog extends BaseMetastoreCatalog implements 
 
     @Override
     public List<Namespace> listNamespaces(Namespace namespace) throws NoSuchNamespaceException {
-        if (!isValidNamespace(namespace) && !namespace.isEmpty()) {
+        if (isValidNamespace(namespace) && !namespace.isEmpty()) {
             throw new NoSuchNamespaceException("Namespace does not exist: %s", namespace);
         }
         if (!namespace.isEmpty()) {
@@ -164,7 +136,7 @@ public abstract class ThirdPartyCatalog extends BaseMetastoreCatalog implements 
 
     @Override
     public Map<String, String> loadNamespaceMetadata(Namespace namespace) throws NoSuchNamespaceException {
-        if (!isValidNamespace(namespace)) {
+        if (isValidNamespace(namespace)) {
             throw new NoSuchTableException("Invalid namespace: %s", namespace);
         }
         String dbName = namespace.level(0);
@@ -177,19 +149,8 @@ public abstract class ThirdPartyCatalog extends BaseMetastoreCatalog implements 
 
     @Override
     public boolean dropNamespace(Namespace namespace) throws NamespaceNotEmptyException {
-        if (!isValidNamespace(namespace)) {
-            throw new NoSuchTableException("Invalid namespace: %s", namespace);
-        }
-        String dbName = namespace.level(0);
-        try {
-            clients.run(client -> {
-                client.dropDatabase(dbName);
-                return null;
-            });
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
-        return false;
+        throw new UnsupportedOperationException(
+            "Cannot drop namespace " + namespace + " : dropNamespace is not supported");
     }
 
     @Override

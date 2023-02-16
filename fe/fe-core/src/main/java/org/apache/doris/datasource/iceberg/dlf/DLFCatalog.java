@@ -17,20 +17,19 @@
 
 package org.apache.doris.datasource.iceberg.dlf;
 
-import org.apache.doris.datasource.iceberg.ThirdPartyCatalog;
+import org.apache.doris.datasource.iceberg.HiveCompatibleCatalog;
 import org.apache.doris.datasource.iceberg.dlf.client.DLFCachedClientPool;
 
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.catalog.TableIdentifier;
-import org.apache.iceberg.hadoop.HadoopFileIO;
 
 import java.util.Map;
 
-public class DLFCatalog extends ThirdPartyCatalog {
+public class DLFCatalog extends HiveCompatibleCatalog {
 
     @Override
     public void initialize(String name, Map<String, String> properties) {
-        super.initialize(name, new HadoopFileIO(conf), new DLFCachedClientPool(this.conf, properties));
+        super.initialize(name, initializeFileIO(properties, conf), new DLFCachedClientPool(this.conf, properties));
     }
 
     @Override

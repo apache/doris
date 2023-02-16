@@ -75,6 +75,26 @@ CREATE CATALOG iceberg PROPERTIES (
 );
 ```
 
+- Glue Catalog作为元数据服务
+
+```sql
+CREATE CATALOG glue PROPERTIES (
+"type"="iceberg",
+"iceberg.catalog.type" = "glue",
+"glue.endpoint" = "https://glue.us-east-1.amazonaws.com",
+"warehouse" = "s3://bucket/warehouse",
+"AWS_ENDPOINT" = "s3.us-east-1.amazonaws.com",
+"AWS_REGION" = "us-east-1",
+"AWS_ACCESS_KEY" = "ak",
+"AWS_SECRET_KEY" = "sk",
+"use_path_style" = "true"
+);
+```
+
+`glue.endpoint`: Glue Endpoint. 参阅：[AWS Glue endpoints and quotas](https://docs.aws.amazon.com/general/latest/gr/glue.html).
+
+`warehouse`: Glue Warehouse Location. Glue Catalog的根路径，用于指定数据存放位置。
+
 - REST Catalog作为元数据服务
 
 该方式需要预先提供REST服务，用户需实现获取Iceberg元数据的REST接口。

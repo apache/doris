@@ -33,6 +33,7 @@ under the License.
         <fe_ut_parallel>1</fe_ut_parallel>
         <doris.thirdparty>${basedir}/../../thirdparty</doris.thirdparty>
         <antlr4.version>4.9.3</antlr4.version>
+        <awssdk.version>2.17.257</awssdk.version>
         <protoc.artifact>com.google.protobuf:protoc:${protobuf.version}</protoc.artifact>
         <grpc.java.artifact>io.grpc:protoc-gen-grpc-java:${grpc.version}</grpc.java.artifact>
     </properties>
@@ -574,7 +575,7 @@ under the License.
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>s3</artifactId>
-            <version>2.17.257</version>
+            <version>${awssdk.version}</version>
         </dependency>
         <dependency>
             <groupId>org.awaitility</groupId>
@@ -719,27 +720,27 @@ under the License.
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>glue</artifactId>
-            <version>2.17.257</version>
+            <version>${awssdk.version}</version>
         </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>sts</artifactId>
-            <version>2.17.257</version>
+            <version>${awssdk.version}</version>
         </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>url-connection-client</artifactId>
-            <version>2.17.257</version>
+            <version>${awssdk.version}</version>
         </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>aws-json-protocol</artifactId>
-            <version>2.17.257</version>
+            <version>${awssdk.version}</version>
         </dependency>
         <dependency>
             <groupId>software.amazon.awssdk</groupId>
             <artifactId>protocol-core</artifactId>
-            <version>2.17.257</version>
+            <version>${awssdk.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.iceberg</groupId>
