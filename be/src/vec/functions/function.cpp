@@ -217,12 +217,11 @@ Status PreparedFunctionImpl::default_implementation_for_nulls(
     }
 
     if (null_presence.has_nullable) {
-        auto [temporary_block, new_args, new_result] =
-                create_block_with_nested_columns(block, args, result);
+        Block temporary_block = create_block_with_nested_columns(block, args, result);
         RETURN_IF_ERROR(execute_without_low_cardinality_columns(
-                context, temporary_block, new_args, new_result, temporary_block.rows(), dry_run));
+                context, temporary_block, args, result, temporary_block.rows(), dry_run));
         block.get_by_position(result).column =
-                wrap_in_nullable(temporary_block.get_by_position(new_result).column, block, args,
+                wrap_in_nullable(temporary_block.get_by_position(result).column, block, args,
                                  result, input_rows_count);
         *executed = true;
         return Status::OK();
@@ -296,9 +295,10 @@ DataTypePtr FunctionBuilderImpl::get_return_type_without_low_cardinality(
         }
         if (null_presence.has_nullable) {
             ColumnNumbers numbers(arguments.size());
-            std::iota(numbers.begin(), numbers.end(), 0);
-            auto [nested_block, _] =
-                    create_block_with_nested_columns(Block(arguments), numbers, false);
+            for (size_t i = 0; i < arguments.size(); i++) {
+                numbers[i] = i;
+            }
+            Block nested_block = create_block_with_nested_columns(Block(arguments), numbers);
             auto return_type = get_return_type_impl(
                     ColumnsWithTypeAndName(nested_block.begin(), nested_block.end()));
             return make_nullable(return_type);

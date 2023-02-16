@@ -26,68 +26,82 @@
 
 namespace doris::vectorized {
 
-std::tuple<Block, ColumnNumbers> create_block_with_nested_columns(const Block& block,
-                                                                  const ColumnNumbers& args,
-                                                                  const bool need_check_same) {
+Block create_block_with_nested_columns_only_args(const Block& block, const ColumnNumbers& args) {
+    std::set<size_t> args_set(args.begin(), args.end());
     Block res;
-    ColumnNumbers res_args(args.size());
 
-    // only build temp block by args column, if args[i] == args[j]
-    // just keep one
-    for (size_t i = 0; i < args.size(); ++i) {
-        bool is_in_res = false;
-        size_t pre_loc = 0;
+    for (auto i : args_set) {
+        const auto& col = block.get_by_position(i);
 
-        if (need_check_same) {
-            for (int j = 0; j < i; ++j) {
-                if (args[j] == args[i]) {
-                    is_in_res = true;
-                    pre_loc = j;
-                    break;
-                }
-            }
-        }
+        if (col.type->is_nullable()) {
+            const DataTypePtr& nested_type =
+                    static_cast<const DataTypeNullable&>(*col.type).get_nested_type();
 
-        if (!is_in_res) {
-            const auto& col = block.get_by_position(i);
-            if (col.type->is_nullable()) {
-                const DataTypePtr& nested_type =
-                        static_cast<const DataTypeNullable&>(*col.type).get_nested_type();
-
-                if (!col.column) {
-                    res.insert({nullptr, nested_type, col.name});
-                } else if (auto* nullable = check_and_get_column<ColumnNullable>(*col.column)) {
-                    const auto& nested_col = nullable->get_nested_column_ptr();
-                    res.insert({nested_col, nested_type, col.name});
-                } else if (auto* const_column = check_and_get_column<ColumnConst>(*col.column)) {
-                    const auto& nested_col =
-                            check_and_get_column<ColumnNullable>(const_column->get_data_column())
-                                    ->get_nested_column_ptr();
-                    res.insert({ColumnConst::create(nested_col, col.column->size()), nested_type,
-                                col.name});
-                } else {
-                    LOG(FATAL) << "Illegal column for DataTypeNullable";
-                }
+            if (!col.column) {
+                res.insert({nullptr, nested_type, col.name});
+            } else if (auto* nullable = check_and_get_column<ColumnNullable>(*col.column)) {
+                const auto& nested_col = nullable->get_nested_column_ptr();
+                res.insert({nested_col, nested_type, col.name});
+            } else if (auto* const_column = check_and_get_column<ColumnConst>(*col.column)) {
+                const auto& nested_col =
+                        check_and_get_column<ColumnNullable>(const_column->get_data_column())
+                                ->get_nested_column_ptr();
+                res.insert({ColumnConst::create(nested_col, col.column->size()), nested_type,
+                            col.name});
             } else {
-                res.insert(col);
+                LOG(FATAL) << "Illegal column for DataTypeNullable";
             }
-
-            res_args[i] = res.columns() - 1;
         } else {
-            res_args[i] = pre_loc;
+            res.insert(col);
         }
     }
 
-    return {res, res_args};
+    return res;
 }
 
-std::tuple<Block, ColumnNumbers, size_t> create_block_with_nested_columns(const Block& block,
-                                                                          const ColumnNumbers& args,
-                                                                          size_t result) {
-    auto [res, res_args] = create_block_with_nested_columns(block, args, true);
-    // insert result column in temp block
-    res.insert(block.get_by_position(result));
-    return {res, res_args, res.columns() - 1};
+static Block create_block_with_nested_columns_impl(const Block& block,
+                                                   const std::unordered_set<size_t>& args) {
+    Block res;
+    size_t columns = block.columns();
+
+    for (size_t i = 0; i < columns; ++i) {
+        const auto& col = block.get_by_position(i);
+
+        if (args.count(i) && col.type->is_nullable()) {
+            const DataTypePtr& nested_type =
+                    static_cast<const DataTypeNullable&>(*col.type).get_nested_type();
+
+            if (!col.column) {
+                res.insert({nullptr, nested_type, col.name});
+            } else if (auto* nullable = check_and_get_column<ColumnNullable>(*col.column)) {
+                const auto& nested_col = nullable->get_nested_column_ptr();
+                res.insert({nested_col, nested_type, col.name});
+            } else if (auto* const_column = check_and_get_column<ColumnConst>(*col.column)) {
+                const auto& nested_col =
+                        check_and_get_column<ColumnNullable>(const_column->get_data_column())
+                                ->get_nested_column_ptr();
+                res.insert({ColumnConst::create(nested_col, col.column->size()), nested_type,
+                            col.name});
+            } else {
+                LOG(FATAL) << "Illegal column for DataTypeNullable";
+            }
+        } else
+            res.insert(col);
+    }
+
+    return res;
+}
+
+Block create_block_with_nested_columns(const Block& block, const ColumnNumbers& args) {
+    std::unordered_set<size_t> args_set(args.begin(), args.end());
+    return create_block_with_nested_columns_impl(block, args_set);
+}
+
+Block create_block_with_nested_columns(const Block& block, const ColumnNumbers& args,
+                                       size_t result) {
+    std::unordered_set<size_t> args_set(args.begin(), args.end());
+    args_set.insert(result);
+    return create_block_with_nested_columns_impl(block, args_set);
 }
 
 void validate_argument_type(const IFunction& func, const DataTypes& arguments,
