@@ -165,7 +165,7 @@ Status OrcReader::init_reader(
         _file_reader = new ORCFileInputStream(_scan_range.path, inner_reader);
     }
     if (_file_reader->getLength() == 0) {
-        return Status::EndOfFile("Empty orc file");
+        return Status::EndOfFile("init reader failed, empty orc file: " + _scan_range.path);
     }
 
     // create orc reader
@@ -176,7 +176,7 @@ Status OrcReader::init_reader(
         return Status::InternalError("Init OrcReader failed. reason = {}", e.what());
     }
     if (_reader->getNumberOfRows() == 0) {
-        return Status::EndOfFile("Empty orc file");
+        return Status::EndOfFile("init reader failed, empty orc file with row num 0: " + _scan_range.path);
     }
     // _init_bloom_filter(colname_to_value_range);
 
@@ -231,7 +231,7 @@ Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
         _file_reader = new ORCFileInputStream(_scan_range.path, inner_reader);
     }
     if (_file_reader->getLength() == 0) {
-        return Status::EndOfFile("Empty orc file");
+        return Status::EndOfFile("get parsed schema fail, empty orc file: " + _scan_range.path);
     }
 
     // create orc reader
@@ -240,10 +240,6 @@ Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
         _reader = orc::createReader(std::unique_ptr<ORCFileInputStream>(_file_reader), options);
     } catch (std::exception& e) {
         return Status::InternalError("Init OrcReader failed. reason = {}", e.what());
-    }
-
-    if (_reader->getNumberOfRows() == 0) {
-        return Status::EndOfFile("Empty orc file");
     }
 
     auto& root_type = _reader->getType();

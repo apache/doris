@@ -164,7 +164,7 @@ Status ParquetReader::_open_file() {
     }
     if (_file_metadata == nullptr) {
         if (_file_reader->size() == 0) {
-            return Status::EndOfFile("Empty Parquet File");
+            return Status::EndOfFile("open file failed, empty parquet file: " + _scan_range.path);
         }
         RETURN_IF_ERROR(parse_thrift_footer(_file_reader, _file_metadata));
     }
@@ -196,7 +196,7 @@ Status ParquetReader::init_reader(
     SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
     _total_groups = _t_metadata->row_groups.size();
     if (_total_groups == 0) {
-        return Status::EndOfFile("Empty Parquet File");
+        return Status::EndOfFile("init reader failed, empty parquet file: " + _scan_range.path);
     }
     // all_column_names are all the columns required by user sql.
     // missing_column_names are the columns required by user sql but not in the parquet file,
@@ -367,10 +367,6 @@ Status ParquetReader::get_parsed_schema(std::vector<std::string>* col_names,
     _t_metadata = &_file_metadata->to_thrift();
 
     _total_groups = _t_metadata->row_groups.size();
-    if (_total_groups == 0) {
-        return Status::EndOfFile("Empty Parquet File");
-    }
-
     auto schema_desc = _file_metadata->schema();
     for (int i = 0; i < schema_desc.size(); ++i) {
         // Get the Column Reader for the boolean column
