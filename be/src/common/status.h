@@ -177,7 +177,6 @@ E(WRITER_ROW_BLOCK_ERROR, -1202);
 E(WRITER_SEGMENT_NOT_FINALIZED, -1203);
 E(ROWBLOCK_DECOMPRESS_ERROR, -1300);
 E(ROWBLOCK_FIND_ROW_EXCEPTION, -1301);
-E(ROWBLOCK_READ_INFO_ERROR, -1302);
 E(HEADER_ADD_VERSION, -1400);
 E(HEADER_DELETE_VERSION, -1401);
 E(HEADER_ADD_PENDING_DELTA, -1402);
@@ -404,7 +403,7 @@ public:
     bool is_io_error() const {
         return ErrorCode::IO_ERROR == _code || ErrorCode::READ_UNENOUGH == _code ||
                ErrorCode::CHECKSUM_ERROR == _code || ErrorCode::FILE_DATA_ERROR == _code ||
-               ErrorCode::TEST_FILE_ERROR == _code || ErrorCode::ROWBLOCK_READ_INFO_ERROR == _code;
+               ErrorCode::TEST_FILE_ERROR == _code;
     }
 
     bool is_invalid_argument() const { return ErrorCode::INVALID_ARGUMENT == _code; }

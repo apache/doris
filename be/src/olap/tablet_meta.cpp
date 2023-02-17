@@ -323,9 +323,11 @@ Status TabletMeta::create_from_file(const string& file_path) {
     FileHeader<TabletMetaPB> file_header;
     FileHandler file_handler;
 
-    if (file_handler.open(file_path, O_RDONLY) != Status::OK()) {
+    auto open_status = file_handler.open(file_path, O_RDONLY);
+
+    if (!open_status.ok()) {
         LOG(WARNING) << "fail to open ordinal file. file=" << file_path;
-        return Status::Error<IO_ERROR>();
+        return open_status;
     }
 
     // In file_header.unserialize(), it validates file length, signature, checksum of protobuf.
@@ -399,9 +401,11 @@ Status TabletMeta::save(const string& file_path, const TabletMetaPB& tablet_meta
     FileHeader<TabletMetaPB> file_header;
     FileHandler file_handler;
 
-    if (!file_handler.open_with_mode(file_path, O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR)) {
+    auto open_status =
+            file_handler.open_with_mode(file_path, O_CREAT | O_WRONLY | O_TRUNC, S_IRUSR | S_IWUSR);
+    if (!open_status.ok()) {
         LOG(WARNING) << "fail to open header file. file='" << file_path;
-        return Status::Error<IO_ERROR>();
+        return open_status;
     }
 
     try {

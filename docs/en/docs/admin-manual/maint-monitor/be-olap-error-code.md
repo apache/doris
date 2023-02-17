@@ -173,7 +173,6 @@ under the License.
 | RowBlock error code | | |
 | OLAP_ERR_ROWBLOCK_DECOMPRESS_ERROR | -1300 | Rowblock decompression error |
 | OLAP_ERR_ROWBLOCK_FIND_ROW_EXCEPTION | -1301 | Failed to obtain Block Entry |
-| OLAP_ERR_ROWBLOCK_READ_INFO_ERROR | -1302 | Error reading Rowblock information |
 | Tablet metadata error | | |
 | OLAP_ERR_HEADER_ADD_VERSION | -1400 | Tablet metadata increase version |
 | OLAP_ERR_HEADER_DELETE_VERSION | -1401 | Tablet metadata deletion version |

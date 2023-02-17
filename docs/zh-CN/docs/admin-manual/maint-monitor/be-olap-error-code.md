@@ -182,7 +182,6 @@ under the License.
 | RowBlock错误代码                                 |        |                                                              |
 | OLAP_ERR_ROWBLOCK_DECOMPRESS_ERROR               | -1300  | Rowblock解压缩错误                                           |
 | OLAP_ERR_ROWBLOCK_FIND_ROW_EXCEPTION             | -1301  | 获取Block Entry失败                                          |
-| OLAP_ERR_ROWBLOCK_READ_INFO_ERROR                | -1302  | 读取Rowblock信息错误                                         |
 | Tablet元数据错误                                 |        |                                                              |
 | OLAP_ERR_HEADER_ADD_VERSION                      | -1400  | tablet元数据增加版本                                         |
 | OLAP_ERR_HEADER_DELETE_VERSION                   | -1401  | tablet元数据删除版本                                         |
