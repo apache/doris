@@ -1,7 +1,7 @@
 ---
 {
     "title": "Query Profile Action",
-    "language": "en"
+    "language": "zh-CN"
 }
 ---
 
@@ -34,13 +34,13 @@ GET /rest/v1/query_profile/<query_id>
 
 ## Description
 
-The Query Profile Action is used to obtain the Query profile.
+Query Profile Action 用于获取 Query 的 profile
     
 ## Path parameters
 
 * `<query_id>`
 
-    Optional parameters. When not specified, the latest query list is returned. When specified, return the profile of the specified query.
+    可选参数。当不指定时，返回最新的 query 列表。当指定时，返回指定 query 的 profile。
 
 ## Query parameters
 

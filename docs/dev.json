@@ -279,26 +279,6 @@
     "message": "FE",
     "description": "The label for category FE in sidebar docs"
   },
-  "sidebar.docs.category.CONTROLLER": {
-    "message": "CONTROLLER",
-    "description": "The label for category CONTROLLER in sidebar docs"
-  },
-  "sidebar.docs.category.META": {
-    "message": "META",
-    "description": "The label for category META in sidebar docs"
-  },
-  "sidebar.docs.category.REST": {
-    "message": "REST",
-    "description": "The label for category REST in sidebar docs"
-  },
-  "sidebar.docs.category.MANAGER": {
-    "message": "MANAGER",
-    "description": "The label for category MANAGER in sidebar docs"
-  },
-  "sidebar.docs.category.RESTV2": {
-    "message": "RESTV2",
-    "description": "The label for category RESTV2 in sidebar docs"
-  },
   "sidebar.docs.category.BE": {
     "message": "BE",
     "description": "The label for category BE in sidebar docs"

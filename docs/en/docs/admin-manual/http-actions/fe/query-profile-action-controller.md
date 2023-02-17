@@ -1,7 +1,7 @@
 ---
 {
     "title": "Query Profile Action",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
@@ -34,25 +34,25 @@ GET /rest/v1/query_profile/<query_id>
 
 ## Description
 
-Query Profile Action 用于获取 Query 的 profile。
+The Query Profile Action is used to obtain the Query profile.
     
 ## Path parameters
 
 * `<query_id>`
 
-    可选参数。当不指定时，返回最新的 query 列表。当指定时，返回指定 query 的 profile。
+    Optional parameters. When not specified, the latest query list is returned. When specified, return the profile of the specified query.
 
 ## Query parameters
 
-无
+None
 
 ## Request body
 
-无
+None
 
 ## Response
 
-* 不指定 `<query_id>`
+* Not specify `<query_id>`
 
     ```
     GET /rest/v1/query_profile/
@@ -90,9 +90,9 @@ Query Profile Action 用于获取 Query 的 profile。
     }
     ```
     
-    返回结果同 `System Action`，是一个表格的描述。
+    The returned result is the same as `System Action`, which is a table description.
     
-* 指定 `<query_id>`
+* Specify `<query_id>`
 
     ```
     GET /rest/v1/query_profile/<query_id>
@@ -105,4 +105,4 @@ Query Profile Action 用于获取 Query 的 profile。
     }
     ```
     
-    `data` 为 profile 的文本内容。
+    `data` is the text content of the profile.
