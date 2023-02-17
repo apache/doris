@@ -96,6 +96,7 @@ public class EsExternalTable extends ExternalTable {
         esTable.setEnableKeywordSniff(esCatalog.enableKeywordSniff());
         esTable.setNodesDiscovery(esCatalog.enableNodesDiscovery());
         esTable.setHttpSslEnabled(esCatalog.enableSsl());
+        esTable.setLikePushDown(esCatalog.enableLikePushDown());
         esTable.setSeeds(esCatalog.getNodes());
         esTable.setHosts(String.join(",", esCatalog.getNodes()));
         esTable.syncTableMetaData();
