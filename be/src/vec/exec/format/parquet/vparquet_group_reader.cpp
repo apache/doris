@@ -18,6 +18,7 @@
 #include "vparquet_group_reader.h"
 
 #include "schema_desc.h"
+#include "util/simd/bits.h"
 #include "vec/columns/column_const.h"
 #include "vparquet_column_reader.h"
 

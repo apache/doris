@@ -21,7 +21,10 @@
 #include <gen_cpp/parquet_types.h>
 
 #include "schema_desc.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vparquet_column_chunk_reader.h"
 
 namespace doris::vectorized {
