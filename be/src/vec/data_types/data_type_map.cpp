@@ -66,10 +66,9 @@ std::string DataTypeMap::to_string(const IColumn& column, size_t row_num) const 
     return ss.str();
 }
 
-void DataTypeMap::to_string(const class doris::vectorized::IColumn& column, size_t row_num,
-                            class doris::vectorized::BufferWritable& ostr) const {
+void DataTypeMap::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
     std::string ss = to_string(column, row_num);
-    ostr.write(ss.c_str(), strlen(ss.c_str()));
+    ostr.write(ss.c_str(), ss.size());
 }
 
 bool next_slot_from_string(ReadBuffer& rb, StringRef& output, bool& has_quota) {

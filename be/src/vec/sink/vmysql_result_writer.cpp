@@ -105,7 +105,7 @@ Status VMysqlResultWriter<is_binary_format>::_add_one_column(
                     BitmapValue bitmapValue = pColumnComplexType->get_element(i);
                     size_t size = bitmapValue.getSizeInBytes();
                     std::unique_ptr<char[]> buf = std::make_unique<char[]>(size);
-                    bitmapValue.write(buf.get());
+                    bitmapValue.write_to(buf.get());
                     buf_ret = rows_buffer[i].push_string(buf.get(), size);
                 } else if (column->is_hll() && output_object_data()) {
                     const vectorized::ColumnComplexType<HyperLogLog>* pColumnComplexType =
