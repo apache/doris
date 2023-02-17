@@ -1803,9 +1803,9 @@ Status Tablet::write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& 
                                    UniqueId cooldown_meta_id,
                                    const RowsetMetaSharedPtr& new_rs_meta,
                                    const std::vector<RowsetMetaSharedPtr>& to_deletes) {
-    std::unordered_set<std::string> to_delete_set;
+    std::unordered_set<Version, HashOfVersion> to_delete_set;
     for (auto& rs_meta : to_deletes) {
-        to_delete_set.emplace(rs_meta->version().to_string());
+        to_delete_set.emplace(rs_meta->version());
     }
 
     std::vector<RowsetMetaSharedPtr> cooldowned_rs_metas;
@@ -1813,7 +1813,7 @@ Status Tablet::write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& 
         std::shared_lock meta_rlock(_meta_lock);
         for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
             if (!rs_meta->is_local()) {
-                if (to_delete_set.find(rs_meta->version().to_string()) != to_delete_set.end()) {
+                if (to_delete_set.find(rs_meta->version()) != to_delete_set.end()) {
                     continue;
                 }
                 cooldowned_rs_metas.emplace_back(rs_meta);
