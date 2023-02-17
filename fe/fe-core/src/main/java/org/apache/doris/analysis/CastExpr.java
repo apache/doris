@@ -210,7 +210,7 @@ public class CastExpr extends Expr {
                 && ConnectContext.get().getExecutor().getParsedStmt() != null
                 && ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions() != null
                 && ConnectContext.get().getExecutor().getParsedStmt().getExplainOptions().isVerbose();
-        if (isImplicit && !isVerbose) {
+        if (isImplicit && !isVerbose && !disableTableName) {
             return getChild(0).toSql();
         }
         if (isAnalyzed) {
