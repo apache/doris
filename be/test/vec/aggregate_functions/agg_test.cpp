@@ -44,8 +44,7 @@ TEST(AggTest, basic_test) {
     register_aggregate_function_sum(factory);
     DataTypePtr data_type(std::make_shared<DataTypeInt32>());
     DataTypes data_types = {data_type};
-    Array array;
-    auto agg_function = factory.get("sum", data_types, array);
+    auto agg_function = factory.get("sum", data_types);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function->create(place);
@@ -76,9 +75,8 @@ TEST(AggTest, topn_test) {
     AggregateFunctionSimpleFactory factory;
     register_aggregate_function_topn(factory);
     DataTypes data_types = {std::make_shared<DataTypeString>(), std::make_shared<DataTypeInt32>()};
-    Array array;
 
-    auto agg_function = factory.get("topn", data_types, array);
+    auto agg_function = factory.get("topn", data_types);
     std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
     AggregateDataPtr place = memory.get();
     agg_function->create(place);

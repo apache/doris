@@ -108,9 +108,8 @@ public:
         LOG(INFO) << "test_agg_histogram for type"
                   << "(" << data_types[0]->get_name() << ")";
 
-        Array array;
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
-        auto agg_function = factory.get("histogram", data_types, array);
+        auto agg_function = factory.get("histogram", data_types);
         EXPECT_NE(agg_function, nullptr);
 
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);

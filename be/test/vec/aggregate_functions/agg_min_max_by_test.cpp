@@ -67,8 +67,7 @@ TEST_P(AggMinMaxByTest, min_max_by_test) {
         DataTypes data_types = {std::make_shared<DataTypeInt32>(),
                                 i == 0 ? (DataTypePtr)std::make_shared<DataTypeInt32>()
                                        : (DataTypePtr)std::make_shared<DataTypeString>()};
-        Array array;
-        auto agg_function = factory.get(min_max_by_type, data_types, array);
+        auto agg_function = factory.get(min_max_by_type, data_types);
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
         AggregateDataPtr place = memory.get();
         agg_function->create(place);
