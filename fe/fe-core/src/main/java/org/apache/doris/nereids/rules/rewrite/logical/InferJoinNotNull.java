@@ -21,6 +21,7 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -40,7 +41,8 @@ import java.util.Set;
 public class InferJoinNotNull extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalJoin().when(join -> join.getJoinType().isInnerJoin() || join.getJoinType().isSemiOrAntiJoin())
+        // TODO: maybe consider ANTI?
+        return logicalJoin().when(join -> join.getJoinType().isInnerJoin() || join.getJoinType().isSemiJoin())
             .whenNot(LogicalJoin::isGenerateIsNotNull)
             .then(join -> {
                 Set<Expression> conjuncts = new HashSet<>();
@@ -54,7 +56,7 @@ public class InferJoinNotNull extends OneRewriteRuleFactory {
                     Set<Expression> rightNotNull = ExpressionUtils.inferNotNull(conjuncts, join.right().getOutputSet());
                     left = PlanUtils.filterOrSelf(leftNotNull, join.left());
                     right = PlanUtils.filterOrSelf(rightNotNull, join.right());
-                } else if (join.getJoinType().isLeftSemiOrAntiJoin()) {
+                } else if (join.getJoinType() == JoinType.LEFT_SEMI_JOIN) {
                     Set<Expression> leftNotNull = ExpressionUtils.inferNotNull(conjuncts, join.left().getOutputSet());
                     left = PlanUtils.filterOrSelf(leftNotNull, join.left());
                 } else {
