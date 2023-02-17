@@ -71,7 +71,7 @@ suite("test_map_export", "export") {
     sql """ INSERT INTO ${testTable} VALUES (2, {}); """
     sql """ INSERT INTO ${testTable} VALUES (3, {"  33,amory  ":2, " bet ":20, " cler ": 26}); """
     sql """ INSERT INTO ${testTable} VALUES (4, {"k3":23, null: 20, "k4": null}); """
-    sql """ INSERT INTO ${testTable} VALUES (5, {:2, "k2":}); """
+    sql """ INSERT INTO ${testTable} VALUES (5, {null:null}); """
 
     // check result
     qt_select_default """ SELECT * FROM ${testTable} t ORDER BY k1; """
@@ -119,7 +119,7 @@ suite("test_map_export", "export") {
             }
             // check key val empty
             if (outLine[0] == 5) {
-                assert outLine[1] == "{:2, \"k2\":}"
+                assert outLine[1] == "{null:null}"
             }
         }
     } finally {
