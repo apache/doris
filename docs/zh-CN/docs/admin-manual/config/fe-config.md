@@ -1007,7 +1007,7 @@ colocate join PlanFragment instance 的 memory_limit = exec_mem_limit / min (que
 
 #### `max_running_txn_num_per_db`
 
-默认值：100
+默认值：1000
 
 是否可以动态配置：true
 
