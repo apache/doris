@@ -434,7 +434,7 @@ public class LoadManager implements Writable {
         readLock();
         try {
             if (dbIdToLabelToLoadJobs.containsKey(dbId)) {
-                Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(dbId);;
+                Map<String, List<LoadJob>> labelToLoadJobs = dbIdToLabelToLoadJobs.get(dbId);
                 if (labelToLoadJobs.containsKey(label)) {
                     List<LoadJob> labelLoadJobs = labelToLoadJobs.get(label);
                     for (LoadJob job : labelLoadJobs) {
