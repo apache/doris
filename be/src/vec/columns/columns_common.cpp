@@ -99,7 +99,7 @@ namespace {
 /// Implementation details of filterArraysImpl function, used as template parameter.
 /// Allow to build or not to build offsets array.
 
-template <typename OT>
+template <typename OT, bool USE_MEMMOVE = false>
 struct ResultOffsetsBuilder {
     PaddedPODArray<OT>& res_offsets;
     OT current_src_offset = 0;
@@ -119,7 +119,11 @@ struct ResultOffsetsBuilder {
     void insert_chunk(const OT* src_offsets_pos, bool first, OT chunk_offset, size_t chunk_size) {
         const auto offsets_size_old = res_offsets.size();
         res_offsets.resize_assume_reserved(offsets_size_old + SIMD_BYTES);
-        memcpy(&res_offsets[offsets_size_old], src_offsets_pos, SIMD_BYTES * sizeof(OT));
+        if constexpr (USE_MEMMOVE) {
+            memmove(&res_offsets[offsets_size_old], src_offsets_pos, SIMD_BYTES * sizeof(OT));
+        } else {
+            memcpy(&res_offsets[offsets_size_old], src_offsets_pos, SIMD_BYTES * sizeof(OT));
+        }
 
         if (!first) {
             /// difference between current and actual offset
@@ -228,6 +232,95 @@ void filter_arrays_impl_generic(const PaddedPODArray<T>& src_elems,
         ++offsets_pos;
     }
 }
+
+template <typename T, typename OT, typename ResultOffsetsBuilder>
+size_t filter_arrays_impl_generic_without_reserving(PaddedPODArray<T>& elems,
+                                                    PaddedPODArray<OT>& offsets,
+                                                    const IColumn::Filter& filter) {
+    const size_t size = offsets.size();
+    if (offsets.size() != filter.size()) {
+        LOG(FATAL) << "Size of filter doesn't match size of column.";
+    }
+
+    /// If no need to filter the `offsets`, here do not reset the end ptr of `offsets`
+    if constexpr (!std::is_same_v<ResultOffsetsBuilder, NoResultOffsetsBuilder<OT>>) {
+        /// Reset the end ptr to prepare for inserting/pushing elements into `offsets` in `ResultOffsetsBuilder`.
+        offsets.set_end_ptr(offsets.data());
+    }
+
+    ResultOffsetsBuilder result_offsets_builder(&offsets);
+
+    const UInt8* filter_pos = filter.data();
+    const T* src_data = elems.data();
+    T* result_data = elems.data();
+    const auto filter_end = filter_pos + size;
+
+    auto offsets_pos = offsets.data();
+    const auto offsets_begin = offsets_pos;
+    size_t result_size = 0;
+
+    /// copy array ending at *end_offset_ptr
+    const auto copy_array = [&](const OT* offset_ptr) {
+        const auto arr_offset = offset_ptr == offsets_begin ? 0 : offset_ptr[-1];
+        const auto arr_size = *offset_ptr - arr_offset;
+
+        result_offsets_builder.insert_one(arr_size);
+        const size_t size_to_copy = arr_size * sizeof(T);
+        memmove(result_data, &src_data[arr_offset], size_to_copy);
+        result_data += arr_size;
+    };
+
+    static constexpr size_t SIMD_BYTES = 32;
+    const auto filter_end_aligned = filter_pos + size / SIMD_BYTES * SIMD_BYTES;
+
+    while (filter_pos < filter_end_aligned) {
+        auto mask = simd::bytes32_mask_to_bits32_mask(filter_pos);
+
+        if (mask == 0xffffffff) {
+            /// SIMD_BYTES consecutive rows pass the filter
+            const auto first = offsets_pos == offsets_begin;
+
+            const auto chunk_offset = first ? 0 : offsets_pos[-1];
+            const auto chunk_size = offsets_pos[SIMD_BYTES - 1] - chunk_offset;
+
+            result_offsets_builder.template insert_chunk<SIMD_BYTES>(offsets_pos, first,
+                                                                     chunk_offset, chunk_size);
+
+            /// copy elements for SIMD_BYTES arrays at once
+            const size_t size_to_copy = chunk_size * sizeof(T);
+            memmove(result_data, &src_data[chunk_offset], size_to_copy);
+            result_data += chunk_size;
+            result_size += SIMD_BYTES;
+        } else {
+            while (mask) {
+                const size_t bit_pos = __builtin_ctzll(mask);
+                copy_array(offsets_pos + bit_pos);
+                ++result_size;
+                mask = mask & (mask - 1);
+            }
+        }
+
+        filter_pos += SIMD_BYTES;
+        offsets_pos += SIMD_BYTES;
+    }
+
+    while (filter_pos < filter_end) {
+        if (*filter_pos) {
+            copy_array(offsets_pos);
+            ++result_size;
+        }
+
+        ++filter_pos;
+        ++offsets_pos;
+    }
+
+    if constexpr (!std::is_same_v<ResultOffsetsBuilder, NoResultOffsetsBuilder<OT>>) {
+        const size_t result_data_size = result_data - elems.data();
+        CHECK_EQ(result_data_size, offsets.back());
+    }
+    elems.set_end_ptr(result_data);
+    return result_size;
+}
 } // namespace
 
 template <typename T, typename OT>
@@ -239,6 +332,13 @@ void filter_arrays_impl(const PaddedPODArray<T>& src_elems, const PaddedPODArray
 }
 
 template <typename T, typename OT>
+size_t filter_arrays_impl(PaddedPODArray<T>& data, PaddedPODArray<OT>& offsets,
+                          const IColumn::Filter& filter) {
+    return filter_arrays_impl_generic_without_reserving<T, OT, ResultOffsetsBuilder<OT, true>>(
+            data, offsets, filter);
+}
+
+template <typename T, typename OT>
 void filter_arrays_impl_only_data(const PaddedPODArray<T>& src_elems,
                                   const PaddedPODArray<OT>& src_offsets,
                                   PaddedPODArray<T>& res_elems, const IColumn::Filter& filt,
@@ -247,14 +347,25 @@ void filter_arrays_impl_only_data(const PaddedPODArray<T>& src_elems,
             src_elems, src_offsets, res_elems, nullptr, filt, result_size_hint);
 }
 
+template <typename T, typename OT>
+size_t filter_arrays_impl_only_data(PaddedPODArray<T>& data, PaddedPODArray<OT>& offsets,
+                                    const IColumn::Filter& filter) {
+    return filter_arrays_impl_generic_without_reserving<T, OT, NoResultOffsetsBuilder<OT>>(
+            data, offsets, filter);
+}
+
 /// Explicit instantiations - not to place the implementation of the function above in the header file.
 #define INSTANTIATE(TYPE, OFFTYPE)                                                              \
     template void filter_arrays_impl<TYPE, OFFTYPE>(                                            \
             const PaddedPODArray<TYPE>&, const PaddedPODArray<OFFTYPE>&, PaddedPODArray<TYPE>&, \
             PaddedPODArray<OFFTYPE>&, const IColumn::Filter&, ssize_t);                         \
+    template size_t filter_arrays_impl<TYPE, OFFTYPE>(                                          \
+            PaddedPODArray<TYPE>&, PaddedPODArray<OFFTYPE>&, const IColumn::Filter&);           \
     template void filter_arrays_impl_only_data<TYPE, OFFTYPE>(                                  \
             const PaddedPODArray<TYPE>&, const PaddedPODArray<OFFTYPE>&, PaddedPODArray<TYPE>&, \
-            const IColumn::Filter&, ssize_t);
+            const IColumn::Filter&, ssize_t);                                                   \
+    template size_t filter_arrays_impl_only_data<TYPE, OFFTYPE>(                                \
+            PaddedPODArray<TYPE>&, PaddedPODArray<OFFTYPE>&, const IColumn::Filter&);
 
 INSTANTIATE(UInt8, IColumn::Offset)
 INSTANTIATE(UInt8, ColumnArray::Offset64)
