@@ -90,7 +90,7 @@ public:
     int queue_id() { return _state->exec_env()->store_path_to_index("xxx"); }
 
     virtual doris::TabletStorageType get_storage_type() {
-        return doris::TabletStorageType::STORAGE_TYPE_LOCAL;
+        return doris::TabletStorageType::STORAGE_TYPE_REMOTE;
     }
 
     bool need_to_close() { return _need_to_close; }
