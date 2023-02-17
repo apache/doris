@@ -809,17 +809,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         return sortNode;
     }
 
-    @Override
-    public PlanFragment visitAbstractPhysicalSort(
-            AbstractPhysicalSort<? extends Plan> sort,
-            PlanTranslatorContext context) {
-        PlanFragment childFragment = sort.child(0).accept(this, context);
-        PlanNode childNode = childFragment.getPlanRoot();
-        SortNode sortNode = translateSortNode(sort, childNode, context);
-        childFragment.addPlanRoot(sortNode);
-        return childFragment;
-    }
-
     /**
      * the contract of hash join node with BE
      * 1. hash join contains 3 types of predicates:

@@ -30,7 +30,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFilter;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
@@ -155,15 +154,6 @@ public class RuntimeFilterPruner extends PlanPostProcessor {
             context.getRuntimeFilterContext().addEffectiveSrcNode(distribute);
         }
         return distribute;
-    }
-
-    public PhysicalLocalQuickSort visitPhysicalLocalQuickSort(PhysicalLocalQuickSort<? extends Plan> sort,
-            CascadesContext context) {
-        sort.child().accept(this, context);
-        if (context.getRuntimeFilterContext().isEffectiveSrcNode(sort.child())) {
-            context.getRuntimeFilterContext().addEffectiveSrcNode(sort);
-        }
-        return sort;
     }
 
     public PhysicalAssertNumRows visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows,

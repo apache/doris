@@ -40,15 +40,15 @@ public class LogicalSortToPhysicalQuickSort extends OneImplementationRuleFactory
 
     private List<PhysicalQuickSort<? extends Plan>> twoPhaseSort(LogicalSort logicalSort) {
         PhysicalQuickSort localSort = new PhysicalQuickSort(logicalSort.getOrderKeys(),
-                logicalSort.getLogicalProperties(), logicalSort.child(0), SortPhase.LOCAL_SORT);
+                SortPhase.LOCAL_SORT, logicalSort.getLogicalProperties(), logicalSort.child(0));
         PhysicalQuickSort twoPhaseSort = new PhysicalQuickSort<>(
                 logicalSort.getOrderKeys(),
-                logicalSort.getLogicalProperties(),
-                localSort, SortPhase.MERGE_SORT);
+                SortPhase.MERGE_SORT, logicalSort.getLogicalProperties(),
+                localSort);
         PhysicalQuickSort onePhaseSort = new PhysicalQuickSort<>(
                 logicalSort.getOrderKeys(),
-                logicalSort.getLogicalProperties(),
-                localSort.child(0), SortPhase.GATHER_SORT);
+                SortPhase.GATHER_SORT, logicalSort.getLogicalProperties(),
+                localSort.child(0));
         return Lists.newArrayList(twoPhaseSort, onePhaseSort);
     }
 }
