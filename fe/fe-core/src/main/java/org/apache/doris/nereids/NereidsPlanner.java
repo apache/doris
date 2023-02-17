@@ -21,7 +21,6 @@ import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.common.NereidsException;
-import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext.Lock;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -61,8 +60,6 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.PriorityQueue;
-import java.util.Queue;
 import java.util.stream.Collectors;
 
 /**
@@ -181,9 +178,8 @@ public class NereidsPlanner extends Planner {
                 optimize();
             }
 
-            PhysicalPlan physicalPlan;
             int nth = ConnectContext.get().getSessionVariable().getNthOptimizedPlan();
-            physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
+            PhysicalPlan physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
 
             physicalPlan = postProcess(physicalPlan);
             if (explainLevel == ExplainLevel.OPTIMIZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
@@ -257,14 +253,13 @@ public class NereidsPlanner extends Planner {
     }
 
     private PhysicalPlan chooseNthPlan(Group rootGroup, PhysicalProperties physicalProperties, int nthPlan) {
-        if (nthPlan == 1) {
+        if (nthPlan <= 1) {
             return chooseBestPlan(rootGroup, physicalProperties);
         }
         Memo memo = cascadesContext.getMemo();
-        Queue<Pair<Long, Double>> rankingQueue = new PriorityQueue<>(
-                (l, r) -> Double.compare(l.second, r.second));
-        memo.rank(rankingQueue);
-        return memo.unrank(rankingQueue.poll().first);
+
+        long id = memo.rank(nthPlan);
+        return memo.unrank(id);
     }
 
     private PhysicalPlan chooseBestPlan(Group rootGroup, PhysicalProperties physicalProperties)
