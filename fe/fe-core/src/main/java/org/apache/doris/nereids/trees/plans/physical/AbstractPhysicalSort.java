@@ -46,8 +46,8 @@ public abstract class AbstractPhysicalSort<CHILD_TYPE extends Plan> extends Phys
      * Constructor of AbstractPhysicalSort.
      */
     public AbstractPhysicalSort(PlanType type, List<OrderKey> orderKeys,
-            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            CHILD_TYPE child, SortPhase phase) {
+            SortPhase phase, Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            CHILD_TYPE child) {
         super(type, groupExpression, logicalProperties, child);
         this.orderKeys = ImmutableList.copyOf(Objects.requireNonNull(orderKeys, "orderKeys can not be null"));
         this.phase = phase;
@@ -57,9 +57,8 @@ public abstract class AbstractPhysicalSort<CHILD_TYPE extends Plan> extends Phys
      * Constructor of AbstractPhysicalSort.
      */
     public AbstractPhysicalSort(PlanType type, List<OrderKey> orderKeys,
-            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult, CHILD_TYPE child,
-            SortPhase phase) {
+            SortPhase phase, Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult, CHILD_TYPE child) {
         super(type, groupExpression, logicalProperties, physicalProperties, statsDeriveResult, child);
         this.orderKeys = ImmutableList.copyOf(Objects.requireNonNull(orderKeys, "orderKeys can not be null"));
         this.phase = phase;

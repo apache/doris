@@ -66,7 +66,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
@@ -352,10 +351,6 @@ public abstract class PlanVisitor<R, C> {
 
     public R visitPhysicalDistribute(PhysicalDistribute<? extends Plan> distribute, C context) {
         return visit(distribute, context);
-    }
-
-    public R visitPhysicalLocalQuickSort(PhysicalLocalQuickSort<? extends Plan> sort, C context) {
-        return visitAbstractPhysicalSort(sort, context);
     }
 
     public R visitPhysicalAssertNumRows(PhysicalAssertNumRows<? extends Plan> assertNumRows, C context) {
