@@ -63,8 +63,8 @@ public class OuterJoinLAsscom extends OneExplorationRuleFactory {
         return logicalJoin(logicalJoin(), group())
                 .when(join -> VALID_TYPE_PAIR_SET.contains(Pair.of(join.left().getJoinType(), join.getJoinType())))
                 .when(topJoin -> checkReorder(topJoin, topJoin.left()))
-                .when(topJoin -> checkCondition(topJoin, topJoin.left().right().getOutputExprIdSet()))
                 .whenNot(join -> join.hasJoinHint() || join.left().hasJoinHint())
+                .when(topJoin -> checkCondition(topJoin, topJoin.left().right().getOutputExprIdSet()))
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
                     GroupPlan a = bottomJoin.left();

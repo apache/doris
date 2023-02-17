@@ -130,7 +130,6 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
         return otherJoinConjuncts;
     }
 
-    @Override
     public List<Expression> getHashJoinConjuncts() {
         return hashJoinConjuncts;
     }
