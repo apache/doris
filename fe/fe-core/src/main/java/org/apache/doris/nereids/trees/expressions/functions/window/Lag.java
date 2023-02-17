@@ -65,10 +65,16 @@ public class Lag extends WindowFunction implements TernaryExpression, PropagateN
     }
 
     public Expression getOffset() {
+        if (children().size() <= 1) {
+            throw new AnalysisException("Not set offset of Lead(): " + this.toSql());
+        }
         return child(1);
     }
 
     public Expression getDefaultValue() {
+        if (children.size() <= 2) {
+            throw new AnalysisException("Not set default value of Lead(): " + this.toSql());
+        }
         return child(2);
     }
 
