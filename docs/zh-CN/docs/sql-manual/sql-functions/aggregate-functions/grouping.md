@@ -28,26 +28,26 @@ under the License.
 
 用在含有 CUBE、ROLLUP 或 GROUPING SETS 的 SQL 语句中，用于表示进行 CUBE、ROLLUP 或 GROUPING SETS 操作的列是否汇总。当结果集中的数据行是 CUBE、ROLLUP 或 GROUPING SETS 操作产生的汇总结果时，该函数返回 1，否则返回 0。GROUPING 函数可以在 `SELECT`、`HAVING` 和 `ORDER BY` 子句当中使用。
 
-### 语法
+### Syntax
 
 ```sql
 GROUPING( <column_expression> )
 ```
 
-### 参数
+### Arguments
 
 `<column_expression>`
 是在 `GROUP BY` 子句中包含的列或表达式。
 
-### 返回类型
+### Return Types
 
 BIGINT
 
-### 备注
+### Remarks
 
 `ROLLUP`、`CUBE` 或 `GROUPING SETS` 操作返回的汇总结果，会用 NULL 充当被分组的字段的值。因此，`GROUPING` 通常用于区分 `ROLLUP`、`CUBE` 或 `GROUPING SETS` 返回的空值与表中的空值。
 
-### 示例
+### Example
 
 下面的例子使用 `camp` 列进行分组操作，并对 `occupation` 的数量进行汇总，`GROUPING` 函数作用于 `camp` 列。
 
@@ -101,6 +101,6 @@ GROUP BY
 4 rows in set (0.01 sec)
 ```
 
-### 参见
+### See Also
 
 [GROUPING_ID](./grouping_id.md)
