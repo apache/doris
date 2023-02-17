@@ -87,6 +87,7 @@ public class NMysqlChannel extends MysqlChannel {
      */
     @Override
     protected void realNetSend(ByteBuffer buffer) throws IOException {
+        encryptData(buffer);
         long bufLen = buffer.remaining();
         long writeLen = Channels.writeBlocking(conn.getSinkChannel(), buffer);
         if (bufLen != writeLen) {

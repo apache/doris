@@ -183,10 +183,8 @@ public class MysqlChannel {
             appData.flip();
             dstBuf.clear();
             dstBuf.put(appData);
-            // remove mysql header manually.
             dstBuf.flip();
-            dstBuf.position(4);
-            dstBuf.compact();
+
         }
     }
 
@@ -242,12 +240,22 @@ public class MysqlChannel {
             // before read, set limit to make read only one packet
             result.limit(result.position() + packetLen);
             readLen = readAll(result,false);
+            if(isSslMode){
+                byte[] header = result.array();
+                int packetId = header[3] & 0xFF;
+                if (packetId != sequenceId) {
+                    LOG.warn("receive packet sequence id[" + packetId() + "] want to get[" + sequenceId + "]");
+                    throw new IOException("Bad packet sequence.");
+                }
+                result.position(4);
+                result.compact();
+            }
             if (readLen != packetLen) {
                 LOG.warn("Length of received packet content(" + readLen
                         + ") is not equal with length in head.(" + packetLen + ")");
                 return null;
             }
-            if(!isSslMode&&!isHandshaking){
+            if(!isHandshaking){
                 accSequenceId();
             }
             if (packetLen != MAX_PHYSICAL_PACKET_LENGTH) {
@@ -277,24 +285,31 @@ public class MysqlChannel {
         isSend = true;
     }
 
-    private void encryptData(ByteBuffer dstBuf) throws SSLException {
+    protected void encryptData(ByteBuffer dstBuf) throws SSLException {
         if (isSslMode) {
             ByteBuffer netData = ByteBuffer.allocate(sslEngine.getSession().getPacketBufferSize());
             sslEngine.wrap(dstBuf, netData);
             netData.flip();
             dstBuf.clear();
             dstBuf.put(netData);
+            dstBuf.flip();
         }
     }
 
     public void flush() throws IOException {
-        if (null == sendBuffer || sendBuffer.position() == 0) {
+        ByteBuffer sendData ;
+        if(isSslMode|isHandshaking){
+            sendData = sendSslBuffer;
+        }else{
+            sendData=sendBuffer;
+        }
+        if (null == sendData|| sendData.position() == 0) {
             // Nothing to send
             return;
         }
-        sendBuffer.flip();
-        realNetSend(sendBuffer);
-        sendBuffer.clear();
+        sendData.flip();
+        realNetSend(sendData);
+        sendData.clear();
         isSend = true;
     }
 
@@ -331,15 +346,18 @@ public class MysqlChannel {
             return;
         }
         long leftLength = sendSslBuffer.capacity() - sendSslBuffer.position();
-        if (leftLength < 5) {
+        // ssl packet: ssl header(5 bytes) + mysql header(4 bytes).
+        // ssl header will be added by ssl engine automatically, so here we only need to add mysql header.
+        if (leftLength < 4) {
             flush();
         }
-        sendBuffer.put((byte) 0x23);
-        sendBuffer.put((byte) 0x03);
-        sendBuffer.put((byte) 0x03);
 
-        sendBuffer.put((byte) ((long) length>>8 &0xFF));
-        sendBuffer.put((byte) ((long) length &0xFF));
+        long newLen = length;
+        for (int i = 0; i < 3; ++i) {
+            sendSslBuffer.put((byte) newLen);
+            newLen >>= 8;
+        }
+        sendSslBuffer.put((byte) sequenceId);
     }
 
     private void writeBuffer(ByteBuffer buffer) throws IOException {
@@ -404,7 +422,7 @@ public class MysqlChannel {
             packet.limit(oldLimit);
             writeSslBuffer(packet);
         }else if(isSslMode){
-            writeSslHeader(oldLimit - packet.position());
+            writeSslHeader(oldLimit-packet.position());
             packet.limit(oldLimit);
             writeSslBuffer(packet);
         }else{
