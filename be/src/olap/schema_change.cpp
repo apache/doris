@@ -731,7 +731,6 @@ Status SchemaChangeForInvertedIndex::_add_nullable(
             auto step = next_run_step();
             if (null_map[offset]) {
                 RETURN_IF_ERROR(_inverted_index_builders[index_writer_sign]->add_nulls(step));
-                *ptr += field->size() * step;
             } else {
                 if (field->type() == FieldType::OLAP_FIELD_TYPE_ARRAY) {
                     DCHECK(field->get_sub_field_count() == 1);
@@ -743,6 +742,7 @@ Status SchemaChangeForInvertedIndex::_add_nullable(
                             column_name, *ptr, step));
                 }
             }
+            *ptr += field->size() * step;
             offset += step;
         } while (offset < num_rows);
     } catch (const std::exception& e) {
