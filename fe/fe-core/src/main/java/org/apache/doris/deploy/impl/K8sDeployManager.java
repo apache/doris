@@ -44,12 +44,14 @@ public class K8sDeployManager extends DeployManager {
     private static final Logger LOG = LogManager.getLogger(K8sDeployManager.class);
 
     public static final String ENV_APP_NAMESPACE = "APP_NAMESPACE";
-    // each SERVICE (FE/BE/OBSERVER/BROKER) represents a module of Palo, such as Frontends, Backends, ...
+    public static final String DEFAULT_APP_NAMESPACE = "default";
+    // each SERVICE (FE/BE/OBSERVER/BROKER) represents a module of Doris, such as Frontends, Backends, ...
     // and each service has a name in k8s.
     public static final String ENV_FE_SERVICE = "FE_SERVICE";
     public static final String ENV_FE_OBSERVER_SERVICE = "FE_OBSERVER_SERVICE";
     public static final String ENV_BE_SERVICE = "BE_SERVICE";
     public static final String ENV_BROKER_SERVICE = "BROKER_SERVICE";
+    public static final String ENV_CN_SERVICE = "CN_SERVICE";
 
     // we arbitrarily set all broker name as what ENV_BROKER_NAME specified.
     public static final String ENV_BROKER_NAME = "BROKER_NAME";
@@ -75,24 +77,23 @@ public class K8sDeployManager extends DeployManager {
 
     public K8sDeployManager(Env env, long intervalMs) {
         super(env, intervalMs);
-        initEnvVariables(ENV_FE_SERVICE, ENV_FE_OBSERVER_SERVICE, ENV_BE_SERVICE, ENV_BROKER_SERVICE);
+        initEnvVariables(ENV_FE_SERVICE, ENV_FE_OBSERVER_SERVICE, ENV_BE_SERVICE, ENV_BROKER_SERVICE, ENV_CN_SERVICE);
     }
 
     @Override
     protected void initEnvVariables(String envElectableFeServiceGroup, String envObserverFeServiceGroup,
-            String envBackendServiceGroup, String envBrokerServiceGroup) {
+            String envBackendServiceGroup, String envBrokerServiceGroup, String envCnServiceGroup) {
         super.initEnvVariables(envElectableFeServiceGroup, envObserverFeServiceGroup, envBackendServiceGroup,
-                   envBrokerServiceGroup);
+                envBrokerServiceGroup, envCnServiceGroup);
 
         // namespace
         appNamespace = Strings.nullToEmpty(System.getenv(ENV_APP_NAMESPACE));
 
         if (Strings.isNullOrEmpty(appNamespace)) {
-            LOG.error("failed to init namespace: " + ENV_APP_NAMESPACE);
-            System.exit(-1);
+            appNamespace = DEFAULT_APP_NAMESPACE;
         }
 
-        LOG.info("get namespace: {}", appNamespace);
+        LOG.info("use namespace: {}", appNamespace);
     }
 
     @Override
@@ -107,6 +108,8 @@ public class K8sDeployManager extends DeployManager {
             portName = BE_PORT;
         } else if (groupName.equals(brokerServiceGroup)) {
             portName = BROKER_PORT;
+        } else if (groupName.equals(cnServiceGroup)) {
+            portName = BE_PORT;
         } else {
             LOG.warn("unknown service group name: {}", groupName);
             return null;
@@ -120,7 +123,7 @@ public class K8sDeployManager extends DeployManager {
             endpoints = endpoints(appNamespace, groupName);
         } catch (Exception e) {
             LOG.warn("encounter exception when get endpoint from namespace {}, service: {}",
-                     appNamespace, groupName, e);
+                    appNamespace, groupName, e);
             return null;
         }
         if (endpoints == null) {
