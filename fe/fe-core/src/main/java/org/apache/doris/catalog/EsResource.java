@@ -60,6 +60,8 @@ public class EsResource extends Resource {
     public static final String NODES_DISCOVERY = "nodes_discovery";
     public static final String HTTP_SSL_ENABLED = "http_ssl_enabled";
     public static final String MAPPING_ES_ID = "mapping_es_id";
+
+    public static final String LIKE_PUSH_DOWN = "like_push_down";
     public static final String QUERY_DSL = "query_dsl";
 
     public static final String DOC_VALUE_SCAN_DEFAULT_VALUE = "true";
@@ -67,6 +69,8 @@ public class EsResource extends Resource {
     public static final String HTTP_SSL_ENABLED_DEFAULT_VALUE = "false";
     public static final String NODES_DISCOVERY_DEFAULT_VALUE = "true";
     public static final String MAPPING_ES_ID_DEFAULT_VALUE = "false";
+
+    public static final String LIKE_PUSH_DOWN_DEFAULT_VALUE = "true";
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
@@ -126,6 +130,9 @@ public class EsResource extends Resource {
         }
         if (properties.containsKey(EsResource.MAPPING_ES_ID)) {
             EsUtil.getBoolean(properties, EsResource.MAPPING_ES_ID);
+        }
+        if (properties.containsKey(EsResource.LIKE_PUSH_DOWN)) {
+            EsUtil.getBoolean(properties, EsResource.LIKE_PUSH_DOWN);
         }
     }
 
