@@ -156,36 +156,44 @@ public class MysqlChannel {
         }
     }
 
-    protected int readAll(ByteBuffer dstBuf) throws IOException {
+    // all packet header is not encrypted, packet body is not sure.
+    protected int readAll(ByteBuffer dstBuf, boolean isHeader) throws IOException {
         int readLen = 0;
         while (dstBuf.remaining() != 0) {
             int ret = channel.read(dstBuf);
             // return -1 when remote peer close the channel
             if (ret == -1) {
-                decryptData(dstBuf);
+                decryptData(dstBuf, isHeader);
                 return readLen;
             }
             readLen += ret;
         }
         // if use ssl mode, wo need to decrypt received net data(ciphertext) to app data(plaintext).
-        decryptData(dstBuf);
+        decryptData(dstBuf,isHeader);
         return readLen;
     }
 
-    private void decryptData(ByteBuffer dstBuf) throws SSLException {
-        if (isSslMode) {
+    protected void decryptData(ByteBuffer dstBuf, boolean isHeader) throws SSLException {
+        // after decrypt we get a mysql packet with mysql header.
+        if (isSslMode && !isHeader) {
+            dstBuf.flip();
             ByteBuffer appData = ByteBuffer.allocate(sslEngine.getSession().getApplicationBufferSize());
+            // unwrap will remove ssl header.
             sslEngine.unwrap(dstBuf, appData);
             appData.flip();
             dstBuf.clear();
             dstBuf.put(appData);
+            // remove mysql header manually.
+            dstBuf.flip();
+            dstBuf.position(4);
+            dstBuf.compact();
         }
     }
 
     // read one logical mysql protocol packet
     // null for channel is closed.
     // NOTE: all of the following code is assumed that the channel is in block mode.
-    // if handshaking return a packet with header otherwise without header.
+    // if in handshaking mode we return a packet with header otherwise without header.
     public ByteBuffer fetchOnePacket() throws IOException {
         int readLen;
         ByteBuffer result = defaultBuffer;
@@ -194,19 +202,17 @@ public class MysqlChannel {
         while (true) {
             if(isSslMode || isHandshaking){
                 sslHeaderByteBuffer.clear();
-                readLen = readAll(sslHeaderByteBuffer);
+                readLen = readAll(sslHeaderByteBuffer, true);
                 if (readLen != SSL_PACKET_HEADER_LEN) {
                     // remote has close this channel
                     LOG.debug("Receive ssl packet header failed, remote may close the channel.");
                     return null;
                 }
-                if(isHandshaking){
-                    // when handshaking, sslengine unwrap need a packet with header.
-                    result.put(sslHeaderByteBuffer.array());
-                }
+                // when handshaking and ssl mode, sslengine unwrap need a packet with header.
+                result.put(sslHeaderByteBuffer.array());
             }else{
                 headerByteBuffer.clear();
-                readLen = readAll(headerByteBuffer);
+                readLen = readAll(headerByteBuffer, true);
                 if (readLen != PACKET_HEADER_LEN) {
                     // remote has close this channel
                     LOG.debug("Receive packet header failed, remote may close the channel.");
@@ -235,7 +241,7 @@ public class MysqlChannel {
             // read one physical packet
             // before read, set limit to make read only one packet
             result.limit(result.position() + packetLen);
-            readLen = readAll(result);
+            readLen = readAll(result,false);
             if (readLen != packetLen) {
                 LOG.warn("Length of received packet content(" + readLen
                         + ") is not equal with length in head.(" + packetLen + ")");
@@ -250,6 +256,13 @@ public class MysqlChannel {
             }
         }
         return result;
+    }
+
+    private void removeSslHeader(ByteBuffer result) {
+        result.flip();
+        result.position(5);
+        result.compact();
+        result.flip();
     }
 
     protected void realNetSend(ByteBuffer buffer) throws IOException {
@@ -313,6 +326,22 @@ public class MysqlChannel {
         sendBuffer.put((byte) sequenceId);
     }
 
+    private void writeSslHeader(int length) throws IOException {
+        if (null == sendSslBuffer) {
+            return;
+        }
+        long leftLength = sendSslBuffer.capacity() - sendSslBuffer.position();
+        if (leftLength < 5) {
+            flush();
+        }
+        sendBuffer.put((byte) 0x23);
+        sendBuffer.put((byte) 0x03);
+        sendBuffer.put((byte) 0x03);
+
+        sendBuffer.put((byte) ((long) length>>8 &0xFF));
+        sendBuffer.put((byte) ((long) length &0xFF));
+    }
+
     private void writeBuffer(ByteBuffer buffer) throws IOException {
         if (null == sendBuffer) {
             return;
@@ -353,19 +382,37 @@ public class MysqlChannel {
 
     public void sendOnePacket(ByteBuffer packet) throws IOException {
         // todo combine ssl packet.
+        // handshake in packet with header and has jiami, need to send in ssl format
+        // ssl mode in packet no header and no jiami, need to jiami and add header and send in ssl format
         int bufLen;
         int oldLimit = packet.limit();
         while (oldLimit - packet.position() >= MAX_PHYSICAL_PACKET_LENGTH) {
             bufLen = MAX_PHYSICAL_PACKET_LENGTH;
             packet.limit(packet.position() + bufLen);
-            writeHeader(bufLen);
+            if(isHandshaking){
+                writeSslBuffer(packet);
+            }else if(isSslMode){
+                writeSslHeader(bufLen);
+                writeSslBuffer(packet);
+            }else{
+                writeHeader(bufLen);
+                writeBuffer(packet);
+                accSequenceId();
+            }
+        }
+        if(isHandshaking){
+            packet.limit(oldLimit);
+            writeSslBuffer(packet);
+        }else if(isSslMode){
+            writeSslHeader(oldLimit - packet.position());
+            packet.limit(oldLimit);
+            writeSslBuffer(packet);
+        }else{
+            writeHeader(oldLimit - packet.position());
+            packet.limit(oldLimit);
             writeBuffer(packet);
             accSequenceId();
         }
-        writeHeader(oldLimit - packet.position());
-        packet.limit(oldLimit);
-        writeBuffer(packet);
-        accSequenceId();
     }
 
     public void sendOneSslPacket(ByteBuffer packet) throws IOException {
@@ -381,13 +428,8 @@ public class MysqlChannel {
     }
 
     public void sendAndFlush(ByteBuffer packet) throws IOException {
-        if (isSslMode||isHandshaking) {
-            sendOneSslPacket(packet);
-            sslFlush();
-        } else {
-            sendOnePacket(packet);
-            flush();
-        }
+        sendOnePacket(packet);
+        flush();
     }
 
     // Call this function before send query before

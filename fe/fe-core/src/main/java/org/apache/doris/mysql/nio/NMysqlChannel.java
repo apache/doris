@@ -28,6 +28,7 @@ import org.xnio.channels.Channels;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import javax.net.ssl.SSLException;
 
 /**
  * mysql Channel based on nio.
@@ -58,17 +59,19 @@ public class NMysqlChannel extends MysqlChannel {
      * @return
      */
     @Override
-    protected int readAll(ByteBuffer dstBuf) {
+    protected int readAll(ByteBuffer dstBuf, boolean isHeader){
         int readLen = 0;
         try {
             while (dstBuf.remaining() != 0) {
                 int ret = Channels.readBlocking(conn.getSourceChannel(), dstBuf);
                 // return -1 when remote peer close the channel
                 if (ret == -1) {
+                    decryptData(dstBuf, isHeader);
                     return readLen;
                 }
                 readLen += ret;
             }
+            decryptData(dstBuf,isHeader);
         } catch (IOException e) {
             LOG.debug("Read channel exception, ignore.", e);
             return 0;
