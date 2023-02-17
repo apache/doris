@@ -118,6 +118,10 @@ public class DescriptorTable {
         return tupleDescs.get(id);
     }
 
+    public HashMap<SlotId, SlotDescriptor> getSlotDescs() {
+        return slotDescs;
+    }
+
     /**
      * Return all tuple desc by idList.
      */

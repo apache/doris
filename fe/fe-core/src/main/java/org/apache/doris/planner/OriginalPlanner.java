@@ -283,7 +283,17 @@ public class OriginalPlanner extends Planner {
                 }
             } else if (selectStmt.isTwoPhaseReadOptEnabled()) {
                 // Optimize query like `SELECT ... FROM <tbl> WHERE ... ORDER BY ... LIMIT ...`
-                injectRowIdColumnSlot();
+                if (singleNodePlan instanceof SortNode
+                        && singleNodePlan.getChildren().size() == 1
+                        && ((SortNode) singleNodePlan).getChild(0) instanceof OlapScanNode) {
+                    // Double check this plan to ensure it's a general topn query
+                    injectRowIdColumnSlot();
+                } else {
+                    // This is not a general topn query, rollback needMaterialize flag
+                    for (SlotDescriptor slot : analyzer.getDescTbl().getSlotDescs().values()) {
+                        slot.setNeedMaterialize(true);
+                    }
+                }
             }
         }
     }

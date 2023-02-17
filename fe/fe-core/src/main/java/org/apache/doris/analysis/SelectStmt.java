@@ -660,7 +660,7 @@ public class SelectStmt extends QueryStmt {
             // reset slots need to do fetch column
             for (SlotRef slot : resultSlots) {
                 // invalid slots will be pruned from reading from ScanNode
-                slot.setInvalid();
+                slot.setNeedMaterialize(false);
             }
 
             LOG.debug("resultsSlots {}", resultSlots);
