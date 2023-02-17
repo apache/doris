@@ -372,11 +372,11 @@ public class Config extends ConfigBase {
     @ConfField public static String key_store_alias = "doris_ssl_certificate";
 
     /**
-     * ssl enable flag. false by default.
+     * https enable flag. false by default.
      * If the value is false, http is supported. Otherwise, https is supported.
      * Currently doris uses many ports, so http and https are not supported at the same time.
      */
-    @ConfField public static boolean ssl_enable = false;
+    @ConfField public static boolean enable_https = false;
 
     /**
      * Jetty container default configuration

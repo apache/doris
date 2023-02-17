@@ -47,7 +47,7 @@ public class HttpServer extends SpringBootServletInitializer {
     private String keyStorePassword;
     private String keyStoreType;
     private String keyStoreAlias;
-    private boolean sslEnable;
+    private boolean enableHttps;
 
     private int minThreads;
     private int maxThreads;
@@ -113,8 +113,8 @@ public class HttpServer extends SpringBootServletInitializer {
         this.keyStoreAlias = keyStoreAlias;
     }
 
-    public void setSslEnable(boolean sslEnable) {
-        this.sslEnable = sslEnable;
+    public void setEnableHttps(boolean enableHttps) {
+        this.enableHttps = enableHttps;
     }
 
     @Override
@@ -140,7 +140,7 @@ public class HttpServer extends SpringBootServletInitializer {
         properties.put("server.ssl.key-store-password", keyStorePassword);
         properties.put("server.ssl.key-store-type", keyStoreType);
         properties.put("server.ssl.keyalias", keyStoreAlias);
-        properties.put("server.ssl.enabled", sslEnable);
+        properties.put("server.ssl.enabled", enableHttps);
         // enable jetty config
         properties.put("server.jetty.acceptors", this.acceptors);
         properties.put("server.jetty.max-http-post-size", this.maxHttpPostSize);

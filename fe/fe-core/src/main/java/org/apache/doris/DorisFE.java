@@ -166,7 +166,7 @@ public class DorisFE {
                 httpServer.setKeyStorePassword(Config.key_store_password);
                 httpServer.setKeyStoreType(Config.key_store_type);
                 httpServer.setKeyStoreAlias(Config.key_store_alias);
-                httpServer.setSslEnable(Config.ssl_enable);
+                httpServer.setEnableHttps(Config.enable_https);
                 httpServer.setMaxThreads(Config.jetty_threadPool_maxThreads);
                 httpServer.setMinThreads(Config.jetty_threadPool_minThreads);
                 httpServer.setMaxHttpHeaderSize(Config.jetty_server_max_http_header_size);

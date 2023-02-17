@@ -400,6 +400,14 @@ Default：8030
 
 HTTP bind port. Defaults to 8030
 
+#### `enable_https`
+
+Default：false
+
+Https enable flag. If the value is false, http is supported. Otherwise, https is supported.
+Currently doris uses many ports, so http and https are not supported at the same time.
+If enable_https is true, you need to configure ssl certificate information in fe.conf.
+
 #### `qe_max_connection`
 
 Default：1024
