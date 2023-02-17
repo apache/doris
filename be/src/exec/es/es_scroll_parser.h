@@ -47,6 +47,9 @@ private:
     Status fill_date_col(vectorized::IColumn* col_ptr, const rapidjson::Value& col,
                          PrimitiveType type, bool is_date_str);
 
+    uint32_t get_datev2_int(const rapidjson::Value& col, bool is_date_str);
+    uint64_t get_datetimev2_int(const rapidjson::Value& col, bool is_date_str);
+
 private:
     std::string _scroll_id;
     int _size;

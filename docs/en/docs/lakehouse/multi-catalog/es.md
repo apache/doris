@@ -89,6 +89,50 @@ After switching to the ES Catalog, you will be in the `dafault_db`  so you don't
 | object        | string      |         |
 | other         | unsupported |         |
 
+### Array Type
+
+Elasticsearch does not have an explicit array type, but one of its fields can contain 
+[0 or more values](https://www.elastic.co/guide/en/elasticsearch/reference/current/array.html).
+To indicate that a field is an array type, a specific `doris` structural annotation can be added to the 
+[_meta](https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-meta-field.html) section of the index mapping.
+
+For example, suppose there is an index `doc` containing the following data structure.
+
+```json
+{
+  "array_int_field": [1, 2, 3, 4],
+  "array_string_field": ["doris", "is", "the", "best"],
+  "id_field": "id-xxx-xxx",
+  "timestamp_field": "2022-11-12T12:08:56Z",
+  "array_object_field": [
+    {
+      "name": "xxx",
+      "age": 18
+    }
+  ]
+}
+```
+
+The array fields of this structure can be defined by using the following command to add the field property definition 
+to the `_meta.doris` property of the target index mapping.
+
+```bash
+curl -X PUT localhost:9200/doc/_mapping?pretty -H 'Content-Type:application/json' -d '
+{
+    "_meta": {
+        "doris":{
+            "array_fields":[
+                "array_int_field",
+                "array_string_field",
+                "array_object_field"
+            ]
+        }
+    }
+}'
+```
+
+`array_fields`：Used to indicate a field that is an array type.
+
 ## Best Practice
 
 ### Predicate Pushdown
