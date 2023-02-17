@@ -190,7 +190,7 @@ public class TabletInvertedIndex {
                                 }
                             }
 
-                            if (Config.enable_storage_policy) {
+                            if (Config.enable_storage_policy && backendTabletInfo.isSetCooldownReplicaId()) {
                                 handleCooldownConf(tabletMeta, backendTabletInfo, cooldownConfToPush,
                                         cooldownConfToUpdate);
                                 replica.setCooldownMetaId(backendTabletInfo.getCooldownMetaId());
@@ -340,9 +340,6 @@ public class TabletInvertedIndex {
 
     private void handleCooldownConf(TabletMeta tabletMeta, TTabletInfo beTabletInfo,
             List<CooldownConf> cooldownConfToPush, List<CooldownConf> cooldownConfToUpdate) {
-        if (!beTabletInfo.isSetCooldownReplicaId()) {
-            return;
-        }
         Tablet tablet;
         try {
             OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId())

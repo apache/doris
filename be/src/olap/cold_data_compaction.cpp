@@ -19,6 +19,7 @@
 
 #include "common/compiler_util.h"
 #include "olap/compaction.h"
+#include "olap/rowset/beta_rowset.h"
 #include "olap/rowset/rowset.h"
 
 namespace doris {
@@ -60,14 +61,26 @@ Status ColdDataCompaction::pick_rowsets_to_compact() {
 }
 
 Status ColdDataCompaction::modify_rowsets() {
+    UniqueId cooldown_meta_id = UniqueId::gen_uid();
+
+    // write remote tablet meta
+    std::shared_ptr<io::RemoteFileSystem> fs;
+    RETURN_IF_ERROR(get_remote_file_system(_tablet->storage_policy_id(), &fs));
+    std::vector<RowsetMetaSharedPtr> to_deletes;
+    for (auto& rs : _input_rowsets) {
+        to_deletes.emplace_back(rs->rowset_meta());
+    }
+    RETURN_IF_ERROR(_tablet->write_cooldown_meta(fs, cooldown_meta_id,
+                                                 _output_rowset->rowset_meta(), to_deletes));
     {
         std::lock_guard wlock(_tablet->get_header_lock());
         // Merged cooldowned rowsets MUST NOT be managed by version graph, they will be reclaimed by `remove_unused_remote_files`.
         _tablet->delete_rowsets(_input_rowsets, false);
         _tablet->add_rowsets({_output_rowset});
         // TODO(plat1ko): process primary key
-        _tablet->tablet_meta()->set_cooldown_meta_id(UniqueId::gen_uid());
+        _tablet->tablet_meta()->set_cooldown_meta_id(cooldown_meta_id);
     }
+
     {
         std::shared_lock rlock(_tablet->get_header_lock());
         _tablet->save_meta();
