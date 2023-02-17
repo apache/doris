@@ -58,7 +58,7 @@ Java UDF provides users with a Java interface written in UDF to facilitate the e
 |Datetime|LocalDateTime|
 |String|String|
 |Decimal|BigDecimal|
-|array<type>|ArrayList<Type>|
+|```array<Type>```|```ArrayList<Type>```|
 
 * Array types can nested basic types, Eg: In Doris: ```array<int>``` corresponds to JAVA UDF Argument Type: ```ArrayList<Integer>```, Others is also.
 ## Write UDF functions
