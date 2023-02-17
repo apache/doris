@@ -132,7 +132,8 @@ private:
     size_t _line_delimiter_cur_pos = 0;
 
     std::vector<vectorized::CsvReader::CsvColumn> _tmp_columns;
-    std::queue<vectorized::CsvReader::CsvRow> _rows;
+    std::unique_ptr<std::thread> _read_csv_worker = nullptr;
+    std::unique_ptr<csv::internals::ThreadSafeDeque<vectorized::CsvReader::CsvRow>> _rows;
 
     // Profile counters
     RuntimeProfile::Counter* _bytes_read_counter;

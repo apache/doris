@@ -83,14 +83,9 @@ CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params
     _size = _range.size;
 }
 
-CsvReader::~CsvReader() {
-    auto end = std::chrono::system_clock::now();
-    std::chrono::duration<double> elapsed_seconds = end - _start;
-    LOG(INFO) << "--ftw: time = " << elapsed_seconds.count();
-}
+CsvReader::~CsvReader() = default;
 
 Status CsvReader::init_reader(bool is_load) {
-    _start = std::chrono::system_clock::now();
     // set the skip lines and start offset
     int64_t start_offset = _range.start_offset;
     if (start_offset == 0) {
@@ -311,33 +306,33 @@ Status CsvReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
 
             // use queue
 
-            // CsvRow one_row;
-            // RETURN_IF_ERROR(_line_reader->next_row(&one_row, &_line_reader_eof));
-            // if (_skip_lines > 0) {
-            //     _skip_lines--;
-            //     continue;
-            // }
-            // if (one_row.len == 0) {
-            //     // Read empty row, just continue
-            //     break;
-            // }
-            // Slice line(one_row.start_ptr, one_row.len);
-            // if (!validate_utf8(line.data, line.size)) {
-            //     if (!_is_load) {
-            //         return Status::InternalError("Only support csv data in utf8 codec");
-            //     } else {
-            //         RETURN_IF_ERROR(_state->append_error_msg_to_file(
-            //                 []() -> std::string { return "Unable to display"; },
-            //                 []() -> std::string {
-            //                     fmt::memory_buffer error_msg;
-            //                     fmt::format_to(error_msg, "{}", "Unable to display");
-            //                     return fmt::to_string(error_msg);
-            //                 },
-            //                 &_line_reader_eof));
-            //         _counter->num_rows_filtered++;
-            //     }
-            // }
-            // RETURN_IF_ERROR(_fill_dest_columns3(one_row, block, columns, &rows));
+            CsvRow one_row;
+            RETURN_IF_ERROR(_line_reader->next_row(&one_row, &_line_reader_eof));
+            if (_skip_lines > 0) {
+                _skip_lines--;
+                continue;
+            }
+            if (one_row.len == 0) {
+                // Read empty row, just continue
+                break;
+            }
+            Slice line(one_row.start_ptr, one_row.len);
+            if (!validate_utf8(line.data, line.size)) {
+                if (!_is_load) {
+                    return Status::InternalError("Only support csv data in utf8 codec");
+                } else {
+                    RETURN_IF_ERROR(_state->append_error_msg_to_file(
+                            []() -> std::string { return "Unable to display"; },
+                            []() -> std::string {
+                                fmt::memory_buffer error_msg;
+                                fmt::format_to(error_msg, "{}", "Unable to display");
+                                return fmt::to_string(error_msg);
+                            },
+                            &_line_reader_eof));
+                    _counter->num_rows_filtered++;
+                }
+            }
+            RETURN_IF_ERROR(_fill_dest_columns3(one_row, block, columns, &rows));
         }
     }
 

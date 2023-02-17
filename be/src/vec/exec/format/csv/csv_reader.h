@@ -150,11 +150,7 @@ private:
     // correct start of a field
     std::vector<std::pair<int, int>> _fields_pos;
 
-    std::unique_ptr<csv::CSVReader> _csv_reader;
-    csv::CSVReader::iterator _csv_row_iterator;
     std::vector<CsvColumn> _one_row_cols;
-
-    std::chrono::system_clock::time_point _start;
 };
 } // namespace vectorized
 } // namespace doris

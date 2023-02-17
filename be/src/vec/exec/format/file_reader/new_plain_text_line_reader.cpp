@@ -68,6 +68,7 @@ NewPlainTextLineReader::NewPlainTextLineReader(RuntimeProfile* profile,
     _read_timer = ADD_TIMER(_profile, "FileReadTime");
     _bytes_decompress_counter = ADD_COUNTER(_profile, "BytesDecompressed", TUnit::BYTES);
     _decompress_timer = ADD_TIMER(_profile, "DecompressTime");
+    _rows.reset(new csv::internals::ThreadSafeDeque<vectorized::CsvReader::CsvRow>(50));
 }
 
 NewPlainTextLineReader::NewPlainTextLineReader(
@@ -88,6 +89,9 @@ NewPlainTextLineReader::~NewPlainTextLineReader() {
 }
 
 void NewPlainTextLineReader::close() {
+    if (_read_csv_worker != nullptr && _read_csv_worker->joinable()) {
+        _read_csv_worker->join();
+    }
     if (_input_buf != nullptr) {
         delete[] _input_buf;
         _input_buf = nullptr;
@@ -255,18 +259,41 @@ void NewPlainTextLineReader::extend_output_buf() {
 }
 
 Status NewPlainTextLineReader::next_row(vectorized::CsvReader::CsvRow* row, bool* eof) {
-    if (_rows.empty()) {
-        RETURN_IF_ERROR(_read_more_rows());
+    while (true) {
+        if (_rows->empty()) {
+            if (_rows->is_waitable()) {
+                // Reading thread is currently active => wait for it to populate records
+                _rows->wait();
+            } else if (_eof == true) {
+                // End of file and no more records
+                *eof = true;
+                return Status::OK();
+            } else {
+                // Reading thread is not active => start another one
+                if (_read_csv_worker != nullptr && _read_csv_worker->joinable()) {
+                    _read_csv_worker->join();
+                }
+                _read_csv_worker.reset(
+                        new std::thread(std::bind(&NewPlainTextLineReader::_read_more_rows, this)));
+            }
+        } else {
+            *row = _rows->pop_front();
+            return Status::OK();
+        }
     }
-    if (UNLIKELY(_rows.empty())) {
-        *eof = true;
-        return Status::OK();
-    }
-    const vectorized::CsvReader::CsvRow new_row = _rows.front();
-    _rows.pop();
-    row->start_ptr = new_row.start_ptr;
-    row->len = new_row.len;
-    row->cols = new_row.cols;
+
+    // if (_rows.empty()) {
+    //     RETURN_IF_ERROR(_read_more_rows());
+    // }
+    // if (UNLIKELY(_rows.empty())) {
+    //     *eof = true;
+    //     return Status::OK();
+    // }
+    // const vectorized::CsvReader::CsvRow new_row = _rows.front();
+    // _rows.pop();
+    // row->start_ptr = new_row.start_ptr;
+    // row->len = new_row.len;
+    // row->cols = new_row.cols;
     return Status::OK();
 }
 
@@ -289,6 +316,7 @@ Status NewPlainTextLineReader::_read_more_rows() {
         //     row.cols = std::move(_tmp_columns);
         //     _rows.push(std::move(row));
         // }
+        _eof = true;
         return Status::OK();
     }
     uint8_t* pos = _parse_rows(output_buf_read_remaining() - offset, offset);
@@ -313,7 +341,8 @@ uint8_t* NewPlainTextLineReader::_parse_rows(size_t len, size_t offset) {
             vectorized::CsvReader::CsvRow row(_output_buf + line_start,
                                               offset - line_start - _line_delimiter_length + 1);
             row.cols = std::move(_tmp_columns);
-            _rows.push(std::move(row));
+            // _rows.push(std::move(row));
+            _rows->push_back(std::move(row));
             _tmp_columns.clear();
             line_start = offset + 1;
             _field_start = 0;
