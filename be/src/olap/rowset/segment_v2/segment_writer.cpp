@@ -101,6 +101,15 @@ Status SegmentWriter::init(const vectorized::Block* block) {
     return init(column_ids, true, block);
 }
 
+// Dynamic table with extended columns and directly write from delta writer
+// Compaction/SchemaChange path will use the latest schema version of rowset
+// as it's shcema, so it's block is not from dynamic table load procedure.
+// If it is a dynamic table load procedure we should handle auto generated columns.
+bool SegmentWriter::_should_create_writers_with_dynamic_block(size_t num_columns_in_block) {
+    return _tablet_schema->is_dynamic_schema() && _opts.is_direct_write &&
+           num_columns_in_block > _tablet_schema->columns().size();
+}
+
 Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
                            const vectorized::Block* block) {
     DCHECK(_column_writers.empty());
@@ -193,8 +202,8 @@ Status SegmentWriter::init(const std::vector<uint32_t>& col_ids, bool has_key,
         return Status::OK();
     };
 
-    if (block) {
-        RETURN_IF_ERROR(_create_writers_with_block(block, create_column_writer));
+    if (block && _should_create_writers_with_dynamic_block(block->columns())) {
+        RETURN_IF_ERROR(_create_writers_with_dynamic_block(block, create_column_writer));
     } else {
         RETURN_IF_ERROR(_create_writers(create_column_writer));
     }
@@ -227,38 +236,33 @@ Status SegmentWriter::_create_writers(
     return Status::OK();
 }
 
-Status SegmentWriter::_create_writers_with_block(
+// Dynamic Block consists of two parts, dynamic part of columns and static part of columns
+//  static   dynamic
+// | ----- | ------- |
+// the static ones are original _tablet_schame columns
+// the dynamic ones are auto generated and extended from file scan
+Status SegmentWriter::_create_writers_with_dynamic_block(
         const vectorized::Block* block,
         std::function<Status(uint32_t, const TabletColumn&)> create_column_writer) {
     // generate writers from schema and extended schema info
     _olap_data_convertor->reserve(block->columns());
     // new columns added, query column info from Master
     vectorized::schema_util::FullBaseSchemaView schema_view;
-    if (block->columns() > _tablet_schema->num_columns()) {
-        schema_view.table_id = _tablet_schema->table_id();
-        RETURN_IF_ERROR(
-                vectorized::schema_util::send_fetch_full_base_schema_view_rpc(&schema_view));
+    CHECK(block->columns() > _tablet_schema->num_columns());
+    schema_view.table_id = _tablet_schema->table_id();
+    RETURN_IF_ERROR(vectorized::schema_util::send_fetch_full_base_schema_view_rpc(&schema_view));
+    // create writers with static columns
+    for (size_t i = 0; i < _tablet_schema->columns().size(); ++i) {
+        create_column_writer(i, _tablet_schema->column(i));
     }
-    for (size_t i = 0; i < block->columns(); ++i) {
+    // create writers with auto generated columns
+    for (size_t i = _tablet_schema->columns().size(); i < block->columns(); ++i) {
         const auto& column_type_name = block->get_by_position(i);
-        auto idx = _tablet_schema->field_index(column_type_name.name);
-        if (idx >= 0) {
-            RETURN_IF_ERROR(create_column_writer(i, _tablet_schema->column(idx)));
-        } else {
-            if (schema_view.column_name_to_column.count(column_type_name.name) == 0) {
-                // expr columns, maybe happend in query like `insert into table1 select function(column1), column2 from table2`
-                // the first column name may become `function(column1)`, so we use column offset to get columns info
-                // TODO here we could optimize to col_unique_id in the future
-                RETURN_IF_ERROR(create_column_writer(i, _tablet_schema->column(i)));
-                continue;
-            }
-            // extended columns
-            const auto& tcolumn = schema_view.column_name_to_column[column_type_name.name];
-            TabletColumn new_column(tcolumn);
-            RETURN_IF_ERROR(create_column_writer(i, new_column));
-            _opts.rowset_ctx->schema_change_recorder->add_extended_columns(
-                    new_column, schema_view.schema_version);
-        }
+        const auto& tcolumn = schema_view.column_name_to_column[column_type_name.name];
+        TabletColumn new_column(tcolumn);
+        RETURN_IF_ERROR(create_column_writer(i, new_column));
+        _opts.rowset_ctx->schema_change_recorder->add_extended_columns(new_column,
+                                                                       schema_view.schema_version);
     }
     return Status::OK();
 }

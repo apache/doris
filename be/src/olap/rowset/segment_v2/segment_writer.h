@@ -109,7 +109,7 @@ public:
     bool is_unique_key() { return _tablet_schema->keys_type() == UNIQUE_KEYS; }
 
 private:
-    Status _create_writers_with_block(
+    Status _create_writers_with_dynamic_block(
             const vectorized::Block* block,
             std::function<Status(uint32_t, const TabletColumn&)> writer_creator);
     Status _create_writers(std::function<Status(uint32_t, const TabletColumn&)> writer_creator);
@@ -134,6 +134,7 @@ private:
     void set_min_max_key(const Slice& key);
     void set_min_key(const Slice& key);
     void set_max_key(const Slice& key);
+    bool _should_create_writers_with_dynamic_block(size_t num_columns_in_block);
 
     void clear();
 
