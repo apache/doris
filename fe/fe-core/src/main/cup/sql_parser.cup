@@ -642,7 +642,7 @@ terminal String COMMENTED_PLAN_HINTS;
 nonterminal List<StatementBase> stmts;
 nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
     create_routine_load_stmt, pause_routine_load_stmt, resume_routine_load_stmt, stop_routine_load_stmt,
-    show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt,
+    show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt, show_create_load_stmt,
     describe_stmt, alter_stmt,
     use_stmt, kill_stmt, drop_stmt, recover_stmt, grant_stmt, revoke_stmt, create_stmt, set_stmt, sync_stmt, cancel_stmt, cancel_param, delete_stmt,
     link_stmt, migrate_stmt, switch_stmt, enter_stmt, transaction_stmt, unsupported_stmt, export_stmt, admin_stmt, truncate_stmt,
@@ -1096,6 +1096,8 @@ stmt ::=
     | show_routine_load_task_stmt : stmt
     {: RESULT = stmt; :}
     | show_create_routine_load_stmt : stmt
+    {: RESULT = stmt; :}
+    | show_create_load_stmt : stmt
     {: RESULT = stmt; :}
     | cancel_stmt : stmt
     {: RESULT = stmt; :}
@@ -2755,6 +2757,13 @@ show_create_routine_load_stmt ::=
     | KW_SHOW KW_ALL KW_CREATE KW_ROUTINE KW_LOAD KW_FOR job_label:jobLabel
     {:
         RESULT = new ShowCreateRoutineLoadStmt(jobLabel, true);
+    :}
+    ;
+
+show_create_load_stmt ::=
+    KW_SHOW KW_CREATE KW_LOAD KW_FOR job_label:jobLabel
+    {:
+        RESULT = new ShowCreateLoadStmt(jobLabel);
     :}
     ;
 
