@@ -19,12 +19,15 @@ package org.apache.doris.nereids.rules.exploration.join;
 
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.ExprId;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+
+import com.google.common.collect.ImmutableList;
 
 import java.util.List;
 import java.util.Map;
@@ -56,17 +59,14 @@ class JoinReorderUtils {
         });
     }
 
-    static Map<Boolean, List<NamedExpression>> splitProjection(
-            List<NamedExpression> projects, Plan splitChild) {
+    static Map<Boolean, List<NamedExpression>> splitProjection(List<NamedExpression> projects, Plan splitChild) {
         Set<ExprId> splitExprIds = splitChild.getOutputExprIdSet();
 
-        Map<Boolean, List<NamedExpression>> projectExprsMap = projects.stream()
+        return projects.stream()
                 .collect(Collectors.partitioningBy(projectExpr -> {
                     Set<ExprId> usedExprIds = projectExpr.getInputSlotExprIds();
                     return splitExprIds.containsAll(usedExprIds);
                 }));
-
-        return projectExprsMap;
     }
 
     public static Set<ExprId> combineProjectAndChildExprId(Plan b, List<NamedExpression> bProject) {
@@ -84,5 +84,39 @@ class JoinReorderUtils {
             return plan;
         }
         return new LogicalProject<>(projectExprs, plan);
+    }
+
+    /**
+     * replace JoinConjuncts by using slots map.
+     */
+    public static List<Expression> replaceJoinConjuncts(List<Expression> joinConjuncts,
+            Map<ExprId, Slot> replaceMaps) {
+        return joinConjuncts.stream()
+                .map(expr ->
+                        expr.rewriteUp(e -> {
+                            if (e instanceof Slot && replaceMaps.containsKey(((Slot) e).getExprId())) {
+                                return replaceMaps.get(((Slot) e).getExprId());
+                            } else {
+                                return e;
+                            }
+                        })
+                ).collect(ImmutableList.toImmutableList());
+    }
+
+    /**
+     * When project not empty, we add all slots used by hashOnCondition into projects.
+     */
+    public static void addSlotsUsedByOn(Set<Slot> usedSlots, List<NamedExpression> projects) {
+        if (projects.isEmpty()) {
+            return;
+        }
+        Set<ExprId> projectExprIdSet = projects.stream()
+                .map(NamedExpression::getExprId)
+                .collect(Collectors.toSet());
+        usedSlots.forEach(slot -> {
+            if (!projectExprIdSet.contains(slot.getExprId())) {
+                projects.add(slot);
+            }
+        });
     }
 }

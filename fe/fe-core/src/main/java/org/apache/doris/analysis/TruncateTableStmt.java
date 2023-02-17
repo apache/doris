@@ -53,7 +53,7 @@ public class TruncateTableStmt extends DdlStmt {
         // check access
         // it requires LOAD privilege, because we consider this operation as 'delete data', which is also a
         // 'load' operation.
-        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), tblRef.getName().getDb(),
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), tblRef.getName().getDb(),
                 tblRef.getName().getTbl(), PrivPredicate.LOAD)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "LOAD");
         }

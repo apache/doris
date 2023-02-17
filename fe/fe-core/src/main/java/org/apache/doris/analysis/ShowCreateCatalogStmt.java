@@ -56,7 +56,7 @@ public class ShowCreateCatalogStmt extends ShowStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_WRONG_CATALOG_NAME, catalog);
         }
 
-        if (!Env.getCurrentEnv().getAuth()
+        if (!Env.getCurrentEnv().getAccessManager()
                 .checkCtlPriv(ConnectContext.get(), catalog, PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
                     ConnectContext.get().getQualifiedUser(), catalog);

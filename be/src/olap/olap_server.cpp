@@ -168,9 +168,9 @@ Status StorageEngine::start_bg_threads() {
     LOG(INFO) << "remove unused remote files thread started";
 
     RETURN_IF_ERROR(Thread::create(
-            "StorageEngine", "remove_unused_remote_files_thread",
+            "StorageEngine", "cold_data_compaction_producer_thread",
             [this]() { this->_cold_data_compaction_producer_callback(); },
-            &_remove_unused_remote_files_thread));
+            &_cold_data_compaction_producer_thread));
     LOG(INFO) << "cold data compaction producer thread started";
 
     RETURN_IF_ERROR(Thread::create(
@@ -832,6 +832,11 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
                 {
                     std::lock_guard lock(tablet_submitted_mtx);
                     tablet_submitted.insert(t->tablet_id());
+                }
+                std::unique_lock cold_compaction_lock(t->get_cold_compaction_lock(),
+                                                      std::try_to_lock);
+                if (!cold_compaction_lock.owns_lock()) {
+                    LOG(WARNING) << "try cold_compaction_lock failed, tablet_id=" << t->tablet_id();
                 }
                 auto st = compaction->compact();
                 {

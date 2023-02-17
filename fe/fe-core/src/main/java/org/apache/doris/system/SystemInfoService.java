@@ -649,6 +649,38 @@ public class SystemInfoService {
         return ret;
     }
 
+    public List<Backend> getClusterMixBackends(String name) {
+        final Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
+        final List<Backend> ret = Lists.newArrayList();
+
+        if (Strings.isNullOrEmpty(name)) {
+            return ret;
+        }
+
+        for (Backend backend : copiedBackends.values()) {
+            if (name.equals(backend.getOwnerClusterName()) && backend.isMixNode()) {
+                ret.add(backend);
+            }
+        }
+        return ret;
+    }
+
+    public List<Backend> getClusterCnBackends(String name) {
+        final Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
+        final List<Backend> ret = Lists.newArrayList();
+
+        if (Strings.isNullOrEmpty(name)) {
+            return ret;
+        }
+
+        for (Backend backend : copiedBackends.values()) {
+            if (name.equals(backend.getOwnerClusterName()) && backend.isComputeNode()) {
+                ret.add(backend);
+            }
+        }
+        return ret;
+    }
+
     /**
      * get cluster's backend id list
      *
@@ -741,7 +773,7 @@ public class SystemInfoService {
      * @return
      */
     private Map<String, List<Backend>> getHostBackendsMap(boolean needAlive, boolean needFree,
-                                                          boolean canBeDecommission) {
+            boolean canBeDecommission) {
         final Map<Long, Backend> copiedBackends = Maps.newHashMap(idToBackendRef);
         final Map<String, List<Backend>> classMap = Maps.newHashMap();
 
@@ -944,7 +976,9 @@ public class SystemInfoService {
             throw new AnalysisException("Invalid host port: " + hostPort);
         }
 
-        String hostName = pair[0];
+        HostInfo hostInfo = NetUtils.resolveHostInfoFromHostPort(hostPort);
+
+        String hostName = hostInfo.getHostName();
         String ip = hostName;
         if (Strings.isNullOrEmpty(hostName)) {
             throw new AnalysisException("Host is null");
@@ -953,7 +987,7 @@ public class SystemInfoService {
         int heartbeatPort = -1;
         try {
             // validate port
-            heartbeatPort = Integer.parseInt(pair[1]);
+            heartbeatPort = hostInfo.getPort();
             if (heartbeatPort <= 0 || heartbeatPort >= 65536) {
                 throw new AnalysisException("Port is out of range: " + heartbeatPort);
             }
@@ -1230,6 +1264,6 @@ public class SystemInfoService {
     public List<Backend> getBackendsByTagInCluster(String clusterName, Tag tag) {
         List<Backend> bes = getClusterBackends(clusterName);
         return bes.stream().filter(Backend::isMixNode).filter(b -> b.getLocationTag().equals(tag))
-            .collect(Collectors.toList());
+                .collect(Collectors.toList());
     }
 }

@@ -141,7 +141,10 @@ public class CostCalculator {
             // TODO: consider two-phase sort and enforcer.
             StatsDeriveResult statistics = context.getStatisticsWithCheck();
             StatsDeriveResult childStatistics = context.getChildStatistics(0);
-
+            if (physicalQuickSort.getSortPhase().isGather()) {
+                // Now we do more like two-phase sort, so penalise one-phase sort
+                statistics.updateRowCount(statistics.getRowCount() * 100);
+            }
             return CostEstimate.of(
                     childStatistics.getRowCount(),
                     statistics.getRowCount(),
@@ -153,7 +156,10 @@ public class CostCalculator {
             // TODO: consider two-phase sort and enforcer.
             StatsDeriveResult statistics = context.getStatisticsWithCheck();
             StatsDeriveResult childStatistics = context.getChildStatistics(0);
-
+            if (topN.getSortPhase().isGather()) {
+                // Now we do more like two-phase sort, so penalise one-phase sort
+                statistics.updateRowCount(statistics.getRowCount() * 100);
+            }
             return CostEstimate.of(
                     childStatistics.getRowCount(),
                     statistics.getRowCount(),

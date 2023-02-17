@@ -474,7 +474,6 @@ add_compile_options(-g
                     -fno-omit-frame-pointer)
 
 add_compile_options(-Wno-unused-parameter
-                    -Wno-implicit-fallthrough
                     -Wno-sign-compare
                     -Wno-array-bounds)
 
@@ -487,8 +486,8 @@ if (COMPILER_GCC)
 endif ()
 
 if (COMPILER_CLANG)
-    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "14")
-        message(FATAL_ERROR "Need Clang version at least 14")
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS "13")
+        message(FATAL_ERROR "Need Clang version at least 13")
     endif()
 
     add_compile_options(-fcolor-diagnostics -fno-limit-debug-info -Wpedantic)

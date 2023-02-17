@@ -1773,9 +1773,6 @@ Status Tablet::_cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_
     RowsetSharedPtr new_rowset;
     RowsetFactory::create_rowset(_schema, _tablet_path, new_rowset_meta, &new_rowset);
 
-    std::vector to_add {std::move(new_rowset)};
-    std::vector to_delete {std::move(old_rowset)};
-
     {
         std::unique_lock meta_wlock(_meta_lock);
         if (tablet_state() == TABLET_RUNNING) {
@@ -1849,6 +1846,12 @@ Status Tablet::_follow_cooldowned_data(io::RemoteFileSystem* fs, int64_t cooldow
     LOG(INFO) << "try to follow cooldowned data. tablet_id=" << tablet_id()
               << " cooldown_replica_id=" << cooldown_replica_id
               << " local replica=" << replica_id();
+    // MUST executing serially with cold data compaction, because compaction input rowsets may be deleted by this function
+    std::unique_lock cold_compaction_lock(_cold_compaction_lock, std::try_to_lock);
+    if (!cold_compaction_lock.owns_lock()) {
+        return Status::Error<TRY_LOCK_FAILED>("try cold_compaction_lock failed");
+    }
+
     TabletMetaPB cooldown_meta_pb;
     RETURN_IF_ERROR(_read_cooldown_meta(fs, cooldown_replica_id, &cooldown_meta_pb));
     DCHECK(cooldown_meta_pb.rs_metas_size() > 0);
@@ -2537,6 +2540,49 @@ Status Tablet::update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapP
     }
 
     return Status::OK();
+}
+
+void Tablet::calc_compaction_output_rowset_delete_bitmap(
+        const std::vector<RowsetSharedPtr>& input_rowsets, const RowIdConversion& rowid_conversion,
+        uint64_t start_version, uint64_t end_version, DeleteBitmap* output_rowset_delete_bitmap) {
+    RowLocation src;
+    RowLocation dst;
+    for (auto& rowset : input_rowsets) {
+        src.rowset_id = rowset->rowset_id();
+        for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
+            src.segment_id = seg_id;
+            DeleteBitmap subset_map(tablet_id());
+            _tablet_meta->delete_bitmap().subset({rowset->rowset_id(), seg_id, start_version},
+                                                 {rowset->rowset_id(), seg_id, end_version},
+                                                 &subset_map);
+            // traverse all versions and convert rowid
+            for (auto iter = subset_map.delete_bitmap.begin();
+                 iter != subset_map.delete_bitmap.end(); ++iter) {
+                auto cur_version = std::get<2>(iter->first);
+                for (auto index = iter->second.begin(); index != iter->second.end(); ++index) {
+                    src.row_id = *index;
+                    if (rowid_conversion.get(src, &dst) != 0) {
+                        VLOG_CRITICAL << "Can't find rowid, may be deleted by the delete_handler, "
+                                      << " src loaction: |" << src.rowset_id << "|"
+                                      << src.segment_id << "|" << src.row_id
+                                      << " version: " << cur_version;
+                        continue;
+                    }
+                    VLOG_DEBUG << "calc_compaction_output_rowset_delete_bitmap dst location: |"
+                               << dst.rowset_id << "|" << dst.segment_id << "|" << dst.row_id
+                               << " src location: |" << src.rowset_id << "|" << src.segment_id
+                               << "|" << src.row_id << " start version: " << start_version
+                               << "end version" << end_version;
+                    output_rowset_delete_bitmap->add({dst.rowset_id, dst.segment_id, cur_version},
+                                                     dst.row_id);
+                }
+            }
+        }
+    }
+}
+
+void Tablet::merge_delete_bitmap(const DeleteBitmap& delete_bitmap) {
+    _tablet_meta->delete_bitmap().merge(delete_bitmap);
 }
 
 RowsetIdUnorderedSet Tablet::all_rs_id(int64_t max_version) const {

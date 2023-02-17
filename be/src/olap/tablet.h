@@ -331,6 +331,8 @@ public:
     std::shared_mutex& get_remote_files_lock() { return _remote_files_lock; }
 
     uint32_t calc_cold_data_compaction_score() const;
+
+    std::mutex& get_cold_compaction_lock() { return _cold_compaction_lock; }
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
@@ -361,6 +363,11 @@ public:
     Status update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset);
     Status update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapPtr delete_bitmap,
                                 const RowsetIdUnorderedSet& pre_rowset_ids);
+    void calc_compaction_output_rowset_delete_bitmap(
+            const std::vector<RowsetSharedPtr>& input_rowsets,
+            const RowIdConversion& rowid_conversion, uint64_t start_version, uint64_t end_version,
+            DeleteBitmap* output_rowset_delete_bitmap);
+    void merge_delete_bitmap(const DeleteBitmap& delete_bitmap);
     RowsetIdUnorderedSet all_rs_id(int64_t max_version) const;
 
     bool check_all_rowset_segment();
@@ -505,10 +512,11 @@ private:
     bool _skip_base_compaction = false;
     int64_t _skip_base_compaction_ts;
 
-    // cooldown conf
+    // cooldown related
     int64_t _cooldown_replica_id = -1;
     int64_t _cooldown_term = -1;
     std::shared_mutex _remote_files_lock;
+    std::mutex _cold_compaction_lock;
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 

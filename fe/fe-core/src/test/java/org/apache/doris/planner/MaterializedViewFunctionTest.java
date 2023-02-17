@@ -550,8 +550,7 @@ public class MaterializedViewFunctionTest {
         dorisAssert.withMaterializedView(createEmpsMVsql).query(query).explainContains(QUERY_USE_EMPS_MV, 2);
     }
 
-    // Can not support match multiple mv now
-    //@Test
+    @Test
     public void testMultiMVMultiUsage() throws Exception {
         String createEmpsMVSql01 = "create materialized view emp_mv_01 as select deptno, empid, salary "
                 + "from " + EMPS_TABLE_NAME + " order by deptno;";

@@ -147,35 +147,36 @@ public class GrantStmt extends DdlStmt {
         }
 
         // Rule 2
-        if (privileges.contains(Privilege.NODE_PRIV) && !Env.getCurrentEnv().getAuth()
+        if (privileges.contains(Privilege.NODE_PRIV) && !Env.getCurrentEnv().getAccessManager()
                 .checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
             throw new AnalysisException("Only user with NODE_PRIV can grant/revoke NODE_PRIV to other user");
         }
 
         if (role != null) {
             // Rule 3 and 4
-            if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
             }
         } else {
             // Rule 5.1 and 5.2
             if (tblPattern.getPrivLevel() == PrivLevel.GLOBAL) {
-                if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
                 }
             } else if (tblPattern.getPrivLevel() == PrivLevel.CATALOG) {
-                if (!Env.getCurrentEnv().getAuth().checkCtlPriv(ConnectContext.get(),
+                if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(ConnectContext.get(),
                         tblPattern.getQualifiedCtl(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
                 }
             } else if (tblPattern.getPrivLevel() == PrivLevel.DATABASE) {
-                if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(),
+                if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
                         tblPattern.getQualifiedCtl(), tblPattern.getQualifiedDb(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
                 }
             } else {
                 // table level
-                if (!Env.getCurrentEnv().getAuth()
+                if (!Env.getCurrentEnv().getAccessManager()
                         .checkTblPriv(ConnectContext.get(), tblPattern.getQualifiedCtl(), tblPattern.getQualifiedDb(),
                                 tblPattern.getTbl(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
@@ -203,17 +204,18 @@ public class GrantStmt extends DdlStmt {
 
         if (role != null) {
             // Rule 3 and 4
-            if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                 ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
             }
         } else {
             // Rule 5.1 and 5.3
             if (resourcePattern.getPrivLevel() == PrivLevel.GLOBAL) {
-                if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
+                if (!Env.getCurrentEnv().getAccessManager()
+                        .checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
                 }
             } else {
-                if (!Env.getCurrentEnv().getAuth().checkResourcePriv(ConnectContext.get(),
+                if (!Env.getCurrentEnv().getAccessManager().checkResourcePriv(ConnectContext.get(),
                         resourcePattern.getResourceName(), PrivPredicate.GRANT)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT/ROVOKE");
                 }
