@@ -26,7 +26,7 @@ under the License.
 
 ## GROUPING
 
-用在含有 CUBE、ROLLUP 或 GROUPING SETS 的SQL语句中，用于表示进行 CUBE、ROLLUP 或 GROUPING SETS 操作的列是否汇总。当结果集中的数据行是 CUBE、ROLLUP 或 GROUPING SETS 操作产生的汇总结果时，该函数返回 1，否则返回 0。GROUPING 函数可以在 `SELECT`、`HAVING` 和 `ORDER BY` 子句当中使用。
+用在含有 CUBE、ROLLUP 或 GROUPING SETS 的 SQL 语句中，用于表示进行 CUBE、ROLLUP 或 GROUPING SETS 操作的列是否汇总。当结果集中的数据行是 CUBE、ROLLUP 或 GROUPING SETS 操作产生的汇总结果时，该函数返回 1，否则返回 0。GROUPING 函数可以在 `SELECT`、`HAVING` 和 `ORDER BY` 子句当中使用。
 
 ### 语法
 
@@ -85,7 +85,7 @@ GROUP BY
   ROLLUP(camp); -- CUBE(camp) 和 GROUPING SETS((camp)) 同样也有效;
 ```
 
-结果集在 `camp` 列下有两个 NULL 值，第一个 NULL 值表示 `ROLLUP` 操作的列的汇总结果，这一行的 `occ_cnt` 列表示所有 `camp` 的 `occupation` 的计数结果，在 `grouping` 函数中返回 1。第二个 NULL 表示 `camp` 列中本来就存在的 null 值。
+结果集在 `camp` 列下有两个 NULL 值，第一个 NULL 值表示 `ROLLUP` 操作的列的汇总结果，这一行的 `occ_cnt` 列表示所有 `camp` 的 `occupation` 的计数结果，在 `grouping` 函数中返回 1。第二个 NULL 表示 `camp` 列中本来就存在的 NULL 值。
 
 结果集如下：
 
