@@ -31,6 +31,10 @@ Doris 提供如下2种compaction方式进行调优：
 
 
 ## Vertical compaction
+
+<version since="2.0.0">
+</version>
+
 Vertical compaction 是 Doris 2.0 版本中实现的新的 Compaction 算法，用于解决大宽表场景下的 Compaction 执行效率和资源开销问题。可以有效降低Compaction的内存开销，并提升 Compaction 的执行速度。
 实际测试中，Vertical compaction 使用内存仅为原有compaction算法的1/10，同时compaction速率提升15%。
 

@@ -26,7 +26,7 @@ under the License.
 
 # 基于主键的高并发点查询
 
-<version since="1.2.1">
+<version since="2.0.0">
 </version>
 
 ## 背景 
@@ -51,9 +51,9 @@ CREATE TABLE `tbl_point_query` (
   `v6` float NULL,
   `v7` datev2 NULL
 ) ENGINE=OLAP
-UNIQUE KEY(key)
+UNIQUE KEY(`key`)
 COMMENT 'OLAP'
-DISTRIBUTED BY HASH(key) BUCKETS 1
+DISTRIBUTED BY HASH(`key`) BUCKETS 1
 PROPERTIES (
 "replication_allocation" = "tag.location.default: 1",
 "enable_unique_key_merge_on_write" = "true",
@@ -70,7 +70,7 @@ PROPERTIES (
 为了减少SQL解析和表达式计算的开销， 我们在FE端提供了与mysql协议完全兼容的`PreparedStatement`特性（目前只支持主键点查）。当`PreparedStatement`在FE开启，SQL和其表达式将被提前计算并缓存到session级别的内存缓存中，后续的查询直接使用缓存对象即可。当CPU成为主键点查的瓶颈， 在开启`PreparedStatement`后，将会有4倍+的性能提升。下面是在JDBC中使用`PreparedStatement`的例子
 1. 设置JDB url并在server端开启prepared statement
 ```
-url = jdbc:mysql://127.0.0.1:9137/ycsb?useServerPrepStmts=true
+url = jdbc:mysql://127.0.0.1:9030/ycsb?useServerPrepStmts=true
 ``
 
 2. 使用 `PreparedStatement`
