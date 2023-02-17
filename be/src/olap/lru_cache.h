@@ -289,6 +289,8 @@ public:
     // Return whether h is found and removed.
     bool remove(const LRUHandle* h);
 
+    uint32_t element_count() const;
+
 private:
     FRIEND_TEST(CacheTest, HandleTableTest);
 
@@ -322,6 +324,9 @@ public:
 
     // Separate from constructor so caller can easily make an array of LRUCache
     void set_capacity(size_t capacity) { _capacity = capacity; }
+    void set_element_count_capacity(uint32_t element_count_capacity) {
+        _element_count_capacity = element_count_capacity;
+    }
 
     // Like Cache methods, but with an extra "hash" parameter.
     Cache::Handle* insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
@@ -349,6 +354,7 @@ private:
     void _evict_from_lru(size_t total_size, LRUHandle** to_remove_head);
     void _evict_from_lru_with_time(size_t total_size, LRUHandle** to_remove_head);
     void _evict_one_entry(LRUHandle* e);
+    bool _check_element_count_limit();
 
 private:
     LRUCacheType _type;
@@ -376,16 +382,18 @@ private:
     bool _cache_value_check_timestamp = false;
     LRUHandleHeap _sorted_normal_entries_with_timestamp;
     LRUHandleHeap _sorted_durable_entries_with_timestamp;
+
+    uint32_t _element_count_capacity = 0;
 };
 
 class ShardedLRUCache : public Cache {
 public:
     explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
-                             uint32_t num_shards);
+                             uint32_t num_shards, uint32_t element_count_capacity = 0);
     explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
                              uint32_t num_shards,
                              CacheValueTimeExtractor cache_value_time_extractor,
-                             bool cache_value_check_timestamp);
+                             bool cache_value_check_timestamp, uint32_t element_count_capacity = 0);
     // TODO(fdy): 析构时清除所有cache元素
     virtual ~ShardedLRUCache();
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
