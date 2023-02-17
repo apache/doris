@@ -67,6 +67,7 @@ public class AmbariDeployManager extends DeployManager {
     public static final String ENV_AMBARI_FE_COMPONENTS = "ENV_AMBARI_FE_COMPONENTS"; // PALO_FE
     public static final String ENV_AMBARI_BE_COMPONENTS = "ENV_AMBARI_BE_COMPONENTS";
     public static final String ENV_AMBARI_BROKER_COMPONENTS = "ENV_AMBARI_BROKER_COMPONENTS";
+    public static final String ENV_AMBARI_CN_COMPONENTS = "ENV_AMBARI_CN_COMPONENTS";
 
     // used for getting config info from blueprint
     public static final String ENV_AMBARI_FE_COMPONENTS_CONFIG = "ENV_AMBARI_FE_COMPONENTS_CONFIG"; // palo-fe-node
@@ -102,7 +103,8 @@ public class AmbariDeployManager extends DeployManager {
 
     public AmbariDeployManager(Env env, long intervalMs) {
         super(env, intervalMs);
-        initEnvVariables(ENV_AMBARI_FE_COMPONENTS, "", ENV_AMBARI_BE_COMPONENTS, ENV_AMBARI_BROKER_COMPONENTS);
+        initEnvVariables(ENV_AMBARI_FE_COMPONENTS, "", ENV_AMBARI_BE_COMPONENTS, ENV_AMBARI_BROKER_COMPONENTS,
+                ENV_AMBARI_CN_COMPONENTS);
     }
 
     public AmbariDeployManager() {
@@ -111,9 +113,9 @@ public class AmbariDeployManager extends DeployManager {
 
     @Override
     protected void initEnvVariables(String envElectableFeServiceGroup, String envObserverFeServiceGroup,
-            String envBackendServiceGroup, String envBrokerServiceGroup) {
+            String envBackendServiceGroup, String envBrokerServiceGroup, String envCnServiceGroup) {
         super.initEnvVariables(envElectableFeServiceGroup, envObserverFeServiceGroup, envBackendServiceGroup,
-                   envBrokerServiceGroup);
+                envBrokerServiceGroup, envCnServiceGroup);
 
         this.feConfigNode = Strings.nullToEmpty(System.getenv(ENV_AMBARI_FE_COMPONENTS_CONFIG));
         this.beConfigNode = Strings.nullToEmpty(System.getenv(ENV_AMBARI_BE_COMPONENTS_CONFIG));
@@ -121,7 +123,7 @@ public class AmbariDeployManager extends DeployManager {
 
         if (Strings.isNullOrEmpty(feConfigNode) || Strings.isNullOrEmpty(beConfigNode)) {
             LOG.error("failed to get fe config node: {} or be config node: {}. env var: {}, {}",
-                      feConfigNode, beConfigNode, ENV_AMBARI_FE_COMPONENTS_CONFIG, ENV_AMBARI_BE_COMPONENTS_CONFIG);
+                    feConfigNode, beConfigNode, ENV_AMBARI_FE_COMPONENTS_CONFIG, ENV_AMBARI_BE_COMPONENTS_CONFIG);
             System.exit(-1);
         }
 
@@ -131,7 +133,7 @@ public class AmbariDeployManager extends DeployManager {
         }
 
         LOG.info("get fe, be and broker config node name: {}, {}, {}",
-                 feConfigNode, beConfigNode, brokerConfigNode);
+                feConfigNode, beConfigNode, brokerConfigNode);
 
         // 1. auth info
         authInfo = System.getenv(ENV_AUTH_INFO);
