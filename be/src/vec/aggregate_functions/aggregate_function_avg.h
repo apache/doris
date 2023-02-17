@@ -94,14 +94,12 @@ public:
 
     /// ctor for native types
     AggregateFunctionAvg(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, Data>>(argument_types_,
-                                                                                {}),
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, Data>>(argument_types_),
               scale(0) {}
 
     /// ctor for Decimals
     AggregateFunctionAvg(const IDataType& data_type, const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, Data>>(argument_types_,
-                                                                                {}),
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionAvg<T, Data>>(argument_types_),
               scale(get_decimal_scale(data_type)) {}
 
     String get_name() const override { return "avg"; }

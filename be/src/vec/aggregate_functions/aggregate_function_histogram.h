@@ -151,7 +151,7 @@ public:
     AggregateFunctionHistogram(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data,
                                            AggregateFunctionHistogram<Data, T, has_input_param>>(
-                      argument_types_, {}),
+                      argument_types_),
               _argument_type(argument_types_[0]) {}
 
     std::string get_name() const override { return "histogram"; }

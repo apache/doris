@@ -58,8 +58,7 @@ using ConstAggregateDataPtr = const char*;
   */
 class IAggregateFunction {
 public:
-    IAggregateFunction(const DataTypes& argument_types_, const Array& parameters_)
-            : argument_types(argument_types_), parameters(parameters_) {}
+    IAggregateFunction(const DataTypes& argument_types_) : argument_types(argument_types_) {}
 
     /// Get main function name.
     virtual String get_name() const = 0;
@@ -192,7 +191,6 @@ public:
                                                    const size_t num_rows, Arena* arena) const = 0;
 
     const DataTypes& get_argument_types() const { return argument_types; }
-    const Array& get_parameters() const { return parameters; }
 
     virtual MutableColumnPtr create_serialize_column() const { return ColumnString::create(); }
 
@@ -200,15 +198,14 @@ public:
 
 protected:
     DataTypes argument_types;
-    Array parameters;
 };
 
 /// Implement method to obtain an address of 'add' function.
 template <typename Derived>
 class IAggregateFunctionHelper : public IAggregateFunction {
 public:
-    IAggregateFunctionHelper(const DataTypes& argument_types_, const Array& parameters_)
-            : IAggregateFunction(argument_types_, parameters_) {}
+    IAggregateFunctionHelper(const DataTypes& argument_types_)
+            : IAggregateFunction(argument_types_) {}
 
     void destroy_vec(AggregateDataPtr __restrict place,
                      const size_t num_rows) const noexcept override {
@@ -381,8 +378,8 @@ protected:
     }
 
 public:
-    IAggregateFunctionDataHelper(const DataTypes& argument_types_, const Array& parameters_)
-            : IAggregateFunctionHelper<Derived>(argument_types_, parameters_) {}
+    IAggregateFunctionDataHelper(const DataTypes& argument_types_)
+            : IAggregateFunctionHelper<Derived>(argument_types_) {}
 
     void create(AggregateDataPtr __restrict place) const override { new (place) Data; }
 

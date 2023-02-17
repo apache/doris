@@ -105,8 +105,7 @@ private:
 public:
     AggregateFunctionSort(const AggregateFunctionPtr& nested_func, const DataTypes& arguments,
                           const SortDescription& sort_desc, const RuntimeState* state)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionSort>(
-                      arguments, nested_func->get_parameters()),
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionSort>(arguments),
               _nested_func(nested_func),
               _arguments(arguments),
               _sort_desc(sort_desc),

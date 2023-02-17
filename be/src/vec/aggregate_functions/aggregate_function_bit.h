@@ -91,8 +91,8 @@ class AggregateFunctionBitwise final
         : public IAggregateFunctionDataHelper<Data, AggregateFunctionBitwise<T, Data>> {
 public:
     AggregateFunctionBitwise(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionBitwise<T, Data>>(argument_types_,
-                                                                                    {}) {}
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionBitwise<T, Data>>(
+                      argument_types_) {}
 
     String get_name() const override { return Data::name; }
 

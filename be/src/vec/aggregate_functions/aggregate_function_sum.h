@@ -58,12 +58,12 @@ public:
 
     AggregateFunctionSum(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionSum<T, TResult, Data>>(
-                      argument_types_, {}),
+                      argument_types_),
               scale(0) {}
 
     AggregateFunctionSum(const IDataType& data_type, const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data, AggregateFunctionSum<T, TResult, Data>>(
-                      argument_types_, {}),
+                      argument_types_),
               scale(get_decimal_scale(data_type)) {}
 
     DataTypePtr get_return_type() const override {
@@ -160,7 +160,6 @@ private:
 
 AggregateFunctionPtr create_aggregate_function_sum_reader(const std::string& name,
                                                           const DataTypes& argument_types,
-                                                          const Array& parameters,
                                                           const bool result_is_nullable);
 
 } // namespace doris::vectorized

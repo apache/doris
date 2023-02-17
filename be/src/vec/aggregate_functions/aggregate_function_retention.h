@@ -93,7 +93,7 @@ class AggregateFunctionRetention
 public:
     AggregateFunctionRetention(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<RetentionState, AggregateFunctionRetention>(
-                      argument_types_, {}) {}
+                      argument_types_) {}
 
     String get_name() const override { return "retention"; }
 

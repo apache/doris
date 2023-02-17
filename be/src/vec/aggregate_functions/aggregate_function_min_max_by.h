@@ -107,7 +107,7 @@ public:
     AggregateFunctionsMinMaxBy(const DataTypePtr& value_type_, const DataTypePtr& key_type_)
             : IAggregateFunctionDataHelper<
                       Data, AggregateFunctionsMinMaxBy<Data, AllocatesMemoryInArena>>(
-                      {value_type_, key_type_}, {}),
+                      {value_type_, key_type_}),
               value_type(this->argument_types[0]),
               key_type(this->argument_types[1]) {
         if (StringRef(Data::name()) == StringRef("min_by") ||
@@ -150,12 +150,10 @@ public:
 
 AggregateFunctionPtr create_aggregate_function_max_by(const std::string& name,
                                                       const DataTypes& argument_types,
-                                                      const Array& parameters,
                                                       const bool result_is_nullable);
 
 AggregateFunctionPtr create_aggregate_function_min_by(const std::string& name,
                                                       const DataTypes& argument_types,
-                                                      const Array& parameters,
                                                       const bool result_is_nullable);
 
 } // namespace doris::vectorized

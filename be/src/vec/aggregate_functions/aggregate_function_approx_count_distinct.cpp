@@ -22,8 +22,7 @@
 namespace doris::vectorized {
 
 AggregateFunctionPtr create_aggregate_function_approx_count_distinct(
-        const std::string& name, const DataTypes& argument_types, const Array& parameters,
-        const bool result_is_nullable) {
+        const std::string& name, const DataTypes& argument_types, const bool result_is_nullable) {
     AggregateFunctionPtr res = nullptr;
     WhichDataType which(argument_types[0]->is_nullable()
                                 ? reinterpret_cast<const DataTypeNullable*>(argument_types[0].get())

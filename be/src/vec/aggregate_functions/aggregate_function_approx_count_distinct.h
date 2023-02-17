@@ -72,7 +72,7 @@ public:
     AggregateFunctionApproxCountDistinct(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<AggregateFunctionApproxCountDistinctData,
                                            AggregateFunctionApproxCountDistinct<ColumnDataType>>(
-                      argument_types_, {}) {}
+                      argument_types_) {}
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
 

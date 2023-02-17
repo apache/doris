@@ -24,7 +24,6 @@ namespace doris::vectorized {
 
 AggregateFunctionPtr create_aggregate_function_avg_weight(const std::string& name,
                                                           const DataTypes& argument_types,
-                                                          const Array& parameters,
                                                           const bool result_is_nullable) {
     auto type = argument_types[0].get();
     if (type->is_nullable()) {

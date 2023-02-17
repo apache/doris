@@ -345,16 +345,14 @@ public:
 class AggregateRpcUdaf final
         : public IAggregateFunctionDataHelper<AggregateRpcUdafData, AggregateRpcUdaf> {
 public:
-    AggregateRpcUdaf(const TFunction& fn, const DataTypes& argument_types, const Array& parameters,
+    AggregateRpcUdaf(const TFunction& fn, const DataTypes& argument_types,
                      const DataTypePtr& return_type)
-            : IAggregateFunctionDataHelper(argument_types, parameters),
-              _fn(fn),
-              _return_type(return_type) {}
+            : IAggregateFunctionDataHelper(argument_types), _fn(fn), _return_type(return_type) {}
     ~AggregateRpcUdaf() = default;
 
     static AggregateFunctionPtr create(const TFunction& fn, const DataTypes& argument_types,
-                                       const Array& parameters, const DataTypePtr& return_type) {
-        return std::make_shared<AggregateRpcUdaf>(fn, argument_types, parameters, return_type);
+                                       const DataTypePtr& return_type) {
+        return std::make_shared<AggregateRpcUdaf>(fn, argument_types, return_type);
     }
 
     void create(AggregateDataPtr __restrict place) const override {

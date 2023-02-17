@@ -26,10 +26,6 @@
 
 namespace doris::vectorized {
 
-inline void assert_no_parameters(const std::string& name, const Array& parameters) {
-    CHECK(parameters.empty()) << fmt::format("Aggregate function {} cannot have parameters", name);
-}
-
 inline void assert_unary(const std::string& name, const DataTypes& argument_types) {
     CHECK_EQ(argument_types.size(), 1)
             << fmt::format("Aggregate function {} require single argument", name);

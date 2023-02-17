@@ -258,7 +258,7 @@ public:
     AggregateFunctionSampVariance(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<
                       Data, AggregateFunctionSampVariance<is_pop, Data, is_nullable>>(
-                      argument_types_, {}) {}
+                      argument_types_) {}
 
     String get_name() const override { return Data::name(); }
 

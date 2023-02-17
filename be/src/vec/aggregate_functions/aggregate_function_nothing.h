@@ -32,8 +32,8 @@ namespace doris::vectorized {
   */
 class AggregateFunctionNothing final : public IAggregateFunctionHelper<AggregateFunctionNothing> {
 public:
-    AggregateFunctionNothing(const DataTypes& arguments, const Array& params)
-            : IAggregateFunctionHelper<AggregateFunctionNothing>(arguments, params) {}
+    AggregateFunctionNothing(const DataTypes& arguments)
+            : IAggregateFunctionHelper<AggregateFunctionNothing>(arguments) {}
 
     String get_name() const override { return "nothing"; }
 

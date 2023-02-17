@@ -44,18 +44,16 @@ using AggregateFunctionSumSimple = typename SumSimple<T>::Function;
 template <template <typename> class Function>
 AggregateFunctionPtr create_aggregate_function_sum(const std::string& name,
                                                    const DataTypes& argument_types,
-                                                   const Array& parameters,
                                                    const bool result_is_nullable) {
     AggregateFunctionPtr res;
     DataTypePtr data_type = argument_types[0];
     if (data_type->is_nullable()) {
         auto no_null_argument_types = remove_nullable(argument_types);
         if (is_decimal(no_null_argument_types[0])) {
-            res.reset(create_with_decimal_type_null<Function>(no_null_argument_types, parameters,
-                                                              *no_null_argument_types[0],
-                                                              no_null_argument_types));
+            res.reset(create_with_decimal_type_null<Function>(
+                    no_null_argument_types, *no_null_argument_types[0], no_null_argument_types));
         } else {
-            res.reset(create_with_numeric_type_null<Function>(no_null_argument_types, parameters,
+            res.reset(create_with_numeric_type_null<Function>(no_null_argument_types,
                                                               no_null_argument_types));
         }
     } else {
@@ -86,10 +84,9 @@ using AggregateFunctionSumSimpleReader = typename SumSimpleReader<T>::Function;
 
 AggregateFunctionPtr create_aggregate_function_sum_reader(const std::string& name,
                                                           const DataTypes& argument_types,
-                                                          const Array& parameters,
                                                           const bool result_is_nullable) {
-    return create_aggregate_function_sum<AggregateFunctionSumSimpleReader>(
-            name, argument_types, parameters, result_is_nullable);
+    return create_aggregate_function_sum<AggregateFunctionSumSimpleReader>(name, argument_types,
+                                                                           result_is_nullable);
 }
 
 void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory) {

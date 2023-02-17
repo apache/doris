@@ -263,8 +263,7 @@ class AggregateFunctionTopNBase
 public:
     AggregateFunctionTopNBase(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<AggregateFunctionTopNData<T>,
-                                           AggregateFunctionTopNBase<Impl, T>>(argument_types_,
-                                                                               {}) {}
+                                           AggregateFunctionTopNBase<Impl, T>>(argument_types_) {}
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena*) const override {

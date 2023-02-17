@@ -168,8 +168,7 @@ public:
     AggregateFunctionWindowFunnel(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<
                       WindowFunnelState<DateValueType, NativeType>,
-                      AggregateFunctionWindowFunnel<DateValueType, NativeType>>(argument_types_,
-                                                                                {}) {}
+                      AggregateFunctionWindowFunnel<DateValueType, NativeType>>(argument_types_) {}
 
     String get_name() const override { return "window_funnel"; }
 

@@ -168,8 +168,7 @@ private:
 
 public:
     AggregateFunctionDistinct(AggregateFunctionPtr nested_func_, const DataTypes& arguments)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionDistinct>(
-                      arguments, nested_func_->get_parameters()),
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionDistinct>(arguments),
               nested_func(nested_func_),
               arguments_num(arguments.size()) {
         size_t nested_size = nested_func->align_of_data();

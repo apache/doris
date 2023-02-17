@@ -23,7 +23,6 @@ namespace doris::vectorized {
 
 AggregateFunctionPtr create_aggregate_function_topn(const std::string& name,
                                                     const DataTypes& argument_types,
-                                                    const Array& parameters,
                                                     const bool result_is_nullable) {
     if (argument_types.size() == 2) {
         return AggregateFunctionPtr(
@@ -83,7 +82,6 @@ AggregateFunctionPtr create_topn_array(const DataTypes& argument_types) {
 
 AggregateFunctionPtr create_aggregate_function_topn_array(const std::string& name,
                                                           const DataTypes& argument_types,
-                                                          const Array& parameters,
                                                           const bool result_is_nullable) {
     bool has_default_param = (argument_types.size() == 3);
     if (has_default_param) {
@@ -95,7 +93,6 @@ AggregateFunctionPtr create_aggregate_function_topn_array(const std::string& nam
 
 AggregateFunctionPtr create_aggregate_function_topn_weighted(const std::string& name,
                                                              const DataTypes& argument_types,
-                                                             const Array& parameters,
                                                              const bool result_is_nullable) {
     bool has_default_param = (argument_types.size() == 4);
     if (has_default_param) {

@@ -142,7 +142,7 @@ public:
 
     AggregateFunctionBitmapOp(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<AggregateFunctionBitmapData<Op>,
-                                           AggregateFunctionBitmapOp<Op>>(argument_types_, {}) {}
+                                           AggregateFunctionBitmapOp<Op>>(argument_types_) {}
 
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeBitMap>(); }
 
@@ -201,8 +201,7 @@ public:
     AggregateFunctionBitmapCount(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<
                       AggregateFunctionBitmapData<AggregateFunctionBitmapUnionOp>,
-                      AggregateFunctionBitmapCount<arg_is_nullable, ColVecType>>(argument_types_,
-                                                                                 {}) {}
+                      AggregateFunctionBitmapCount<arg_is_nullable, ColVecType>>(argument_types_) {}
 
     String get_name() const override { return "count"; }
     DataTypePtr get_return_type() const override { return std::make_shared<DataTypeInt64>(); }
@@ -270,7 +269,6 @@ public:
 
 AggregateFunctionPtr create_aggregate_function_bitmap_union(const std::string& name,
                                                             const DataTypes& argument_types,
-                                                            const Array& parameters,
                                                             const bool result_is_nullable);
 
 } // namespace doris::vectorized
