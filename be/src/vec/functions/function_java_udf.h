@@ -85,6 +85,7 @@ private:
         JavaFunctionCall* parent = nullptr;
 
         jobject executor = nullptr;
+        bool is_closed = false;
 
         std::unique_ptr<int64_t[]> input_values_buffer_ptr;
         std::unique_ptr<int64_t[]> input_nulls_buffer_ptr;
@@ -107,7 +108,10 @@ private:
                   batch_size_ptr(new int32_t()),
                   output_intermediate_state_ptr(new IntermediateState()) {}
 
-        ~JniContext() {
+        Status close() {
+            if (is_closed) {
+                return Status::OK();
+            }
             VLOG_DEBUG << "Free resources for JniContext";
             JNIEnv* env;
             Status status;
@@ -117,6 +121,8 @@ private:
             Status s = JniUtil::GetJniExceptionMsg(env);
             if (!s.ok()) LOG(WARNING) << s;
             env->DeleteGlobalRef(executor);
+            is_closed = true;
+            return Status::OK();
         }
 
         /// These functions are cross-compiled to IR and used by codegen.
