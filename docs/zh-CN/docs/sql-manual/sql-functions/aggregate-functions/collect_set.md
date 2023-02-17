@@ -25,6 +25,13 @@ under the License.
 -->
 
 ## COLLECT_SET
+
+<version since="1.2.0">
+
+COLLECT_SET
+
+</version>
+
 ### description
 #### Syntax
 
