@@ -124,8 +124,8 @@ public class SlotRef extends Expr {
         return desc.getId();
     }
 
-    public void setInvalid() {
-        this.desc.setInvalid();
+    public void setNeedMaterialize(boolean needMaterialize) {
+        this.desc.setNeedMaterialize(needMaterialize);
     }
 
     public boolean isInvalid() {
