@@ -261,7 +261,7 @@ CONF_Int32(index_page_cache_percentage, "10");
 // whether to disable page cache feature in storage
 CONF_Bool(disable_storage_page_cache, "false");
 // whether to disable row cache feature in storage
-CONF_Bool(disable_storage_row_cache, "false");
+CONF_Bool(disable_storage_row_cache, "true");
 
 CONF_Bool(enable_storage_vectorization, "true");
 
@@ -897,6 +897,7 @@ CONF_String(inverted_index_searcher_cache_limit, "10%");
 // set `true` to enable insert searcher into cache when write inverted index data
 CONF_Bool(enable_write_index_searcher_cache, "true");
 CONF_Bool(enable_inverted_index_cache_check_timestamp, "true");
+CONF_Int32(inverted_index_fd_number_limit_percent, "50"); // 50%
 
 // inverted index match bitmap cache size
 CONF_String(inverted_index_query_cache_limit, "10%");

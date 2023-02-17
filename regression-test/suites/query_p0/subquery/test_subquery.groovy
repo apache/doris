@@ -41,4 +41,8 @@ suite("test_subquery") {
         select /*+SET_VAR(enable_projection=false) */
         count() from (select k2, k1 from test_query_db.baseall order by k1 limit 1) a;
         """
+
+        qt_sql5 """
+        select * from test_query_db.bigtable where exists (select k2, k1 from test_query_db.baseall order by k1) order by k1, k2, k3, k4 limit 10;
+        """
 }
