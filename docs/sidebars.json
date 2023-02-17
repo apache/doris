@@ -1109,7 +1109,7 @@
                                 "admin-manual/http-actions/fe/bootstrap-action",
                                 "admin-manual/http-actions/fe/cancel-load-action",
                                 "admin-manual/http-actions/fe/check-decommission-action",
-                                "admin-manual/http-actions/fe/rest/check-storage-type-action",
+                                "admin-manual/http-actions/fe/check-storage-type-action",
                                 "admin-manual/http-actions/fe/connection-action",
                                 "admin-manual/http-actions/fe/extra-basepath-action",
                                 "admin-manual/http-actions/fe/fe-version-info-action",
