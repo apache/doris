@@ -159,11 +159,8 @@ if ! test -f ${RUN_JAR:+${RUN_JAR}}; then
 
     mkdir -p "${OUTPUT_DIR}"/{lib,log}
     cp -r "${REGRESSION_TEST_BUILD_DIR}"/regression-test-*.jar "${OUTPUT_DIR}/lib"
-fi
 
-# build jar needed by java-udf case
-JAVAUDF_JAR="${DORIS_HOME}/regression-test/java-udf-src/target/java-udf-case-jar-with-dependencies.jar"
-if ! test -f ${JAVAUDF_JAR:+${JAVAUDF_JAR}}; then
+    echo "===== BUILD JAVA_UDF_SRC TO GENERATE JAR ====="
     mkdir -p "${DORIS_HOME}"/regression-test/suites/javaudf_p0/jars
     cd "${DORIS_HOME}"/regression-test/java-udf-src
     "${MVN_CMD}" package

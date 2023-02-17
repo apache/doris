@@ -21,8 +21,8 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Paths
 
-suite("test_javaudf_array_int") {
-    def tableName = "test_javaudf_array_int"
+suite("test_javaudf_array") {
+    def tableName = "test_javaudf_array"
     def jarPath = """${context.file.parent}/jars/java-udf-case-jar-with-dependencies.jar"""
 
     log.info("Jar path: ${jarPath}".toString())
@@ -114,7 +114,7 @@ suite("test_javaudf_array_int") {
             "symbol"="org.apache.doris.udf.ArrayDateTest",
             "type"="JAVA_UDF"
         ); """
-        qt_select_12 """ SELECT java_udf_array_date_test(array(datev2_col)), tinyint_col as result FROM ${tableName} ORDER BY result; """
+        qt_select_13 """ SELECT java_udf_array_date_test(array(datev2_col)), tinyint_col as result FROM ${tableName} ORDER BY result; """
 
     } finally {
         try_sql("DROP TABLE IF EXISTS ${tableName}")

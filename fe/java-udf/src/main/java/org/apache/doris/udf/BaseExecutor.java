@@ -252,18 +252,17 @@ public abstract class BaseExecutor {
                         UdfUtils.getAddressAtOffset(inputOffsetsPtrs, argIdx)) + 8L * (row - 1)));
         long offsetEnd = Integer.toUnsignedLong(UdfUtils.UNSAFE.getInt(null, UdfUtils.UNSAFE.getLong(null,
                 UdfUtils.getAddressAtOffset(inputOffsetsPtrs, argIdx)) + 8L * row));
+        long arrayNullMapBase = UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputArrayNullsPtrs, argIdx));
+        long arrayInputBufferBase = UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, argIdx));
 
         switch (type.getPrimitiveType()) {
             case BOOLEAN: {
                 ArrayList<Boolean> data = new ArrayList<>();
                 for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, UdfUtils.UNSAFE.getLong(null,
-                            UdfUtils.getAddressAtOffset(inputArrayNullsPtrs, argIdx)) + offsetRow) == 1)) {
+                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
                         data.add(null);
                     } else {
-                        boolean value = UdfUtils.UNSAFE.getBoolean(null,
-                                UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, argIdx))
-                                        + offsetRow);
+                        boolean value = UdfUtils.UNSAFE.getBoolean(null, arrayInputBufferBase + offsetRow);
                         data.add(value);
                     }
                 }
@@ -272,13 +271,10 @@ public abstract class BaseExecutor {
             case TINYINT: {
                 ArrayList<Byte> data = new ArrayList<>();
                 for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, UdfUtils.UNSAFE.getLong(null,
-                            UdfUtils.getAddressAtOffset(inputArrayNullsPtrs, argIdx)) + offsetRow) == 1)) {
+                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
                         data.add(null);
                     } else {
-                        byte value = UdfUtils.UNSAFE.getByte(null,
-                                UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, argIdx))
-                                        + offsetRow);
+                        byte value = UdfUtils.UNSAFE.getByte(null, arrayInputBufferBase + offsetRow);
                         data.add(value);
                     }
                 }
@@ -287,13 +283,10 @@ public abstract class BaseExecutor {
             case SMALLINT: {
                 ArrayList<Short> data = new ArrayList<>();
                 for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, UdfUtils.UNSAFE.getLong(null,
-                            UdfUtils.getAddressAtOffset(inputArrayNullsPtrs, argIdx)) + offsetRow) == 1)) {
+                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
                         data.add(null);
                     } else {
-                        short value = UdfUtils.UNSAFE.getShort(null,
-                                UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, argIdx))
-                                        + 2L * offsetRow);
+                        short value = UdfUtils.UNSAFE.getShort(null, arrayInputBufferBase + 2L * offsetRow);
                         data.add(value);
                     }
                 }
@@ -302,13 +295,10 @@ public abstract class BaseExecutor {
             case INT: {
                 ArrayList<Integer> data = new ArrayList<>();
                 for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, UdfUtils.UNSAFE.getLong(null,
-                            UdfUtils.getAddressAtOffset(inputArrayNullsPtrs, argIdx)) + offsetRow) == 1)) {
+                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
                         data.add(null);
                     } else {
-                        int value = UdfUtils.UNSAFE.getInt(null,
-                                UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, argIdx))
-                                        + 4L * offsetRow);
+                        int value = UdfUtils.UNSAFE.getInt(null, arrayInputBufferBase + 4L * offsetRow);
                         data.add(value);
                     }
                 }
@@ -317,13 +307,10 @@ public abstract class BaseExecutor {
             case BIGINT: {
                 ArrayList<Long> data = new ArrayList<>();
                 for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, UdfUtils.UNSAFE.getLong(null,
-                            UdfUtils.getAddressAtOffset(inputArrayNullsPtrs, argIdx)) + offsetRow) == 1)) {
+                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
                         data.add(null);
                     } else {
-                        long value = UdfUtils.UNSAFE.getLong(null,
-                                UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, argIdx))
-                                        + 8L * offsetRow);
+                        long value = UdfUtils.UNSAFE.getLong(null, arrayInputBufferBase + 8L * offsetRow);
                         data.add(value);
                     }
                 }
@@ -332,13 +319,10 @@ public abstract class BaseExecutor {
             case FLOAT: {
                 ArrayList<Float> data = new ArrayList<>();
                 for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, UdfUtils.UNSAFE.getLong(null,
-                            UdfUtils.getAddressAtOffset(inputArrayNullsPtrs, argIdx)) + offsetRow) == 1)) {
+                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
                         data.add(null);
                     } else {
-                        float value = UdfUtils.UNSAFE.getFloat(null,
-                                UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, argIdx))
-                                        + 4L * offsetRow);
+                        float value = UdfUtils.UNSAFE.getFloat(null, arrayInputBufferBase + 4L * offsetRow);
                         data.add(value);
                     }
                 }
@@ -347,13 +331,10 @@ public abstract class BaseExecutor {
             case DOUBLE: {
                 ArrayList<Double> data = new ArrayList<>();
                 for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, UdfUtils.UNSAFE.getLong(null,
-                            UdfUtils.getAddressAtOffset(inputArrayNullsPtrs, argIdx)) + offsetRow) == 1)) {
+                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
                         data.add(null);
                     } else {
-                        double value = UdfUtils.UNSAFE.getDouble(null,
-                                UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, argIdx))
-                                        + 8L * offsetRow);
+                        double value = UdfUtils.UNSAFE.getDouble(null, arrayInputBufferBase + 8L * offsetRow);
                         data.add(value);
                     }
                 }
@@ -362,13 +343,10 @@ public abstract class BaseExecutor {
             case DATE: {
                 ArrayList<LocalDate> data = new ArrayList<>();
                 for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, UdfUtils.UNSAFE.getLong(null,
-                            UdfUtils.getAddressAtOffset(inputArrayNullsPtrs, argIdx)) + offsetRow) == 1)) {
+                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
                         data.add(null);
                     } else {
-                        long value = UdfUtils.UNSAFE.getLong(null,
-                                UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, argIdx))
-                                        + 8L * offsetRow);
+                        long value = UdfUtils.UNSAFE.getLong(null, arrayInputBufferBase + 8L * offsetRow);
                         // TODO: now argClass[argIdx + argClassOffset] is java.util.ArrayList, can't get
                         // nested class type
                         // LocalDate obj = UdfUtils.convertDateToJavaDate(value, argClass[argIdx +
@@ -382,13 +360,10 @@ public abstract class BaseExecutor {
             case DATETIME: {
                 ArrayList<LocalDateTime> data = new ArrayList<>();
                 for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, UdfUtils.UNSAFE.getLong(null,
-                            UdfUtils.getAddressAtOffset(inputArrayNullsPtrs, argIdx)) + offsetRow) == 1)) {
+                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
                         data.add(null);
                     } else {
-                        long value = UdfUtils.UNSAFE.getLong(null,
-                                UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, argIdx))
-                                        + 8L * offsetRow);
+                        long value = UdfUtils.UNSAFE.getLong(null, arrayInputBufferBase + 8L * offsetRow);
                         // Object obj = UdfUtils.convertDateTimeToJavaDateTime(value, argClass[argIdx +
                         // argClassOffset]);
                         LocalDateTime obj = (LocalDateTime) UdfUtils.convertDateTimeToJavaDateTime(value,
@@ -401,13 +376,10 @@ public abstract class BaseExecutor {
             case DATEV2: {
                 ArrayList<LocalDate> data = new ArrayList<>();
                 for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, UdfUtils.UNSAFE.getLong(null,
-                            UdfUtils.getAddressAtOffset(inputArrayNullsPtrs, argIdx)) + offsetRow) == 1)) {
+                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
                         data.add(null);
                     } else {
-                        int value = UdfUtils.UNSAFE.getInt(null,
-                                UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, argIdx))
-                                        + 4L * offsetRow);
+                        int value = UdfUtils.UNSAFE.getInt(null, arrayInputBufferBase + 4L * offsetRow);
                         // Object obj = UdfUtils.convertDateV2ToJavaDate(value, argClass[argIdx +
                         // argClassOffset]);
                         LocalDate obj = (LocalDate) UdfUtils.convertDateV2ToJavaDate(value, LocalDate.class);
@@ -419,13 +391,10 @@ public abstract class BaseExecutor {
             case DATETIMEV2: {
                 ArrayList<LocalDateTime> data = new ArrayList<>();
                 for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, UdfUtils.UNSAFE.getLong(null,
-                            UdfUtils.getAddressAtOffset(inputArrayNullsPtrs, argIdx)) + offsetRow) == 1)) {
+                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
                         data.add(null);
                     } else {
-                        long value = UdfUtils.UNSAFE.getLong(null,
-                                UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, argIdx))
-                                        + 8L * offsetRow);
+                        long value = UdfUtils.UNSAFE.getLong(null, arrayInputBufferBase + 8L * offsetRow);
                         LocalDateTime obj = (LocalDateTime) UdfUtils.convertDateTimeV2ToJavaDateTime(value,
                                 LocalDateTime.class);
                         data.add(obj);
@@ -435,15 +404,12 @@ public abstract class BaseExecutor {
             }
             case LARGEINT: {
                 ArrayList<BigInteger> data = new ArrayList<>();
+                byte[] bytes = new byte[16];
                 for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, UdfUtils.UNSAFE.getLong(null,
-                            UdfUtils.getAddressAtOffset(inputArrayNullsPtrs, argIdx)) + offsetRow) == 1)) {
+                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
                         data.add(null);
                     } else {
-                        long value = UdfUtils.UNSAFE.getLong(null,
-                                UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, argIdx))
-                                        + 16L * offsetRow);
-                        byte[] bytes = new byte[16];
+                        long value = UdfUtils.UNSAFE.getLong(null, arrayInputBufferBase + 16L * offsetRow);
                         UdfUtils.copyMemory(null, value, bytes, UdfUtils.BYTE_ARRAY_OFFSET, 16);
                         data.add(new BigInteger(UdfUtils.convertByteOrder(bytes)));
                     }
@@ -463,15 +429,12 @@ public abstract class BaseExecutor {
                     len = 16;
                 }
                 ArrayList<BigDecimal> data = new ArrayList<>();
+                byte[] bytes = new byte[len];
                 for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if ((UdfUtils.UNSAFE.getByte(null, UdfUtils.UNSAFE.getLong(null,
-                            UdfUtils.getAddressAtOffset(inputArrayNullsPtrs, argIdx)) + offsetRow) == 1)) {
+                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
                         data.add(null);
                     } else {
-                        long value = UdfUtils.UNSAFE.getLong(null,
-                                UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, argIdx))
-                                        + len * offsetRow);
-                        byte[] bytes = new byte[len];
+                        long value = UdfUtils.UNSAFE.getLong(null, arrayInputBufferBase + len * offsetRow);
                         UdfUtils.copyMemory(null, value, bytes, UdfUtils.BYTE_ARRAY_OFFSET, len);
                         BigInteger bigInteger = new BigInteger(UdfUtils.convertByteOrder(bytes));
                         data.add(new BigDecimal(bigInteger, argTypes[argIdx].getScale()));
@@ -483,24 +446,20 @@ public abstract class BaseExecutor {
             case VARCHAR:
             case STRING: {
                 ArrayList<String> data = new ArrayList<>();
+                long strOffsetBase = UdfUtils.UNSAFE
+                        .getLong(null, UdfUtils.getAddressAtOffset(inputArrayStringOffsetsPtrs, argIdx));
                 for (long offsetRow = offsetStart; offsetRow < offsetEnd; ++offsetRow) {
-                    if (UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputArrayNullsPtrs, argIdx)) != -1
-                            && (UdfUtils.UNSAFE.getByte(null, UdfUtils.UNSAFE.getLong(null,
-                            UdfUtils.getAddressAtOffset(inputArrayNullsPtrs, argIdx)) + offsetRow) == 1)) {
+                    if ((UdfUtils.UNSAFE.getByte(null, arrayNullMapBase + offsetRow) == 1)) {
                         data.add(null);
                     } else {
                         long stringOffsetStart = (offsetRow == 0) ? 0
-                                : Integer.toUnsignedLong(UdfUtils.UNSAFE.getInt(null, UdfUtils.UNSAFE.getLong(null,
-                                        UdfUtils.getAddressAtOffset(inputArrayStringOffsetsPtrs, argIdx))
-                                        + 4L * (offsetRow - 1)));
+                                : Integer.toUnsignedLong(
+                                        UdfUtils.UNSAFE.getInt(null, strOffsetBase + 4L * (offsetRow - 1)));
                         long stringOffsetEnd = Integer
-                                .toUnsignedLong(UdfUtils.UNSAFE.getInt(null, UdfUtils.UNSAFE.getLong(null,
-                                        UdfUtils.getAddressAtOffset(inputArrayStringOffsetsPtrs, argIdx))
-                                        + 4L * offsetRow));
+                                .toUnsignedLong(UdfUtils.UNSAFE.getInt(null, strOffsetBase + 4L * offsetRow));
 
                         long numBytes = stringOffsetEnd - stringOffsetStart;
-                        long base = UdfUtils.UNSAFE.getLong(null, UdfUtils.getAddressAtOffset(inputBufferPtrs, argIdx))
-                                + stringOffsetStart;
+                        long base = arrayInputBufferBase + stringOffsetStart;
                         byte[] bytes = new byte[(int) numBytes];
                         UdfUtils.copyMemory(null, base, bytes, UdfUtils.BYTE_ARRAY_OFFSET, numBytes);
                         data.add(new String(bytes, StandardCharsets.UTF_8));
@@ -680,6 +639,8 @@ public abstract class BaseExecutor {
     public boolean arrayTypeOutputData(Object obj, Type type, long row) throws UdfRuntimeException {
         long offset = getCurrentOutputOffset(row);
         long bufferSize = UdfUtils.UNSAFE.getLong(null, outputIntermediateStatePtr);
+        long outputNullMapBase = UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr);
+        long outputBufferBase = UdfUtils.UNSAFE.getLong(null, outputBufferPtr);
         switch (type.getPrimitiveType()) {
             case BOOLEAN: {
                 ArrayList<Boolean> data = (ArrayList<Boolean>) obj;
@@ -690,14 +651,10 @@ public abstract class BaseExecutor {
                 for (int i = 0; i < num; ++i) {
                     Boolean value = data.get(i);
                     if (value == null) {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 1);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
                     } else {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 0);
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + (offset + i),
-                                        value ? (byte) 1 : 0);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
+                        UdfUtils.UNSAFE.putByte(outputBufferBase + (offset + i), value ? (byte) 1 : 0);
                     }
                 }
                 offset += num;
@@ -715,13 +672,10 @@ public abstract class BaseExecutor {
                 for (int i = 0; i < num; ++i) {
                     Byte value = data.get(i);
                     if (value == null) {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 1);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
                     } else {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 0);
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + (offset + i), value);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
+                        UdfUtils.UNSAFE.putByte(outputBufferBase + (offset + i), value);
                     }
                 }
                 offset += num;
@@ -739,13 +693,10 @@ public abstract class BaseExecutor {
                 for (int i = 0; i < num; ++i) {
                     Short value = data.get(i);
                     if (value == null) {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 1);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
                     } else {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 0);
-                        UdfUtils.UNSAFE
-                                .putShort(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + ((offset + i) * 2L), value);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
+                        UdfUtils.UNSAFE.putShort(outputBufferBase + ((offset + i) * 2L), value);
                     }
                 }
                 offset += num;
@@ -763,13 +714,10 @@ public abstract class BaseExecutor {
                 for (int i = 0; i < num; ++i) {
                     Integer value = data.get(i);
                     if (value == null) {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 1);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
                     } else {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 0);
-                        UdfUtils.UNSAFE
-                                .putInt(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + ((offset + i) * 4L), value);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
+                        UdfUtils.UNSAFE.putInt(outputBufferBase + ((offset + i) * 4L), value);
                     }
                 }
                 offset += num;
@@ -787,13 +735,10 @@ public abstract class BaseExecutor {
                 for (int i = 0; i < num; ++i) {
                     Long value = data.get(i);
                     if (value == null) {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 1);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
                     } else {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 0);
-                        UdfUtils.UNSAFE
-                                .putLong(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + ((offset + i) * 8L), value);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
+                        UdfUtils.UNSAFE.putLong(outputBufferBase + ((offset + i) * 8L), value);
                     }
                 }
                 offset += num;
@@ -811,13 +756,10 @@ public abstract class BaseExecutor {
                 for (int i = 0; i < num; ++i) {
                     Float value = data.get(i);
                     if (value == null) {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 1);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
                     } else {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 0);
-                        UdfUtils.UNSAFE
-                                .putFloat(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + ((offset + i) * 4L), value);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
+                        UdfUtils.UNSAFE.putFloat(outputBufferBase + ((offset + i) * 4L), value);
                     }
                 }
                 offset += num;
@@ -835,13 +777,10 @@ public abstract class BaseExecutor {
                 for (int i = 0; i < num; ++i) {
                     Double value = data.get(i);
                     if (value == null) {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 1);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
                     } else {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 0);
-                        UdfUtils.UNSAFE
-                                .putDouble(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + ((offset + i) * 8L), value);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
+                        UdfUtils.UNSAFE.putDouble(outputBufferBase + ((offset + i) * 8L), value);
                     }
                 }
                 offset += num;
@@ -859,14 +798,11 @@ public abstract class BaseExecutor {
                 for (int i = 0; i < num; ++i) {
                     LocalDate value = data.get(i);
                     if (value == null) {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 1);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
                     } else {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 0);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
                         long time = UdfUtils.convertToDate(value, LocalDate.class);
-                        UdfUtils.UNSAFE
-                                .putLong(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + ((offset + i) * 8L), time);
+                        UdfUtils.UNSAFE.putLong(outputBufferBase + ((offset + i) * 8L), time);
                     }
                 }
                 offset += num;
@@ -884,14 +820,11 @@ public abstract class BaseExecutor {
                 for (int i = 0; i < num; ++i) {
                     LocalDateTime value = data.get(i);
                     if (value == null) {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 1);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
                     } else {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 0);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
                         long time = UdfUtils.convertToDateTime(value, LocalDateTime.class);
-                        UdfUtils.UNSAFE
-                                .putLong(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + ((offset + i) * 8L), time);
+                        UdfUtils.UNSAFE.putLong(outputBufferBase + ((offset + i) * 8L), time);
                     }
                 }
                 offset += num;
@@ -909,14 +842,11 @@ public abstract class BaseExecutor {
                 for (int i = 0; i < num; ++i) {
                     LocalDate value = data.get(i);
                     if (value == null) {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 1);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
                     } else {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 0);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
                         int time = UdfUtils.convertToDateV2(value, LocalDate.class);
-                        UdfUtils.UNSAFE
-                                .putInt(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + ((offset + i) * 4L), time);
+                        UdfUtils.UNSAFE.putInt(outputBufferBase + ((offset + i) * 4L), time);
                     }
                 }
                 offset += num;
@@ -934,14 +864,11 @@ public abstract class BaseExecutor {
                 for (int i = 0; i < num; ++i) {
                     LocalDateTime value = data.get(i);
                     if (value == null) {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 1);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
                     } else {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 0);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
                         long time = UdfUtils.convertToDateTimeV2(value, LocalDateTime.class);
-                        UdfUtils.UNSAFE
-                                .putLong(UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + ((offset + i) * 8L), time);
+                        UdfUtils.UNSAFE.putLong(outputBufferBase + ((offset + i) * 8L), time);
                     }
                 }
                 offset += num;
@@ -959,11 +886,9 @@ public abstract class BaseExecutor {
                 for (int i = 0; i < num; ++i) {
                     BigInteger bigInteger = data.get(i);
                     if (bigInteger == null) {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 1);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
                     } else {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 0);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
                         byte[] bytes = UdfUtils.convertByteOrder(bigInteger.toByteArray());
                         byte[] value = new byte[16];
                         // check data is negative
@@ -974,7 +899,7 @@ public abstract class BaseExecutor {
                             value[index] = bytes[index];
                         }
                         UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null,
-                                UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + ((offset + i) * 16L), value.length);
+                                outputBufferBase + ((offset + i) * 16L), value.length);
                     }
                 }
                 offset += num;
@@ -992,12 +917,10 @@ public abstract class BaseExecutor {
                 for (int i = 0; i < num; ++i) {
                     BigDecimal bigDecimal = data.get(i);
                     if (bigDecimal == null) {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 1);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
                     } else {
                         BigInteger bigInteger = bigDecimal.setScale(9, RoundingMode.HALF_EVEN).unscaledValue();
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 0);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
                         byte[] bytes = UdfUtils.convertByteOrder(bigInteger.toByteArray());
                         byte[] value = new byte[16];
                         // check data is negative
@@ -1008,7 +931,7 @@ public abstract class BaseExecutor {
                             value[index] = bytes[index];
                         }
                         UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null,
-                                UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + ((offset + i) * 16L), value.length);
+                                outputBufferBase + ((offset + i) * 16L), value.length);
                     }
                 }
                 offset += num;
@@ -1028,13 +951,11 @@ public abstract class BaseExecutor {
                 for (int i = 0; i < num; ++i) {
                     BigDecimal bigDecimal = data.get(i);
                     if (bigDecimal == null) {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 1);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
                     } else {
                         BigInteger bigInteger = bigDecimal.setScale(retType.getScale(), RoundingMode.HALF_EVEN)
                                 .unscaledValue();
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 0);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
                         byte[] bytes = UdfUtils.convertByteOrder(bigInteger.toByteArray());
                         byte[] value = new byte[16];
                         // check data is negative
@@ -1045,7 +966,7 @@ public abstract class BaseExecutor {
                             value[index] = bytes[index];
                         }
                         UdfUtils.copyMemory(value, UdfUtils.BYTE_ARRAY_OFFSET, null,
-                                UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + ((offset + i) * 16L), value.length);
+                                outputBufferBase + ((offset + i) * 16L), value.length);
                     }
                 }
                 offset += num;
@@ -1062,28 +983,25 @@ public abstract class BaseExecutor {
                 if (offset + num > bufferSize) {
                     return false;
                 }
+                long outputStrOffsetBase = UdfUtils.UNSAFE.getLong(null, outputArrayStringOffsetsPtr);
                 for (int i = 0; i < num; ++i) {
                     String value = data.get(i);
                     if (value == null) {
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 1);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 1);
                     } else {
                         byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
                         long strOffset = (offset + i == 0) ? 0
-                                : Integer.toUnsignedLong(UdfUtils.UNSAFE.getInt(null, UdfUtils.UNSAFE.getLong(null,
-                                        outputArrayStringOffsetsPtr) + ((offset + i - 1) * 4L)));
+                                : Integer.toUnsignedLong(UdfUtils.UNSAFE.getInt(null, 
+                                    outputStrOffsetBase + ((offset + i - 1) * 4L)));
                         if (strOffset + bytes.length > bufferSize) {
                             return false;
                         }
-                        UdfUtils.UNSAFE
-                                .putByte(UdfUtils.UNSAFE.getLong(null, outputArrayNullPtr) + (offset + i), (byte) 0);
+                        UdfUtils.UNSAFE.putByte(outputNullMapBase + (offset + i), (byte) 0);
                         strOffset += bytes.length;
-                        UdfUtils.UNSAFE.putInt(null,
-                                UdfUtils.UNSAFE.getLong(null, outputArrayStringOffsetsPtr) + 4L * (offset + i),
+                        UdfUtils.UNSAFE.putInt(null, outputStrOffsetBase + 4L * (offset + i),
                                 Integer.parseUnsignedInt(String.valueOf(strOffset)));
                         UdfUtils.copyMemory(bytes, UdfUtils.BYTE_ARRAY_OFFSET, null,
-                                UdfUtils.UNSAFE.getLong(null, outputBufferPtr) + strOffset - bytes.length,
-                                bytes.length);
+                                outputBufferBase + strOffset - bytes.length, bytes.length);
                     }
                 }
                 offset += num;
