@@ -106,6 +106,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
+import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -1182,9 +1183,22 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 joinFragment = createPlanFragment(nestedLoopJoinNode,
                         DataPartition.UNPARTITIONED, nestedLoopJoin);
                 context.addPlanFragment(joinFragment);
+                connectChildFragment(nestedLoopJoinNode, 0, joinFragment, leftFragment, context);
             } else {
                 joinFragment = leftFragment;
+                nestedLoopJoinNode.setChild(0, leftFragment.getPlanRoot());
+                joinFragment.setPlanRoot(nestedLoopJoinNode);
             }
+            // translate runtime filter
+            context.getRuntimeTranslator().ifPresent(runtimeFilterTranslator -> {
+                List<RuntimeFilter> filters = runtimeFilterTranslator
+                        .getRuntimeFilterOfHashJoinNode(nestedLoopJoin);
+                filters.forEach(filter -> runtimeFilterTranslator
+                        .createLegacyRuntimeFilter(filter, nestedLoopJoinNode, context));
+                if (!filters.isEmpty()) {
+                    nestedLoopJoinNode.setOutputLeftSideOnly(true);
+                }
+            });
 
             Map<ExprId, SlotReference> leftChildOutputMap = Maps.newHashMap();
             Stream.concat(nestedLoopJoin.child(0).getOutput().stream(),
@@ -1277,15 +1291,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             nestedLoopJoinNode.setvIntermediateTupleDescList(Lists.newArrayList(intermediateDescriptor));
 
             rightFragment.getPlanRoot().setCompactData(false);
-            if (needNewRootFragment) {
-                connectChildFragment(nestedLoopJoinNode, 0, joinFragment, leftFragment, context);
-            } else {
-                nestedLoopJoinNode.setChild(0, leftFragment.getPlanRoot());
-                joinFragment.setPlanRoot(nestedLoopJoinNode);
-            }
+
             connectChildFragment(nestedLoopJoinNode, 1, joinFragment, rightFragment, context);
             List<Expr> joinConjuncts = nestedLoopJoin.getOtherJoinConjuncts().stream()
+                    .filter(e -> !nestedLoopJoin.isBitmapRuntimeFilterCondition(e))
                     .map(e -> ExpressionTranslator.translate(e, context)).collect(Collectors.toList());
+
+            if (!nestedLoopJoin.isBitMapRuntimeFilterConditionsEmpty() && joinConjuncts.isEmpty()) {
+                //left semi join need at least one conjunct. otherwise left-semi-join fallback to cross-join
+                joinConjuncts.add(new BoolLiteral(true));
+            }
+
             nestedLoopJoinNode.setJoinConjuncts(joinConjuncts);
 
             nestedLoopJoin.getFilterConjuncts().stream()

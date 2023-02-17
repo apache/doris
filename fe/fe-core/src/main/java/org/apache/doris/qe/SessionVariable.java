@@ -26,6 +26,7 @@ import org.apache.doris.nereids.metrics.EventSwitchParser;
 import org.apache.doris.qe.VariableMgr.VarAttr;
 import org.apache.doris.thrift.TQueryOptions;
 import org.apache.doris.thrift.TResourceLimit;
+import org.apache.doris.thrift.TRuntimeFilterType;
 
 import com.google.common.base.Joiner;
 import com.google.common.base.Strings;
@@ -1276,6 +1277,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public int getRuntimeFilterType() {
         return runtimeFilterType;
+    }
+
+    public boolean isRuntimeFilterTypeEnabled(TRuntimeFilterType type) {
+        return (runtimeFilterType & type.getValue()) == type.getValue();
     }
 
     public void setRuntimeFilterType(int runtimeFilterType) {

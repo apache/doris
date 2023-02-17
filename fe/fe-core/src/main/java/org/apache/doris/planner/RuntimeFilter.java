@@ -117,6 +117,9 @@ public final class RuntimeFilter {
 
         public RuntimeFilterTarget(ScanNode targetNode, Expr targetExpr,
                                    boolean isBoundByKeyColumns, boolean isLocalTarget) {
+            if (!targetExpr.isBoundByTupleIds(targetNode.getTupleIds())) {
+                System.out.println("aaa");
+            }
             Preconditions.checkState(targetExpr.isBoundByTupleIds(targetNode.getTupleIds()));
             this.node = targetNode;
             this.expr = targetExpr;
@@ -148,7 +151,7 @@ public final class RuntimeFilter {
     }
 
     // only for nereids planner
-    public static RuntimeFilter fromNereidsRuntimeFilter(RuntimeFilterId id, HashJoinNode node, Expr srcExpr,
+    public static RuntimeFilter fromNereidsRuntimeFilter(RuntimeFilterId id, JoinNodeBase node, Expr srcExpr,
             int exprOrder, Expr origTargetExpr, Map<TupleId, List<SlotId>> targetSlots,
             TRuntimeFilterType type, RuntimeFilterGenerator.FilterSizeLimits filterSizeLimits) {
         return new RuntimeFilter(id, node, srcExpr, exprOrder, origTargetExpr, targetSlots, type, filterSizeLimits);
