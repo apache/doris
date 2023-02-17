@@ -482,7 +482,7 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 }
             } else {
                 if (column.isAllowNull()) {
-                    expr = NullLiteral.create(org.apache.doris.catalog.Type.VARCHAR);
+                    expr = NullLiteral.create(column.getType());
                 } else {
                     expr = null;
                 }
