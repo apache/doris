@@ -259,6 +259,11 @@ public class ExprToSlotRefRule implements ExprRewriteRule {
 
         if (mvColumn == null) {
             return expr;
+        } else {
+            Expr rhs = mvColumn.getDefineExpr();
+            if (rhs == null || !rhs.getClass().equals(expr.getClass())) {
+                return expr;
+            }
         }
 
         return rewriteExpr(tableName, mvColumn, analyzer);
