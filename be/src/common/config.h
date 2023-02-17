@@ -261,7 +261,7 @@ CONF_Int32(index_page_cache_percentage, "10");
 // whether to disable page cache feature in storage
 CONF_Bool(disable_storage_page_cache, "false");
 // whether to disable row cache feature in storage
-CONF_Bool(disable_storage_row_cache, "false");
+CONF_Bool(disable_storage_row_cache, "true");
 
 CONF_Bool(enable_storage_vectorization, "true");
 
