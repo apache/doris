@@ -850,4 +850,33 @@ Status ScrollParser::fill_date_col(vectorized::IColumn* col_ptr, const rapidjson
     }
 }
 
+Status ScrollParser::fill_date_slot_with_strval(void* slot, const rapidjson::Value& col,
+                                                PrimitiveType type) {
+    DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(slot);
+    const std::string& val = col.GetString();
+    size_t val_size = col.GetStringLength();
+    if (!ts_slot->from_date_str(val.c_str(), val_size)) {
+        RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
+    }
+    if (type == TYPE_DATE) {
+        ts_slot->cast_to_date();
+    } else {
+        ts_slot->to_datetime();
+    }
+    return Status::OK();
+}
+
+Status ScrollParser::fill_date_slot_with_timestamp(void* slot, const rapidjson::Value& col,
+                                                   PrimitiveType type) {
+    if (!reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.GetInt64() / 1000, "+08:00")) {
+        RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
+    }
+    if (type == TYPE_DATE) {
+        reinterpret_cast<DateTimeValue*>(slot)->cast_to_date();
+    } else {
+        reinterpret_cast<DateTimeValue*>(slot)->set_type(TIME_DATETIME);
+    }
+    return Status::OK();
+}
+
 } // namespace doris
