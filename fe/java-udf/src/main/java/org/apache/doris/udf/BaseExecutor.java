@@ -991,8 +991,8 @@ public abstract class BaseExecutor {
                     } else {
                         byte[] bytes = value.getBytes(StandardCharsets.UTF_8);
                         long strOffset = (offset + i == 0) ? 0
-                                : Integer.toUnsignedLong(UdfUtils.UNSAFE.getInt(null, 
-                                    outputStrOffsetBase + ((offset + i - 1) * 4L)));
+                                : Integer.toUnsignedLong(UdfUtils.UNSAFE.getInt(null,
+                                        outputStrOffsetBase + ((offset + i - 1) * 4L)));
                         if (strOffset + bytes.length > bufferSize) {
                             return false;
                         }
