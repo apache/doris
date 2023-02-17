@@ -218,10 +218,7 @@ Status JavaFunctionCall::close(FunctionContext* context,
             context->get_function_state(FunctionContext::THREAD_LOCAL));
     // JNIContext own some resource and its release method depend on JavaFunctionCall
     // has to release the resource before JavaFunctionCall is deconstructed.
-    Status st = jni_ctx->close();
-    if (!st.ok()) {
-        LOG(WARNING) << "Failed to close jni context, error st = " << st;
-    }
+    jni_ctx->close();
     return Status::OK();
 }
 } // namespace doris::vectorized
