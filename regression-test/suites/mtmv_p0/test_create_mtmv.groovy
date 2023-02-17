@@ -127,7 +127,7 @@ suite("test_create_mtmv") {
 
     // test alter mtmv
     sql """
-        alter MATERIALIZED VIEW ${mvName} REFRESH COMPLETE start with "2022-11-03 00:00:00" next 2 MINUTE
+        alter MATERIALIZED VIEW ${mvName} REFRESH COMPLETE start with "2022-11-03 00:00:00" next 2 DAY
     """
     show_job_meta = sql_meta "SHOW MTMV JOB ON ${mvName}"
     def scheduleIndex = show_job_meta.indexOf(['Schedule', 'CHAR'])
@@ -135,7 +135,7 @@ suite("test_create_mtmv") {
     show_job_result = sql "SHOW MTMV JOB ON ${mvName}"
     assertEquals 1, show_job_result.size()
 
-    assertEquals 'START 2022-11-03T00:00 EVERY(2 MINUTES)', show_job_result.last().get(scheduleIndex).toString(), show_job_result.last().toString()
+    assertEquals 'START 2022-11-03T00:00 EVERY(2 DAYS)', show_job_result.last().get(scheduleIndex).toString(), show_job_result.last().toString()
 
     sql """
         DROP MATERIALIZED VIEW ${mvName}
