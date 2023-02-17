@@ -74,7 +74,7 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
      */
     public NereidsRewriteJobExecutor(CascadesContext cascadesContext) {
         super(cascadesContext);
-        ImmutableList.Builder<Job> jobBuilder = new ImmutableList.Builder<Job>()
+        ImmutableList<Job> jobs = new ImmutableList.Builder<Job>()
                 .addAll(new EliminateSpecificPlanUnderApplyJob(cascadesContext).rulesJob)
                 // MergeProjects depends on this rule
                 .add(bottomUpBatch(ImmutableList.of(new LogicalSubQueryAliasToLogicalProject())))
@@ -106,13 +106,9 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .add(topDownBatch(RuleSet.PUSH_DOWN_FILTERS, false))
                 .add(visitorJob(RuleType.INFER_PREDICATES, new InferPredicates()))
                 .add(topDownBatch(ImmutableList.of(new ExtractFilterFromCrossJoin())))
-                .add(topDownBatch(ImmutableList.of(new MergeFilters())));
-
-        if (!cascadesContext.getConnectContext().getSessionVariable().isDisableJoinReorder()) {
-            jobBuilder.add(topDownBatch(ImmutableList.of(new ReorderJoin())));
-        }
-
-        jobBuilder.add(topDownBatch(ImmutableList.of(new ColumnPruning())))
+                .add(topDownBatch(ImmutableList.of(new MergeFilters())))
+                .add(topDownBatch(ImmutableList.of(new ReorderJoin())))
+                .add(topDownBatch(ImmutableList.of(new ColumnPruning())))
                 .add(topDownBatch(RuleSet.PUSH_DOWN_FILTERS, false))
                 .add(visitorJob(RuleType.INFER_PREDICATES, new InferPredicates()))
                 .add(topDownBatch(RuleSet.PUSH_DOWN_FILTERS, false))
@@ -143,8 +139,10 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .add(bottomUpBatch(ImmutableList.of(
                         new AdjustNullable(),
                         new ExpressionRewrite(CheckLegalityAfterRewrite.INSTANCE),
-                        new CheckAfterRewrite())));
+                        new CheckAfterRewrite()))
+                )
+                .build();
 
-        rulesJob.addAll(jobBuilder.build());
+        rulesJob.addAll(jobs);
     }
 }

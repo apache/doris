@@ -170,14 +170,7 @@ public class NereidsPlanner extends Planner {
             }
             deriveStats();
 
-            if (!statementContext.getConnectContext().getSessionVariable().isDisableJoinReorder()
-                    && statementContext.getConnectContext().getSessionVariable().isEnableDPHypOptimizer()
-                    && statementContext.getMaxNAryInnerJoin() > statementContext.getConnectContext()
-                    .getSessionVariable().getMaxTableCountUseCascadesJoinReorder()) {
-                dpHypOptimize();
-            } else {
-                optimize();
-            }
+            optimize();
 
             PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), requireProperties);
 
@@ -236,7 +229,14 @@ public class NereidsPlanner extends Planner {
      * try to find best plan under the guidance of statistic information and cost model.
      */
     private void optimize() {
-        new OptimizeRulesJob(cascadesContext).execute();
+        if (!statementContext.getConnectContext().getSessionVariable().isDisableJoinReorder()
+                && statementContext.getConnectContext().getSessionVariable().isEnableDPHypOptimizer()
+                && statementContext.getMaxNAryInnerJoin() > statementContext.getConnectContext()
+                .getSessionVariable().getMaxTableCountUseCascadesJoinReorder()) {
+            dpHypOptimize();
+        } else {
+            new OptimizeRulesJob(cascadesContext).execute();
+        }
     }
 
     private PhysicalPlan postProcess(PhysicalPlan physicalPlan) {
