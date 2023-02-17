@@ -26,7 +26,7 @@ under the License.
 
 # 倒排索引
 
-<version since="1.2.0">
+<version since="2.0.0">
  
 </version>
 
