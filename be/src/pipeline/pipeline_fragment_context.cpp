@@ -90,7 +90,8 @@ namespace doris::pipeline {
 PipelineFragmentContext::PipelineFragmentContext(
         const TUniqueId& query_id, const TUniqueId& instance_id, const int fragment_id,
         int backend_num, std::shared_ptr<QueryFragmentsCtx> query_ctx, ExecEnv* exec_env,
-        std::function<void(RuntimeState*, Status*)> call_back)
+        const std::function<void(RuntimeState*, Status*)>& call_back,
+        const report_status_callback& report_status_cb)
         : _query_id(query_id),
           _fragment_instance_id(instance_id),
           _fragment_id(fragment_id),
@@ -98,12 +99,16 @@ PipelineFragmentContext::PipelineFragmentContext(
           _exec_env(exec_env),
           _cancel_reason(PPlanFragmentCancelReason::INTERNAL_ERROR),
           _query_ctx(std::move(query_ctx)),
-          _call_back(call_back) {
+          _call_back(call_back),
+          _report_thread_active(false),
+          _report_status_cb(report_status_cb),
+          _is_report_on_cancel(true) {
     _fragment_watcher.start();
 }
 
 PipelineFragmentContext::~PipelineFragmentContext() {
     _call_back(_runtime_state.get(), &_exec_status);
+    DCHECK(!_report_thread_active);
 }
 
 void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
@@ -115,6 +120,7 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         }
         if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
             _exec_status = Status::Cancelled(msg);
+            _set_is_report_on_cancel(false);
         }
         _runtime_state->set_is_cancelled(true);
         if (_pipe != nullptr) {
@@ -269,6 +275,13 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
     _runtime_state->runtime_profile()->add_child(_root_plan->runtime_profile(), true, nullptr);
     _runtime_state->runtime_profile()->add_child(_runtime_profile.get(), true, nullptr);
 
+    if (_is_report_success && config::status_report_interval > 0) {
+        std::unique_lock<std::mutex> l(_report_thread_lock);
+        _report_thread = std::thread(&PipelineFragmentContext::report_profile, this);
+        // make sure the thread started up, otherwise report_profile() might get into a race
+        // with stop_report_thread()
+        _report_thread_started_cv.wait(l);
+    }
     _prepared = true;
     return Status::OK();
 }
@@ -453,6 +466,68 @@ Status PipelineFragmentContext::_build_pipeline_tasks(
     }
     _total_tasks = _tasks.size();
     return Status::OK();
+}
+
+void PipelineFragmentContext::_stop_report_thread() {
+    if (!_report_thread_active) {
+        return;
+    }
+
+    _report_thread_active = false;
+
+    _stop_report_thread_cv.notify_one();
+    _report_thread.join();
+}
+
+void PipelineFragmentContext::report_profile() {
+    SCOPED_ATTACH_TASK(_runtime_state.get());
+    VLOG_FILE << "report_profile(): instance_id=" << _runtime_state->fragment_instance_id();
+
+    _report_thread_active = true;
+
+    std::unique_lock<std::mutex> l(_report_thread_lock);
+    // tell Open() that we started
+    _report_thread_started_cv.notify_one();
+
+    // Jitter the reporting time of remote fragments by a random amount between
+    // 0 and the report_interval.  This way, the coordinator doesn't get all the
+    // updates at once so its better for contention as well as smoother progress
+    // reporting.
+    int report_fragment_offset = rand() % config::status_report_interval;
+    // We don't want to wait longer than it takes to run the entire fragment.
+    _stop_report_thread_cv.wait_for(l, std::chrono::seconds(report_fragment_offset));
+    while (_report_thread_active) {
+        if (config::status_report_interval > 0) {
+            // wait_for can return because the timeout occurred or the condition variable
+            // was signaled.  We can't rely on its return value to distinguish between the
+            // two cases (e.g. there is a race here where the wait timed out but before grabbing
+            // the lock, the condition variable was signaled).  Instead, we will use an external
+            // flag, _report_thread_active, to coordinate this.
+            _stop_report_thread_cv.wait_for(l,
+                                            std::chrono::seconds(config::status_report_interval));
+        } else {
+            LOG(WARNING) << "config::status_report_interval is equal to or less than zero, exiting "
+                            "reporting thread.";
+            break;
+        }
+
+        if (VLOG_FILE_IS_ON) {
+            VLOG_FILE << "Reporting " << (!_report_thread_active ? "final " : " ")
+                      << "profile for instance " << _runtime_state->fragment_instance_id();
+            std::stringstream ss;
+            _runtime_state->runtime_profile()->compute_time_in_profile();
+            _runtime_state->runtime_profile()->pretty_print(&ss);
+            VLOG_FILE << ss.str();
+        }
+
+        if (!_report_thread_active) {
+            break;
+        }
+
+        send_report(false);
+    }
+
+    VLOG_FILE << "exiting reporting thread: instance_id=" << _runtime_state->fragment_instance_id();
 }
 
 // TODO: use virtual function to do abstruct
@@ -752,6 +827,7 @@ Status PipelineFragmentContext::_create_sink(const TDataSink& thrift_sink) {
 void PipelineFragmentContext::_close_action() {
     _runtime_profile->total_time_counter()->update(_fragment_watcher.elapsed_time());
     send_report(true);
+    _stop_report_thread();
     // all submitted tasks done
     _exec_env->fragment_mgr()->remove_pipeline_context(shared_from_this());
 }
@@ -763,24 +839,11 @@ void PipelineFragmentContext::close_a_pipeline() {
     }
 }
 
-// TODO pipeline dump copy from FragmentExecState::to_http_path
-std::string PipelineFragmentContext::to_http_path(const std::string& file_name) {
-    std::stringstream url;
-    url << "http://" << BackendOptions::get_localhost() << ":" << config::webserver_port
-        << "/api/_download_load?"
-        << "token=" << _exec_env->token() << "&file=" << file_name;
-    return url.str();
-}
-
-// TODO pipeline dump copy from FragmentExecState::coordinator_callback
-// TODO pipeline this callback should be placed in a thread pool
 void PipelineFragmentContext::send_report(bool done) {
     Status exec_status = Status::OK();
     {
         std::lock_guard<std::mutex> l(_status_lock);
-        if (!_exec_status.ok()) {
-            exec_status = _exec_status;
-        }
+        exec_status = _exec_status;
     }
 
     // If plan is done successfully, but _is_report_success is false,
@@ -789,137 +852,21 @@ void PipelineFragmentContext::send_report(bool done) {
         return;
     }
 
-    Status coord_status;
-    auto coord_addr = _query_ctx->coord_addr;
-    FrontendServiceConnection coord(_exec_env->frontend_client_cache(), coord_addr, &coord_status);
-    if (!coord_status.ok()) {
-        std::stringstream ss;
-        ss << "couldn't get a client for " << coord_addr << ", reason: " << coord_status;
-        LOG(WARNING) << "query_id: " << print_id(_query_id) << ", " << ss.str();
-        {
-            std::lock_guard<std::mutex> l(_status_lock);
-            if (_exec_status.ok()) {
-                _exec_status = Status::InternalError(ss.str());
-            }
-        }
+    // If both _is_report_success and _is_report_on_cancel are false,
+    // which means no matter query is success or failed, no report is needed.
+    // This may happen when the query limit reached and
+    // a internal cancellation being processed
+    if (!_is_report_success && !_is_report_on_cancel) {
         return;
     }
-    auto* profile = _is_report_success ? _runtime_state->runtime_profile() : nullptr;
 
-    TReportExecStatusParams params;
-    params.protocol_version = FrontendServiceVersion::V1;
-    params.__set_query_id(_query_id);
-    params.__set_backend_num(_backend_num);
-    params.__set_fragment_instance_id(_fragment_instance_id);
-    params.__set_fragment_id(_fragment_id);
-    exec_status.set_t_status(&params);
-    params.__set_done(true);
-
-    auto* runtime_state = _runtime_state.get();
-    DCHECK(runtime_state != nullptr);
-    if (runtime_state->query_type() == TQueryType::LOAD && !done && exec_status.ok()) {
-        // this is a load plan, and load is not finished, just make a brief report
-        params.__set_loaded_rows(runtime_state->num_rows_load_total());
-        params.__set_loaded_bytes(runtime_state->num_bytes_load_total());
-    } else {
-        if (runtime_state->query_type() == TQueryType::LOAD) {
-            params.__set_loaded_rows(runtime_state->num_rows_load_total());
-            params.__set_loaded_bytes(runtime_state->num_bytes_load_total());
-        }
-        if (profile == nullptr) {
-            params.__isset.profile = false;
-        } else {
-            profile->to_thrift(&params.profile);
-            params.__isset.profile = true;
-        }
-
-        if (!runtime_state->output_files().empty()) {
-            params.__isset.delta_urls = true;
-            for (auto& it : runtime_state->output_files()) {
-                params.delta_urls.push_back(to_http_path(it));
-            }
-        }
-        if (runtime_state->num_rows_load_total() > 0 ||
-            runtime_state->num_rows_load_filtered() > 0) {
-            params.__isset.load_counters = true;
-
-            static std::string s_dpp_normal_all = "dpp.norm.ALL";
-            static std::string s_dpp_abnormal_all = "dpp.abnorm.ALL";
-            static std::string s_unselected_rows = "unselected.rows";
-
-            params.load_counters.emplace(s_dpp_normal_all,
-                                         std::to_string(runtime_state->num_rows_load_success()));
-            params.load_counters.emplace(s_dpp_abnormal_all,
-                                         std::to_string(runtime_state->num_rows_load_filtered()));
-            params.load_counters.emplace(s_unselected_rows,
-                                         std::to_string(runtime_state->num_rows_load_unselected()));
-        }
-        if (!runtime_state->get_error_log_file_path().empty()) {
-            params.__set_tracking_url(
-                    to_load_error_http_path(runtime_state->get_error_log_file_path()));
-        }
-        if (!runtime_state->export_output_files().empty()) {
-            params.__isset.export_files = true;
-            params.export_files = runtime_state->export_output_files();
-        }
-        if (!runtime_state->tablet_commit_infos().empty()) {
-            params.__isset.commitInfos = true;
-            params.commitInfos.reserve(runtime_state->tablet_commit_infos().size());
-            for (auto& info : runtime_state->tablet_commit_infos()) {
-                params.commitInfos.push_back(info);
-            }
-        }
-        if (!runtime_state->error_tablet_infos().empty()) {
-            params.__isset.errorTabletInfos = true;
-            params.errorTabletInfos.reserve(runtime_state->error_tablet_infos().size());
-            for (auto& info : runtime_state->error_tablet_infos()) {
-                params.errorTabletInfos.push_back(info);
-            }
-        }
-
-        // Send new errors to coordinator
-        runtime_state->get_unreported_errors(&(params.error_log));
-        params.__isset.error_log = (params.error_log.size() > 0);
-    }
-
-    if (_exec_env->master_info()->__isset.backend_id) {
-        params.__set_backend_id(_exec_env->master_info()->backend_id);
-    }
-
-    TReportExecStatusResult res;
-    Status rpc_status;
-
-    VLOG_DEBUG << "reportExecStatus params is "
-               << apache::thrift::ThriftDebugString(params).c_str();
-    try {
-        try {
-            coord->reportExecStatus(res, params);
-        } catch (TTransportException& e) {
-            LOG(WARNING) << "Retrying ReportExecStatus. query id: " << print_id(_query_id)
-                         << ", instance id: " << print_id(_fragment_instance_id) << " to "
-                         << coord_addr << ", err: " << e.what();
-            rpc_status = coord.reopen();
-
-            if (!rpc_status.ok()) {
-                // we need to cancel the execution of this fragment
-                cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "report rpc fail");
-                return;
-            }
-            coord->reportExecStatus(res, params);
-        }
-
-        rpc_status = Status(res.status);
-    } catch (TException& e) {
-        std::stringstream msg;
-        msg << "ReportExecStatus() to " << coord_addr << " failed:\n" << e.what();
-        LOG(WARNING) << msg.str();
-        rpc_status = Status::InternalError(msg.str());
-    }
-
-    if (!rpc_status.ok()) {
-        // we need to cancel the execution of this fragment
-        cancel(PPlanFragmentCancelReason::INTERNAL_ERROR, "rpc fail 2");
-    }
+    _report_status_cb(
+            {exec_status, _is_report_success ? _runtime_state->runtime_profile() : nullptr,
+             done || !exec_status.ok(), _query_ctx->coord_addr, _query_id, _fragment_id,
+             _fragment_instance_id, _backend_num, _runtime_state.get(),
+             std::bind(&PipelineFragmentContext::update_status, this, std::placeholders::_1),
+             std::bind(&PipelineFragmentContext::cancel, this, std::placeholders::_1,
+                       std::placeholders::_2)});
 }
 
 } // namespace doris::pipeline
