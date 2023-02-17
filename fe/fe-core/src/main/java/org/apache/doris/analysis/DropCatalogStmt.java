@@ -59,7 +59,7 @@ public class DropCatalogStmt extends DdlStmt {
         if (!Env.getCurrentEnv().getAccessManager().checkCtlPriv(
                 ConnectContext.get(), catalogName, PrivPredicate.DROP)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
-                    analyzer.getQualifiedUser(), catalogName);
+                    ConnectContext.get().getQualifiedUser(), catalogName);
         }
     }
 

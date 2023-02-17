@@ -28,7 +28,7 @@ import org.apache.logging.log4j.Logger;
 import java.util.List;
 
 /**
- * Elasticsearch external table.
+ * TestExternalTable is a table for unit test.
  */
 public class TestExternalTable extends ExternalTable {
     private static final Logger LOG = LogManager.getLogger(TestExternalTable.class);

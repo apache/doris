@@ -57,6 +57,10 @@ public class AccessControllerManager {
         return ctlToCtlAccessController.getOrDefault(ctl, internalAccessController);
     }
 
+    public boolean checkIfAccessControllerExist(String ctl) {
+        return ctlToCtlAccessController.containsKey(ctl);
+    }
+
     public void createAccessController(String ctl, String acFactoryClassName, Map<String, String> prop) {
         Class<?> factoryClazz = null;
         try {
@@ -72,6 +76,11 @@ public class AccessControllerManager {
         } catch (IllegalAccessException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    public void removeAccessController(String ctl) {
+        ctlToCtlAccessController.remove(ctl);
+        LOG.info("remove access controller for catalog {}", ctl);
     }
 
     public Auth getAuth() {

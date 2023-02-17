@@ -62,10 +62,6 @@ public class TestExternalCatalog extends ExternalCatalog {
     }
 
     @Override
-    public void onClose() {
-    }
-
-    @Override
     protected void initLocalObjectsImpl() {
     }
 

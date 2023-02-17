@@ -23,6 +23,7 @@ import org.apache.doris.analysis.CreateRoleStmt;
 import org.apache.doris.analysis.CreateTableStmt;
 import org.apache.doris.analysis.CreateUserStmt;
 import org.apache.doris.analysis.CreateViewStmt;
+import org.apache.doris.analysis.DropCatalogStmt;
 import org.apache.doris.analysis.GrantStmt;
 import org.apache.doris.analysis.ShowCatalogStmt;
 import org.apache.doris.analysis.UserIdentity;
@@ -56,12 +57,13 @@ public class ColumnPrivTest extends TestWithFeService {
     private static Auth auth;
     private static Env env;
     private CatalogMgr mgr;
+    private ConnectContext rootCtx;
 
     @Override
     protected void runBeforeAll() throws Exception {
         FeConstants.runningUnitTest = true;
         mgr = Env.getCurrentEnv().getCatalogMgr();
-        ConnectContext rootCtx = createDefaultCtx();
+        rootCtx = createDefaultCtx();
         env = Env.getCurrentEnv();
         auth = env.getAuth();
 
@@ -116,6 +118,16 @@ public class ColumnPrivTest extends TestWithFeService {
         env.createTable(createTableStmt);
     }
 
+    @Override
+    protected void runAfterAll() throws Exception {
+        super.runAfterAll();
+        rootCtx.setThreadLocalInfo();
+        Assert.assertTrue(env.getAccessManager().checkIfAccessControllerExist("test1"));
+        DropCatalogStmt stmt = (DropCatalogStmt) parseAndAnalyzeStmt("drop catalog test1");
+        env.getCatalogMgr().dropCatalog(stmt);
+        Assert.assertFalse(env.getAccessManager().checkIfAccessControllerExist("test1"));
+    }
+
     @Test
     public void testColumnPrivs() throws Exception {
         String showCatalogSql = "SHOW CATALOGS";
@@ -123,7 +135,6 @@ public class ColumnPrivTest extends TestWithFeService {
         ShowResultSet showResultSet = mgr.showCatalogs(showStmt);
         Assertions.assertEquals(2, showResultSet.getResultRows().size());
 
-        ConnectContext rootCtx = createDefaultCtx();
         CreateRoleStmt createRole1 = (CreateRoleStmt) parseAndAnalyzeStmt("create role role1;", rootCtx);
         auth.createRole(createRole1);
         GrantStmt grantRole = (GrantStmt) parseAndAnalyzeStmt("grant select_priv on test1.*.* to role 'role1';",

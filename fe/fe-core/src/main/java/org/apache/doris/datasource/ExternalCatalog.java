@@ -296,6 +296,16 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
         Text.writeString(out, GsonUtils.GSON.toJson(this));
     }
 
+    @Override
+    public void onClose() {
+        removeAccessController();
+        CatalogIf.super.onClose();
+    }
+
+    private void removeAccessController() {
+        Env.getCurrentEnv().getAccessManager().removeAccessController(name);
+    }
+
     public void replayInitCatalog(InitCatalogLog log) {
         Map<String, Long> tmpDbNameToId = Maps.newConcurrentMap();
         Map<Long, ExternalDatabase> tmpIdToDb = Maps.newConcurrentMap();
