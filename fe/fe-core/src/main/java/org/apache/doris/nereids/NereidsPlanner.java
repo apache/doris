@@ -220,7 +220,6 @@ public class NereidsPlanner extends Planner {
         }
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
-        optimize();
     }
 
     /**
@@ -234,9 +233,8 @@ public class NereidsPlanner extends Planner {
                 && statementContext.getMaxNAryInnerJoin() > statementContext.getConnectContext()
                 .getSessionVariable().getMaxTableCountUseCascadesJoinReorder()) {
             dpHypOptimize();
-        } else {
-            new OptimizeRulesJob(cascadesContext).execute();
         }
+        new OptimizeRulesJob(cascadesContext).execute();
     }
 
     private PhysicalPlan postProcess(PhysicalPlan physicalPlan) {
