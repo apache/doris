@@ -85,7 +85,6 @@ public:
 };
 
 void register_aggregate_function_combinator_null(AggregateFunctionSimpleFactory& factory) {
-    // factory.registerCombinator(std::make_shared<AggregateFunctionCombinatorNull>());
     AggregateFunctionCreator creator = [&](const std::string& name, const DataTypes& types,
                                            const Array& params, const bool result_is_nullable) {
         auto function_combinator = std::make_shared<AggregateFunctionCombinatorNull>();

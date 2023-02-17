@@ -55,66 +55,140 @@ _is_sourced() {
 }
 
 docker_setup_env() {
-    declare -g DATABASE_ALREADY_EXISTS
+    declare -g DATABASE_ALREADY_EXISTS BUILD_TYPE_K8S
     if [ -d "${DORIS_HOME}/fe/doris-meta/image" ]; then
         DATABASE_ALREADY_EXISTS='true'
     fi
 }
 
-# Check the variables required for startup
+# Check the variables required for   startup
 docker_required_variables_env() {
-    if [[ $FE_SERVERS =~ ^.+:[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4}(,.+:[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4})*$ ]]; then
-        doris_warn "FE_SERVERS" $FE_SERVERS
-    else
-        doris_error "FE_SERVERS rule error！example: \$FE_NAME:\$FE_HOST_IP:\$FE_EDIT_LOG_PORT[,\$FE_NAME:\$FE_HOST_IP:\$FE_EDIT_LOG_PORT]..."
+    declare -g RUN_TYPE
+    if [ -n "$BUILD_TYPE" ]; then
+        RUN_TYPE="K8S"
+        if [[ $BUILD_TYPE =~ ^([kK]8[sS])$ ]]; then
+            doris_warn "BUILD_TYPE" $BUILD_TYPE
+        else
+            doris_error "BUILD_TYPE rule error！example: [k8s], Default Value: docker."
+        fi
+        return
     fi
-    if [[ $FE_ID =~ ^[1-9]{1}$ ]]; then
-        doris_warn "FE_ID" $FE_ID
-    else
-        doris_error "FE_ID rule error！If FE is the role of Master, please set FE_ID=1, and ensure that all IDs correspond to the IP of the current node."
+
+    if [[ -n "$FE_SERVERS" && -n "$FE_ID" ]]; then
+        RUN_TYPE="ELECTION"
+        if [[ $FE_SERVERS =~ ^.+:[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4}(,.+:[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4})*$ || $FE_SERVERS =~ ^([0-9a-fA-F]{1,4}:){7,7}([0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,6}(:[0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,5}((:[0-9a-fA-F]{1,4}){1,2}|:)|([0-9a-fA-F]{1,4}:){1,4}((:[0-9a-fA-F]{1,4}){1,3}|:)|([0-9a-fA-F]{1,4}:){1,3}((:[0-9a-fA-F]{1,4}){1,4}|:)|([0-9a-fA-F]{1,4}:){1,2}((:[0-9a-fA-F]{1,4}){1,5}|:)|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6}|:)|:((:[0-9a-fA-F]{1,4}){1,7}|:)$ ]]; then
+            doris_warn "FE_SERVERS" $FE_SERVERS
+        else
+            doris_error "FE_SERVERS rule error！example: \$FE_NAME:\$FE_HOST_IP:\$FE_EDIT_LOG_PORT[,\$FE_NAME:\$FE_HOST_IP:\$FE_EDIT_LOG_PORT]..."
+        fi
+        if [[ $FE_ID =~ ^[1-9]{1}$ ]]; then
+            doris_warn "FE_ID" $FE_ID
+        else
+            doris_error "FE_ID rule error！If FE is the role of Master, please set FE_ID=1, and ensure that all IDs correspond to the IP of the current node."
+        fi
+        return
     fi
+    doris_note $FE_MASTER_IP "  " $FE_MASTER_PORT "  " $FE_CURRENT_IP "  " $FE_CURRENT_PORT
+    if [[ -n "$FE_MASTER_IP" && -n "$FE_MASTER_PORT" && -n "$FE_CURRENT_IP" && -n "$FE_CURRENT_PORT" ]]; then
+        RUN_TYPE="ASSIGN"
+        if [[ $FE_MASTER_IP =~ ^[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}$ || $FE_MASTER_IP =~ ^([0-9a-fA-F]{1,4}:){7,7}([0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,6}(:[0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,5}((:[0-9a-fA-F]{1,4}){1,2}|:)|([0-9a-fA-F]{1,4}:){1,4}((:[0-9a-fA-F]{1,4}){1,3}|:)|([0-9a-fA-F]{1,4}:){1,3}((:[0-9a-fA-F]{1,4}){1,4}|:)|([0-9a-fA-F]{1,4}:){1,2}((:[0-9a-fA-F]{1,4}){1,5}|:)|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6}|:)|:((:[0-9a-fA-F]{1,4}){1,7}|:)$ ]]; then
+            doris_warn "FE_MASTER_IP" $FE_MASTER_IP
+        else
+            doris_error "FE_MASTER_IP rule error！example: \$FE_MASTER_IP"
+        fi
+        if [[ $FE_MASTER_PORT =~ ^[1-6]{0,1}[0-9]{1,4}$ ]]; then
+            doris_warn "FE_MASTER_PORT" $FE_MASTER_PORT
+        else
+            doris_error "FE_MASTER_PORT rule error！example: \$FE_MASTER_EDIT_LOG_HOST."
+        fi
+        if [[ $FE_CURRENT_IP =~ ^[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}$ || $FE_CURRENT_IP =~ ^([0-9a-fA-F]{1,4}:){7,7}([0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,6}(:[0-9a-fA-F]{1,4}|:)|([0-9a-fA-F]{1,4}:){1,5}((:[0-9a-fA-F]{1,4}){1,2}|:)|([0-9a-fA-F]{1,4}:){1,4}((:[0-9a-fA-F]{1,4}){1,3}|:)|([0-9a-fA-F]{1,4}:){1,3}((:[0-9a-fA-F]{1,4}){1,4}|:)|([0-9a-fA-F]{1,4}:){1,2}((:[0-9a-fA-F]{1,4}){1,5}|:)|[0-9a-fA-F]{1,4}:((:[0-9a-fA-F]{1,4}){1,6}|:)|:((:[0-9a-fA-F]{1,4}){1,7}|:)$ ]]; then
+            doris_warn "FE_CURRENT_IP" $FE_CURRENT_IP
+        else
+            doris_error "FE_CURRENT_IP rule error！example: \$FE_CURRENT_IP"
+        fi
+        if [[ $FE_CURRENT_PORT =~ ^[1-6]{0,1}[0-9]{1,4}$ ]]; then
+            doris_warn "FE_CURRENT_PORT" $FE_CURRENT_PORT
+        else
+            doris_error "FE_CURRENT_PORT rule error！example: \$FE_CURRENT_EDIT_LOG_HOST."
+        fi
+        return
+    fi
+
+    doris_error EOF "
+                 Note that you did not configure the required parameters!
+                 plan 1:
+                 BUILD_TYPE
+                 plan 2:
+                 FE_SERVERS & FE_ID
+                 plan 3:
+                 FE_MASTER_IP & FE_MASTER_PORT & FE_CURRENT_IP & FE_CURRENT_PORT"
+                EOF
+
 }
 
 get_doris_fe_args() {
-    local feServerArray=($(echo "${FE_SERVERS}" | awk '{gsub (/,/," "); print $0}'))
-    for i in "${feServerArray[@]}"; do
-        val=${i}
-        val=${val// /}
-        tmpFeName=$(echo "${val}" | awk -F ':' '{ sub(/fe/, ""); sub(/ /, ""); print$1}')
-        tmpFeIp=$(echo "${val}" | awk -F ':' '{ sub(/ /, ""); print$2}')
-        tmpFeEditLogPort=$(echo "${val}" | awk -F ':' '{ sub(/ /, ""); print$3}')
-        check_arg "TMP_FE_NAME" $tmpFeName
-        feIpArray[$tmpFeName]=${tmpFeIp}
-        check_arg "TMP_FE_EDIT_LOG_PORT" $tmpFeEditLogPort
-        feEditLogPortArray[$tmpFeName]=${tmpFeEditLogPort}
-    done
-
     declare -g MASTER_FE_IP CURRENT_FE_IP MASTER_FE_EDIT_PORT CURRENT_FE_EDIT_PORT PRIORITY_NETWORKS CURRENT_FE_IS_MASTER
-    MASTER_FE_IP=${feIpArray[1]}
-    check_arg "MASTER_FE_IP" $MASTER_FE_IP
-    MASTER_FE_EDIT_PORT=${feEditLogPortArray[1]}
-    check_arg "MASTER_FE_EDIT_PORT" $MASTER_FE_EDIT_PORT
-    CURRENT_FE_IP=${feIpArray[FE_ID]}
-    check_arg "CURRENT_FE_IP" $CURRENT_FE_IP
-    CURRENT_FE_EDIT_PORT=${feEditLogPortArray[FE_ID]}
-    check_arg "CURRENT_FE_EDIT_PORT" $CURRENT_FE_EDIT_PORT
+    if [ $RUN_TYPE == "ELECTION" ]; then
+        local feServerArray=($(echo "${FE_SERVERS}" | awk '{gsub (/,/," "); print $0}'))
+        for i in "${feServerArray[@]}"; do
+            val=${i}
+            val=${val// /}
+            tmpFeName=$(echo "${val}" | awk -F ':' '{ sub(/fe/, ""); sub(/ /, ""); print$1}')
+            tmpFeIp=$(echo "${val}" | awk -F ':' '{ sub(/ /, ""); print$2}')
+            tmpFeEditLogPort=$(echo "${val}" | awk -F ':' '{ sub(/ /, ""); print$3}')
+            check_arg "TMP_FE_NAME" $tmpFeName
+            feIpArray[$tmpFeName]=${tmpFeIp}
+            check_arg "TMP_FE_EDIT_LOG_PORT" $tmpFeEditLogPort
+            feEditLogPortArray[$tmpFeName]=${tmpFeEditLogPort}
+        done
 
-    if [ ${MASTER_FE_IP} == ${CURRENT_FE_IP} ]; then
-        CURRENT_FE_IS_MASTER=true
-    else
-        CURRENT_FE_IS_MASTER=false
+        MASTER_FE_IP=${feIpArray[1]}
+        check_arg "MASTER_FE_IP" $MASTER_FE_IP
+        MASTER_FE_EDIT_PORT=${feEditLogPortArray[1]}
+        check_arg "MASTER_FE_EDIT_PORT" $MASTER_FE_EDIT_PORT
+        CURRENT_FE_IP=${feIpArray[FE_ID]}
+        check_arg "CURRENT_FE_IP" $CURRENT_FE_IP
+        CURRENT_FE_EDIT_PORT=${feEditLogPortArray[FE_ID]}
+        check_arg "CURRENT_FE_EDIT_PORT" $CURRENT_FE_EDIT_PORT
+
+        if [ ${MASTER_FE_IP} == ${CURRENT_FE_IP} ]; then
+            CURRENT_FE_IS_MASTER=true
+        else
+            CURRENT_FE_IS_MASTER=false
+        fi
+
+        PRIORITY_NETWORKS=$(echo "${CURRENT_FE_IP}" | awk -F '.' '{print$1"."$2"."$3".0/24"}')
+        check_arg "PRIORITY_NETWORKS" $PRIORITY_NETWORKS
+
+        doris_note "FE_IP_ARRAY = ${feIpArray[*]}"
+        doris_note "FE_EDIT_LOG_PORT_ARRAY = ${feEditLogPortArray[*]}"
+        doris_note "MASTER_FE = ${feIpArray[1]}:${feEditLogPortArray[1]}"
+        doris_note "CURRENT_FE = ${CURRENT_FE_IP}:${CURRENT_FE_EDIT_PORT}"
+        doris_note "PRIORITY_NETWORKS = ${PRIORITY_NETWORKS}"
+
+    elif [ $RUN_TYPE == "ASSIGN" ]; then
+        MASTER_FE_IP=${FE_MASTER_IP}
+        check_arg "MASTER_FE_IP" $MASTER_FE_IP
+        MASTER_FE_EDIT_PORT=${FE_MASTER_PORT}
+        check_arg "MASTER_FE_EDIT_PORT" $MASTER_FE_EDIT_PORT
+        CURRENT_FE_IP=${FE_CURRENT_IP}
+        check_arg "CURRENT_FE_IP" $CURRENT_FE_IP
+        CURRENT_FE_EDIT_PORT=${FE_CURRENT_PORT}
+        check_arg "CURRENT_FE_EDIT_PORT" $CURRENT_FE_EDIT_PORT
+
+        if [ ${MASTER_FE_IP} == ${CURRENT_FE_IP} ]; then
+            CURRENT_FE_IS_MASTER=true
+        else
+            CURRENT_FE_IS_MASTER=false
+        fi
+
+        PRIORITY_NETWORKS=$(echo "${CURRENT_FE_IP}" | awk -F '.' '{print$1"."$2"."$3".0/24"}')
+        check_arg "PRIORITY_NETWORKS" $PRIORITY_NETWORKS
     fi
 
-    PRIORITY_NETWORKS=$(echo "${CURRENT_FE_IP}" | awk -F '.' '{print$1"."$2"."$3".0/24"}')
-    check_arg "PRIORITY_NETWORKS" $PRIORITY_NETWORKS
-
-    doris_note "FE_IP_ARRAY = ${feIpArray[*]}"
-    doris_note "FE_EDIT_LOG_PORT_ARRAY = ${feEditLogPortArray[*]}"
-    doris_note "MASTER_FE = ${feIpArray[1]}:${feEditLogPortArray[1]}"
-    doris_note "CURRENT_FE = ${CURRENT_FE_IP}:${CURRENT_FE_EDIT_PORT}"
-    doris_note "PRIORITY_NETWORKS = ${PRIORITY_NETWORKS}"
-    # wait fe start
+    # check fe start
     check_fe_status true
+
 }
 
 add_priority_networks() {
@@ -138,9 +212,6 @@ docker_setup_db() {
         return
     fi
     for i in {1..300}; do
-        if [[ $(($i % 20)) == 1 ]]; then
-            doris_note "ADD FOLLOWER failed, retry."
-        fi
         docker_process_sql <<<"alter system add FOLLOWER '${CURRENT_FE_IP}:${CURRENT_FE_EDIT_PORT}'"
         register_fe_status=$?
         if [[ $register_fe_status == 0 ]]; then
@@ -158,6 +229,9 @@ docker_setup_db() {
                 doris_warn "FE failed registered!"
             fi
         fi
+        if [[ $(($i % 20)) == 1 ]]; then
+            doris_note "ADD FOLLOWER failed, retry."
+        fi
         sleep 1
     done
     if ! [[ $is_fe_start ]]; then
@@ -173,18 +247,15 @@ check_arg() {
     fi
 }
 
-# 这里可用 docker_process_sql() 函数封装，为了方便调试，暂未封装
+
 check_fe_status() {
     set +e
     declare -g CURRENT_FE_ALREADY_EXISTS
-    if [ ${CURRENT_FE_IS_MASTER} == true ]; then
+    if [[ ${CURRENT_FE_IS_MASTER} == true ]]; then
         doris_note "Current FE is Master FE!  No need check fe status！"
         return
     fi
     for i in {1..300}; do
-        if [[ $(($i % 20)) == 1 ]]; then
-            doris_note "try session Master FE."
-        fi
         if [[ $1 == true ]]; then
             docker_process_sql <<<"show frontends" | grep "[[:space:]]${MASTER_FE_IP}[[:space:]]" | grep "[[:space:]]${MASTER_FE_EDIT_PORT}[[:space:]]"
         else
@@ -208,27 +279,34 @@ check_fe_status() {
                 fi
             fi
         fi
+        if [[ $(($i % 20)) == 1 ]]; then
+            doris_note "try session Master FE."
+        fi
         sleep 1
     done
 }
 
 _main() {
-    docker_setup_env
     docker_required_variables_env
-    get_doris_fe_args
-
-    if [ -z "$DATABASE_ALREADY_EXISTS" ]; then
-        add_priority_networks $PRIORITY_NETWORKS
-    fi
-
-    docker_setup_db
-    check_fe_status
-    doris_note "Ready to start CURRENT_FE！"
-
-    if [ $CURRENT_FE_IS_MASTER == true ]; then
+    if [[ $RUN_TYPE == "K8S" ]]; then
         start_fe.sh
     else
-        start_fe.sh --helper ${MASTER_FE_IP}:${MASTER_FE_EDIT_PORT}
+        docker_setup_env
+        get_doris_fe_args
+
+        if [ -z "$DATABASE_ALREADY_EXISTS" ]; then
+            add_priority_networks $PRIORITY_NETWORKS
+        fi
+
+        docker_setup_db
+        check_fe_status
+        doris_note "Ready to start CURRENT_FE！"
+
+        if [ $CURRENT_FE_IS_MASTER == true ]; then
+            start_fe.sh
+        else
+            start_fe.sh --helper ${MASTER_FE_IP}:${MASTER_FE_EDIT_PORT}
+        fi
     fi
 
     exec "$@"

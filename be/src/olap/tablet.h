@@ -363,6 +363,11 @@ public:
     Status update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset);
     Status update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapPtr delete_bitmap,
                                 const RowsetIdUnorderedSet& pre_rowset_ids);
+    void calc_compaction_output_rowset_delete_bitmap(
+            const std::vector<RowsetSharedPtr>& input_rowsets,
+            const RowIdConversion& rowid_conversion, uint64_t start_version, uint64_t end_version,
+            DeleteBitmap* output_rowset_delete_bitmap);
+    void merge_delete_bitmap(const DeleteBitmap& delete_bitmap);
     RowsetIdUnorderedSet all_rs_id(int64_t max_version) const;
 
     bool check_all_rowset_segment();
@@ -385,6 +390,10 @@ public:
             visitor(rs);
         }
     }
+
+    Status write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
+                               UniqueId cooldown_meta_id, const RowsetMetaSharedPtr& new_rs_meta,
+                               const std::vector<RowsetMetaSharedPtr>& to_deletes);
 
 private:
     Status _init_once_action();
@@ -426,11 +435,10 @@ private:
     // begin cooldown functions
     ////////////////////////////////////////////////////////////////////////////
     Status _cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_fs);
-    Status _follow_cooldowned_data(io::RemoteFileSystem* fs, int64_t cooldown_replica_id);
-    Status _read_cooldown_meta(io::RemoteFileSystem* fs, int64_t cooldown_replica_id,
-                               TabletMetaPB* tablet_meta_pb);
-    Status _write_cooldown_meta(io::RemoteFileSystem* fs, UniqueId cooldown_meta_id,
-                                RowsetMeta* new_rs_meta);
+    Status _follow_cooldowned_data(const std::shared_ptr<io::RemoteFileSystem>& fs,
+                                   int64_t cooldown_replica_id);
+    Status _read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
+                               int64_t cooldown_replica_id, TabletMetaPB* tablet_meta_pb);
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////

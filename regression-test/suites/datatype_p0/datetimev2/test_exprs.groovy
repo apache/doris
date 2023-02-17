@@ -15,32 +15,30 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#include "runtime/collection_value.h"
+suite("test_exprs") {
 
-#include <functional>
+    def table1 = "test_datetimev2_exprs"
 
-#include "common/object_pool.h"
-#include "common/utils.h"
-#include "runtime/mem_pool.h"
-#include "runtime/raw_value.h"
-#include "runtime/types.h"
-#include "vec/common/string_ref.h"
+    sql "drop table if exists ${table1}"
 
-namespace doris {
+    sql """
+    CREATE TABLE IF NOT EXISTS `${table1}` (
+      `col` datetimev2(3) NULL COMMENT ""
+    ) ENGINE=OLAP
+    UNIQUE KEY(`col`)
+    COMMENT "OLAP"
+    DISTRIBUTED BY HASH(`col`) BUCKETS 8
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "in_memory" = "false",
+    "storage_format" = "V2"
+    )
+    """
 
-void CollectionValue::shallow_copy(const CollectionValue* value) {
-    _length = value->_length;
-    _null_signs = value->_null_signs;
-    _data = value->_data;
-    _has_null = value->_has_null;
+    sql """insert into ${table1} values('2022-01-01 11:11:11.111'),
+            ('2022-01-01 11:11:11.222')
+    """
+    qt_select_all "select * from ${table1} order by col"
+
+    qt_sql_cast_datetimev2 " select cast(col as datetimev2(5)) col1 from ${table1} order by col1; "
 }
-
-void CollectionValue::copy_null_signs(const CollectionValue* other) {
-    if (other->_has_null) {
-        memcpy(_null_signs, other->_null_signs, other->size());
-    } else {
-        _null_signs = nullptr;
-    }
-}
-
-} // namespace doris

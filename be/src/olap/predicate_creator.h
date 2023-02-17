@@ -124,7 +124,7 @@ private:
 
         char* buffer = reinterpret_cast<char*>(pool->allocate(length));
         memset(buffer, 0, length);
-        memory_copy(buffer, condition.data(), condition.length());
+        memcpy(buffer, condition.data(), condition.length());
 
         return {buffer, length};
     }
