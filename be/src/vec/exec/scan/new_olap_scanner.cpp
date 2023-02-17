@@ -385,6 +385,23 @@ Status NewOlapScanner::_init_return_columns() {
     return Status::OK();
 }
 
+doris::TabletStorageType NewOlapScanner::get_storage_type() {
+    int local_reader = 0;
+    for (const auto& reader : _tablet_reader_params.rs_readers) {
+        if (reader->rowset()->rowset_meta()->resource_id().empty()) {
+            local_reader++;
+        }
+    }
+    int total_reader = _tablet_reader_params.rs_readers.size();
+
+    if (local_reader == total_reader) {
+        return doris::TabletStorageType::STORAGE_TYPE_LOCAL;
+    } else if (local_reader == 0) {
+        return doris::TabletStorageType::STORAGE_TYPE_REMOTE;
+    }
+    return doris::TabletStorageType::STORAGE_TYPE_REMOTE_AND_LOCAL;
+}
+
 Status NewOlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
     // Read one block from block reader
     // ATTN: Here we need to let the _get_block_impl method guarantee the semantics of the interface,
