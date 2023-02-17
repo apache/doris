@@ -38,8 +38,8 @@
 #include "gutil/strings/substitute.h"
 #include "runtime/descriptor_helper.h"
 #include "runtime/descriptors.h"
-#include "runtime/large_int_value.h"
 #include "runtime/jsonb_value.h"
+#include "runtime/large_int_value.h"
 #include "util/arrow/utils.h"
 #include "util/types.h"
 
@@ -140,7 +140,7 @@ public:
             }
             case vectorized::TypeIndex::JSONB: {
                 std::string string_temp =
-                            JsonbToJson::jsonb_to_json_string(data_ref.data, data_ref.size);
+                        JsonbToJson::jsonb_to_json_string(data_ref.data, data_ref.size);
                 ARROW_RETURN_NOT_OK(builder.Append(string_temp.data(), string_temp.size()));
                 break;
             }
