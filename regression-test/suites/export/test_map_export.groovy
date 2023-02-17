@@ -74,21 +74,17 @@ suite("test_map_export", "export") {
     sql """ INSERT INTO ${testTable} VALUES (5, {null:null}); """
 
     // check result
-    qt_select_default """ SELECT * FROM ${testTable} t ORDER BY k1; """
+    qt_select """ SELECT * FROM ${testTable} ORDER BY id; """
 
     def outFilePath = """${context.file.parent}/tmp"""
     logger.info("test_map_export the outFilePath=" + outFilePath)
     // map select into outfile
     try {
         File path = new File(outFilePath)
-        if (path.exists()) {
-            for (File f : path.listFiles()) {
-                f.delete();
-            }
-            path.delete();
-        }
         if (!path.exists()) {
             assert path.mkdirs()
+        } else {
+            throw new IllegalStateException("""${outFilePath} already exists! """)
         }
         sql """
                     SELECT * FROM ${testTable} ORDER BY id INTO OUTFILE "file://${outFilePath}/";
