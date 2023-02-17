@@ -36,7 +36,6 @@
 #include "runtime/struct_value.h"
 #include "util/jsonb_document.h"
 #include "util/jsonb_utils.h"
-#include "util/mem_util.hpp"
 #include "util/mysql_global.h"
 #include "util/slice.h"
 #include "util/string_parser.hpp"
@@ -248,8 +247,7 @@ public:
         if (src_value->has_null()) {
             // direct copy null_signs
             dest_value->set_null_signs(reinterpret_cast<bool*>(*base));
-            memory_copy(dest_value->mutable_null_signs(), src_value->null_signs(),
-                        src_value->length());
+            memcpy(dest_value->mutable_null_signs(), src_value->null_signs(), src_value->length());
         }
         *base += nulls_size + src_value->length() * _item_type_info->size();
 
@@ -1227,7 +1225,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
         }
 
         auto slice = reinterpret_cast<Slice*>(buf);
-        memory_copy(slice->data, scan_key.c_str(), value_len);
+        memcpy(slice->data, scan_key.c_str(), value_len);
         if (slice->size < value_len) {
             /*
              * CHAR type is of fixed length. Size in slice can be modified
@@ -1250,14 +1248,14 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
         auto l_slice = reinterpret_cast<Slice*>(dest);
         auto r_slice = reinterpret_cast<const Slice*>(src);
         l_slice->data = reinterpret_cast<char*>(mem_pool->allocate(r_slice->size));
-        memory_copy(l_slice->data, r_slice->data, r_slice->size);
+        memcpy(l_slice->data, r_slice->data, r_slice->size);
         l_slice->size = r_slice->size;
     }
 
     static void direct_copy(void* dest, const void* src) {
         auto l_slice = reinterpret_cast<Slice*>(dest);
         auto r_slice = reinterpret_cast<const Slice*>(src);
-        memory_copy(l_slice->data, r_slice->data, r_slice->size);
+        memcpy(l_slice->data, r_slice->data, r_slice->size);
         l_slice->size = r_slice->size;
     }
 
@@ -1275,7 +1273,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_CHAR> : public BaseFieldtypeTraits<OLAP_F
 
         auto min_size =
                 MAX_ZONE_MAP_INDEX_SIZE >= r_slice->size ? r_slice->size : MAX_ZONE_MAP_INDEX_SIZE;
-        memory_copy(l_slice->data, r_slice->data, min_size);
+        memcpy(l_slice->data, r_slice->data, min_size);
         l_slice->size = min_size;
     }
 };
@@ -1292,7 +1290,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_VARCHAR> : public FieldTypeTraits<OLAP_FI
         }
 
         auto slice = reinterpret_cast<Slice*>(buf);
-        memory_copy(slice->data, scan_key.c_str(), value_len);
+        memcpy(slice->data, scan_key.c_str(), value_len);
         slice->size = value_len;
         return Status::OK();
     }
@@ -1315,7 +1313,7 @@ struct FieldTypeTraits<OLAP_FIELD_TYPE_STRING> : public FieldTypeTraits<OLAP_FIE
         }
 
         auto slice = reinterpret_cast<Slice*>(buf);
-        memory_copy(slice->data, scan_key.c_str(), value_len);
+        memcpy(slice->data, scan_key.c_str(), value_len);
         slice->size = value_len;
         return Status::OK();
     }

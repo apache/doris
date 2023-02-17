@@ -468,7 +468,7 @@ set(CMAKE_C_STANDARD 17)
 add_compile_options(-g
                     -Wall
                     -Wextra
-                    -Werror 
+                    -Werror
                     -pthread
                     -fstrict-aliasing
                     -fno-omit-frame-pointer)
@@ -482,7 +482,7 @@ if (COMPILER_GCC)
         message(FATAL_ERROR "Need GCC version at least 11.1")
     endif()
 
-    add_compile_options(-fdiagnostics-color=always -Wno-stringop-overread)
+    add_compile_options(-fdiagnostics-color=always)
 endif ()
 
 if (COMPILER_CLANG)
@@ -490,17 +490,13 @@ if (COMPILER_CLANG)
         message(FATAL_ERROR "Need Clang version at least 13")
     endif()
 
-    add_compile_options(-fcolor-diagnostics -fno-limit-debug-info -Wpedantic)
+    add_compile_options(-fcolor-diagnostics -Wpedantic)
     add_compile_options(-Wno-zero-length-array
                         -Wno-variadic-macros
                         -Wno-gnu-zero-variadic-macro-arguments
                         -Wno-vla-extension
                         -Wno-c++20-designator
-                        -Wno-gnu-label-as-value
                         -Wno-embedded-directive)
-    if(MAKE_TEST STREQUAL "OFF")
-        add_compile_options(-Qunused-arguments)
-    endif()
     if (USE_LIBCPP)
         add_compile_options(-stdlib=libc++)
         if (NOT OS_MACOSX)
