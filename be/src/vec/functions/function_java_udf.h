@@ -110,7 +110,7 @@ private:
 
         void close() {
             if (is_closed) {
-                return Status::OK();
+                return;
             }
             VLOG_DEBUG << "Free resources for JniContext";
             JNIEnv* env;
