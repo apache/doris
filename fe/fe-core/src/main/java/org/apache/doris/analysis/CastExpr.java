@@ -160,7 +160,7 @@ public class CastExpr extends Expr {
             return true;
         }
         // Disable no-op casting
-        return fromType.equals(toType) && !fromType.isDecimalV3();
+        return fromType.equals(toType) && !fromType.isDecimalV3() && !fromType.isDatetimeV2();
     }
 
     public static void initBuiltins(FunctionSet functionSet) {
