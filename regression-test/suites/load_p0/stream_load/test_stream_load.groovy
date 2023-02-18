@@ -672,5 +672,57 @@ suite("test_stream_load", "p0") {
         }
     }
     sql "sync"
+
+    // test immutable partition success
+    def tableName9 = "test_immutable_partition"
+    sql """ DROP TABLE IF EXISTS ${tableName9} """
+    sql """
+        CREATE TABLE IF NOT EXISTS ${tableName9} (
+            `k1` bigint(20) NULL,
+            `k2` bigint(20) NULL,
+            `v1` tinyint(4) SUM NULL,
+            `v2` tinyint(4) REPLACE NULL,
+            `v3` tinyint(4) REPLACE_IF_NOT_NULL NULL
+        ) ENGINE=OLAP
+        AGGREGATE KEY(`k1`, `k2`)
+        COMMENT 'OLAP'
+        PARTITION BY RANGE(`k1`)
+        (PARTITION partition_a VALUES [("-9223372036854775808"), ("10")),
+        PARTITION partition_b VALUES [("10"), ("20")),
+        PARTITION partition_c VALUES [("20"), ("30")),
+        PARTITION partition_d VALUES [("30"), ("40")))
+        DISTRIBUTED BY HASH(`k1`, `k2`) BUCKETS 3
+        PROPERTIES ("replication_allocation" = "tag.location.default: 1");
+    """
+
+    sql """ALTER TABLE ${tableName9} ADD PARTITION partition_e VALUES less than ('3000') properties ('mutable' = 'false')"""
+    sql """ALTER TABLE ${tableName9} MODIFY PARTITION partition_b set ('mutable' = 'false')"""
+
+    streamLoad {
+        table "${tableName9}"
+
+        set 'column_separator', '\t'
+        set 'columns', 'k1, k2, v1, v2, v3'
+        set 'partitions', 'partition_a, partition_b, partition_c, partition_d, partition_e'
+        set 'strict_mode', 'true'
+
+        file 'test_immutable_partition.csv'
+        time 10000 // limit inflight 10s
+
+        check { result, exception, startTime, endTime ->
+            if (exception != null) {
+                throw exception
+            }
+            log.info("Stream load result: ${result}".toString())
+            def json = parseJson(result)
+            assertEquals("success", json.Status.toLowerCase())
+            assertEquals(11, json.NumberTotalRows)
+            assertEquals(0, json.NumberFilteredRows)
+            assertEquals(5, json.NumberUnselectedRows)
+        }
+    }
+    
+    sql "sync"
+    order_qt_sql1 "select * from ${tableName9} order by k1, k2"
 }
 
