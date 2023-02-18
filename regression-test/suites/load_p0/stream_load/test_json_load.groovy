@@ -373,7 +373,7 @@ suite("test_json_load", "p0") {
         
         create_test_table1.call(testTable)
 
-        load_json_data.call('test_json_load_case11_2', 'true', '', 'json', '', '', '', '', '', 'simple_json2.json')
+        load_json_data.call('test_json_load_case11_2', 'true', '', 'json', '', '', '', '', '', 'simple_json2.json', false, 10)
 
         sql "sync"
         qt_select11 "select * from ${testTable} order by id"
@@ -443,6 +443,14 @@ suite("test_json_load", "p0") {
         load_json_data.call('test_json_load_case14_2', '', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
                             '$.item', '', 'true', 'nest_json.json')
 
+        // invalid nest_json
+        load_json_data.call('test_json_load_case14_3', '', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
+                            '$.item', '', 'true', 'invalid_nest_json1.json', true) 
+        load_json_data.call('test_json_load_case14_4', '', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
+                            '$.item', '', 'true', 'invalid_nest_json2.json', false, 4) 
+        load_json_data.call('test_json_load_case14_5', '', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
+                            '$.item', '', 'true', 'invalid_nest_json3.json', true) 
+
         sql "sync"
         qt_select14 "select * from ${testTable} order by id"
 
@@ -489,7 +497,12 @@ suite("test_json_load", "p0") {
         test_invalid_json_array_table.call(testTable)
         load_json_data.call('test_json_load_case17', 'true', '', 'json', '', '',
                 '', '', '', 'invalid_json_array.json', false, 0)
-
+        load_json_data.call('test_json_load_case17_1', 'true', '', 'json', '', '',
+                '$.item', '', '', 'invalid_json_array1.json', false, 0)
+        load_json_data.call('test_json_load_case17_2', 'true', '', 'json', '', '',
+                '$.item', '', '', 'invalid_json_array2.json', false, 0)
+        load_json_data.call('test_json_load_case17_3', 'true', '', 'json', '', '',
+                '$.item', '', '', 'invalid_json_array3.json', false, 0)
         sql "sync"
         qt_select17 "select * from ${testTable}"
 
