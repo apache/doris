@@ -78,10 +78,10 @@ public class FQDNManagerTest {
 
     @Test
     public void testBackendIpChanged() throws InterruptedException {
-        Assert.assertEquals("193.88.67.98", systemInfoService.getBackend(1).getHost());
+        Assert.assertEquals("193.88.67.98", systemInfoService.getBackend(1).getIp());
         fdqnManager.start();
         Thread.sleep(1000);
-        Assert.assertEquals("193.88.67.99", systemInfoService.getBackend(1).getHost());
+        Assert.assertEquals("193.88.67.99", systemInfoService.getBackend(1).getIp());
         fdqnManager.exit();
     }
 }

@@ -192,7 +192,7 @@ public class Backend implements Writable {
         return id;
     }
 
-    public String getHost() {
+    public String getIp() {
         return ip;
     }
 
@@ -289,7 +289,7 @@ public class Backend implements Writable {
         this.backendState = state.ordinal();
     }
 
-    public void setHost(String ip) {
+    public void setIp(String ip) {
         this.ip = ip;
     }
 
@@ -784,7 +784,7 @@ public class Backend implements Writable {
     }
 
     public TNetworkAddress getBrpcAdress() {
-        return new TNetworkAddress(getHost(), getBrpcPort());
+        return new TNetworkAddress(getIp(), getBrpcPort());
     }
 
     public String getTagMapString() {

@@ -19,8 +19,8 @@ package org.apache.doris.deploy.impl;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.Pair;
 import org.apache.doris.deploy.DeployManager;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -97,7 +97,7 @@ public class K8sDeployManager extends DeployManager {
     }
 
     @Override
-    protected List<Pair<String, Integer>> getGroupHostPorts(String groupName) {
+    protected List<SystemInfoService.HostInfo> getGroupHostInfos(String groupName) {
         // 1. get namespace and port name
         String portName = null;
         if (groupName.equals(electableFeServiceGroup)) {
@@ -133,7 +133,7 @@ public class K8sDeployManager extends DeployManager {
         }
 
         // 3. get host port
-        List<Pair<String, Integer>> result = Lists.newArrayList();
+        List<SystemInfoService.HostInfo> result = Lists.newArrayList();
         List<EndpointSubset> subsets = endpoints.getSubsets();
         for (EndpointSubset subset : subsets) {
             Integer port = -1;
@@ -151,7 +151,7 @@ public class K8sDeployManager extends DeployManager {
 
             List<EndpointAddress> addrs = subset.getAddresses();
             for (EndpointAddress eaddr : addrs) {
-                result.add(Pair.of(eaddr.getIp(), port));
+                result.add(new SystemInfoService.HostInfo(eaddr.getIp(), eaddr.getHostname(), port));
             }
         }
 
@@ -160,8 +160,8 @@ public class K8sDeployManager extends DeployManager {
     }
 
     @Override
-    protected Map<String, List<Pair<String, Integer>>> getBrokerGroupHostPorts() {
-        List<Pair<String, Integer>> hostPorts = getGroupHostPorts(brokerServiceGroup);
+    protected Map<String, List<SystemInfoService.HostInfo>> getBrokerGroupHostInfos() {
+        List<SystemInfoService.HostInfo> hostPorts = getGroupHostInfos(brokerServiceGroup);
         if (hostPorts == null) {
             return null;
         }
@@ -171,7 +171,7 @@ public class K8sDeployManager extends DeployManager {
             System.exit(-1);
         }
 
-        Map<String, List<Pair<String, Integer>>> brokers = Maps.newHashMap();
+        Map<String, List<SystemInfoService.HostInfo>> brokers = Maps.newHashMap();
         brokers.put(brokerName, hostPorts);
         LOG.info("get brokers from k8s: {}", brokers);
         return brokers;

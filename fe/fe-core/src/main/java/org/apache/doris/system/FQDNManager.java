@@ -50,22 +50,22 @@ public class FQDNManager extends MasterDaemon {
             if (be.getHostName() != null) {
                 try {
                     InetAddress inetAddress = InetAddress.getByName(be.getHostName());
-                    if (!be.getHost().equalsIgnoreCase(inetAddress.getHostAddress())) {
-                        String ip = be.getHost();
+                    if (!be.getIp().equalsIgnoreCase(inetAddress.getHostAddress())) {
+                        String ip = be.getIp();
                         if (!ip.equalsIgnoreCase(UNKNOWN_HOST_IP)) {
                             ClientPool.backendPool.clearPool(new TNetworkAddress(ip, be.getBePort()));
                         }
-                        be.setHost(inetAddress.getHostAddress());
+                        be.setIp(inetAddress.getHostAddress());
                         Env.getCurrentEnv().getEditLog().logBackendStateChange(be);
-                        LOG.warn("ip for {} of be has been changed from {} to {}", be.getHostName(), ip, be.getHost());
+                        LOG.warn("ip for {} of be has been changed from {} to {}", be.getHostName(), ip, be.getIp());
                     }
                 } catch (UnknownHostException e) {
                     LOG.warn("unknown host name for be, {}", be.getHostName(), e);
                     // add be alive check to make ip work when be is still alive and dns has some problem.
-                    if (!be.isAlive() && !be.getHost().equalsIgnoreCase(UNKNOWN_HOST_IP)) {
-                        String ip = be.getHost();
+                    if (!be.isAlive() && !be.getIp().equalsIgnoreCase(UNKNOWN_HOST_IP)) {
+                        String ip = be.getIp();
                         ClientPool.backendPool.clearPool(new TNetworkAddress(ip, be.getBePort()));
-                        be.setHost(UNKNOWN_HOST_IP);
+                        be.setIp(UNKNOWN_HOST_IP);
                         Env.getCurrentEnv().getEditLog().logBackendStateChange(be);
                         LOG.warn("ip for {} of be has been changed from {} to {}", be.getHostName(), ip, "unknown");
                     }

@@ -83,8 +83,8 @@ public class LocalFileDeployManager extends DeployManager {
     }
 
     @Override
-    public List<Pair<String, Integer>> getGroupHostPorts(String groupName) {
-        List<Pair<String, Integer>> result = Lists.newArrayList();
+    public List<SystemInfoService.HostInfo> getGroupHostInfos(String groupName) {
+        List<SystemInfoService.HostInfo> result = Lists.newArrayList();
         LOG.info("begin to get group: {} from file: {}", groupName, clusterInfoFile);
 
         FileChannel channel = null;
@@ -111,7 +111,7 @@ public class LocalFileDeployManager extends DeployManager {
 
                 for (String endpoint : endpoints) {
                     Pair<String, Integer> hostPorts = SystemInfoService.validateHostAndPort(endpoint);
-                    result.add(hostPorts);
+                    result.add(new SystemInfoService.HostInfo(hostPorts.first, null, hostPorts.second));
                 }
 
                 // only need one line
@@ -155,8 +155,8 @@ public class LocalFileDeployManager extends DeployManager {
     }
 
     @Override
-    protected Map<String, List<Pair<String, Integer>>> getBrokerGroupHostPorts() {
-        List<Pair<String, Integer>> hostPorts = getGroupHostPorts(brokerServiceGroup);
+    protected Map<String, List<SystemInfoService.HostInfo>> getBrokerGroupHostInfos() {
+        List<SystemInfoService.HostInfo> hostPorts = getGroupHostInfos(brokerServiceGroup);
         if (hostPorts == null) {
             return null;
         }
@@ -166,7 +166,7 @@ public class LocalFileDeployManager extends DeployManager {
             System.exit(-1);
         }
 
-        Map<String, List<Pair<String, Integer>>> brokers = Maps.newHashMap();
+        Map<String, List<SystemInfoService.HostInfo>> brokers = Maps.newHashMap();
         brokers.put(brokerName, hostPorts);
         LOG.info("get brokers from file: {}", brokers);
         return brokers;

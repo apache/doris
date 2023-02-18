@@ -715,7 +715,7 @@ public class OlapScanNode extends ScanNode {
                     errs.add(err);
                     continue;
                 }
-                String ip = backend.getHost();
+                String ip = backend.getIp();
                 int port = backend.getBePort();
                 TScanRangeLocation scanRangeLocation = new TScanRangeLocation(new TNetworkAddress(ip, port));
                 scanRangeLocation.setBackendId(replica.getBackendId());

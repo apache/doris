@@ -1359,7 +1359,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             TRow trow = new TRow();
             trow.addToColumnValue(new TCell().setLongVal(backendId));
             trow.addToColumnValue(new TCell().setStringVal(backend.getOwnerClusterName()));
-            trow.addToColumnValue(new TCell().setStringVal(backend.getHost()));
+            trow.addToColumnValue(new TCell().setStringVal(backend.getIp()));
             if (Strings.isNullOrEmpty(request.cluster_name)) {
                 trow.addToColumnValue(new TCell().setIntVal(backend.getHeartbeatPort()));
                 trow.addToColumnValue(new TCell().setIntVal(backend.getBePort()));

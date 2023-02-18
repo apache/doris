@@ -192,7 +192,7 @@ public class EsScanNode extends ScanNode {
         backendList = Lists.newArrayList();
         for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
             if (be.isAlive()) {
-                backendMap.put(be.getHost(), be);
+                backendMap.put(be.getIp(), be);
                 backendList.add(be);
             }
         }
@@ -265,7 +265,7 @@ public class EsScanNode extends ScanNode {
                     TScanRangeLocation location = new TScanRangeLocation();
                     Backend be = candidateBeList.get(i);
                     location.setBackendId(be.getId());
-                    location.setServer(new TNetworkAddress(be.getHost(), be.getBePort()));
+                    location.setServer(new TNetworkAddress(be.getIp(), be.getBePort()));
                     locations.addToLocations(location);
                 }
 

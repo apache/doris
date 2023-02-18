@@ -228,7 +228,7 @@ public class MultiLoadMgr {
                 throw new DdlException("Unknown multiLabel(" + multiLabel + ")");
             }
             Backend backend = Env.getCurrentSystemInfo().getBackend(desc.getBackendId());
-            return new TNetworkAddress(backend.getHost(), backend.getHttpPort());
+            return new TNetworkAddress(backend.getIp(), backend.getHttpPort());
         } finally {
             lock.writeLock().unlock();
         }
@@ -490,7 +490,7 @@ public class MultiLoadMgr {
             if (backend == null) {
                 throw new DdlException("Backend [" + backendId + "] not found. ");
             }
-            dataDescription.setBeAddr(new TNetworkAddress(backend.getHost(), backend.getHeartbeatPort()));
+            dataDescription.setBeAddr(new TNetworkAddress(backend.getIp(), backend.getHeartbeatPort()));
             dataDescription.setFileSize(fileSizes);
             dataDescription.setBackendId(backendId);
             dataDescription.setJsonPaths(jsonPaths);
