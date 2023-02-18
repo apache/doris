@@ -25,21 +25,19 @@ under the License.
 -->
 
 ## GROUPING
+### description
+#### Syntax
+
+`GROUPING( <column_expression> )`
 
 Indicates whether a specified column expression in a `GROUP BY` list is aggregated or not. `GROUPING` returns 1 for aggregated or 0 for not aggregated in the result set. `GROUPING` can be used only in the `SELECT <select> list`, `HAVING`, and `ORDER BY` clauses when `GROUP BY` is specified.
 
-### Syntax
-
-```sql
-GROUPING( <column_expression> )
-```
-
-### Arguments
+#### Arguments
 
 `<column_expression>`
 Is a column or an expression that contains a column in a `GROUP BY` clause.
 
-### Return Types
+#### Return Types
 
 BIGINT
 
@@ -104,3 +102,6 @@ Here is the result set.
 ### See Also
 
 [GROUPING_ID](./grouping_id.md)
+
+### keywords
+GROUPING
