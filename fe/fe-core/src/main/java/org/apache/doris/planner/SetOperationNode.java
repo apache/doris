@@ -207,6 +207,18 @@ public abstract class SetOperationNode extends PlanNode {
             }
             materializedConstExprLists.add(newExprList);
         }
+        if (!resultExprLists.isEmpty()) {
+            List<Expr> exprs = resultExprLists.get(0);
+            TupleDescriptor tupleDescriptor = analyzer.getTupleDesc(tupleId);
+            for (int i = 0; i < exprs.size(); i++) {
+                boolean isNullable = exprs.get(i).isNullable();
+                for (int j = 1; j < resultExprLists.size(); j++) {
+                    isNullable = isNullable || resultExprLists.get(j).get(i).isNullable();
+                }
+                tupleDescriptor.getSlots().get(i).setIsNullable(isNullable);
+                tupleDescriptor.computeMemLayout();
+            }
+        }
     }
 
     @Override
