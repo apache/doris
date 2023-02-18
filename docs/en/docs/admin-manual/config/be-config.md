@@ -1415,4 +1415,9 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 * Description: Whether parse multidimensional array, if false encountering will return ERROR
 * Default value: true
 
+#### `enable_simdjson_reader`
+
+* Description: Whether enable simdjson to parse json while stream load
+* Default value: false
+
 </version>
