@@ -98,7 +98,6 @@ jobs:
       - name: Run fe ut pipeline by restful
         run: |
           echo "trigger fe ut pipeline"
-          sleep 10s
           if [ "_xx""${{ github.event.issue.pull_request.url }}" != "_xx" ]; then
             echo "Comment was made on pull request: $(echo ${{ github.event.issue.pull_request.url }} | awk -F/ '{print $NF}')"
           else
