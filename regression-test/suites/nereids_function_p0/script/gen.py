@@ -43,28 +43,11 @@ type_to_column_map = {
     'st_string': ['st_point_str'],
     'st_varchar': ['st_point_vc'],
     'QuantileState': ['to_quantile_state(kvchrs1, 2048)', 'kvchsr1'],
-    'Bitmap': ['to_bitmap(kbint)', 'kbint'],
+    'Bitmap': ['bitmap_hash(kbint)', 'kbint'],
     'AnyData': ['kint'],
     'Hll': ['hll_raw_agg(kint)', 'kint'],
     '': ['']
 }
-
-
-# def getFunctionSet() -> List[str]:
-#     path = f'{DORIS_HOME}fe/fe-core/src/main/java/org/apache/doris/catalog/'
-#     functions = []
-#     dir_list = os.listdir(path)
-#     for file_name in dir_list:
-#         file_path_name = os.path.join(path, file_name)
-#         if not os.path.isdir(file_path_name):
-#             file_name = file_name[:-5]
-#             if file_name.startswith('Builtin') and file_name.endswith('Functions'):
-#                 lines = open(file_path_name).readlines()
-#                 for line in lines:
-#                     line = line[line.find('(') + 1: max(line.find('.class'), 0)]
-#                     if line != '':
-#                         functions.append(line)
-#     return functions
 
 
 def checkSupportedFunction(args: List[str]) -> bool:
@@ -158,10 +141,10 @@ def generateScalarFnSQL(function_meta: Dict[str, List[List[str]]]) -> List[str]:
 def generateAggFnSQL(function_meta: Dict[str, List[List[str]]]) -> List[str]:
     # current it's distributed by hash(id), generate one to four phase agg.
     agg_template = [
-                    'select count(id), ${fn} from ${t} group by id',
+                    'select count(id), ${fn} from ${t} group by id order by id',
                     'select count(distinct id), ${fn} from ${t}',
                     'select /*+SET_VAR(disable_nereids_rules=\'THREE_PHASE_AGGREGATE_WITH_DISTINCT, '
-                    'TWO_PHASE_AGGREGATE_WITH_DISTINCT\')*/ count(distinct id, kint), ${fn} from fn_test group by kbool',
+                    'TWO_PHASE_AGGREGATE_WITH_DISTINCT\')*/ count(distinct id, kint), ${fn} from fn_test group by kbool order by kbool',
                     'select /*+SET_VAR(disable_nereids_rules=\'THREE_PHASE_AGGREGATE_WITH_DISTINCT, '
                     'TWO_PHASE_AGGREGATE_WITH_DISTINCT\')*/ count(distinct id), ${fn} from fn_test']
 
@@ -181,10 +164,11 @@ def generateAggFnSQL(function_meta: Dict[str, List[List[str]]]) -> List[str]:
                 # enumerate group by
                 for i in range(0, 2):
                     tag_app = ""
-                    if i == 0:
-                        tag_app += '_gb'
-                    if t != 'fn_test':
-                        tag_app += '_notnull'
+                    if run_tag != 'sql':
+                        if i == 0:
+                            tag_app += '_gb'
+                        if t != 'fn_test':
+                            tag_app += '_notnull'
                     if sql != "":
                         write_sql = sql.replace('${t}', t)
                     else:
@@ -194,15 +178,19 @@ def generateAggFnSQL(function_meta: Dict[str, List[List[str]]]) -> List[str]:
                     SQLs.append(f'\t{run_tag + tag_app} \'\'\'\n\t\t{write_sql}\'\'\'\n')
                 # enumerate agg phase
                 for i, template in enumerate(agg_template):
-                    tag_app = f'_agg_phase_{i + 1}'
-                    if t != 'fn_test':
-                        tag_app += '_notnull'
+                    tag_app = ""
+                    if run_tag != 'sql':
+                        tag_app = f'_agg_phase_{i + 1}'
+                        if t != 'fn_test':
+                            tag_app += '_notnull'
                     if sql != "":
                         fn = sql.replace('select ', '').replace(' from ${t}', '')
                         write_sql = template.replace('${fn}', fn)
                     else:
-                        write_sql = template.replace('${fn}', f'{fn_name}({args})').replace('${t}', t)
-                    SQLs.append(f'\t{run_tag + tag_app} \'\'\'\n\t\t{write_sql}\'\'\'\n')
+                        write_sql = template.replace('${fn}', f'{fn_name}({args})')
+                    if len(re.findall('distinct', write_sql)) > 1:
+                        continue
+                    SQLs.append(f'\t{run_tag + tag_app} \'\'\'\n\t\t{write_sql.replace("${t}", t)}\'\'\'\n')
 
             SQLs.append('\n')
     return SQLs
@@ -233,41 +221,53 @@ def generateWinFnSQL(_: Dict[str, List[List[str]]]) -> List[str]:
     tables = ['fn_test', 'fn_test_not_nullable']
     ranges = ['rows', 'range']
     SQLs = []
+    start_supp = define.win_clause_Support[1]
+    range_supp = define.win_clause_Support[0]
     for fn in define.win_fn:
-        # generate fn without frame, with/not partition, with/not order
+        # generate fn without frame, with/not partition and order
         order_by = 'order by kint'
         partition_by = 'partition by kstr'
         for i in range(0, 2):
-            for j in range(0, 2):
-                for t in tables:
-                    tag_app = f'{"_pb" if i == 1 else ""}{"_ob" if j == 1 else ""}' \
-                              f'{"_notnull" if t != "fn_test" else ""}'
-                    run_tag = f'qt_sql_{fn[:fn.find("(")]}{tag_app}'
-                    sql = f'select kint, ksint {fn} over({partition_by if i == 1 else ""}' \
-                          f'{"_" if i == 1 and j == 1 else ""}' \
-                          f'{order_by if j == 1 else ""}) as wf from {t}'
-                    SQLs.append(f'\t{run_tag} \'\'\'\n\t\t{sql}\'\'\'\n')
+            for t in tables:
+                tag_app = f'{"_pb" if i == 1 else ""}{"_notnull" if t != "fn_test" else ""}'
+                run_tag = f'qt_sql_{fn[:fn.find("(")]}{tag_app}'
+                sql = f'select kint, ksint, {fn} over({partition_by + " " + order_by if i == 1 else ""}) as wf from {t}'
+                SQLs.append(f'\t{run_tag} \'\'\'\n\t\t{sql}\'\'\'\n')
             # generate fn with frame and order, with/not partition
             # frame with rows and range, 'start' clause and 'between and' clause.
             tag_cnt = 0
             for rng in ranges:
                 for x in range(0, 3):
+                    if fn not in start_supp:
+                        break
+                    if rng == 'range' and x > 0:
+                        break
                     tag_cnt += 1
                     # 'start' clause
-                    tag_app = f'_f{"_pb" if i == 1 else ""}{"_notnull" if t != "fn_test" else ""}_{tag_cnt}'
-                    run_tag = f'qt_sql_{fn[:fn.find("(")]}{tag_app}'
-                    frame = f'{rng} {define.frame_range[j]}'
-                    sql = f'select kint, ksint {fn} over({partition_by if i == 1 else ""}{order_by} {frame}) as wf from {t}'
-                    SQLs.append(f'\t{run_tag} \'\'\'\n\t\t{sql}\'\'\'\n')
-                for y in range(0, len(define.frame_range)):
-                    for z in range(y + 1, len(define.frame_range)):
-                        tag_cnt += 1
-                        # 'between and' clause
+                    for t in tables:
                         tag_app = f'_f{"_pb" if i == 1 else ""}{"_notnull" if t != "fn_test" else ""}_{tag_cnt}'
                         run_tag = f'qt_sql_{fn[:fn.find("(")]}{tag_app}'
-                        frame = f'{rng} between {define.frame_range[y]} and {define.frame_range[z]}'
-                        sql = f'select kint, ksint {fn} over({partition_by if i == 1 else ""}{order_by} {frame}) as wf from {t}'
+                        frame = f'{rng} {define.frame_range[x]}'
+                        sql = f'select kint, ksint, {fn} over({partition_by if i == 1 else ""}' \
+                              f'{" " if i == 1 else ""}' \
+                              f'{order_by} {frame}) as wf from {t}'
                         SQLs.append(f'\t{run_tag} \'\'\'\n\t\t{sql}\'\'\'\n')
+                for y in range(0, 3):
+                    if fn not in range_supp:
+                        break
+                    for z in range(2, len(define.frame_range)):
+                        if rng == 'range' and (y % 2 != 0 or z % 2 != 0 or y == z):
+                            continue
+                        tag_cnt += 1
+                        # 'between and' clause
+                        for t in tables:
+                            tag_app = f'_f{"_pb" if i == 1 else ""}{"_notnull" if t != "fn_test" else ""}_{tag_cnt}'
+                            run_tag = f'qt_sql_{fn[:fn.find("(")]}{tag_app}'
+                            frame = f'{rng} between {define.frame_range[y]} and {define.frame_range[z]}'
+                            sql = f'select kint, ksint, {fn} over({partition_by if i == 1 else ""}' \
+                                  f'{" " if i == 1 else ""}' \
+                                  f'{order_by} {frame}) as wf from {t}'
+                            SQLs.append(f'\t{run_tag} \'\'\'\n\t\t{sql}\'\'\'\n')
         SQLs.append('\n')
     return SQLs
 
@@ -305,8 +305,8 @@ getCharRange: Callable[[int, int], Callable[[str], bool]] = lambda c1, c2: \
 
 FUNCTION_DIR = '../../../../fe/fe-core/src/main/java/org/apache/doris/nereids/trees/expressions/functions/'
 
-genHeaderAndFooter('agg',
-                   f'{FUNCTION_DIR}agg',
-                   f'../agg_function/agg1.groovy',
-                   f'nereids_agg_fn',
+genHeaderAndFooter('win',
+                   f'{FUNCTION_DIR}window',
+                   f'../window_function/win1.groovy',
+                   f'nereids_win_fn',
                    lambda c: True)

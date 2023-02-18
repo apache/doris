@@ -70,8 +70,9 @@ const_sql = {
     'random_BigInt': "select random(1000) from ${t} order by kbint",
     'to_quantile_state_Varchar_Float': 'select to_quantile_state(kvchrs1, 2048) from ${t} order by kvchrs1',
     # agg
-    'group_concat_Varchar_Varchar_AnyData': 'select group_concat(distinct cast(abs(kint) as varchar) order by abs(ksint), kdt) from ${t}',
+    'group_concat_Varchar_Varchar_AnyData': 'select group_concat(distinct cast(abs(kint) as varchar), \'_x_\' order by abs(ksint), kdt) from ${t}',
     'group_concat_Varchar_AnyData': 'select group_concat(distinct cast(abs(kint) as varchar) order by abs(ksint), kdt) from ${t}',
+    'group_concat_Varchar': 'select group_concat(distinct cast(abs(kint) as varchar) order by abs(ksint)) from ${t}',
     'percentile_BigInt_Double': 'select percentile(kbint, 0.6) from ${t}',
     'percentile_approx_Double_Double': 'select percentile_approx(kdbl, 0.6) from ${t}',
     'percentile_approx_Double_Double_Double': 'select percentile_approx(kdbl, 0.6, 4096.0) from ${t}',
@@ -146,10 +147,17 @@ not_check_result = {
     'sm4_encrypt_String_String_String_String',
     'space_Integer',
     'user',
-    'unix_timestamp'
+    'unix_timestamp',
+    # agg
+    'any_value_AnyData',
 }
 
 win_fn = [
+    'count()',
+    'avg(kbint)',
+    'min(kbint)',
+    'max(kbint)',
+    'sum(kbint)',
     'dense_rank()',
     'first_value(kint)',
     'lag(kint, 2, 1)',
@@ -158,6 +166,25 @@ win_fn = [
     'ntile(3)',
     'rank()',
     'row_number()',
+]
+
+win_clause_Support = [
+    {
+        'count()',
+        'avg(kbint)',
+        'max(kbint)',
+        'min(kbint)',
+        'sum(kbint)',
+        'first_value(kint)',
+        'last_value(kint)',
+    },
+    {
+        'count()',
+        'avg(kbint)',
+        'sum(kbint)',
+        'first_value(kint)',
+        'last_value(kint)',
+    }
 ]
 
 frame_range = [
