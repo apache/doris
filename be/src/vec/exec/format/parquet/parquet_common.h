@@ -65,6 +65,7 @@ struct ParquetReadColumn {
     const std::string& _file_slot_name;
 };
 
+#pragma pack(1)
 struct ParquetInt96 {
     uint64_t lo; // time of nanoseconds in a day
     uint32_t hi; // days from julian epoch
@@ -77,6 +78,8 @@ struct ParquetInt96 {
     static const uint64_t MICROS_IN_DAY;
     static const uint64_t NANOS_PER_MICROSECOND;
 };
+#pragma pack()
+static_assert(sizeof(ParquetInt96) == 12, "The size of ParquetInt96 is not 12.");
 
 class ColumnSelectVector {
 public:
