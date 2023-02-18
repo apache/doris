@@ -231,6 +231,7 @@ Status VOlapTablePartitionParam::init() {
         const TOlapTablePartition& t_part = _t_param.partitions[i];
         auto part = _obj_pool.add(new VOlapTablePartition(&_partition_block));
         part->id = t_part.id;
+        part->is_mutable = t_part.is_mutable;
 
         if (!_is_in_partition) {
             if (t_part.__isset.start_keys) {

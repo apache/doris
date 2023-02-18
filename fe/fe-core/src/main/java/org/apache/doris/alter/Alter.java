@@ -249,7 +249,8 @@ public class Alter {
                     } else {
                         List<String> partitionNames = clause.getPartitionNames();
                         if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
-                            modifyPartitionsProperty(db, olapTable, partitionNames, properties);
+                            modifyPartitionsProperty(db, olapTable, partitionNames, properties,
+                                    clause.isTempPartition());
                         } else {
                             needProcessOutsideTableLock = true;
                         }
@@ -490,7 +491,7 @@ public class Alter {
                 OlapTable olapTable = (OlapTable) table;
                 olapTable.writeLockOrDdlException();
                 try {
-                    modifyPartitionsProperty(db, olapTable, partitionNames, properties);
+                    modifyPartitionsProperty(db, olapTable, partitionNames, properties, clause.isTempPartition());
                 } finally {
                     olapTable.writeUnlock();
                 }
@@ -722,7 +723,8 @@ public class Alter {
     public void modifyPartitionsProperty(Database db,
                                          OlapTable olapTable,
                                          List<String> partitionNames,
-                                         Map<String, String> properties)
+                                         Map<String, String> properties,
+                                         boolean isTempPartition)
             throws DdlException, AnalysisException {
         Preconditions.checkArgument(olapTable.isWriteLockHeldByCurrentThread());
         List<ModifyPartitionInfo> modifyPartitionInfos = Lists.newArrayList();
@@ -731,7 +733,7 @@ public class Alter {
         }
 
         for (String partitionName : partitionNames) {
-            Partition partition = olapTable.getPartition(partitionName);
+            Partition partition = olapTable.getPartition(partitionName, isTempPartition);
             if (partition == null) {
                 throw new DdlException(
                         "Partition[" + partitionName + "] does not exist in table[" + olapTable.getName() + "]");
@@ -757,7 +759,7 @@ public class Alter {
         // modify meta here
         PartitionInfo partitionInfo = olapTable.getPartitionInfo();
         for (String partitionName : partitionNames) {
-            Partition partition = olapTable.getPartition(partitionName);
+            Partition partition = olapTable.getPartition(partitionName, isTempPartition);
             // 4. data property
             // 4.1 get old data property from partition
             DataProperty dataProperty = partitionInfo.getDataProperty(partition.getId());
