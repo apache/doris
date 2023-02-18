@@ -156,61 +156,55 @@ def generateScalarFnSQL(function_meta: Dict[str, List[List[str]]]) -> List[str]:
 
 
 def generateAggFnSQL(function_meta: Dict[str, List[List[str]]]) -> List[str]:
+    # current it's distributed by hash(id), generate one to four phase agg.
+    agg_template = [
+                    'select count(id), ${fn} from ${t} group by id',
+                    'select count(distinct id), ${fn} from ${t}',
+                    'select /*+SET_VAR(disable_nereids_rules=\'THREE_PHASE_AGGREGATE_WITH_DISTINCT, '
+                    'TWO_PHASE_AGGREGATE_WITH_DISTINCT\')*/ count(distinct id, kint), ${fn} from fn_test group by kbool',
+                    'select /*+SET_VAR(disable_nereids_rules=\'THREE_PHASE_AGGREGATE_WITH_DISTINCT, '
+                    'TWO_PHASE_AGGREGATE_WITH_DISTINCT\')*/ count(distinct id), ${fn} from fn_test']
+
     tables = ['fn_test', 'fn_test_not_nullable']
+    group_by = ' group by kbool'
+    order_by = ' order by kbool'
     SQLs = []
     for fn_name in sorted(function_meta):
+        tag_cnt = 0
         for args in function_meta[fn_name]:
             fn_title, args, run_tag, _ = getSQLMeta(fn_name, args)
-            group_by = ' group by kbool'
-            order_by = ' order by kbool'
+            sql = ""
+            if fn_title in define.const_sql:
+                sql = define.const_sql[fn_title]
 
             for t in tables:
+                # enumerate group by
                 for i in range(0, 2):
                     tag_app = ""
-                    if t != 'fn_test' and run_tag != 'sql':
-                        tag_app += '_notnull'
                     if i == 0:
                         tag_app += '_gb'
-                    if fn_title in define.const_sql:
-                        sql = define.const_sql[fn_title]
-                        sql = sql.replace('${t}', t)
+                    if t != 'fn_test':
+                        tag_app += '_notnull'
+                    if sql != "":
+                        write_sql = sql.replace('${t}', t)
                     else:
-                        sql = f'select {fn_name}({args}) from {t}'
-                    sql += f'{group_by + order_by if i == 0 else ""}'
+                        write_sql = f'select {fn_name}({args}) from {t}'
+                    write_sql += f'{group_by + order_by if i == 0 else ""}'
 
-                    SQLs.append(f'\t{run_tag + tag_app} "{sql}"\n')
+                    SQLs.append(f'\t{run_tag + tag_app} \'\'\'\n\t\t{write_sql}\'\'\'\n')
+                # enumerate agg phase
+                for i, template in enumerate(agg_template):
+                    tag_app = f'_agg_phase_{i + 1}'
+                    if t != 'fn_test':
+                        tag_app += '_notnull'
+                    if sql != "":
+                        fn = sql.replace('select ', '').replace(' from ${t}', '')
+                        write_sql = template.replace('${fn}', fn)
+                    else:
+                        write_sql = template.replace('${fn}', f'{fn_name}({args})').replace('${t}', t)
+                    SQLs.append(f'\t{run_tag + tag_app} \'\'\'\n\t\t{write_sql}\'\'\'\n')
+
             SQLs.append('\n')
-
-    # current it's distributed by hash(id), generate one to four phase agg.
-    # storage layer: select count(*) from ${t}
-    # one phase: select count(*) from ${t} group by id
-    #            select count(distinct id) from (select kint, id from ${t}) t group by kint
-    # two phase: select count(distinct id) from ${t} group by id
-    #            select kint, count(id) from ${t} group by kint
-    #            select count(distinct id, kint) from ${t} group by id
-    #            select count(ksint) from ${t} group by kint
-    # three phase: select count(distinct id, kint) from ${t} group by kint
-    #              select count(distinct id) from ${t} group by kint
-    # four phase: select count(distinct id, kint), sum(kint), avg(kbint) from ${t} group by kbool
-    agg_test_sqls = ['select count(*) from ${t} group by id',
-                     'select count(distinct id) from (select kint, id from ${t}) t group by kint',
-                     'select count(distinct id) from ${t} group by id',
-                     'select kint, count(id) from ${t} group by kint',
-                     'select count(distinct id, kint) from ${t} group by id',
-                     'select count(ksint) from ${t} group by kint',
-                     'select count(distinct id, kint) from ${t} group by kint',
-                     'select count(distinct id) from ${t} group by kint',
-                     'select count(distinct id, kint), sum(kint), avg(kbint) from ${t} group by kbool']
-
-    agg_test_tag = 'qt_sql_agg_phase'
-
-    for i, sql in enumerate(agg_test_sqls):
-        for t in tables:
-            tag = agg_test_tag + f'_{i}'
-            if t != 'fn_test':
-                tag += '_notnull'
-            SQLs.append(f'\t{tag} "{sql.replace("${t}", t)}"\n')
-        SQLs.append('\n')
     return SQLs
 
 
@@ -232,6 +226,49 @@ def generateGenFnSQL(function_meta: Dict[str, List[List[str]]]) -> List[str]:
 
                 SQLs.append(f'\t{run_tag} "{sql}"\n')
             SQLs.append('\n')
+    return SQLs
+
+
+def generateWinFnSQL(_: Dict[str, List[List[str]]]) -> List[str]:
+    tables = ['fn_test', 'fn_test_not_nullable']
+    ranges = ['rows', 'range']
+    SQLs = []
+    for fn in define.win_fn:
+        # generate fn without frame, with/not partition, with/not order
+        order_by = 'order by kint'
+        partition_by = 'partition by kstr'
+        for i in range(0, 2):
+            for j in range(0, 2):
+                for t in tables:
+                    tag_app = f'{"_pb" if i == 1 else ""}{"_ob" if j == 1 else ""}' \
+                              f'{"_notnull" if t != "fn_test" else ""}'
+                    run_tag = f'qt_sql_{fn[:fn.find("(")]}{tag_app}'
+                    sql = f'select kint, ksint {fn} over({partition_by if i == 1 else ""}' \
+                          f'{"_" if i == 1 and j == 1 else ""}' \
+                          f'{order_by if j == 1 else ""}) as wf from {t}'
+                    SQLs.append(f'\t{run_tag} \'\'\'\n\t\t{sql}\'\'\'\n')
+            # generate fn with frame and order, with/not partition
+            # frame with rows and range, 'start' clause and 'between and' clause.
+            tag_cnt = 0
+            for rng in ranges:
+                for x in range(0, 3):
+                    tag_cnt += 1
+                    # 'start' clause
+                    tag_app = f'_f{"_pb" if i == 1 else ""}{"_notnull" if t != "fn_test" else ""}_{tag_cnt}'
+                    run_tag = f'qt_sql_{fn[:fn.find("(")]}{tag_app}'
+                    frame = f'{rng} {define.frame_range[j]}'
+                    sql = f'select kint, ksint {fn} over({partition_by if i == 1 else ""}{order_by} {frame}) as wf from {t}'
+                    SQLs.append(f'\t{run_tag} \'\'\'\n\t\t{sql}\'\'\'\n')
+                for y in range(0, len(define.frame_range)):
+                    for z in range(y + 1, len(define.frame_range)):
+                        tag_cnt += 1
+                        # 'between and' clause
+                        tag_app = f'_f{"_pb" if i == 1 else ""}{"_notnull" if t != "fn_test" else ""}_{tag_cnt}'
+                        run_tag = f'qt_sql_{fn[:fn.find("(")]}{tag_app}'
+                        frame = f'{rng} between {define.frame_range[y]} and {define.frame_range[z]}'
+                        sql = f'select kint, ksint {fn} over({partition_by if i == 1 else ""}{order_by} {frame}) as wf from {t}'
+                        SQLs.append(f'\t{run_tag} \'\'\'\n\t\t{sql}\'\'\'\n')
+        SQLs.append('\n')
     return SQLs
 
 
@@ -257,6 +294,7 @@ fn_tag = {
     'agg': generateAggFnSQL,
     'scalar': generateScalarFnSQL,
     'gen': generateGenFnSQL,
+    'win': generateWinFnSQL,
 }
 
 getChar: Callable[[int], Callable[[str], bool]] = lambda c: \
@@ -268,7 +306,7 @@ getCharRange: Callable[[int, int], Callable[[str], bool]] = lambda c1, c2: \
 FUNCTION_DIR = '../../../../fe/fe-core/src/main/java/org/apache/doris/nereids/trees/expressions/functions/'
 
 genHeaderAndFooter('agg',
-                   f'{FUNCTION_DIR}/agg',
+                   f'{FUNCTION_DIR}agg',
                    f'../agg_function/agg1.groovy',
                    f'nereids_agg_fn',
                    lambda c: True)

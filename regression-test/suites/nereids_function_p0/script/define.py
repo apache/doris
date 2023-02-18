@@ -149,6 +149,25 @@ not_check_result = {
     'unix_timestamp'
 }
 
+win_fn = [
+    'dense_rank()',
+    'first_value(kint)',
+    'lag(kint, 2, 1)',
+    'last_value(kint)',
+    'lead(kint, 2, 1)',
+    'ntile(3)',
+    'rank()',
+    'row_number()',
+]
+
+frame_range = [
+    'unbounded preceding',
+    '2 preceding',
+    'current row',
+    '2 following',
+    'unbounded following',
+]
+
 denied_tag = {
     'esquery',
     'hll_cardinality',
@@ -156,7 +175,9 @@ denied_tag = {
     'hll_union_agg',
     'to_quantile_state',
     'quantile_percent',
-    'quantile_union'
+    'quantile_union',
+    'multi_distinct_count',
+    'multi_distinct_sum',
 }
 
 header = '''// Licensed to the Apache Software Foundation (ASF) under one
