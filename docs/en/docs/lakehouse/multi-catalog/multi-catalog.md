@@ -311,11 +311,9 @@ Users need to manually update the metadata using the  [REFRESH CATALOG](https://
 
 ### Automatic Update
 
-<version since="dev">
+<version since="1.2.2"></version>
 
 Currently, Doris only supports automatic update of metadata in Hive Metastore (HMS). It perceives changes in metadata by the FE node which regularly reads the notification events from HMS. The supported events are as follows:
-
-</version>
 
 | Event           | Corresponding Update Operation                               |
 | :-------------- | :----------------------------------------------------------- |
