@@ -93,13 +93,13 @@ export function AdHocContent(props: any) {
         return () => subscription.unsubscribe();
     }, []);
 
-	const getCodeSql = () => {
+    const getCodeSql = () => {
         const sqlCodeSelection = editorInstance.getSelection();
-		if (sqlCodeSelection != "") {
-			return sqlCodeSelection;
-		}
-		return code;
-	};
+        if (sqlCodeSelection != "") {
+            return sqlCodeSelection;
+        }
+        return code;
+    };
 
     const handleChange = (_editor, _data, value) => {
         setCode(value);
