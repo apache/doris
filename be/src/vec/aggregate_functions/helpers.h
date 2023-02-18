@@ -146,7 +146,7 @@ static IAggregateFunction* create_with_decimal_type_null(const DataTypes& argume
     if (which.idx == TypeIndex::TYPE)                                                       \
         return new AggregateFunctionNullUnaryInline<AggregateFunctionTemplate<TYPE>, true>( \
                 new AggregateFunctionTemplate<TYPE>(std::forward<TArgs>(args)...),          \
-                argument_types);                                                          
+                argument_types);
     FOR_DECIMAL_TYPES(DISPATCH)
 #undef DISPATCH
     return nullptr;
