@@ -89,7 +89,8 @@ public:
     void close();
 
     bool exceeds_limit(int batch_size) {
-        return _num_buffered_bytes + batch_size > config::exchg_node_buffer_size_bytes;
+        return _blocks_memory_usage->current_value() + batch_size >
+               config::exchg_node_buffer_size_bytes;
     }
 
     bool is_closed() const { return _is_closed; }
@@ -119,8 +120,8 @@ private:
     bool _is_merging;
     bool _is_closed;
 
-    std::atomic<int> _num_buffered_bytes;
     std::unique_ptr<MemTracker> _mem_tracker;
+    // Managed by object pool
     std::vector<SenderQueue*> _sender_queues;
 
     std::unique_ptr<VSortedRunMerger> _merger;
@@ -160,7 +161,7 @@ public:
 
     virtual bool should_wait();
 
-    virtual Status get_batch(Block** next_block);
+    virtual Status get_batch(Block* next_block, bool* eos);
 
     void add_block(const PBlock& pblock, int be_number, int64_t packet_seq,
                    ::google::protobuf::Closure** done);
@@ -173,25 +174,19 @@ public:
 
     void close();
 
-    Block* current_block() const { return _current_block.get(); }
-
 protected:
     virtual void _update_block_queue_empty() {}
-    Status _inner_get_batch(Block** next_block);
+    Status _inner_get_batch(Block* block, bool* eos);
 
+    // Not managed by this class
     VDataStreamRecvr* _recvr;
     std::mutex _lock;
     std::atomic_bool _is_cancelled;
     std::atomic_int _num_remaining_senders;
     std::condition_variable _data_arrival_cv;
     std::condition_variable _data_removal_cv;
-
-    using VecBlockQueue = std::list<std::pair<int, Block*>>;
-    VecBlockQueue _block_queue;
-
+    std::list<std::pair<BlockUPtr, size_t>> _block_queue;
     std::atomic_bool _block_queue_empty = true;
-
-    std::unique_ptr<Block> _current_block;
 
     bool _received_first_batch;
     // sender_id
@@ -213,12 +208,12 @@ public:
 
     void _update_block_queue_empty() override { _block_queue_empty = _block_queue.empty(); }
 
-    Status get_batch(Block** next_block) override {
+    Status get_batch(Block* block, bool* eos) override {
         CHECK(!should_wait()) << " _is_cancelled: " << _is_cancelled
                               << ", _block_queue_empty: " << _block_queue_empty
                               << ", _num_remaining_senders: " << _num_remaining_senders;
         std::lock_guard<std::mutex> l(_lock); // protect _block_queue
-        return _inner_get_batch(next_block);
+        return _inner_get_batch(block, eos);
     }
 
     void add_block(Block* block, bool use_move) override {
@@ -229,7 +224,7 @@ public:
         if (_is_cancelled || !block->rows()) {
             return;
         }
-        Block* nblock = new Block(block->get_columns_with_type_and_name());
+        BlockUPtr nblock = std::make_unique<Block>(block->get_columns_with_type_and_name());
 
         // local exchange should copy the block contented if use move == false
         if (use_move) {
@@ -243,19 +238,15 @@ public:
         }
         materialize_block_inplace(*nblock);
 
-        size_t block_size = nblock->bytes();
         auto block_mem_size = nblock->allocated_bytes();
         {
             std::unique_lock<std::mutex> l(_lock);
-            _block_queue.emplace_back(block_size, nblock);
+            _block_queue.emplace_back(std::move(nblock), block_mem_size);
         }
-        COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_size);
+        COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_mem_size);
         _recvr->_blocks_memory_usage->add(block_mem_size);
         _update_block_queue_empty();
         _data_arrival_cv.notify_one();
-
-        _recvr->_num_buffered_bytes += block_size;
-        COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_size);
     }
 };
 } // namespace vectorized

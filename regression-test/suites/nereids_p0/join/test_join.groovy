@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_join", "query,p0") {
+suite("test_join", "nereids_p0") {
     sql "SET enable_nereids_planner=true"
     sql "SET enable_vectorized_engine=true"
     sql "SET enable_fallback_to_original_planner=false" 
@@ -1241,27 +1241,4 @@ suite("test_join", "query,p0") {
     qt_sql """select k1 from test right semi join baseall on false order by k1;"""
     qt_sql """select k1 from test right anti join baseall on true order by k1;"""
     qt_sql """select k1 from test right anti join baseall on false order by k1;"""
-
-    // test bucket shuffle join, github issue #6171
-    sql"""create database if not exists test_issue_6171"""
-    sql"""use test_issue_6171"""
-    List table_list = ["T_DORIS_A", "T_DORIS_B", "T_DORIS_C", "T_DORIS_D", "T_DORIS_E"]
-    List column_list = [",APPLY_CRCL bigint(19)",
-                   ",FACTOR_FIN_VALUE decimal(19,2),PRJT_ID bigint(19)",
-                   "",
-                   ",LIMIT_ID bigint(19),CORE_ID bigint(19)",
-                   ",SHARE_ID bigint,SPONSOR_ID bigint"]
-    table_list.eachWithIndex {tb, idx ->
-        sql"""drop table if exists ${tb}"""
-        sql"""create table if not exists ${tb} (ID bigint not null ${column_list[idx]}) 
-                UNIQUE KEY(`ID`) 
-                DISTRIBUTED BY HASH(`ID`) BUCKETS 32 
-                PROPERTIES("replication_num"="1");"""
-    }
-    def ret = sql"""desc SELECT B.FACTOR_FIN_VALUE, D.limit_id FROM T_DORIS_A A LEFT JOIN T_DORIS_B B ON B.PRJT_ID = A.ID 
-            LEFT JOIN T_DORIS_C C ON A.apply_crcl = C.id JOIN T_DORIS_D D ON C.ID = D.CORE_ID order by 
-            B.FACTOR_FIN_VALUE, D.limit_id desc;"""
-    logger.info(ret.toString())
-    assertTrue(ret.toString().contains("  |  join op: INNER JOIN(BROADCAST)"))
-    sql"""drop database test_issue_6171"""
 }

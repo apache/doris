@@ -128,12 +128,18 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                         .filter(index -> containAllRequiredColumns(index, scan, requiredScanOutputSupplier.get()))
                         .collect(Collectors.toList());
 
-                PreAggStatus preAgg = PreAggStatus.off("No aggregate on scan.");
+                final PreAggStatus preAggStatus;
+                if (preAggEnabledByHint(scan)) {
+                    // PreAggStatus could be enabled by pre-aggregation hint for agg-keys and unique-keys.
+                    preAggStatus = PreAggStatus.on();
+                } else {
+                    preAggStatus = PreAggStatus.off("No aggregate on scan.");
+                }
                 if (candidates.size() == 1) {
                     // `candidates` only have base index.
-                    return scan.withMaterializedIndexSelected(preAgg, baseIndexId);
+                    return scan.withMaterializedIndexSelected(preAggStatus, baseIndexId);
                 } else {
-                    return scan.withMaterializedIndexSelected(preAgg,
+                    return scan.withMaterializedIndexSelected(preAggStatus,
                             selectBestIndex(candidates, scan, predicatesSupplier.get()));
                 }
             case DUP_KEYS:

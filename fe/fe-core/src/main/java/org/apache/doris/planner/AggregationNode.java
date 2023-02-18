@@ -247,6 +247,10 @@ public class AggregationNode extends PlanNode {
           super.debugString()).toString();
     }
 
+    public boolean isTargetNode() {
+        return id.asInt() == 27 && needsFinalize;
+    }
+
     @Override
     protected void toThrift(TPlanNode msg) {
         aggInfo.updateMaterializedSlots();

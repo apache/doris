@@ -564,7 +564,7 @@ public class ScalarType extends Type {
             case DECIMAL32:
             case DECIMAL64:
             case DECIMAL128:
-                String typeName = Config.enable_decimal_conversion ? "decimal" : "decimalv3";
+                String typeName = "decimalv3";
                 if (Strings.isNullOrEmpty(precisionStr)) {
                     stringBuilder.append(typeName).append("(").append(precision)
                         .append(", ").append(scale).append(")");
@@ -603,6 +603,7 @@ public class ScalarType extends Type {
             case DATEV2:
             case HLL:
             case BITMAP:
+            case VARIANT:
             case QUANTILE_STATE:
                 stringBuilder.append(type.toString().toLowerCase());
                 break;

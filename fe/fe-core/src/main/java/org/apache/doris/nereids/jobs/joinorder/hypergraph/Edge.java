@@ -18,7 +18,8 @@
 package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
@@ -27,7 +28,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
  */
 public class Edge {
     final int index;
-    final LogicalJoin join;
+    final LogicalJoin<? extends Plan, ? extends Plan> join;
     final double selectivity;
 
     // The endpoints (hyperNodes) of this hyperEdge.
@@ -47,6 +48,10 @@ public class Edge {
 
     public LogicalJoin getJoin() {
         return join;
+    }
+
+    public JoinType getJoinType() {
+        return join.getJoinType();
     }
 
     public boolean isSimple() {
@@ -116,11 +121,8 @@ public class Edge {
         return selectivity;
     }
 
-    private double getRowCount(Plan plan) {
-        if (plan instanceof GroupPlan) {
-            return ((GroupPlan) plan).getGroup().getStatistics().getRowCount();
-        }
-        return plan.getGroupExpression().get().getOwnerGroup().getStatistics().getRowCount();
+    public Expression getExpression() {
+        return join.getExpressions().get(0);
     }
 
     @Override

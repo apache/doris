@@ -71,6 +71,41 @@
         ORDER BY date;
     """
 
+    sql """set group_by_and_having_use_alias_first=true"""
+
+    qt_sql """
+        SELECT
+        date_format(date, '%x%v') AS `date`,
+        count(date) AS `diff_days`
+        FROM `tb_holiday`
+        WHERE `date` between 20221111 AND 20221116
+        GROUP BY date
+        HAVING date = 20221111
+        ORDER BY date;
+    """
+
+    qt_sql """
+        SELECT
+        date_format(date, '%x%v') AS `date2`,
+        count(date) AS `diff_days`
+        FROM `tb_holiday`
+        WHERE `date` between 20221111 AND 20221116
+        GROUP BY date2
+        HAVING date2 = 202245
+        ORDER BY date2;
+    """
+
+    qt_sql """
+        SELECT
+        date_format(date, '%x%v') AS `date`
+        FROM `tb_holiday`
+        WHERE `date` between 20221111 AND 20221116
+        HAVING date = 202245
+        ORDER BY date;
+    """
+
+    sql """set group_by_and_having_use_alias_first=false"""
+
     sql """
          CREATE TABLE `test_having_alias_tb` (
           `id` int(11) NULL,

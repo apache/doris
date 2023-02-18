@@ -165,7 +165,7 @@ public:
         TUniqueId querytid;
         parse_id(queryid, &querytid);
         return querytid;
-    };
+    }
 
     static std::string process_mem_log_str() {
         return fmt::format(

@@ -59,7 +59,7 @@ public:
     // Send a Block into this sink.
     virtual Status send(RuntimeState* state, vectorized::Block* block, bool eos = false) {
         return Status::NotSupported("Not support send block");
-    };
+    }
     // Releases all resources that were allocated in prepare()/send().
     // Further send() calls are illegal after calling close().
     // It must be okay to call this multiple times. Subsequent calls should
@@ -77,6 +77,13 @@ public:
                                    const TPlanFragmentExecParams& params,
                                    const RowDescriptor& row_desc, RuntimeState* state,
                                    std::unique_ptr<DataSink>* sink, DescriptorTbl& desc_tbl);
+
+    static Status create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink,
+                                   const std::vector<TExpr>& output_exprs,
+                                   const TPipelineFragmentParams& params,
+                                   const size_t& local_param_idx, const RowDescriptor& row_desc,
+                                   RuntimeState* state, std::unique_ptr<DataSink>* sink,
+                                   DescriptorTbl& desc_tbl);
 
     // Returns the runtime profile for the sink.
     virtual RuntimeProfile* profile() = 0;

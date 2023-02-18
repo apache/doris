@@ -31,13 +31,20 @@
 namespace doris {
 namespace vectorized {
 class PipChannel;
-}
+class BroadcastPBlockHolder;
+} // namespace vectorized
 
 namespace pipeline {
 using InstanceLoId = int64_t;
 struct TransmitInfo {
     vectorized::PipChannel* channel;
     std::unique_ptr<PBlock> block;
+    bool eos;
+};
+
+struct BroadcastTransmitInfo {
+    vectorized::PipChannel* channel;
+    vectorized::BroadcastPBlockHolder* block_holder;
     bool eos;
 };
 
@@ -50,6 +57,7 @@ public:
     ~ExchangeSinkBuffer();
     void register_sink(TUniqueId);
     Status add_block(TransmitInfo&& request);
+    Status add_block(BroadcastTransmitInfo&& request);
     bool can_write() const;
     bool is_pending_finish() const;
     void close();
@@ -57,8 +65,13 @@ public:
 private:
     phmap::flat_hash_map<InstanceLoId, std::unique_ptr<std::mutex>>
             _instance_to_package_queue_mutex;
+    // store data in non-broadcast shuffle
     phmap::flat_hash_map<InstanceLoId, std::queue<TransmitInfo, std::list<TransmitInfo>>>
             _instance_to_package_queue;
+    // store data in broadcast shuffle
+    phmap::flat_hash_map<InstanceLoId,
+                         std::queue<BroadcastTransmitInfo, std::list<BroadcastTransmitInfo>>>
+            _instance_to_broadcast_package_queue;
     using PackageSeq = int64_t;
     // must init zero
     phmap::flat_hash_map<InstanceLoId, PackageSeq> _instance_to_seq;

@@ -178,10 +178,12 @@ public:
 
     const std::string& name() const { return _name; }
     const std::string& database() const { return _database; }
+    int32_t table_id() const { return _table_id; }
 
 private:
     std::string _name;
     std::string _database;
+    int32_t _table_id;
     int _num_cols;
     int _num_clustering_cols;
 };
@@ -272,7 +274,7 @@ public:
     const std::string user() const { return _user; }
     const std::string passwd() const { return _passwd; }
     const std::string driver() const { return _driver; }
-    const TOdbcTableType::type type() const { return _type; }
+    TOdbcTableType::type type() const { return _type; }
 
 private:
     std::string _db;

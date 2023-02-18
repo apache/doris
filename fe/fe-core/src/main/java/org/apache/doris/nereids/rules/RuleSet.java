@@ -26,6 +26,7 @@ import org.apache.doris.nereids.rules.exploration.join.SemiJoinLogicalJoinTransp
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinLogicalJoinTransposeProject;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTranspose;
 import org.apache.doris.nereids.rules.exploration.join.SemiJoinSemiJoinTransposeProject;
+import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.rules.implementation.LogicalAssertNumRowsToPhysicalAssertNumRows;
 import org.apache.doris.nereids.rules.implementation.LogicalEmptyRelationToPhysicalEmptyRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalExceptToPhysicalExcept;
@@ -45,7 +46,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalQuickS
 import org.apache.doris.nereids.rules.implementation.LogicalTVFRelationToPhysicalTVFRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
 import org.apache.doris.nereids.rules.implementation.LogicalUnionToPhysicalUnion;
-import org.apache.doris.nereids.rules.rewrite.AggregateStrategies;
+import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateOuterJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeGenerates;
@@ -63,6 +64,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.PushdownProjectThroughLimi
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableList.Builder;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -70,9 +72,6 @@ import java.util.List;
  */
 public class RuleSet {
     public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
-            .add(JoinCommute.ZIG_ZAG)
-            .add(InnerJoinLAsscom.INSTANCE)
-            .add(InnerJoinLAsscomProject.INSTANCE)
             .add(OuterJoinLAsscom.INSTANCE)
             .add(OuterJoinLAsscomProject.INSTANCE)
             .add(SemiJoinLogicalJoinTranspose.LEFT_DEEP)
@@ -82,6 +81,15 @@ public class RuleSet {
             // .add(new DisassembleDistinctAggregate())
             .add(new PushdownFilterThroughProject())
             .add(new MergeProjects())
+            .build();
+
+    /**
+     * This rule need to be shadow in DPHyp
+     */
+    public static final List<Rule> JOINORDER_RULE = planRuleFactories()
+            .add(JoinCommute.ZIG_ZAG)
+            .add(InnerJoinLAsscom.INSTANCE)
+            .add(InnerJoinLAsscomProject.INSTANCE)
             .build();
 
     public static final List<RuleFactory> PUSH_DOWN_FILTERS = ImmutableList.of(
@@ -109,6 +117,7 @@ public class RuleSet {
             .add(new LogicalFileScanToPhysicalFileScan())
             .add(new LogicalProjectToPhysicalProject())
             .add(new LogicalLimitToPhysicalLimit())
+            .add(new LogicalWindowToPhysicalWindow())
             .add(new LogicalSortToPhysicalQuickSort())
             .add(new LogicalTopNToPhysicalTopN())
             .add(new LogicalAssertNumRowsToPhysicalAssertNumRows())
@@ -157,7 +166,14 @@ public class RuleSet {
             .build();
 
     public List<Rule> getExplorationRules() {
-        return EXPLORATION_RULES;
+        List<Rule> rules = new ArrayList<>();
+        rules.addAll(JOINORDER_RULE);
+        rules.addAll(EXPLORATION_RULES);
+        return rules;
+    }
+
+    public List<Rule> getJoinOrderRule() {
+        return JOINORDER_RULE;
     }
 
     public List<Rule> getImplementationRules() {

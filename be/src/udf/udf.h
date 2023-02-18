@@ -81,6 +81,8 @@ public:
         TYPE_DECIMALV2,
         TYPE_OBJECT,
         TYPE_ARRAY,
+        TYPE_MAP,
+        TYPE_STRUCT,
         TYPE_QUANTILE_STATE,
         TYPE_DATEV2,
         TYPE_DATETIMEV2,
@@ -89,6 +91,7 @@ public:
         TYPE_DECIMAL64,
         TYPE_DECIMAL128I,
         TYPE_JSONB,
+        TYPE_VARIANT
     };
 
     struct TypeDesc {

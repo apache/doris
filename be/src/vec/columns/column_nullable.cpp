@@ -620,4 +620,10 @@ ColumnPtr remove_nullable(const ColumnPtr& column) {
     return column;
 }
 
+ColumnPtr ColumnNullable::index(const IColumn& indexes, size_t limit) const {
+    ColumnPtr indexed_data = get_nested_column().index(indexes, limit);
+    ColumnPtr indexed_null_map = get_null_map_column().index(indexes, limit);
+    return ColumnNullable::create(indexed_data, indexed_null_map);
+}
+
 } // namespace doris::vectorized

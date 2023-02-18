@@ -30,7 +30,7 @@ public class TPCHTest extends TPCHTestBase {
                 .analyze(TPCHUtils.Q5)
                 .rewrite()
                 .deriveStats()
-                .orderJoin()
-                .optimize();
+                .dpHypOptimize()
+                .printlnBestPlanTree();
     }
 }

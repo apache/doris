@@ -19,6 +19,7 @@ package org.apache.doris.catalog;
 
 import org.apache.doris.analysis.CreateMaterializedViewStmt;
 import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SqlParser;
 import org.apache.doris.analysis.SqlScanner;
 import org.apache.doris.common.io.Text;
@@ -40,6 +41,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.io.StringReader;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -136,12 +138,60 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         return schemaVersion;
     }
 
-    private void setColumnsDefineExpr(Map<String, Expr> columnNameToDefineExpr) {
+    private void setColumnsDefineExpr(Map<String, Expr> columnNameToDefineExpr) throws IOException {
         for (Map.Entry<String, Expr> entry : columnNameToDefineExpr.entrySet()) {
+            boolean match = false;
             for (Column column : schema) {
                 if (column.getName().equals(entry.getKey())) {
                     column.setDefineExpr(entry.getValue());
+                    match = true;
                     break;
+                }
+            }
+
+            if (!match) {
+                // Compatibility code for older versions of mv
+                // store_id -> mv_store_id
+                // sale_amt -> mva_SUM__`sale_amt`
+                // mv_count_sale_amt -> mva_SUM__CASE WHEN `sale_amt` IS NULL THEN 0 ELSE 1 END
+                List<SlotRef> slots = new ArrayList<>();
+                entry.getValue().collect(SlotRef.class, slots);
+                if (slots.size() > 1) {
+                    throw new IOException("DefineExpr have multiple slot in MaterializedIndex, Expr=" + entry.getKey());
+                }
+
+                String name = MaterializedIndexMeta.normalizeName(slots.get(0).toSqlWithoutTbl());
+                Column matchedColumn = null;
+
+                String columnList = "[";
+                for (Column column : schema) {
+                    if (columnList.length() != 1) {
+                        columnList += ", ";
+                    }
+                    columnList += column.getName();
+                }
+                columnList += "]";
+
+                for (Column column : schema) {
+                    if (CreateMaterializedViewStmt.oldmvColumnBreaker(column.getName()).equals(name)) {
+                        if (matchedColumn == null) {
+                            matchedColumn = column;
+                        } else {
+                            LOG.warn("DefineExpr match multiple column in MaterializedIndex, ExprName=" + entry.getKey()
+                                    + ", Expr=" + entry.getValue().toSqlWithoutTbl() + ", Slot=" + name
+                                    + ", Columns=" + columnList);
+                        }
+                    }
+                }
+                if (matchedColumn != null) {
+                    LOG.debug("trans old MV, MV: {},  DefineExpr:{}, DefineName:{}",
+                            matchedColumn.getName(), entry.getValue().toSqlWithoutTbl(), entry.getKey());
+                    matchedColumn.setDefineExpr(entry.getValue());
+                    matchedColumn.setDefineName(entry.getKey());
+                } else {
+                    LOG.warn("DefineExpr does not match any column in MaterializedIndex, ExprName=" + entry.getKey()
+                            + ", Expr=" + entry.getValue().toSqlWithoutTbl() + ", Slot=" + name
+                            + ", Columns=" + columnList);
                 }
             }
         }
@@ -209,6 +259,7 @@ public class MaterializedIndexMeta implements Writable, GsonPostProcessable {
         try {
             stmt = (CreateMaterializedViewStmt) SqlParserUtils.getStmt(parser, defineStmt.idx);
             stmt.setIsReplay(true);
+            stmt.rewriteToBitmapWithCheck();
             Map<String, Expr> columnNameToDefineExpr = stmt.parseDefineExprWithoutAnalyze();
             setColumnsDefineExpr(columnNameToDefineExpr);
         } catch (Exception e) {

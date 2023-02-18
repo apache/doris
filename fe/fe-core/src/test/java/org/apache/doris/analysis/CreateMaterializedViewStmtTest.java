@@ -22,6 +22,7 @@ import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.KeysType;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -173,7 +174,7 @@ public class CreateMaterializedViewStmtTest {
         try {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.fail();
-        } catch (IllegalArgumentException e) {
+        } catch (AnalysisException e) {
             System.out.print(e.getMessage());
         }
     }
@@ -319,7 +320,6 @@ public class CreateMaterializedViewStmtTest {
             createMaterializedViewStmt.analyze(analyzer);
             Assert.fail();
         } catch (Exception e) {
-            e.printStackTrace();
             System.out.print(e.getMessage());
         }
     }
@@ -361,10 +361,6 @@ public class CreateMaterializedViewStmtTest {
                 result = null;
                 selectStmt.getOrderByElements();
                 result = orderByElementList;
-                slotDescriptor.getColumn();
-                result = column2;
-                column2.getOriginType();
-                result = Type.INT;
                 slotRef1.toSql();
                 result = "k1";
             }
@@ -438,10 +434,6 @@ public class CreateMaterializedViewStmtTest {
                 selectStmt.analyze(analyzer);
                 selectStmt.getSelectList();
                 result = selectList;
-                slotDescriptor.getColumn();
-                result = column2;
-                column2.getOriginType();
-                result = Type.INT;
                 slotRef1.toSql();
                 result = "k1";
             }
@@ -494,10 +486,6 @@ public class CreateMaterializedViewStmtTest {
                 result = null;
                 selectStmt.getOrderByElements();
                 result = orderByElementList;
-                slotDescriptor.getColumn();
-                result = column3;
-                column3.getOriginType();
-                result = Type.INT;
                 slotRef1.toSql();
                 result = "k1";
                 slotRef2.toSql();
@@ -533,9 +521,8 @@ public class CreateMaterializedViewStmtTest {
         selectList.addItem(selectListItem3);
         SelectListItem selectListItem4 = new SelectListItem(slotRef4, null);
         selectList.addItem(selectListItem4);
-        TableName tableName = new TableName(internalCtl, "db", "table");
-        final String columnName5 = "sum_v2";
-        SlotRef functionChild0 = new SlotRef(tableName, columnName5);
+        final String columnName5 = "v2";
+        SlotRef functionChild0 = new SlotRef(null, columnName5);
         Deencapsulation.setField(functionChild0, "desc", slotDescriptor);
         List<Expr> fn1Children = Lists.newArrayList(functionChild0);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr("sum", fn1Children);
@@ -574,10 +561,6 @@ public class CreateMaterializedViewStmtTest {
                 result = columnName3;
                 slotRef4.toSql();
                 result = columnName4;
-                functionChild0.getColumn();
-                result = column5;
-                column5.getOriginType();
-                result = Type.INT;
             }
         };
 
@@ -591,27 +574,28 @@ public class CreateMaterializedViewStmtTest {
             MVColumnItem mvColumn0 = mvColumns.get(0);
             Assert.assertTrue(mvColumn0.isKey());
             Assert.assertFalse(mvColumn0.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName1, mvColumn0.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName1), mvColumn0.getName());
             Assert.assertEquals(null, mvColumn0.getAggregationType());
             MVColumnItem mvColumn1 = mvColumns.get(1);
             Assert.assertTrue(mvColumn1.isKey());
             Assert.assertFalse(mvColumn1.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName2, mvColumn1.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName2), mvColumn1.getName());
             Assert.assertEquals(null, mvColumn1.getAggregationType());
             MVColumnItem mvColumn2 = mvColumns.get(2);
             Assert.assertTrue(mvColumn2.isKey());
             Assert.assertFalse(mvColumn2.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName3, mvColumn2.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName3), mvColumn2.getName());
             Assert.assertEquals(null, mvColumn2.getAggregationType());
             MVColumnItem mvColumn3 = mvColumns.get(3);
             Assert.assertTrue(mvColumn3.isKey());
             Assert.assertFalse(mvColumn3.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName4, mvColumn3.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName4), mvColumn3.getName());
             Assert.assertEquals(null, mvColumn3.getAggregationType());
             MVColumnItem mvColumn4 = mvColumns.get(4);
             Assert.assertFalse(mvColumn4.isKey());
             Assert.assertFalse(mvColumn4.isAggregationTypeImplicit());
-            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName5), mvColumn4.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(AggregateType.SUM, columnName5),
+                    MaterializedIndexMeta.normalizeName(mvColumn4.getName()));
             Assert.assertEquals(AggregateType.SUM, mvColumn4.getAggregationType());
         } catch (UserException e) {
             Assert.fail(e.getMessage());
@@ -693,22 +677,22 @@ public class CreateMaterializedViewStmtTest {
             MVColumnItem mvColumn0 = mvColumns.get(0);
             Assert.assertTrue(mvColumn0.isKey());
             Assert.assertFalse(mvColumn0.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName1, mvColumn0.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName1), mvColumn0.getName());
             Assert.assertEquals(null, mvColumn0.getAggregationType());
             MVColumnItem mvColumn1 = mvColumns.get(1);
             Assert.assertTrue(mvColumn1.isKey());
             Assert.assertFalse(mvColumn1.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName2, mvColumn1.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName2), mvColumn1.getName());
             Assert.assertEquals(null, mvColumn1.getAggregationType());
             MVColumnItem mvColumn2 = mvColumns.get(2);
             Assert.assertTrue(mvColumn2.isKey());
             Assert.assertFalse(mvColumn2.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName3, mvColumn2.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName3), mvColumn2.getName());
             Assert.assertEquals(null, mvColumn2.getAggregationType());
             MVColumnItem mvColumn3 = mvColumns.get(3);
             Assert.assertFalse(mvColumn3.isKey());
             Assert.assertTrue(mvColumn3.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName4, mvColumn3.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName4), mvColumn3.getName());
             Assert.assertEquals(AggregateType.NONE, mvColumn3.getAggregationType());
         } catch (UserException e) {
             Assert.fail(e.getMessage());
@@ -791,22 +775,22 @@ public class CreateMaterializedViewStmtTest {
             MVColumnItem mvColumn0 = mvColumns.get(0);
             Assert.assertTrue(mvColumn0.isKey());
             Assert.assertFalse(mvColumn0.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName1, mvColumn0.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName1), mvColumn0.getName());
             Assert.assertEquals(null, mvColumn0.getAggregationType());
             MVColumnItem mvColumn1 = mvColumns.get(1);
             Assert.assertTrue(mvColumn1.isKey());
             Assert.assertFalse(mvColumn1.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName2, mvColumn1.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName2), mvColumn1.getName());
             Assert.assertEquals(null, mvColumn1.getAggregationType());
             MVColumnItem mvColumn2 = mvColumns.get(2);
             Assert.assertFalse(mvColumn2.isKey());
             Assert.assertTrue(mvColumn2.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName3, mvColumn2.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName3), mvColumn2.getName());
             Assert.assertEquals(AggregateType.NONE, mvColumn2.getAggregationType());
             MVColumnItem mvColumn3 = mvColumns.get(3);
             Assert.assertFalse(mvColumn3.isKey());
             Assert.assertTrue(mvColumn3.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName4, mvColumn3.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName4), mvColumn3.getName());
             Assert.assertEquals(AggregateType.NONE, mvColumn3.getAggregationType());
         } catch (UserException e) {
             Assert.fail(e.getMessage());
@@ -889,22 +873,22 @@ public class CreateMaterializedViewStmtTest {
             MVColumnItem mvColumn0 = mvColumns.get(0);
             Assert.assertTrue(mvColumn0.isKey());
             Assert.assertFalse(mvColumn0.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName1, mvColumn0.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName1), mvColumn0.getName());
             Assert.assertEquals(null, mvColumn0.getAggregationType());
             MVColumnItem mvColumn1 = mvColumns.get(1);
             Assert.assertTrue(mvColumn1.isKey());
             Assert.assertFalse(mvColumn1.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName2, mvColumn1.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName2), mvColumn1.getName());
             Assert.assertEquals(null, mvColumn1.getAggregationType());
             MVColumnItem mvColumn2 = mvColumns.get(2);
             Assert.assertTrue(mvColumn2.isKey());
             Assert.assertFalse(mvColumn2.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName3, mvColumn2.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName3), mvColumn2.getName());
             Assert.assertEquals(null, mvColumn2.getAggregationType());
             MVColumnItem mvColumn3 = mvColumns.get(3);
             Assert.assertFalse(mvColumn3.isKey());
             Assert.assertTrue(mvColumn3.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName4, mvColumn3.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName4), mvColumn3.getName());
             Assert.assertEquals(AggregateType.NONE, mvColumn3.getAggregationType());
         } catch (UserException e) {
             Assert.fail(e.getMessage());
@@ -993,7 +977,7 @@ public class CreateMaterializedViewStmtTest {
             MVColumnItem mvColumn0 = mvColumns.get(0);
             Assert.assertTrue(mvColumn0.isKey());
             Assert.assertFalse(mvColumn0.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName1, mvColumn0.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName1), mvColumn0.getName());
             Assert.assertEquals(null, mvColumn0.getAggregationType());
         } catch (UserException e) {
             Assert.fail(e.getMessage());
@@ -1015,9 +999,8 @@ public class CreateMaterializedViewStmtTest {
         selectList.addItem(selectListItem1);
         SelectListItem selectListItem2 = new SelectListItem(slotRef2, null);
         selectList.addItem(selectListItem2);
-        TableName tableName = new TableName(internalCtl, "db", "table");
-        final String columnName3 = "sum_v2";
-        SlotRef slotRef = new SlotRef(tableName, columnName3);
+        final String columnName3 = "v2";
+        SlotRef slotRef = new SlotRef(null, columnName3);
         Deencapsulation.setField(slotRef, "desc", slotDescriptor);
         List<Expr> children = Lists.newArrayList(slotRef);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr("sum", children);
@@ -1057,10 +1040,6 @@ public class CreateMaterializedViewStmtTest {
                 result = columnName1;
                 slotRef2.getColumnName();
                 result = columnName2;
-                slotDescriptor.getColumn();
-                result = column1;
-                column1.getOriginType();
-                result = Type.INT;
             }
         };
 
@@ -1073,17 +1052,18 @@ public class CreateMaterializedViewStmtTest {
             MVColumnItem mvColumn0 = mvColumns.get(0);
             Assert.assertTrue(mvColumn0.isKey());
             Assert.assertFalse(mvColumn0.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName1, mvColumn0.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName1), mvColumn0.getName());
             Assert.assertEquals(null, mvColumn0.getAggregationType());
             MVColumnItem mvColumn1 = mvColumns.get(1);
             Assert.assertTrue(mvColumn1.isKey());
             Assert.assertFalse(mvColumn1.isAggregationTypeImplicit());
-            Assert.assertEquals(columnName2, mvColumn1.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName2), mvColumn1.getName());
             Assert.assertEquals(null, mvColumn1.getAggregationType());
             MVColumnItem mvColumn2 = mvColumns.get(2);
             Assert.assertFalse(mvColumn2.isKey());
             Assert.assertFalse(mvColumn2.isAggregationTypeImplicit());
-            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(columnName3), mvColumn2.getName());
+            Assert.assertEquals(CreateMaterializedViewStmt.mvColumnBuilder(AggregateType.SUM, columnName3),
+                    MaterializedIndexMeta.normalizeName(mvColumn2.getName()));
             Assert.assertEquals(AggregateType.SUM, mvColumn2.getAggregationType());
             Assert.assertEquals(KeysType.AGG_KEYS, createMaterializedViewStmt.getMVKeysType());
         } catch (UserException e) {
@@ -1148,69 +1128,44 @@ public class CreateMaterializedViewStmtTest {
                                       @Injectable SlotDescriptor slotDescriptor4) {
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
         SlotRef slotRef = new SlotRef(new TableName(internalCtl, "db", "table"), "a");
+        slotRef.setType(Type.LARGEINT);
         List<Expr> params = Lists.newArrayList();
         params.add(slotRef);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr("sum", params);
         Deencapsulation.setField(slotRef, "desc", slotDescriptor1);
-        new Expectations() {
-            {
-                slotDescriptor1.getColumn();
-                result = column1;
-                column1.getOriginType();
-                result = Type.LARGEINT;
-            }
-        };
+
         MVColumnItem mvColumnItem = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", analyzer,
                 functionCallExpr);
         Assert.assertEquals(Type.LARGEINT, mvColumnItem.getType());
 
         SlotRef slotRef2 = new SlotRef(new TableName(internalCtl, "db", "table"), "a");
+        slotRef2.setType(Type.BIGINT);
         List<Expr> params2 = Lists.newArrayList();
         params2.add(slotRef2);
         FunctionCallExpr functionCallExpr2 = new FunctionCallExpr("sum", params2);
         Deencapsulation.setField(slotRef2, "desc", slotDescriptor2);
-        new Expectations() {
-            {
-                slotDescriptor2.getColumn();
-                result = column2;
-                column2.getOriginType();
-                result = Type.BIGINT;
-            }
-        };
+
         MVColumnItem mvColumnItem2 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", analyzer,
                 functionCallExpr2);
         Assert.assertEquals(Type.BIGINT, mvColumnItem2.getType());
 
         SlotRef slotRef3 = new SlotRef(new TableName(internalCtl, "db", "table"), "a");
+        slotRef3.setType(Type.VARCHAR);
         List<Expr> params3 = Lists.newArrayList();
         params3.add(slotRef3);
         FunctionCallExpr functionCallExpr3 = new FunctionCallExpr("min", params3);
         Deencapsulation.setField(slotRef3, "desc", slotDescriptor3);
-        new Expectations() {
-            {
-                slotDescriptor3.getColumn();
-                result = column3;
-                column3.getOriginType();
-                result = Type.VARCHAR;
-            }
-        };
+
         MVColumnItem mvColumnItem3 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", analyzer,
                 functionCallExpr3);
         Assert.assertEquals(Type.VARCHAR, mvColumnItem3.getType());
 
         SlotRef slotRef4 = new SlotRef(new TableName(internalCtl, "db", "table"), "a");
+        slotRef4.setType(Type.DOUBLE);
         List<Expr> params4 = Lists.newArrayList();
         params4.add(slotRef4);
         FunctionCallExpr functionCallExpr4 = new FunctionCallExpr("sum", params4);
         Deencapsulation.setField(slotRef4, "desc", slotDescriptor4);
-        new Expectations() {
-            {
-                slotDescriptor4.getColumn();
-                result = column4;
-                column4.getOriginType();
-                result = Type.DOUBLE;
-            }
-        };
         MVColumnItem mvColumnItem4 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", analyzer,
                 functionCallExpr4);
         Assert.assertEquals(Type.DOUBLE, mvColumnItem4.getType());
@@ -1227,53 +1182,35 @@ public class CreateMaterializedViewStmtTest {
                                                 @Injectable Column column3) {
         CreateMaterializedViewStmt createMaterializedViewStmt = new CreateMaterializedViewStmt("test", selectStmt, null);
         SlotRef slotRef = new SlotRef(new TableName(internalCtl, "db", "table"), "a");
+        slotRef.setType(ScalarType.createVarchar(50));
         List<Expr> params = Lists.newArrayList();
         params.add(slotRef);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr("min", params);
         Deencapsulation.setField(slotRef, "desc", slotDescriptor1);
-        new Expectations() {
-            {
-                slotDescriptor1.getColumn();
-                result = column1;
-                column1.getOriginType();
-                result = ScalarType.createVarchar(50);
-            }
-        };
+
         MVColumnItem mvColumnItem = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", analyzer,
                 functionCallExpr);
         Assert.assertEquals(50, mvColumnItem.getType().getLength());
 
         SlotRef slotRef2 = new SlotRef(new TableName(internalCtl, "db", "table"), "a");
+        slotRef2.setType(ScalarType.createDecimalType(10, 1));
         List<Expr> params2 = Lists.newArrayList();
         params2.add(slotRef2);
         FunctionCallExpr functionCallExpr2 = new FunctionCallExpr("min", params2);
         Deencapsulation.setField(slotRef2, "desc", slotDescriptor2);
-        new Expectations() {
-            {
-                slotDescriptor2.getColumn();
-                result = column2;
-                column2.getOriginType();
-                result = ScalarType.createDecimalType(10, 1);
-            }
-        };
+
         MVColumnItem mvColumnItem2 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", analyzer,
                 functionCallExpr2);
         Assert.assertEquals(new Integer(10), mvColumnItem2.getType().getPrecision());
         Assert.assertEquals(1, ((ScalarType) mvColumnItem2.getType()).getScalarScale());
 
         SlotRef slotRef3 = new SlotRef(new TableName(internalCtl, "db", "table"), "a");
+        slotRef3.setType(ScalarType.createChar(5));
         List<Expr> params3 = Lists.newArrayList();
         params3.add(slotRef3);
         FunctionCallExpr functionCallExpr3 = new FunctionCallExpr("min", params3);
         Deencapsulation.setField(slotRef3, "desc", slotDescriptor3);
-        new Expectations() {
-            {
-                slotDescriptor3.getColumn();
-                result = column3;
-                column3.getOriginType();
-                result = ScalarType.createChar(5);
-            }
-        };
+
         MVColumnItem mvColumnItem3 = Deencapsulation.invoke(createMaterializedViewStmt, "buildMVColumnItem", analyzer,
                 functionCallExpr3);
         Assert.assertEquals(5, mvColumnItem3.getType().getLength());

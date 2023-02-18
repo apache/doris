@@ -23,6 +23,7 @@
 #include "common/config.h"
 #include "common/status.h"
 #include "exception.h"
+#include "network_util.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/brpc_client_cache.h"
@@ -72,8 +73,9 @@ inline Status transmit_block_http(RuntimeState* state, Closure* closure,
                                   PTransmitDataParams& params, TNetworkAddress brpc_dest_addr) {
     RETURN_IF_ERROR(request_embed_attachment_contain_block(&params, closure));
 
-    std::string brpc_url =
-            fmt::format("http://{}:{}", brpc_dest_addr.hostname, brpc_dest_addr.port);
+    //format an ipv6 address
+    std::string brpc_url = get_brpc_http_url(brpc_dest_addr.hostname, brpc_dest_addr.port);
+
     std::shared_ptr<PBackendService_Stub> brpc_http_stub =
             state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url,
                                                                                      "http");
@@ -142,15 +144,6 @@ inline void attachment_transfer_request_block(const Params* brpc_request, brpc::
     }
 }
 
-// Embed tuple_data and brpc request serialization string in controller attachment.
-template <typename Params, typename Closure>
-inline Status request_embed_attachment_contain_tuple(Params* brpc_request, Closure* closure) {
-    auto row_batch = brpc_request->row_batch();
-    Status st = request_embed_attachment(brpc_request, row_batch.tuple_data(), closure);
-    row_batch.set_tuple_data("");
-    return st;
-}
-
 template <typename Params, typename Closure>
 inline Status request_embed_attachment(Params* brpc_request, const std::string& data,
                                        Closure* closure) {
@@ -179,16 +172,6 @@ inline Status request_embed_attachment(Params* brpc_request, const std::string& 
     // step3: attachment add to closure.
     closure->cntl.request_attachment().swap(attachment);
     return Status::OK();
-}
-
-// Extract the brpc request and tuple data from the controller attachment,
-// and put the tuple data into the request.
-template <typename Params>
-inline Status attachment_extract_request_contain_tuple(const Params* brpc_request,
-                                                       brpc::Controller* cntl) {
-    Params* req = const_cast<Params*>(brpc_request);
-    auto rb = req->mutable_row_batch();
-    return attachment_extract_request(req, cntl, rb->mutable_tuple_data());
 }
 
 // Extract the brpc request and block from the controller attachment,

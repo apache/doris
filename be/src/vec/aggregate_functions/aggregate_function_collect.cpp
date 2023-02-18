@@ -76,6 +76,10 @@ AggregateFunctionPtr create_aggregate_function_collect(const std::string& name,
         return create_agg_function_collect<Int64>(distinct, argument_types);
     } else if (type.is_date_time()) {
         return create_agg_function_collect<Int64>(distinct, argument_types);
+    } else if (type.is_date_v2()) {
+        return create_agg_function_collect<UInt32>(distinct, argument_types);
+    } else if (type.is_date_time_v2()) {
+        return create_agg_function_collect<UInt64>(distinct, argument_types);
     } else if (type.is_string()) {
         return create_agg_function_collect<StringRef>(distinct, argument_types);
     }

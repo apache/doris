@@ -24,7 +24,6 @@
 #include "gen_cpp/Descriptors_types.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/mem_pool.h"
-#include "runtime/tuple.h"
 #include "vec/core/block.h"
 
 namespace doris {
@@ -88,7 +87,7 @@ public:
     // factory function
     static SchemaScanner* create(TSchemaTableType::type type);
     const TupleDescriptor* tuple_desc() const { return _tuple_desc; }
-    const TSchemaTableType::type type() const { return _schema_table_type; }
+    TSchemaTableType::type type() const { return _schema_table_type; }
 
     static void set_doris_server(DorisServer* doris_server) { _s_doris_server = doris_server; }
 

@@ -88,5 +88,9 @@ suite ("test_dup_mv_plus") {
     }
     qt_select_group_mv_add "select sum(k2+1-1) from d_table group by k1 order by k1;"
 
+    explain {
+        sql("select sum(k2) from d_table group by k3;")
+        contains "(d_table)"
+    }
     qt_select_group_mv_not "select sum(k2) from d_table group by k3 order by k3;"
 }

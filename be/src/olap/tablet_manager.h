@@ -61,6 +61,8 @@ public:
     // task to be fail, even if there is enough space on other disks
     Status create_tablet(const TCreateTabletReq& request, std::vector<DataDir*> stores);
 
+    void add_tablet(const TabletSharedPtr& tablet);
+
     // Drop a tablet by description.
     // If `is_drop_table_or_partition` is true, we need to remove all remote rowsets in this tablet.
     Status drop_tablet(TTabletId tablet_id, TReplicaId replica_id, bool is_drop_table_or_partition);
@@ -78,7 +80,19 @@ public:
     TabletSharedPtr get_tablet(TTabletId tablet_id, TabletUid tablet_uid,
                                bool include_deleted = false, std::string* err = nullptr);
 
-    std::vector<TabletSharedPtr> get_all_tablet();
+    std::vector<TabletSharedPtr> get_all_tablet(std::function<bool(Tablet*)>&& filter =
+                                                        [](Tablet* t) { return t->is_used(); }) {
+        std::vector<TabletSharedPtr> res;
+        for (const auto& tablets_shard : _tablets_shards) {
+            std::shared_lock rdlock(tablets_shard.lock);
+            for (auto& [id, tablet] : tablets_shard.tablet_map) {
+                if (filter(tablet.get())) {
+                    res.emplace_back(tablet);
+                }
+            }
+        }
+        return res;
+    }
 
     uint64_t get_rowset_nums();
     uint64_t get_segment_nums();
@@ -139,7 +153,8 @@ public:
     void get_tablets_distribution_on_different_disks(
             std::map<int64_t, std::map<DataDir*, int64_t>>& tablets_num_on_disk,
             std::map<int64_t, std::map<DataDir*, std::vector<TabletSize>>>& tablets_info_on_disk);
-    void get_cooldown_tablets(std::vector<TabletSharedPtr>* tables);
+    void get_cooldown_tablets(std::vector<TabletSharedPtr>* tables,
+                              std::function<bool(const TabletSharedPtr&)> skip_tablet);
 
     void get_all_tablets_storage_format(TCheckStorageFormatResult* result);
 

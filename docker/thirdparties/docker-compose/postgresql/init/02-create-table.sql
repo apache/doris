@@ -150,3 +150,9 @@ CREATE TABLE catalog_pg_test.test12 (
    ID INT NOT NULL,
    uuid_value uuid
 );
+
+CREATE TABLE catalog_pg_test.test_insert (
+   id varchar(128),
+   name varchar(128),
+   age int
+);

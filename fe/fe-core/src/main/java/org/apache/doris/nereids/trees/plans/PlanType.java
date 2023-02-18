@@ -25,6 +25,7 @@ public enum PlanType {
 
     // logical plan
     LOGICAL_CTE,
+    LOGICAL_WINDOW,
     LOGICAL_SUBQUERY_ALIAS,
     LOGICAL_UNBOUND_ONE_ROW_RELATION,
     LOGICAL_EMPTY_RELATION,
@@ -57,6 +58,7 @@ public enum PlanType {
     GROUP_PLAN,
 
     // physical plan
+    PHYSICAL_WINDOW,
     PHYSICAL_EMPTY_RELATION,
     PHYSICAL_ONE_ROW_RELATION,
     PHYSICAL_OLAP_SCAN,

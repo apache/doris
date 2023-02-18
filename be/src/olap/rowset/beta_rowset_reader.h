@@ -34,7 +34,7 @@ public:
     Status init(RowsetReaderContext* read_context) override;
 
     Status get_segment_iterators(RowsetReaderContext* read_context,
-                                 std::vector<RowwiseIterator*>* out_iters,
+                                 std::vector<RowwiseIteratorUPtr>* out_iters,
                                  bool use_cache = false) override;
     void reset_read_options() override;
     Status next_block(vectorized::Block* block) override;
@@ -45,7 +45,6 @@ public:
 
     Version version() override { return _rowset->version(); }
 
-    int64_t oldest_write_timestamp() override { return _rowset->oldest_write_timestamp(); }
     int64_t newest_write_timestamp() override { return _rowset->newest_write_timestamp(); }
 
     RowsetSharedPtr rowset() override { return std::dynamic_pointer_cast<Rowset>(_rowset); }
@@ -84,6 +83,8 @@ private:
     SegmentCacheHandle _segment_cache_handle;
 
     StorageReadOptions _read_options;
+
+    bool _empty = false;
 };
 
 } // namespace doris

@@ -78,6 +78,9 @@ public class PlanTranslatorContext {
     private final IdentityHashMap<PlanFragment, PhysicalHashAggregate> firstAggInFragment
             = new IdentityHashMap<>();
 
+    private final Map<ExprId, SlotRef> bufferedSlotRefForWindow = Maps.newHashMap();
+    private TupleDescriptor bufferedTupleForWindow = null;
+
     public PlanTranslatorContext(CascadesContext ctx) {
         this.translator = new RuntimeFilterTranslator(ctx.getRuntimeFilterContext());
     }
@@ -146,6 +149,18 @@ public class PlanTranslatorContext {
 
     public void setFirstAggregateInFragment(PlanFragment planFragment, PhysicalHashAggregate aggregate) {
         firstAggInFragment.put(planFragment, aggregate);
+    }
+
+    public Map<ExprId, SlotRef> getBufferedSlotRefForWindow() {
+        return bufferedSlotRefForWindow;
+    }
+
+    public TupleDescriptor getBufferedTupleForWindow() {
+        return bufferedTupleForWindow;
+    }
+
+    public void setBufferedTupleForWindow(TupleDescriptor bufferedTupleForWindow) {
+        this.bufferedTupleForWindow = bufferedTupleForWindow;
     }
 
     /**

@@ -23,12 +23,13 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.LdapConfig;
-import org.apache.doris.mysql.privilege.PaloAuth;
-import org.apache.doris.mysql.privilege.PaloPrivilege;
-import org.apache.doris.mysql.privilege.PaloRole;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivBitSet;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.Privilege;
+import org.apache.doris.mysql.privilege.Role;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Maps;
@@ -44,94 +45,94 @@ public class LdapPrivsChecker {
     private static final Logger LOG = LogManager.getLogger(LdapPrivsChecker.class);
 
     public static boolean hasGlobalPrivFromLdap(UserIdentity currentUser, PrivPredicate wanted) {
-        return hasTblPatternPrivs(currentUser, wanted, null, null, PaloAuth.PrivLevel.GLOBAL)
-                || hasResourcePatternPrivs(currentUser, wanted, null, PaloAuth.PrivLevel.GLOBAL);
+        return hasTblPatternPrivs(currentUser, wanted, null, null, Auth.PrivLevel.GLOBAL)
+                || hasResourcePatternPrivs(currentUser, wanted, null, Auth.PrivLevel.GLOBAL);
     }
 
     public static boolean hasDbPrivFromLdap(UserIdentity currentUser, String db, PrivPredicate wanted) {
-        return hasTblPatternPrivs(currentUser, wanted, db, null, PaloAuth.PrivLevel.DATABASE);
+        return hasTblPatternPrivs(currentUser, wanted, db, null, Auth.PrivLevel.DATABASE);
     }
 
     // Any database has wanted priv return true.
     public static boolean hasDbPrivFromLdap(UserIdentity currentUser, PrivPredicate wanted) {
-        return hasPrivs(currentUser, wanted, PaloAuth.PrivLevel.DATABASE);
+        return hasPrivs(currentUser, wanted, Auth.PrivLevel.DATABASE);
     }
 
     public static boolean hasTblPrivFromLdap(UserIdentity currentUser, String db, String tbl, PrivPredicate wanted) {
-        return hasTblPatternPrivs(currentUser, wanted, db, tbl, PaloAuth.PrivLevel.TABLE);
+        return hasTblPatternPrivs(currentUser, wanted, db, tbl, Auth.PrivLevel.TABLE);
     }
 
     // Any table has wanted priv return true.
     public static boolean hasTblPrivFromLdap(UserIdentity currentUser, PrivPredicate wanted) {
-        return hasPrivs(currentUser, wanted, PaloAuth.PrivLevel.TABLE);
+        return hasPrivs(currentUser, wanted, Auth.PrivLevel.TABLE);
     }
 
     public static boolean hasResourcePrivFromLdap(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
-        return hasResourcePatternPrivs(currentUser, wanted, resourceName, PaloAuth.PrivLevel.RESOURCE);
+        return hasResourcePatternPrivs(currentUser, wanted, resourceName, Auth.PrivLevel.RESOURCE);
     }
 
     private static boolean hasTblPatternPrivs(UserIdentity currentUser, PrivPredicate wanted, String db, String tbl,
-            PaloAuth.PrivLevel level) {
+            Auth.PrivLevel level) {
         PrivBitSet savedPrivs = PrivBitSet.of();
         getCurrentUserTblPrivs(currentUser, db, tbl, savedPrivs, level);
-        return PaloPrivilege.satisfy(savedPrivs, wanted);
+        return Privilege.satisfy(savedPrivs, wanted);
     }
 
     private static boolean hasResourcePatternPrivs(UserIdentity currentUser, PrivPredicate wanted, String resourceName,
-            PaloAuth.PrivLevel level) {
+            Auth.PrivLevel level) {
         PrivBitSet savedPrivs = PrivBitSet.of();
         getCurrentUserResourcePrivs(currentUser, resourceName, savedPrivs, level);
-        return PaloPrivilege.satisfy(savedPrivs, wanted);
+        return Privilege.satisfy(savedPrivs, wanted);
     }
 
     public static PrivBitSet getGlobalPrivFromLdap(UserIdentity currentUser) {
         PrivBitSet savedPrivs = PrivBitSet.of();
-        getCurrentUserTblPrivs(currentUser, null, null, savedPrivs, PaloAuth.PrivLevel.GLOBAL);
-        getCurrentUserResourcePrivs(currentUser, null, savedPrivs, PaloAuth.PrivLevel.GLOBAL);
+        getCurrentUserTblPrivs(currentUser, null, null, savedPrivs, Auth.PrivLevel.GLOBAL);
+        getCurrentUserResourcePrivs(currentUser, null, savedPrivs, Auth.PrivLevel.GLOBAL);
         return savedPrivs;
     }
 
     public static PrivBitSet getDbPrivFromLdap(UserIdentity currentUser, String db) {
         PrivBitSet savedPrivs = PrivBitSet.of();
-        getCurrentUserTblPrivs(currentUser, db, null, savedPrivs, PaloAuth.PrivLevel.DATABASE);
+        getCurrentUserTblPrivs(currentUser, db, null, savedPrivs, Auth.PrivLevel.DATABASE);
         return savedPrivs;
     }
 
     public static PrivBitSet getTblPrivFromLdap(UserIdentity currentUser, String db, String tbl) {
         PrivBitSet savedPrivs = PrivBitSet.of();
-        getCurrentUserTblPrivs(currentUser, db, tbl, savedPrivs, PaloAuth.PrivLevel.TABLE);
+        getCurrentUserTblPrivs(currentUser, db, tbl, savedPrivs, Auth.PrivLevel.TABLE);
         return savedPrivs;
     }
 
     public static PrivBitSet getResourcePrivFromLdap(UserIdentity currentUser, String resourceName) {
         PrivBitSet savedPrivs = PrivBitSet.of();
-        getCurrentUserResourcePrivs(currentUser, resourceName, savedPrivs, PaloAuth.PrivLevel.RESOURCE);
+        getCurrentUserResourcePrivs(currentUser, resourceName, savedPrivs, Auth.PrivLevel.RESOURCE);
         return savedPrivs;
     }
 
     private static void getCurrentUserTblPrivs(UserIdentity currentUser, String db, String tbl, PrivBitSet savedPrivs,
-            PaloAuth.PrivLevel level) {
+            Auth.PrivLevel level) {
         if (!hasLdapPrivs(currentUser)) {
             return;
         }
-        PaloRole currentUserLdapPrivs = getUserLdapPrivs(currentUser.getQualifiedUser());
+        Role currentUserLdapPrivs = getUserLdapPrivs(currentUser.getQualifiedUser());
         for (Map.Entry<TablePattern, PrivBitSet> entry : currentUserLdapPrivs.getTblPatternToPrivs().entrySet()) {
             switch (entry.getKey().getPrivLevel()) {
                 case GLOBAL:
-                    if (level.equals(PaloAuth.PrivLevel.GLOBAL)) {
+                    if (level.equals(Auth.PrivLevel.GLOBAL)) {
                         savedPrivs.or(entry.getValue());
                         return;
                     }
                     break;
                 case DATABASE:
-                    if (level.equals(PaloAuth.PrivLevel.DATABASE) && db != null
+                    if (level.equals(Auth.PrivLevel.DATABASE) && db != null
                             && entry.getKey().getQualifiedDb().equals(db)) {
                         savedPrivs.or(entry.getValue());
                         return;
                     }
                     break;
                 case TABLE:
-                    if (level.equals(PaloAuth.PrivLevel.TABLE) && db != null && tbl != null
+                    if (level.equals(Auth.PrivLevel.TABLE) && db != null && tbl != null
                             && entry.getKey().getQualifiedDb().equals(db) && entry.getKey().getTbl().equals(tbl)) {
                         savedPrivs.or(entry.getValue());
                         return;
@@ -144,22 +145,22 @@ public class LdapPrivsChecker {
     }
 
     private static void getCurrentUserResourcePrivs(UserIdentity currentUser,
-            String resourceName, PrivBitSet savedPrivs, PaloAuth.PrivLevel level) {
+            String resourceName, PrivBitSet savedPrivs, Auth.PrivLevel level) {
         if (!hasLdapPrivs(currentUser)) {
             return;
         }
-        PaloRole currentUserLdapPrivs = getUserLdapPrivs(currentUser.getQualifiedUser());
+        Role currentUserLdapPrivs = getUserLdapPrivs(currentUser.getQualifiedUser());
         for (Map.Entry<ResourcePattern, PrivBitSet> entry
                 : currentUserLdapPrivs.getResourcePatternToPrivs().entrySet()) {
             switch (entry.getKey().getPrivLevel()) {
                 case GLOBAL:
-                    if (level.equals(PaloAuth.PrivLevel.GLOBAL)) {
+                    if (level.equals(Auth.PrivLevel.GLOBAL)) {
                         savedPrivs.or(entry.getValue());
                         return;
                     }
                     break;
                 case RESOURCE:
-                    if (level.equals(PaloAuth.PrivLevel.RESOURCE) && resourceName != null
+                    if (level.equals(Auth.PrivLevel.RESOURCE) && resourceName != null
                             && entry.getKey().getResourceName().equals(resourceName)) {
                         savedPrivs.or(entry.getValue());
                         return;
@@ -171,13 +172,13 @@ public class LdapPrivsChecker {
         }
     }
 
-    private static boolean hasPrivs(UserIdentity currentUser, PrivPredicate wanted, PaloAuth.PrivLevel level) {
+    private static boolean hasPrivs(UserIdentity currentUser, PrivPredicate wanted, Auth.PrivLevel level) {
         if (!hasLdapPrivs(currentUser)) {
             return false;
         }
-        PaloRole currentUserLdapPrivs = getUserLdapPrivs(currentUser.getQualifiedUser());
+        Role currentUserLdapPrivs = getUserLdapPrivs(currentUser.getQualifiedUser());
         for (Map.Entry<TablePattern, PrivBitSet> entry : currentUserLdapPrivs.getTblPatternToPrivs().entrySet()) {
-            if (entry.getKey().getPrivLevel().equals(level) && PaloPrivilege.satisfy(entry.getValue(), wanted)) {
+            if (entry.getKey().getPrivLevel().equals(level) && Privilege.satisfy(entry.getValue(), wanted)) {
                 return true;
             }
         }
@@ -189,9 +190,9 @@ public class LdapPrivsChecker {
         if (!hasLdapPrivs(currentUser)) {
             return false;
         }
-        PaloRole currentUserLdapPrivs = getUserLdapPrivs(currentUser.getQualifiedUser());
+        Role currentUserLdapPrivs = getUserLdapPrivs(currentUser.getQualifiedUser());
         for (Map.Entry<TablePattern, PrivBitSet> entry : currentUserLdapPrivs.getTblPatternToPrivs().entrySet()) {
-            if (entry.getKey().getPrivLevel().equals(PaloAuth.PrivLevel.TABLE)
+            if (entry.getKey().getPrivLevel().equals(Auth.PrivLevel.TABLE)
                     && entry.getKey().getQualifiedDb().equals(db)) {
                 return true;
             }
@@ -211,7 +212,7 @@ public class LdapPrivsChecker {
         }
         for (Map.Entry<TablePattern, PrivBitSet> entry : getUserLdapPrivs(userIdentity.getQualifiedUser())
                 .getTblPatternToPrivs().entrySet()) {
-            if (entry.getKey().getPrivLevel().equals(PaloAuth.PrivLevel.DATABASE)) {
+            if (entry.getKey().getPrivLevel().equals(Auth.PrivLevel.DATABASE)) {
                 ldapDbPrivs.put(entry.getKey(), entry.getValue());
             }
         }
@@ -225,7 +226,7 @@ public class LdapPrivsChecker {
         }
         for (Map.Entry<TablePattern, PrivBitSet> entry : getUserLdapPrivs(userIdentity.getQualifiedUser())
                 .getTblPatternToPrivs().entrySet()) {
-            if (entry.getKey().getPrivLevel().equals(PaloAuth.PrivLevel.TABLE)) {
+            if (entry.getKey().getPrivLevel().equals(Auth.PrivLevel.TABLE)) {
                 ldapTblPrivs.put(entry.getKey(), entry.getValue());
             }
         }
@@ -239,26 +240,26 @@ public class LdapPrivsChecker {
         }
         for (Map.Entry<ResourcePattern, PrivBitSet> entry : getUserLdapPrivs(userIdentity.getQualifiedUser())
                 .getResourcePatternToPrivs().entrySet()) {
-            if (entry.getKey().getPrivLevel().equals(PaloAuth.PrivLevel.RESOURCE)) {
+            if (entry.getKey().getPrivLevel().equals(Auth.PrivLevel.RESOURCE)) {
                 ldapResourcePrivs.put(entry.getKey(), entry.getValue());
             }
         }
         return ldapResourcePrivs;
     }
 
-    private static PaloRole getUserLdapPrivs(String fullName) {
+    private static Role getUserLdapPrivs(String fullName) {
         return Env.getCurrentEnv().getAuth().getLdapManager().getUserInfo(fullName).getPaloRole();
     }
 
     // Temporary user has information_schema 'Select_priv' priv by default.
-    public static void grantDefaultPrivToTempUser(PaloRole role, String clusterName) {
+    public static void grantDefaultPrivToTempUser(Role role, String clusterName) throws DdlException {
         TablePattern tblPattern = new TablePattern(InfoSchemaDb.DATABASE_NAME, "*");
         try {
             tblPattern.analyze(clusterName);
         } catch (AnalysisException e) {
             LOG.warn("should not happen.", e);
         }
-        PaloRole newRole = new PaloRole(role.getRoleName(), tblPattern, PrivBitSet.of(PaloPrivilege.SELECT_PRIV));
+        Role newRole = new Role(role.getRoleName(), tblPattern, PrivBitSet.of(Privilege.SELECT_PRIV));
         role.merge(newRole);
     }
 }

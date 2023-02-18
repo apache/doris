@@ -135,8 +135,7 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
     } else {
         iter->reset(new SegmentIterator(this->shared_from_this(), schema));
     }
-    iter->get()->init(read_options);
-    return Status::OK();
+    return iter->get()->init(read_options);
 }
 
 Status Segment::_parse_footer() {
@@ -263,19 +262,6 @@ Status Segment::_create_column_readers() {
     return Status::OK();
 }
 
-Status Segment::new_row_column_iterator(ColumnIterator** iter) {
-    const auto& row_column = TabletSchema::row_oriented_column();
-    if (_column_readers.count(row_column.unique_id()) < 1) {
-        ColumnReaderOptions opts;
-        opts.kept_in_memory = _tablet_schema->is_in_memory();
-        std::unique_ptr<ColumnReader> reader;
-        RETURN_IF_ERROR(ColumnReader::create(opts, _footer.columns(_footer.columns_size() - 1),
-                                             _footer.num_rows(), _file_reader, &reader));
-        _column_readers.emplace(row_column.unique_id(), std::move(reader));
-    }
-    return _column_readers.at(row_column.unique_id())->new_iterator(iter);
-}
-
 // Not use cid anymore, for example original table schema is colA int, then user do following actions
 // 1.add column b
 // 2. drop column b
@@ -315,10 +301,12 @@ Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
 
 Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
                                             const TabletIndex* index_meta,
+                                            OlapReaderStatistics* stats,
                                             InvertedIndexIterator** iter) {
     auto col_unique_id = tablet_column.unique_id();
     if (_column_readers.count(col_unique_id) > 0 && index_meta) {
-        return _column_readers.at(col_unique_id)->new_inverted_index_iterator(index_meta, iter);
+        return _column_readers.at(col_unique_id)
+                ->new_inverted_index_iterator(index_meta, stats, iter);
     }
     return Status::OK();
 }

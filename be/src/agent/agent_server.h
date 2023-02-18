@@ -60,6 +60,7 @@ private:
     std::unique_ptr<TaskWorkerPool> _clear_transaction_task_workers;
     std::unique_ptr<TaskWorkerPool> _delete_workers;
     std::unique_ptr<TaskWorkerPool> _alter_tablet_workers;
+    std::unique_ptr<TaskWorkerPool> _alter_inverted_index_workers;
     std::unique_ptr<TaskWorkerPool> _push_cooldown_conf_workers;
     std::unique_ptr<TaskWorkerPool> _clone_workers;
     std::unique_ptr<TaskWorkerPool> _storage_medium_migrate_workers;
@@ -81,8 +82,7 @@ private:
 
     std::unique_ptr<TaskWorkerPool> _submit_table_compaction_workers;
 
-    std::unique_ptr<TaskWorkerPool> _storage_refresh_policy_workers;
-    std::unique_ptr<TaskWorkerPool> _storage_update_policy_workers;
+    std::unique_ptr<TaskWorkerPool> _push_storage_policy_workers;
     std::unique_ptr<TopicSubscriber> _topic_subscriber;
 };
 

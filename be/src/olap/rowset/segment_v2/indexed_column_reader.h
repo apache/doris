@@ -25,7 +25,6 @@
 #include "gen_cpp/segment_v2.pb.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
-#include "io/fs/file_system_map.h"
 #include "olap/rowset/segment_v2/common.h"
 #include "olap/rowset/segment_v2/index_page.h"
 #include "olap/rowset/segment_v2/page_handle.h"
@@ -48,7 +47,7 @@ class IndexedColumnIterator;
 class IndexedColumnReader {
 public:
     explicit IndexedColumnReader(io::FileReaderSPtr file_reader, const IndexedColumnMetaPB& meta)
-            : _file_reader(std::move(file_reader)), _meta(meta) {};
+            : _file_reader(std::move(file_reader)), _meta(meta) {}
 
     Status load(bool use_page_cache, bool kept_in_memory);
 

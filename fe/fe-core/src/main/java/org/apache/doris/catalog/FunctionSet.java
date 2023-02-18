@@ -918,6 +918,7 @@ public class FunctionSet<T> {
 
     public static final String TO_BITMAP = "to_bitmap";
     public static final String TO_BITMAP_WITH_CHECK = "to_bitmap_with_check";
+    public static final String BITMAP_HASH = "bitmap_hash";
     public static final String BITMAP_UNION = "bitmap_union";
     public static final String BITMAP_UNION_COUNT = "bitmap_union_count";
     public static final String BITMAP_UNION_INT = "bitmap_union_int";
@@ -927,6 +928,8 @@ public class FunctionSet<T> {
     public static final String ORTHOGONAL_BITMAP_INTERSECT = "orthogonal_bitmap_intersect";
     public static final String ORTHOGONAL_BITMAP_INTERSECT_COUNT = "orthogonal_bitmap_intersect_count";
     public static final String ORTHOGONAL_BITMAP_UNION_COUNT = "orthogonal_bitmap_union_count";
+    public static final String APPROX_COUNT_DISTINCT = "approx_count_distinct";
+    public static final String NDV = "ndv";
 
     public static final String QUANTILE_UNION = "quantile_union";
     //TODO(weixiang): is quantile_percent can be replaced by approx_percentile?
@@ -1272,10 +1275,9 @@ public class FunctionSet<T> {
         final Type[] candicateArgTypes = candicate.getArgs();
         if (!(descArgTypes[0] instanceof ScalarType)
                 || !(candicateArgTypes[0] instanceof ScalarType)) {
-            if (candicateArgTypes[0] instanceof ArrayType) {
+            if (candicateArgTypes[0] instanceof ArrayType || candicateArgTypes[0] instanceof MapType) {
                 return descArgTypes[0].matchesType(candicateArgTypes[0]);
             }
-
             return false;
         }
         final ScalarType descArgType = (ScalarType) descArgTypes[0];

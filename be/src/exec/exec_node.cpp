@@ -525,12 +525,6 @@ void ExecNode::reached_limit(vectorized::Block* block, bool* eos) {
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
 }
 
-Status ExecNode::QueryMaintenance(RuntimeState* state, const std::string& msg) {
-    // TODO chenhao , when introduce latest AnalyticEvalNode open it
-    // ScalarExprEvaluator::FreeLocalAllocations(evals_to_free_);
-    return state->check_query_state(msg);
-}
-
 Status ExecNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
     return Status::NotSupported("Not Implemented get block");
 }
@@ -576,9 +570,12 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
 
 Status ExecNode::get_next_after_projects(
         RuntimeState* state, vectorized::Block* block, bool* eos,
-        const std::function<Status(RuntimeState*, vectorized::Block*, bool*)>& func) {
+        const std::function<Status(RuntimeState*, vectorized::Block*, bool*)>& func,
+        bool clear_data) {
     if (_output_row_descriptor) {
-        _origin_block.clear_column_data(_row_descriptor.num_materialized_slots());
+        if (clear_data) {
+            clear_origin_block();
+        }
         auto status = func(state, &_origin_block, eos);
         if (UNLIKELY(!status.ok())) return status;
         return do_projections(&_origin_block, block);

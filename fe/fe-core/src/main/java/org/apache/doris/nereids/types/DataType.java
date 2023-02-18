@@ -489,8 +489,16 @@ public abstract class DataType implements AbstractDataType {
         return isDateType() || isDateTimeType() || isDateV2() || isDateTimeV2Type();
     }
 
+    public boolean isDateLikeV2Type() {
+        return isDateV2() || isDateTimeV2Type();
+    }
+
     public boolean isNullType() {
         return this instanceof NullType;
+    }
+
+    public boolean isIntegralType() {
+        return this instanceof IntegralType;
     }
 
     public boolean isNumericType() {

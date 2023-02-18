@@ -25,7 +25,6 @@
 #include "olap/rowset/segment_v2/inverted_index_cache.h"
 #include "olap/segment_loader.h"
 #include "olap/storage_engine.h"
-#include "olap/storage_policy_mgr.h"
 #include "pipeline/task_scheduler.h"
 #include "runtime/block_spill_manager.h"
 #include "runtime/broker_mgr.h"
@@ -43,10 +42,10 @@
 #include "runtime/result_queue_mgr.h"
 #include "runtime/routine_load/routine_load_task_executor.h"
 #include "runtime/small_file_mgr.h"
-#include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
 #include "runtime/tmp_file_mgr.h"
+#include "service/point_query_executor.h"
 #include "util/bfd_parser.h"
 #include "util/brpc_client_cache.h"
 #include "util/doris_metrics.h"
@@ -116,14 +115,12 @@ Status ExecEnv::_init(const std::vector<StorePath>& store_paths) {
     _bfd_parser = BfdParser::create();
     _broker_mgr = new BrokerMgr(this);
     _load_channel_mgr = new LoadChannelMgr();
-    _load_stream_mgr = new LoadStreamMgr();
     _new_load_stream_mgr = new NewLoadStreamMgr();
     _internal_client_cache = new BrpcClientCache<PBackendService_Stub>();
     _function_client_cache = new BrpcClientCache<PFunctionService_Stub>();
     _stream_load_executor = new StreamLoadExecutor(this);
     _routine_load_task_executor = new RoutineLoadTaskExecutor(this);
     _small_file_mgr = new SmallFileMgr(this, config::small_file_dir);
-    _storage_policy_mgr = new StoragePolicyMgr();
     _block_spill_mgr = new BlockSpillManager(_store_paths);
 
     _backend_client_cache->init_metrics("backend");
@@ -194,6 +191,19 @@ Status ExecEnv::_init_mem_env() {
               << PrettyPrinter::print(storage_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::storage_page_cache_limit;
 
+    // Init row cache
+    int64_t row_cache_mem_limit =
+            ParseUtil::parse_mem_spec(config::row_cache_mem_limit, MemInfo::mem_limit(),
+                                      MemInfo::physical_mem(), &is_percent);
+    while (!is_percent && row_cache_mem_limit > MemInfo::mem_limit() / 2) {
+        // Reason same as buffer_pool_limit
+        row_cache_mem_limit = row_cache_mem_limit / 2;
+    }
+    RowCache::create_global_cache(row_cache_mem_limit);
+    LOG(INFO) << "Row cache memory limit: "
+              << PrettyPrinter::print(row_cache_mem_limit, TUnit::BYTES)
+              << ", origin config value: " << config::row_cache_mem_limit;
+
     uint64_t fd_number = config::min_file_descriptor_number;
     struct rlimit l;
     int ret = getrlimit(RLIMIT_NOFILE, &l);
@@ -222,6 +232,19 @@ Status ExecEnv::_init_mem_env() {
     LOG(INFO) << "Inverted index searcher cache memory limit: "
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_searcher_cache_limit;
+
+    // use memory limit
+    int64_t inverted_index_query_cache_limit =
+            ParseUtil::parse_mem_spec(config::inverted_index_query_cache_limit,
+                                      MemInfo::mem_limit(), MemInfo::physical_mem(), &is_percent);
+    while (!is_percent && inverted_index_query_cache_limit > MemInfo::mem_limit() / 2) {
+        // Reason same as buffer_pool_limit
+        inverted_index_query_cache_limit = inverted_index_query_cache_limit / 2;
+    }
+    InvertedIndexQueryCache::create_global_cache(inverted_index_query_cache_limit, 10);
+    LOG(INFO) << "Inverted index query match cache memory limit: "
+              << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
+              << ", origin config value: " << config::inverted_index_query_cache_limit;
 
     // 4. init other managers
     RETURN_IF_ERROR(_tmp_file_mgr->init());
@@ -301,7 +324,6 @@ void ExecEnv::_destroy() {
     _deregister_metrics();
     SAFE_DELETE(_internal_client_cache);
     SAFE_DELETE(_function_client_cache);
-    SAFE_DELETE(_load_stream_mgr);
     SAFE_DELETE(_load_channel_mgr);
     SAFE_DELETE(_broker_mgr);
     SAFE_DELETE(_bfd_parser);

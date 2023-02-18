@@ -79,6 +79,8 @@ public:
     IntCounter* delete_requests_failed;
     IntCounter* clone_requests_total;
     IntCounter* clone_requests_failed;
+    IntCounter* alter_inverted_index_requests_total;
+    IntCounter* alter_inverted_index_requests_failed;
 
     IntCounter* finish_task_requests_total;
     IntCounter* finish_task_requests_failed;

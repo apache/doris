@@ -24,7 +24,6 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.InvalidFormatException;
 import org.apache.doris.thrift.TDateLiteral;
 import org.apache.doris.thrift.TExprNode;
@@ -627,6 +626,13 @@ public class DateLiteral extends LiteralExpr {
         }
         msg.node_type = TExprNodeType.DATE_LITERAL;
         msg.date_literal = new TDateLiteral(getStringValue());
+        try {
+            checkValueValid();
+        } catch (AnalysisException e) {
+            // If date value is invalid, set this to null
+            msg.node_type = TExprNodeType.NULL_LITERAL;
+            msg.setIsNullable(true);
+        }
     }
 
     @Override
@@ -661,10 +667,10 @@ public class DateLiteral extends LiteralExpr {
     }
 
     public void castToDate() {
-        if (Config.enable_date_conversion) {
-            this.type = Type.DATEV2;
-        } else {
+        if (this.type.isDateOrDateTime()) {
             this.type = Type.DATE;
+        } else {
+            this.type = Type.DATEV2;
         }
         hour = 0;
         minute = 0;
@@ -775,6 +781,11 @@ public class DateLiteral extends LiteralExpr {
         }
     }
 
+    private boolean isLeapYear() {
+        return ((year % 4) == 0) && ((year % 100 != 0) || ((year % 400) == 0 && year > 0));
+    }
+
+    // Validation check should be same as DateV2Value<T>::is_invalid in BE
     @Override
     public void checkValueValid() throws AnalysisException {
         if (year < 0 || year > 9999) {
@@ -783,8 +794,10 @@ public class DateLiteral extends LiteralExpr {
         if (month < 1 || month > 12) {
             throw new AnalysisException("DateLiteral has invalid month value: " + month);
         }
-        if (day < 1 || day > 31) {
-            throw new AnalysisException("DateLiteral has invalid day value: " + day);
+        if (day < 1 || day > DAYS_IN_MONTH[(int) month]) {
+            if (!(month == 2 && day == 29 && isLeapYear())) {
+                throw new AnalysisException("DateLiteral has invalid day value: " + day);
+            }
         }
         if (type.isDatetimeV2() || type.isDatetime()) {
             if (hour < 0 || hour > 24) {

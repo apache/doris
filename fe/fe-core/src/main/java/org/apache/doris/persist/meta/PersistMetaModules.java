@@ -35,10 +35,10 @@ public class PersistMetaModules {
     public static final List<MetaPersistMethod> MODULES_IN_ORDER;
 
     public static final ImmutableList<String> MODULE_NAMES = ImmutableList.of(
-            "masterInfo", "frontends", "backends", "datasource", "db", "loadJob", "alterJob", "recycleBin",
+            "masterInfo", "frontends", "backends", "datasource", "db", "alterJob", "recycleBin",
             "globalVariable", "cluster", "broker", "resources", "exportJob", "syncJob", "backupHandler",
             "paloAuth", "transactionState", "colocateTableIndex", "routineLoadJobs", "loadJobV2", "smallFiles",
-            "plugins", "deleteHandler", "sqlBlockRule", "policy", "mtmvJobManager", "cooldownJob");
+            "plugins", "deleteHandler", "sqlBlockRule", "policy", "mtmvJobManager");
 
     static {
         MODULES_MAP = Maps.newHashMap();

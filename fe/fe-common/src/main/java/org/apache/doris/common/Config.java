@@ -803,13 +803,6 @@ public class Config extends ConfigBase {
     @ConfField(mutable = true, masterOnly = true)
     public static int alter_table_timeout_second = 86400 * 30; // 1month
     /**
-     * Maximal timeout of push cooldown conf request.
-     */
-    @ConfField(mutable = false, masterOnly = true)
-    public static boolean cooldown_single_remote_file = false;
-    @ConfField(mutable = false, masterOnly = true)
-    public static int push_cooldown_conf_timeout_second = 600; // 10 min
-    /**
      * If a backend is down for *max_backend_down_time_second*, a BACKEND_DOWN event will be triggered.
      * Do not set this if you know what you are doing.
      */
@@ -1071,6 +1064,14 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true)
     public static int max_query_retry_time = 1;
+
+    /**
+     * The number of point query retries in executor.
+     * A query may retry if we encounter RPC exception and no result has been sent to user.
+     * You may reduce this number to avoid Avalanche disaster.
+     */
+    @ConfField(mutable = true)
+    public static int max_point_query_retry_time = 2;
 
     /**
      * The tryLock timeout configuration of catalog lock.
@@ -1741,6 +1742,18 @@ public class Config extends ConfigBase {
     public static boolean enable_array_type = false;
 
     /**
+     * Support complex data type MAP.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_map_type = false;
+
+    /**
+     * Support complex data type STRUCT.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_struct_type = false;
+
+    /**
      * The timeout of executing async remote fragment.
      * In normal case, the async remote fragment will be executed in a short time. If system are under high load
      * condition，try to set this timeout longer.
@@ -1799,6 +1812,9 @@ public class Config extends ConfigBase {
     /* Remove the finished mtmv task after this expired time. */
     @ConfField(mutable = true, masterOnly = true)
     public static long scheduler_mtmv_task_expired = 24 * 60 * 60L; // 1day
+
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean keep_scheduler_mtmv_task_when_job_deleted = false;
 
     /**
      * The candidate of the backend node for federation query such as hive table and es table query.
@@ -1917,11 +1933,10 @@ public class Config extends ConfigBase {
     public static int max_same_name_catalog_trash_num = 3;
 
     /**
-     * The storage policy is still under developement.
-     * Disable it by default.
+     * NOTE: The storage policy is still under developement.
      */
-    @ConfField(mutable = true, masterOnly = true)
-    public static boolean enable_storage_policy = false;
+    @ConfField(mutable = false, masterOnly = true)
+    public static boolean enable_storage_policy = true;
 
     /**
      * This config is mainly used in the k8s cluster environment.
@@ -1962,7 +1977,38 @@ public class Config extends ConfigBase {
     @ConfField(masterOnly = true, mutable = true)
     public static int max_error_tablet_of_broker_load = 3;
 
-    @ConfField(mutable = false)
-    public static int topn_two_phase_limit_threshold = 512;
+    /**
+     * Used to set session variables randomly to check more issues in github workflow
+     */
+    @ConfField(mutable = true)
+    public static int pull_request_id = 0;
+
+    /**
+     * Used to set default db transaction quota num.
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static long default_db_max_running_txn_num = -1;
+
+    /**
+     * Used by TokenManager to control the number of tokens keep in memory.
+     * One token will keep alive for {token_queue_size * token_generate_period_hour} hours.
+     * By defaults, one token will keep for 3 days.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static int token_queue_size = 6;
+
+    /**
+     * TokenManager will generate token every token_generate_period_hour.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static int token_generate_period_hour = 12;
+
+    /**
+     * The secure local path of the FE node the place the data which will be loaded in doris.
+     * The default value is empty for this config which means this feature is not allowed.
+     * User who want to load fe server local file should config the value to a right local path.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String mysql_load_server_secure_path = "";
 }
 

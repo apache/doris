@@ -30,6 +30,7 @@ under the License.
     <disallow pkg="io.fabric8.zjsonpatch.internal.guava" />
     <disallow pkg="org.checkerframework.com.google" />
     <disallow pkg="org.apache.iceberg.relocated" />
+    <disallow pkg="com.alibaba.fastjson2" />
     <subpackage name="nereids">
         <allow pkg="org.junit.jupiter"/>
         <disallow pkg="org.junit"/>

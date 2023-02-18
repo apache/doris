@@ -69,7 +69,7 @@ public:
                 get_parser_string_from_properties(_index_meta->properties()));
         _value_key_coder = get_key_coder(field_type);
         _field_name = std::wstring(field_name.begin(), field_name.end());
-    };
+    }
 
     ~InvertedIndexColumnWriterImpl() override = default;
 
@@ -116,7 +116,7 @@ public:
             _CLDELETE(_char_string_reader)
             _char_string_reader = nullptr;
         }
-    };
+    }
 
     Status init_bkd_index() {
         size_t value_length = sizeof(CppType);
@@ -247,8 +247,6 @@ public:
 
     Status add_array_values(size_t field_size, const CollectionValue* values,
                             size_t count) override {
-        auto* item_data_ptr = const_cast<CollectionValue*>(values)->mutable_data();
-
         if constexpr (field_is_slice_type(field_type)) {
             if (_field == nullptr || _index_writer == nullptr) {
                 LOG(ERROR) << "field or index writer is null in inverted index writer.";
@@ -256,6 +254,7 @@ public:
                         "field or index writer is null in inverted index writer");
             }
             for (int i = 0; i < count; ++i) {
+                auto* item_data_ptr = const_cast<CollectionValue*>(values)->mutable_data();
                 std::vector<std::string> strings;
 
                 for (size_t j = 0; j < values->length(); ++j) {
@@ -270,11 +269,14 @@ public:
                 new_fulltext_field(value.c_str(), value.length());
                 _rid++;
                 _index_writer->addDocument(_doc);
+                values++;
             }
         } else if constexpr (field_is_numeric_type(field_type)) {
-            auto p = reinterpret_cast<const CppType*>(item_data_ptr);
             for (int i = 0; i < count; ++i) {
+                auto* item_data_ptr = const_cast<CollectionValue*>(values)->mutable_data();
+
                 for (size_t j = 0; j < values->length(); ++j) {
+                    const CppType* p = reinterpret_cast<const CppType*>(item_data_ptr);
                     if (values->is_null_at(j)) {
                         // bkd do not index null values, so we do nothing here.
                     } else {
@@ -284,10 +286,11 @@ public:
                         _value_key_coder->full_encode_ascending(p, &new_value);
                         _bkd_writer->add((const uint8_t*)new_value.c_str(), value_length, _rid);
                     }
-                    p++;
+                    item_data_ptr = (uint8_t*)item_data_ptr + field_size;
                 }
                 _row_ids_seen_for_bkd++;
                 _rid++;
+                values++;
             }
         }
         return Status::OK();

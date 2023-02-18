@@ -70,6 +70,11 @@ public class JdbcExternalTable extends ExternalTable {
         return jdbcTable.toThrift();
     }
 
+    @Override
+    public List<Column> initSchema() {
+        return ((JdbcExternalCatalog) catalog).getJdbcClient().getColumnsFromJdbc(dbName, name);
+    }
+
     private JdbcTable toJdbcTable() {
         List<Column> schema = getFullSchema();
         JdbcExternalCatalog jdbcCatalog = (JdbcExternalCatalog) catalog;
@@ -85,5 +90,4 @@ public class JdbcExternalTable extends ExternalTable {
         jdbcTable.setCheckSum(jdbcCatalog.getCheckSum());
         return jdbcTable;
     }
-
 }

@@ -69,7 +69,7 @@ Memory Tracker Summary:
 
 3. 当 OOM 前 be/log/be.INFO 的最后包含系统内存超限的日志时，参考 [Memory Limit Exceeded Analysis](./memory-limit-exceeded-analysis) 中的日志分析方法，查看进程每个类别的内存使用情况。若当前是`type=query`内存使用较多，若已知 OOM 前的查询继续步骤4，否则继续步骤5；若当前是`type=load`内存使用多继续步骤6，若当前是`type=global`内存使用多继续步骤7。
 
-4. `type=query`查询内存使用多，且已知 OOM 前的查询时，比如测试集群或定时任务，重启BE节点，参考 [Memory Tracker](../admin-manual/memory-management/memory-tracker.md) 查看实时 memory tracker 统计，`set global enable_profile=true`后重试查询，观察具体算子的内存使用位置，确认查询内存使用是否合理，进一步考虑优化SQL内存使用，比如调整join顺序。
+4. `type=query`查询内存使用多，且已知 OOM 前的查询时，比如测试集群或定时任务，重启BE节点，参考 [Memory Tracker](./memory-tracker) 查看实时 memory tracker 统计，`set global enable_profile=true`后重试查询，观察具体算子的内存使用位置，确认查询内存使用是否合理，进一步考虑优化SQL内存使用，比如调整join顺序。
 
 5. `type=query`查询内存使用多，且未知 OOM 前的查询时，比如位于线上集群，则在`be/log/be.INFO`从后向前搜`Deregister query/load memory tracker, queryId` 和 `Register query/load memory tracker, query/load id`，同一个query id若同时打出上述两行日志则表示查询或导入成功，若只有 Register 没有 Deregister，则这个查询或导入在 OOM 前仍在运行，这样可以得到OOM 前所有正在运行的查询和导入，按照步骤4的方法对可疑大内存查询分析其内存使用。
 

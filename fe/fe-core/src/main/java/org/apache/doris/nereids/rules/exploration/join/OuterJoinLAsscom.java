@@ -28,7 +28,7 @@ import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableSet;
 
@@ -88,7 +88,7 @@ public class OuterJoinLAsscom extends OneExplorationRuleFactory {
     }
 
     /**
-     * topHashConjunct possiblity: (A B) (A C) (B C) (A B C).
+     * topHashConjunct possibility: (A B) (A C) (B C) (A B C).
      * (A B) is forbidden, because it should be in bottom join.
      * (B C) (A B C) check failed, because it contains B.
      * So, just allow: top (A C), bottom (A B), we can exchange HashConjunct directly.
@@ -104,7 +104,7 @@ public class OuterJoinLAsscom extends OneExplorationRuleFactory {
                             .stream()
                             .map(SlotReference::getExprId)
                             .collect(Collectors.toSet());
-                    return !ExpressionUtils.isIntersecting(usedExprIdSet, bOutputExprIdSet);
+                    return !Utils.isIntersecting(usedExprIdSet, bOutputExprIdSet);
                 });
     }
 

@@ -34,6 +34,7 @@ class Schema;
 
 struct PredicateParams {
     std::string value;
+    bool marked_by_runtime_filter = false;
 };
 
 enum class PredicateType {
@@ -143,11 +144,11 @@ public:
     virtual uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
                               uint16_t size) const {
         return size;
-    };
+    }
     virtual void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
-                              bool* flags) const {};
+                              bool* flags) const {}
     virtual void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
-                             bool* flags) const {};
+                             bool* flags) const {}
 
     virtual bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const {
         return true;

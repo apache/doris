@@ -26,7 +26,6 @@ import org.apache.doris.analysis.LargeIntLiteral;
 import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.StringLiteral;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.InvalidFormatException;
@@ -135,7 +134,7 @@ public class FEFunctions {
         DateLiteral dateLiteral = new DateLiteral();
         try {
             dateLiteral.fromDateFormatStr(fmtLiteral.getStringValue(), date.getStringValue(), false);
-            dateLiteral.setType(ScalarType.getDefaultDateType(dateLiteral.getType()));
+            dateLiteral.setType(dateLiteral.getType());
             return dateLiteral;
         } catch (InvalidFormatException e) {
             throw new AnalysisException(e.getMessage());
@@ -217,7 +216,7 @@ public class FEFunctions {
             throw new AnalysisException("unixtime should larger than zero");
         }
         DateLiteral dl = new DateLiteral(unixTime.getLongValue() * 1000, TimeUtils.getTimeZone(),
-                ScalarType.getDefaultDateType(Type.DATETIME));
+                Type.DATETIME);
         return new StringLiteral(dl.getStringValue());
     }
 
@@ -228,14 +227,14 @@ public class FEFunctions {
             throw new AnalysisException("unixtime should larger than zero");
         }
         DateLiteral dl = new DateLiteral(unixTime.getLongValue() * 1000, TimeUtils.getTimeZone(),
-                ScalarType.getDefaultDateType(Type.DATETIME));
+                Type.DATETIME);
         return new StringLiteral(dl.dateFormat(fmtLiteral.getStringValue()));
     }
 
     @FEFunction(name = "now", argTypes = {}, returnType = "DATETIME")
     public static DateLiteral now() throws AnalysisException {
         return  new DateLiteral(LocalDateTime.now(TimeUtils.getTimeZone().toZoneId()),
-                ScalarType.getDefaultDateType(Type.DATETIME));
+                Type.DATETIME);
     }
 
     @FEFunction(name = "current_timestamp", argTypes = {}, returnType = "DATETIME")
@@ -246,7 +245,7 @@ public class FEFunctions {
     @FEFunction(name = "curdate", argTypes = {}, returnType = "DATE")
     public static DateLiteral curDate() {
         return new DateLiteral(LocalDateTime.now(TimeUtils.getTimeZone().toZoneId()),
-                ScalarType.getDefaultDateType(Type.DATE));
+                Type.DATE);
     }
 
     @FEFunction(name = "current_date", argTypes = {}, returnType = "DATE")
@@ -269,7 +268,7 @@ public class FEFunctions {
     @FEFunction(name = "utc_timestamp", argTypes = {}, returnType = "DATETIME")
     public static DateLiteral utcTimestamp() {
         return new DateLiteral(LocalDateTime.now(TimeUtils.getOrSystemTimeZone("+00:00").toZoneId()),
-                ScalarType.getDefaultDateType(Type.DATETIME));
+                Type.DATETIME);
     }
 
     @FEFunction(name = "hour", argTypes = {"DATETIME"}, returnType = "INT")

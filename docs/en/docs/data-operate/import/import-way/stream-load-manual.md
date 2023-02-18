@@ -172,10 +172,6 @@ The number of rows in the original file = `dpp.abnorm.ALL + dpp.norm.ALL`
 
   Stream load import can enable two-stage transaction commit mode: in the stream load process, the data is written and the information is returned to the user. At this time, the data is invisible and the transaction status is `PRECOMMITTED`. After the user manually triggers the commit operation, the data is visible.
 
-  The default two-phase bulk transaction commit is off.
-
-  > **Open method:** Configure `disable_stream_load_2pc=false` in be.conf and declare `two_phase_commit=true` in HEADER.
-
   Example：
 
 	1. Initiate a stream load pre-commit operation

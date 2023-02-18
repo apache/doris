@@ -1,0 +1,217 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+name: Auto trigger teamcity
+
+on:
+  pull_request:
+    branches:
+      - master
+  issue_comment:
+    types: [created, edited]
+  pull_request_review_comment:
+    types: [created, edited]
+
+env:
+  TEAMCITY_URL: '-X POST -H \"Content-Type:text/plain\" -u OneMoreChance:OneMoreChance http://43.132.222.7:8111/httpAuth/action.html'
+
+
+jobs:
+  run_compile_pipeline:
+    if: contains(github.event.comment.body, 'buildall') && contains(github.event.comment.body, 'run')
+
+    runs-on: ubuntu-latest
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Run pipeline by restful
+        run: |
+          echo "trigger compile pipeline"
+          
+          if [ "_xx""${{ github.event.issue.pull_request.url }}" != "_xx" ]; then
+            echo "Comment was made on pull request: $(echo ${{ github.event.issue.pull_request.url }} | awk -F/ '{print $NF}')"
+          else
+            echo "Comment was made on an issue, not a pull request."
+          fi
+          pull_request_num=$(echo "${{ github.event.issue.pull_request.url }}" | awk -F/ '{print $NF}')
+          comment="${{ github.event.comment.body }}"
+          encoded_string=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${comment}")
+          echo ${encoded_string}
+          pipelines_arr="Doris_Doris_FeUt Doris_DorisBeUt_BeUt Doris_DorisCompile_Compile"
+          sleep 10s
+          for pipeline in ${pipelines_arr}
+          do
+            execute_command="curl ${{ env.TEAMCITY_URL }}\?add2Queue\=${pipeline}\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
+            echo "{$execute_command}"
+            eval ${execute_command}
+          done
+  
+
+  run_p0_external_pipeline:
+    if: (contains(github.event.comment.body, 'p0') || contains(github.event.comment.body, 'external')) && contains(github.event.comment.body, 'run')
+
+    runs-on: ubuntu-latest
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Run p0 and external pipeline by restful
+        run: |
+          echo "trigger compile pipeline"
+          if [ "_xx""${{ github.event.issue.pull_request.url }}" != "_xx" ]; then
+            echo "Comment was made on pull request: $(echo ${{ github.event.issue.pull_request.url }} | awk -F/ '{print $NF}')"
+          else
+            echo "Comment was made on an issue, not a pull request."
+          fi
+          pull_request_num=$(echo "${{ github.event.issue.pull_request.url }}" | awk -F/ '{print $NF}')
+          comment="${{ github.event.comment.body }}"
+          encoded_string=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${comment}")
+          echo ${encoded_string}
+          sleep 10s
+          execute_command="curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_DorisRegression_P0Regression\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
+          echo "{$execute_command}"
+          eval ${execute_command}
+
+  run_p1_pipeline:
+    if: contains(github.event.comment.body, 'p1') && contains(github.event.comment.body, 'run')
+
+    runs-on: ubuntu-latest
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Run fe ut pipeline by restful
+        run: |
+          echo "trigger fe ut pipeline"
+          if [ "_xx""${{ github.event.issue.pull_request.url }}" != "_xx" ]; then
+            echo "Comment was made on pull request: $(echo ${{ github.event.issue.pull_request.url }} | awk -F/ '{print $NF}')"
+          else
+            echo "Comment was made on an issue, not a pull request."
+          fi
+          pull_request_num=$(echo "${{ github.event.issue.pull_request.url }}" | awk -F/ '{print $NF}')
+          comment="${{ github.event.comment.body }}"
+          encoded_string=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${comment}")
+          echo ${encoded_string}
+          sleep 10s
+          execute_command="curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_DorisRegression_P1Regression\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
+          echo "{$execute_command}"
+          eval ${execute_command}
+
+  run_fe_ut_pipeline:
+    if: contains(github.event.comment.body, 'feut') && contains(github.event.comment.body, 'run')
+
+    runs-on: ubuntu-latest
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Run fe ut pipeline by restful
+        run: |
+          echo "trigger fe ut pipeline"
+          
+          if [ "_xx""${{ github.event.issue.pull_request.url }}" != "_xx" ]; then
+            echo "Comment was made on pull request: $(echo ${{ github.event.issue.pull_request.url }} | awk -F/ '{print $NF}')"
+          else
+            echo "Comment was made on an issue, not a pull request."
+          fi
+          pull_request_num=$(echo "${{ github.event.issue.pull_request.url }}" | awk -F/ '{print $NF}')
+          comment="${{ github.event.comment.body }}"
+          encoded_string=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${comment}")
+          echo ${encoded_string}
+          sleep 10s
+          execute_command="curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_Doris_FeUt\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
+          echo "{$execute_command}"
+          eval ${execute_command}
+
+  run_be_ut_pipeline:
+    if: contains(github.event.comment.body, 'beut') && contains(github.event.comment.body, 'run')
+
+    runs-on: ubuntu-latest
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Run be ut pipeline by restful
+        run: |
+          echo "trigger be ut pipeline"
+          
+          if [ "_xx""${{ github.event.issue.pull_request.url }}" != "_xx" ]; then
+            echo "Comment was made on pull request: $(echo ${{ github.event.issue.pull_request.url }} | awk -F/ '{print $NF}')"
+          else
+            echo "Comment was made on an issue, not a pull request."
+          fi
+          pull_request_num=$(echo "${{ github.event.issue.pull_request.url }}" | awk -F/ '{print $NF}')
+          comment="${{ github.event.comment.body }}"
+          encoded_string=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${comment}")
+          echo ${encoded_string}
+          sleep 10s
+          execute_command="curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_DorisBeUt_BeUt\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
+          echo "{$execute_command}"
+          eval ${execute_command}
+
+  run_compile_only_pipeline:
+    if: contains(github.event.comment.body, 'compile') && contains(github.event.comment.body, 'run')
+
+    runs-on: ubuntu-latest
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Run compile pipeline by restful
+        run: |
+          echo "trigger compile_only pipeline"
+          
+          if [ "_xx""${{ github.event.issue.pull_request.url }}" != "_xx" ]; then
+            echo "Comment was made on pull request: $(echo ${{ github.event.issue.pull_request.url }} | awk -F/ '{print $NF}')"
+          else
+            echo "Comment was made on an issue, not a pull request."
+          fi
+          pull_request_num=$(echo "${{ github.event.issue.pull_request.url }}" | awk -F/ '{print $NF}')
+          comment="${{ github.event.comment.body }}"
+          encoded_string=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${comment}")
+          echo ${encoded_string}
+          sleep 10s
+          execute_command="curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_DorisCompile_Compile\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
+          echo "{$execute_command}"
+          eval ${execute_command}
+
+
+  run_for_test_pipeline:
+    if: contains(github.event.comment.body, 'just_for_test') && contains(github.event.comment.body, 'run')
+
+    runs-on: ubuntu-latest
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Run test pipeline by restful
+        run: |
+          echo "trigger compile pipeline"
+          if [ "_xx""${{ github.event.issue.pull_request.url }}" != "_xx" ]; then
+            echo "Comment was made on pull request: $(echo ${{ github.event.issue.pull_request.url }} | awk -F/ '{print $NF}')"
+          else
+            echo "Comment was made on an issue, not a pull request."
+          fi
+          pull_request_num=$(echo "${{ github.event.issue.pull_request.url }}" | awk -F/ '{print $NF}')
+          comment="${{ github.event.comment.body }}"
+          encoded_string=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${comment}")
+          echo ${encoded_string}
+          sleep 10s
+          execute_command="curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_DorisRegression_ExternalRegression\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
+          echo "{$execute_command}"
+          eval ${execute_command}

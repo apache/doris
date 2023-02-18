@@ -28,6 +28,7 @@ add_library(Olap STATIC
     base_tablet.cpp
     bloom_filter.hpp
     block_column_predicate.cpp
+    cold_data_compaction.cpp
     compaction.cpp
     compaction_permit_limiter.cpp   
     cumulative_compaction.cpp
@@ -107,7 +108,7 @@ add_library(Olap STATIC
     task/engine_publish_version_task.cpp
     task/engine_alter_tablet_task.cpp
     segment_loader.cpp
-    storage_policy_mgr.cpp
+    storage_policy.cpp
 )
 
 if (NOT USE_MEM_TRACKER)

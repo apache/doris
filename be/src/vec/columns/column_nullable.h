@@ -84,6 +84,8 @@ public:
     UInt64 get64(size_t n) const override { return nested_column->get64(n); }
     StringRef get_data_at(size_t n) const override;
 
+    TypeIndex get_data_type() const override { return TypeIndex::Nullable; }
+
     /// Will insert null value if pos=nullptr
     void insert_data(const char* pos, size_t length) override;
 
@@ -322,6 +324,12 @@ public:
     std::pair<RowsetId, uint32_t> get_rowset_segment_id() const override {
         return nested_column->get_rowset_segment_id();
     }
+    void get_indices_of_non_default_rows(Offsets64& indices, size_t from,
+                                         size_t limit) const override {
+        get_indices_of_non_default_rows_impl<ColumnNullable>(indices, from, limit);
+    }
+
+    ColumnPtr index(const IColumn& indexes, size_t limit) const override;
 
 private:
     // the two functions will not update `_need_update_has_null`

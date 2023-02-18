@@ -77,8 +77,7 @@ Status BrokerReader::open() {
     request.__set_clientId(client_id(_env, broker_addr));
     request.__set_properties(_properties);
 
-    TBrokerOpenReaderResponse* response = new TBrokerOpenReaderResponse();
-    Defer del_reponse {[&] { delete response; }};
+    std::unique_ptr<TBrokerOpenReaderResponse> response(new TBrokerOpenReaderResponse());
     try {
         Status status;
         BrokerServiceConnection client(client_cache(_env), broker_addr,

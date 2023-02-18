@@ -26,6 +26,7 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalogFactory;
 
 import org.apache.parquet.Strings;
 
@@ -101,6 +102,9 @@ public class CatalogFactory {
                 break;
             case "jdbc":
                 catalog = new JdbcExternalCatalog(catalogId, name, resource, props);
+                break;
+            case "iceberg":
+                catalog = IcebergExternalCatalogFactory.createCatalog(catalogId, name, resource, props);
                 break;
             default:
                 throw new DdlException("Unknown catalog type: " + catalogType);

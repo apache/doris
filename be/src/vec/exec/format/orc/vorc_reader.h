@@ -38,7 +38,7 @@ public:
     };
 
     ORCFileInputStream(const std::string& file_name, io::FileReaderSPtr file_reader)
-            : _file_name(file_name), _file_reader(file_reader) {};
+            : _file_name(file_name), _file_reader(file_reader) {}
 
     ~ORCFileInputStream() override = default;
 
@@ -270,6 +270,12 @@ private:
     std::list<std::string> _read_cols_lower_case;
     std::list<std::string> _missing_cols;
     std::unordered_map<std::string, int> _colname_to_idx;
+    // Column name in Orc file to column name to schema.
+    // This is used for Hive 1.x which use internal column name in Orc file.
+    // _col0, _col1...
+    std::unordered_map<std::string, std::string> _file_col_to_schema_col;
+    // Flag for hive engine. True if the external table engine is Hive.
+    bool _is_hive = false;
     std::vector<const orc::Type*> _col_orc_type;
     ORCFileInputStream* _file_reader = nullptr;
     Statistics _statistics;

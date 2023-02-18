@@ -45,8 +45,9 @@ set(RUNTIME_FILES
     threadlocal.cc
     decimalv2_value.cpp
     large_int_value.cpp
+    struct_value.cpp
     collection_value.cpp
-    tuple.cpp
+    map_value.cpp
     fragment_mgr.cpp
     load_path_mgr.cpp
     types.cpp
@@ -60,7 +61,6 @@ set(RUNTIME_FILES
     stream_load/stream_load_context.cpp
     stream_load/stream_load_executor.cpp
     stream_load/stream_load_recorder.cpp
-    stream_load/load_stream_mgr.cpp
     stream_load/new_load_stream_mgr.cpp
     routine_load/data_consumer.cpp
     routine_load/data_consumer_group.cpp

@@ -33,6 +33,7 @@
 #include "runtime/load_channel_mgr.h"
 #include "runtime/memory/chunk_allocator.h"
 #include "runtime/user_function_cache.h"
+#include "service/backend_options.h"
 #include "util/cpu_info.h"
 #include "util/debug_util.h"
 #include "util/disk_info.h"
@@ -181,6 +182,9 @@ void Daemon::memory_maintenance_thread() {
         // Refresh allocator memory metrics.
 #if !defined(ADDRESS_SANITIZER) && !defined(LEAK_SANITIZER) && !defined(THREAD_SANITIZER)
         doris::MemInfo::refresh_allocator_mem();
+        if (config::enable_system_metrics) {
+            DorisMetrics::instance()->system_metrics()->update_allocator_metrics();
+        }
 #endif
         doris::MemInfo::refresh_proc_mem_no_allocator_cache();
 
@@ -332,7 +336,7 @@ static void init_doris_metrics(const std::vector<StorePath>& store_paths) {
             LOG(WARNING) << "get disk devices failed, status=" << st;
             return;
         }
-        st = get_inet_interfaces(&network_interfaces);
+        st = get_inet_interfaces(&network_interfaces, BackendOptions::is_bind_ipv6());
         if (!st.ok()) {
             LOG(WARNING) << "get inet interfaces failed, status=" << st;
             return;

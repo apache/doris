@@ -115,8 +115,8 @@ public:
         DCHECK_LT(_cur_idx, _index->_num_pages);
         _cur_idx++;
     }
-    int32_t page_index() const { return _cur_idx; };
-    const PagePointer& page() const { return _index->_pages[_cur_idx]; };
+    int32_t page_index() const { return _cur_idx; }
+    const PagePointer& page() const { return _index->_pages[_cur_idx]; }
     ordinal_t first_ordinal() const { return _index->get_first_ordinal(_cur_idx); }
     ordinal_t last_ordinal() const { return _index->get_last_ordinal(_cur_idx); }
 

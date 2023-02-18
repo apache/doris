@@ -36,7 +36,7 @@ public class JoinCommuteTest implements PatternMatchSupported {
         LogicalOlapScan scan2 = PlanConstructor.newLogicalOlapScan(1, "t2", 0);
 
         LogicalPlan join = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0)) // t1.id = t2.id
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0)) // t1.id = t2.id
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), join)

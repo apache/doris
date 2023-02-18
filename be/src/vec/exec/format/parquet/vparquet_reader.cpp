@@ -38,7 +38,7 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
         : _profile(profile),
           _scan_params(params),
           _scan_range(range),
-          _batch_size(batch_size),
+          _batch_size(std::max(batch_size, _MIN_BATCH_SIZE)),
           _range_start_offset(range.start_offset),
           _range_size(range.size),
           _ctz(ctz),
@@ -71,6 +71,8 @@ void ParquetReader::_init_profile() {
                 ADD_CHILD_COUNTER(_profile, "FilteredRowsByLazyRead", TUnit::UNIT, parquet_profile);
         _parquet_profile.filtered_bytes =
                 ADD_CHILD_COUNTER(_profile, "FilteredBytes", TUnit::BYTES, parquet_profile);
+        _parquet_profile.raw_rows_read =
+                ADD_CHILD_COUNTER(_profile, "RawRowsRead", TUnit::UNIT, parquet_profile);
         _parquet_profile.to_read_bytes =
                 ADD_CHILD_COUNTER(_profile, "ReadBytes", TUnit::BYTES, parquet_profile);
         _parquet_profile.column_read_time =
@@ -112,6 +114,7 @@ void ParquetReader::close() {
             COUNTER_UPDATE(_parquet_profile.lazy_read_filtered_rows,
                            _statistics.lazy_read_filtered_rows);
             COUNTER_UPDATE(_parquet_profile.filtered_bytes, _statistics.filtered_bytes);
+            COUNTER_UPDATE(_parquet_profile.raw_rows_read, _statistics.read_rows);
             COUNTER_UPDATE(_parquet_profile.to_read_bytes, _statistics.read_bytes);
             COUNTER_UPDATE(_parquet_profile.column_read_time, _statistics.column_read_time);
             COUNTER_UPDATE(_parquet_profile.parse_meta_time, _statistics.parse_meta_time);
@@ -204,8 +207,9 @@ Status ParquetReader::init_reader(
         auto name = schema_desc.get_column(i)->name;
         // If the column in parquet file is included in all_column_names and not in missing_column_names,
         // add it to _map_column, which means the reader should read the data of this column.
-        // Here to check against missing_column_names is to for the 'Add a column with back to the table
-        // with the same column name' case. Shouldn't read this column data in this case.
+        // Here to check against missing_column_names is for the 'Add a column back to the table
+        // with the same column name' case. (drop column a then add column a).
+        // Shouldn't read this column data in this case.
         if (find(all_column_names.begin(), all_column_names.end(), name) !=
                     all_column_names.end() &&
             find(missing_column_names.begin(), missing_column_names.end(), name) ==
@@ -580,7 +584,7 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         std::vector<int> skipped_page_range;
         const FieldSchema* col_schema = schema_desc.get_column(read_col._file_slot_name);
         page_index.collect_skipped_page_range(&column_index, conjuncts, col_schema,
-                                              skipped_page_range);
+                                              skipped_page_range, *_ctz);
         if (skipped_page_range.empty()) {
             continue;
         }
@@ -661,8 +665,8 @@ Status ParquetReader::_process_column_stat_filter(const std::vector<tparquet::Co
         }
         const FieldSchema* col_schema = schema_desc.get_column(col_name);
         // Min-max of statistic is plain-encoded value
-        *filter_group = determine_filter_min_max(slot_iter->second, col_schema, statistic.min,
-                                                 statistic.max);
+        *filter_group = ParquetPredicate::filter_by_min_max(slot_iter->second, col_schema,
+                                                            statistic.min, statistic.max, *_ctz);
         if (*filter_group) {
             break;
         }

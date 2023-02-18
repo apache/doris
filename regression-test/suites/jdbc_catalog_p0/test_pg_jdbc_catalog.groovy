@@ -25,6 +25,7 @@ suite("test_pg_jdbc_catalog", "p0") {
         String ex_schema_name2 = "catalog_pg_test";
         String pg_port = context.config.otherConfigs.get("pg_14_port");
         String inDorisTable = "doris_in_tb";
+        String test_insert = "test_insert";
 
         sql """drop catalog if exists ${catalog_name} """
         sql """drop resource if exists ${resource_name}"""
@@ -72,6 +73,18 @@ suite("test_pg_jdbc_catalog", "p0") {
         order_qt_test12  """ select * from test10 order by id; """
         order_qt_test13  """ select * from test11 order by id; """
         order_qt_test14  """ select * from test12 order by id; """
+
+        // test insert
+        String uuid1 = UUID.randomUUID().toString();
+        sql """ insert into ${test_insert} values ('${uuid1}', 'doris1', 18) """
+        order_qt_test_insert1 """ select name, age from ${test_insert} where id = '${uuid1}' order by age """
+
+        String uuid2 = UUID.randomUUID().toString();
+        sql """ insert into ${test_insert} values ('${uuid2}', 'doris2', 19), ('${uuid2}', 'doris3', 20) """
+        order_qt_test_insert2 """ select name, age from ${test_insert} where id = '${uuid2}' order by age """
+
+        sql """ insert into ${test_insert} select * from ${test_insert} where id = '${uuid2}' """
+        order_qt_test_insert3 """ select name, age from ${test_insert} where id = '${uuid2}' order by age """
 
         sql """drop catalog if exists ${catalog_name} """
         sql """drop resource if exists ${resource_name}"""

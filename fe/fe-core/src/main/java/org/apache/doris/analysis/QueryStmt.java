@@ -99,6 +99,8 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
      */
     protected final ExprSubstitutionMap aliasSMap;
 
+    protected final ExprSubstitutionMap mvSMap;
+
     /**
      * Select list item alias does not have to be unique.
      * This list contains all the non-unique aliases. For example,
@@ -173,6 +175,7 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         this.orderByElements = orderByElements;
         this.limitElement = limitElement;
         this.aliasSMap = new ExprSubstitutionMap();
+        this.mvSMap = new ExprSubstitutionMap();
         this.ambiguousAliasList = Lists.newArrayList();
         this.sortInfo = null;
     }
@@ -267,16 +270,25 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         this.needToSql = needToSql;
     }
 
+    public boolean isDisableTuplesMVRewriter(Expr expr) {
+        return expr.isBoundByTupleIds(disableTuplesMVRewriter.stream().collect(Collectors.toList()));
+    }
+
     protected Expr rewriteQueryExprByMvColumnExpr(Expr expr, Analyzer analyzer) throws AnalysisException {
-        if (forbiddenMVRewrite) {
-            return expr;
-        }
-        if (expr.isBoundByTupleIds(disableTuplesMVRewriter.stream().collect(Collectors.toList()))) {
+        if (analyzer == null || analyzer.getMVExprRewriter() == null || forbiddenMVRewrite) {
             return expr;
         }
         ExprRewriter rewriter = analyzer.getMVExprRewriter();
         rewriter.reset();
-        return rewriter.rewrite(expr, analyzer);
+        rewriter.setDisableTuplesMVRewriter(disableTuplesMVRewriter);
+        rewriter.setUpBottom();
+
+        Expr result = rewriter.rewrite(expr, analyzer);
+        if (result != expr) {
+            expr.analyze(analyzer);
+            mvSMap.put(result, expr);
+        }
+        return result;
     }
 
     /**
@@ -548,6 +560,13 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         return false;
     }
 
+    public Expr getExprFromAliasSMap(Expr expr) throws AnalysisException {
+        if (!analyzer.getContext().getSessionVariable().isGroupByAndHavingUseAliasFirst()) {
+            return expr;
+        }
+        return expr.trySubstitute(aliasSMap, analyzer, false);
+    }
+
     // get tables used by this query.
     // Set<String> parentViewNameSet contain parent stmt view name
     // to make sure query like "with tmp as (select * from db1.table1) " +
@@ -761,6 +780,7 @@ public abstract class QueryStmt extends StatementBase implements Queriable {
         resultExprs = Expr.cloneList(other.resultExprs);
         baseTblResultExprs = Expr.cloneList(other.baseTblResultExprs);
         aliasSMap = other.aliasSMap.clone();
+        mvSMap = other.mvSMap.clone();
         ambiguousAliasList = Expr.cloneList(other.ambiguousAliasList);
         sortInfo = (other.sortInfo != null) ? other.sortInfo.clone() : null;
         analyzer = other.analyzer;

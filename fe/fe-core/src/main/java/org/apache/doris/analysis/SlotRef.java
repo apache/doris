@@ -21,6 +21,7 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.MaterializedIndexMeta;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
@@ -34,6 +35,7 @@ import org.apache.doris.thrift.TSlotRef;
 import com.google.common.base.MoreObjects;
 import com.google.common.base.Objects;
 import com.google.common.base.Preconditions;
+import org.apache.commons.collections.CollectionUtils;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -49,6 +51,8 @@ import java.util.TreeSet;
 public class SlotRef extends Expr {
     private static final Logger LOG = LogManager.getLogger(SlotRef.class);
     private TableName tblName;
+    private TableIf table = null;
+    private TupleId tupleId = null;
     private String col;
     // Used in toSql
     private String label;
@@ -111,8 +115,6 @@ public class SlotRef extends Expr {
     }
 
     public SlotDescriptor getDesc() {
-        Preconditions.checkState(isAnalyzed);
-        Preconditions.checkNotNull(desc);
         return desc;
     }
 
@@ -122,8 +124,8 @@ public class SlotRef extends Expr {
         return desc.getId();
     }
 
-    public void setInvalid() {
-        this.desc.setInvalid();
+    public void setNeedMaterialize(boolean needMaterialize) {
+        this.desc.setNeedMaterialize(needMaterialize);
     }
 
     public boolean isInvalid() {
@@ -229,6 +231,10 @@ public class SlotRef extends Expr {
 
     @Override
     public String toSqlImpl() {
+        if (disableTableName && label != null) {
+            return label;
+        }
+
         StringBuilder sb = new StringBuilder();
 
         if (tblName != null) {
@@ -245,14 +251,16 @@ public class SlotRef extends Expr {
                 return label;
             }
         } else if (desc.getSourceExprs() != null) {
-            if (ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId()) {
+            if (!disableTableName && (ToSqlContext.get() == null || ToSqlContext.get().isNeedSlotRefId())) {
                 if (desc.getId().asInt() != 1) {
                     sb.append("<slot " + desc.getId().asInt() + ">");
                 }
             }
             for (Expr expr : desc.getSourceExprs()) {
-                sb.append(" ");
-                sb.append(expr.toSql());
+                if (!disableTableName) {
+                    sb.append(" ");
+                }
+                sb.append(disableTableName ? expr.toSqlWithoutTbl() : expr.toSql());
             }
             return sb.toString();
         } else {
@@ -270,9 +278,9 @@ public class SlotRef extends Expr {
     }
 
     public TableName getTableName() {
-        Preconditions.checkState(isAnalyzed);
-        Preconditions.checkNotNull(desc);
         if (tblName == null) {
+            Preconditions.checkState(isAnalyzed);
+            Preconditions.checkNotNull(desc);
             Preconditions.checkNotNull(desc.getParent());
             if (desc.getParent().getRef() == null) {
                 return null;
@@ -291,7 +299,6 @@ public class SlotRef extends Expr {
         // return tblName == null ? col : tblName.getTbl() + "." + col;
         return col;
     }
-
 
     @Override
     protected void toThrift(TExprNode msg) {
@@ -328,6 +335,7 @@ public class SlotRef extends Expr {
         return notCheckDescIdEquals(obj);
     }
 
+    @Override
     public boolean notCheckDescIdEquals(Object obj) {
         if (!super.equals(obj)) {
             return false;
@@ -350,14 +358,25 @@ public class SlotRef extends Expr {
 
     @Override
     protected boolean isConstantImpl() {
+        if (desc != null) {
+            List<Expr> exprs = desc.getSourceExprs();
+            return CollectionUtils.isNotEmpty(exprs) && exprs.stream().allMatch(Expr::isConstant);
+        }
         return false;
+    }
+
+    public void setTupleId(TupleId tupleId) {
+        this.tupleId = tupleId;
     }
 
     @Override
     public boolean isBoundByTupleIds(List<TupleId> tids) {
-        Preconditions.checkState(desc != null);
+        Preconditions.checkState(desc != null || tupleId != null);
+        if (desc != null) {
+            tupleId = desc.getParent().getId();
+        }
         for (TupleId tid : tids) {
-            if (tid.equals(desc.getParent().getId())) {
+            if (tid.equals(tupleId)) {
                 return true;
             }
         }
@@ -437,7 +456,14 @@ public class SlotRef extends Expr {
         }
     }
 
+    public void setTable(TableIf table) {
+        this.table = table;
+    }
+
     public TableIf getTable() {
+        if (desc == null && table != null) {
+            return table;
+        }
         Preconditions.checkState(desc != null);
         return desc.getParent().getTable();
     }
@@ -510,5 +536,44 @@ public class SlotRef extends Expr {
             builder.append(label);
         }
         return builder.toString();
+    }
+
+    @Override
+    public boolean haveMvSlot() {
+        String name = MaterializedIndexMeta.normalizeName(toSqlWithoutTbl());
+        return CreateMaterializedViewStmt.isMVColumn(name);
+    }
+
+    @Override
+    public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, String tableName)
+            throws AnalysisException {
+        Expr originExpr = stmt.getExprFromAliasSMap(this);
+        if (!(originExpr instanceof SlotRef)) {
+            return true; // means this is alias of other expr.
+        }
+        SlotRef aliasExpr = (SlotRef) originExpr;
+        if (aliasExpr.getColumnName() == null) {
+            return true; // means this is alias of other expr.
+        }
+        if (aliasExpr.desc != null) {
+            TableIf table = aliasExpr.desc.getParent().getTable();
+            if (table != null && table.getName() != tableName) {
+                return true; // means this from other scan node.
+            }
+
+            if (!aliasExpr.desc.isMaterialized()) {
+                return true; // means this is unused field after triming.
+            }
+        }
+
+        String name = MaterializedIndexMeta.normalizeName(aliasExpr.toSqlWithoutTbl());
+        for (Expr expr : exprs) {
+            if (CreateMaterializedViewStmt.isMVColumnNormal(name)
+                    && MaterializedIndexMeta.normalizeName(expr.toSqlWithoutTbl()).equals(CreateMaterializedViewStmt
+                            .mvColumnBreaker(name))) {
+                return true;
+            }
+        }
+        return !CreateMaterializedViewStmt.isMVColumn(name) && exprs.isEmpty();
     }
 }

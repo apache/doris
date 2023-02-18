@@ -79,13 +79,12 @@ Status BlockSpillReader::open() {
 
 // The returned block is owned by BlockSpillReader and is
 // destroyed when reading next block.
-Status BlockSpillReader::read(Block** block) {
+Status BlockSpillReader::read(Block* block, bool* eos) {
     DCHECK(file_reader_);
-
-    current_block_.reset();
-    *block = nullptr;
+    block->clear();
 
     if (read_block_index_ >= block_count_) {
+        *eos = true;
         return Status::OK();
     }
 
@@ -103,17 +102,15 @@ Status BlockSpillReader::read(Block** block) {
     DCHECK(bytes_read == bytes_to_read);
 
     PBlock pb_block;
-    Block* new_block = nullptr;
+    BlockUPtr new_block = nullptr;
     {
         SCOPED_TIMER(deserialize_time_);
         if (!pb_block.ParseFromArray(result.data, result.size)) {
             return Status::InternalError("Failed to read spilled block");
         }
-        new_block = new Block(pb_block);
+        new_block.reset(new Block(pb_block));
     }
-
-    current_block_.reset(new_block);
-    *block = new_block;
+    block->swap(*new_block);
 
     ++read_block_index_;
 

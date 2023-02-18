@@ -212,9 +212,10 @@ public class DorisStreamLoader {
 
 
 >注意：这里 http client 的版本要是4.5.13
->
+> ```xml
 ><dependency>
 >    <groupId>org.apache.httpcomponents</groupId>
 >    <artifactId>httpclient</artifactId>
 >    <version>4.5.13</version>
 ></dependency>
+> ```

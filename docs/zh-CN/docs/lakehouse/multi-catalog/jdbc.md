@@ -33,99 +33,139 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 
 ## 使用限制
 
-1. 支持 MySQL、PostgreSQL、Oracle、SQLServer、Clickhouse
+1. 支持 MySQL、PostgreSQL、Oracle、SQLServer、Clickhouse、Doris
 
 ## 创建 Catalog
 
+<version since="1.2.0">
+
 1. MySQL
 
-    ```sql
-    CREATE CATALOG jdbc_mysql PROPERTIES (
-        "type"="jdbc",
-        "user"="root",
-        "password"="123456",
-        "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
-        "driver_url" = "mysql-connector-java-5.1.47.jar",
-        "driver_class" = "com.mysql.jdbc.Driver"
-    )
-    ```
-    
+</version>
+
+```sql
+CREATE CATALOG jdbc_mysql PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:3306/demo",
+    "driver_url" = "mysql-connector-java-5.1.47.jar",
+    "driver_class" = "com.mysql.jdbc.Driver"
+)
+```
+
+<version since="1.2.2">
+
 2. PostgreSQL
 
-    ```sql
-    CREATE CATALOG jdbc_postgresql PROPERTIES (
-        "type"="jdbc",
-        "user"="root",
-        "password"="123456",
-        "jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
-        "driver_url" = "postgresql-42.5.1.jar",
-        "driver_class" = "org.postgresql.Driver"
-    );
-    ```
-    
-    映射 PostgreSQL 时，Doris 的一个 Database 对应于 PostgreSQL 中指定 Catalog（如示例中 `jdbc_url` 参数中 "demo"）下的一个 Schema。而 Doris 的 Database 下的 Table 则对应于 PostgreSQL 中，Schema 下的 Tables。即映射关系如下：
-    
-    |Doris | PostgreSQL |
-    |---|---|
-    | Catalog | Database | 
-    | Database | Schema |
-    | Table | Table |
+</version>
+
+```sql
+CREATE CATALOG jdbc_postgresql PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:postgresql://127.0.0.1:5449/demo",
+    "driver_url" = "postgresql-42.5.1.jar",
+    "driver_class" = "org.postgresql.Driver"
+);
+```
+
+映射 PostgreSQL 时，Doris 的一个 Database 对应于 PostgreSQL 中指定 Catalog（如示例中 `jdbc_url` 参数中 "demo"）下的一个 Schema。而 Doris 的 Database 下的 Table 则对应于 PostgreSQL 中，Schema 下的 Tables。即映射关系如下：
+
+|Doris | PostgreSQL |
+|---|---|
+| Catalog | Database | 
+| Database | Schema |
+| Table | Table |
+
+<version since="1.2.2">
 
 3. Oracle
 
-    ```sql
-    CREATE CATALOG jdbc_oracle PROPERTIES (
-        "type"="jdbc",
-        "user"="root",
-        "password"="123456",
-        "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
-        "driver_url" = "ojdbc6.jar",
-        "driver_class" = "oracle.jdbc.driver.OracleDriver"
-    );
-    ```
-    
-    映射 Oracle 时，Doris 的一个 Database 对应于 Oracle 中的一个 User（如示例中 `jdbc_url` 参数中 "helowin"）。而 Doris 的 Database 下的 Table 则对应于 Oracle 中，该 User 下的有权限访问的 Table。即映射关系如下：
+</version>
 
-    |Doris | PostgreSQL |
-    |---|---|
-    | Catalog | Database | 
-    | Database | User |
-    | Table | Table |
-    
-    
+```sql
+CREATE CATALOG jdbc_oracle PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:1521:helowin",
+    "driver_url" = "ojdbc6.jar",
+    "driver_class" = "oracle.jdbc.driver.OracleDriver"
+);
+```
+
+映射 Oracle 时，Doris 的一个 Database 对应于 Oracle 中的一个 User（如示例中 `jdbc_url` 参数中 "helowin"）。而 Doris 的 Database 下的 Table 则对应于 Oracle 中，该 User 下的有权限访问的 Table。即映射关系如下：
+
+|Doris | PostgreSQL |
+|---|---|
+| Catalog | Database | 
+| Database | User |
+| Table | Table |
+
+<version since="1.2.2">
+
 4. Clickhouse
 
-    ```sql
-    CREATE CATALOG jdbc_clickhouse PROPERTIES (
-        "type"="jdbc",
-        "user"="root",
-        "password"="123456",
-        "jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
-        "driver_url" = "clickhouse-jdbc-0.3.2-patch11-all.jar",
-        "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"
-    );
-    ```
+</version>
+
+```sql
+CREATE CATALOG jdbc_clickhouse PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:clickhouse://127.0.0.1:8123/demo",
+    "driver_url" = "clickhouse-jdbc-0.3.2-patch11-all.jar",
+    "driver_class" = "com.clickhouse.jdbc.ClickHouseDriver"
+);
+```
+
+<version since="1.2.2">
     
 5. SQLServer
 
-	```sql
-	CREATE CATALOG sqlserver_catalog PROPERTIES (
-		"type"="jdbc",
-		"user"="SA",
-		"password"="Doris123456",
-		"jdbc_url" = "jdbc:sqlserver://localhost:1433;DataBaseName=doris_test",
-		"driver_url" = "mssql-jdbc-11.2.3.jre8.jar",
-		"driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
-	);
-	```
+</version>
 
-	映射 SQLServer 时，Doris 的一个 Database 对应于 SQLServer 中指定 Database（如示例中 `jdbc_url` 参数中的 "doris_test"）下的一个 Schema。而 Doris 的 Database 下的 Table 则对应于 SQLServer 中，Schema 下的 Tables。即映射关系如下：
-	
-	|Doris | SQLServer |
-	|---|---|
-	| Catalog | Database | 
-	| Database | Schema |
-	| Table | Table |
+```sql
+CREATE CATALOG sqlserver_catalog PROPERTIES (
+    "type"="jdbc",
+    "user"="SA",
+    "password"="Doris123456",
+    "jdbc_url" = "jdbc:sqlserver://localhost:1433;DataBaseName=doris_test",
+    "driver_url" = "mssql-jdbc-11.2.3.jre8.jar",
+    "driver_class" = "com.microsoft.sqlserver.jdbc.SQLServerDriver"
+);
+```
+
+映射 SQLServer 时，Doris 的一个 Database 对应于 SQLServer 中指定 Database（如示例中 `jdbc_url` 参数中的 "doris_test"）下的一个 Schema。而 Doris 的 Database 下的 Table 则对应于 SQLServer 中，Schema 下的 Tables。即映射关系如下：
+
+|Doris | SQLServer |
+|---|---|
+| Catalog | Database | 
+| Database | Schema |
+| Table | Table |
+
+<version since="dev">
+    
+6. Doris
+
+</version>
+
+Jdbc Catalog也支持连接另一个Doris数据库：
+
+```sql
+CREATE CATALOG doris_catalog PROPERTIES (
+    "type"="jdbc",
+    "user"="root",
+    "password"="123456",
+    "jdbc_url" = "jdbc:mysql://127.0.0.1:9030?useSSL=false",
+    "driver_url" = "mysql-connector-java-5.1.47.jar",
+    "driver_class" = "com.mysql.jdbc.Driver"
+);
+```
+
+目前Jdbc Catalog连接一个Doris数据库只支持用5.x版本的jdbc jar包。如果使用8.x jdbc jar包，可能会出现列类型无法匹配问题。
 
 ### 参数说明
 
@@ -145,6 +185,35 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 > 
 > 3. Http 地址。如：`https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-5.1.47.jar`。系统会从这个 http 地址下载 Driver 文件。仅支持无认证的 http 服务。
 
+## 数据查询
+
+```sql
+select * from mysql_table where k1 > 1000 and k3 ='term';
+```
+由于可能存在使用数据库内部的关键字作为字段名，为解决这种状况下仍能正确查询，所以在SQL语句中，会根据各个数据库的标准自动在字段名与表名上加上转义符。例如 MYSQL(``)、PostgreSQL("")、SQLServer([])、ORACLE("")，所以此时可能会造成字段名的大小写敏感，具体可以通过explain sql，查看转义后下发到各个数据库的查询语句。
+
+## 数据写入
+
+<version since="1.2.2">
+在Doris中建立JDBC Catalog后，可以通过insert into语句直接写入数据，也可以将Doris执行完查询之后的结果写入JDBC Catalog，或者是从一个JDBC外表将数据导入另一个JDBC外表。
+</version>
+
+示例：
+
+```sql
+insert into mysql_table values(1, "doris");
+insert into mysql_table select * from table;
+```
+### 事务
+
+Doris的数据是由一组batch的方式写入外部表的，如果中途导入中断，之前写入数据可能需要回滚。所以JDBC外表支持数据写入时的事务，事务的支持需要通过设置session variable: `enable_odbc_transcation `。
+
+```sql
+set enable_odbc_transcation = true; 
+```
+
+事务保证了JDBC外表数据写入的原子性，但是一定程度上会降低数据写入的性能，可以考虑酌情开启该功能。
+
 ## 列类型映射
 
 ### MySQL
@@ -160,7 +229,7 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 | UNSIGNED TINYINT | SMALLINT | Doris没有UNSIGNED数据类型，所以扩大一个数量级|
 | UNSIGNED MEDIUMINT | INT | Doris没有UNSIGNED数据类型，所以扩大一个数量级|
 | UNSIGNED INT | BIGINT |Doris没有UNSIGNED数据类型，所以扩大一个数量级 |
-| UNSIGNED BIGINT | STRING | |
+| UNSIGNED BIGINT | LARGEINT | |
 | FLOAT | FLOAT | |
 | DOUBLE | DOUBLE | |
 | DECIMAL | DECIMAL | |
@@ -170,7 +239,7 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 | YEAR | SMALLINT | |
 | TIME | STRING | |
 | CHAR | CHAR | |
-| VARCHAR | STRING | |
+| VARCHAR | VARCHAR | |
 | TINYTEXT、TEXT、MEDIUMTEXT、LONGTEXT、TINYBLOB、BLOB、MEDIUMBLOB、LONGBLOB、TINYSTRING、STRING、MEDIUMSTRING、LONGSTRING、BINARY、VARBINARY、JSON、SET、BIT | STRING | |
 |Other| UNSUPPORTED |
 
@@ -255,6 +324,27 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 | Enum/IPv4/IPv6/UUID    | STRING     | 在显示上IPv4,IPv6会额外在数据最前面显示一个`/`,需要自己用`split_part`函数处理 |
 |Other| UNSUPPORTED |
 
+### Doris
+| Doris Type | Jdbc Catlog Doris Type | Comment |
+|---|---|---|
+| BOOLEAN | BOOLEAN | |
+| TINYINT | TINYINT | |
+| SMALLINT | SMALLINT | |
+| INT | INT | |
+| BIGINT | BIGINT | |
+| LARGEINT | LARGEINT | |
+| FLOAT | FLOAT | |
+| DOUBLE | DOUBLE | |
+| DECIMAL / DECIMALV3 | DECIMAL/DECIMALV3/STRING | 将根据Doris DECIMAL字段的（precision, scale）和`enable_decimal_conversion`开关选择用何种类型 |
+| DATE | DATEV2 | Jdbc Catlog连接Doris时默认使用DATEV2类型 |
+| DATEV2 | DATEV2 |  |
+| DATETIME | DATETIMEV2 | Jdbc Catlog连接Doris时默认使用DATETIMEV2类型 |
+| DATETIMEV2 | DATETIMEV2 | |
+| CHAR | CHAR | |
+| VARCHAR | VARCHAR | |
+| STRING | STRING | |
+| TEXT | STRING | |
+|Other| UNSUPPORTED |
 ## 常见问题
 
 1. 除了 MySQL,Oracle,PostgreSQL,SQLServer,ClickHouse 是否能够支持更多的数据库

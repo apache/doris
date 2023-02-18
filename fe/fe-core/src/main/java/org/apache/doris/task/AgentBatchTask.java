@@ -24,6 +24,7 @@ import org.apache.doris.system.Backend;
 import org.apache.doris.thrift.BackendService;
 import org.apache.doris.thrift.TAgentServiceVersion;
 import org.apache.doris.thrift.TAgentTaskRequest;
+import org.apache.doris.thrift.TAlterInvertedIndexReq;
 import org.apache.doris.thrift.TAlterTabletReqV2;
 import org.apache.doris.thrift.TCheckConsistencyReq;
 import org.apache.doris.thrift.TClearAlterTaskRequest;
@@ -33,12 +34,12 @@ import org.apache.doris.thrift.TCompactionReq;
 import org.apache.doris.thrift.TCreateTabletReq;
 import org.apache.doris.thrift.TDownloadReq;
 import org.apache.doris.thrift.TDropTabletReq;
-import org.apache.doris.thrift.TGetStoragePolicy;
 import org.apache.doris.thrift.TMoveDirReq;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPublishVersionRequest;
 import org.apache.doris.thrift.TPushCooldownConfReq;
 import org.apache.doris.thrift.TPushReq;
+import org.apache.doris.thrift.TPushStoragePolicyReq;
 import org.apache.doris.thrift.TReleaseSnapshotRequest;
 import org.apache.doris.thrift.TSnapshotRequest;
 import org.apache.doris.thrift.TStorageMediumMigrateReq;
@@ -338,6 +339,15 @@ public class AgentBatchTask implements Runnable {
                 tAgentTaskRequest.setAlterTabletReqV2(request);
                 return tAgentTaskRequest;
             }
+            case ALTER_INVERTED_INDEX: {
+                AlterInvertedIndexTask alterInvertedIndexTask = (AlterInvertedIndexTask) task;
+                TAlterInvertedIndexReq request = alterInvertedIndexTask.toThrift();
+                if (LOG.isDebugEnabled()) {
+                    LOG.debug(request.toString());
+                }
+                tAgentTaskRequest.setAlterInvertedIndexReq(request);
+                return tAgentTaskRequest;
+            }
             case COMPACTION: {
                 CompactionTask compactionTask = (CompactionTask) task;
                 TCompactionReq request = compactionTask.toThrift();
@@ -347,13 +357,13 @@ public class AgentBatchTask implements Runnable {
                 tAgentTaskRequest.setCompactionReq(request);
                 return tAgentTaskRequest;
             }
-            case NOTIFY_UPDATE_STORAGE_POLICY: {
-                NotifyUpdateStoragePolicyTask notifyUpdateStoragePolicyTask = (NotifyUpdateStoragePolicyTask) task;
-                TGetStoragePolicy request = notifyUpdateStoragePolicyTask.toThrift();
+            case PUSH_STORAGE_POLICY: {
+                PushStoragePolicyTask pushStoragePolicyTask = (PushStoragePolicyTask) task;
+                TPushStoragePolicyReq request = pushStoragePolicyTask.toThrift();
                 if (LOG.isDebugEnabled()) {
                     LOG.debug(request.toString());
                 }
-                tAgentTaskRequest.setUpdatePolicy(request);
+                tAgentTaskRequest.setPushStoragePolicyReq(request);
                 return tAgentTaskRequest;
             }
             case PUSH_COOLDOWN_CONF: {

@@ -176,7 +176,7 @@ public:
     // The caller needs to guarantee that 1 <= len <= 8.
     static uint64 Load64VariableLength(const void* const p, int len) {
         assert(len >= 1 && len <= 8);
-        const char* const buf = static_cast<const char* const>(p);
+        const char* const buf = static_cast<const char*>(p);
         uint64 val = 0;
         --len;
         do {

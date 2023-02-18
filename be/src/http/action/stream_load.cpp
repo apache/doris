@@ -397,7 +397,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
     request.__set_loadId(ctx->id.to_thrift());
     if (ctx->use_streaming) {
         auto pipe = std::make_shared<io::StreamLoadPipe>(
-                kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
+                io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
                 ctx->body_bytes /* total_length */);
         RETURN_IF_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, pipe));
 
@@ -572,6 +572,9 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         } else {
             request.__set_trim_double_quotes(false);
         }
+    }
+    if (!http_req->header(HTTP_SKIP_LINES).empty()) {
+        request.__set_skip_lines(std::stoi(http_req->header(HTTP_SKIP_LINES)));
     }
 
 #ifndef BE_TEST

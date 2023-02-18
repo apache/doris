@@ -333,9 +333,9 @@ public class OlapTable extends Table {
         }
         for (MaterializedIndexMeta indexMeta : indexIdToMeta.values()) {
             for (Column column : indexMeta.getSchema()) {
-                if (!nameToColumn.containsKey(column.getName())) {
+                if (!nameToColumn.containsKey(column.getDefineName())) {
                     fullSchema.add(column);
-                    nameToColumn.put(column.getName(), column);
+                    nameToColumn.put(column.getDefineName(), column);
                 }
             }
         }
@@ -403,7 +403,7 @@ public class OlapTable extends Table {
     public Column getVisibleColumn(String columnName) {
         for (MaterializedIndexMeta meta : getVisibleIndexIdToMeta().values()) {
             for (Column column : meta.getSchema()) {
-                if (MaterializedIndexMeta.matchColumnName(column.getName(), columnName)) {
+                if (MaterializedIndexMeta.matchColumnName(column.getDefineName(), columnName)) {
                     return column;
                 }
             }
@@ -438,9 +438,10 @@ public class OlapTable extends Table {
     /**
      * Reset properties to correct values.
      */
-    public void resetPropertiesForRestore(boolean reserveDynamicPartitionEnable, ReplicaAllocation replicaAlloc) {
+    public void resetPropertiesForRestore(boolean reserveDynamicPartitionEnable, boolean reserveReplica,
+                                          ReplicaAllocation replicaAlloc) {
         if (tableProperty != null) {
-            tableProperty.resetPropertiesForRestore(reserveDynamicPartitionEnable, replicaAlloc);
+            tableProperty.resetPropertiesForRestore(reserveDynamicPartitionEnable, reserveReplica, replicaAlloc);
         }
         // remove colocate property.
         setColocateGroup(null);
@@ -1728,6 +1729,22 @@ public class OlapTable extends Table {
             return tableProperty.storeRowColumn();
         }
         return false;
+    }
+
+    public Boolean isDynamicSchema() {
+        if (tableProperty != null) {
+            return tableProperty.isDynamicSchema();
+        }
+        return false;
+    }
+
+    public void setIsDynamicSchema(boolean isDynamicSchema) {
+        if (tableProperty == null) {
+            tableProperty = new TableProperty(new HashMap<>());
+        }
+        tableProperty.modifyTableProperties(
+                PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA, Boolean.valueOf(isDynamicSchema).toString());
+        tableProperty.buildDynamicSchema();
     }
 
     public int getBaseSchemaVersion() {

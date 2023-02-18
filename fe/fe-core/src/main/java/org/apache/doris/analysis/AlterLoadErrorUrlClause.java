@@ -20,9 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.alter.AlterOpType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.util.PrintableMap;
-import org.apache.doris.load.LoadErrorHub;
 
-import com.google.common.base.Strings;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -35,7 +33,6 @@ public class AlterLoadErrorUrlClause extends AlterClause {
     private static final Logger LOG = LogManager.getLogger(AlterLoadErrorUrlClause.class);
 
     private Map<String, String> properties;
-    private LoadErrorHub.Param param;
 
     public AlterLoadErrorUrlClause(Map<String, String> properties) {
         super(AlterOpType.ALTER_OTHER);
@@ -49,18 +46,7 @@ public class AlterLoadErrorUrlClause extends AlterClause {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (properties == null || properties.isEmpty()) {
-            throw new AnalysisException("Load errors hub's properties are missing");
-        }
-
-        String type = properties.get("type");
-        if (Strings.isNullOrEmpty(type)) {
-            throw new AnalysisException("Load errors hub's type is missing");
-        }
-
-        if (!type.equalsIgnoreCase("MYSQL") && !type.equalsIgnoreCase("BROKER")) {
-            throw new AnalysisException("Load errors hub's type should be MYSQL or BROKER");
-        }
+        throw new AnalysisException("Load errors hub is not supported");
     }
 
     @Override

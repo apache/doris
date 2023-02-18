@@ -28,9 +28,9 @@
 namespace doris::vectorized {
 
 RPCFnImpl::RPCFnImpl(const TFunction& fn) : _fn(fn) {
-    _client = ExecEnv::GetInstance()->brpc_function_client_cache()->get_client(_server_addr);
     _function_name = _fn.scalar_fn.symbol;
     _server_addr = _fn.hdfs_location;
+    _client = ExecEnv::GetInstance()->brpc_function_client_cache()->get_client(_server_addr);
     _signature = fmt::format("{}: [{}/{}]", _fn.name.function_name, _fn.hdfs_location,
                              _fn.scalar_fn.symbol);
 }

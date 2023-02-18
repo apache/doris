@@ -29,9 +29,11 @@ import org.apache.doris.nereids.DorisParser.ArithmeticBinaryContext;
 import org.apache.doris.nereids.DorisParser.ArithmeticUnaryContext;
 import org.apache.doris.nereids.DorisParser.BitOperationContext;
 import org.apache.doris.nereids.DorisParser.BooleanLiteralContext;
-import org.apache.doris.nereids.DorisParser.BracketStyleHintContext;
+import org.apache.doris.nereids.DorisParser.BracketJoinHintContext;
+import org.apache.doris.nereids.DorisParser.BracketRelationHintContext;
 import org.apache.doris.nereids.DorisParser.ColumnReferenceContext;
-import org.apache.doris.nereids.DorisParser.CommentStyleHintContext;
+import org.apache.doris.nereids.DorisParser.CommentJoinHintContext;
+import org.apache.doris.nereids.DorisParser.CommentRelationHintContext;
 import org.apache.doris.nereids.DorisParser.ComparisonContext;
 import org.apache.doris.nereids.DorisParser.CreateRowPolicyContext;
 import org.apache.doris.nereids.DorisParser.CteContext;
@@ -98,6 +100,8 @@ import org.apache.doris.nereids.DorisParser.TypeConstructorContext;
 import org.apache.doris.nereids.DorisParser.UnitIdentifierContext;
 import org.apache.doris.nereids.DorisParser.UserVariableContext;
 import org.apache.doris.nereids.DorisParser.WhereClauseContext;
+import org.apache.doris.nereids.DorisParser.WindowFrameContext;
+import org.apache.doris.nereids.DorisParser.WindowSpecContext;
 import org.apache.doris.nereids.DorisParserBaseVisitor;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.analyzer.UnboundAlias;
@@ -146,6 +150,8 @@ import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.TVFProperties;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
+import org.apache.doris.nereids.trees.expressions.WindowFrame;
 import org.apache.doris.nereids.trees.expressions.functions.Function;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
 import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
@@ -245,6 +251,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 /**
  * Build a logical plan tree with unbounded nodes.
@@ -340,13 +348,12 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     public LogicalSubQueryAlias<Plan> visitAliasQuery(AliasQueryContext ctx) {
         return ParserUtils.withOrigin(ctx, () -> {
             LogicalPlan queryPlan = plan(ctx.query());
-            List<String> columnNames = null;
-            if (ctx.columnAliases() != null) {
-                columnNames = ctx.columnAliases().identifier().stream()
+            Optional<List<String>> columnNames = optionalVisit(ctx.columnAliases(), () ->
+                    ctx.columnAliases().identifier().stream()
                     .map(RuleContext::getText)
-                    .collect(ImmutableList.toImmutableList());
-            }
-            return new LogicalSubQueryAlias<>(ctx.identifier().getText(), Optional.ofNullable(columnNames), queryPlan);
+                    .collect(ImmutableList.toImmutableList())
+            );
+            return new LogicalSubQueryAlias<>(ctx.identifier().getText(), columnNames, queryPlan);
         });
     }
 
@@ -460,8 +467,16 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                 partitionNames.addAll(visitIdentifierList(ctx.specifiedPartition().identifierList()));
             }
         }
+
+        final List<String> relationHints;
+        if (ctx.relationHint() != null) {
+            relationHints = typedVisit(ctx.relationHint());
+        } else {
+            relationHints = ImmutableList.of();
+        }
+
         LogicalPlan checkedRelation = withCheckPolicy(
-                new UnboundRelation(RelationUtil.newRelationId(), tableId, partitionNames, isTempPart));
+                new UnboundRelation(RelationUtil.newRelationId(), tableId, partitionNames, isTempPart, relationHints));
         LogicalPlan plan = withTableAlias(checkedRelation, ctx.tableAlias());
         for (LateralViewContext lateralViewContext : ctx.lateralView()) {
             plan = withGenerate(plan, lateralViewContext);
@@ -945,13 +960,103 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                     if (!unboundStars.get(0).getQualifier().isEmpty()) {
                         throw new ParseException("'*' can not has qualifier: " + unboundStars.size(), ctx);
                     }
+                    if (ctx.windowSpec() != null) {
+                        // todo: support count(*) as window function
+                        throw new ParseException(
+                                "COUNT(*) isn't supported as window function; can use COUNT(col)", ctx);
+                    }
                     return new Count();
                 }
                 throw new ParseException("'*' can only be used in conjunction with COUNT: " + functionName, ctx);
             } else {
-                return new UnboundFunction(functionName, isDistinct, params);
+                UnboundFunction function = new UnboundFunction(functionName, isDistinct, params);
+                if (ctx.windowSpec() != null) {
+                    if (isDistinct) {
+                        throw new ParseException("DISTINCT not allowed in analytic function: " + functionName, ctx);
+                    }
+                    return withWindowSpec(ctx.windowSpec(), function);
+                }
+                return function;
             }
         });
+    }
+
+    /**
+     * deal with window function definition
+     */
+    private WindowExpression withWindowSpec(WindowSpecContext ctx, Expression function) {
+        List<Expression> partitionKeyList = Lists.newArrayList();
+        if (ctx.partitionClause() != null) {
+            partitionKeyList = visit(ctx.partitionClause().expression(), Expression.class);
+        }
+
+        List<OrderExpression> orderKeyList = Lists.newArrayList();
+        if (ctx.sortClause() != null) {
+            orderKeyList = visit(ctx.sortClause().sortItem(), OrderKey.class).stream()
+                .map(orderKey -> new OrderExpression(orderKey))
+                .collect(Collectors.toList());
+        }
+
+        if (ctx.windowFrame() != null) {
+            return new WindowExpression(function, partitionKeyList, orderKeyList, withWindowFrame(ctx.windowFrame()));
+        }
+        return new WindowExpression(function, partitionKeyList, orderKeyList);
+    }
+
+    /**
+     * deal with optional expressions
+     */
+    private <T, C> Optional<C> optionalVisit(T ctx, Supplier<C> func) {
+        return Optional.ofNullable(ctx).map(a -> func.get());
+    }
+
+    /**
+     * deal with window frame
+     */
+    private WindowFrame withWindowFrame(WindowFrameContext ctx) {
+        WindowFrame.FrameUnitsType frameUnitsType = WindowFrame.FrameUnitsType.valueOf(
+                ctx.frameUnits().getText().toUpperCase());
+        WindowFrame.FrameBoundary leftBoundary = withFrameBound(ctx.start);
+        if (ctx.end != null) {
+            WindowFrame.FrameBoundary rightBoundary = withFrameBound(ctx.end);
+            return new WindowFrame(frameUnitsType, leftBoundary, rightBoundary);
+        }
+        return new WindowFrame(frameUnitsType, leftBoundary);
+    }
+
+    private WindowFrame.FrameBoundary withFrameBound(DorisParser.FrameBoundaryContext ctx) {
+        Optional<Expression> expression = Optional.empty();
+        if (ctx.expression() != null) {
+            expression = Optional.of(getExpression(ctx.expression()));
+            // todo: use isConstant() to resolve Function in expression; currently we only
+            //  support literal expression
+            if (!expression.get().isLiteral()) {
+                throw new ParseException("Unsupported expression in WindowFrame : " + expression, ctx);
+            }
+        }
+
+        WindowFrame.FrameBoundType frameBoundType = null;
+        switch (ctx.boundType.getType()) {
+            case DorisParser.PRECEDING:
+                if (ctx.UNBOUNDED() != null) {
+                    frameBoundType = WindowFrame.FrameBoundType.UNBOUNDED_PRECEDING;
+                } else {
+                    frameBoundType = WindowFrame.FrameBoundType.PRECEDING;
+                }
+                break;
+            case DorisParser.CURRENT:
+                frameBoundType = WindowFrame.FrameBoundType.CURRENT_ROW;
+                break;
+            case DorisParser.FOLLOWING:
+                if (ctx.UNBOUNDED() != null) {
+                    frameBoundType = WindowFrame.FrameBoundType.UNBOUNDED_FOLLOWING;
+                } else {
+                    frameBoundType = WindowFrame.FrameBoundType.FOLLOWING;
+                }
+                break;
+            default:
+        }
+        return new WindowFrame.FrameBoundary(expression, frameBoundType);
     }
 
     @Override
@@ -1412,13 +1517,27 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
     }
 
     @Override
-    public String visitBracketStyleHint(BracketStyleHintContext ctx) {
+    public String visitBracketJoinHint(BracketJoinHintContext ctx) {
         return ctx.identifier().getText();
     }
 
     @Override
-    public Object visitCommentStyleHint(CommentStyleHintContext ctx) {
+    public String visitCommentJoinHint(CommentJoinHintContext ctx) {
         return ctx.identifier().getText();
+    }
+
+    @Override
+    public List<String> visitBracketRelationHint(BracketRelationHintContext ctx) {
+        return ctx.identifier().stream()
+                .map(RuleContext::getText)
+                .collect(ImmutableList.toImmutableList());
+    }
+
+    @Override
+    public Object visitCommentRelationHint(CommentRelationHintContext ctx) {
+        return ctx.identifier().stream()
+                .map(RuleContext::getText)
+                .collect(ImmutableList.toImmutableList());
     }
 
     private LogicalPlan withProjection(LogicalPlan input, SelectColumnClauseContext selectCtx,
@@ -1437,7 +1556,7 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
                             expressions, input, isDistinct);
                 } else {
                     List<NamedExpression> projects = getNamedExpressions(selectCtx.namedExpressionSeq());
-                    return new LogicalProject<>(projects, ImmutableList.of(), input, isDistinct);
+                    return new LogicalProject<>(projects, Collections.emptyList(), input, isDistinct);
                 }
             }
         });

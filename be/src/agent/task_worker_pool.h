@@ -23,7 +23,6 @@
 #include <utility>
 #include <vector>
 
-#include "agent/utils.h"
 #include "common/status.h"
 #include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/HeartbeatService_types.h"
@@ -35,6 +34,7 @@ namespace doris {
 
 class ExecEnv;
 class ThreadPool;
+class AgentUtils;
 
 class TaskWorkerPool {
 public:
@@ -66,9 +66,9 @@ public:
         RECOVER_TABLET,
         UPDATE_TABLET_META_INFO,
         SUBMIT_TABLE_COMPACTION,
-        REFRESH_STORAGE_POLICY,
-        UPDATE_STORAGE_POLICY,
-        PUSH_COOLDOWN_CONF
+        PUSH_COOLDOWN_CONF,
+        PUSH_STORAGE_POLICY,
+        ALTER_INVERTED_INDEX,
     };
 
     enum ReportType { TASK, DISK, TABLET };
@@ -124,12 +124,12 @@ public:
             return "UPDATE_TABLET_META_INFO";
         case SUBMIT_TABLE_COMPACTION:
             return "SUBMIT_TABLE_COMPACTION";
-        case REFRESH_STORAGE_POLICY:
-            return "REFRESH_STORAGE_POLICY";
-        case UPDATE_STORAGE_POLICY:
-            return "UPDATE_STORAGE_POLICY";
         case PUSH_COOLDOWN_CONF:
             return "PUSH_COOLDOWN_CONF";
+        case PUSH_STORAGE_POLICY:
+            return "PUSH_STORAGE_POLICY";
+        case ALTER_INVERTED_INDEX:
+            return "ALTER_INVERTED_INDEX";
         default:
             return "Unknown";
         }
@@ -180,6 +180,7 @@ private:
     void _publish_version_worker_thread_callback();
     void _clear_transaction_task_worker_thread_callback();
     void _alter_tablet_worker_thread_callback();
+    void _alter_inverted_index_worker_thread_callback();
     void _clone_worker_thread_callback();
     void _storage_medium_migrate_worker_thread_callback();
     void _check_consistency_worker_thread_callback();
@@ -193,9 +194,12 @@ private:
     void _move_dir_thread_callback();
     void _update_tablet_meta_worker_thread_callback();
     void _submit_table_compaction_worker_thread_callback();
-    void _storage_refresh_storage_policy_worker_thread_callback();
-    void _storage_update_storage_policy_worker_thread_callback();
     void _push_cooldown_conf_worker_thread_callback();
+    void _push_storage_policy_worker_thread_callback();
+
+    void _alter_inverted_index(const TAgentTaskRequest& alter_inverted_index_request,
+                               int64_t signature, const TTaskType::type task_type,
+                               TFinishTaskRequest* finish_task_request);
 
     void _alter_tablet(const TAgentTaskRequest& alter_tablet_request, int64_t signature,
                        const TTaskType::type task_type, TFinishTaskRequest* finish_task_request);
@@ -220,7 +224,6 @@ private:
     const TMasterInfo& _master_info;
     TBackend _backend;
     std::unique_ptr<AgentUtils> _agent_utils;
-    std::unique_ptr<MasterServerClient> _master_client;
     ExecEnv* _env;
 
     // Protect task queue
@@ -242,7 +245,6 @@ private:
     uint32_t _worker_count;
     TaskWorkerType _task_worker_type;
 
-    static FrontendServiceClientCache _master_service_client_cache;
     static std::atomic_ulong _s_report_version;
 
     static std::mutex _s_task_signatures_lock;

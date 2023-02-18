@@ -21,8 +21,9 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
-import org.apache.doris.mysql.privilege.PaloAuth;
-import org.apache.doris.mysql.privilege.PaloRole;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.qe.ConnectContext;
 
 import mockit.Delegate;
@@ -40,7 +41,7 @@ public class LdapAuthenticateTest {
     private static final String IP = "192.168.1.1";
     private static final String TABLE_RD = "palo_rd";
 
-    private PaloRole ldapGroupsPrivs;
+    private Role ldapGroupsPrivs;
 
     @Mocked
     private LdapManager ldapManager;
@@ -49,7 +50,9 @@ public class LdapAuthenticateTest {
     @Mocked
     private Env env;
     @Mocked
-    private PaloAuth auth;
+    private Auth auth;
+    @Mocked
+    private AccessControllerManager accessManager;
 
     @Before
     public void setUp() throws DdlException {
@@ -59,13 +62,17 @@ public class LdapAuthenticateTest {
                 minTimes = 0;
                 result = true;
 
-                auth.mergeRolesNoCheckName((List<String>) any, (PaloRole) any);
+                auth.mergeRolesNoCheckName((List<String>) any, (Role) any);
                 minTimes = 0;
                 result = new Delegate() {
-                    void fakeMergeRolesNoCheckName(List<String> roles, PaloRole savedRole) {
+                    void fakeMergeRolesNoCheckName(List<String> roles, Role savedRole) {
                         ldapGroupsPrivs = savedRole;
                     }
                 };
+
+                env.getAccessManager();
+                minTimes = 0;
+                result = accessManager;
 
                 env.getAuth();
                 minTimes = 0;
@@ -106,7 +113,7 @@ public class LdapAuthenticateTest {
                     minTimes = 0;
                     result = new Delegate() {
                         LdapUserInfo fakeGetGroups(String user) {
-                            return new LdapUserInfo(anyString, false, "", new PaloRole(anyString));
+                            return new LdapUserInfo(anyString, false, "", new Role(anyString));
                         }
                     };
                 } else {

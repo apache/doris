@@ -20,6 +20,7 @@
 
 #pragma once
 
+#include <climits>
 #include <functional>
 #include <ostream>
 #include <string>
@@ -241,9 +242,12 @@ struct StringRef {
     // Trims leading and trailing spaces.
     StringRef trim() const;
 
+    bool empty() const { return size == 0; }
+
     // support for type_limit
-    static constexpr char MIN_CHAR = 0x00;
-    static constexpr char MAX_CHAR = 0xFF;
+    static constexpr char MIN_CHAR = 0;
+    static constexpr char MAX_CHAR = char(
+            UCHAR_MAX); // We will convert char to uchar and compare, so we define max_char to unsigned char max.
     static StringRef min_string_val();
     static StringRef max_string_val();
 

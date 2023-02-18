@@ -35,52 +35,71 @@ namespace io {
 // This class is thread-safe.(Except `set_xxx` method)
 class S3FileSystem final : public RemoteFileSystem {
 public:
-    static std::shared_ptr<S3FileSystem> create(S3Conf s3_conf, ResourceId resource_id);
+    static std::shared_ptr<S3FileSystem> create(S3Conf s3_conf, std::string id);
 
     ~S3FileSystem() override;
 
     Status create_file(const Path& path, FileWriterPtr* writer) override;
 
+    Status create_file_impl(const Path& path, FileWriterPtr* writer);
+
     Status open_file(const Path& path, FileReaderSPtr* reader, IOContext* io_ctx) override;
 
+    Status open_file_impl(const Path& path, FileReaderSPtr* reader, IOContext* io_ctx);
+
     Status delete_file(const Path& path) override;
+
+    Status delete_file_impl(const Path& path);
 
     Status create_directory(const Path& path) override;
 
     // Delete all objects start with path.
     Status delete_directory(const Path& path) override;
 
+    Status delete_directory_impl(const Path& path);
+
     Status link_file(const Path& src, const Path& dest) override;
 
     Status exists(const Path& path, bool* res) const override;
 
+    Status exists_impl(const Path& path, bool* res) const;
+
     Status file_size(const Path& path, size_t* file_size) const override;
+
+    Status file_size_impl(const Path& path, size_t* file_size) const;
 
     Status list(const Path& path, std::vector<Path>* files) override;
 
     Status upload(const Path& local_path, const Path& dest_path) override;
 
+    Status upload_impl(const Path& local_path, const Path& dest_path);
+
     Status batch_upload(const std::vector<Path>& local_paths,
                         const std::vector<Path>& dest_paths) override;
 
+    Status batch_upload_impl(const std::vector<Path>& local_paths,
+                             const std::vector<Path>& dest_paths);
+
+    Status batch_delete(const std::vector<Path>& paths) override;
+
     Status connect() override;
+
+    Status connect_impl();
 
     std::shared_ptr<Aws::S3::S3Client> get_client() const {
         std::lock_guard lock(_client_mu);
         return _client;
-    };
+    }
 
     // Guarded by external lock.
-    void set_ak(std::string ak) { _s3_conf.ak = std::move(ak); }
-
-    // Guarded by external lock.
-    void set_sk(std::string sk) { _s3_conf.sk = std::move(sk); }
+    void set_conf(S3Conf s3_conf) { _s3_conf = std::move(s3_conf); }
 
     std::string get_key(const Path& path) const;
 
 private:
-    S3FileSystem(S3Conf s3_conf, ResourceId resource_id);
+    S3FileSystem(S3Conf&& s3_conf, std::string&& id);
 
+private:
     S3Conf _s3_conf;
 
     // FIXME(cyx): We can use std::atomic<std::shared_ptr> since c++20.

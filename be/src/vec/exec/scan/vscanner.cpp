@@ -37,7 +37,7 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
     // only empty block should be here
     DCHECK(block->rows() == 0);
     SCOPED_RAW_TIMER(&_per_scanner_timer);
-    int64_t raw_rows_threshold = raw_rows_read() + config::doris_scanner_row_num;
+    int64_t rows_read_threshold = _num_rows_read + config::doris_scanner_row_num;
     if (!block->mem_reuse()) {
         for (const auto slot_desc : _output_tuple_desc->slots()) {
             if (!slot_desc->need_materialize()) {
@@ -52,6 +52,9 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
 
     {
         do {
+            // if step 2 filter all rows of block, and block will be reused to get next rows,
+            // must clear row_same_bit of block, or will get wrong row_same_bit.size() which not equal block.rows()
+            block->clear_same_bit();
             // 1. Get input block from scanner
             {
                 SCOPED_TIMER(_parent->_scan_timer);
@@ -70,7 +73,12 @@ Status VScanner::get_block(RuntimeState* state, Block* block, bool* eof) {
                 // record rows return (after filter) for _limit check
                 _num_rows_return += block->rows();
             }
-        } while (block->rows() == 0 && !(*eof) && raw_rows_read() < raw_rows_threshold);
+        } while (!state->is_cancelled() && block->rows() == 0 && !(*eof) &&
+                 _num_rows_read < rows_read_threshold);
+    }
+
+    if (state->is_cancelled()) {
+        return Status::Cancelled("cancelled");
     }
 
     // set eof to true if per scanner limit is reached

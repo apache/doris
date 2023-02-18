@@ -45,6 +45,7 @@ public class ExpressionNormalization extends ExpressionRewrite {
             BetweenToCompoundRule.INSTANCE,
             InPredicateToEqualToRule.INSTANCE,
             SimplifyNotExprRule.INSTANCE,
+            // TODO(morrySnow): remove type coercion from here after we could process subquery type coercion when bind
             CharacterLiteralTypeCoercion.INSTANCE,
             SimplifyArithmeticRule.INSTANCE,
             TypeCoercion.INSTANCE,

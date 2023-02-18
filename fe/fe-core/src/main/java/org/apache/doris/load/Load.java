@@ -33,11 +33,8 @@ import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
 import org.apache.doris.analysis.SlotRef;
-import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
-import org.apache.doris.backup.BlobStorage;
-import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.AggregateType;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -128,8 +125,6 @@ public class Load {
     private Set<Long> loadingPartitionIds; // loading partition id set
     // dbId -> set of (label, timestamp)
     private Map<Long, Map<String, Long>> dbToMiniLabels; // db to mini uncommitted label
-
-    private volatile LoadErrorHub.Param loadErrorHubParam = new LoadErrorHub.Param();
 
     // lock for load job
     // lock is private and must use after db lock
@@ -608,7 +603,7 @@ public class Load {
                 if (hasSequenceCol && column.isSequenceColumn()) {
                     continue;
                 }
-                ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName());
+                ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName().toLowerCase());
                 LOG.debug("add base column {} to stream load task", column.getName());
                 copiedColumnExprs.add(columnDesc);
             }
@@ -725,20 +720,46 @@ public class Load {
                         slotDesc.setIsNullable(tblColumn.isAllowNull());
                     }
                 } else {
-                    // columns default be varchar type
-                    slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
-                    slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
-                    // ISSUE A: src slot should be nullable even if the column is not nullable.
-                    // because src slot is what we read from file, not represent to real column value.
-                    // If column is not nullable, error will be thrown when filling the dest slot,
-                    // which is not nullable.
-                    slotDesc.setIsNullable(true);
+                    if (formatType == TFileFormatType.FORMAT_JSON
+                                && tbl instanceof OlapTable && ((OlapTable) tbl).isDynamicSchema()) {
+                        slotDesc.setType(tblColumn.getType());
+                        slotDesc.setColumn(new Column(realColName, tblColumn.getType()));
+                        slotDesc.setIsNullable(tblColumn.isAllowNull());
+                    } else {
+                        // columns default be varchar type
+                        slotDesc.setType(ScalarType.createType(PrimitiveType.VARCHAR));
+                        slotDesc.setColumn(new Column(realColName, PrimitiveType.VARCHAR));
+                        // ISSUE A: src slot should be nullable even if the column is not nullable.
+                        // because src slot is what we read from file, not represent to real column value.
+                        // If column is not nullable, error will be thrown when filling the dest slot,
+                        // which is not nullable.
+                        slotDesc.setIsNullable(true);
+                    }
                 }
                 slotDesc.setIsMaterialized(true);
                 srcSlotIds.add(slotDesc.getId().asInt());
                 slotDescByName.put(realColName, slotDesc);
             }
         }
+
+        // add a implict container column "DORIS_DYNAMIC_COL" for dynamic columns
+        if (tbl instanceof OlapTable && ((OlapTable) tbl).isDynamicSchema()) {
+            analyzer.getDescTbl().addReferencedTable(tbl);
+            SlotDescriptor slotDesc = analyzer.getDescTbl().addSlotDescriptor(srcTupleDesc);
+            String name = Column.DYNAMIC_COLUMN_NAME;
+            Column col = new Column(name, Type.VARIANT, false, null, false, "",
+                                    "stream load auto dynamic column");
+            slotDesc.setType(Type.VARIANT);
+            slotDesc.setColumn(col);
+            // alaways nullable
+            slotDesc.setIsNullable(true);
+            slotDesc.setIsMaterialized(true);
+            srcSlotIds.add(slotDesc.getId().asInt());
+            slotDescByName.put(name, slotDesc);
+            LOG.debug("add dynamic column to srcTupleDesc with name:{} id:{}", name, slotDesc.getId().asInt());
+        }
+        LOG.debug("plan srcTupleDesc {}", srcTupleDesc.toString());
+
         /*
          * The extension column of the materialized view is added to the expression evaluation of load
          * To avoid nested expressions. eg : column(a, tmp_c, c = expr(tmp_c)) ,
@@ -1359,14 +1380,14 @@ public class Load {
                 Set<String> tableNames = loadJob.getTableNames();
                 if (tableNames.isEmpty()) {
                     // forward compatibility
-                    if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), dbName,
+                    if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName,
                             PrivPredicate.LOAD)) {
                         continue;
                     }
                 } else {
                     boolean auth = true;
                     for (String tblName : tableNames) {
-                        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), dbName,
+                        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName,
                                 tblName, PrivPredicate.LOAD)) {
                             auth = false;
                             break;
@@ -1594,83 +1615,6 @@ public class Load {
         Collections.sort(infos, comparator);
 
         return infos;
-    }
-
-    public LoadErrorHub.Param getLoadErrorHubInfo() {
-        return loadErrorHubParam;
-    }
-
-    public void setLoadErrorHubInfo(LoadErrorHub.Param info) {
-        this.loadErrorHubParam = info;
-    }
-
-    public void setLoadErrorHubInfo(Map<String, String> properties) throws DdlException {
-        String type = properties.get("type");
-        if (type.equalsIgnoreCase("MYSQL")) {
-            String host = properties.get("host");
-            if (Strings.isNullOrEmpty(host)) {
-                throw new DdlException("mysql host is missing");
-            }
-
-            int port = -1;
-            try {
-                port = Integer.valueOf(properties.get("port"));
-            } catch (NumberFormatException e) {
-                throw new DdlException("invalid mysql port: " + properties.get("port"));
-            }
-
-            String user = properties.get("user");
-            if (Strings.isNullOrEmpty(user)) {
-                throw new DdlException("mysql user name is missing");
-            }
-
-            String db = properties.get("database");
-            if (Strings.isNullOrEmpty(db)) {
-                throw new DdlException("mysql database is missing");
-            }
-
-            String tbl = properties.get("table");
-            if (Strings.isNullOrEmpty(tbl)) {
-                throw new DdlException("mysql table is missing");
-            }
-
-            String pwd = Strings.nullToEmpty(properties.get("password"));
-
-            MysqlLoadErrorHub.MysqlParam param = new MysqlLoadErrorHub.MysqlParam(host, port, user, pwd, db, tbl);
-            loadErrorHubParam = LoadErrorHub.Param.createMysqlParam(param);
-        } else if (type.equalsIgnoreCase("BROKER")) {
-            String brokerName = properties.get("name");
-            if (Strings.isNullOrEmpty(brokerName)) {
-                throw new DdlException("broker name is missing");
-            }
-            properties.remove("name");
-
-            if (!Env.getCurrentEnv().getBrokerMgr().containsBroker(brokerName)) {
-                throw new DdlException("broker does not exist: " + brokerName);
-            }
-
-            String path = properties.get("path");
-            if (Strings.isNullOrEmpty(path)) {
-                throw new DdlException("broker path is missing");
-            }
-            properties.remove("path");
-
-            // check if broker info is invalid
-            BlobStorage blobStorage = BlobStorage.create(brokerName, StorageBackend.StorageType.BROKER, properties);
-            Status st = blobStorage.checkPathExist(path);
-            if (!st.ok()) {
-                throw new DdlException("failed to visit path: " + path + ", err: " + st.getErrMsg());
-            }
-
-            BrokerLoadErrorHub.BrokerParam param = new BrokerLoadErrorHub.BrokerParam(brokerName, path, properties);
-            loadErrorHubParam = LoadErrorHub.Param.createBrokerParam(param);
-        } else if (type.equalsIgnoreCase("null")) {
-            loadErrorHubParam = LoadErrorHub.Param.createNullParam();
-        }
-
-        Env.getCurrentEnv().getEditLog().logSetLoadErrorHub(loadErrorHubParam);
-
-        LOG.info("set load error hub info: {}", loadErrorHubParam);
     }
 
     public static class JobInfo {

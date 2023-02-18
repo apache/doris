@@ -35,7 +35,7 @@
                     "label": "Construct Docker",
                     "items": [
                         "install/construct-docker/construct-docker-image",
-                        "install/construct-docker/construct-docker-compose"
+                        "install/construct-docker/run-docker-cluster"
                     ]
                 }
             ]
@@ -49,11 +49,14 @@
                 "data-table/basic-usage",
                 "data-table/hit-the-rollup",
                 "data-table/best-practice",
+                "data-table/dynamic-schema-table",
                 {
                     "type": "category",
                     "label": "Index",
                     "items": [
+                        "data-table/index/inverted-index",
                         "data-table/index/bloomfilter",
+                        "data-table/index/ngram-bloomfilter-index",
                         "data-table/index/prefix-index",
                         "data-table/index/bitmap-index"
                     ]
@@ -157,6 +160,7 @@
                         "advanced/join-optimization/doris-join-optimization"
                     ]
                 },
+                "advanced/pipeline-execution-engine",
                 "advanced/materialized-view",
                 "advanced/broker",
                 {
@@ -165,7 +169,8 @@
                     "items": [
                         "advanced/best-practice/query-analysis",
                         "advanced/best-practice/import-analysis",
-                        "advanced/best-practice/debug-log"
+                        "advanced/best-practice/debug-log",
+                        "advanced/best-practice/compaction"
                     ]
                 },
                 "advanced/resource",
@@ -175,7 +180,8 @@
                 "advanced/time-zone",
                 "advanced/small-file-mgr",
                 "advanced/cold_hot_separation",
-                "advanced/compute_node"
+                "advanced/compute_node",
+                "advanced/hight-concurrent-point-query"
             ]
         },
         {
@@ -206,7 +212,8 @@
                         "lakehouse/external-table/hive"
                     ]
                 },
-                "lakehouse/file"
+                "lakehouse/file",
+                "lakehouse/filecache"
             ]
         },
         {
@@ -222,18 +229,6 @@
                 "ecosystem/audit-plugin",
                 "ecosystem/cloudcanal",
                 "ecosystem/hive-bitmap-udf",
-                {
-                    "type": "category",
-                    "label": "Doris Manager",
-                    "items": [
-                        "ecosystem/doris-manager/compiling-deploying",
-                        "ecosystem/doris-manager/initializing",
-                        "ecosystem/doris-manager/cluster-managenent",
-                        "ecosystem/doris-manager/space-list",
-                        "ecosystem/doris-manager/space-management",
-                        "ecosystem/doris-manager/system-settings"
-                    ]
-                },
                 {
                     "type": "category",
                     "label": "SeaTunnel",
@@ -1182,6 +1177,7 @@
             "type": "category",
             "label": "Release notes",
             "items": [
+                "releasenotes/release-1.2.2",
                 "releasenotes/release-1.2.1",
                 "releasenotes/release-1.2.0",
                 "releasenotes/release-1.1.5",

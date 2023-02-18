@@ -125,6 +125,15 @@ public abstract class ScanNode extends PlanNode {
      */
     public abstract List<TScanRangeLocations> getScanRangeLocations(long maxScanRangeLength);
 
+    /**
+     * Update required_slots in scan node contexts. This is called after Nereids planner do the projection.
+     * In the projection process, some slots may be removed. So call this to update the slots info.
+     * Currently, it is only used by ExternalFileScanNode, add the interface here to keep the Nereids code clean.
+     */
+    public void updateRequiredSlots() throws UserException {
+        return;
+    }
+
     // TODO(ML): move it into PrunerOptimizer
     public void computeColumnFilter() {
         for (Column column : desc.getTable().getBaseSchema()) {

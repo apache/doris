@@ -57,6 +57,7 @@ import java.util.Optional;
 /**
  * coercion character literal to another side
  */
+@Deprecated
 @DependsRules(CheckLegalityBeforeTypeCoercion.class)
 public class CharacterLiteralTypeCoercion extends AbstractExpressionRewriteRule {
 

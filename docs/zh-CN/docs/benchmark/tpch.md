@@ -159,7 +159,7 @@ sh gen-tpch-data.sh
 
 在调用导入脚本前，需要将 FE 的 ip 端口等信息写在 `doris-cluster.conf` 文件中。
 
-文件位置在 `${DORIS_HOME}/tools/ssb-tools/conf/` 目录下。
+文件位置在 `${DORIS_HOME}/tools/tpch-tools/conf/` 目录下。
 
 文件内容包括 FE 的 ip，HTTP 端口，用户名，密码以及待导入数据的 DB 名称：
 

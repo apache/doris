@@ -91,6 +91,7 @@ enum TPrimitiveType {
   DECIMAL64,
   DECIMAL128I,
   JSONB,
+  VARIANT,
   UNSUPPORTED
 }
 
@@ -98,7 +99,8 @@ enum TTypeNodeType {
     SCALAR,
     ARRAY,
     MAP,
-    STRUCT
+    STRUCT,
+    VARIANT,
 }
 
 enum TStorageBackendType {
@@ -126,6 +128,7 @@ struct TScalarType {
 struct TStructField {
     1: required string name
     2: optional string comment
+    3: optional bool contains_null
 }
 
 struct TTypeNode {
@@ -203,8 +206,10 @@ enum TTaskType {
     UNINSTALL_PLUGIN,
     COMPACTION,
     STORAGE_MEDIUM_MIGRATE_V2,
-    NOTIFY_UPDATE_STORAGE_POLICY,
-    PUSH_COOLDOWN_CONF
+    NOTIFY_UPDATE_STORAGE_POLICY, // deprecated
+    PUSH_COOLDOWN_CONF,
+    PUSH_STORAGE_POLICY,
+    ALTER_INVERTED_INDEX
 }
 
 enum TStmtType {

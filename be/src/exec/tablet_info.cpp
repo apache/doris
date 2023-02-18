@@ -31,6 +31,9 @@ void OlapTableIndexSchema::to_protobuf(POlapTableIndexSchema* pindex) const {
     for (auto column : columns) {
         column->to_schema_pb(pindex->add_columns_desc());
     }
+    for (auto index : indexes) {
+        index->to_schema_pb(pindex->add_indexes_desc());
+    }
 }
 
 Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
@@ -62,6 +65,11 @@ Status OlapTableSchemaParam::init(const POlapTableSchemaParam& pschema) {
             tc->init_from_pb(pcolumn_desc);
             index->columns.emplace_back(tc);
         }
+        for (auto& pindex_desc : p_index.indexes_desc()) {
+            TabletIndex* ti = _obj_pool.add(new TabletIndex());
+            ti->init_from_pb(pindex_desc);
+            index->indexes.emplace_back(ti);
+        }
         _indexes.emplace_back(index);
     }
 
@@ -76,6 +84,7 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
     _db_id = tschema.db_id;
     _table_id = tschema.table_id;
     _version = tschema.version;
+    _is_dynamic_schema = tschema.is_dynamic_schema;
     std::map<std::string, SlotDescriptor*> slots_map;
     _tuple_desc = _obj_pool.add(new TupleDescriptor(tschema.tuple_desc));
     for (auto& t_slot_desc : tschema.slot_descs) {
@@ -100,6 +109,20 @@ Status OlapTableSchemaParam::init(const TOlapTableSchemaParam& tschema) {
                 TabletColumn* tc = _obj_pool.add(new TabletColumn());
                 tc->init_from_thrift(tcolumn_desc);
                 index->columns.emplace_back(tc);
+            }
+        }
+        if (t_index.__isset.indexes_desc) {
+            for (auto& tindex_desc : t_index.indexes_desc) {
+                std::vector<int32_t> column_unique_ids(tindex_desc.columns.size());
+                for (size_t i = 0; i < tindex_desc.columns.size(); i++) {
+                    auto it = slots_map.find(tindex_desc.columns[i]);
+                    if (it != std::end(slots_map)) {
+                        column_unique_ids[i] = it->second->col_unique_id();
+                    }
+                }
+                TabletIndex* ti = _obj_pool.add(new TabletIndex());
+                ti->init_from_thrift(tindex_desc, column_unique_ids);
+                index->indexes.emplace_back(ti);
             }
         }
         _indexes.emplace_back(index);

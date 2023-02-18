@@ -15,6 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 suite("test_materialized_view_nereids") {
+    '''
     def tbName1 = "test_materialized_view1"
     def tbName2 = "test_materialized_view2"
 
@@ -121,4 +122,5 @@ suite("test_materialized_view_nereids") {
 
     sql "DROP TABLE ${tbName1} FORCE;"
     sql "DROP TABLE ${tbName2} FORCE;"
+    '''
 }

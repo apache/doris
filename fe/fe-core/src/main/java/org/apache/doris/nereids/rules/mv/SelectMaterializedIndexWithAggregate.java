@@ -493,11 +493,17 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         switch (table.getKeysType()) {
             case AGG_KEYS:
             case UNIQUE_KEYS: {
-                // Only checking pre-aggregation status by base index is enough for aggregate-keys and
-                // unique-keys OLAP table.
-                // Because the schemas in non-base materialized index are subsets of the schema of base index.
-                PreAggStatus preAggStatus = checkPreAggStatus(scan, table.getBaseIndexId(), predicates,
-                        aggregateFunctions, groupingExprs);
+                final PreAggStatus preAggStatus;
+                if (preAggEnabledByHint(scan)) {
+                    // PreAggStatus could be enabled by pre-aggregation hint for agg-keys and unique-keys.
+                    preAggStatus = PreAggStatus.on();
+                } else {
+                    // Only checking pre-aggregation status by base index is enough for aggregate-keys and
+                    // unique-keys OLAP table.
+                    // Because the schemas in non-base materialized index are subsets of the schema of base index.
+                    preAggStatus = checkPreAggStatus(scan, table.getBaseIndexId(), predicates,
+                            aggregateFunctions, groupingExprs);
+                }
                 if (preAggStatus.isOff()) {
                     // return early if pre agg status if off.
                     return new SelectResult(preAggStatus, scan.getTable().getBaseIndexId(), new ExprRewriteMap());

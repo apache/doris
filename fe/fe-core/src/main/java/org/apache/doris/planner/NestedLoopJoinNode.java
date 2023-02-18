@@ -228,6 +228,7 @@ public class NestedLoopJoinNode extends JoinNodeBase {
         StringBuilder output =
                 new StringBuilder().append(detailPrefix).append("join op: ").append(joinOp.toString()).append("(")
                         .append(distrModeStr).append(")\n");
+        output.append(detailPrefix).append("is mark: ").append(isMarkJoin()).append("\n");
 
         if (detailLevel == TExplainLevel.BRIEF) {
             output.append(detailPrefix).append(

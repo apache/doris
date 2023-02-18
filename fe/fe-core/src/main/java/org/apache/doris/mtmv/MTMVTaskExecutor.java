@@ -125,6 +125,10 @@ public class MTMVTaskExecutor implements Comparable<MTMVTaskExecutor> {
         return task;
     }
 
+    public void setTask(MTMVTask task) {
+        this.task = task;
+    }
+
     public MTMVTask initTask(String taskId, Long createTime) {
         MTMVTask task = new MTMVTask();
         task.setTaskId(taskId);

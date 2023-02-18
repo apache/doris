@@ -111,8 +111,8 @@ public class SlotDescriptor {
         return isAgg;
     }
 
-    public void setInvalid() {
-        this.needMaterialize = false;
+    public void setNeedMaterialize(boolean needMaterialize) {
+        this.needMaterialize = needMaterialize;
     }
 
     public boolean isInvalid() {
@@ -163,6 +163,10 @@ public class SlotDescriptor {
         this.column = column;
         this.type = column.getType();
         this.originType = column.getOriginType();
+    }
+
+    public void setSrcColumn(Column column) {
+        this.column = column;
     }
 
     public boolean isMaterialized() {

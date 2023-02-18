@@ -311,7 +311,7 @@ Range partitioning also supports batch partitioning. For example, you can create
   In the above example, we specify `id` (INT type) and `city` (VARCHAR type) as the partitioning columns. The partitions are as follows:
 
   ```
-  p1_city: [("1", "Beijing"), ("1", "Shanghai")]
+  * p1_city: [("1", "Beijing"), ("1", "Shanghai")]
   * p2_city: [("2", "Beijing"), ("2", "Shanghai")]
   * p3_city: [("3", "Beijing"), ("3", "Shanghai")]
   ```

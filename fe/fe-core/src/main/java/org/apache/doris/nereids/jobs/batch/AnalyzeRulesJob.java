@@ -20,9 +20,8 @@ package org.apache.doris.nereids.jobs.batch;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.analyzer.Scope;
 import org.apache.doris.nereids.rules.analysis.AvgDistinctToSumDivCount;
-import org.apache.doris.nereids.rules.analysis.BindFunction;
+import org.apache.doris.nereids.rules.analysis.BindExpression;
 import org.apache.doris.nereids.rules.analysis.BindRelation;
-import org.apache.doris.nereids.rules.analysis.BindSlotReference;
 import org.apache.doris.nereids.rules.analysis.CheckPolicy;
 import org.apache.doris.nereids.rules.analysis.FillUpMissingSlots;
 import org.apache.doris.nereids.rules.analysis.NormalizeRepeat;
@@ -32,9 +31,6 @@ import org.apache.doris.nereids.rules.analysis.RegisterCTE;
 import org.apache.doris.nereids.rules.analysis.ReplaceExpressionByChildOutput;
 import org.apache.doris.nereids.rules.analysis.ResolveOrdinalInOrderByAndGroupBy;
 import org.apache.doris.nereids.rules.analysis.UserAuthentication;
-import org.apache.doris.nereids.rules.expression.rewrite.ExpressionNormalization;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.CharacterLiteralTypeCoercion;
-import org.apache.doris.nereids.rules.expression.rewrite.rules.TypeCoercion;
 import org.apache.doris.nereids.rules.rewrite.logical.HideOneRowRelationUnderUnion;
 
 import com.google.common.collect.ImmutableList;
@@ -61,8 +57,7 @@ public class AnalyzeRulesJob extends BatchRulesJob {
                     new BindRelation(),
                     new CheckPolicy(),
                     new UserAuthentication(),
-                    new BindSlotReference(scope),
-                    new BindFunction(),
+                    new BindExpression(scope),
                     new ProjectToGlobalAggregate(),
                     // this rule check's the logicalProject node's isDisinct property
                     // and replace the logicalProject node with a LogicalAggregate node
@@ -73,9 +68,7 @@ public class AnalyzeRulesJob extends BatchRulesJob {
                     new AvgDistinctToSumDivCount(),
                     new ResolveOrdinalInOrderByAndGroupBy(),
                     new ReplaceExpressionByChildOutput(),
-                    new HideOneRowRelationUnderUnion(),
-                    new ExpressionNormalization(cascadesContext.getConnectContext(),
-                                ImmutableList.of(CharacterLiteralTypeCoercion.INSTANCE, TypeCoercion.INSTANCE))
+                    new HideOneRowRelationUnderUnion()
                 ),
                 topDownBatch(
                     new FillUpMissingSlots(),

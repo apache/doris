@@ -216,13 +216,13 @@ See the `lower_case_table_names` section in [Variables](../../advanced/variables
 
   Note: You do not need to add the `.SSD` or `.HDD` suffix, but to specify the medium in the `storage_root_path` parameter
 
-    `storage_root_path=/home/disk1/doris,medium:hdd;/home/disk2/doris,medium:ssd`
+    `storage_root_path=/home/disk1/doris,medium:HDD;/home/disk2/doris,medium:SSD`
       
   **Description**
       
 
-    * 1./home/disk1/doris,medium:hdd  :  The storage medium is HDD;
-    * 2./home/disk2/doris,medium:ssd  :  The storage medium is SSD.
+    * 1./home/disk1/doris,medium:HDD  :  The storage medium is HDD;
+    * 2./home/disk2/doris,medium:SSD  :  The storage medium is SSD.
 
 * BE webserver_port configuration
 

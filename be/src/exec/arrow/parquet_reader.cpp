@@ -31,7 +31,6 @@
 #include "io/file_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
-#include "runtime/tuple.h"
 #include "util/string_util.h"
 #include "vec/common/string_ref.h"
 

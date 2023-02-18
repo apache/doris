@@ -35,8 +35,7 @@ struct FilterPredicates;
 class NewOlapScanner : public VScanner {
 public:
     NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit, bool aggregation,
-                   bool need_agg_finalize, const TPaloScanRange& scan_range,
-                   RuntimeProfile* profile);
+                   bool need_agg_finalize, RuntimeProfile* profile);
 
     Status open(RuntimeState* state) override;
 

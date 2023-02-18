@@ -17,12 +17,10 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.external.elasticsearch.EsRestClient;
-import org.apache.doris.external.elasticsearch.EsUtil;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -108,6 +106,11 @@ public class EsExternalCatalog extends ExternalCatalog {
                 EsResource.MAPPING_ES_ID_DEFAULT_VALUE));
     }
 
+    public boolean enableLikePushDown() {
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(EsResource.LIKE_PUSH_DOWN,
+                EsResource.LIKE_PUSH_DOWN_DEFAULT_VALUE));
+    }
+
     @Override
     protected void initLocalObjectsImpl() {
         esRestClient = new EsRestClient(getNodes(), getUsername(), getPassword(), enableSsl());
@@ -155,11 +158,5 @@ public class EsExternalCatalog extends ExternalCatalog {
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         return esRestClient.existIndex(this.esRestClient.getClient(), tblName);
-    }
-
-    @Override
-    public List<Column> getSchema(String dbName, String tblName) {
-        makeSureInitialized();
-        return EsUtil.genColumnsFromEs(getEsRestClient(), tblName, null, enableMappingEsId());
     }
 }

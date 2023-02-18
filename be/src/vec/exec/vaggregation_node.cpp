@@ -117,6 +117,9 @@ AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
             tnode.agg_node.use_fixed_length_serialization_opt;
     _agg_data = std::make_unique<AggregatedDataVariants>();
     _agg_arena_pool = std::make_unique<Arena>();
+    if (_needs_finalize && id() == 27) {
+        LOG(INFO) << "Log for ISSUE-16517: " << _row_descriptor.debug_string();
+    }
 }
 
 AggregationNode::~AggregationNode() = default;
@@ -139,6 +142,9 @@ Status AggregationNode::init(const TPlanNode& tnode, RuntimeState* state) {
                 &evaluator));
         _aggregate_evaluators.push_back(evaluator);
     }
+
+    _partitioned_hash_table_enabled = state->partitioned_hash_agg_rows_threshold() > 0;
+    _agg_data->set_enable_partitioned_hash_table(_partitioned_hash_table_enabled);
 
     const auto& agg_functions = tnode.agg_node.aggregate_functions;
     _is_merge = std::any_of(agg_functions.cbegin(), agg_functions.cend(),
@@ -296,6 +302,7 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
             memory_usage->AddHighWaterMarkCounter("SerializeKeyArena", TUnit::BYTES);
 
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
+    _build_table_convert_timer = ADD_TIMER(runtime_profile(), "BuildConvertToPartitionedTime");
     _serialize_key_timer = ADD_TIMER(runtime_profile(), "SerializeKeyTime");
     _exec_timer = ADD_TIMER(runtime_profile(), "ExecTime");
     _merge_timer = ADD_TIMER(runtime_profile(), "MergeTime");
@@ -316,6 +323,9 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
     _output_tuple_desc = state->desc_tbl().get_tuple_descriptor(_output_tuple_id);
     DCHECK_EQ(_intermediate_tuple_desc->slots().size(), _output_tuple_desc->slots().size());
     RETURN_IF_ERROR(VExpr::prepare(_probe_expr_ctxs, state, child(0)->row_desc()));
+
+    runtime_profile()->add_info_string("PartitionedHashTableEnabled",
+                                       _partitioned_hash_table_enabled ? "true" : "false");
 
     _mem_pool = std::make_unique<MemPool>();
 
@@ -407,6 +417,10 @@ Status AggregationNode::prepare_profile(RuntimeState* state) {
                             ((_total_size_of_aggregate_states + _align_aggregate_states - 1) /
                              _align_aggregate_states) *
                                     _align_aggregate_states));
+                    if constexpr (HashTableTraits<HashTableType>::is_partitioned_table) {
+                        agg_method.data.set_partitioned_threshold(
+                                state->partitioned_hash_agg_rows_threshold());
+                    }
                 },
                 _agg_data->_aggregated_method_variant);
         if (_is_merge) {
@@ -572,6 +586,11 @@ void AggregationNode::release_resource(RuntimeState* state) {
     if (_hash_table_size_counter) {
         std::visit(
                 [&](auto&& agg_method) {
+                    using HashTableType = std::decay_t<decltype(agg_method.data)>;
+                    if constexpr (HashTableTraits<HashTableType>::is_partitioned_table) {
+                        COUNTER_UPDATE(_build_table_convert_timer,
+                                       agg_method.data.get_convert_timer_value());
+                    }
                     COUNTER_SET(_hash_table_size_counter, int64_t(agg_method.data.size()));
                 },
                 _agg_data->_aggregated_method_variant);
@@ -893,18 +912,14 @@ void AggregationNode::_emplace_into_hash_table(AggregateDataPtr* places, ColumnR
                     AggregateDataPtr mapped = nullptr;
                     if constexpr (HashTableTraits<HashTableType>::is_phmap) {
                         if (LIKELY(i + HASH_MAP_PREFETCH_DIST < num_rows)) {
-                            if constexpr (HashTableTraits<HashTableType>::is_parallel_phmap) {
-                                agg_method.data.prefetch_by_key(state.get_key_holder(
-                                        i + HASH_MAP_PREFETCH_DIST, *_agg_arena_pool));
-                            } else
-                                agg_method.data.prefetch_by_hash(
-                                        _hash_values[i + HASH_MAP_PREFETCH_DIST]);
+                            agg_method.data.prefetch_by_hash(
+                                    _hash_values[i + HASH_MAP_PREFETCH_DIST]);
                         }
 
                         if constexpr (ColumnsHashing::IsSingleNullableColumnMethod<
                                               AggState>::value) {
-                            mapped = state.lazy_emplace_key(agg_method.data, _hash_values[i], i,
-                                                            *_agg_arena_pool, creator,
+                            mapped = state.lazy_emplace_key(agg_method.data, i, *_agg_arena_pool,
+                                                            _hash_values[i], creator,
                                                             creator_for_null_key);
                         } else {
                             mapped = state.lazy_emplace_key(agg_method.data, _hash_values[i], i,
@@ -959,16 +974,12 @@ void AggregationNode::_find_in_hash_table(AggregateDataPtr* places, ColumnRawPtr
                     auto find_result = [&]() {
                         if constexpr (HashTableTraits<HashTableType>::is_phmap) {
                             if (LIKELY(i + HASH_MAP_PREFETCH_DIST < num_rows)) {
-                                if constexpr (HashTableTraits<HashTableType>::is_parallel_phmap) {
-                                    agg_method.data.prefetch_by_key(state.get_key_holder(
-                                            i + HASH_MAP_PREFETCH_DIST, *_agg_arena_pool));
-                                } else
-                                    agg_method.data.prefetch_by_hash(
-                                            _hash_values[i + HASH_MAP_PREFETCH_DIST]);
+                                agg_method.data.prefetch_by_hash(
+                                        _hash_values[i + HASH_MAP_PREFETCH_DIST]);
                             }
 
-                            return state.find_key(agg_method.data, _hash_values[i], i,
-                                                  *_agg_arena_pool);
+                            return state.find_key_with_hash(agg_method.data, _hash_values[i], i,
+                                                            *_agg_arena_pool);
                         } else {
                             return state.find_key(agg_method.data, i, *_agg_arena_pool);
                         }

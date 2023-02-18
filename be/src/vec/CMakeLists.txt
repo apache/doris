@@ -49,12 +49,19 @@ set(VEC_FILES
   aggregate_functions/aggregate_function_histogram.cpp
   columns/column.cpp
   columns/column_array.cpp
+  columns/column_struct.cpp
   columns/column_const.cpp
   columns/column_decimal.cpp
   columns/column_nullable.cpp
   columns/column_string.cpp
   columns/column_vector.cpp
+  columns/column_map.cpp
   columns/columns_common.cpp
+  columns/column_object.cpp
+  json/json_parser.cpp
+  json/parse2column.cpp
+  json/path_in_data.cpp
+  common/schema_util.cpp
   common/demangle.cpp
   common/exception.cpp
   common/mremap.cpp
@@ -76,6 +83,7 @@ set(VEC_FILES
   core/materialize_block.cpp
   data_types/data_type.cpp
   data_types/data_type_array.cpp
+  data_types/data_type_struct.cpp
   data_types/data_type_bitmap.cpp
   data_types/data_type_factory.cpp
   data_types/data_type_fixed_length_object.cpp
@@ -87,13 +95,16 @@ set(VEC_FILES
   data_types/data_type_number_base.cpp
   data_types/data_type_string.cpp
   data_types/data_type_decimal.cpp
+  data_types/data_type_map.cpp
   data_types/get_least_supertype.cpp
+  data_types/convert_field_to_type.cpp
   data_types/nested_utils.cpp
   data_types/data_type_date.cpp
   data_types/data_type_date_time.cpp
   data_types/data_type_time_v2.cpp
   data_types/data_type_jsonb.cpp
   data_types/data_type_time.cpp
+  data_types/data_type_object.cpp
   exec/vaggregation_node.cpp
   exec/varrow_scanner.cpp
   exec/vsort_node.cpp
@@ -131,6 +142,8 @@ set(VEC_FILES
   exprs/vexpr_context.cpp
   exprs/vliteral.cpp
   exprs/varray_literal.cpp
+  exprs/vmap_literal.cpp
+  exprs/vstruct_literal.cpp
   exprs/vin_predicate.cpp
   exprs/vbloom_predicate.cpp
   exprs/vbitmap_predicate.cpp
@@ -222,6 +235,7 @@ set(VEC_FILES
   functions/function_java_udf.cpp
   functions/function_rpc.cpp
   functions/function_convert_tz.cpp
+  functions/function_nonnullable.cpp
   functions/least_greast.cpp
   functions/function_fake.cpp
   functions/url/function_url.cpp

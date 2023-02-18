@@ -187,6 +187,7 @@ struct TOlapTableIndexSchema {
     2: required list<string> columns
     3: required i32 schema_hash
     4: optional list<TColumn> columns_desc
+    5: optional list<TOlapTableIndex> indexes_desc
 }
 
 struct TOlapTableSchemaParam {
@@ -198,6 +199,7 @@ struct TOlapTableSchemaParam {
     4: required list<TSlotDescriptor> slot_descs
     5: required TTupleDescriptor tuple_desc
     6: required list<TOlapTableIndexSchema> indexes
+    7: optional bool is_dynamic_schema
 }
 
 struct TOlapTableIndex {

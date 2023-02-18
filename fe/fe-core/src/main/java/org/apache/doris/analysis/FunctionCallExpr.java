@@ -101,7 +101,8 @@ public class FunctionCallExpr extends Expr {
         java.util.function.BiFunction<ArrayList<Expr>, Type, Type> roundRule = (children, returnType) -> {
             Preconditions.checkArgument(children != null && children.size() > 0);
             if (children.size() == 1 && children.get(0).getType().isDecimalV3()) {
-                return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(), 0);
+                return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(),
+                        ((ScalarType) children.get(0).getType()).decimalScale());
             } else if (children.size() == 2) {
                 Preconditions.checkArgument(children.get(1) instanceof IntLiteral
                                 || (children.get(1) instanceof CastExpr
@@ -119,6 +120,19 @@ public class FunctionCallExpr extends Expr {
                 return returnType;
             }
         };
+        java.util.function.BiFunction<ArrayList<Expr>, Type, Type> arrayDateTimeV2OrDecimalV3Rule
+                = (children, returnType) -> {
+                    Preconditions.checkArgument(children != null && children.size() > 0);
+                    if (children.get(0).getType().isArrayType() && (
+                            ((ArrayType) children.get(0).getType()).getItemType().isDecimalV3()
+                                    || ((ArrayType) children.get(0)
+                                    .getType()).getItemType().isDecimalV2() || ((ArrayType) children.get(0)
+                                    .getType()).getItemType().isDatetimeV2())) {
+                        return ((ArrayType) children.get(0).getType()).getItemType();
+                    } else {
+                        return returnType;
+                    }
+                };
         PRECISION_INFER_RULE = new HashMap<>();
         PRECISION_INFER_RULE.put("sum", sumRule);
         PRECISION_INFER_RULE.put("multi_distinct_sum", sumRule);
@@ -149,29 +163,10 @@ public class FunctionCallExpr extends Expr {
             }
         });
 
-        PRECISION_INFER_RULE.put("array_min", (children, returnType) -> {
-            Preconditions.checkArgument(children != null && children.size() > 0);
-            if (children.get(0).getType().isArrayType() && (
-                    ((ArrayType) children.get(0).getType()).getItemType().isDecimalV3() || ((ArrayType) children.get(0)
-                            .getType()).getItemType().isDecimalV2() || ((ArrayType) children.get(0)
-                            .getType()).getItemType().isDatetimeV2())) {
-                return ((ArrayType) children.get(0).getType()).getItemType();
-            } else {
-                return returnType;
-            }
-        });
-
-        PRECISION_INFER_RULE.put("array_max", (children, returnType) -> {
-            Preconditions.checkArgument(children != null && children.size() > 0);
-            if (children.get(0).getType().isArrayType() && (
-                    ((ArrayType) children.get(0).getType()).getItemType().isDecimalV3() || ((ArrayType) children.get(0)
-                            .getType()).getItemType().isDecimalV2() || ((ArrayType) children.get(0)
-                            .getType()).getItemType().isDatetimeV2())) {
-                return ((ArrayType) children.get(0).getType()).getItemType();
-            } else {
-                return returnType;
-            }
-        });
+        PRECISION_INFER_RULE.put("array_min", arrayDateTimeV2OrDecimalV3Rule);
+        PRECISION_INFER_RULE.put("array_max", arrayDateTimeV2OrDecimalV3Rule);
+        PRECISION_INFER_RULE.put("element_at", arrayDateTimeV2OrDecimalV3Rule);
+        PRECISION_INFER_RULE.put("%element_extract%", arrayDateTimeV2OrDecimalV3Rule);
 
         PRECISION_INFER_RULE.put("round", roundRule);
         PRECISION_INFER_RULE.put("round_bankers", roundRule);
@@ -224,6 +219,10 @@ public class FunctionCallExpr extends Expr {
 
     public void setAggFnParams(FunctionParams aggFnParams) {
         this.aggFnParams = aggFnParams;
+    }
+
+    public FunctionParams getAggFnParams() {
+        return aggFnParams;
     }
 
     public void setIsAnalyticFnCall(boolean v) {
@@ -853,6 +852,7 @@ public class FunctionCallExpr extends Expr {
             if (!getChild(1).isConstant()) {
                 throw new AnalysisException(fnName + "function's second argument should be constant");
             }
+            throw new AnalysisException(fnName + "not support on vectorized engine now.");
         }
 
         if ((fnName.getFunction().equalsIgnoreCase("HLL_UNION_AGG")
@@ -1278,7 +1278,7 @@ public class FunctionCallExpr extends Expr {
                     String dbName = fnName.analyzeDb(analyzer);
                     if (!Strings.isNullOrEmpty(dbName)) {
                         // check operation privilege
-                        if (!Env.getCurrentEnv().getAuth()
+                        if (!Env.getCurrentEnv().getAccessManager()
                                 .checkDbPriv(ConnectContext.get(), dbName, PrivPredicate.SELECT)) {
                             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "SELECT");
                         }
@@ -1370,7 +1370,7 @@ public class FunctionCallExpr extends Expr {
                             || children.get(0).getType().isDatetimeV2() && args[ix].isDatetimeV2())) {
                         continue;
                     } else if ((fnName.getFunction().equalsIgnoreCase("array_min") || fnName.getFunction()
-                            .equalsIgnoreCase("array_max"))
+                            .equalsIgnoreCase("array_max") || fnName.getFunction().equalsIgnoreCase("element_at"))
                             && ((
                             children.get(0).getType().isDecimalV3() && ((ArrayType) args[ix]).getItemType()
                                     .isDecimalV3())
@@ -1418,12 +1418,12 @@ public class FunctionCallExpr extends Expr {
             Expr child1Result = getChild(1).getResultValue();
             if (child1Result instanceof StringLiteral) {
                 if (DateLiteral.hasTimePart(((StringLiteral) child1Result).getStringValue())) {
-                    this.type = ScalarType.getDefaultDateType(Type.DATETIME);
+                    this.type = Type.DATETIME;
                 } else {
-                    this.type = ScalarType.getDefaultDateType(Type.DATE);
+                    this.type = Type.DATE;
                 }
             } else {
-                this.type = ScalarType.getDefaultDateType(Type.DATETIME);
+                this.type = Type.DATETIME;
             }
         } else if (TIME_FUNCTIONS_WITH_PRECISION.contains(fnName.getFunction().toLowerCase())
                 && fn.getReturnType().isDatetimeV2()) {
@@ -1457,6 +1457,28 @@ public class FunctionCallExpr extends Expr {
         if (fnName.getFunction().equalsIgnoreCase("array")) {
             if (children.size() > 0) {
                 this.type = new ArrayType(children.get(0).getType());
+            }
+        } else if (fnName.getFunction().equalsIgnoreCase("if")) {
+            if (children.get(1).getType().isArrayType() && (
+                    ((ArrayType) children.get(1).getType()).getItemType().isDecimalV3()
+                            || ((ArrayType) children.get(1)
+                            .getType()).getItemType().isDecimalV2() || ((ArrayType) children.get(1)
+                            .getType()).getItemType().isDatetimeV2())) {
+                this.type = children.get(1).getType();
+            }
+        } else if (fnName.getFunction().equalsIgnoreCase("array_distinct") || fnName.getFunction()
+                .equalsIgnoreCase("array_remove") || fnName.getFunction().equalsIgnoreCase("array_sort")
+                || fnName.getFunction().equalsIgnoreCase("array_overlap")
+                || fnName.getFunction().equalsIgnoreCase("array_union")
+                || fnName.getFunction().equalsIgnoreCase("array_intersect")
+                || fnName.getFunction().equalsIgnoreCase("array_compact")
+                || fnName.getFunction().equalsIgnoreCase("array_slice")
+                || fnName.getFunction().equalsIgnoreCase("array_popback")
+                || fnName.getFunction().equalsIgnoreCase("reverse")
+                || fnName.getFunction().equalsIgnoreCase("%element_slice%")
+                || fnName.getFunction().equalsIgnoreCase("array_except")) {
+            if (children.size() > 0) {
+                this.type = children.get(0).getType();
             }
         }
 

@@ -46,7 +46,7 @@ public:
 
     virtual Status close() override;
 
-    const ResultList& results() { return _results; };
+    const ResultList& results() { return _results; }
 
 private:
     void _init_profile();
@@ -54,7 +54,7 @@ private:
     template <PrimitiveType type, bool is_nullable>
     Status _add_one_column(const ColumnPtr& column_ptr, std::unique_ptr<TFetchDataResult>& result,
                            std::vector<MysqlRowBuffer<is_binary_format>>& rows_buffer,
-                           const DataTypePtr& nested_type_ptr = nullptr, int scale = -1);
+                           int scale = -1, const DataTypes& sub_types = DataTypes());
     int _add_one_cell(const ColumnPtr& column_ptr, size_t row_idx, const DataTypePtr& type,
                       MysqlRowBuffer<is_binary_format>& buffer, int scale = -1);
 

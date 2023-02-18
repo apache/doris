@@ -25,7 +25,11 @@ class JsonbSerializeUtil {
 public:
     static void block_to_jsonb(const TabletSchema& schema, const Block& block, ColumnString& dst,
                                int num_cols);
+    // batch rows
     static void jsonb_to_block(const TupleDescriptor& desc, const ColumnString& jsonb_column,
+                               Block& dst);
+    // single row
+    static void jsonb_to_block(const TupleDescriptor& desc, const char* data, size_t size,
                                Block& dst);
 };
 } // namespace doris::vectorized

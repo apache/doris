@@ -61,6 +61,9 @@ struct SegmentWriterOptions {
     bool enable_unique_key_merge_on_write = false;
 
     RowsetWriterContext* rowset_ctx = nullptr;
+    // If it is directly write from load procedure, else
+    // it could be compaction or schema change etc..
+    bool is_direct_write = false;
 };
 
 class SegmentWriter {
@@ -70,10 +73,11 @@ public:
                            uint32_t max_row_per_segment, const SegmentWriterOptions& opts);
     ~SegmentWriter();
 
-    Status init();
+    Status init(const vectorized::Block* block = nullptr);
 
     // for vertical compaction
-    Status init(const std::vector<uint32_t>& col_ids, bool has_key);
+    Status init(const std::vector<uint32_t>& col_ids, bool has_key,
+                const vectorized::Block* block = nullptr);
 
     template <typename RowType>
     Status append_row(const RowType& row);
@@ -103,10 +107,12 @@ public:
 
     DataDir* get_data_dir() { return _data_dir; }
     bool is_unique_key() { return _tablet_schema->keys_type() == UNIQUE_KEYS; }
-    // add an extra column writer for writing row column
-    Status append_row_column_writer();
 
 private:
+    Status _create_writers_with_dynamic_block(
+            const vectorized::Block* block,
+            std::function<Status(uint32_t, const TabletColumn&)> writer_creator);
+    Status _create_writers(std::function<Status(uint32_t, const TabletColumn&)> writer_creator);
     DISALLOW_COPY_AND_ASSIGN(SegmentWriter);
     Status _write_data();
     Status _write_ordinal_index();
@@ -118,6 +124,7 @@ private:
     Status _write_primary_key_index();
     Status _write_footer();
     Status _write_raw_data(const std::vector<Slice>& slices);
+    void _maybe_invalid_row_cache(const std::string& key);
     std::string _encode_keys(const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
                              size_t pos, bool null_first = true);
     // for unique-key merge on write and segment min_max key
@@ -127,6 +134,7 @@ private:
     void set_min_max_key(const Slice& key);
     void set_min_key(const Slice& key);
     void set_max_key(const Slice& key);
+    bool _should_create_writers_with_dynamic_block(size_t num_columns_in_block);
 
     void clear();
 

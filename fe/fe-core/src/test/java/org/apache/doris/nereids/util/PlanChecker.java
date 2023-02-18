@@ -23,11 +23,14 @@ import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
+import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.jobs.JobContext;
 import org.apache.doris.nereids.jobs.batch.NereidsRewriteJobExecutor;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
+import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.memo.Memo;
@@ -36,6 +39,7 @@ import org.apache.doris.nereids.pattern.GroupExpressionMatching;
 import org.apache.doris.nereids.pattern.MatchingContext;
 import org.apache.doris.nereids.pattern.PatternDescriptor;
 import org.apache.doris.nereids.pattern.PatternMatcher;
+import org.apache.doris.nereids.properties.DistributionSpecGather;
 import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleFactory;
@@ -43,11 +47,15 @@ import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
+import org.apache.doris.planner.PlanFragment;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
 
@@ -55,9 +63,9 @@ import com.google.common.base.Supplier;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Assertions;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
-import java.util.stream.Collectors;
 
 /**
  * Utility to apply rules to plan and check output plan matches the expected pattern.
@@ -173,13 +181,46 @@ public class PlanChecker {
     }
 
     public PlanChecker optimize() {
+        double now = System.currentTimeMillis();
         new OptimizeRulesJob(cascadesContext).execute();
+        System.out.println("cascades:" + (System.currentTimeMillis() - now));
+        return this;
+    }
+
+    public PlanChecker dpHypOptimize() {
+        double now = System.currentTimeMillis();
+        Group root = cascadesContext.getMemo().getRoot();
+        boolean changeRoot = false;
+        if (root.isJoinGroup()) {
+            // If the root group is join group, DPHyp can change the root group.
+            // To keep the root group is not changed, we add a dummy project operator above join
+            List<Slot> outputs = root.getLogicalExpression().getPlan().getOutput();
+            LogicalPlan plan = new LogicalProject(outputs, root.getLogicalExpression().getPlan());
+            CopyInResult copyInResult = cascadesContext.getMemo().copyIn(plan, null, false);
+            root = copyInResult.correspondingExpression.getOwnerGroup();
+            changeRoot = true;
+        }
+        cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
+        cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
+        if (changeRoot) {
+            cascadesContext.getMemo().setRoot(root.getLogicalExpression().child(0));
+        }
+        // if the root is not join, we need to optimize again.
+        optimize();
+        System.out.println("DPhyp:" + (System.currentTimeMillis() - now));
         return this;
     }
 
     public PlanChecker implement() {
         Plan plan = transformToPhysicalPlan(cascadesContext.getMemo().getRoot());
         Assertions.assertTrue(plan instanceof PhysicalPlan);
+        if (plan instanceof PhysicalQuickSort && !((PhysicalQuickSort) plan).getSortPhase().isLocal()) {
+            PhysicalQuickSort<? extends Plan> sort = (PhysicalQuickSort) plan;
+            plan = sort.withChildren(new PhysicalDistribute<>(
+                    DistributionSpecGather.INSTANCE,
+                    plan.child(0).getLogicalProperties(),
+                    plan.child(0)));
+        }
         physicalPlan = ((PhysicalPlan) plan);
         return this;
     }
@@ -203,8 +244,19 @@ public class PlanChecker {
             }
         }
         Assertions.assertNotNull(current);
-        return current.withChildren(group.getLogicalExpression().children()
-                .stream().map(this::transformToPhysicalPlan).collect(Collectors.toList()));
+        return flatGroupPlan(current);
+    }
+
+    private Plan flatGroupPlan(Plan plan) {
+        if (plan instanceof GroupPlan) {
+            return transformToPhysicalPlan(((GroupPlan) plan).getGroup());
+        }
+        List<Plan> newChildren = new ArrayList<>();
+        for (Plan child : plan.children()) {
+            newChildren.add(flatGroupPlan(child));
+        }
+        return (PhysicalPlan) plan.withChildren(newChildren);
+
     }
 
     public PlanChecker transform(PatternMatcher patternMatcher) {
@@ -495,6 +547,26 @@ public class PlanChecker {
             System.out.println("--------------------------------");
         }
         return this;
+    }
+
+    public String getExplainFragments() {
+        PhysicalPlan plan = getBestPlanTree();
+        PhysicalPlanTranslator t = new PhysicalPlanTranslator();
+        PlanTranslatorContext ctx = new PlanTranslatorContext();
+        plan.accept(t, ctx);
+
+        StringBuilder str = new StringBuilder();
+        List<PlanFragment> fragments = ctx.getPlanFragments();
+        for (int i = 0; i < fragments.size(); ++i) {
+            PlanFragment fragment = fragments.get(i);
+            if (i > 0) {
+                // a blank line between plan fragments
+                str.append("\n");
+            }
+            str.append("PLAN FRAGMENT " + i + "\n");
+            str.append(fragment.getExplainString(org.apache.doris.thrift.TExplainLevel.NORMAL));
+        }
+        return str.toString();
     }
 
     public int plansNumber() {

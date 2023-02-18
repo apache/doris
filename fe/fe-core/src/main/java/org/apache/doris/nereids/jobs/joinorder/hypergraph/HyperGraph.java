@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.jobs.joinorder.hypergraph;
 
+import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.bitmap.LongBitmap;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.trees.expressions.Alias;
@@ -45,7 +46,11 @@ public class HyperGraph {
     private final List<Node> nodes = new ArrayList<>();
     private final HashSet<Group> nodeSet = new HashSet<>();
     private final HashMap<Slot, Long> slotToNodeMap = new HashMap<>();
-    private final HashMap<Long, NamedExpression> complexProject = new HashMap<>();
+
+    // Record the complex project expression for some subgraph
+    // e.g. project (a + b)
+    //         |-- join(t1.a = t2.b)
+    private final HashMap<Long, List<NamedExpression>> complexProject = new HashMap<>();
 
     public List<Edge> getEdges() {
         return edges;
@@ -69,31 +74,29 @@ public class HyperGraph {
 
     /**
      * Store the relation between Alias Slot and Original Slot and its expression
-     * e.g. a = b
-     * project((c + d) as b)
-     * Note if the alias if the alias only associated with one endNode,
-     * e.g. a = b
-     * project((c + 1) as b)
-     * we need to replace the group of that node with this project group.
+     * e.g.,
+     * a = b
+     * |--- project((c + d) as b)
+     * <p>
+     * a = b
+     * |--- project((c + 1) as b)
      *
      * @param alias The alias Expression in project Operator
      */
-    public boolean addAlias(Alias alias, Group group) {
+    public boolean addAlias(Alias alias) {
+        Slot aliasSlot = alias.toSlot();
+        if (slotToNodeMap.containsKey(aliasSlot)) {
+            return true;
+        }
         long bitmap = LongBitmap.newBitmap();
         for (Slot slot : alias.getInputSlots()) {
             bitmap = LongBitmap.or(bitmap, slotToNodeMap.get(slot));
         }
-        Slot aliasSlot = alias.toSlot();
-        Preconditions.checkArgument(!slotToNodeMap.containsKey(aliasSlot));
         slotToNodeMap.put(aliasSlot, bitmap);
-        if (LongBitmap.getCardinality(bitmap) == 1) {
-            int index = LongBitmap.lowestOneIndex(bitmap);
-            nodeSet.remove(nodes.get(index).getGroup());
-            nodeSet.add(group);
-            nodes.get(index).replaceGroupWith(group);
-            return false;
+        if (!complexProject.containsKey(bitmap)) {
+            complexProject.put(bitmap, new ArrayList<>());
         }
-        complexProject.put(bitmap, alias);
+        complexProject.get(bitmap).add(alias);
         return true;
     }
 
@@ -116,7 +119,7 @@ public class HyperGraph {
         return nodeSet.contains(group);
     }
 
-    public HashMap<Long, NamedExpression> getComplexProject() {
+    public HashMap<Long, List<NamedExpression>> getComplexProject() {
         return complexProject;
     }
 
@@ -132,12 +135,9 @@ public class HyperGraph {
             LogicalJoin singleJoin = new LogicalJoin<>(join.getJoinType(), ImmutableList.of(expression), join.left(),
                     join.right());
             Edge edge = new Edge(singleJoin, edges.size());
-            Preconditions.checkArgument(expression.children().size() == 2);
-
-            long left = calNodeMap(expression.child(0).getInputSlots());
-            edge.setLeft(left);
-            long right = calNodeMap(expression.child(1).getInputSlots());
-            edge.setRight(right);
+            Pair<Long, Long> ends = findEnds(expression);
+            edge.setLeft(ends.first);
+            edge.setRight(ends.second);
             for (int nodeIndex : LongBitmap.getIterator(edge.getReferenceNodes())) {
                 nodes.get(nodeIndex).attachEdge(edge);
             }
@@ -145,6 +145,66 @@ public class HyperGraph {
         }
         // In MySQL, each edge is reversed and store in edges again for reducing the branch miss
         // We don't implement this trick now.
+    }
+
+    private int findRoot(List<Integer> parent, int idx) {
+        int root = parent.get(idx);
+        if (root != idx) {
+            root = findRoot(parent, root);
+        }
+        parent.set(idx, root);
+        return root;
+    }
+
+    private boolean isConnected(long bitmap, long excludeBitmap) {
+        if (LongBitmap.getCardinality(bitmap) == 1) {
+            return true;
+        }
+
+        // use unionSet to check whether the bitmap is connected
+        List<Integer> parent = new ArrayList<>();
+        for (int i = 0; i < nodes.size(); i++) {
+            parent.add(i, i);
+        }
+        for (Edge edge : edges) {
+            if (LongBitmap.isOverlap(edge.getLeft(), excludeBitmap)
+                    || LongBitmap.isOverlap(edge.getRight(), excludeBitmap)) {
+                continue;
+            }
+
+            int root = findRoot(parent, LongBitmap.nextSetBit(edge.getLeft(), 0));
+            for (int idx : LongBitmap.getIterator(edge.getLeft())) {
+                parent.set(idx, root);
+            }
+            for (int idx : LongBitmap.getIterator(edge.getRight())) {
+                parent.set(idx, root);
+            }
+        }
+
+        int root = findRoot(parent, LongBitmap.nextSetBit(bitmap, 0));
+        for (int idx : LongBitmap.getIterator(bitmap)) {
+            if (root != findRoot(parent, idx)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private Pair<Long, Long> findEnds(Expression expression) {
+        long bitmap = calNodeMap(expression.getInputSlots());
+        int cardinality = LongBitmap.getCardinality(bitmap);
+        Preconditions.checkArgument(cardinality > 1);
+        for (long subset : LongBitmap.getSubsetIterator(bitmap)) {
+            long left = subset;
+            long right = LongBitmap.newBitmapDiff(bitmap, left);
+            // when the graph without right node has a connected-sub-graph contains left nodes
+            // and the graph without left node has a connected-sub-graph contains right nodes.
+            // we can generate an edge for this expression
+            if (isConnected(left, right) && isConnected(right, left)) {
+                return Pair.of(left, right);
+            }
+        }
+        throw new RuntimeException("DPhyper meets unconnected subgraph");
     }
 
     private long calNodeMap(Set<Slot> slots) {

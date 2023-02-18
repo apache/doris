@@ -30,6 +30,7 @@ import org.apache.doris.nereids.jobs.batch.NereidsRewriteJobExecutor;
 import org.apache.doris.nereids.jobs.batch.OptimizeRulesJob;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
+import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.metrics.event.CounterEvent;
@@ -95,7 +96,6 @@ public class NereidsPlanner extends Planner {
         if (explainLevel.isPlanLevel) {
             return;
         }
-
         PhysicalPlan physicalPlan = (PhysicalPlan) resultPlan;
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator();
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
@@ -160,7 +160,6 @@ public class NereidsPlanner extends Planner {
                     return analyzedPlan;
                 }
             }
-
             // rule-based optimize
             rewrite();
             if (explainLevel == ExplainLevel.REWRITTEN_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
@@ -169,20 +168,17 @@ public class NereidsPlanner extends Planner {
                     return rewrittenPlan;
                 }
             }
-
             deriveStats();
 
-            // We need to do join reorder before cascades and after deriving stats
-            // joinReorder();
-            // TODO: What is the appropriate time to set physical properties? Maybe before enter.
-            // cascades style optimize phase.
-
-            // cost-based optimize and explore plan space
-            optimize();
+            if (statementContext.getConnectContext().getSessionVariable().isEnableDPHypOptimizer()) {
+                // TODO: use DPHyp according the number of join table
+                dpHypOptimize();
+            } else {
+                optimize();
+            }
 
             PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), requireProperties);
 
-            // post-process physical plan out of memo, just for future use.
             physicalPlan = postProcess(physicalPlan);
             if (explainLevel == ExplainLevel.OPTIMIZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
                 optimizedPlan = physicalPlan;
@@ -217,24 +213,19 @@ public class NereidsPlanner extends Planner {
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
     }
 
-    private void joinReorder() {
+    private void dpHypOptimize() {
         Group root = getRoot();
-        boolean changeRoot = false;
         if (root.isJoinGroup()) {
             // If the root group is join group, DPHyp can change the root group.
             // To keep the root group is not changed, we add a project operator above join
             List<Slot> outputs = root.getLogicalExpression().getPlan().getOutput();
-            GroupExpression newExpr = new GroupExpression(
-                    new LogicalProject(outputs, root.getLogicalExpression().getPlan()), Lists.newArrayList(root));
-            // FIXME: use wrong constructor.
-            root = new Group(null, newExpr, null);
-            changeRoot = true;
+            LogicalPlan plan = new LogicalProject(outputs, root.getLogicalExpression().getPlan());
+            CopyInResult copyInResult = cascadesContext.getMemo().copyIn(plan, null, false);
+            root = copyInResult.correspondingExpression.getOwnerGroup();
         }
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
-        if (changeRoot) {
-            cascadesContext.getMemo().setRoot(root.getLogicalExpression().child(0));
-        }
+        optimize();
     }
 
     /**

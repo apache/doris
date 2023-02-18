@@ -21,7 +21,6 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.thrift.TJavaUdfExecutorCtorParams;
 import org.apache.doris.udf.UdfUtils.JavaUdfDataType;
 
-import com.google.common.base.Preconditions;
 import org.apache.log4j.Logger;
 import org.apache.thrift.TDeserializer;
 import org.apache.thrift.TException;
@@ -327,8 +326,8 @@ public abstract class BaseExecutor {
                 return true;
             }
             case DECIMALV2: {
-                Preconditions.checkArgument(((BigDecimal) obj).scale() == 9, "Scale of DECIMALV2 must be 9");
-                BigInteger data = ((BigDecimal) obj).unscaledValue();
+                BigDecimal retValue = ((BigDecimal) obj).setScale(9, RoundingMode.HALF_EVEN);
+                BigInteger data = retValue.unscaledValue();
                 byte[] bytes = UdfUtils.convertByteOrder(data.toByteArray());
                 //TODO: here is maybe overflow also, and may find a better way to handle
                 byte[] value = new byte[16];
@@ -386,5 +385,6 @@ public abstract class BaseExecutor {
         }
     }
 
-    protected void updateOutputOffset(long offset) {}
+    protected void updateOutputOffset(long offset) {
+    }
 }

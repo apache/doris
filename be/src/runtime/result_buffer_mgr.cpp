@@ -55,7 +55,7 @@ Status ResultBufferMgr::init() {
 
 Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size,
                                       std::shared_ptr<BufferControlBlock>* sender,
-                                      bool enable_pipeline) {
+                                      bool enable_pipeline, int exec_timout) {
     *sender = find_control_block(query_id);
     if (*sender != nullptr) {
         LOG(WARNING) << "already have buffer control block for this instance " << query_id;
@@ -73,6 +73,13 @@ Status ResultBufferMgr::create_sender(const TUniqueId& query_id, int buffer_size
     {
         std::lock_guard<std::mutex> l(_lock);
         _buffer_map.insert(std::make_pair(query_id, control_block));
+        // BufferControlBlock should destroy after max_timeout
+        // for exceed max_timeout FE will return timeout to client
+        // otherwise in some case may block all fragment handle threads
+        // details see issue https://github.com/apache/doris/issues/16203
+        // add extra 5s for avoid corner case
+        int64_t max_timeout = time(nullptr) + exec_timout + 5;
+        cancel_at_time(max_timeout, query_id);
     }
     *sender = control_block;
     return Status::OK();
@@ -88,17 +95,6 @@ std::shared_ptr<BufferControlBlock> ResultBufferMgr::find_control_block(const TU
     }
 
     return std::shared_ptr<BufferControlBlock>();
-}
-
-Status ResultBufferMgr::fetch_data(const TUniqueId& query_id, TFetchDataResult* result) {
-    std::shared_ptr<BufferControlBlock> cb = find_control_block(query_id);
-
-    if (nullptr == cb) {
-        // the sender tear down its buffer block
-        return Status::InternalError("no result for this query.");
-    }
-
-    return cb->get_batch(result);
 }
 
 void ResultBufferMgr::fetch_data(const PUniqueId& finst_id, GetResultBatchCtx* ctx) {

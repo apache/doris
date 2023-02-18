@@ -21,7 +21,6 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.util.TypeCoercionUtils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -78,13 +77,7 @@ public class CaseWhen extends Expression {
 
     @Override
     public DataType getDataType() {
-        DataType outputType = child(0).getDataType();
-        for (Expression child : children) {
-            DataType tempType = outputType;
-            outputType = TypeCoercionUtils.findTightestCommonType(null,
-                    outputType, child.getDataType()).orElse(tempType);
-        }
-        return outputType;
+        return child(0).getDataType();
     }
 
     @Override

@@ -38,6 +38,7 @@ import org.apache.doris.nereids.trees.plans.algebra.Repeat;
 import org.apache.doris.nereids.trees.plans.algebra.Scan;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.algebra.TopN;
+import org.apache.doris.nereids.trees.plans.algebra.Window;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
@@ -57,6 +58,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalTopN;
 import org.apache.doris.nereids.trees.plans.logical.LogicalUnion;
+import org.apache.doris.nereids.trees.plans.logical.LogicalWindow;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalEmptyRelation;
@@ -68,7 +70,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
@@ -80,6 +81,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggrega
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTVFRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalUnion;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalWindow;
 import org.apache.doris.nereids.trees.plans.visitor.DefaultPlanVisitor;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.ColumnStatisticBuilder;
@@ -98,7 +100,6 @@ import java.util.stream.Collectors;
  * Used to calculate the stats for each plan
  */
 public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void> {
-
     private final GroupExpression groupExpression;
 
     private StatsCalculator(GroupExpression groupExpression) {
@@ -234,6 +235,15 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
         return computeGenerate(generate);
     }
 
+    public StatsDeriveResult visitLogicalWindow(LogicalWindow<? extends Plan> window, Void context) {
+        return computeWindow(window);
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalWindow(PhysicalWindow window, Void context) {
+        return computeWindow(window);
+    }
+
     @Override
     public StatsDeriveResult visitPhysicalEmptyRelation(PhysicalEmptyRelation emptyRelation, Void context) {
         return computeEmptyRelation(emptyRelation);
@@ -288,11 +298,6 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     @Override
     public StatsDeriveResult visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, Void context) {
         return computeTopN(topN);
-    }
-
-    @Override
-    public StatsDeriveResult visitPhysicalLocalQuickSort(PhysicalLocalQuickSort<? extends Plan> sort, Void context) {
-        return groupExpression.childStatistics(0);
     }
 
     @Override
@@ -610,5 +615,31 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
             columnStatsMap.put(output.getExprId(), columnStatistic);
         }
         return new StatsDeriveResult(count, columnStatsMap);
+    }
+
+    private StatsDeriveResult computeWindow(Window windowOperator) {
+        StatsDeriveResult stats = groupExpression.childStatistics(0);
+        Map<Id, ColumnStatistic> childColumnStats = stats.getSlotIdToColumnStats();
+        Map<Id, ColumnStatistic> columnStatisticMap = windowOperator.getWindowExpressions().stream()
+                .map(expr -> {
+                    ColumnStatistic value = null;
+                    Set<Slot> slots = expr.getInputSlots();
+                    if (slots.isEmpty()) {
+                        value = ColumnStatistic.DEFAULT;
+                    } else {
+                        for (Slot slot : slots) {
+                            if (childColumnStats.containsKey(slot.getExprId())) {
+                                value = childColumnStats.get(slot.getExprId());
+                                break;
+                            }
+                        }
+                        if (value == null) {
+                            // todo: how to set stats?
+                            value = ColumnStatistic.DEFAULT;
+                        }
+                    }
+                    return Pair.of(expr.toSlot().getExprId(), value);
+                }).collect(Collectors.toMap(Pair::key, Pair::value));
+        return new StatsDeriveResult(stats.getRowCount(), columnStatisticMap);
     }
 }

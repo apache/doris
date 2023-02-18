@@ -255,7 +255,7 @@ There are two ways to configure BE configuration items:
 #### `thrift_rpc_timeout_ms`
 
 * Description: thrift default timeout time
-* Default value: 5000
+* Default value: 10000
 
 #### `thrift_client_retry_interval_ms`
 
@@ -671,12 +671,6 @@ Metrics: {"filtered_rows":0,"input_row_num":3346807,"input_rowsets_count":42,"in
 
 * Description: The load error log will be deleted after this time
 * Default value: 48 (h)
-
-#### `load_process_max_memory_limit_bytes`
-
-* Description: The upper limit of memory occupied by all imported threads on a single node.
-  - Set these default values very large, because we don't want to affect load performance when users upgrade Doris. If necessary, the user should set these configurations correctly.
-* Default value: 107374182400 (100G)
 
 #### `load_process_max_memory_limit_percent`
 
@@ -1415,5 +1409,10 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 
 * Description: Default dirs to put jdbc drivers.
 * Default value: `${DORIS_HOME}/jdbc_drivers`
+
+#### `enable_parse_multi_dimession_array`
+
+* Description: Whether parse multidimensional array, if false encountering will return ERROR
+* Default value: true
 
 </version>

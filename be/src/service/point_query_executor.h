@@ -29,6 +29,9 @@
 
 namespace doris {
 
+class RowCache;
+class Cache;
+
 // For caching point lookup pre allocted blocks and exprs
 class Reusable {
 public:
@@ -40,8 +43,6 @@ public:
 
     Status init(const TDescriptorTable& t_desc_tbl, const std::vector<TExpr>& output_exprs,
                 size_t block_size = 1);
-
-    RuntimeState* runtime_state() { return _runtime_state.get(); }
 
     std::unique_ptr<vectorized::Block> get_block();
 
@@ -63,10 +64,93 @@ private:
     int64_t _create_timestamp = 0;
 };
 
+// RowCache is a LRU cache for row store
+class RowCache {
+public:
+    // The cache key for row lru cache
+    struct RowCacheKey {
+        RowCacheKey(int64_t tablet_id, const Slice& key) : tablet_id(tablet_id), key(key) {}
+        int64_t tablet_id;
+        Slice key;
+
+        // Encode to a flat binary which can be used as LRUCache's key
+        std::string encode() const {
+            std::string full_key;
+            full_key.resize(sizeof(int64_t) + key.size);
+            int8store(&full_key.front(), tablet_id);
+            memcpy((&full_key.front()) + sizeof(tablet_id), key.data, key.size);
+            return full_key;
+        }
+    };
+
+    // A handle for RowCache entry. This class make it easy to handle
+    // Cache entry. Users don't need to release the obtained cache entry. This
+    // class will release the cache entry when it is destroyed.
+    class CacheHandle {
+    public:
+        CacheHandle() = default;
+        CacheHandle(Cache* cache, Cache::Handle* handle) : _cache(cache), _handle(handle) {}
+        ~CacheHandle() {
+            if (_handle != nullptr) {
+                _cache->release(_handle);
+            }
+        }
+
+        CacheHandle(CacheHandle&& other) noexcept {
+            std::swap(_cache, other._cache);
+            std::swap(_handle, other._handle);
+        }
+
+        CacheHandle& operator=(CacheHandle&& other) noexcept {
+            std::swap(_cache, other._cache);
+            std::swap(_handle, other._handle);
+            return *this;
+        }
+
+        bool valid() { return _cache != nullptr && _handle != nullptr; }
+
+        Cache* cache() const { return _cache; }
+        Slice data() const { return _cache->value_slice(_handle); }
+
+    private:
+        Cache* _cache = nullptr;
+        Cache::Handle* _handle = nullptr;
+
+        // Don't allow copy and assign
+        DISALLOW_COPY_AND_ASSIGN(CacheHandle);
+    };
+
+    // Create global instance of this class
+    static void create_global_cache(int64_t capacity, uint32_t num_shards = kDefaultNumShards);
+
+    static RowCache* instance();
+
+    // Lookup a row key from cache,
+    // If the Row key is found, the cache entry will be written into handle.
+    // CacheHandle will release cache entry to cache when it destructs
+    // Return true if entry is found, otherwise return false.
+    bool lookup(const RowCacheKey& key, CacheHandle* handle);
+
+    // Insert a row with key into this cache.
+    // This function is thread-safe, and when two clients insert two same key
+    // concurrently, this function can assure that only one page is cached.
+    // The in_memory page will have higher priority.
+    void insert(const RowCacheKey& key, const Slice& data);
+
+    //
+    void erase(const RowCacheKey& key);
+
+private:
+    static constexpr uint32_t kDefaultNumShards = 128;
+    RowCache(int64_t capacity, int num_shards = kDefaultNumShards);
+    static RowCache* _s_instance;
+    std::unique_ptr<Cache> _cache = nullptr;
+};
+
 // A cache used for prepare stmt.
 // One connection per stmt perf uuid
 // Use DoublyBufferedData to wrap Cache for performance and thread safe,
-// since it's not barely modified
+// since it's barely modified
 class LookupCache {
 public:
     // uuid to reusable
@@ -172,10 +256,12 @@ private:
     PTabletKeyLookupResponse* _response;
     TabletSharedPtr _tablet;
     std::vector<std::string> _primary_keys;
-    std::vector<RowLocation> _row_locations;
+    std::vector<RowCache::CacheHandle> _cached_row_data;
+    std::vector<std::optional<RowLocation>> _row_locations;
     std::shared_ptr<Reusable> _reusable;
     std::unique_ptr<vectorized::Block> _result_block;
     Metrics _profile_metrics;
+    size_t _row_cache_hits = 0;
     bool _hit_lookup_cache = false;
     bool _binary_row_format = false;
 };

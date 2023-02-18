@@ -29,6 +29,17 @@
 
 namespace doris::vectorized {
 
+#define RETURN_REAL_TYPE_FOR_DATEV2_FUNCTION(TYPE)                                       \
+    bool is_nullable = false;                                                            \
+    bool is_datev2 = false;                                                              \
+    for (auto it : arguments) {                                                          \
+        is_nullable = is_nullable || it.type->is_nullable();                             \
+        is_datev2 = is_datev2 || WhichDataType(remove_nullable(it.type)).is_date_v2() || \
+                    WhichDataType(remove_nullable(it.type)).is_date_time_v2();           \
+    }                                                                                    \
+    return is_nullable || !is_datev2 ? make_nullable(std::make_shared<TYPE>())           \
+                                     : std::make_shared<TYPE>();
+
 class Field;
 
 // Only use dispose the variadic argument
@@ -530,9 +541,9 @@ public:
     bool is_deterministic() const override { return function->is_deterministic(); }
 
     bool can_fast_execute() const override {
-        return function->get_name() == "eq" || function->get_name() == "ne" ||
-               function->get_name() == "lt" || function->get_name() == "gt" ||
-               function->get_name() == "le" || function->get_name() == "ge";
+        auto function_name = function->get_name();
+        return function_name == "eq" || function_name == "ne" || function_name == "lt" ||
+               function_name == "gt" || function_name == "le" || function_name == "ge";
     }
 
     bool is_deterministic_in_scope_of_query() const override {

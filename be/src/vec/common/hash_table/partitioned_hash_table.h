@@ -20,6 +20,7 @@
 #pragma once
 
 #include "vec/common/hash_table/hash_table.h"
+#include "vec/common/hash_table/hash_table_utils.h"
 
 /** Partitioned hash table.
   * Represents 16 (or 1ULL << BITS_FOR_SUB_TABLE) small hash tables (sub table count of the first level).
@@ -83,7 +84,7 @@ public:
         return *this;
     }
 
-    size_t hash(const Key& x) const { return Impl::Hash::operator()(x); }
+    size_t hash(const Key& x) const { return level0_sub_table.hash(x); }
 
     float get_factor() const { return MAX_SUB_TABLE_OCCUPANCY_FRACTION; }
 
@@ -205,6 +206,9 @@ public:
         }
     }
 
+    bool has_null_key_data() const { return false; }
+    char* get_null_key_data() { return nullptr; }
+
 protected:
     typename Impl::iterator begin_of_next_non_empty_sub_table_idx(size_t& sub_table_idx) {
         while (sub_table_idx != NUM_LEVEL1_SUB_TABLES && level1_sub_tables[sub_table_idx].empty())
@@ -263,11 +267,11 @@ public:
             return *this;
         }
 
-        auto& operator*() const { return *current_it; }
-        auto* operator->() const { return current_it.get_ptr(); }
+        auto& operator*() { return *current_it; }
+        auto* operator->() { return current_it.get_ptr(); }
 
-        auto* get_ptr() const { return current_it.get_ptr(); }
-        size_t get_hash() const { return current_it.get_hash(); }
+        auto* get_ptr() { return current_it.get_ptr(); }
+        size_t get_hash() { return current_it.get_hash(); }
     };
 
     class const_iterator /// NOLINT
@@ -398,6 +402,17 @@ public:
         }
     }
 
+    void ALWAYS_INLINE prefetch_by_hash(size_t hash_value) {
+        if constexpr (HashTableTraits<Impl>::is_phmap) {
+            if (_is_partitioned) {
+                const auto sub_table_idx = get_sub_table_from_hash(hash_value);
+                level1_sub_tables[sub_table_idx].prefetch_by_hash(hash_value);
+            } else {
+                level0_sub_table.prefetch_by_hash(hash_value);
+            }
+        }
+    }
+
     template <bool READ, typename KeyHolder>
     void ALWAYS_INLINE prefetch(KeyHolder& key_holder) {
         if (_is_partitioned) {
@@ -457,6 +472,32 @@ public:
         emplace(key_holder, it, inserted, hash_value);
     }
 
+    template <typename KeyHolder, typename Func>
+    void ALWAYS_INLINE lazy_emplace(KeyHolder&& key_holder, LookupResult& it, Func&& f) {
+        size_t hash_value = hash(key_holder_get_key(key_holder));
+        lazy_emplace(key_holder, it, hash_value, std::forward<Func>(f));
+    }
+
+    template <typename KeyHolder, typename Func>
+    void ALWAYS_INLINE lazy_emplace(KeyHolder&& key_holder, LookupResult& it, size_t hash_value,
+                                    Func&& f) {
+        if (_is_partitioned) {
+            size_t sub_table_idx = get_sub_table_from_hash(hash_value);
+            level1_sub_tables[sub_table_idx].lazy_emplace(key_holder, it, hash_value,
+                                                          std::forward<Func>(f));
+        } else {
+            level0_sub_table.lazy_emplace(key_holder, it, hash_value, std::forward<Func>(f));
+            if (UNLIKELY(level0_sub_table.need_partition())) {
+                convert_to_partitioned();
+
+                // The hash table was converted to partitioned, so we have to re-find the key.
+                size_t sub_table_id = get_sub_table_from_hash(hash_value);
+                it = level1_sub_tables[sub_table_id].find(key_holder_get_key(key_holder),
+                                                          hash_value);
+            }
+        }
+    }
+
     LookupResult ALWAYS_INLINE find(Key x, size_t hash_value) {
         if (_is_partitioned) {
             size_t sub_table_idx = get_sub_table_from_hash(hash_value);
@@ -506,6 +547,10 @@ public:
         }
     }
 
+    bool add_elem_size_overflow(size_t row) const {
+        return !_is_partitioned && level0_sub_table.add_elem_size_overflow(row);
+    }
+
 private:
     void convert_to_partitioned() {
         SCOPED_RAW_TIMER(&_convert_timer_ns);
@@ -517,17 +562,26 @@ private:
 
         auto it = level0_sub_table.begin();
 
-        /// It is assumed that the zero key (stored separately) is first in iteration order.
-        if (it != level0_sub_table.end() && it.get_ptr()->is_zero(level0_sub_table)) {
-            insert(it->get_value());
-            ++it;
-        }
+        if constexpr (HashTableTraits<Impl>::is_phmap) {
+            for (; it != level0_sub_table.end(); ++it) {
+                size_t hash_value = level0_sub_table.hash(it.get_first());
+                size_t sub_table_idx = get_sub_table_from_hash(hash_value);
+                level1_sub_tables[sub_table_idx].insert(it.get_first(), hash_value,
+                                                        it.get_second());
+            }
+        } else {
+            /// It is assumed that the zero key (stored separately) is first in iteration order.
+            if (it != level0_sub_table.end() && it.get_ptr()->is_zero(level0_sub_table)) {
+                insert(it->get_value());
+                ++it;
+            }
 
-        for (; it != level0_sub_table.end(); ++it) {
-            const auto* cell = it.get_ptr();
-            size_t hash_value = cell->get_hash(level0_sub_table);
-            size_t sub_table_idx = get_sub_table_from_hash(hash_value);
-            level1_sub_tables[sub_table_idx].insert_unique_non_zero(cell, hash_value);
+            for (; it != level0_sub_table.end(); ++it) {
+                const auto* cell = it.get_ptr();
+                size_t hash_value = cell->get_hash(level0_sub_table);
+                size_t sub_table_idx = get_sub_table_from_hash(hash_value);
+                level1_sub_tables[sub_table_idx].insert_unique_non_zero(cell, hash_value);
+            }
         }
 
         _is_partitioned = true;

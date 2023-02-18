@@ -28,6 +28,8 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Replica.ReplicaState;
 import org.apache.doris.catalog.ReplicaAllocation;
+import org.apache.doris.catalog.Resource;
+import org.apache.doris.catalog.Resource.ResourceType;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Tablet.TabletStatus;
@@ -39,12 +41,16 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.cooldown.CooldownConf;
 import org.apache.doris.metric.GaugeMetric;
 import org.apache.doris.metric.Metric.MetricUnit;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
 import org.apache.doris.persist.ReplicaPersistInfo;
+import org.apache.doris.policy.Policy;
+import org.apache.doris.policy.PolicyTypeEnum;
+import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.Backend.BackendStatus;
 import org.apache.doris.system.SystemInfoService;
@@ -57,6 +63,8 @@ import org.apache.doris.task.CreateReplicaTask;
 import org.apache.doris.task.DropReplicaTask;
 import org.apache.doris.task.MasterTask;
 import org.apache.doris.task.PublishVersionTask;
+import org.apache.doris.task.PushCooldownConfTask;
+import org.apache.doris.task.PushStoragePolicyTask;
 import org.apache.doris.task.StorageMediaMigrationTask;
 import org.apache.doris.task.UpdateTabletMetaInfoTask;
 import org.apache.doris.thrift.TBackend;
@@ -67,6 +75,8 @@ import org.apache.doris.thrift.TReportRequest;
 import org.apache.doris.thrift.TStatus;
 import org.apache.doris.thrift.TStatusCode;
 import org.apache.doris.thrift.TStorageMedium;
+import org.apache.doris.thrift.TStoragePolicy;
+import org.apache.doris.thrift.TStorageResource;
 import org.apache.doris.thrift.TStorageType;
 import org.apache.doris.thrift.TTablet;
 import org.apache.doris.thrift.TTabletInfo;
@@ -84,11 +94,14 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.BlockingQueue;
+import java.util.stream.Collectors;
 
 public class ReportHandler extends Daemon {
     private static final Logger LOG = LogManager.getLogger(ReportHandler.class);
@@ -164,7 +177,8 @@ public class ReportHandler extends Daemon {
             backend.setTabletMaxCompactionScore(request.getTabletMaxCompactionScore());
         }
 
-        ReportTask reportTask = new ReportTask(beId, tasks, disks, tablets, reportVersion);
+        ReportTask reportTask = new ReportTask(beId, tasks, disks, tablets, reportVersion,
+                request.getStoragePolicy(), request.getResource());
         try {
             putToQueue(reportTask);
         } catch (Exception e) {
@@ -212,14 +226,20 @@ public class ReportHandler extends Daemon {
         private Map<Long, TTablet> tablets;
         private long reportVersion;
 
+        private List<TStoragePolicy> storagePolicies;
+        private List<TStorageResource> storageResources;
+
         public ReportTask(long beId, Map<TTaskType, Set<Long>> tasks,
                           Map<String, TDisk> disks,
-                          Map<Long, TTablet> tablets, long reportVersion) {
+                          Map<Long, TTablet> tablets, long reportVersion,
+                          List<TStoragePolicy> storagePolicies, List<TStorageResource> storageResources) {
             this.beId = beId;
             this.tasks = tasks;
             this.disks = disks;
             this.tablets = tablets;
             this.reportVersion = reportVersion;
+            this.storagePolicies = storagePolicies;
+            this.storageResources = storageResources;
         }
 
         @Override
@@ -230,6 +250,10 @@ public class ReportHandler extends Daemon {
             if (disks != null) {
                 ReportHandler.diskReport(beId, disks);
             }
+            if (Config.enable_storage_policy && storagePolicies != null && storageResources != null) {
+                storagePolicyReport(beId, storagePolicies, storageResources);
+            }
+
             if (tablets != null) {
                 long backendReportVersion = Env.getCurrentSystemInfo().getBackendReportVersion(beId);
                 if (reportVersion < backendReportVersion) {
@@ -238,6 +262,133 @@ public class ReportHandler extends Daemon {
                 } else {
                     ReportHandler.tabletReport(beId, tablets, reportVersion);
                 }
+            }
+        }
+    }
+
+    private static void handlePushCooldownConf(long backendId, List<CooldownConf> cooldownConfToPush) {
+        final int PUSH_BATCH_SIZE = 1024;
+        AgentBatchTask batchTask = new AgentBatchTask();
+        for (int start = 0; start < cooldownConfToPush.size(); start += PUSH_BATCH_SIZE) {
+            PushCooldownConfTask task = new PushCooldownConfTask(backendId,
+                    cooldownConfToPush.subList(start, Math.min(start + PUSH_BATCH_SIZE, cooldownConfToPush.size())));
+            batchTask.addTask(task);
+        }
+        AgentTaskExecutor.submit(batchTask);
+    }
+
+    private static void handlePushStoragePolicy(long backendId, List<Policy> policyToPush,
+                                                List<Resource> resourceToPush, List<Long> policyToDrop) {
+        AgentBatchTask batchTask = new AgentBatchTask();
+        PushStoragePolicyTask pushStoragePolicyTask = new PushStoragePolicyTask(backendId, policyToPush,
+                resourceToPush, policyToDrop);
+        batchTask.addTask(pushStoragePolicyTask);
+        AgentTaskExecutor.submit(batchTask);
+    }
+
+    private static void storagePolicyReport(long backendId,
+                                            List<TStoragePolicy> storagePoliciesInBe,
+                                            List<TStorageResource> storageResourcesInBe) {
+        LOG.info("backend[{}] reports policies {}, report resources: {}",
+                backendId, storagePoliciesInBe, storageResourcesInBe);
+        // do the diff. find out (intersection) / (be - meta) / (meta - be)
+        List<Policy> policiesInFe = Env.getCurrentEnv().getPolicyMgr().getCopiedPoliciesByType(PolicyTypeEnum.STORAGE);
+        List<Resource> resourcesInFe = Env.getCurrentEnv().getResourceMgr().getResource(ResourceType.S3);
+
+        List<Resource> resourceToPush = new ArrayList<>();
+        List<Policy> policyToPush = new ArrayList<>();
+        List<Long> policyToDrop = new ArrayList<>();
+
+        diffPolicy(storagePoliciesInBe, policiesInFe, policyToPush, policyToDrop);
+        diffResource(storageResourcesInBe, resourcesInFe, resourceToPush);
+
+        if (policyToPush.isEmpty() && resourceToPush.isEmpty() && policyToDrop.isEmpty()) {
+            return;
+        }
+        LOG.info("after diff policy, policyToPush {}, policyToDrop {}, and resourceToPush {}",
+                policyToPush.stream()
+                        .map(p -> "StoragePolicy(name=" + p.getPolicyName() + " id=" + p.getId() + " version="
+                                + p.getVersion()).collect(Collectors.toList()),
+                policyToDrop, resourceToPush.stream()
+                        .map(r -> "Resource(name=" + r.getName() + " id=" + r.getId() + " version="
+                                + r.getVersion()).collect(Collectors.toList()));
+        // send push rpc
+        handlePushStoragePolicy(backendId, policyToPush, resourceToPush, policyToDrop);
+    }
+
+    private static void diffPolicy(List<TStoragePolicy> storagePoliciesInBe, List<Policy> policiesInFe,
+            List<Policy> policyToPush, List<Long> policyToDrop) {
+        // fe - be
+        for (Policy policy : policiesInFe) {
+            if (policy.getId() <= 0 || ((StoragePolicy) policy).getStorageResource() == null) {
+                continue; // ignore policy with invalid id or storage resource
+            }
+            boolean beHasIt = false;
+            for (TStoragePolicy tStoragePolicy : storagePoliciesInBe) {
+                if (policy.getId() == tStoragePolicy.getId()) {
+                    beHasIt = true;
+                    // find id eq
+                    if (policy.getVersion() == tStoragePolicy.getVersion()) {
+                        // find version eq
+                    } else if (policy.getVersion() > tStoragePolicy.getVersion()) {
+                        // need to add
+                        policyToPush.add(policy);
+                    } else {
+                        // impossible
+                        LOG.warn("fe policy version {} litter than be {}, impossible",
+                                policy.getVersion(), tStoragePolicy.getVersion());
+                    }
+                    break;
+                }
+            }
+            if (!beHasIt) {
+                policyToPush.add(policy);
+            }
+        }
+
+        // be - fe
+        for (TStoragePolicy tStoragePolicy : storagePoliciesInBe) {
+            boolean feHasIt = false;
+            for (Policy policy : policiesInFe) {
+                if (policy.getId() == tStoragePolicy.getId()) {
+                    feHasIt = true;
+                    // find id eq
+                    break;
+                }
+            }
+            if (!feHasIt) {
+                policyToDrop.add(tStoragePolicy.getId());
+            }
+        }
+    }
+
+    private static void diffResource(List<TStorageResource> storageResourcesInBe, List<Resource> resourcesInFe,
+                                   List<Resource> resourceToPush) {
+        // fe - be
+        for (Resource resource : resourcesInFe) {
+            if (resource.getId() <= 0) {
+                continue; // ignore resource with invalid id
+            }
+            boolean beHasIt = false;
+            for (TStorageResource tStorageResource : storageResourcesInBe) {
+                if (resource.getId() == tStorageResource.getId()) {
+                    beHasIt = true;
+                    // find id eq
+                    if (resource.getVersion() == tStorageResource.getVersion()) {
+                        // find version eq
+                    } else if (resource.getVersion() > tStorageResource.getVersion()) {
+                        // need to add
+                        resourceToPush.add(resource);
+                    } else {
+                        // impossible
+                        LOG.warn("fe resource version {} litter than be {}, impossible",
+                                resource.getVersion(), tStorageResource.getVersion());
+                    }
+                    break;
+                }
+            }
+            if (!beHasIt) {
+                resourceToPush.add(resource);
             }
         }
     }
@@ -259,8 +410,6 @@ public class ReportHandler extends Daemon {
         Set<Long> tabletFoundInMeta = Sets.newConcurrentHashSet();
         // storage medium -> tablet id
         ListMultimap<TStorageMedium, Long> tabletMigrationMap = LinkedListMultimap.create();
-        // the cooldown type of replicas which need to be sync. tabletId -> TabletMeta
-        Map<Long, TabletMeta> syncCooldownTabletMap = new HashMap<>();
 
         // dbid -> txn id -> [partition info]
         Map<Long, ListMultimap<Long, TPartitionVersionInfo>> transactionsToPublish = Maps.newHashMap();
@@ -270,6 +419,9 @@ public class ReportHandler extends Daemon {
         ListMultimap<Long, Long> tabletRecoveryMap = LinkedListMultimap.create();
 
         List<Triple<Long, Integer, Boolean>> tabletToInMemory = Lists.newArrayList();
+
+        List<CooldownConf> cooldownConfToPush = new LinkedList<>();
+        List<CooldownConf> cooldownConfToUpdate = new LinkedList<>();
 
         // 1. do the diff. find out (intersection) / (be - meta) / (meta - be)
         Env.getCurrentInvertedIndex().tabletReport(backendId, backendTablets, storageMediumMap,
@@ -281,7 +433,8 @@ public class ReportHandler extends Daemon {
                 transactionsToClear,
                 tabletRecoveryMap,
                 tabletToInMemory,
-                syncCooldownTabletMap);
+                cooldownConfToPush,
+                cooldownConfToUpdate);
 
         // 2. sync
         if (!tabletSyncMap.isEmpty()) {
@@ -324,9 +477,12 @@ public class ReportHandler extends Daemon {
             handleSetTabletInMemory(backendId, tabletToInMemory);
         }
 
-        // 10. send cooldownType which need sync to CooldownHandler
-        if (!syncCooldownTabletMap.isEmpty()) {
-            Env.getCurrentEnv().getCooldownHandler().handleCooldownConf(syncCooldownTabletMap);
+        // handle cooldown conf
+        if (!cooldownConfToPush.isEmpty()) {
+            handlePushCooldownConf(backendId, cooldownConfToPush);
+        }
+        if (!cooldownConfToUpdate.isEmpty()) {
+            Env.getCurrentEnv().getCooldownConfHandler().addCooldownConfToUpdate(cooldownConfToUpdate);
         }
 
         final SystemInfoService currentSystemInfo = Env.getCurrentSystemInfo();
@@ -617,7 +773,7 @@ public class ReportHandler extends Daemon {
                                             olapTable.getCompressionType(),
                                             olapTable.getEnableUniqueKeyMergeOnWrite(), olapTable.getStoragePolicy(),
                                             olapTable.disableAutoCompaction(),
-                                            olapTable.storeRowColumn());
+                                            olapTable.storeRowColumn(), olapTable.isDynamicSchema());
 
                                     createReplicaTask.setIsRecoverTask(true);
                                     createReplicaBatchTask.addTask(createReplicaTask);

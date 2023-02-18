@@ -639,7 +639,7 @@ Status VNestedLoopJoinNode::pull(RuntimeState* state, vectorized::Block* block, 
         *eos = _left_side_eos;
         _need_more_input_data = !_left_side_eos;
     } else {
-        *eos = _match_all_build
+        *eos = (_match_all_build || _is_right_semi_anti)
                        ? _output_null_idx_build_side == _build_blocks.size() && _matched_rows_done
                        : _matched_rows_done;
 

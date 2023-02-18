@@ -31,17 +31,22 @@ import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithAggregate;
 import org.apache.doris.nereids.rules.mv.SelectMaterializedIndexWithoutAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.AdjustNullable;
 import org.apache.doris.nereids.rules.rewrite.logical.BuildAggForUnion;
+import org.apache.doris.nereids.rules.rewrite.logical.CheckAndStandardizeWindowFunctionAndFrame;
 import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.logical.CountDistinctRewrite;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateAggregate;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateFilter;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateLimit;
+import org.apache.doris.nereids.rules.rewrite.logical.EliminateNotNull;
+import org.apache.doris.nereids.rules.rewrite.logical.EliminateNullAwareLeftAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateOrderByConstant;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateUnnecessaryProject;
+import org.apache.doris.nereids.rules.rewrite.logical.ExtractAndNormalizeWindowExpression;
 import org.apache.doris.nereids.rules.rewrite.logical.ExtractFilterFromCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.ExtractSingleTableExpressionFromDisjunction;
 import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
+import org.apache.doris.nereids.rules.rewrite.logical.InferFilterNotNull;
 import org.apache.doris.nereids.rules.rewrite.logical.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.logical.InnerToCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.LimitPushDown;
@@ -69,11 +74,15 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
     public NereidsRewriteJobExecutor(CascadesContext cascadesContext) {
         super(cascadesContext);
         ImmutableList<Job> jobs = new ImmutableList.Builder<Job>()
+                .addAll(new EliminateSpecificPlanUnderApplyJob(cascadesContext).rulesJob)
                 // MergeProjects depends on this rule
                 .add(bottomUpBatch(ImmutableList.of(new LogicalSubQueryAliasToLogicalProject())))
                 // AdjustApplyFromCorrelateToUnCorrelateJob and ConvertApplyToJoinJob
                 // and SelectMaterializedIndexWithAggregate depends on this rule
                 .add(topDownBatch(ImmutableList.of(new MergeProjects())))
+                .add(topDownBatch(ImmutableList.of(new ExpressionNormalization(cascadesContext.getConnectContext()))))
+                .add(topDownBatch(ImmutableList.of(new ExpressionOptimization())))
+                .add(topDownBatch(ImmutableList.of(new ExtractSingleTableExpressionFromDisjunction())))
                 /*
                  * Subquery unnesting.
                  * 1. Adjust the plan in correlated logicalApply
@@ -84,11 +93,14 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .addAll(new AdjustApplyFromCorrelateToUnCorrelateJob(cascadesContext).rulesJob)
                 .addAll(new ConvertApplyToJoinJob(cascadesContext).rulesJob)
                 .add(bottomUpBatch(ImmutableList.of(new AdjustAggregateNullableForEmptySet())))
-                .add(topDownBatch(ImmutableList.of(new ExpressionNormalization(cascadesContext.getConnectContext()))))
-                .add(topDownBatch(ImmutableList.of(new ExpressionOptimization())))
-                .add(topDownBatch(ImmutableList.of(new ExtractSingleTableExpressionFromDisjunction())))
                 .add(topDownBatch(ImmutableList.of(new EliminateGroupByConstant())))
                 .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
+                .add(topDownBatch(ImmutableList.of(new ExtractAndNormalizeWindowExpression())))
+                //execute NormalizeAggregate() again to resolve nested AggregateFunctions in WindowExpression,
+                //e.g. sum(sum(c1)) over(partition by avg(c1))
+                .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
+                .add(topDownBatch(ImmutableList.of(new CheckAndStandardizeWindowFunctionAndFrame())))
+                .add(topDownBatch(ImmutableList.of(new InferFilterNotNull())))
                 .add(topDownBatch(RuleSet.PUSH_DOWN_FILTERS, false))
                 .add(visitorJob(RuleType.INFER_PREDICATES, new InferPredicates()))
                 .add(topDownBatch(ImmutableList.of(new ExtractFilterFromCrossJoin())))
@@ -100,10 +112,11 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .add(topDownBatch(RuleSet.PUSH_DOWN_FILTERS, false))
                 .add(visitorJob(RuleType.INFER_PREDICATES, new InferPredicates()))
                 .add(topDownBatch(RuleSet.PUSH_DOWN_FILTERS, false))
-                .add(topDownBatch(ImmutableList.of(PushFilterInsideJoin.INSTANCE)))
+                .add(topDownBatch(ImmutableList.of(new PushFilterInsideJoin())))
                 .add(topDownBatch(ImmutableList.of(new FindHashConditionForJoin())))
                 .add(topDownBatch(RuleSet.PUSH_DOWN_FILTERS, false))
                 .add(topDownBatch(ImmutableList.of(new InnerToCrossJoin())))
+                .add(topDownBatch(ImmutableList.of(new EliminateNotNull())))
                 .add(topDownBatch(ImmutableList.of(new EliminateLimit())))
                 .add(topDownBatch(ImmutableList.of(new EliminateFilter())))
                 .add(topDownBatch(ImmutableList.of(new PruneOlapScanPartition())))
@@ -119,6 +132,7 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .add(bottomUpBatch(ImmutableList.of(new MergeSetOperations())))
                 .add(topDownBatch(ImmutableList.of(new LimitPushDown())))
                 .add(topDownBatch(ImmutableList.of(new BuildAggForUnion())))
+                .add(topDownBatch(ImmutableList.of(new EliminateNullAwareLeftAntiJoin())))
                 // this rule batch must keep at the end of rewrite to do some plan check
                 .add(bottomUpBatch(ImmutableList.of(
                         new AdjustNullable(),

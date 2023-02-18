@@ -114,7 +114,7 @@ public:
 
     std::string debug_string() const;
 
-    int32_t size() const { return _fields.size(); };
+    int32_t size() const { return _fields.size(); }
 };
 
 } // namespace doris::vectorized

@@ -42,21 +42,6 @@ static constexpr size_t DEFAULT_MAX_STRING_SIZE = 1073741824; // 1GB
 static constexpr size_t DEFAULT_MAX_JSON_SIZE = 1073741824;   // 1GB
 static constexpr auto WRITE_HELPERS_MAX_INT_WIDTH = 40U;
 
-template <typename T>
-inline T decimal_scale_multiplier(UInt32 scale);
-template <>
-inline Int32 decimal_scale_multiplier<Int32>(UInt32 scale) {
-    return common::exp10_i32(scale);
-}
-template <>
-inline Int64 decimal_scale_multiplier<Int64>(UInt32 scale) {
-    return common::exp10_i64(scale);
-}
-template <>
-inline Int128 decimal_scale_multiplier<Int128>(UInt32 scale) {
-    return common::exp10_i128(scale);
-}
-
 inline std::string int128_to_string(__int128_t value) {
     fmt::memory_buffer buffer;
     fmt::format_to(buffer, "{}", value);

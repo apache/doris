@@ -46,6 +46,9 @@ false
 2147483647	255:1991:32767:32767
 
 -- !select --
+12	false, false, false, false, false, false, false, false, true, true, true, true, true, true, true
+
+-- !select --
 \N	\N
 103	255
 1001	1986, 1989

@@ -183,7 +183,7 @@ public:
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
         return Status::NotSupported("plain page not implement vec op now");
-    };
+    }
 
     size_t count() const override {
         DCHECK(_parsed);

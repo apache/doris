@@ -38,8 +38,6 @@ namespace doris::vectorized {
 Status Channel::init(RuntimeState* state) {
     _be_number = state->be_number();
 
-    _capacity = std::max(1, _buffer_size / std::max(_row_desc.get_row_size(), 1));
-
     if (_brpc_dest_addr.hostname.empty()) {
         LOG(WARNING) << "there is no brpc destination address's hostname"
                         ", maybe version is not compatible.";
@@ -59,7 +57,7 @@ Status Channel::init(RuntimeState* state) {
     _brpc_request.set_sender_id(_parent->_sender_id);
     _brpc_request.set_be_number(_be_number);
 
-    _brpc_timeout_ms = std::min(3600, state->query_options().query_timeout) * 1000;
+    _brpc_timeout_ms = std::min(3600, state->execution_timeout()) * 1000;
 
     if (_brpc_dest_addr.hostname == BackendOptions::get_localhost()) {
         _brpc_stub = state->exec_env()->brpc_internal_client_cache()->get_client(
@@ -242,7 +240,7 @@ Status Channel::close_internal() {
         RETURN_IF_ERROR(send_current_block(true));
     } else {
         SCOPED_CONSUME_MEM_TRACKER(_parent->_mem_tracker.get());
-        RETURN_IF_ERROR(send_block(nullptr, true));
+        RETURN_IF_ERROR(send_block((PBlock*)nullptr, true));
     }
     // Don't wait for the last packet to finish, left it to close_wait.
     return Status::OK();
@@ -287,7 +285,6 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
            sink.output_partition.type == TPartitionType::RANDOM ||
            sink.output_partition.type == TPartitionType::RANGE_PARTITIONED ||
            sink.output_partition.type == TPartitionType::BUCKET_SHFFULE_HASH_PARTITIONED);
-    _cur_pb_block = &_pb_block1;
 
     std::map<int64_t, int64_t> fragment_id_to_channel_index;
 
@@ -317,6 +314,12 @@ VDataStreamSender::VDataStreamSender(RuntimeState* state, ObjectPool* pool, int 
         }
     }
     _name = "VDataStreamSender";
+    if (state->enable_pipeline_exec()) {
+        _broadcast_pb_blocks.resize(config::num_broadcast_buffer);
+        _broadcast_pb_block_idx = 0;
+    } else {
+        _cur_pb_block = &_pb_block1;
+    }
 }
 
 VDataStreamSender::VDataStreamSender(ObjectPool* pool, int sender_id, const RowDescriptor& row_desc,
@@ -443,9 +446,14 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
 Status VDataStreamSender::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VDataStreamSender::open");
     DCHECK(state != nullptr);
+    int local_size = 0;
     for (int i = 0; i < _channels.size(); ++i) {
         RETURN_IF_ERROR(_channels[i]->init(state));
+        if (_channels[i]->is_local()) {
+            local_size++;
+        }
     }
+    _only_local_exchange = local_size == _channels.size();
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     RETURN_IF_ERROR(VExpr::open(_partition_expr_ctxs, state));
 
@@ -460,15 +468,26 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
         // 1. serialize depends on it is not local exchange
         // 2. send block
         // 3. rollover block
-        int local_size = 0;
-        for (auto channel : _channels) {
-            if (channel->is_local()) {
-                local_size++;
-            }
-        }
-        if (local_size == _channels.size()) {
+        if (_only_local_exchange) {
             for (auto channel : _channels) {
                 RETURN_IF_ERROR(channel->send_local_block(block));
+            }
+        } else if (state->enable_pipeline_exec()) {
+            BroadcastPBlockHolder* block_holder = nullptr;
+            RETURN_IF_ERROR(_get_next_available_buffer(&block_holder));
+            {
+                SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+                RETURN_IF_ERROR(
+                        serialize_block(block, block_holder->get_block(), _channels.size()));
+            }
+
+            for (auto channel : _channels) {
+                if (channel->is_local()) {
+                    RETURN_IF_ERROR(channel->send_local_block(block));
+                } else {
+                    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
+                    RETURN_IF_ERROR(channel->send_block(block_holder, eos));
+                }
             }
         } else {
             {
@@ -620,6 +639,13 @@ void VDataStreamSender::_roll_pb_block() {
     _cur_pb_block = (_cur_pb_block == &_pb_block1 ? &_pb_block2 : &_pb_block1);
 }
 
+Status VDataStreamSender::_get_next_available_buffer(BroadcastPBlockHolder** holder) {
+    DCHECK(_broadcast_pb_blocks[_broadcast_pb_block_idx].available());
+    *holder = &_broadcast_pb_blocks[_broadcast_pb_block_idx];
+    _broadcast_pb_block_idx++;
+    return Status::OK();
+}
+
 void VDataStreamSender::registe_channels(pipeline::ExchangeSinkBuffer* buffer) {
     for (auto channel : _channels) {
         ((PipChannel*)channel)->registe(buffer);
@@ -627,12 +653,28 @@ void VDataStreamSender::registe_channels(pipeline::ExchangeSinkBuffer* buffer) {
 }
 
 bool VDataStreamSender::channel_all_can_write() {
-    for (auto channel : _channels) {
-        if (!channel->can_write()) {
-            return false;
+    if ((_part_type == TPartitionType::UNPARTITIONED || _channels.size() == 1) &&
+        !_only_local_exchange) {
+        // This condition means we need use broadcast buffer, so we should make sure
+        // there are available buffer before running pipeline
+        if (_broadcast_pb_block_idx == _broadcast_pb_blocks.size()) {
+            _broadcast_pb_block_idx = 0;
         }
+
+        for (; _broadcast_pb_block_idx < _broadcast_pb_blocks.size(); _broadcast_pb_block_idx++) {
+            if (_broadcast_pb_blocks[_broadcast_pb_block_idx].available()) {
+                return true;
+            }
+        }
+        return false;
+    } else {
+        for (auto channel : _channels) {
+            if (!channel->can_write()) {
+                return false;
+            }
+        }
+        return true;
     }
-    return true;
 }
 
 } // namespace doris::vectorized

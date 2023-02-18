@@ -380,11 +380,11 @@ public:
         }
 
         return Status::OK();
-    };
+    }
 
     Status next_batch(size_t* n, vectorized::MutableColumnPtr& dst) override {
         return next_batch<>(n, dst);
-    };
+    }
 
     Status read_by_rowids(const rowid_t* rowids, ordinal_t page_first_ordinal, size_t* n,
                           vectorized::MutableColumnPtr& dst) override {

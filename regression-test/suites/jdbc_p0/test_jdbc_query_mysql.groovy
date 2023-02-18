@@ -795,6 +795,7 @@ suite("test_jdbc_query_mysql", "p0") {
                                 FROM ( SELECT id AS a, id % 3 AS b FROM ${exMysqlTable}) t1
                             JOIN ${exMysqlTable} t2 ON t1.a = t2.id GROUP BY t1.a) o
                             ON l.b = o.d AND l.a = o.a order by l.a desc limit 3"""
+        // this pr fixed, wait for merge: https://github.com/apache/doris/pull/16442                    
         order_qt_sql48 """ SELECT x, y, COUNT(*) as c FROM (SELECT k8, 0 AS x FROM $jdbcMysql57Table1) a
                             JOIN (SELECT k8, 1 AS y FROM $jdbcMysql57Table1) b ON a.k8 = b.k8 group by x, y order by c desc limit 3 """
         order_qt_sql49 """ SELECT * FROM (SELECT * FROM $jdbcMysql57Table1 WHERE k8 % 120 > 110) l
@@ -934,7 +935,7 @@ suite("test_jdbc_query_mysql", "p0") {
         order_qt_sql111 """ SELECT rank() OVER () FROM (SELECT k8 FROM $jdbcMysql57Table1 LIMIT 10) as t LIMIT 3 """
         order_qt_sql112 """ SELECT k7, count(DISTINCT k8) FROM $jdbcMysql57Table1 WHERE k8 > 110 GROUP BY GROUPING SETS ((), (k7)) """
 
-
+        // TODO: check this, maybe caused by datasource in JDBC
         // test alter resource
         sql """alter resource $jdbcResourceMysql57 properties("password" = "1234567")"""
         test {

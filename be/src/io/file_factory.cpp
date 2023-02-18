@@ -27,6 +27,7 @@
 #include "io/fs/file_system.h"
 #include "io/fs/hdfs_file_system.h"
 #include "io/fs/local_file_system.h"
+#include "io/fs/remote_file_system.h"
 #include "io/fs/s3_file_system.h"
 #include "io/hdfs_file_reader.h"
 #include "io/hdfs_writer.h"
@@ -34,8 +35,8 @@
 #include "io/local_file_writer.h"
 #include "io/s3_reader.h"
 #include "io/s3_writer.h"
+#include "olap/iterators.h"
 #include "runtime/exec_env.h"
-#include "runtime/stream_load/load_stream_mgr.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 
 namespace doris {
@@ -153,12 +154,12 @@ Status FileFactory::create_file_reader(RuntimeProfile* /*profile*/,
                                        std::shared_ptr<io::FileSystem>* file_system,
                                        io::FileReaderSPtr* file_reader, IOContext* io_ctx) {
     TFileType::type type = system_properties.system_type;
-    std::string cache_policy = "no_cache";
-    if (config::enable_file_cache) {
-        cache_policy = "file_block_cache";
+    auto cache_policy = io::FileCachePolicy::NO_CACHE;
+    if (config::enable_file_cache && io_ctx->enable_file_cache) {
+        cache_policy = io::FileCachePolicy::FILE_BLOCK_CACHE;
     }
-    io::FileReaderOptions reader_options(io::cache_type_from_string(cache_policy),
-                                         io::FileBlockCachePathPolicy());
+    io::FileBlockCachePathPolicy file_block_cache;
+    io::FileReaderOptions reader_options(cache_policy, file_block_cache);
     switch (type) {
     case TFileType::FILE_LOCAL: {
         RETURN_IF_ERROR(io::global_local_filesystem()->open_file(
@@ -196,15 +197,6 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
     return Status::OK();
 }
 
-Status FileFactory::create_pipe_reader(const TUniqueId& load_id,
-                                       std::shared_ptr<FileReader>& file_reader) {
-    file_reader = ExecEnv::GetInstance()->load_stream_mgr()->get(load_id);
-    if (!file_reader) {
-        return Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
-    }
-    return Status::OK();
-}
-
 Status FileFactory::create_hdfs_reader(const THdfsParams& hdfs_params, const std::string& path,
                                        std::shared_ptr<io::FileSystem>* hdfs_file_system,
                                        io::FileReaderSPtr* reader,
@@ -235,9 +227,10 @@ Status FileFactory::create_s3_reader(const std::map<std::string, std::string>& p
     }
     S3Conf s3_conf;
     RETURN_IF_ERROR(ClientFactory::convert_properties_to_s3_conf(prop, s3_uri, &s3_conf));
-    *s3_file_system = io::S3FileSystem::create(s3_conf, "");
-    RETURN_IF_ERROR((std::static_pointer_cast<io::S3FileSystem>(*s3_file_system))->connect());
-    RETURN_IF_ERROR((*s3_file_system)->open_file(s3_uri.get_key(), reader_options, reader, io_ctx));
+    std::shared_ptr<io::RemoteFileSystem> tmp_fs = io::S3FileSystem::create(std::move(s3_conf), "");
+    RETURN_IF_ERROR(tmp_fs->connect());
+    RETURN_IF_ERROR(tmp_fs->open_file(s3_uri.get_key(), reader_options, reader, io_ctx));
+    *s3_file_system = std::move(tmp_fs);
     return Status::OK();
 }
 

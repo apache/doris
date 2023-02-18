@@ -34,7 +34,7 @@ struct AggregateFunctionSortData {
     Block block;
 
     // The construct only support the template compiler, useless
-    AggregateFunctionSortData() {};
+    AggregateFunctionSortData() : sort_desc() {};
     AggregateFunctionSortData(SortDescription sort_desc, const Block& block)
             : sort_desc(std::move(sort_desc)), block(block.clone_empty()) {}
 

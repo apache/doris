@@ -26,7 +26,7 @@ import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 
@@ -73,7 +73,7 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
                     boolean lasscom = false;
                     for (Expression hashJoinConjunct : hashJoinConjuncts) {
                         Set<ExprId> usedSlotExprIds = hashJoinConjunct.getInputSlotExprIds();
-                        lasscom = ExpressionUtils.isIntersecting(usedSlotExprIds, aOutputExprIdSet) || lasscom;
+                        lasscom = Utils.isIntersecting(usedSlotExprIds, aOutputExprIdSet) || lasscom;
                     }
 
                     if (lasscom) {
@@ -133,8 +133,8 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
         boolean hashContainsB = false;
         for (Expression hashJoinConjunct : hashJoinConjuncts) {
             Set<ExprId> usedSlotExprIds = hashJoinConjunct.getInputSlotExprIds();
-            hashContainsA = ExpressionUtils.isIntersecting(usedSlotExprIds, aOutputExprIdSet) || hashContainsA;
-            hashContainsB = ExpressionUtils.isIntersecting(usedSlotExprIds, bOutputExprIdSet) || hashContainsB;
+            hashContainsA = Utils.isIntersecting(usedSlotExprIds, aOutputExprIdSet) || hashContainsA;
+            hashContainsB = Utils.isIntersecting(usedSlotExprIds, bOutputExprIdSet) || hashContainsB;
         }
         if (leftDeep && hashContainsB) {
             return false;

@@ -27,7 +27,8 @@ import org.apache.doris.common.LdapConfig;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.ldap.LdapAuthenticate;
 import org.apache.doris.ldap.LdapManager;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -57,7 +58,9 @@ public class MysqlProtoTest {
     @Mocked
     private InternalCatalog catalog;
     @Mocked
-    private PaloAuth auth;
+    private Auth auth;
+    @Mocked
+    private AccessControllerManager accessManager;
     @Mocked
     private LdapManager ldapManager;
     @Mocked
@@ -71,7 +74,7 @@ public class MysqlProtoTest {
         // mock auth
         new Expectations() {
             {
-                auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                accessManager.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
 
@@ -82,7 +85,6 @@ public class MysqlProtoTest {
                             byte[] randomString, List<UserIdentity> currentUser) {
                         UserIdentity userIdentity = new UserIdentity("default_cluster:user", "192.168.1.1");
                         currentUser.add(userIdentity);
-                        return;
                     }
                 };
 
@@ -93,6 +95,10 @@ public class MysqlProtoTest {
                 catalog.getDbNullable(anyString);
                 minTimes = 0;
                 result = new Database();
+
+                env.getAccessManager();
+                minTimes = 0;
+                result = accessManager;
 
                 env.getAuth();
                 minTimes = 0;

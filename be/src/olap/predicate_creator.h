@@ -124,7 +124,7 @@ private:
 
         char* buffer = reinterpret_cast<char*>(pool->allocate(length));
         memset(buffer, 0, length);
-        memory_copy(buffer, condition.data(), condition.length());
+        memcpy(buffer, condition.data(), condition.length());
 
         return {buffer, length};
     }
@@ -135,7 +135,7 @@ struct CustomPredicateCreator : public PredicateCreator<ConditionType> {
 public:
     using CppType = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
     CustomPredicateCreator(const std::function<CppType(const std::string& condition)>& convert)
-            : _convert(convert) {};
+            : _convert(convert) {}
 
     ColumnPredicate* create(const TabletColumn& column, int index, const ConditionType& conditions,
                             bool opposite, MemPool* pool) override {

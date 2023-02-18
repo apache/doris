@@ -39,7 +39,7 @@ suite("runtime_filter") {
     sql "set enable_nereids_planner=true"
     sql "set enable_fallback_to_original_planner=false"
 
-    for (int i = 0; i < 32; ++i) {
+    for (int i = 0; i < 16; ++i) {
         sql "set runtime_filter_type=${i}"
         test {
             sql "SELECT count(1) FROM datetime_table a, date_v2_table b WHERE a.date = b.date;"

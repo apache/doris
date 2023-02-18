@@ -210,11 +210,6 @@ private:
     // done == true or we have an error status.
     void send_report(bool done);
 
-    // If _status.ok(), sets _status to status.
-    // If we're transitioning to an error status, stops report thread and
-    // sends a final report.
-    void update_status(const Status& status);
-
     // Executes open() logic and returns resulting status. Does not set _status.
     // If this plan fragment has no sink, open_internal() does nothing.
     // If this plan fragment has a sink and open_internal() returns without an

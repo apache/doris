@@ -56,8 +56,7 @@ Java UDF provides users with a Java interface written in UDF to facilitate the e
 |Double|Double|
 |Date|LocalDate|
 |Datetime|LocalDateTime|
-|Char|String|
-|Varchar|String|
+|String|String|
 |Decimal|BigDecimal|
 
 ## Write UDF functions

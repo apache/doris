@@ -168,7 +168,7 @@ PROPERTIES (
 
 目前只测试了这一个版本其他版本测试后补充
 
-#### 4.ClickHouse测试
+#### 5.ClickHouse测试
 | ClickHouse版本 | ClickHouse JDBC驱动版本 |
 |----------| ------------------- |
 | 22       | clickhouse-jdbc-0.3.2-patch11-all.jar |

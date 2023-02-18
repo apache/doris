@@ -18,8 +18,8 @@
 #pragma once
 
 #include "common/status.h"
-#include "runtime/tuple.h"
 #include "util/runtime_profile.h"
+#include "vec/common/schema_util.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
 
@@ -65,6 +65,8 @@ public:
 
     // Close this scanner
     virtual void close() = 0;
+
+    bool is_dynamic_schema() const { return _is_dynamic_schema; }
 
 protected:
     Status _fill_dest_block(vectorized::Block* dest_block, bool* eof);
@@ -124,6 +126,10 @@ protected:
 
     // slot_ids for parquet predicate push down are in tuple desc
     TupleId _tupleId = -1;
+
+    bool _is_dynamic_schema = false;
+    // for tracing dynamic schema
+    std::unique_ptr<vectorized::schema_util::FullBaseSchemaView> _full_base_schema_view;
 
 private:
     Status _filter_src_block();

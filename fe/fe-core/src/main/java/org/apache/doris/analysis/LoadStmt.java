@@ -22,6 +22,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.PrintableMap;
@@ -117,6 +118,9 @@ public class LoadStmt extends DdlStmt {
     public static final String KEY_IN_PARAM_FUNCTION_COLUMN = "function_column";
     public static final String KEY_IN_PARAM_SEQUENCE_COL = "sequence_col";
     public static final String KEY_IN_PARAM_BACKEND_ID = "backend_id";
+    public static final String KEY_SKIP_LINES = "skip_lines";
+    public static final String KEY_TRIM_DOUBLE_QUOTES = "trim_double_quotes";
+
     private final LabelName label;
     private final List<DataDescription> dataDescriptions;
     private final BrokerDesc brokerDesc;
@@ -185,6 +189,18 @@ public class LoadStmt extends DdlStmt {
                 }
             })
             .put(USE_NEW_LOAD_SCAN_NODE, new Function<String, Boolean>() {
+                @Override
+                public @Nullable Boolean apply(@Nullable String s) {
+                    return Boolean.valueOf(s);
+                }
+            })
+            .put(KEY_SKIP_LINES, new Function<String, Integer>() {
+                @Override
+                public @Nullable Integer apply(@Nullable String s) {
+                    return Integer.valueOf(s);
+                }
+            })
+            .put(KEY_TRIM_DOUBLE_QUOTES, new Function<String, Boolean>() {
                 @Override
                 public @Nullable Boolean apply(@Nullable String s) {
                     return Boolean.valueOf(s);
@@ -390,8 +406,16 @@ public class LoadStmt extends DdlStmt {
         // mysql load only have one data desc.
         if (isMysqlLoad && !dataDescriptions.get(0).isClientLocal()) {
             for (String path : dataDescriptions.get(0).getFilePaths()) {
-                if (!new File(path).exists()) {
-                    throw new AnalysisException("Path: " + path + " is not exists.");
+                if (Config.mysql_load_server_secure_path.isEmpty()) {
+                    throw new AnalysisException("Load local data from fe local is not enabled. If you want to use it,"
+                            + " plz set the `mysql_load_server_secure_path` for FE to be a right path.");
+                } else {
+                    if (!(path.startsWith(Config.mysql_load_server_secure_path))) {
+                        throw new AnalysisException("Local file should be under the secure path of FE.");
+                    }
+                    if (!new File(path).exists()) {
+                        throw new AnalysisException("File: " + path + " is not exists.");
+                    }
                 }
             }
         }
@@ -400,7 +424,7 @@ public class LoadStmt extends DdlStmt {
             resourceDesc.analyze();
             etlJobType = resourceDesc.getEtlJobType();
             // check resource usage privilege
-            if (!Env.getCurrentEnv().getAuth().checkResourcePriv(ConnectContext.get(),
+            if (!Env.getCurrentEnv().getAccessManager().checkResourcePriv(ConnectContext.get(),
                                                                          resourceDesc.getName(),
                                                                          PrivPredicate.USAGE)) {
                 throw new AnalysisException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()
@@ -472,5 +496,13 @@ public class LoadStmt extends DdlStmt {
     @Override
     public String toString() {
         return toSql();
+    }
+
+    public RedirectStatus getRedirectStatus() {
+        if (isMysqlLoad) {
+            return RedirectStatus.NO_FORWARD;
+        } else {
+            return RedirectStatus.FORWARD_WITH_SYNC;
+        }
     }
 }

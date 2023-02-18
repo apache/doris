@@ -17,7 +17,11 @@
 
 package org.apache.doris.nereids.glue.translator;
 
+import org.apache.doris.analysis.CastExpr;
+import org.apache.doris.analysis.Expr;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
+import org.apache.doris.analysis.TupleId;
 import org.apache.doris.nereids.processor.post.RuntimeFilterContext;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.RelationId;
@@ -71,16 +75,23 @@ public class RuntimeFilterTranslator {
      * @param ctx plan translator context
      */
     public void createLegacyRuntimeFilter(RuntimeFilter filter, HashJoinNode node, PlanTranslatorContext ctx) {
-        SlotRef src = ctx.findSlotRef(filter.getSrcExpr().getExprId());
-        SlotRef target = context.getExprIdToOlapScanNodeSlotRef().get(filter.getTargetExpr().getExprId());
+        Expr target = context.getExprIdToOlapScanNodeSlotRef().get(filter.getTargetExpr().getExprId());
         if (target == null) {
             context.setTargetNullCount();
             return;
         }
+        Expr src = ExpressionTranslator.translate(filter.getSrcExpr(), ctx);
+        SlotRef targetSlot = target.getSrcSlotRef();
+        TupleId targetTupleId = targetSlot.getDesc().getParent().getId();
+        SlotId targetSlotId = targetSlot.getSlotId();
+        // adjust data type
+        if (!src.getType().equals(target.getType())) {
+            target = new CastExpr(src.getType(), target);
+        }
         org.apache.doris.planner.RuntimeFilter origFilter
                 = org.apache.doris.planner.RuntimeFilter.fromNereidsRuntimeFilter(
                 filter.getId(), node, src, filter.getExprOrder(), target,
-                ImmutableMap.of(target.getDesc().getParent().getId(), ImmutableList.of(target.getSlotId())),
+                ImmutableMap.of(targetTupleId, ImmutableList.of(targetSlotId)),
                 filter.getType(), context.getLimits());
         origFilter.setIsBroadcast(node.getDistributionMode() == DistributionMode.BROADCAST);
         OlapScanNode scanNode = context.getScanNodeOfLegacyRuntimeFilterTarget().get(filter.getTargetExpr());

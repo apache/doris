@@ -157,6 +157,17 @@ public:
         LOG(FATAL) << "get_permutation not supported";
     }
 
+    TypeIndex get_data_type() const override { LOG(FATAL) << "get_data_type not supported"; }
+
+    ColumnPtr index(const IColumn& indexes, size_t limit) const override {
+        LOG(FATAL) << "index not supported";
+    }
+
+    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
+                                         size_t limit) const override {
+        LOG(FATAL) << "get_indices_of_non_default_rows not supported in ColumnDictionary";
+    }
+
     [[noreturn]] ColumnPtr replicate(const IColumn::Offsets& offsets) const override {
         LOG(FATAL) << "replicate not supported";
     }

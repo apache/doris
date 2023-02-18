@@ -21,6 +21,7 @@
 #include <thread>
 
 #include "util/blocking_priority_queue.hpp"
+#include "util/lock.h"
 #include "util/thread.h"
 #include "util/thread_group.h"
 
@@ -106,7 +107,7 @@ public:
     // Any work Offer()'ed during DrainAndshutdown may or may not be processed.
     virtual void drain_and_shutdown() {
         {
-            std::unique_lock<std::mutex> l(_lock);
+            std::unique_lock l(_lock);
             while (_work_queue.get_size() != 0) {
                 _empty_cv.wait(l);
             }
@@ -122,10 +123,10 @@ protected:
     ThreadGroup _threads;
 
     // Guards _empty_cv
-    std::mutex _lock;
+    doris::Mutex _lock;
 
     // Signalled when the queue becomes empty
-    std::condition_variable _empty_cv;
+    doris::ConditionVariable _empty_cv;
 
 private:
     // Driver method for each thread in the pool. Continues to read work from the queue

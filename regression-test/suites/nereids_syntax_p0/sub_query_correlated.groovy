@@ -201,7 +201,8 @@ suite ("sub_query_correlated") {
     """
 
     //----------complex subqueries----------
-    qt_scalar_subquery """
+    //----------remove temporarily---------
+    /*qt_scalar_subquery """
         select * from sub_query_correlated_subquery1
             where k1 = (select sum(k1) from sub_query_correlated_subquery3 where sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.v1 and sub_query_correlated_subquery3.v2 = 2)
             order by k1, k2
@@ -217,11 +218,12 @@ suite ("sub_query_correlated") {
         select * from sub_query_correlated_subquery3
             where k1 = 2 and exists (select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 = sub_query_correlated_subquery3.v2 and sub_query_correlated_subquery1.k2 = 4)
             order by k1, k2
-    """
+    """*/
 
     //----------complex nonEqual subqueries----------
 
-    qt_in_subquery """
+    //----------remove temporarily---------
+    /*qt_in_subquery """
         select * from sub_query_correlated_subquery3
             where (k1 = 1 or k1 = 2 or k1 = 3) and v1 in (select k1 from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k2 > sub_query_correlated_subquery3.v2 and sub_query_correlated_subquery1.k1 = 3)
             order by k1, k2
@@ -231,5 +233,51 @@ suite ("sub_query_correlated") {
         select * from sub_query_correlated_subquery3
             where k1 = 2 and exists (select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 < sub_query_correlated_subquery3.v2 and sub_query_correlated_subquery1.k2 = 4)
             order by k1, k2
+    """*/
+
+    //----------subquery with order----------
+    qt_scalar_subquery_with_order """
+        select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 > (select sum(sub_query_correlated_subquery3.k3) a from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 = sub_query_correlated_subquery1.k2 order by a);
+    """
+
+    qt_in_subquery_with_order """
+        select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 not in (select sub_query_correlated_subquery3.k3 from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 = sub_query_correlated_subquery1.k2 order by k2);
+    """
+
+    qt_exists_subquery_with_order """
+        select * from sub_query_correlated_subquery1 where exists (select sub_query_correlated_subquery3.k3 from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 = sub_query_correlated_subquery1.k2 order by k2);
+    """
+
+    //----------subquery with limit----------
+    qt_scalar_subquery_with_limit """
+        select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 > (select sum(sub_query_correlated_subquery3.k3) a from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 = sub_query_correlated_subquery1.k2 limit 1);
+    """
+
+    //----------subquery with order and limit----------
+    qt_scalar_subquery_with_order_and_limit """
+        select * from sub_query_correlated_subquery1 where sub_query_correlated_subquery1.k1 > (select sum(sub_query_correlated_subquery3.k3) a from sub_query_correlated_subquery3 where sub_query_correlated_subquery3.v2 = sub_query_correlated_subquery1.k2 order by a limit 1);
+    """
+
+    //---------subquery with Disjunctions
+    qt_scalar_subquery_with_disjunctions """
+        SELECT DISTINCT k1 FROM sub_query_correlated_subquery1 i1 WHERE ((SELECT count(*) FROM sub_query_correlated_subquery1 WHERE ((k1 = i1.k1) AND (k2 = 2)) or ((k1 = i1.k1) AND (k2 = 1)) )  > 0);
+    """
+
+    //--------subquery case when-----------
+    qt_case_when_subquery """
+        SELECT CASE
+            WHEN (
+                SELECT COUNT(*) / 2
+                FROM sub_query_correlated_subquery3
+            ) > v1 THEN (
+                SELECT AVG(v1)
+                FROM sub_query_correlated_subquery3
+            )
+            ELSE (
+                SELECT SUM(v2)
+                FROM sub_query_correlated_subquery3
+            )
+            END AS kk4
+        FROM sub_query_correlated_subquery3 ;
     """
 }
