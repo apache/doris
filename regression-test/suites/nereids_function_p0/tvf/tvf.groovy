@@ -19,5 +19,6 @@ suite("nereids_tvf") {
     sql 'use regression_test_nereids_function_p0'
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
-    qt_sql_number "select * from numbers(\"number\" = \"10\")"
+    qt_sql_number '''
+        select * from numbers("number" = "10")'''
 }
