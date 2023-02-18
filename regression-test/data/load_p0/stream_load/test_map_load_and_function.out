@@ -49,3 +49,371 @@
 
 -- !select_m5 --
 1	100	200	\N
+
+-- !select_map_contains_value101 --
+1	\N	\N
+2	{'  11amory  ':23, 'beat':20, ' clever ':66}	true
+3	{'k1':31, 'k2':300}	false
+4	{}	false
+5	\N	\N
+6	{'k1':41, 'k2':400}	false
+7	{'  33,amory  ':2, ' bet ':20, ' cler ':26}	false
+8	{}	false
+9	{'  1,amy  ':2, ' k2 ':90, ' k7 ':33}	false
+10	{}	false
+11	\N	\N
+12	{'k3':23, null:20, 'k4':null}	true
+13	{'null':1}	false
+15	{'':2, 'k2':0}	false
+16	{null:null}	false
+17	\N	\N
+18	{'k1':100, 'k2':130}	false
+
+-- !select_map_contains_value102 --
+1	\N	\N
+2	{'  11amory  ':23, 'beat':20, ' clever ':66}	true
+3	{'k1':31, 'k2':300}	false
+4	{}	false
+5	\N	\N
+6	{'k1':41, 'k2':400}	false
+7	{'  33,amory  ':2, ' bet ':20, ' cler ':26}	true
+8	{}	false
+9	{'  1,amy  ':2, ' k2 ':90, ' k7 ':33}	false
+10	{}	false
+11	\N	\N
+12	{'k3':23, null:20, 'k4':null}	true
+13	{'null':1}	false
+15	{'':2, 'k2':0}	false
+16	{null:null}	false
+17	\N	\N
+18	{'k1':100, 'k2':130}	false
+
+-- !select_map_contains_value103 --
+1	\N	\N
+2	{'  11amory  ':23, 'beat':20, ' clever ':66}	true
+3	{'k1':31, 'k2':300}	false
+4	{}	false
+5	\N	\N
+6	{'k1':41, 'k2':400}	false
+7	{'  33,amory  ':2, ' bet ':20, ' cler ':26}	false
+8	{}	false
+9	{'  1,amy  ':2, ' k2 ':90, ' k7 ':33}	false
+10	{}	false
+11	\N	\N
+12	{'k3':23, null:20, 'k4':null}	false
+13	{'null':1}	false
+15	{'':2, 'k2':0}	false
+16	{null:null}	false
+17	\N	\N
+18	{'k1':100, 'k2':130}	false
+
+-- !select_map_contains_value104 --
+1	\N	\N
+2	{'  11amory  ':23, 'beat':20, ' clever ':66}	false
+3	{'k1':31, 'k2':300}	true
+4	{}	false
+5	\N	\N
+6	{'k1':41, 'k2':400}	false
+7	{'  33,amory  ':2, ' bet ':20, ' cler ':26}	false
+8	{}	false
+9	{'  1,amy  ':2, ' k2 ':90, ' k7 ':33}	false
+10	{}	false
+11	\N	\N
+12	{'k3':23, null:20, 'k4':null}	false
+13	{'null':1}	false
+15	{'':2, 'k2':0}	false
+16	{null:null}	false
+17	\N	\N
+18	{'k1':100, 'k2':130}	false
+
+-- !select_map_contains_value105 --
+1	\N	\N
+2	{'  11amory  ':23, 'beat':20, ' clever ':66}	false
+3	{'k1':31, 'k2':300}	true
+4	{}	false
+5	\N	\N
+6	{'k1':41, 'k2':400}	false
+7	{'  33,amory  ':2, ' bet ':20, ' cler ':26}	false
+8	{}	false
+9	{'  1,amy  ':2, ' k2 ':90, ' k7 ':33}	false
+10	{}	false
+11	\N	\N
+12	{'k3':23, null:20, 'k4':null}	false
+13	{'null':1}	false
+15	{'':2, 'k2':0}	false
+16	{null:null}	false
+17	\N	\N
+18	{'k1':100, 'k2':130}	false
+
+-- !select_map_contains_value106 --
+1	\N	\N
+2	{'  11amory  ':23, 'beat':20, ' clever ':66}	false
+3	{'k1':31, 'k2':300}	false
+4	{}	false
+5	\N	\N
+6	{'k1':41, 'k2':400}	true
+7	{'  33,amory  ':2, ' bet ':20, ' cler ':26}	false
+8	{}	false
+9	{'  1,amy  ':2, ' k2 ':90, ' k7 ':33}	false
+10	{}	false
+11	\N	\N
+12	{'k3':23, null:20, 'k4':null}	false
+13	{'null':1}	false
+15	{'':2, 'k2':0}	false
+16	{null:null}	false
+17	\N	\N
+18	{'k1':100, 'k2':130}	false
+
+-- !select_map_contains_value107 --
+1	\N	\N
+2	{'  11amory  ':23, 'beat':20, ' clever ':66}	false
+3	{'k1':31, 'k2':300}	false
+4	{}	false
+5	\N	\N
+6	{'k1':41, 'k2':400}	true
+7	{'  33,amory  ':2, ' bet ':20, ' cler ':26}	false
+8	{}	false
+9	{'  1,amy  ':2, ' k2 ':90, ' k7 ':33}	false
+10	{}	false
+11	\N	\N
+12	{'k3':23, null:20, 'k4':null}	false
+13	{'null':1}	false
+15	{'':2, 'k2':0}	false
+16	{null:null}	false
+17	\N	\N
+18	{'k1':100, 'k2':130}	false
+
+-- !select_map_contains_value108 --
+1	\N	\N
+2	{'  11amory  ':23, 'beat':20, ' clever ':66}	false
+3	{'k1':31, 'k2':300}	false
+4	{}	false
+5	\N	\N
+6	{'k1':41, 'k2':400}	false
+7	{'  33,amory  ':2, ' bet ':20, ' cler ':26}	false
+8	{}	false
+9	{'  1,amy  ':2, ' k2 ':90, ' k7 ':33}	true
+10	{}	false
+11	\N	\N
+12	{'k3':23, null:20, 'k4':null}	false
+13	{'null':1}	false
+15	{'':2, 'k2':0}	false
+16	{null:null}	false
+17	\N	\N
+18	{'k1':100, 'k2':130}	false
+
+-- !select_map_contains_value109 --
+1	\N	\N
+2	{'  11amory  ':23, 'beat':20, ' clever ':66}	false
+3	{'k1':31, 'k2':300}	false
+4	{}	false
+5	\N	\N
+6	{'k1':41, 'k2':400}	false
+7	{'  33,amory  ':2, ' bet ':20, ' cler ':26}	true
+8	{}	false
+9	{'  1,amy  ':2, ' k2 ':90, ' k7 ':33}	true
+10	{}	false
+11	\N	\N
+12	{'k3':23, null:20, 'k4':null}	false
+13	{'null':1}	false
+15	{'':2, 'k2':0}	true
+16	{null:null}	false
+17	\N	\N
+18	{'k1':100, 'k2':130}	false
+
+-- !select_map_contains_value110 --
+1	\N	\N
+2	{'  11amory  ':23, 'beat':20, ' clever ':66}	false
+3	{'k1':31, 'k2':300}	false
+4	{}	false
+5	\N	\N
+6	{'k1':41, 'k2':400}	false
+7	{'  33,amory  ':2, ' bet ':20, ' cler ':26}	true
+8	{}	false
+9	{'  1,amy  ':2, ' k2 ':90, ' k7 ':33}	false
+10	{}	false
+11	\N	\N
+12	{'k3':23, null:20, 'k4':null}	false
+13	{'null':1}	false
+15	{'':2, 'k2':0}	false
+16	{null:null}	false
+17	\N	\N
+18	{'k1':100, 'k2':130}	false
+
+-- !select_map_contains_value111 --
+1	\N	\N
+2	{'  11amory  ':23, 'beat':20, ' clever ':66}	false
+3	{'k1':31, 'k2':300}	false
+4	{}	false
+5	\N	\N
+6	{'k1':41, 'k2':400}	false
+7	{'  33,amory  ':2, ' bet ':20, ' cler ':26}	false
+8	{}	false
+9	{'  1,amy  ':2, ' k2 ':90, ' k7 ':33}	true
+10	{}	false
+11	\N	\N
+12	{'k3':23, null:20, 'k4':null}	false
+13	{'null':1}	false
+15	{'':2, 'k2':0}	false
+16	{null:null}	false
+17	\N	\N
+18	{'k1':100, 'k2':130}	false
+
+-- !select_map_contains_value112 --
+1	\N	\N
+2	{'  11amory  ':23, 'beat':20, ' clever ':66}	false
+3	{'k1':31, 'k2':300}	false
+4	{}	false
+5	\N	\N
+6	{'k1':41, 'k2':400}	false
+7	{'  33,amory  ':2, ' bet ':20, ' cler ':26}	false
+8	{}	false
+9	{'  1,amy  ':2, ' k2 ':90, ' k7 ':33}	true
+10	{}	false
+11	\N	\N
+12	{'k3':23, null:20, 'k4':null}	false
+13	{'null':1}	false
+15	{'':2, 'k2':0}	false
+16	{null:null}	false
+17	\N	\N
+18	{'k1':100, 'k2':130}	false
+
+-- !select_map_contains_value113 --
+1	\N	\N
+2	{'  11amory  ':23, 'beat':20, ' clever ':66}	false
+3	{'k1':31, 'k2':300}	false
+4	{}	false
+5	\N	\N
+6	{'k1':41, 'k2':400}	false
+7	{'  33,amory  ':2, ' bet ':20, ' cler ':26}	false
+8	{}	false
+9	{'  1,amy  ':2, ' k2 ':90, ' k7 ':33}	false
+10	{}	false
+11	\N	\N
+12	{'k3':23, null:20, 'k4':null}	false
+13	{'null':1}	true
+15	{'':2, 'k2':0}	false
+16	{null:null}	false
+17	\N	\N
+18	{'k1':100, 'k2':130}	false
+
+-- !select_map_contains_value114 --
+1	\N	\N
+2	{'  11amory  ':23, 'beat':20, ' clever ':66}	false
+3	{'k1':31, 'k2':300}	false
+4	{}	false
+5	\N	\N
+6	{'k1':41, 'k2':400}	false
+7	{'  33,amory  ':2, ' bet ':20, ' cler ':26}	true
+8	{}	false
+9	{'  1,amy  ':2, ' k2 ':90, ' k7 ':33}	true
+10	{}	false
+11	\N	\N
+12	{'k3':23, null:20, 'k4':null}	false
+13	{'null':1}	false
+15	{'':2, 'k2':0}	true
+16	{null:null}	false
+17	\N	\N
+18	{'k1':100, 'k2':130}	false
+
+-- !select_map_contains_value115 --
+1	\N	\N
+2	{'  11amory  ':23, 'beat':20, ' clever ':66}	false
+3	{'k1':31, 'k2':300}	false
+4	{}	false
+5	\N	\N
+6	{'k1':41, 'k2':400}	false
+7	{'  33,amory  ':2, ' bet ':20, ' cler ':26}	false
+8	{}	false
+9	{'  1,amy  ':2, ' k2 ':90, ' k7 ':33}	false
+10	{}	false
+11	\N	\N
+12	{'k3':23, null:20, 'k4':null}	false
+13	{'null':1}	false
+15	{'':2, 'k2':0}	true
+16	{null:null}	false
+17	\N	\N
+18	{'k1':100, 'k2':130}	false
+
+-- !select_map_contains_value116 --
+1	\N	\N
+2	{'  11amory  ':23, 'beat':20, ' clever ':66}	false
+3	{'k1':31, 'k2':300}	false
+4	{}	false
+5	\N	\N
+6	{'k1':41, 'k2':400}	false
+7	{'  33,amory  ':2, ' bet ':20, ' cler ':26}	false
+8	{}	false
+9	{'  1,amy  ':2, ' k2 ':90, ' k7 ':33}	false
+10	{}	false
+11	\N	\N
+12	{'k3':23, null:20, 'k4':null}	false
+13	{'null':1}	false
+15	{'':2, 'k2':0}	false
+16	{null:null}	false
+17	\N	\N
+18	{'k1':100, 'k2':130}	false
+
+-- !select_map_contains_value117 --
+1	\N	\N
+2	{'  11amory  ':23, 'beat':20, ' clever ':66}	\N
+3	{'k1':31, 'k2':300}	\N
+4	{}	\N
+5	\N	\N
+6	{'k1':41, 'k2':400}	\N
+7	{'  33,amory  ':2, ' bet ':20, ' cler ':26}	\N
+8	{}	\N
+9	{'  1,amy  ':2, ' k2 ':90, ' k7 ':33}	\N
+10	{}	\N
+11	\N	\N
+12	{'k3':23, null:20, 'k4':null}	\N
+13	{'null':1}	\N
+15	{'':2, 'k2':0}	\N
+16	{null:null}	\N
+17	\N	\N
+18	{'k1':100, 'k2':130}	\N
+
+-- !select_map_keys1 --
+['k11', 'k22']
+
+-- !select_map_keys2 --
+1	\N	\N
+2	{'  11amory  ':23, 'beat':20, ' clever ':66}	['  11amory  ', 'beat', ' clever ']
+3	{'k1':31, 'k2':300}	['k1', 'k2']
+4	{}	[]
+5	\N	\N
+6	{'k1':41, 'k2':400}	['k1', 'k2']
+7	{'  33,amory  ':2, ' bet ':20, ' cler ':26}	['  33,amory  ', ' bet ', ' cler ']
+8	{}	[]
+9	{'  1,amy  ':2, ' k2 ':90, ' k7 ':33}	['  1,amy  ', ' k2 ', ' k7 ']
+10	{}	[]
+11	\N	\N
+12	{'k3':23, null:20, 'k4':null}	['k3', NULL, 'k4']
+13	{'null':1}	['null']
+15	{'':2, 'k2':0}	['', 'k2']
+16	{null:null}	[NULL]
+17	\N	\N
+18	{'k1':100, 'k2':130}	['k1', 'k2']
+
+-- !select_map_values1 --
+[1000, 2000]
+
+-- !select_map_values2 --
+1	\N	\N
+2	{'  11amory  ':23, 'beat':20, ' clever ':66}	[23, 20, 66]
+3	{'k1':31, 'k2':300}	[31, 300]
+4	{}	[]
+5	\N	\N
+6	{'k1':41, 'k2':400}	[41, 400]
+7	{'  33,amory  ':2, ' bet ':20, ' cler ':26}	[2, 20, 26]
+8	{}	[]
+9	{'  1,amy  ':2, ' k2 ':90, ' k7 ':33}	[2, 90, 33]
+10	{}	[]
+11	\N	\N
+12	{'k3':23, null:20, 'k4':null}	[23, 20, NULL]
+13	{'null':1}	[1]
+15	{'':2, 'k2':0}	[2, 0]
+16	{null:null}	[NULL]
+17	\N	\N
+18	{'k1':100, 'k2':130}	[100, 130]
+
