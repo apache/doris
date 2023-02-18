@@ -378,7 +378,7 @@ public class PropertyAnalyzer {
                         // key columns and none/replace aggregate non-key columns support
                         if (type == PrimitiveType.TINYINT || type == PrimitiveType.FLOAT
                                 || type == PrimitiveType.DOUBLE || type == PrimitiveType.BOOLEAN
-                                || type.isArrayType()) {
+                                || type.isComplexType()) {
                             throw new AnalysisException(type + " is not supported in bloom filter index. "
                                     + "invalid column: " + bfColumn);
                         } else if (keysType != KeysType.AGG_KEYS || column.isKey()) {
