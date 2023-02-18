@@ -412,6 +412,7 @@ public class MysqlChannel {
             }else if(isSslMode){
                 writeSslHeader(bufLen);
                 writeSslBuffer(packet);
+                accSequenceId();
             }else{
                 writeHeader(bufLen);
                 writeBuffer(packet);
@@ -425,6 +426,7 @@ public class MysqlChannel {
             writeSslHeader(oldLimit-packet.position());
             packet.limit(oldLimit);
             writeSslBuffer(packet);
+            accSequenceId();
         }else{
             writeHeader(oldLimit - packet.position());
             packet.limit(oldLimit);
