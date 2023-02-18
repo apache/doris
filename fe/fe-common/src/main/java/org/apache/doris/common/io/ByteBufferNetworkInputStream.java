@@ -42,8 +42,14 @@ public class ByteBufferNetworkInputStream extends InputStream {
         if (closed) {
             throw new IOException("Stream is already closed.");
         }
-        ByteArrayInputStream inputStream = new ByteArrayInputStream(buffer.array(), buffer.position(), buffer.limit());
+        ByteArrayInputStream inputStream = new ByteArrayInputStream(bytesCopy(buffer));
         queue.offer(inputStream, 300, TimeUnit.SECONDS);
+    }
+
+    public byte[] bytesCopy(ByteBuffer buffer) {
+        byte[] result = new byte[buffer.limit() - buffer.position()];
+        System.arraycopy(buffer.array(), buffer.position(), result, 0, result.length);
+        return result;
     }
 
     public void markFinished() {
