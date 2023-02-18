@@ -463,11 +463,7 @@ Status VScanNode::_normalize_conjuncts() {
                 _stale_vexpr_ctxs.push_back(std::move(_vconjunct_ctx_ptr));
                 _vconjunct_ctx_ptr.reset(nullptr);
             }
-        } else {
-            return Status::OK();
         }
-    } else {
-        return Status::OK();
     }
     for (auto& it : _slot_id_to_value_range) {
         std::visit(
