@@ -44,7 +44,9 @@ public class K8sDeployManager extends DeployManager {
     private static final Logger LOG = LogManager.getLogger(K8sDeployManager.class);
 
     public static final String ENV_APP_NAMESPACE = "APP_NAMESPACE";
+    public static final String ENV_DOMAIN_LTD = "DOMAIN_LTD";
     public static final String DEFAULT_APP_NAMESPACE = "default";
+    public static final String DEFAULT_DOMAIN_LTD = "svc.cluster.local";
     // each SERVICE (FE/BE/OBSERVER/BROKER) represents a module of Doris, such as Frontends, Backends, ...
     // and each service has a name in k8s.
     public static final String ENV_FE_SERVICE = "FE_SERVICE";
@@ -63,6 +65,7 @@ public class K8sDeployManager extends DeployManager {
     // corresponding to the environment variable ENV_APP_NAMESPACE.
     // App represents a Palo cluster in K8s, and has a namespace, and default namespace is 'default'
     private String appNamespace;
+    private String domainLTD;
     private KubernetesClient client = null;
 
     // =======for test only==========
@@ -94,6 +97,14 @@ public class K8sDeployManager extends DeployManager {
         }
 
         LOG.info("use namespace: {}", appNamespace);
+
+        domainLTD = Strings.nullToEmpty(System.getenv(ENV_DOMAIN_LTD));
+
+        if (Strings.isNullOrEmpty(domainLTD)) {
+            domainLTD = DEFAULT_DOMAIN_LTD;
+        }
+
+        LOG.info("use domainLTD: {}", domainLTD);
     }
 
     @Override
@@ -151,12 +162,25 @@ public class K8sDeployManager extends DeployManager {
 
             List<EndpointAddress> addrs = subset.getAddresses();
             for (EndpointAddress eaddr : addrs) {
-                result.add(new SystemInfoService.HostInfo(eaddr.getIp(), eaddr.getHostname(), port));
+                result.add(new SystemInfoService.HostInfo(eaddr.getIp(), getDomainName(eaddr.getHostname(), groupName),
+                        port));
             }
         }
 
         LOG.info("get host port from group: {}: {}", groupName, result);
         return result;
+    }
+
+    private String getDomainName(String hostName, String serviceName) {
+        StringBuilder builder = new StringBuilder();
+        builder.append(hostName);
+        builder.append(".");
+        builder.append(serviceName);
+        builder.append(".");
+        builder.append(appNamespace);
+        builder.append(".");
+        builder.append(domainLTD);
+        return builder.toString();
     }
 
     @Override

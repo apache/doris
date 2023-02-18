@@ -102,6 +102,18 @@ public class SystemInfoService {
             return port;
         }
 
+        public void setIp(String ip) {
+            this.ip = ip;
+        }
+
+        public void setHostName(String hostName) {
+            this.hostName = hostName;
+        }
+
+        public void setPort(int port) {
+            this.port = port;
+        }
+
         public String getIdent() {
             return StringUtils.isEmpty(hostName) ? ip : hostName;
         }
@@ -152,6 +164,10 @@ public class SystemInfoService {
     public void addBackends(List<HostInfo> hostInfos, boolean isFree, String destCluster,
             Map<String, String> tagMap) throws UserException {
         for (HostInfo hostInfo : hostInfos) {
+            //if not enable_fqdn,ignore hostName
+            if (!Config.enable_fqdn_mode) {
+                hostInfo.setHostName(null);
+            }
             if (Config.enable_fqdn_mode && hostInfo.getHostName() == null) {
                 throw new DdlException("backend's hostName should not be null while enable_fqdn_mode is true");
             }
