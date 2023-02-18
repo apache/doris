@@ -27,6 +27,9 @@ under the License.
 # 动态表
 
 <version since="2.0.0">
+
+动态表
+
 </version>
 
 动态schema表是一种特殊的表，其schema随着导入自动进行扩展。目前该功能，主要用于半结构数据，例如JSON等的导入、自动列生成。因为JSON是类型自描述的，所以我们可以从原始文档中提取schema信息，推断最终类型信息。这种特殊的表可以减少人工schema change的操作，并轻松导入半结构数据并自动扩展其schema。
