@@ -19,10 +19,10 @@ suite("test_bloom_filter") {
     sql "SHOW ALTER TABLE COLUMN"
 
     // bloom filter index for ARRAY column
-    def test_tb = "test_array_bloom_filter_tb"
-    sql """DROP TABLE IF EXISTS ${test_tb}"""
+    def test_array_tb = "test_array_bloom_filter_tb"
+    sql """DROP TABLE IF EXISTS ${test_array_tb}"""
     test {
-        sql """CREATE TABLE IF NOT EXISTS ${test_tb} (
+        sql """CREATE TABLE IF NOT EXISTS ${test_array_tb} (
                 `k1` int(11) NOT NULL,
                 `a1` array<boolean> NOT NULL
                 ) ENGINE=OLAP
@@ -35,7 +35,7 @@ suite("test_bloom_filter") {
         exception "not supported in bloom filter index"
     }
 
-    sql """CREATE TABLE IF NOT EXISTS ${test_tb} (
+    sql """CREATE TABLE IF NOT EXISTS ${test_array_tb} (
             `k1` int(11) NOT NULL,
             `a1` array<boolean> NOT NULL
             ) ENGINE=OLAP
@@ -46,7 +46,73 @@ suite("test_bloom_filter") {
                 "bloom_filter_columns" = "k1"
         )"""
     test {
-        sql """ALTER TABLE ${test_tb} SET("bloom_filter_columns" = "k1,a1")"""
+        sql """ALTER TABLE ${test_array_tb} SET("bloom_filter_columns" = "k1,a1")"""
+        exception "not supported in bloom filter index"
+    }
+
+    // bloom filter index for STRUCT column
+    def test_struct_tb = "test_struct_bloom_filter_tb"
+    sql """DROP TABLE IF EXISTS ${test_struct_tb}"""
+    sql "ADMIN SET FRONTEND CONFIG ('enable_struct_type' = 'true')"
+    test {
+        sql """CREATE TABLE IF NOT EXISTS ${test_struct_tb} (
+                `k1` int(11) NOT NULL,
+                `s1` struct<f1:int, f2:char(5)> NOT NULL
+                ) ENGINE=OLAP
+                DUPLICATE KEY(`k1`)
+                DISTRIBUTED BY HASH(`k1`) BUCKETS 5
+                PROPERTIES (
+                    "replication_num" = "1",
+                    "bloom_filter_columns" = "k1,s1"
+            )"""
+        exception "not supported in bloom filter index"
+    }
+
+    sql """CREATE TABLE IF NOT EXISTS ${test_struct_tb} (
+            `k1` int(11) NOT NULL,
+            `s1` struct<f1:int, f2:char(5)> NOT NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k1`)
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 5
+            PROPERTIES (
+                "replication_num" = "1",
+                "bloom_filter_columns" = "k1"
+        )"""
+    test {
+        sql """ALTER TABLE ${test_struct_tb} SET("bloom_filter_columns" = "k1,s1")"""
+        exception "not supported in bloom filter index"
+    }
+
+    // bloom filter index for MAP column
+    def test_map_tb = "test_map_bloom_filter_tb"
+    sql """DROP TABLE IF EXISTS ${test_map_tb}"""
+    sql "ADMIN SET FRONTEND CONFIG ('enable_map_type' = 'true')"
+    test {
+        sql """CREATE TABLE IF NOT EXISTS ${test_map_tb} (
+                `k1` int(11) NOT NULL,
+                `m1` map<int, char(5)> NOT NULL
+                ) ENGINE=OLAP
+                DUPLICATE KEY(`k1`)
+                DISTRIBUTED BY HASH(`k1`) BUCKETS 5
+                PROPERTIES (
+                    "replication_num" = "1",
+                    "bloom_filter_columns" = "k1,m1"
+            )"""
+        exception "not supported in bloom filter index"
+    }
+
+    sql """CREATE TABLE IF NOT EXISTS ${test_map_tb} (
+            `k1` int(11) NOT NULL,
+            `m1` map<int, char(5)> NOT NULL
+            ) ENGINE=OLAP
+            DUPLICATE KEY(`k1`)
+            DISTRIBUTED BY HASH(`k1`) BUCKETS 5
+            PROPERTIES (
+                "replication_num" = "1",
+                "bloom_filter_columns" = "k1"
+        )"""
+    test {
+        sql """ALTER TABLE ${test_map_tb} SET("bloom_filter_columns" = "k1,m1")"""
         exception "not supported in bloom filter index"
     }
 }

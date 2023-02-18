@@ -477,7 +477,7 @@ public class SingleNodePlanner {
                         // over the length: https://github.com/apache/doris/pull/6293
                         if (aggOp == TPushAggOp.MINMAX || aggOp == TPushAggOp.MIX) {
                             PrimitiveType colType = col.getDataType();
-                            if (colType.isArrayType() || colType.isComplexType()
+                            if (colType.isComplexType() || colType.isHllType() || colType.isBitmapType()
                                     || colType == PrimitiveType.STRING) {
                                 returnColumnValidate = false;
                                 break;

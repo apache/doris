@@ -1112,8 +1112,20 @@ public enum PrimitiveType {
         return this == MAP;
     }
 
+    public boolean isStructType() {
+        return this == STRUCT;
+    }
+
     public boolean isComplexType() {
-        return this == HLL || this == BITMAP;
+        return this == ARRAY || this == MAP || this == STRUCT;
+    }
+
+    public boolean isHllType() {
+        return this == HLL;
+    }
+
+    public boolean isBitmapType() {
+        return this == BITMAP;
     }
 
     public boolean isVariantType() {
