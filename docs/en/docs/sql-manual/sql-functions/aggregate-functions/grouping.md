@@ -26,26 +26,24 @@ under the License.
 
 ## GROUPING
 
+### Name
+
+GROUPING
+
+### Description
+
 Indicates whether a specified column expression in a `GROUP BY` list is aggregated or not. `GROUPING` returns 1 for aggregated or 0 for not aggregated in the result set. `GROUPING` can be used only in the `SELECT <select> list`, `HAVING`, and `ORDER BY` clauses when `GROUP BY` is specified.
 
-### Syntax
+`GROUPING` is used to distinguish the null values that are returned by `ROLLUP`, `CUBE` or `GROUPING SETS` from standard null values. The `NULL` returned as the result of a `ROLLUP`, `CUBE` or `GROUPING SETS` operation is a special use of `NULL`. This acts as a column placeholder in the result set and means all.
 
 ```sql
 GROUPING( <column_expression> )
 ```
 
-### Arguments
-
 `<column_expression>`
 Is a column or an expression that contains a column in a `GROUP BY` clause.
 
-### Return Types
-
-BIGINT
-
-### Remarks
-
-`GROUPING` is used to distinguish the null values that are returned by `ROLLUP`, `CUBE` or `GROUPING SETS` from standard null values. The `NULL` returned as the result of a `ROLLUP`, `CUBE` or `GROUPING SETS` operation is a special use of `NULL`. This acts as a column placeholder in the result set and means all.
+Return Types: BIGINT
 
 ### Example
 
@@ -101,6 +99,10 @@ Here is the result set.
 4 rows in set (0.01 sec)
 ```
 
-### See Also
+### Keywords
 
-[GROUPING_ID](./grouping_id.md)
+GROUPING
+
+### Best Practice
+
+See also [GROUPING_ID](./grouping_id.md)
