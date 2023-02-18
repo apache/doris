@@ -931,7 +931,7 @@ build_arrow() {
     export ARROW_LZ4_URL="${TP_SOURCE_DIR}/${LZ4_NAME}"
     export ARROW_FLATBUFFERS_URL="${TP_SOURCE_DIR}/${FLATBUFFERS_NAME}"
     export ARROW_ZSTD_URL="${TP_SOURCE_DIR}/${ZSTD_NAME}"
-    export ARROW_JEMALLOC_URL="${TP_SOURCE_DIR}/${JEMALLOC_NAME}"
+    export ARROW_JEMALLOC_URL="${TP_SOURCE_DIR}/${JEMALLOC_ARROW_NAME}"
     export ARROW_Thrift_URL="${TP_SOURCE_DIR}/${THRIFT_NAME}"
     export ARROW_SNAPPY_URL="${TP_SOURCE_DIR}/${SNAPPY_NAME}"
     export ARROW_ZLIB_URL="${TP_SOURCE_DIR}/${ZLIB_NAME}"
@@ -1404,8 +1404,8 @@ build_hdfs3() {
 
 # jemalloc
 build_jemalloc() {
-    check_if_source_exist "${JEMALLOC_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${JEMALLOC_SOURCE}"
+    check_if_source_exist "${JEMALLOC_DORIS_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${JEMALLOC_DORIS_SOURCE}"
 
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"

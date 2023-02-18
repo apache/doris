@@ -292,11 +292,17 @@ ORC_NAME=orc-1.7.2.tar.gz
 ORC_SOURCE=orc-1.7.2
 ORC_MD5SUM="6cab37935eacdec7d078d327746a8578"
 
-# jemalloc
-JEMALLOC_DOWNLOAD="https://github.com/jemalloc/jemalloc/releases/download/5.2.1/jemalloc-5.2.1.tar.bz2"
-JEMALLOC_NAME="jemalloc-5.2.1.tar.bz2"
-JEMALLOC_SOURCE="jemalloc-5.2.1"
-JEMALLOC_MD5SUM="3d41fbf006e6ebffd489bdb304d009ae"
+# jemalloc for arrow
+JEMALLOC_ARROW_DOWNLOAD="https://github.com/jemalloc/jemalloc/releases/download/5.2.1/jemalloc-5.2.1.tar.bz2"
+JEMALLOC_ARROW_NAME="jemalloc-5.2.1.tar.bz2"
+JEMALLOC_ARROW_SOURCE="jemalloc-5.2.1"
+JEMALLOC_ARROW_MD5SUM="3d41fbf006e6ebffd489bdb304d009ae"
+
+# jemalloc for doris
+JEMALLOC_DORIS_DOWNLOAD="https://github.com/jemalloc/jemalloc/releases/download/5.3.0/jemalloc-5.3.0.tar.bz2"
+JEMALLOC_DORIS_NAME="jemalloc-5.3.0.tar.bz2"
+JEMALLOC_DORIS_SOURCE="jemalloc-5.3.0"
+JEMALLOC_DORIS_MD5SUM="09a8328574dab22a7df848eae6dbbf53"
 
 # cctz
 CCTZ_DOWNLOAD="https://github.com/google/cctz/archive/v2.3.tar.gz"
@@ -368,10 +374,10 @@ KRB5_SOURCE="krb5-1.19"
 KRB5_MD5SUM="aaf18447a5a014aa3b7e81814923f4c9"
 
 # hdfs3
-HDFS3_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libhdfs3-v2.3.7.tar.gz"
-HDFS3_NAME="doris-thirdparty-libhdfs3-v2.3.7.tar.gz"
-HDFS3_SOURCE="doris-thirdparty-libhdfs3-v2.3.7"
-HDFS3_MD5SUM="4c6b272970858214bccd0fc670071fc7"
+HDFS3_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libhdfs3-v2.3.8.tar.gz"
+HDFS3_NAME="doris-thirdparty-libhdfs3-v2.3.8.tar.gz"
+HDFS3_SOURCE="doris-thirdparty-libhdfs3-v2.3.8"
+HDFS3_MD5SUM="3a9890bb43d0caee183ea7a49df2e4f3"
 
 #libdivide
 LIBDIVIDE_DOWNLOAD="https://github.com/ridiculousfish/libdivide/archive/5.0.tar.gz"
@@ -492,7 +498,8 @@ export TP_ARCHIVES=(
     'FMT'
     'PARALLEL_HASHMAP'
     'ORC'
-    'JEMALLOC'
+    'JEMALLOC_ARROW'
+    'JEMALLOC_DORIS'
     'CCTZ'
     'DATATABLES'
     'BOOTSTRAP_TABLE_JS'
