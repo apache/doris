@@ -169,6 +169,8 @@ public class HelpModuleTest {
                 Lists.newArrayList("Admin").toArray()));
     }
 
+    // Need first call docs/build_help_resource.sh to build real help resource.
+    // And copy docs/build/help-resource.zip to fe/fe-core/src/test/resources/real-help-resource.zip
     @Test
     public void testRealHelpZip() {
         try {
