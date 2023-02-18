@@ -85,7 +85,6 @@ AggregateFunctionSimpleFactory& AggregateFunctionSimpleFactory::instance() {
         register_aggregate_function_collect_list(instance);
         register_aggregate_function_sequence_match(instance);
         register_aggregate_function_avg_weighted(instance);
-        register_aggregate_function_avg_weighted(instance);
         register_aggregate_function_histogram(instance);
 
         // if you only register function with no nullable, and wants to add nullable automatically, you should place function above this line
