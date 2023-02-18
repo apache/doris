@@ -63,6 +63,7 @@ docker_setup_env() {
 
 # Check the variables required for startup
 docker_required_variables_env() {
+
   if [[ $FE_SERVERS =~ ^.+:[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4}(,.+:[1-2]{0,1}[0-9]{0,1}[0-9]{1}(\.[1-2]{0,1}[0-9]{0,1}[0-9]{1}){3}:[1-6]{0,1}[0-9]{1,4})*$ ]]; then
     doris_warn "FE_SERVERS" $FE_SERVERS
   else
