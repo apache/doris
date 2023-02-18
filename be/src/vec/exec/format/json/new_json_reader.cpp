@@ -1388,7 +1388,7 @@ Status NewJsonReader::_append_error_msg(simdjson::ondemand::object* obj, std::st
                     return "";
                 }
                 std::string_view str_view;
-                (void)obj->raw_json().get(str_view);
+                (void)!obj->raw_json().get(str_view);
                 return std::string(str_view.data(), str_view.size());
             },
             [&]() -> std::string { return err_msg; }, _scanner_eof));
