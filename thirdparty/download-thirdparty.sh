@@ -345,15 +345,15 @@ fi
 echo "Finished patching ${LIBRDKAFKA_SOURCE}"
 
 # patch jemalloc, disable JEMALLOC_MANGLE for overloading the memory API.
-if [[ "${JEMALLOC_SOURCE}" = "jemalloc-5.2.1" ]]; then
-    cd "${TP_SOURCE_DIR}/${JEMALLOC_SOURCE}"
+if [[ "${JEMALLOC_DORIS_SOURCE}" = "jemalloc-5.3.0" ]]; then
+    cd "${TP_SOURCE_DIR}/${JEMALLOC_DORIS_SOURCE}"
     if [[ ! -f "${PATCHED_MARK}" ]]; then
         patch -p0 <"${TP_PATCH_DIR}/jemalloc_hook.patch"
         touch "${PATCHED_MARK}"
     fi
     cd -
 fi
-echo "Finished patching ${JEMALLOC_SOURCE}"
+echo "Finished patching ${JEMALLOC_DORIS_SOURCE}"
 
 # patch hyperscan
 # https://github.com/intel/hyperscan/issues/292
