@@ -27,6 +27,8 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
 
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.json.simple.JSONObject;
@@ -212,16 +214,9 @@ public class EsUtil {
         return properties;
     }
 
-
-    /**
-     * Generate columns from ES Cluster.
-     * Add mappingEsId config in es external catalog.
-     **/
-    public static List<Column> genColumnsFromEs(EsRestClient client, String indexName, String mappingType,
+    @VisibleForTesting
+    public static List<Column> genColumnsFromEs(JSONObject mappingProps, List<String> arrayFields,
             boolean mappingEsId) {
-        String mapping = client.getMapping(indexName);
-        JSONObject mappingProps = getMappingProps(indexName, mapping, mappingType);
-        List<String> arrayFields = getArrayFields(mapping);
         Set<String> keys = (Set<String>) mappingProps.keySet();
         List<Column> columns = new ArrayList<>();
         if (mappingEsId) {
@@ -234,19 +229,26 @@ public class EsUtil {
             columns.add(column);
         }
         for (String key : keys) {
-            JSONObject field = (JSONObject) mappingProps.get(key);
-            Type type;
-            // Complex types are treating as String types for now.
-            if (field.containsKey("type")) {
-                type = toDorisType(field.get("type").toString());
-            } else {
-                type = Type.STRING;
-            }
             Column column = new Column();
             column.setName(key);
             column.setIsKey(true);
             column.setIsAllowNull(true);
             column.setUniqueId(-1);
+            JSONObject field = (JSONObject) mappingProps.get(key);
+            Type type;
+            // Complex types are treating as String types for now.
+            if (field.containsKey("type")) {
+                String typeStr = field.get("type").toString();
+                if ("date".equals(typeStr)) {
+                    type = parseEsDateType(column, field);
+                } else {
+                    type = toDorisType(typeStr);
+                    column.setComment("Elasticsearch type is " + typeStr);
+                }
+            } else {
+                type = Type.STRING;
+                column.setComment("Elasticsearch no type");
+            }
             if (arrayFields.contains(key)) {
                 column.setType(ArrayType.create(type, true));
             } else {
@@ -255,6 +257,69 @@ public class EsUtil {
             columns.add(column);
         }
         return columns;
+    }
+
+
+    /**
+     * Generate columns from ES Cluster.
+     * Add mappingEsId config in es external catalog.
+     **/
+    public static List<Column> genColumnsFromEs(EsRestClient client, String indexName, String mappingType,
+            boolean mappingEsId) {
+        String mapping = client.getMapping(indexName);
+        JSONObject mappingProps = getMappingProps(indexName, mapping, mappingType);
+        List<String> arrayFields = getArrayFields(mapping);
+        return genColumnsFromEs(mappingProps, arrayFields, mappingEsId);
+    }
+
+    private static final List<String> ALLOW_DATE_FORMATS = Lists.newArrayList("yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd",
+            "epoch_millis");
+
+    /**
+     * Parse es date to doris type by format
+     **/
+    private static Type parseEsDateType(Column column, JSONObject field) {
+        if (!field.containsKey("format")) {
+            // default format
+            column.setComment("Elasticsearch type is date, no format");
+            return ScalarType.createDatetimeV2Type(0);
+        } else {
+            String originFormat = field.get("format").toString();
+            String[] formats = originFormat.split("\\|\\|");
+            boolean dateTimeFlag = false;
+            boolean dateFlag = false;
+            boolean bigIntFlag = false;
+            for (String format : formats) {
+                // pre-check format
+                if (!ALLOW_DATE_FORMATS.contains(format)) {
+                    column.setComment(
+                            "Elasticsearch type is date, format is " + format + " not support, use String type");
+                    return ScalarType.createStringType();
+                }
+                switch (format) {
+                    case "yyyy-MM-dd HH:mm:ss":
+                        dateTimeFlag = true;
+                        break;
+                    case "yyyy-MM-dd":
+                        dateFlag = true;
+                        break;
+                    case "epoch_millis":
+                    default:
+                        bigIntFlag = true;
+                }
+            }
+            column.setComment("Elasticsearch type is date, format is " + originFormat);
+            if (dateTimeFlag) {
+                return ScalarType.createDatetimeV2Type(0);
+            }
+            if (dateFlag) {
+                return ScalarType.createDateV2Type();
+            }
+            if (bigIntFlag) {
+                return Type.BIGINT;
+            }
+            return ScalarType.createStringType();
+        }
     }
 
     /**
@@ -284,7 +349,6 @@ public class EsUtil {
             case "scaled_float":
                 return Type.DOUBLE;
             case "date":
-                return ScalarType.createDateV2Type();
             case "keyword":
             case "text":
             case "ip":
@@ -297,4 +361,3 @@ public class EsUtil {
     }
 
 }
-

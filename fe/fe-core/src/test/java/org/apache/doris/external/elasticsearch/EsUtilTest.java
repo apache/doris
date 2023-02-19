@@ -408,4 +408,38 @@ public class EsUtilTest extends EsTestCase {
         EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es8_only_dynamic_templates_mapping.json"), "doc");
     }
 
+    @Test
+    public void testDateType() throws IOException, URISyntaxException {
+        JSONObject testDateFormat = EsUtil.getMappingProps("test_date_format",
+                loadJsonFromFile("data/es/test_date_format.json"), null);
+        List<Column> parseColumns = EsUtil.genColumnsFromEs(testDateFormat, new ArrayList<>(), false);
+        Assertions.assertEquals(8, parseColumns.size());
+        System.out.println(parseColumns);
+        for (Column column : parseColumns) {
+            String name = column.getName();
+            String type = column.getType().toSql();
+            if ("test2".equals(name)) {
+                Assertions.assertEquals("datetimev2(0)", type);
+            }
+            if ("test3".equals(name)) {
+                Assertions.assertEquals("datetimev2(0)", type);
+            }
+            if ("test4".equals(name)) {
+                Assertions.assertEquals("datev2", type);
+            }
+            if ("test5".equals(name)) {
+                Assertions.assertEquals("datetimev2(0)", type);
+            }
+            if ("test6".equals(name)) {
+                Assertions.assertEquals("datev2", type);
+            }
+            if ("test7".equals(name)) {
+                Assertions.assertEquals("datetimev2(0)", type);
+            }
+            if ("test8".equals(name)) {
+                Assertions.assertEquals("bigint(20)", type);
+            }
+        }
+    }
+
 }
