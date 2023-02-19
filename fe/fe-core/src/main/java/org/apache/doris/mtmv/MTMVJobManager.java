@@ -44,6 +44,7 @@ import java.io.DataOutputStream;
 import java.io.EOFException;
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.Executors;
@@ -283,8 +284,20 @@ public class MTMVJobManager {
         LOG.info("change job:{}", changeJob.getJobId());
     }
 
+    public void dropJobByName(String dbName, String mvName) {
+        for (String jobName : nameToJobMap.keySet()) {
+            MTMVJob job = nameToJobMap.get(jobName);
+            if (job.getMVName().equals(mvName) && job.getDBName().equals(dbName)) {
+                dropJobs(Collections.singletonList(job.getId()), false);
+                return;
+            }
+        }
+    }
+
     public void dropJobs(List<Long> jobIds, boolean isReplay) {
-        // keep  nameToJobMap and manualTaskMap consist
+        if (jobIds.isEmpty()) {
+            return;
+        }
         if (!tryLock()) {
             return;
         }

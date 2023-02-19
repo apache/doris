@@ -915,6 +915,11 @@ public class EditLog {
                     env.getMTMVJobManager().replayDropJobTasks(dropTask.getTaskIds());
                     break;
                 }
+                case OperationType.OP_ALTER_MTMV_STMT: {
+                    final AlterMultiMaterializedView alterView = (AlterMultiMaterializedView) journal.getData();
+                    env.getAlterInstance().processAlterMaterializedView(alterView, true);
+                    break;
+                }
                 case OperationType.OP_ALTER_USER: {
                     final AlterUserOperationLog log = (AlterUserOperationLog) journal.getData();
                     env.getAuth().replayAlterUser(log);
@@ -1712,5 +1717,9 @@ public class EditLog {
 
     public void logAlterUser(AlterUserOperationLog log) {
         logEdit(OperationType.OP_ALTER_USER, log);
+    }
+
+    public void logAlterMTMV(AlterMultiMaterializedView log) {
+        logEdit(OperationType.OP_ALTER_MTMV_STMT, log);
     }
 }
