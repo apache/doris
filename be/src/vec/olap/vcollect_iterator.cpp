@@ -245,6 +245,11 @@ Status VCollectIterator::_topn_next(Block* block) {
     auto cloneBlock = block->clone_empty();
     MutableBlock mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
 
+    if (!_reader->_reader_context.read_orderby_key_columns) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "read_orderby_key_columns should not be nullptr");
+    }
+
     size_t first_sort_column_idx = (*_reader->_reader_context.read_orderby_key_columns)[0];
     const std::vector<uint32_t>* sort_columns = _reader->_reader_context.read_orderby_key_columns;
 
