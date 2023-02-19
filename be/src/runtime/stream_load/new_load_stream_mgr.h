@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include <future>
 #include <iterator>
 #include <memory>
 #include <mutex>
@@ -80,6 +81,18 @@ public:
         if (auto iter = _stream_map.find(id); iter != _stream_map.end()) {
             _stream_map.erase(iter);
             VLOG_NOTICE << "remove stream load pipe: " << id;
+        }
+        std::lock_guard<std::mutex> l_buffer(_buffer_lock);
+        auto it_buffer = _stream_schema_buffer_map.find(id);
+        if (it_buffer != std::end(_stream_schema_buffer_map)) {
+            _stream_schema_buffer_map.erase(it_buffer);
+            VLOG_NOTICE << "remove stream load buffer: " << id;
+        }
+        std::lock_guard<std::mutex> l_ctx(_promise_lock);
+        auto it_promise = _stream_promise_map.find(id);
+        if (it_promise != std::end(_stream_promise_map)) {
+            _stream_promise_map.erase(it_promise);
+            VLOG_NOTICE << "remove stream load promise " << id;
         }
     }
 

@@ -1812,15 +1812,13 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
     private void streamLoadPutWithSqlImpl(TStreamLoadPutRequest request) throws UserException {
         String loadSql = request.getLoadSql();
-        ConnectContext ctx = ConnectContext.get();
-        if (ctx == null) {
-            ctx = new ConnectContext(null);
-            ctx.setEnv(Env.getCurrentEnv());
-            ctx.setQueryId(request.getLoadId());
-            ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
-            ctx.setCurrentUserIdentity(UserIdentity.ROOT);
-            ctx.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
-            ctx.setThreadLocalInfo();
+        ConnectContext ctx = new ConnectContext(null);
+        ctx.setEnv(Env.getCurrentEnv());
+        ctx.setQueryId(request.getLoadId());
+        ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
+        ctx.setCurrentUserIdentity(UserIdentity.ROOT);
+        ctx.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
+        ctx.setThreadLocalInfo();
         }
         ctx.setBackendId(request.getBackendId());
         ctx.setLoadId(request.getLoadId());
@@ -1967,6 +1965,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         long txnId = -1;
         Throwable throwable = null;
         String label = "";
+        if (coord == null) {
+            result.setStatus(new TStatus(TStatusCode.RUNTIME_ERROR));
+            LOG.info("runtime error, query {} does not exist", DebugUtil.printId(loadId));
+            return result;
+        }
         ConnectContext context = coord.getConnectContext();
         StmtExecutor exec = context.getExecutor();
         InsertStmt insertStmt = (InsertStmt) exec.getParsedStmt();
@@ -1974,12 +1977,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         txnId = insertStmt.getTransactionId();
         result.setTxnId(txnId);
         TransactionStatus txnStatus = TransactionStatus.ABORTED;
-        if (coord == null) {
-            result.setStatus(new TStatus(TStatusCode.RUNTIME_ERROR));
-            LOG.info("runtime error, query {} does not exist", DebugUtil.printId(loadId));
-            return result;
-        }
-        if (coord.getExecStatus().ok()) {
+        if (coord.getExecStatus().ok() && coord.getIsReportExecStatus()) {
             if (coord.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL) != null) {
                 totalRows = Long.parseLong(coord.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL));
             }
@@ -2013,8 +2011,9 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     LOG.warn("errors when abort txn", abortTxnException);
                 }
                 throwable = t;
+            } finally {
+                QeProcessorImpl.INSTANCE.unregisterQuery(loadId);
             }
-            QeProcessorImpl.INSTANCE.unregisterQuery(loadId);
             try {
                 context.getEnv().getLoadManager()
                         .recordFinishedLoadJob(label, txnId, insertStmt.getDb(), insertStmt.getTargetTable().getId(),

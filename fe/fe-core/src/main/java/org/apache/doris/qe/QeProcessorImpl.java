@@ -203,6 +203,7 @@ public final class QeProcessorImpl implements QeProcessor {
         }
         try {
             info.getCoord().updateFragmentExecStatus(params);
+            info.getCoord().setIsReportExecStatus(true);
             if (params.isSetProfile()) {
                 writeProfileExecutor.submit(new WriteProfileTask(params, info));
             }

@@ -91,6 +91,8 @@ public class LoadAction extends RestBaseController {
                              HttpServletResponse response,
                              @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
         executeCheckPassword(request, response);
+        String sql = request.getHeader("sql");
+        LOG.info("streaming load sql={}", sql);
         return executeWithoutPassword(request, response, db, table, true);
     }
 

@@ -28,6 +28,7 @@
 #include <rapidjson/prettywriter.h>
 #include <thrift/protocol/TDebugProtocol.h>
 
+#include "common/config.h"
 #include "common/consts.h"
 #include "common/logging.h"
 #include "common/status.h"
@@ -45,6 +46,7 @@
 #include "olap/storage_engine.h"
 #include "runtime/client_cache.h"
 #include "runtime/exec_env.h"
+#include "runtime/export_task_mgr.h"
 #include "runtime/fragment_mgr.h"
 #include "runtime/load_path_mgr.h"
 #include "runtime/plan_fragment_executor.h"
@@ -130,13 +132,21 @@ void StreamLoadWithSqlAction::handle(HttpRequest* req) {
         }
     }
 
+    if (!ctx->status.ok()) {
+        auto str = std::string(ctx->to_json());
+        // add new line at end
+        str = str + '\n';
+        HttpChannel::send_reply(req, str);
+        return;
+    }
+
     // query stream load status
     // put request
     TStreamLoadWithLoadStatusRequest request;
     TStreamLoadWithLoadStatusResult result;
     request.__set_loadId(ctx->id.to_thrift());
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
-    while (is_stream_load_put_success) {
+    while (true) {
         ThriftRpcHelper::rpc<FrontendServiceClient>(
                 master_addr.hostname, master_addr.port,
                 [&request, &result](FrontendServiceConnection& client) {
@@ -177,6 +187,11 @@ Status StreamLoadWithSqlAction::_handle(StreamLoadContext* ctx) {
     }
 
     RETURN_IF_ERROR(ctx->body_sink->finish());
+    // ctx->future.wait_for(std::chrono::seconds(config::max_fragment_start_wait_time_seconds));
+    // if (!ctx->future.valid()) {
+    //     return Status::TimedOut("data receive timeout");
+    // }
+    RETURN_IF_ERROR(ctx->future.get());
 
     if (ctx->two_phase_commit) {
         int64_t pre_commit_start_time = MonotonicNanos();
@@ -185,10 +200,12 @@ Status StreamLoadWithSqlAction::_handle(StreamLoadContext* ctx) {
     } else {
         // If put file success we need commit this load
         int64_t commit_and_publish_start_time = MonotonicNanos();
-        RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx));
+        // RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx));
         ctx->commit_and_publish_txn_cost_nanos = MonotonicNanos() - commit_and_publish_start_time;
     }
-    return Status::OK();
+    while (!ctx->is_stream_load_put_success) {
+    }
+    return ctx->status;
 }
 
 int StreamLoadWithSqlAction::on_header(HttpRequest* req) {
@@ -264,7 +281,7 @@ Status StreamLoadWithSqlAction::_on_header(HttpRequest* http_req, StreamLoadCont
 
     // begin transaction
     int64_t begin_txn_start_time = MonotonicNanos();
-    RETURN_IF_ERROR(_exec_env->stream_load_executor()->begin_txn(ctx));
+    // RETURN_IF_ERROR(_exec_env->stream_load_executor()->begin_txn(ctx));
     ctx->begin_txn_cost_nanos = MonotonicNanos() - begin_txn_start_time;
 
     // create stream load pipe
@@ -272,6 +289,7 @@ Status StreamLoadWithSqlAction::_on_header(HttpRequest* http_req, StreamLoadCont
                                                      64 * 1024 /* min_chunk_size */,
                                                      ctx->body_bytes /* total_length */);
     RETURN_IF_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, pipe));
+    ctx->future = _exec_env->new_load_stream_mgr()->get_future(ctx->id);
     ctx->body_sink = pipe;
 
     return Status::OK();
@@ -290,7 +308,6 @@ void StreamLoadWithSqlAction::on_chunk_data(HttpRequest* req) {
     const size_t buffer_max_size = 1 * 1024 * 1024;
     size_t buffer_size = 0;
     char* buffer = new char[buffer_max_size];
-    bool is_put_buffer = false;
     while (evbuffer_get_length(evbuf) > 0) {
         auto bb = ByteBuffer::allocate(128 * 1024);
         auto remove_bytes = evbuffer_remove(evbuf, bb->ptr, bb->capacity);
@@ -308,13 +325,14 @@ void StreamLoadWithSqlAction::on_chunk_data(HttpRequest* req) {
             buffer_size += remove_bytes;
         } else {
             _exec_env->new_load_stream_mgr()->put_buffer(ctx->id, buffer);
-            is_put_buffer = true;
-            _process_put(req, ctx);
+            ctx->is_put_buffer = true;
+            ctx->status = _process_put(req, ctx);
         }
     }
-    if (!is_put_buffer) {
+    if (!ctx->is_put_buffer && buffer_size) {
         _exec_env->new_load_stream_mgr()->put_buffer(ctx->id, buffer);
-        _process_put(req, ctx);
+        ctx->is_put_buffer = true;
+        ctx->status = _process_put(req, ctx);
     }
     ctx->read_data_cost_nanos += (MonotonicNanos() - start_read_data_time);
 }
@@ -376,7 +394,7 @@ Status StreamLoadWithSqlAction::_process_put(HttpRequest* http_req, StreamLoadCo
         return plan_status;
     }
     VLOG_NOTICE << "params is " << apache::thrift::ThriftDebugString(ctx->put_result.params);
-    is_stream_load_put_success = true;
+    ctx->is_stream_load_put_success = true;
     return Status::OK();
 }
 

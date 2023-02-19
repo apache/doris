@@ -187,6 +187,14 @@ public class Coordinator {
     // Once this is set to true, errors from remote fragments are ignored.
     private boolean returnedAllResults;
 
+    private boolean isReportExecStatus;
+
+    private RuntimeProfile queryProfile;
+
+    private List<RuntimeProfile> fragmentProfile;
+
+    private ProfileWriter profileWriter;
+
     // populated in computeFragmentExecParams()
     private final Map<PlanFragmentId, FragmentExecParams> fragmentExecParamsMap = Maps.newHashMap();
 
@@ -316,6 +324,7 @@ public class Coordinator {
         }
 
         this.returnedAllResults = false;
+        this.isReportExecStatus = false;
         this.enableShareHashTableForBroadcastJoin = context.getSessionVariable().enableShareHashTableForBroadcastJoin;
         // Only enable pipeline query engine in query, not load
         this.enablePipelineEngine = context.getSessionVariable().getEnablePipelineEngine()
@@ -412,6 +421,14 @@ public class Coordinator {
 
     public void setQueryId(TUniqueId queryId) {
         this.queryId = queryId;
+    }
+
+    public boolean getIsReportExecStatus() {
+        return isReportExecStatus;
+    }
+
+    public void setIsReportExecStatus(boolean isReportExecStatus) {
+        this.isReportExecStatus = isReportExecStatus;
     }
 
     public void setQueryType(TQueryType type) {

@@ -59,7 +59,6 @@ private:
     IntCounter* streaming_load_with_sql_requests_total;
     IntCounter* streaming_load_with_sql_duration_ms;
     IntGauge* streaming_load_with_sql_current_processing;
-    bool is_stream_load_put_success {false};
 };
 
 } // namespace doris

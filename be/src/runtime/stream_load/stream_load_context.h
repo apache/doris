@@ -158,6 +158,8 @@ public:
     int64_t txn_id = -1;
 
     std::string txn_operation = "";
+    bool is_put_buffer = false;
+    bool is_stream_load_put_success = false;
 
     bool need_rollback = false;
     // when use_streaming is true, we use stream_pipe to send source data,
