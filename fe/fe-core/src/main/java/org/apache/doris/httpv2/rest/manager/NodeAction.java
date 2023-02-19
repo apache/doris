@@ -193,7 +193,7 @@ public class NodeAction extends RestBaseController {
             List<Long> beIds = Env.getCurrentSystemInfo().getBackendIds(true);
             if (!beIds.isEmpty()) {
                 Backend be = Env.getCurrentSystemInfo().getBackend(beIds.get(0));
-                String url = "http://" + be.getHost() + ":" + be.getHttpPort() + "/api/show_config";
+                String url = "http://" + be.getIp() + ":" + be.getHttpPort() + "/api/show_config";
                 String questResult = HttpUtils.doGet(url, null);
                 List<List<String>> configs = GsonUtils.GSON.fromJson(questResult, new TypeToken<List<List<String>>>() {
                 }.getType());
@@ -237,7 +237,7 @@ public class NodeAction extends RestBaseController {
     private static List<String> getBeList() {
         return Env.getCurrentSystemInfo().getBackendIds(false).stream().map(beId -> {
             Backend be = Env.getCurrentSystemInfo().getBackend(beId);
-            return be.getHost() + ":" + be.getHttpPort();
+            return be.getIp() + ":" + be.getHttpPort();
         }).collect(Collectors.toList());
     }
 
@@ -583,7 +583,7 @@ public class NodeAction extends RestBaseController {
         List<NodeConfigs> nodeConfigList = parseSetConfigNodes(requestBody, failedTotal);
         List<Pair<String, Integer>> aliveBe = Env.getCurrentSystemInfo().getBackendIds(true).stream().map(beId -> {
             Backend be = Env.getCurrentSystemInfo().getBackend(beId);
-            return Pair.of(be.getHost(), be.getHttpPort());
+            return Pair.of(be.getIp(), be.getHttpPort());
         }).collect(Collectors.toList());
         checkNodeIsAlive(nodeConfigList, aliveBe, failedTotal);
 
