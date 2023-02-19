@@ -19,7 +19,6 @@ package org.apache.doris.alter;
 
 import org.apache.doris.analysis.AddPartitionClause;
 import org.apache.doris.analysis.AlterClause;
-import org.apache.doris.analysis.AlterMaterializedViewStmt;
 import org.apache.doris.analysis.AlterSystemStmt;
 import org.apache.doris.analysis.AlterTableStmt;
 import org.apache.doris.analysis.AlterViewStmt;
@@ -47,6 +46,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.MaterializedView;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
 import org.apache.doris.catalog.OlapTable;
@@ -60,13 +60,17 @@ import org.apache.doris.catalog.TableIf.TableType;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.View;
 import org.apache.doris.common.AnalysisException;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.common.util.PropertyAnalyzer;
+import org.apache.doris.mtmv.MTMVJobFactory;
 import org.apache.doris.mtmv.MTMVUtils.TaskSubmitStatus;
+import org.apache.doris.mtmv.metadata.MTMVJob;
+import org.apache.doris.persist.AlterMultiMaterializedView;
 import org.apache.doris.persist.AlterViewInfo;
 import org.apache.doris.persist.BatchModifyPartitionsInfo;
 import org.apache.doris.persist.ModifyCommentOperationLog;
@@ -507,10 +511,39 @@ public class Alter {
         }
     }
 
-    public void processAlterMaterializedView(AlterMaterializedViewStmt stmt) throws UserException {
-        TableName tbl = stmt.getTable();
-        Env.getCurrentEnv().getInternalCatalog().getDb(tbl.getDb());
-        throw new DdlException("ALTER MATERIALIZED VIEW is not implemented: " + stmt.toSql());
+    public void processAlterMaterializedView(AlterMultiMaterializedView alterView, boolean isReplay)
+            throws UserException {
+        TableName tbl = alterView.getMvName();
+        MaterializedView olapTable = null;
+        try {
+            // 1. check mv exist
+            Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(tbl.getDb());
+            olapTable = (MaterializedView) db.getTableOrMetaException(tbl.getTbl(), TableType.MATERIALIZED_VIEW);
+
+            // 2. drop old job and kill the associated tasks
+            Env.getCurrentEnv().getMTMVJobManager().dropJobByName(tbl.getDb(), tbl.getTbl());
+
+            // 3. overwrite the refresh info in the memory of fe.
+            olapTable.writeLock();
+            olapTable.setRefreshInfo(alterView.getInfo());
+
+            // 4. log it and replay it in the follower
+            if (!isReplay) {
+                Env.getCurrentEnv().getEditLog().logAlterMTMV(alterView);
+                // 5. master node generate new jobs
+                if (Config.enable_mtmv_scheduler_framework && MTMVJobFactory.isGenerateJob(olapTable)) {
+                    List<MTMVJob> jobs = MTMVJobFactory.buildJob(olapTable, db.getFullName());
+                    for (MTMVJob job : jobs) {
+                        Env.getCurrentEnv().getMTMVJobManager().createJob(job, false);
+                    }
+                    LOG.info("Alter mv success with new mv job created.");
+                }
+            }
+        } finally {
+            if (olapTable != null) {
+                olapTable.writeUnlock();
+            }
+        }
     }
 
     // entry of processing replace table

@@ -88,6 +88,10 @@ public class MaterializedView extends OlapTable {
         return refreshInfo;
     }
 
+    public  void setRefreshInfo(MVRefreshInfo info) {
+        refreshInfo = info;
+    }
+
     public String getQuery() {
         return query;
     }
