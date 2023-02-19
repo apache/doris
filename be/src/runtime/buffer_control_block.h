@@ -106,7 +106,7 @@ private:
     // result's query id
     TUniqueId _fragment_id;
     bool _is_close;
-    bool _is_cancelled;
+    std::atomic_bool _is_cancelled;
     Status _status;
     int _buffer_rows;
     int _buffer_limit;

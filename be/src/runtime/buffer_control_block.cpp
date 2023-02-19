@@ -105,7 +105,7 @@ Status BufferControlBlock::add_batch(std::unique_ptr<TFetchDataResult>& result) 
     int num_rows = result->result_batch.rows.size();
 
     while ((!_batch_queue.empty() && (num_rows + _buffer_rows) > _buffer_limit) && !_is_cancelled) {
-        _data_removal.wait(l);
+        _data_removal.wait_for(l, std::chrono::seconds(1), [&]() { return _is_cancelled.load(); });
     }
 
     if (_is_cancelled) {
