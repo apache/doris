@@ -357,10 +357,10 @@ KRB5_SOURCE="krb5-1.19"
 KRB5_MD5SUM="aaf18447a5a014aa3b7e81814923f4c9"
 
 # hdfs3
-HDFS3_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libhdfs3-v2.3.7.tar.gz"
-HDFS3_NAME="doris-thirdparty-libhdfs3-v2.3.7.tar.gz"
-HDFS3_SOURCE="doris-thirdparty-libhdfs3-v2.3.7"
-HDFS3_MD5SUM="4c6b272970858214bccd0fc670071fc7"
+HDFS3_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libhdfs3-v2.3.8.tar.gz"
+HDFS3_NAME="doris-thirdparty-libhdfs3-v2.3.8.tar.gz"
+HDFS3_SOURCE="doris-thirdparty-libhdfs3-v2.3.8"
+HDFS3_MD5SUM="3a9890bb43d0caee183ea7a49df2e4f3"
 
 #libdivide
 LIBDIVIDE_DOWNLOAD="https://github.com/ridiculousfish/libdivide/archive/5.0.tar.gz"
