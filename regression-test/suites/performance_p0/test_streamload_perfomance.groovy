@@ -63,7 +63,7 @@ suite("test_streamload_perfomance") {
                 .iterator()
 
         streamLoad {
-            set 'sql', 'insert into ${tableName} select * from stream("format"="csv")'
+            set 'sql', 'insert into regression_test_performance_p0.test_streamload_performance1 select * from stream("format"="csv", "column_separator"="\t")'
             table tableName
             set 'version', '1'
             time 100000

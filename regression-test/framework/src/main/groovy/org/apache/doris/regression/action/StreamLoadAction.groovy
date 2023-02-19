@@ -107,6 +107,14 @@ class StreamLoadAction implements SuiteAction {
         this.inputText = inputText.call()
     }
 
+    void sql(String sql) {
+        headers.put('sql', sql)
+    }
+
+    void sql(Closure<String> sql) {
+        headers.put('sql', sql.call())
+    }
+
     void file(String file) {
         this.file = file
     }
