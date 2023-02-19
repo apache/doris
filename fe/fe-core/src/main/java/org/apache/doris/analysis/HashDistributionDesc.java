@@ -120,6 +120,12 @@ public class HashDistributionDesc extends DistributionDesc {
                     } else if (column.getType().isArrayType()) {
                         throw new DdlException("Array Type should not be used in distribution column["
                                 + column.getName() + "].");
+                    } else if (column.getType().isMapType()) {
+                        throw new DdlException("Map Type should not be used in distribution column["
+                                + column.getName() + "].");
+                    } else if (column.getType().isStructType()) {
+                        throw new DdlException("Struct Type should not be used in distribution column["
+                                + column.getName() + "].");
                     } else if (column.getType().isFloatingPointType()) {
                         throw new DdlException("Floating point type should not be used in distribution column["
                                 + column.getName() + "].");

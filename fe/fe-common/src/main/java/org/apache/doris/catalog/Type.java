@@ -382,12 +382,13 @@ public abstract class Type {
     // 3. don't support group by
     // 4. don't support index
     public boolean isOnlyMetricType() {
-        return isObjectStored() || isArrayType();
+        return isObjectStored() || isComplexType();
     }
 
     public static final String OnlyMetricTypeErrorMsg =
-            "Doris hll, bitmap and array column must use with specific function, and don't support filter or group by."
-                    + "please run 'help hll' or 'help bitmap' or 'help array' in your mysql client.";
+            "Doris hll, bitmap, array, map, struct column must use with specific function, and don't"
+                    + " support filter or group by. please run 'help hll' or 'help bitmap' or 'help array'"
+                    + " or 'help map' or 'help struct' in your mysql client.";
 
     public boolean isHllType() {
         return isScalarType(PrimitiveType.HLL);
@@ -480,7 +481,7 @@ public abstract class Type {
     }
 
     public boolean isCollectionType() {
-        return isMapType() || isArrayType() || isMultiRowType() || isStructType();
+        return isMapType() || isArrayType() || isMultiRowType();
     }
 
     public boolean isMapType() {
