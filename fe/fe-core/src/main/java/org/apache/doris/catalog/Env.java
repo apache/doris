@@ -5138,7 +5138,7 @@ public class Env {
             TNetworkAddress address = null;
             boolean ok = false;
             try {
-                address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+                address = new TNetworkAddress(backend.getIp(), backend.getBePort());
                 client = ClientPool.backendPool.borrowObject(address);
                 client.cleanTrash(); // async
                 ok = true;

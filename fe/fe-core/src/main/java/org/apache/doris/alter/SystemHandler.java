@@ -258,7 +258,7 @@ public class SystemHandler extends AlterHandler {
             if (backend.setDecommissioned(false)) {
                 Env.getCurrentEnv().getEditLog().logBackendStateChange(backend);
             } else {
-                LOG.info("backend is not decommissioned[{}]", backend.getHost());
+                LOG.info("backend is not decommissioned[{}]", backend.getIp());
             }
         }
     }

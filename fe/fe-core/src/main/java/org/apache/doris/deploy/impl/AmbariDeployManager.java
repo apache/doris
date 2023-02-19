@@ -197,7 +197,7 @@ public class AmbariDeployManager extends DeployManager {
     }
 
     @Override
-    protected List<Pair<String, Integer>> getGroupHostPorts(String groupName) {
+    protected List<SystemInfoService.HostInfo> getGroupHostInfos(String groupName) {
         int port = -1;
         if (groupName.equalsIgnoreCase(electableFeServiceGroup)) {
             port = getFeEditLogPort();
@@ -213,7 +213,7 @@ public class AmbariDeployManager extends DeployManager {
         }
 
         List<String> hostnames = getHostnamesFromComponentsJson(groupName);
-        List<Pair<String, Integer>> hostPorts = Lists.newArrayListWithCapacity(hostnames.size());
+        List<SystemInfoService.HostInfo> hostPorts = Lists.newArrayListWithCapacity(hostnames.size());
         for (String hostname : hostnames) {
             Pair<String, Integer> hostPort = null;
             try {
@@ -222,7 +222,7 @@ public class AmbariDeployManager extends DeployManager {
                 LOG.warn("Invalid host port format: {}:{}", hostname, port, e);
                 continue;
             }
-            hostPorts.add(hostPort);
+            hostPorts.add(new SystemInfoService.HostInfo(hostPort.first, null, hostPort.second));
         }
 
         LOG.info("get {} hosts from ambari: {}", groupName, hostPorts);
@@ -230,7 +230,7 @@ public class AmbariDeployManager extends DeployManager {
     }
 
     @Override
-    protected Map<String, List<Pair<String, Integer>>> getBrokerGroupHostPorts() {
+    protected Map<String, List<SystemInfoService.HostInfo>> getBrokerGroupHostInfos() {
         int port = getBrokerIpcPort();
         if (port == -1) {
             LOG.warn("failed to get port of component: {}", brokerServiceGroup);
@@ -243,7 +243,7 @@ public class AmbariDeployManager extends DeployManager {
         }
 
         List<String> hostnames = getHostnamesFromComponentsJson(brokerServiceGroup);
-        List<Pair<String, Integer>> hostPorts = Lists.newArrayListWithCapacity(hostnames.size());
+        List<SystemInfoService.HostInfo> hostPorts = Lists.newArrayListWithCapacity(hostnames.size());
         for (String hostname : hostnames) {
             Pair<String, Integer> hostPort = null;
             try {
@@ -252,10 +252,10 @@ public class AmbariDeployManager extends DeployManager {
                 LOG.warn("Invalid host port format: {}:{}", hostname, port, e);
                 continue;
             }
-            hostPorts.add(hostPort);
+            hostPorts.add(new SystemInfoService.HostInfo(hostPort.first, null, hostPort.second));
         }
 
-        Map<String, List<Pair<String, Integer>>> brokers = Maps.newHashMap();
+        Map<String, List<SystemInfoService.HostInfo>> brokers = Maps.newHashMap();
         brokers.put(brokerName, hostPorts);
         LOG.info("get brokers from ambari: {}", brokers);
         return brokers;

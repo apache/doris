@@ -104,7 +104,7 @@ public class MetadataScanNode extends ScanNode {
         TScanRangeLocation location = new TScanRangeLocation();
         Backend backend = backendPolicy.getNextBe();
         location.setBackendId(backend.getId());
-        location.setServer(new TNetworkAddress(backend.getHost(), backend.getBePort()));
+        location.setServer(new TNetworkAddress(backend.getIp(), backend.getBePort()));
 
         TScanRangeLocations result = new TScanRangeLocations();
         result.addToLocations(location);
