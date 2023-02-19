@@ -21,6 +21,10 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.metric.GaugeMetric;
+import org.apache.doris.metric.Metric;
+import org.apache.doris.metric.MetricLabel;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVUtils.JobState;
 import org.apache.doris.mtmv.MTMVUtils.TaskRetryPolicy;
 import org.apache.doris.mtmv.MTMVUtils.TriggerMode;
@@ -78,6 +82,7 @@ public class MTMVJobManager {
         periodFutureMap = Maps.newConcurrentMap();
         reentrantLock = new ReentrantLock(true);
         taskManager = new MTMVTaskManager(this);
+        initMetrics();
     }
 
     public void start() {
@@ -114,6 +119,63 @@ public class MTMVJobManager {
 
             taskManager.startTaskScheduler();
         }
+    }
+
+    private void initMetrics() {
+        // total jobs
+        GaugeMetric<Integer> totalJobs = new GaugeMetric<Integer>("MTMV-TOTAL-JOB",
+                Metric.MetricUnit.NOUNIT, "Total job number of mtmv.") {
+            @Override
+            public Integer getValue() {
+                return nameToJobMap.size();
+            }
+        };
+        totalJobs.addLabel(new MetricLabel("type", "MTMV-JOB"));
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(totalJobs);
+
+        // active jobs
+        GaugeMetric<Integer> partitionCacheGauge = new GaugeMetric<Integer>("MTMV-ACTIVE-JOB",
+                Metric.MetricUnit.NOUNIT, "Active job number of mtmv.") {
+            @Override
+            public Integer getValue() {
+                return periodFutureMap.size();
+            }
+        };
+        partitionCacheGauge.addLabel(new MetricLabel("type", "MTMV-JOB"));
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(partitionCacheGauge);
+
+        // total tasks
+        GaugeMetric<Integer> totalTasks = new GaugeMetric<Integer>("MTMV-TOTAL-TASK",
+                Metric.MetricUnit.NOUNIT, "Total task number of mtmv.") {
+            @Override
+            public Integer getValue() {
+                return getTaskManager().getAllHistory().size();
+            }
+        };
+        totalTasks.addLabel(new MetricLabel("type", "MTMV-TASK"));
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(totalTasks);
+
+        // running tasks
+        GaugeMetric<Integer> runningTasks = new GaugeMetric<Integer>("MTMV-TOTAL-TASK",
+                Metric.MetricUnit.NOUNIT, "Running task number of mtmv.") {
+            @Override
+            public Integer getValue() {
+                return getTaskManager().getRunningTaskMap().size();
+            }
+        };
+        runningTasks.addLabel(new MetricLabel("type", "MTMV-TASK"));
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(runningTasks);
+
+        // pending tasks
+        GaugeMetric<Integer> pendingTasks = new GaugeMetric<Integer>("MTMV-TOTAL-TASK",
+                Metric.MetricUnit.NOUNIT, "Pending task number of mtmv.") {
+            @Override
+            public Integer getValue() {
+                return getTaskManager().getPendingTaskMap().size();
+            }
+        };
+        pendingTasks.addLabel(new MetricLabel("type", "MTMV-TASK"));
+        MetricRepo.DORIS_METRIC_REGISTER.addMetrics(pendingTasks);
     }
 
     public void stop() {
