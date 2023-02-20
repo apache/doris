@@ -31,6 +31,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
@@ -812,6 +813,23 @@ public class PropertyAnalyzer {
                 EsResource.valid(properties, true);
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage());
+            }
+        }
+        // validate access controller properties
+        // eg:
+        // (
+        // "access_controller.class" = "org.apache.doris.mysql.privilege.RangerAccessControllerFactory",
+        // "access_controller.properties.prop1" = "xxx",
+        // "access_controller.properties.prop2" = "yyy",
+        // )
+        // 1. get access controller class
+        String acClass = properties.getOrDefault(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "");
+        if (!Strings.isNullOrEmpty(acClass)) {
+            // 2. check if class exists
+            try {
+                Class.forName(acClass);
+            } catch (ClassNotFoundException e) {
+                throw new AnalysisException("failed to find class " + acClass, e);
             }
         }
     }

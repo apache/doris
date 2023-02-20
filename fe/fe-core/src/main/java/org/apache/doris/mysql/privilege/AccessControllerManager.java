@@ -20,12 +20,16 @@ package org.apache.doris.mysql.privilege;
 import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.AuthorizationInfo;
+import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Preconditions;
+import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Maps;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import java.util.Map;
 
@@ -37,6 +41,8 @@ import java.util.Map;
  * And using InternalCatalogAccessController as default.
  */
 public class AccessControllerManager {
+    private static final Logger LOG = LogManager.getLogger(AccessControllerManager.class);
+
     private SystemAccessController sysAccessController;
     private CatalogAccessController internalAccessController;
     private Map<String, CatalogAccessController> ctlToCtlAccessController = Maps.newConcurrentMap();
@@ -51,8 +57,30 @@ public class AccessControllerManager {
         return ctlToCtlAccessController.getOrDefault(ctl, internalAccessController);
     }
 
-    public void addCatalogAccessControl(String ctl, CatalogAccessController controller) {
-        ctlToCtlAccessController.put(ctl, controller);
+    public boolean checkIfAccessControllerExist(String ctl) {
+        return ctlToCtlAccessController.containsKey(ctl);
+    }
+
+    public void createAccessController(String ctl, String acFactoryClassName, Map<String, String> prop) {
+        Class<?> factoryClazz = null;
+        try {
+            factoryClazz = Class.forName(acFactoryClassName);
+            AccessControllerFactory factory = (AccessControllerFactory) factoryClazz.newInstance();
+            CatalogAccessController accessController = factory.createAccessController(prop);
+            ctlToCtlAccessController.put(ctl, accessController);
+            LOG.info("create access controller {} for catalog {}", ctl, acFactoryClassName);
+        } catch (ClassNotFoundException e) {
+            throw new RuntimeException(e);
+        } catch (InstantiationException e) {
+            throw new RuntimeException(e);
+        } catch (IllegalAccessException e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    public void removeAccessController(String ctl) {
+        ctlToCtlAccessController.remove(ctl);
+        LOG.info("remove access controller for catalog {}", ctl);
     }
 
     public Auth getAuth() {
@@ -73,10 +101,9 @@ public class AccessControllerManager {
         return checkCtlPriv(ctx.getCurrentUserIdentity(), ctl, wanted);
     }
 
-    public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
+    private boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
         boolean hasGlobal = sysAccessController.checkGlobalPriv(currentUser, wanted);
-        boolean hasCtl = getAccessControllerOrDefault(ctl).checkCtlPriv(hasGlobal, currentUser, ctl, wanted);
-        return hasGlobal || hasCtl;
+        return getAccessControllerOrDefault(ctl).checkCtlPriv(hasGlobal, currentUser, ctl, wanted);
     }
 
     // ==== Database ====
@@ -94,16 +121,10 @@ public class AccessControllerManager {
 
     public boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted) {
         boolean hasGlobal = sysAccessController.checkGlobalPriv(currentUser, wanted);
-        boolean hasDb = getAccessControllerOrDefault(ctl).checkDbPriv(hasGlobal, currentUser, ctl, db, wanted);
-        return hasGlobal || hasDb;
+        return getAccessControllerOrDefault(ctl).checkDbPriv(hasGlobal, currentUser, ctl, db, wanted);
     }
 
     // ==== Table ====
-    public boolean checkTblPriv(ConnectContext ctx, String qualifiedCtl,
-            String qualifiedDb, String tbl, PrivPredicate wanted) {
-        return checkTblPriv(ctx.getCurrentUserIdentity(), qualifiedCtl, qualifiedDb, tbl, wanted);
-    }
-
     public boolean checkTblPriv(ConnectContext ctx, String qualifiedDb, String tbl, PrivPredicate wanted) {
         return checkTblPriv(ctx, Auth.DEFAULT_CATALOG, qualifiedDb, tbl, wanted);
     }
@@ -113,14 +134,29 @@ public class AccessControllerManager {
         return checkTblPriv(ctx, tableName.getCtl(), tableName.getDb(), tableName.getTbl(), wanted);
     }
 
+    public boolean checkTblPriv(ConnectContext ctx, String qualifiedCtl,
+            String qualifiedDb, String tbl, PrivPredicate wanted) {
+        return checkTblPriv(ctx.getCurrentUserIdentity(), qualifiedCtl, qualifiedDb, tbl, wanted);
+    }
+
     public boolean checkTblPriv(UserIdentity currentUser, String db, String tbl, PrivPredicate wanted) {
         return checkTblPriv(currentUser, Auth.DEFAULT_CATALOG, db, tbl, wanted);
     }
 
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
         boolean hasGlobal = sysAccessController.checkGlobalPriv(currentUser, wanted);
-        boolean hasTbl = getAccessControllerOrDefault(ctl).checkTblPriv(hasGlobal, currentUser, ctl, db, tbl, wanted);
-        return hasGlobal || hasTbl;
+        return getAccessControllerOrDefault(ctl).checkTblPriv(hasGlobal, currentUser, ctl, db, tbl, wanted);
+    }
+
+    // ==== Column ====
+    public void checkColumnsPriv(UserIdentity currentUser, String ctl, HashMultimap<TableName, String> tableToColsMap,
+            PrivPredicate wanted) throws UserException {
+        boolean hasGlobal = sysAccessController.checkGlobalPriv(currentUser, wanted);
+        CatalogAccessController accessController = getAccessControllerOrDefault(ctl);
+        for (TableName tableName : tableToColsMap.keys()) {
+            accessController.checkColsPriv(hasGlobal, currentUser, ctl, tableName.getDb(),
+                    tableName.getTbl(), tableToColsMap.get(tableName), wanted);
+        }
     }
 
     // ==== Resource ====

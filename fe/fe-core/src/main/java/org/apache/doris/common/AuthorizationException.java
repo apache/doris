@@ -15,38 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.statistics;
+package org.apache.doris.common;
 
-public enum StatisticalType {
-    DEFAULT,
-    AGG_NODE,
-    ANALYTIC_EVAL_NODE,
-    ASSERT_NUM_ROWS_NODE,
-    BROKER_SCAN_NODE,
-    NESTED_LOOP_JOIN_NODE,
-    EMPTY_SET_NODE,
-    ES_SCAN_NODE,
-    EXCEPT_NODE,
-    EXCHANGE_NODE,
-    HASH_JOIN_NODE,
-    HIVE_SCAN_NODE,
-    ICEBERG_SCAN_NODE,
-    INTERSECT_NODE,
-    LOAD_SCAN_NODE,
-    MYSQL_SCAN_NODE,
-    ODBC_SCAN_NODE,
-    OLAP_SCAN_NODE,
-    REPEAT_NODE,
-    SELECT_NODE,
-    SET_OPERATION_NODE,
-    SCHEMA_SCAN_NODE,
-    SORT_NODE,
-    STREAM_LOAD_SCAN_NODE,
-    TABLE_FUNCTION_NODE,
-    UNION_NODE,
-    TABLE_VALUED_FUNCTION_NODE,
-    FILE_SCAN_NODE,
-    METADATA_SCAN_NODE,
-    JDBC_SCAN_NODE,
-    TEST_EXTERNAL_TABLE,
+/**
+ * Thrown for authorization errors encountered when accessing Catalog objects.
+ */
+public class AuthorizationException extends UserException {
+
+    public ErrorCode errorCode = ErrorCode.ERR_COMMON_ERROR;
+    public Object[] msgs;
+
+    public AuthorizationException(String msg, Throwable cause) {
+        super(msg, cause);
+    }
+
+    public AuthorizationException(String msg) {
+        super(msg);
+    }
+
+    public AuthorizationException(ErrorCode code, Object... msgs) {
+        super(code.formatErrorMsg(msgs));
+        this.errorCode = code;
+        this.msgs = msgs;
+    }
+
+    public String formatErrMsg() {
+        return errorCode.formatErrorMsg(msgs);
+    }
 }
