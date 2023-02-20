@@ -2223,11 +2223,10 @@ TabletSchemaSPtr Tablet::get_max_version_schema(std::lock_guard<std::shared_mute
 }
 
 Status Tablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
-                               const TupleDescriptor* desc, vectorized::Block* block,
-                               bool write_to_cache) {
+                               RowsetSharedPtr input_rowset, const TupleDescriptor* desc,
+                               vectorized::Block* block, bool write_to_cache) {
     // read row data
-    BetaRowsetSharedPtr rowset =
-            std::static_pointer_cast<BetaRowset>(get_rowset(row_location.rowset_id));
+    BetaRowsetSharedPtr rowset = std::static_pointer_cast<BetaRowset>(input_rowset);
     if (!rowset) {
         return Status::NotFound(
                 fmt::format("rowset {} not found", row_location.rowset_id.to_string()));
@@ -2286,7 +2285,8 @@ Status Tablet::lookup_row_data(const Slice& encoded_key, const RowLocation& row_
 }
 
 Status Tablet::lookup_row_key(const Slice& encoded_key, const RowsetIdUnorderedSet* rowset_ids,
-                              RowLocation* row_location, uint32_t version) {
+                              RowLocation* row_location, uint32_t version,
+                              RowsetSharedPtr* rowset) {
     std::vector<std::pair<RowsetSharedPtr, int32_t>> selected_rs;
     size_t seq_col_length = 0;
     if (_schema->has_sequence_col()) {
@@ -2335,6 +2335,10 @@ Status Tablet::lookup_row_key(const Slice& encoded_key, const RowsetIdUnorderedS
             break;
         }
         *row_location = loc;
+        if (rowset) {
+            // return it's rowset
+            *rowset = rs.first;
+        }
         // find it and return
         return s;
     }
