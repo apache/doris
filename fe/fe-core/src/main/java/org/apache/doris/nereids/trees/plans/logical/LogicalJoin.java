@@ -55,6 +55,8 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     // Use for top-to-down join reorder
     private final JoinReorderContext joinReorderContext = new JoinReorderContext();
 
+    private final boolean isGenerateIsNotNull;
+
     /**
      * Constructor for LogicalJoinPlan.
      *
@@ -62,13 +64,13 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
      */
     public LogicalJoin(JoinType joinType, LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         this(joinType, ExpressionUtils.EMPTY_CONDITION, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE,
-                Optional.empty(), Optional.empty(), leftChild, rightChild, JoinReorderContext.EMPTY);
+                Optional.empty(), Optional.empty(), leftChild, rightChild, JoinReorderContext.EMPTY, false);
     }
 
     public LogicalJoin(JoinType joinType, List<Expression> hashJoinConjuncts, LEFT_CHILD_TYPE leftChild,
             RIGHT_CHILD_TYPE rightChild) {
         this(joinType, hashJoinConjuncts, ExpressionUtils.EMPTY_CONDITION, JoinHint.NONE, Optional.empty(),
-                Optional.empty(), leftChild, rightChild, JoinReorderContext.EMPTY);
+                Optional.empty(), leftChild, rightChild, JoinReorderContext.EMPTY, false);
     }
 
     public LogicalJoin(
@@ -79,7 +81,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             LEFT_CHILD_TYPE leftChild, RIGHT_CHILD_TYPE rightChild) {
         this(joinType, hashJoinConjuncts,
                 otherJoinConjuncts, hint, Optional.empty(), Optional.empty(), leftChild, rightChild,
-                JoinReorderContext.EMPTY);
+                JoinReorderContext.EMPTY, false);
     }
 
     public LogicalJoin(
@@ -90,7 +92,7 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             RIGHT_CHILD_TYPE rightChild,
             JoinReorderContext joinReorderContext) {
         this(joinType, hashJoinConjuncts, ExpressionUtils.EMPTY_CONDITION, hint,
-                Optional.empty(), Optional.empty(), leftChild, rightChild, joinReorderContext);
+                Optional.empty(), Optional.empty(), leftChild, rightChild, joinReorderContext, false);
     }
 
     public LogicalJoin(
@@ -101,8 +103,21 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             LEFT_CHILD_TYPE leftChild,
             RIGHT_CHILD_TYPE rightChild,
             JoinReorderContext joinReorderContext) {
-        this(joinType, hashJoinConjuncts, otherJoinConjuncts, hint,
-                Optional.empty(), Optional.empty(), leftChild, rightChild, joinReorderContext);
+        this(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, Optional.empty(), Optional.empty(), leftChild,
+                rightChild, joinReorderContext, false);
+    }
+
+    public LogicalJoin(
+            JoinType joinType,
+            List<Expression> hashJoinConjuncts,
+            List<Expression> otherJoinConjuncts,
+            JoinHint hint,
+            LEFT_CHILD_TYPE leftChild,
+            RIGHT_CHILD_TYPE rightChild,
+            JoinReorderContext joinReorderContext,
+            boolean isGenerateIsNotNull) {
+        this(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, Optional.empty(), Optional.empty(), leftChild,
+                rightChild, joinReorderContext, isGenerateIsNotNull);
     }
 
     /**
@@ -117,13 +132,15 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
             Optional<LogicalProperties> logicalProperties,
             LEFT_CHILD_TYPE leftChild,
             RIGHT_CHILD_TYPE rightChild,
-            JoinReorderContext joinReorderContext) {
+            JoinReorderContext joinReorderContext,
+            boolean isGenerateIsNotNull) {
         super(PlanType.LOGICAL_JOIN, groupExpression, logicalProperties, leftChild, rightChild);
         this.joinType = Objects.requireNonNull(joinType, "joinType can not be null");
         this.hashJoinConjuncts = ImmutableList.copyOf(hashJoinConjuncts);
         this.otherJoinConjuncts = ImmutableList.copyOf(otherJoinConjuncts);
         this.hint = Objects.requireNonNull(hint, "hint can not be null");
         this.joinReorderContext.copyFrom(joinReorderContext);
+        this.isGenerateIsNotNull = isGenerateIsNotNull;
     }
 
     public List<Expression> getOtherJoinConjuncts() {
@@ -144,6 +161,10 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
 
     public JoinHint getHint() {
         return hint;
+    }
+
+    public boolean isGenerateIsNotNull() {
+        return isGenerateIsNotNull;
     }
 
     public JoinReorderContext getJoinReorderContext() {
@@ -220,46 +241,52 @@ public class LogicalJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends 
     public LogicalJoin<Plan, Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, children.get(0),
-                children.get(1), joinReorderContext);
+                children.get(1), joinReorderContext, isGenerateIsNotNull);
     }
 
     @Override
     public LogicalJoin<Plan, Plan> withGroupExpression(Optional<GroupExpression> groupExpression) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, groupExpression,
-                Optional.of(getLogicalProperties()), left(), right(), joinReorderContext);
+                Optional.of(getLogicalProperties()), left(), right(), joinReorderContext, isGenerateIsNotNull);
     }
 
     @Override
     public LogicalJoin<Plan, Plan> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint,
-                Optional.empty(), logicalProperties, left(), right(), joinReorderContext);
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, Optional.empty(),
+                logicalProperties, left(), right(), joinReorderContext, isGenerateIsNotNull);
     }
 
     public LogicalJoin<Plan, Plan> withHashJoinConjuncts(List<Expression> hashJoinConjuncts) {
-        return new LogicalJoin<>(
-                joinType, hashJoinConjuncts, this.otherJoinConjuncts, hint, left(), right(), joinReorderContext);
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, this.otherJoinConjuncts, hint, left(), right(),
+                joinReorderContext, isGenerateIsNotNull);
     }
 
     public LogicalJoin<Plan, Plan> withJoinConjuncts(
             List<Expression> hashJoinConjuncts, List<Expression> otherJoinConjuncts) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts,
-                hint, left(), right(), joinReorderContext);
+                hint, left(), right(), joinReorderContext, isGenerateIsNotNull);
     }
 
     public LogicalJoin<Plan, Plan> withHashJoinConjunctsAndChildren(
             List<Expression> hashJoinConjuncts, List<Plan> children) {
         Preconditions.checkArgument(children.size() == 2);
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, children.get(0),
-                children.get(1), joinReorderContext);
+                children.get(1), joinReorderContext, isGenerateIsNotNull);
     }
 
     public LogicalJoin<Plan, Plan> withJoinType(JoinType joinType) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, left(), right(),
-                joinReorderContext);
+                joinReorderContext, isGenerateIsNotNull);
     }
 
     public LogicalJoin<Plan, Plan> withOtherJoinConjuncts(List<Expression> otherJoinConjuncts) {
         return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, left(), right(),
-                joinReorderContext);
+                joinReorderContext, isGenerateIsNotNull);
+    }
+
+    public LogicalJoin<Plan, Plan> withIsGenerateIsNotNullAndChildren(boolean isGenerateIsNotNull,
+            Plan left, Plan right) {
+        return new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjuncts, hint, Optional.empty(),
+                Optional.empty(), left, right, joinReorderContext, isGenerateIsNotNull);
     }
 }
