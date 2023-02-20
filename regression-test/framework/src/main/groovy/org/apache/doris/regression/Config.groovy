@@ -31,6 +31,7 @@ import java.sql.DriverManager
 import java.util.concurrent.atomic.AtomicReference
 import java.util.function.Predicate
 
+import static java.lang.Math.random
 import static org.apache.doris.regression.ConfigOptions.*
 
 @Slf4j
@@ -267,7 +268,9 @@ class Config {
 
         if (config.jdbcUrl == null) {
             //jdbcUrl needs parameter here. Refer to function: buildUrl(String dbName)
-            config.jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true"
+            String useSsl = random() > 0.5 ? "true" : "false"
+            String useSslConfig = "verifyServerCertificate=false&useSSL=" + useSsl + "&requireSSL=" + useSsl
+            config.jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&" + useSslConfig
             log.info("Set jdbcUrl to '${config.jdbcUrl}' because not specify.".toString())
         }
 
