@@ -544,6 +544,11 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         _statistics.read_rows += row_group.num_rows;
     };
 
+    if (_lazy_read_ctx.vconjunct_ctx == nullptr) {
+        read_whole_row_group();
+        return Status::OK();
+    }
+
     if (_colname_to_value_range == nullptr || _colname_to_value_range->empty()) {
         read_whole_row_group();
         return Status::OK();
