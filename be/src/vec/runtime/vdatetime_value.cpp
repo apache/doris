@@ -1529,14 +1529,6 @@ bool VecDateTimeValue::from_date_format_str(const char* format, int format_len, 
     return check_range_and_set_time(year, month, day, hour, minute, second, _type);
 }
 
-template <typename T>
-int64_t VecDateTimeValue::second_diff(const DateV2Value<T>& rhs) const {
-    int day_diff = daynr() - rhs.daynr();
-    int time_diff = (hour() * 3600 + minute() * 60 + second()) -
-                    (rhs.hour() * 3600 + rhs.minute() * 60 + rhs.second());
-    return day_diff * 3600 * 24 + time_diff;
-}
-
 template <TimeUnit unit>
 bool VecDateTimeValue::date_add_interval(const TimeInterval& interval) {
     if (!is_valid_date()) return false;
