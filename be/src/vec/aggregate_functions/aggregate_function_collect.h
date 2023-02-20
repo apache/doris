@@ -189,8 +189,7 @@ public:
             std::is_same_v<Data, AggregateFunctionCollectSetData<StringRef>>;
 
     AggregateFunctionCollect(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data>>(argument_types_,
-                                                                                 {}),
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data>>(argument_types_),
               _argument_type(argument_types_[0]) {}
 
     std::string get_name() const override {

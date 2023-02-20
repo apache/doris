@@ -27,7 +27,6 @@ namespace doris::vectorized {
 template <template <typename> class Data>
 AggregateFunctionPtr createAggregateFunctionBitwise(const std::string& name,
                                                     const DataTypes& argument_types,
-                                                    const Array& parameters,
                                                     const bool result_is_nullable) {
     if (!argument_types[0]->can_be_used_in_bit_operations()) {
         LOG(WARNING) << fmt::format("The type " + argument_types[0]->get_name() +

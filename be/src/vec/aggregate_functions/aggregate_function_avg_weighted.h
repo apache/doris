@@ -73,7 +73,7 @@ public:
 
     AggregateFunctionAvgWeight(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<AggregateFunctionAvgWeightedData<T>,
-                                           AggregateFunctionAvgWeight<T>>(argument_types_, {}) {}
+                                           AggregateFunctionAvgWeight<T>>(argument_types_) {}
 
     String get_name() const override { return "avg_weighted"; }
 
