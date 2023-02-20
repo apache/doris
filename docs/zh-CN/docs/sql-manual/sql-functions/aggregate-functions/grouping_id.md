@@ -1,7 +1,7 @@
 ---
 {
-"title": "GROUPING_ID",
-"language": "zh-CN"
+    "title": "GROUPING_ID",
+    "language": "zh-CN"
 }
 ---
 
