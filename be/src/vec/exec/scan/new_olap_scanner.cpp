@@ -388,9 +388,7 @@ Status NewOlapScanner::_init_return_columns() {
 doris::TabletStorageType NewOlapScanner::get_storage_type() {
     int local_reader = 0;
     for (const auto& reader : _tablet_reader_params.rs_readers) {
-        if (reader->rowset()->rowset_meta()->resource_id().empty()) {
-            local_reader++;
-        }
+        local_reader += reader->rowset()->is_local();
     }
     int total_reader = _tablet_reader_params.rs_readers.size();
 
