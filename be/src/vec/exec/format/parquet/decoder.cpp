@@ -41,10 +41,15 @@ Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type 
             decoder.reset(new ByteArrayPlainDecoder());
             break;
         case tparquet::Type::INT32:
+            [[fallthrough]];
         case tparquet::Type::INT64:
+            [[fallthrough]];
         case tparquet::Type::INT96:
+            [[fallthrough]];
         case tparquet::Type::FLOAT:
+            [[fallthrough]];
         case tparquet::Type::DOUBLE:
+            [[fallthrough]];
         case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
             decoder.reset(new FixLengthPlainDecoder(type));
             break;
@@ -56,9 +61,7 @@ Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type 
     case tparquet::Encoding::RLE_DICTIONARY:
         switch (type) {
         case tparquet::Type::BOOLEAN:
-            if (encoding != tparquet::Encoding::PLAIN) {
-                return Status::InternalError("Bool type can't has dictionary page");
-            }
+            return Status::InternalError("Bool type can't has dictionary page");
         case tparquet::Type::BYTE_ARRAY:
             decoder.reset(new ByteArrayDictDecoder());
             break;

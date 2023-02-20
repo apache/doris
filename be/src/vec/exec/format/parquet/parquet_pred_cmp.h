@@ -139,7 +139,9 @@ private:
             FOR_REINTERPRET_TYPES(DISPATCH)
 #undef DISPATCH
         case TYPE_VARCHAR:
+            [[fallthrough]];
         case TYPE_CHAR:
+            [[fallthrough]];
         case TYPE_STRING:
             if constexpr (std::is_same_v<CppType, StringRef>) {
                 min_value = StringRef(encoded_min);
@@ -180,7 +182,9 @@ private:
             }
             break;
         case TYPE_DECIMAL32:
+            [[fallthrough]];
         case TYPE_DECIMAL64:
+            [[fallthrough]];
         case TYPE_DECIMAL128I:
             if constexpr (std::is_same_v<CppType, int32_t> || std::is_same_v<CppType, int64_t> ||
                           std::is_same_v<CppType, __int128_t>) {
@@ -213,6 +217,7 @@ private:
             }
             break;
         case TYPE_DATE:
+            [[fallthrough]];
         case TYPE_DATEV2:
             if (physical_type == tparquet::Type::INT32) {
                 int64_t min_date_value =
@@ -231,6 +236,7 @@ private:
             }
             break;
         case TYPE_DATETIME:
+            [[fallthrough]];
         case TYPE_DATETIMEV2:
             if (physical_type == tparquet::Type::INT96) {
                 ParquetInt96 datetime96_min =

@@ -190,6 +190,7 @@ TypeDescriptor FieldDescriptor::get_doris_type(const tparquet::SchemaElement& ph
             type = TypeDescriptor(TYPE_DOUBLE);
             break;
         case tparquet::Type::BYTE_ARRAY:
+            [[fallthrough]];
         case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
             type = TypeDescriptor(TYPE_STRING);
             break;
@@ -245,10 +246,12 @@ TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::ConvertedType::t
         type = TypeDescriptor(TYPE_DATEV2);
         break;
     case tparquet::ConvertedType::type::TIME_MILLIS:
+        [[fallthrough]];
     case tparquet::ConvertedType::type::TIME_MICROS:
         type = TypeDescriptor(TYPE_TIMEV2);
         break;
     case tparquet::ConvertedType::type::TIMESTAMP_MILLIS:
+        [[fallthrough]];
     case tparquet::ConvertedType::type::TIMESTAMP_MICROS:
         type = TypeDescriptor(TYPE_DATETIMEV2);
         break;
@@ -256,15 +259,19 @@ TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::ConvertedType::t
         type = TypeDescriptor(TYPE_TINYINT);
         break;
     case tparquet::ConvertedType::type::UINT_8:
+        [[fallthrough]];
     case tparquet::ConvertedType::type::INT_16:
         type = TypeDescriptor(TYPE_SMALLINT);
         break;
     case tparquet::ConvertedType::type::UINT_16:
+        [[fallthrough]];
     case tparquet::ConvertedType::type::INT_32:
         type = TypeDescriptor(TYPE_INT);
         break;
     case tparquet::ConvertedType::type::UINT_32:
+        [[fallthrough]];
     case tparquet::ConvertedType::type::UINT_64:
+        [[fallthrough]];
     case tparquet::ConvertedType::type::INT_64:
         type = TypeDescriptor(TYPE_BIGINT);
         break;

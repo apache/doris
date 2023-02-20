@@ -125,6 +125,7 @@ public:
             }
             break;
         case TypeIndex::String:
+            [[fallthrough]];
         case TypeIndex::FixedString:
             break;
         default:
@@ -405,6 +406,7 @@ public:
             }
             break;
         case TypeIndex::String:
+            [[fallthrough]];
         case TypeIndex::FixedString:
             if (_physical_type == tparquet::Type::FIXED_LEN_BYTE_ARRAY) {
                 return _decode_string(doris_column, select_vector);
