@@ -198,9 +198,9 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Run compile pipeline by restful
+      - name: Run clickbench pipeline by restful
         run: |
-          echo "trigger compile_only pipeline"
+          echo "trigger clickbench pipeline"
           
           if [ "_xx""${{ github.event.issue.pull_request.url }}" != "_xx" ]; then
             echo "Comment was made on pull request: $(echo ${{ github.event.issue.pull_request.url }} | awk -F/ '{print $NF}')"
@@ -224,9 +224,9 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - name: Run compile pipeline by restful
+      - name: Run arm pipeline by restful
         run: |
-          echo "trigger compile_only pipeline"
+          echo "trigger arm pipeline"
           
           if [ "_xx""${{ github.event.issue.pull_request.url }}" != "_xx" ]; then
             echo "Comment was made on pull request: $(echo ${{ github.event.issue.pull_request.url }} | awk -F/ '{print $NF}')"
