@@ -88,12 +88,8 @@ void TabletsDistributionHandler::handle_sync(brpc::Controller* cntl) {
     }
     if (*req_group_method == "partition") {
         const std::string* req_partition_id = get_param(cntl, "partition_id");
-        if (req_partition_id == nullptr) {
-            on_bad_req(cntl, "invalid null param: partition_id");
-            return;
-        }
         uint64_t partition_id = 0;
-        if (*req_partition_id != "") {
+        if (req_partition_id != nullptr) {
             try {
                 partition_id = std::stoull(*req_partition_id);
             } catch (const std::exception& e) {
