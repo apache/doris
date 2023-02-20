@@ -119,7 +119,7 @@ public:
 
 class FunctionMapSize : public IFunction {
 public:
-    static constexpr auto name = "size";
+    static constexpr auto name = "map_size";
     static FunctionPtr create() { return std::make_shared<FunctionMapSize>(); }
 
     /// Get function name.
@@ -330,7 +330,6 @@ public:
 void register_function_map(SimpleFunctionFactory& factory) {
     factory.register_function<FunctionMap>();
     factory.register_function<FunctionMapSize>();
-    factory.register_alias(FunctionMapSize::name, "map_size");
     factory.register_function<FunctionMapContains<true>>();
     factory.register_function<FunctionMapContains<false>>();
     factory.register_function<FunctionMapEntries<true>>();

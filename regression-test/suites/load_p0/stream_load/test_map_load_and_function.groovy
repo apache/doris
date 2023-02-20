@@ -87,8 +87,8 @@ suite("test_map_load_and_function", "p0") {
     qt_select_element6 "SELECT id, m, m['k2'] FROM ${testTable} ORDER BY id"
 
     // map size
-    qt_select_map_size1 "SELECT size(map('k11', 1000, 'k22', 2000))"
-    qt_select_map_size2 "SELECT id, m, size(m), map_size(m) FROM ${testTable} ORDER BY id"
+    qt_select_map_size1 "SELECT map_size(map('k11', 1000, 'k22', 2000))"
+    qt_select_map_size2 "SELECT id, m, map_size(m) FROM ${testTable} ORDER BY id"
 
     // map_contains_key
     qt_select_map_contains_key1 "SELECT map_contains_key(map('k11', 1000, 'k22', 2000), 'k11')"
