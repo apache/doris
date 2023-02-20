@@ -79,7 +79,7 @@ Status ScannerScheduler::init(ExecEnv* env) {
 
     // 3. remote scan thread pool
     ThreadPoolBuilder("RemoteScanThreadPool")
-            .set_min_threads(config::doris_scanner_thread_pool_thread_num)  // 48 default
+            .set_min_threads(config::doris_scanner_thread_pool_thread_num)            // 48 default
             .set_max_threads(config::doris_max_remote_scanner_thread_pool_thread_num) // 512 default
             .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
             .build(&_remote_scan_thread_pool);
