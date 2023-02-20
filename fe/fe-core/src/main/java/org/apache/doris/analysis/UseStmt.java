@@ -78,7 +78,7 @@ public class UseStmt extends StatementBase {
         }
         database = ClusterNamespace.getFullName(getClusterName(), database);
 
-        if (!Env.getCurrentEnv().getAuth()
+        if (!Env.getCurrentEnv().getAccessManager()
                 .checkDbPriv(ConnectContext.get(), ConnectContext.get().getDefaultCatalog(), database,
                         PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_DBACCESS_DENIED_ERROR,

@@ -133,10 +133,8 @@ bool TabletReader::_optimize_for_single_rowset(
     return !has_overlapping && nonoverlapping_count == 1 && !has_delete_rowset;
 }
 
-Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
-                                         std::vector<RowsetReaderSharedPtr>* valid_rs_readers) {
-    const std::vector<RowsetReaderSharedPtr>* rs_readers = &read_params.rs_readers;
-    if (rs_readers->empty()) {
+Status TabletReader::_capture_rs_readers(const ReaderParams& read_params) {
+    if (read_params.rs_readers.empty()) {
         return Status::InternalError("fail to acquire data sources. tablet={}",
                                      _tablet->full_name());
     }
@@ -229,8 +227,6 @@ Status TabletReader::_capture_rs_readers(const ReaderParams& read_params,
     _reader_context.remaining_vconjunct_root = read_params.remaining_vconjunct_root;
     _reader_context.output_columns = &read_params.output_columns;
 
-    *valid_rs_readers = *rs_readers;
-
     return Status::OK();
 }
 
@@ -308,6 +304,7 @@ Status TabletReader::_init_return_columns(const ReaderParams& read_params) {
         VLOG_NOTICE << "return column is empty, using full column as default.";
     } else if ((read_params.reader_type == READER_CUMULATIVE_COMPACTION ||
                 read_params.reader_type == READER_BASE_COMPACTION ||
+                read_params.reader_type == READER_COLD_DATA_COMPACTION ||
                 read_params.reader_type == READER_ALTER_TABLE) &&
                !read_params.return_columns.empty()) {
         _return_columns = read_params.return_columns;
@@ -415,10 +412,6 @@ Status TabletReader::_init_keys_param(const ReaderParams& read_params) {
 }
 
 Status TabletReader::_init_orderby_keys_param(const ReaderParams& read_params) {
-    if (read_params.start_key.empty()) {
-        return Status::OK();
-    }
-
     // UNIQUE_KEYS will compare all keys as before
     if (_tablet_schema->keys_type() == DUP_KEYS || (_tablet_schema->keys_type() == UNIQUE_KEYS &&
                                                     _tablet->enable_unique_key_merge_on_write())) {
@@ -592,11 +585,12 @@ Status TabletReader::_init_delete_condition(const ReaderParams& read_params) {
     if (read_params.reader_type == READER_CUMULATIVE_COMPACTION) {
         return Status::OK();
     }
-    // Only BASE_COMPACTION need set filter_delete = true
+    // Only BASE_COMPACTION and COLD_DATA_COMPACTION need set filter_delete = true
     // other reader type:
     // QUERY will filter the row in query layer to keep right result use where clause.
     // CUMULATIVE_COMPACTION will lost the filter_delete info of base rowset
     if (read_params.reader_type == READER_BASE_COMPACTION ||
+        read_params.reader_type == READER_COLD_DATA_COMPACTION ||
         read_params.reader_type == READER_CHECKSUM) {
         _filter_delete = true;
     }

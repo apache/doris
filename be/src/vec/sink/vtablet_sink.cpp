@@ -182,6 +182,9 @@ VNodeChannel::~VNodeChannel() {
         delete _add_block_closure;
         _add_block_closure = nullptr;
     }
+    if (_open_closure != nullptr) {
+        delete _open_closure;
+    }
     _cur_add_block_request.release_id();
 }
 
@@ -616,7 +619,9 @@ void VNodeChannel::try_send_block(RuntimeState* state) {
             _add_block_closure->clear_in_flight();
             return;
         }
-        std::string brpc_url = fmt::format("http://{}:{}", _node_info.host, _node_info.brpc_port);
+
+        //format an ipv6 address
+        std::string brpc_url = get_brpc_http_url(_node_info.host, _node_info.brpc_port);
         std::shared_ptr<PBackendService_Stub> _brpc_http_stub =
                 _state->exec_env()->brpc_internal_client_cache()->get_new_client_no_cache(brpc_url,
                                                                                           "http");
@@ -1015,6 +1020,11 @@ Status VOlapTableSink::find_tablet(RuntimeState* state, vectorized::Block* block
         is_continue = true;
         return status;
     }
+    if (!(*partition)->is_mutable) {
+        _number_immutable_partition_filtered_rows++;
+        is_continue = true;
+        return status;
+    }
     _partition_ids.emplace((*partition)->id);
     if (findTabletMode != FindTabletMode::FIND_TABLET_EVERY_ROW) {
         if (_partition_to_tablet_map.find((*partition)->id) == _partition_to_tablet_map.end()) {
@@ -1222,6 +1232,7 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
                                       state->num_rows_load_unselected();
         state->set_num_rows_load_total(num_rows_load_total);
         state->update_num_rows_load_filtered(_number_filtered_rows);
+        state->update_num_rows_load_unselected(_number_immutable_partition_filtered_rows);
 
         // print log of add batch time of all node, for tracing load performance easily
         std::stringstream ss;

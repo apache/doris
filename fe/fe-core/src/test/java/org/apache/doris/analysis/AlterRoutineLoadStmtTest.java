@@ -20,7 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
-import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -43,7 +43,7 @@ public class AlterRoutineLoadStmtTest {
     private Analyzer analyzer;
 
     @Mocked
-    private Auth auth;
+    private AccessControllerManager accessManager;
 
     @Before
     public void setUp() {
@@ -51,15 +51,15 @@ public class AlterRoutineLoadStmtTest {
         FeConstants.runningUnitTest = true;
         new Expectations() {
             {
-                auth.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
+                accessManager.checkGlobalPriv((ConnectContext) any, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
 
-                auth.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
+                accessManager.checkDbPriv((ConnectContext) any, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
 
-                auth.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
+                accessManager.checkTblPriv((ConnectContext) any, anyString, anyString, (PrivPredicate) any);
                 minTimes = 0;
                 result = true;
             }

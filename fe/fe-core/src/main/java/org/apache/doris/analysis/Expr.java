@@ -1074,6 +1074,10 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
     @Override
     public abstract Expr clone();
 
+    public boolean notCheckDescIdEquals(Object obj) {
+        return equals(obj);
+    }
+
     @Override
     public boolean equals(Object obj) {
         if (obj == null) {
@@ -2150,13 +2154,22 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
     }
 
-    private boolean matchExprsWithoutAlias(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias) {
-        for (Expr expr : exprs) {
-            if (expr == null) {
-                continue;
+    public boolean haveMvSlot() {
+        for (Expr expr : getChildren()) {
+            if (expr.haveMvSlot()) {
+                return true;
             }
-            if (MaterializedIndexMeta.normalizeName(expr.toSqlWithoutTbl()).equals(CreateMaterializedViewStmt
-                    .mvColumnBreaker(MaterializedIndexMeta.normalizeName(toSqlWithoutTbl())))) {
+        }
+        return false;
+    }
+
+    public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, String tableName)
+            throws AnalysisException {
+        String name = MaterializedIndexMeta.normalizeName(toSqlWithoutTbl());
+        for (Expr expr : exprs) {
+            if (CreateMaterializedViewStmt.isMVColumnNormal(name)
+                    && MaterializedIndexMeta.normalizeName(expr.toSqlWithoutTbl()).equals(CreateMaterializedViewStmt
+                            .mvColumnBreaker(name))) {
                 return true;
             }
             if (MVExprEquivalent.aggregateArgumentEqual(this, expr)) {
@@ -2165,28 +2178,16 @@ public abstract class Expr extends TreeNode<Expr> implements ParseNode, Cloneabl
         }
 
         if (getChildren().isEmpty()) {
-            return false;
+            // Match base index when expr not be rewritten
+            return !CreateMaterializedViewStmt.isMVColumn(name) && exprs.isEmpty();
         }
 
         for (Expr expr : getChildren()) {
-            if (!expr.matchExprs(exprs, stmt, ignoreAlias)) {
+            if (!expr.matchExprs(exprs, stmt, ignoreAlias, tableName)) {
                 return false;
             }
         }
         return true;
-    }
-
-    public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias) {
-        if (this instanceof SlotRef && ((SlotRef) this).getColumnName() == null) {
-            return true; // means this is alias of other expr
-        }
-
-        Expr aliasExpr = stmt.getExprFromAliasSMap(this);
-        if (!ignoreAlias && aliasExpr != null) {
-            return aliasExpr.matchExprsWithoutAlias(exprs, stmt, true);
-        } else {
-            return matchExprsWithoutAlias(exprs, stmt, ignoreAlias);
-        }
     }
 
     protected Type[] getActualArgTypes(Type[] originType) {

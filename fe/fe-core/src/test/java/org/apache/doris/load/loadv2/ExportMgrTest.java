@@ -24,7 +24,7 @@ import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.load.ExportJob;
 import org.apache.doris.load.ExportMgr;
-import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.MockedAuth;
 
 import com.google.common.collect.Maps;
@@ -41,11 +41,11 @@ public class ExportMgrTest {
     private final ExportMgr exportMgr = new ExportMgr();
 
     @Mocked
-    private Auth auth;
+    private AccessControllerManager accessManager;
 
     @Before
     public void setUp() {
-        MockedAuth.mockedAuth(auth);
+        MockedAuth.mockedAccess(accessManager);
     }
 
     @Test

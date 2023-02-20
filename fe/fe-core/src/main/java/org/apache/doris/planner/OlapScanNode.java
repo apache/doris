@@ -321,6 +321,10 @@ public class OlapScanNode extends ScanNode {
         this.selectedIndexId = olapTable.getBaseIndexId();
     }
 
+    public long getSelectedIndexId() {
+        return selectedIndexId;
+    }
+
     /**
      * This method is mainly used to update scan range info in OlapScanNode by the
      * new materialized selector.
@@ -426,7 +430,7 @@ public class OlapScanNode extends ScanNode {
                 mvColumn = meta.getColumnByName(CreateMaterializedViewStmt.mvColumnBuilder(baseColumn.getName()));
             }
             if (mvColumn == null) {
-                throw new UserException("Do not found mvColumn " + baseColumn.getName());
+                throw new UserException("updateColumnType: Do not found mvColumn " + baseColumn.getName());
             }
 
             if (mvColumn.getType() != baseColumn.getType()) {
@@ -453,7 +457,7 @@ public class OlapScanNode extends ScanNode {
             Column baseColumn = slotDescriptor.getColumn();
             Column mvColumn = meta.getColumnByName(baseColumn.getName());
             if (mvColumn == null) {
-                throw new UserException("Do not found mvColumn " + baseColumn.getName());
+                throw new UserException("updateSlotUniqueId: Do not found mvColumn " + baseColumn.getName());
             }
             slotDescriptor.setColumn(mvColumn);
         }
@@ -711,7 +715,7 @@ public class OlapScanNode extends ScanNode {
                     errs.add(err);
                     continue;
                 }
-                String ip = backend.getHost();
+                String ip = backend.getIp();
                 int port = backend.getBePort();
                 TScanRangeLocation scanRangeLocation = new TScanRangeLocation(new TNetworkAddress(ip, port));
                 scanRangeLocation.setBackendId(replica.getBackendId());

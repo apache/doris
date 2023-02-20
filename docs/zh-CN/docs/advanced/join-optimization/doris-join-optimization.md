@@ -59,7 +59,7 @@ Doris 支持 4 种 Shuffle 方式
 
    ![image-20220523151902368](/images/join/image-20220523151902368.png)
 
-   左右表数据根据分区，计算的记过发送到不同的分区节点上。
+   左右表数据根据分区，计算的结果发送到不同的分区节点上。
 
 3. Bucket Shuffle Join
 
@@ -170,7 +170,7 @@ set enable_cost_based_join_reorder = true
 
 这次耗时从 14 秒降到了 4 秒，性能提升了 3 倍多。
 
-此时再 Check Profile 的时候，左右表的顺序已经调整正确，即右表是大表，左表是小表。基于小表去构建哈希表，开销是很小的，这就是典型的一个利用 Join Reorder 去提升 Join 性能的一个场景
+此时再 Check Profile 的时候，左右表的顺序已经调整正确，即右表是小表，左表是大表。基于小表去构建哈希表，开销是很小的，这就是典型的一个利用 Join Reorder 去提升 Join 性能的一个场景
 
 ![image-20220523153757607](/images/join/image-20220523153757607.png)
 

@@ -38,8 +38,6 @@ namespace doris::vectorized {
 Status Channel::init(RuntimeState* state) {
     _be_number = state->be_number();
 
-    _capacity = std::max(1, _buffer_size / std::max(_row_desc.get_row_size(), 1));
-
     if (_brpc_dest_addr.hostname.empty()) {
         LOG(WARNING) << "there is no brpc destination address's hostname"
                         ", maybe version is not compatible.";
@@ -448,9 +446,14 @@ Status VDataStreamSender::prepare(RuntimeState* state) {
 Status VDataStreamSender::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VDataStreamSender::open");
     DCHECK(state != nullptr);
+    int local_size = 0;
     for (int i = 0; i < _channels.size(); ++i) {
         RETURN_IF_ERROR(_channels[i]->init(state));
+        if (_channels[i]->is_local()) {
+            local_size++;
+        }
     }
+    _only_local_exchange = local_size == _channels.size();
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
     RETURN_IF_ERROR(VExpr::open(_partition_expr_ctxs, state));
 
@@ -465,13 +468,7 @@ Status VDataStreamSender::send(RuntimeState* state, Block* block, bool eos) {
         // 1. serialize depends on it is not local exchange
         // 2. send block
         // 3. rollover block
-        int local_size = 0;
-        for (auto channel : _channels) {
-            if (channel->is_local()) {
-                local_size++;
-            }
-        }
-        if (local_size == _channels.size()) {
+        if (_only_local_exchange) {
             for (auto channel : _channels) {
                 RETURN_IF_ERROR(channel->send_local_block(block));
             }
@@ -643,25 +640,10 @@ void VDataStreamSender::_roll_pb_block() {
 }
 
 Status VDataStreamSender::_get_next_available_buffer(BroadcastPBlockHolder** holder) {
-    constexpr int MAX_LOOP = 1000;
-
-    size_t it = 0;
-    while (it < MAX_LOOP) {
-        if (_broadcast_pb_block_idx == _broadcast_pb_blocks.size()) {
-            _broadcast_pb_block_idx = 0;
-        }
-
-        for (; _broadcast_pb_block_idx < _broadcast_pb_blocks.size(); _broadcast_pb_block_idx++) {
-            if (_broadcast_pb_blocks[_broadcast_pb_block_idx].available()) {
-                _broadcast_pb_block_idx++;
-                *holder = &_broadcast_pb_blocks[_broadcast_pb_block_idx - 1];
-                return Status::OK();
-            }
-        }
-        it++;
-    }
-    return Status::InternalError(
-            "Exceed the max loop limit when acquire the next available buffer!");
+    DCHECK(_broadcast_pb_blocks[_broadcast_pb_block_idx].available());
+    *holder = &_broadcast_pb_blocks[_broadcast_pb_block_idx];
+    _broadcast_pb_block_idx++;
+    return Status::OK();
 }
 
 void VDataStreamSender::registe_channels(pipeline::ExchangeSinkBuffer* buffer) {
@@ -671,12 +653,28 @@ void VDataStreamSender::registe_channels(pipeline::ExchangeSinkBuffer* buffer) {
 }
 
 bool VDataStreamSender::channel_all_can_write() {
-    for (auto channel : _channels) {
-        if (!channel->can_write()) {
-            return false;
+    if ((_part_type == TPartitionType::UNPARTITIONED || _channels.size() == 1) &&
+        !_only_local_exchange) {
+        // This condition means we need use broadcast buffer, so we should make sure
+        // there are available buffer before running pipeline
+        if (_broadcast_pb_block_idx == _broadcast_pb_blocks.size()) {
+            _broadcast_pb_block_idx = 0;
         }
+
+        for (; _broadcast_pb_block_idx < _broadcast_pb_blocks.size(); _broadcast_pb_block_idx++) {
+            if (_broadcast_pb_blocks[_broadcast_pb_block_idx].available()) {
+                return true;
+            }
+        }
+        return false;
+    } else {
+        for (auto channel : _channels) {
+            if (!channel->can_write()) {
+                return false;
+            }
+        }
+        return true;
     }
-    return true;
 }
 
 } // namespace doris::vectorized

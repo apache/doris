@@ -75,6 +75,7 @@ import org.apache.doris.analysis.ReplacePartitionClause;
 import org.apache.doris.analysis.RestoreStmt;
 import org.apache.doris.analysis.RollupRenameClause;
 import org.apache.doris.analysis.ShowAlterStmt.AlterType;
+import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.TableRenameClause;
 import org.apache.doris.analysis.TruncateTableStmt;
 import org.apache.doris.analysis.UninstallPluginStmt;
@@ -115,6 +116,7 @@ import org.apache.doris.common.util.Daemon;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.MetaLockUtils;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.QueryableReentrantLock;
@@ -166,8 +168,10 @@ import org.apache.doris.master.PartitionInMemoryInfoCollector;
 import org.apache.doris.meta.MetaContext;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVJobManager;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.AlterMultiMaterializedView;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
@@ -252,7 +256,9 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
+import java.net.InetAddress;
 import java.net.URL;
+import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -394,6 +400,7 @@ public class Env {
     private TabletStatMgr tabletStatMgr;
 
     private Auth auth;
+    private AccessControllerManager accessManager;
 
     private DomainResolver domainResolver;
 
@@ -594,6 +601,7 @@ public class Env {
         this.tabletStatMgr = new TabletStatMgr();
 
         this.auth = new Auth();
+        this.accessManager = new AccessControllerManager(auth);
         this.domainResolver = new DomainResolver(auth);
 
         this.metaContext = new MetaContext();
@@ -692,6 +700,10 @@ public class Env {
 
     public Auth getAuth() {
         return auth;
+    }
+
+    public AccessControllerManager getAccessManager() {
+        return accessManager;
     }
 
     public TabletScheduler getTabletScheduler() {
@@ -1031,7 +1043,7 @@ public class Env {
                 clusterId = storage.getClusterID();
                 token = storage.getToken();
                 try {
-                    URL idURL = new URL("http://" + rightHelperNode.first + ":" + Config.http_port + "/check");
+                    URL idURL = new URL("http://" + NetUtils.getHostPortInAccessibleFormat(rightHelperNode.first, Config.http_port) + "/check");
                     HttpURLConnection conn = null;
                     conn = (HttpURLConnection) idURL.openConnection();
                     conn.setConnectTimeout(2 * 1000);
@@ -1096,7 +1108,8 @@ public class Env {
         Pair<String, Integer> rightHelperNode = null;
         for (Pair<String, Integer> helperNode : helperNodes) {
             try {
-                URL url = new URL("http://" + helperNode.first + ":" + Config.http_port + "/role?host=" + selfNode.first
+                URL url = new URL("http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.first, Config.http_port)
+                        + "/role?host=" + selfNode.first
                         + "&port=" + selfNode.second);
                 HttpURLConnection conn = null;
                 conn = (HttpURLConnection) url.openConnection();
@@ -1539,7 +1552,7 @@ public class Env {
 
     private boolean getVersionFileFromHelper(Pair<String, Integer> helperNode) throws IOException {
         try {
-            String url = "http://" + helperNode.first + ":" + Config.http_port + "/version";
+            String url = "http://" + NetUtils.getHostPortInAccessibleFormat(helperNode.first, Config.http_port) + "/version";
             File dir = new File(this.imageDir);
             MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000,
                     MetaHelper.getOutputStream(Storage.VERSION_FILE, dir));
@@ -1558,11 +1571,12 @@ public class Env {
         localImageVersion = storage.getLatestImageSeq();
 
         try {
-            URL infoUrl = new URL("http://" + helperNode.first + ":" + Config.http_port + "/info");
+            String hostPort = NetUtils.getHostPortInAccessibleFormat(helperNode.first, Config.http_port);
+            URL infoUrl = new URL("http://" + hostPort + "/info");
             StorageInfo info = getStorageInfo(infoUrl);
             long version = info.getImageSeq();
             if (version > localImageVersion) {
-                String url = "http://" + helperNode.first + ":" + Config.http_port + "/image?version=" + version;
+                String url = "http://" + hostPort + "/image?version=" + version;
                 String filename = Storage.IMAGE + "." + version;
                 File dir = new File(this.imageDir);
                 MetaHelper.getRemoteFile(url, HTTP_TIMEOUT_SECOND * 1000, MetaHelper.getOutputStream(filename, dir));
@@ -1585,6 +1599,7 @@ public class Env {
         for (Pair<String, Integer> helperNode : helperNodes) {
             if (selfNode.equals(helperNode)) {
                 containSelf = true;
+                break;
             }
         }
         if (containSelf) {
@@ -2506,7 +2521,16 @@ public class Env {
 
     public Frontend getFeByHost(String host) {
         for (Frontend fe : frontends.values()) {
-            if (fe.getHost().equals(host)) {
+            InetAddress hostAddr = null;
+            InetAddress feAddr = null;
+            try {
+                hostAddr = InetAddress.getByName(host);
+                feAddr = InetAddress.getByName(fe.getHost());
+            } catch (UnknownHostException e) {
+                LOG.warn("get address failed: {}", e.getMessage());
+                return null;
+            }
+            if (feAddr.equals(hostAddr)) {
                 return fe;
             }
         }
@@ -3019,7 +3043,8 @@ public class Env {
             sb.append("\"max_docvalue_fields\" = \"").append(esTable.getMaxDocValueFields()).append("\",\n");
             sb.append("\"enable_keyword_sniff\" = \"").append(esTable.isEnableKeywordSniff()).append("\",\n");
             sb.append("\"nodes_discovery\" = \"").append(esTable.isNodesDiscovery()).append("\",\n");
-            sb.append("\"http_ssl_enabled\" = \"").append(esTable.isHttpSslEnabled()).append("\"\n");
+            sb.append("\"http_ssl_enabled\" = \"").append(esTable.isHttpSslEnabled()).append("\",\n");
+            sb.append("\"like_push_down\" = \"").append(esTable.isLikePushDown()).append("\"\n");
             sb.append(")");
         } else if (table.getType() == TableType.HIVE) {
             HiveTable hiveTable = (HiveTable) table;
@@ -3642,7 +3667,8 @@ public class Env {
     }
 
     public void alterMaterializedView(AlterMaterializedViewStmt stmt) throws UserException {
-        this.alter.processAlterMaterializedView(stmt);
+        AlterMultiMaterializedView alter = new AlterMultiMaterializedView(stmt.getTable(), stmt.getRefreshInfo());
+        this.alter.processAlterMaterializedView(alter, false);
     }
 
     /**
@@ -4036,6 +4062,16 @@ public class Env {
                 column.setName(newColName);
                 hasColumn = true;
             }
+
+            // todo: need change complex expr name also
+            Column mvColumn = entry.getValue().getColumnByName(CreateMaterializedViewStmt.mvColumnBuilder(colName));
+            if (mvColumn != null) {
+                mvColumn.setName(CreateMaterializedViewStmt.mvColumnBuilder(newColName));
+                SlotRef slot = (SlotRef) mvColumn.getDefineExpr();
+                slot.setCol(newColName);
+                slot.setLabel('`' + newColName + '`');
+                hasColumn = true;
+            }
         }
         if (!hasColumn) {
             throw new DdlException("Column[" + colName + "] does not exists");
@@ -4047,7 +4083,12 @@ public class Env {
         for (Column column : partitionColumns) {
             if (column.getName().equalsIgnoreCase(colName)) {
                 column.setName(newColName);
-                break;
+            }
+            if (column.getName().equalsIgnoreCase(CreateMaterializedViewStmt.mvColumnBuilder(colName))) {
+                column.setName(CreateMaterializedViewStmt.mvColumnBuilder(newColName));
+                SlotRef slot = (SlotRef) column.getDefineExpr();
+                slot.setCol(newColName);
+                slot.setLabel('`' + newColName + '`');
             }
         }
 
@@ -4059,6 +4100,9 @@ public class Env {
                 if (columns.get(i).equalsIgnoreCase(colName)) {
                     columns.set(i, newColName);
                 }
+                if (columns.get(i).equalsIgnoreCase(CreateMaterializedViewStmt.mvColumnBuilder(colName))) {
+                    columns.set(i, CreateMaterializedViewStmt.mvColumnBuilder(newColName));
+                }
             }
         }
 
@@ -4069,7 +4113,12 @@ public class Env {
             for (Column column : distributionColumns) {
                 if (column.getName().equalsIgnoreCase(colName)) {
                     column.setName(newColName);
-                    break;
+                }
+                if (column.getName().equalsIgnoreCase(CreateMaterializedViewStmt.mvColumnBuilder(colName))) {
+                    column.setName(CreateMaterializedViewStmt.mvColumnBuilder(newColName));
+                    SlotRef slot = (SlotRef) column.getDefineExpr();
+                    slot.setCol(newColName);
+                    slot.setLabel('`' + newColName + '`');
                 }
             }
         }
@@ -4386,7 +4435,7 @@ public class Env {
 
     // Change current database of this session.
     public void changeDb(ConnectContext ctx, String qualifiedDb) throws DdlException {
-        if (!auth.checkDbPriv(ctx, ctx.getDefaultCatalog(), qualifiedDb, PrivPredicate.SHOW)) {
+        if (!accessManager.checkDbPriv(ctx, ctx.getDefaultCatalog(), qualifiedDb, PrivPredicate.SHOW)) {
             ErrorReport.reportDdlException(ErrorCode.ERR_DBACCESS_DENIED_ERROR, ctx.getQualifiedUser(), qualifiedDb);
         }
 
@@ -5089,7 +5138,7 @@ public class Env {
             TNetworkAddress address = null;
             boolean ok = false;
             try {
-                address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+                address = new TNetworkAddress(backend.getIp(), backend.getBePort());
                 client = ClientPool.backendPool.borrowObject(address);
                 client.cleanTrash(); // async
                 ok = true;

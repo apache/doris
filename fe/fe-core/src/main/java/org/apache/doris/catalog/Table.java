@@ -124,7 +124,7 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         this.nameToColumn = Maps.newTreeMap(String.CASE_INSENSITIVE_ORDER);
         if (this.fullSchema != null) {
             for (Column col : this.fullSchema) {
-                nameToColumn.put(col.getName(), col);
+                nameToColumn.put(col.getDefineName(), col);
             }
         } else {
             // Only view in with-clause have null base
@@ -268,6 +268,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
 
     void setQualifiedDbName(String qualifiedDbName) {
         this.qualifiedDbName = qualifiedDbName;
+    }
+
+    public String getQualifiedDbName() {
+        return qualifiedDbName;
     }
 
     public String getQualifiedName() {

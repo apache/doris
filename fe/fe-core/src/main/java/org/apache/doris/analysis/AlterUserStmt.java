@@ -124,7 +124,7 @@ public class AlterUserStmt extends DdlStmt {
         }
 
         // check if current user has GRANT priv on GLOBAL or DATABASE level.
-        if (!Env.getCurrentEnv().getAuth().checkHasPriv(ConnectContext.get(),
+        if (!Env.getCurrentEnv().getAccessManager().checkHasPriv(ConnectContext.get(),
                 PrivPredicate.GRANT, PrivLevel.GLOBAL, PrivLevel.DATABASE)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
         }

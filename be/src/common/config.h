@@ -261,7 +261,7 @@ CONF_Int32(index_page_cache_percentage, "10");
 // whether to disable page cache feature in storage
 CONF_Bool(disable_storage_page_cache, "false");
 // whether to disable row cache feature in storage
-CONF_Bool(disable_storage_row_cache, "false");
+CONF_Bool(disable_storage_row_cache, "true");
 
 CONF_Bool(enable_storage_vectorization, "true");
 
@@ -811,6 +811,8 @@ CONF_Int32(cooldown_thread_num, "5");
 CONF_mInt64(generate_cooldown_task_interval_sec, "20");
 CONF_mInt32(remove_unused_remote_files_interval_sec, "21600"); // 6h
 CONF_mInt32(confirm_unused_remote_files_interval_sec, "60");
+CONF_Int32(cold_data_compaction_thread_num, "2");
+CONF_mInt32(cold_data_compaction_interval_sec, "1800");
 CONF_mInt64(generate_cache_cleaner_task_interval_sec, "43200"); // 12 h
 CONF_Int32(concurrency_per_dir, "2");
 CONF_mInt64(cooldown_lag_time_sec, "10800");       // 3h
@@ -895,6 +897,7 @@ CONF_String(inverted_index_searcher_cache_limit, "10%");
 // set `true` to enable insert searcher into cache when write inverted index data
 CONF_Bool(enable_write_index_searcher_cache, "true");
 CONF_Bool(enable_inverted_index_cache_check_timestamp, "true");
+CONF_Int32(inverted_index_fd_number_limit_percent, "50"); // 50%
 
 // inverted index match bitmap cache size
 CONF_String(inverted_index_query_cache_limit, "10%");

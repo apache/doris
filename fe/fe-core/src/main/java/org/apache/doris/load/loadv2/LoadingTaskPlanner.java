@@ -99,7 +99,7 @@ public class LoadingTaskPlanner {
         this.sendBatchParallelism = sendBatchParallelism;
         this.useNewLoadScanNode = useNewLoadScanNode;
         this.userInfo = userInfo;
-        if (Env.getCurrentEnv().getAuth()
+        if (Env.getCurrentEnv().getAccessManager()
                 .checkDbPriv(userInfo, Env.getCurrentInternalCatalog().getDbNullable(dbId).getFullName(),
                         PrivPredicate.SELECT)) {
             this.analyzer.setUDFAllowed(true);
@@ -163,7 +163,7 @@ public class LoadingTaskPlanner {
         // Generate plan trees
         // 1. Broker scan node
         ScanNode scanNode;
-        scanNode = new ExternalFileScanNode(new PlanNodeId(nextNodeId++), scanTupleDesc);
+        scanNode = new ExternalFileScanNode(new PlanNodeId(nextNodeId++), scanTupleDesc, false);
         ((ExternalFileScanNode) scanNode).setLoadInfo(loadJobId, txnId, table, brokerDesc, fileGroups,
                 fileStatusesList, filesAdded, strictMode, loadParallelism, userInfo);
         scanNode.init(analyzer);
@@ -215,6 +215,12 @@ public class LoadingTaskPlanner {
         Set<Long> specifiedPartitionIds = Sets.newHashSet();
         for (BrokerFileGroup brokerFileGroup : fileGroups) {
             if (brokerFileGroup.getPartitionIds() != null) {
+                for (long partitionId : brokerFileGroup.getPartitionIds()) {
+                    if (!table.getPartitionInfo().getIsMutable(partitionId)) {
+                        throw new LoadException("Can't load data to immutable partition, table: "
+                            + table.getName() + ", partition: " + table.getPartition(partitionId));
+                    }
+                }
                 specifiedPartitionIds.addAll(brokerFileGroup.getPartitionIds());
             }
             // all file group in fileGroups should have same partitions, so only need to get partition ids

@@ -839,6 +839,8 @@ void TabletSchema::update_indexes_from_thrift(const std::vector<doris::TOlapTabl
 }
 
 const TabletColumn& TabletSchema::column(const std::string& field_name) const {
+    DCHECK(_field_name_to_index.count(field_name) != 0)
+            << ", field_name=" << field_name << ", field_name_to_index=" << get_all_field_names();
     const auto& found = _field_name_to_index.find(field_name);
     return _cols[found->second];
 }

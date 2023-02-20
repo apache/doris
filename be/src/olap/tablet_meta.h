@@ -146,7 +146,7 @@ public:
     bool in_restore_mode() const;
     void set_in_restore_mode(bool in_restore_mode);
 
-    TabletSchemaSPtr tablet_schema() const;
+    const TabletSchemaSPtr& tablet_schema() const;
 
     const TabletSchemaSPtr tablet_schema(Version version) const;
 
@@ -204,9 +204,6 @@ public:
     DeleteBitmap& delete_bitmap() { return *_delete_bitmap; }
 
     bool enable_unique_key_merge_on_write() const { return _enable_unique_key_merge_on_write; }
-
-    void update_delete_bitmap(const std::vector<RowsetSharedPtr>& input_rowsets,
-                              const Version& version, const RowIdConversion& rowid_conversion);
 
 private:
     Status _save_meta(DataDir* data_dir);
@@ -529,7 +526,7 @@ inline void TabletMeta::set_in_restore_mode(bool in_restore_mode) {
     _in_restore_mode = in_restore_mode;
 }
 
-inline TabletSchemaSPtr TabletMeta::tablet_schema() const {
+inline const TabletSchemaSPtr& TabletMeta::tablet_schema() const {
     return _schema;
 }
 

@@ -68,7 +68,7 @@ public class RecoverDbStmt extends DdlStmt {
             newDbName = ClusterNamespace.getFullName(getClusterName(), newDbName);
         }
 
-        if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), dbName,
+        if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), dbName,
                 PrivPredicate.of(PrivBitSet.of(
                         Privilege.ALTER_PRIV, Privilege.CREATE_PRIV, Privilege.ADMIN_PRIV), Operator.OR))) {
             ErrorReport.reportAnalysisException(

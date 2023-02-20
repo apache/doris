@@ -408,6 +408,8 @@ struct TReportExecStatusParams {
   17: optional i64 loaded_bytes
 
   18: optional list<Types.TErrorTabletInfo> errorTabletInfos
+
+  19: optional i32 fragment_id
 }
 
 struct TFeResult {

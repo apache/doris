@@ -126,6 +126,8 @@ public:
     int32_t tablet_id = 0;
 };
 
+class RowwiseIterator;
+using RowwiseIteratorUPtr = std::unique_ptr<RowwiseIterator>;
 class RowwiseIterator {
 public:
     RowwiseIterator() = default;

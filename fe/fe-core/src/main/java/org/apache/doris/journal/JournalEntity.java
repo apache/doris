@@ -61,6 +61,7 @@ import org.apache.doris.mtmv.metadata.DropMTMVTask;
 import org.apache.doris.mtmv.metadata.MTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVTask;
 import org.apache.doris.mysql.privilege.UserPropertyInfo;
+import org.apache.doris.persist.AlterMultiMaterializedView;
 import org.apache.doris.persist.AlterRoutineLoadJobOperationLog;
 import org.apache.doris.persist.AlterUserOperationLog;
 import org.apache.doris.persist.AlterViewInfo;
@@ -773,6 +774,11 @@ public class JournalEntity implements Writable {
             }
             case OperationType.OP_CHANGE_MTMV_TASK: {
                 data = ChangeMTMVTask.read(in);
+                isRead = true;
+                break;
+            }
+            case OperationType.OP_ALTER_MTMV_STMT: {
+                data = AlterMultiMaterializedView.read(in);
                 isRead = true;
                 break;
             }

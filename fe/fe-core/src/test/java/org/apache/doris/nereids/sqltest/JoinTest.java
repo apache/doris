@@ -47,6 +47,7 @@ public class JoinTest extends SqlTestBase {
                 .optimize()
                 .getBestPlanTree();
         // generate colocate join plan without physicalDistribute
+        System.out.println(plan.treeString());
         Assertions.assertFalse(plan.anyMatch(PhysicalDistribute.class::isInstance));
         sql = "select * from T1 join T0 on T1.score = T0.score and T1.id = T0.id;";
         plan = PlanChecker.from(connectContext)

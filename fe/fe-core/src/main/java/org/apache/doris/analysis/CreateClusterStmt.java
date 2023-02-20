@@ -72,7 +72,7 @@ public class CreateClusterStmt extends DdlStmt {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_INVALID_OPERATION, "CREATE CLUSTER");
         }
         FeNameFormat.checkDbName(clusterName);
-        if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.OPERATOR)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_CLUSTER_NO_AUTHORITY, analyzer.getQualifiedUser());
         }
 

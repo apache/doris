@@ -87,7 +87,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOneRowRelation;
@@ -548,7 +547,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         ExternalTable table = fileScan.getTable();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, table, context);
         tupleDescriptor.setTable(table);
-        ExternalFileScanNode fileScanNode = new ExternalFileScanNode(context.nextPlanNodeId(), tupleDescriptor);
+        // TODO(cmy): determine the needCheckColumnPriv param
+        ExternalFileScanNode fileScanNode = new ExternalFileScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
         TableName tableName = new TableName(null, "", "");
         TableRef ref = new TableRef(tableName, null, null);
         BaseTableRef tableRef = new BaseTableRef(ref, table, tableName);
@@ -609,17 +609,45 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     @Override
     public PlanFragment visitPhysicalQuickSort(PhysicalQuickSort<? extends Plan> sort,
             PlanTranslatorContext context) {
-        PlanFragment childFragment = visitAbstractPhysicalSort(sort, context);
-        SortNode sortNode = (SortNode) childFragment.getPlanRoot();
-        // isPartitioned() == false means there is only one instance, so no merge phase
-        if (!childFragment.isPartitioned()) {
-            return childFragment;
+        PlanFragment inputFragment = sort.child(0).accept(this, context);
+        PlanFragment currentFragment = inputFragment;
+
+        //1. generate new fragment for sort when the child is exchangeNode
+        if (inputFragment.getPlanRoot() instanceof ExchangeNode
+                && sort.child(0) instanceof PhysicalDistribute) {
+            DataPartition outputPartition = DataPartition.UNPARTITIONED;
+            if (sort.getSortPhase().isLocal()) {
+                // The window function like over (partition by xx order by) can generate plan
+                // shuffle -> localSort -> windowFunction
+                // In this case, the child's partition need to keep
+                outputPartition = hashSpecToDataPartition((PhysicalDistribute) sort.child(0), context);
+            }
+            ExchangeNode exchangeNode = (ExchangeNode) inputFragment.getPlanRoot();
+            inputFragment.setOutputPartition(outputPartition);
+            inputFragment.setPlanRoot(exchangeNode.getChild(0));
+            inputFragment.setDestination(exchangeNode);
+            currentFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, DataPartition.UNPARTITIONED);
+            context.addPlanFragment(currentFragment);
         }
-        PlanFragment mergeFragment = createParentFragment(childFragment, DataPartition.UNPARTITIONED, context);
-        ExchangeNode exchangeNode = (ExchangeNode) mergeFragment.getPlanRoot();
-        // exchangeNode.limit/offset will be set in when translating  PhysicalLimit
-        exchangeNode.setMergeInfo(sortNode.getSortInfo());
-        return mergeFragment;
+
+        // 2. According to the type of sort, generate physical plan
+        if (!sort.getSortPhase().isMerge()) {
+            // For localSort or Gather->Sort, we just need to add sortNode
+            SortNode sortNode = translateSortNode(sort, inputFragment.getPlanRoot(), context);
+            currentFragment.addPlanRoot(sortNode);
+        } else {
+            // For mergeSort, we need to push sortInfo to exchangeNode
+            if (!(currentFragment.getPlanRoot() instanceof ExchangeNode)) {
+                // if there is no exchange node for mergeSort
+                //   e.g., localSort -> mergeSort
+                // It means the local has satisfied the Gather property. We can just ignore mergeSort
+                return currentFragment;
+            }
+            Preconditions.checkArgument(inputFragment.getPlanRoot() instanceof SortNode);
+            SortNode sortNode = (SortNode) inputFragment.getPlanRoot();
+            ((ExchangeNode) currentFragment.getPlanRoot()).setMergeInfo(sortNode.getSortInfo());
+        }
+        return currentFragment;
     }
 
     @Override
@@ -717,87 +745,43 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
     @Override
     public PlanFragment visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, PlanTranslatorContext context) {
-        PlanFragment childFragment = visitAbstractPhysicalSort(topN, context);
-        SortNode sortNode = (SortNode) childFragment.getPlanRoot();
-        sortNode.setOffset(topN.getOffset());
-        sortNode.setLimit(topN.getLimit());
-        // isPartitioned() == false means there is only one instance, so no merge phase
-        if (!childFragment.isPartitioned()) {
-            return childFragment;
-        }
-        PlanFragment mergeFragment = createParentFragment(childFragment, DataPartition.UNPARTITIONED, context);
-        ExchangeNode exchangeNode = (ExchangeNode) mergeFragment.getPlanRoot();
-        exchangeNode.setMergeInfo(sortNode.getSortInfo());
-        exchangeNode.setOffset(topN.getOffset());
-        exchangeNode.setLimit(topN.getLimit());
-        return mergeFragment;
-    }
+        PlanFragment inputFragment = topN.child(0).accept(this, context);
+        PlanFragment currentFragment = inputFragment;
 
-    /**
-     * Currently this function is added for PhysicalWindow's requiredProperties only.
-     * The code is equal with visitAbstractPhysicalSort(), except step 2:check if it is a sort for PhysicalWindow
-     * and setBufferedTupleForWindow() in step 3.
-     */
-    @Override
-    public PlanFragment visitPhysicalLocalQuickSort(PhysicalLocalQuickSort<? extends Plan> sort,
-                                                    PlanTranslatorContext context) {
-        PlanFragment childFragment = sort.child(0).accept(this, context);
-        List<Expr> oldOrderingExprList = Lists.newArrayList();
-        List<Boolean> ascOrderList = Lists.newArrayList();
-        List<Boolean> nullsFirstParamList = Lists.newArrayList();
-        List<OrderKey> orderKeyList = sort.getOrderKeys();
-        // 1. Get previous slotRef
-        orderKeyList.forEach(k -> {
-            oldOrderingExprList.add(ExpressionTranslator.translate(k.getExpr(), context));
-            ascOrderList.add(k.isAsc());
-            nullsFirstParamList.add(k.isNullFirst());
-        });
-        List<Expr> sortTupleOutputList = new ArrayList<>();
-        List<Slot> outputList = sort.getOutput();
-        outputList.forEach(k -> {
-            sortTupleOutputList.add(ExpressionTranslator.translate(k, context));
-        });
-
-        // 2. check if it is a sort for PhysicalWindow
-        PlanFragment currentFragment;
-        boolean useTopN = true;
-        if (childFragment.getPlanRoot() instanceof ExchangeNode && sort.child() instanceof PhysicalDistribute) {
-            PhysicalDistribute physicalDistribute = (PhysicalDistribute) sort.child();
-            DataPartition dataPartition = hashSpecToDataPartition(physicalDistribute, context);
-
-            ExchangeNode exchangeNode = (ExchangeNode) childFragment.getPlanRoot();
-            currentFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, dataPartition);
-            childFragment.setOutputPartition(dataPartition);
-            childFragment.setPlanRoot(exchangeNode.getChild(0));
-            childFragment.setDestination(exchangeNode);
+        //1. generate new fragment for sort when the child is exchangeNode
+        if (inputFragment.getPlanRoot() instanceof ExchangeNode) {
+            Preconditions.checkArgument(!topN.getSortPhase().isLocal());
+            DataPartition outputPartition = DataPartition.UNPARTITIONED;
+            ExchangeNode exchangeNode = (ExchangeNode) inputFragment.getPlanRoot();
+            inputFragment.setOutputPartition(outputPartition);
+            inputFragment.setPlanRoot(exchangeNode.getChild(0));
+            inputFragment.setDestination(exchangeNode);
+            currentFragment = new PlanFragment(context.nextFragmentId(), exchangeNode, DataPartition.UNPARTITIONED);
             context.addPlanFragment(currentFragment);
-            useTopN = false;
+        }
+
+        // 2. According to the type of sort, generate physical plan
+        if (!topN.getSortPhase().isMerge()) {
+            // For localSort or Gather->Sort, we just need to add sortNode
+            SortNode sortNode = translateSortNode(topN, inputFragment.getPlanRoot(), context);
+            currentFragment.addPlanRoot(sortNode);
         } else {
-            currentFragment = childFragment;
+            // For mergeSort, we need to push sortInfo to exchangeNode
+            if (!(currentFragment.getPlanRoot() instanceof ExchangeNode)) {
+                // if there is no exchange node for mergeSort
+                //   e.g., localSort -> mergeSort
+                // It means the local has satisfied the Gather property. We can just ignore mergeSort
+                return currentFragment;
+            }
+            Preconditions.checkArgument(inputFragment.getPlanRoot() instanceof SortNode);
+            SortNode sortNode = (SortNode) inputFragment.getPlanRoot();
+            ((ExchangeNode) currentFragment.getPlanRoot()).setMergeInfo(sortNode.getSortInfo());
         }
-
-        // 3. Generate new Tuple and get current slotRef for newOrderingExprList
-        List<Expr> newOrderingExprList = Lists.newArrayList();
-        TupleDescriptor tupleDesc = generateTupleDesc(outputList, orderKeyList, newOrderingExprList, context, null);
-        context.setBufferedTupleForWindow(tupleDesc);
-
-        // 4. fill in SortInfo members
-        SortInfo sortInfo = new SortInfo(newOrderingExprList, ascOrderList, nullsFirstParamList, tupleDesc);
-        PlanNode childNode = currentFragment.getPlanRoot();
-        SortNode sortNode = new SortNode(context.nextPlanNodeId(), childNode, sortInfo, useTopN);
-        sortNode.finalizeForNereids(tupleDesc, sortTupleOutputList, oldOrderingExprList);
-        if (sort.getStats() != null) {
-            sortNode.setCardinality((long) sort.getStats().getRowCount());
-        }
-        currentFragment.addPlanRoot(sortNode);
         return currentFragment;
     }
 
-    @Override
-    public PlanFragment visitAbstractPhysicalSort(
-            AbstractPhysicalSort<? extends Plan> sort,
+    private SortNode translateSortNode(AbstractPhysicalSort<? extends Plan> sort, PlanNode childNode,
             PlanTranslatorContext context) {
-        PlanFragment childFragment = sort.child(0).accept(this, context);
         List<Expr> oldOrderingExprList = Lists.newArrayList();
         List<Boolean> ascOrderList = Lists.newArrayList();
         List<Boolean> nullsFirstParamList = Lists.newArrayList();
@@ -818,14 +802,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         TupleDescriptor tupleDesc = generateTupleDesc(outputList, orderKeyList, newOrderingExprList, context, null);
         // 3. fill in SortInfo members
         SortInfo sortInfo = new SortInfo(newOrderingExprList, ascOrderList, nullsFirstParamList, tupleDesc);
-        PlanNode childNode = childFragment.getPlanRoot();
         SortNode sortNode = new SortNode(context.nextPlanNodeId(), childNode, sortInfo, true);
         sortNode.finalizeForNereids(tupleDesc, sortTupleOutputList, oldOrderingExprList);
         if (sort.getStats() != null) {
             sortNode.setCardinality((long) sort.getStats().getRowCount());
         }
-        childFragment.addPlanRoot(sortNode);
-        return childFragment;
+        return sortNode;
     }
 
     /**
@@ -977,8 +959,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         if (hashJoin.getOtherJoinConjuncts().isEmpty()
                 && (joinType == JoinType.LEFT_ANTI_JOIN
-                    || joinType == JoinType.LEFT_SEMI_JOIN
-                    || joinType == JoinType.NULL_AWARE_LEFT_ANTI_JOIN)) {
+                || joinType == JoinType.LEFT_SEMI_JOIN
+                || joinType == JoinType.NULL_AWARE_LEFT_ANTI_JOIN)) {
             for (SlotDescriptor leftSlotDescriptor : leftSlotDescriptors) {
                 if (!leftSlotDescriptor.isMaterialized()) {
                     continue;
@@ -1500,8 +1482,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             // and fix up the fragment tree in the process.
             for (int i = 0; i < childrenFragments.size(); ++i) {
                 connectChildFragmentNotCheckExchangeNode(setOperationNode, i, setOperationFragment,
-                         childrenFragments.get(i),
-                         context);
+                        childrenFragments.get(i),
+                        context);
             }
         } else {
             setOperationFragment = new PlanFragment(context.nextFragmentId(), setOperationNode,
@@ -1675,8 +1657,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
     }
 
     private void connectChildFragmentNotCheckExchangeNode(PlanNode parent, int childIdx,
-                                      PlanFragment parentFragment, PlanFragment childFragment,
-                                      PlanTranslatorContext context) {
+            PlanFragment parentFragment, PlanFragment childFragment,
+            PlanTranslatorContext context) {
         PlanNode exchange = new ExchangeNode(
                 context.nextPlanNodeId(), childFragment.getPlanRoot(), false);
         exchange.setNumInstances(childFragment.getPlanRoot().getNumInstances());

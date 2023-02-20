@@ -29,3 +29,7 @@ where table_schema = '{{ relation.schema }}'
     {% set table = load_result('get_columns_in_relation').table %}
     {{ return(sql_convert_columns_in_relation(table)) }}
 {%- endmacro %}
+
+{% macro doris__alter_column_type(relation,column_name,new_column_type) -%}
+'''Changes column name or data type'''
+{% endmacro %}

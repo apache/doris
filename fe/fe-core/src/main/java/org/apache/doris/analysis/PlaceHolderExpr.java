@@ -99,6 +99,9 @@ public class PlaceHolderExpr extends LiteralExpr {
     }
 
     public String getStringValue() {
+        if (lExpr == null) {
+            return "";
+        }
         return lExpr.getStringValue();
     }
 

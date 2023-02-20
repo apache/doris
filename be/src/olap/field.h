@@ -31,7 +31,6 @@
 #include "runtime/map_value.h"
 #include "runtime/mem_pool.h"
 #include "util/hash_util.hpp"
-#include "util/mem_util.hpp"
 #include "util/slice.h"
 
 namespace doris {

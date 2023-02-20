@@ -38,8 +38,10 @@ import com.google.common.collect.Maps;
 import com.google.gson.annotations.SerializedName;
 import lombok.Data;
 import org.apache.commons.lang.NotImplementedException;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.parquet.Strings;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.DataInput;
@@ -139,6 +141,7 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     protected final void initLocalObjects() {
         if (!objectCreated) {
             initLocalObjectsImpl();
+            initAccessController();
             objectCreated = true;
         }
     }
@@ -146,6 +149,38 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     // init some local objects such as:
     // hms client, read properties from hive-site.xml, es client
     protected abstract void initLocalObjectsImpl();
+
+
+    /**
+     * eg:
+     * (
+     * ""access_controller.class" = "org.apache.doris.mysql.privilege.RangerAccessControllerFactory",
+     * "access_controller.properties.prop1" = "xxx",
+     * "access_controller.properties.prop2" = "yyy",
+     * )
+     */
+    private void initAccessController() {
+        Map<String, String> properties = getCatalogProperty().getProperties();
+        // 1. get access controller class name
+        String className = properties.getOrDefault(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "");
+        if (Strings.isNullOrEmpty(className)) {
+            // not set access controller, use internal access controller
+            return;
+        }
+
+        // 2. get access controller properties
+        Map<String, String> acProperties = Maps.newHashMap();
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            if (entry.getKey().startsWith(CatalogMgr.ACCESS_CONTROLLER_PROPERTY_PREFIX_PROP)) {
+                acProperties.put(
+                        StringUtils.removeStart(entry.getKey(), CatalogMgr.ACCESS_CONTROLLER_PROPERTY_PREFIX_PROP),
+                        entry.getValue());
+            }
+        }
+
+        // 3. create access controller
+        Env.getCurrentEnv().getAccessManager().createAccessController(name, className, acProperties);
+    }
 
     // init schema related objects
     protected abstract void init();
@@ -259,6 +294,16 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     @Override
     public void write(DataOutput out) throws IOException {
         Text.writeString(out, GsonUtils.GSON.toJson(this));
+    }
+
+    @Override
+    public void onClose() {
+        removeAccessController();
+        CatalogIf.super.onClose();
+    }
+
+    private void removeAccessController() {
+        Env.getCurrentEnv().getAccessManager().removeAccessController(name);
     }
 
     public void replayInitCatalog(InitCatalogLog log) {

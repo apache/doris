@@ -240,7 +240,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
 
     if (!q.empty()) {
         // If we have data to shuffle which is not broadcasted
-        DO_RPC(q, block, nullptr)
+        DO_RPC(q, block.get(), nullptr)
     } else if (!broadcast_q.empty()) {
         // If we have data to shuffle which is broadcasted
         DO_RPC(broadcast_q, block_holder->get_block(), request.block_holder)
