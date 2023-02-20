@@ -231,7 +231,8 @@ def generateWinFnSQL(_: Dict[str, List[List[str]]]) -> List[str]:
             for t in tables:
                 tag_app = f'{"_pb" if i == 1 else ""}{"_notnull" if t != "fn_test" else ""}'
                 run_tag = f'qt_sql_{fn[:fn.find("(")]}{tag_app}'
-                sql = f'select kint, ksint, {fn} over({partition_by + " " + order_by if i == 1 else ""}) as wf from {t}'
+                sql = f'select kint, ksint, {fn} over({partition_by + " " + order_by if i == 1 else ""}) as wf from {t} ' \
+                      f'order by kint'
                 SQLs.append(f'\t{run_tag} \'\'\'\n\t\t{sql}\'\'\'\n')
             # generate fn with frame and order, with/not partition
             # frame with rows and range, 'start' clause and 'between and' clause.
@@ -250,7 +251,7 @@ def generateWinFnSQL(_: Dict[str, List[List[str]]]) -> List[str]:
                         frame = f'{rng} {define.frame_range[x]}'
                         sql = f'select kint, ksint, {fn} over({partition_by if i == 1 else ""}' \
                               f'{" " if i == 1 else ""}' \
-                              f'{order_by} {frame}) as wf from {t}'
+                              f'{order_by} {frame}) as wf from {t} order by kint'
                         SQLs.append(f'\t{run_tag} \'\'\'\n\t\t{sql}\'\'\'\n')
                 for y in range(0, 3):
                     if fn not in range_supp:
@@ -266,7 +267,7 @@ def generateWinFnSQL(_: Dict[str, List[List[str]]]) -> List[str]:
                             frame = f'{rng} between {define.frame_range[y]} and {define.frame_range[z]}'
                             sql = f'select kint, ksint, {fn} over({partition_by if i == 1 else ""}' \
                                   f'{" " if i == 1 else ""}' \
-                                  f'{order_by} {frame}) as wf from {t}'
+                                  f'{order_by} {frame}) as wf from {t} order by kint'
                             SQLs.append(f'\t{run_tag} \'\'\'\n\t\t{sql}\'\'\'\n')
         SQLs.append('\n')
     return SQLs
