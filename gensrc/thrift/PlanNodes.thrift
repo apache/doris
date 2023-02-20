@@ -56,6 +56,7 @@ enum TPlanNodeType {
   DATA_GEN_SCAN_NODE,
   FILE_SCAN_NODE,
   JDBC_SCAN_NODE,
+  TEST_EXTERNAL_SCAN_NODE,
 }
 
 // phases of an execution node
@@ -430,7 +431,6 @@ struct TJdbcScanNode {
   4: optional Types.TOdbcTableType table_type
 }
 
-
 struct TBrokerScanNode {
     1: required Types.TTupleId tuple_id
 
@@ -535,6 +535,11 @@ struct TMetaScanNode {
   2: optional string catalog
   3: optional string database
   4: optional string table
+}
+
+struct TTestExternalScanNode {
+  1: optional Types.TTupleId tuple_id
+  2: optional string table_name
 }
 
 struct TSortInfo {
@@ -1061,6 +1066,7 @@ struct TPlanNode {
   44: optional TFileScanNode file_scan_node
   45: optional TJdbcScanNode jdbc_scan_node
   46: optional TNestedLoopJoinNode nested_loop_join_node
+  47: optional TTestExternalScanNode test_external_scan_node
 
   101: optional list<Exprs.TExpr> projections
   102: optional Types.TTupleId output_tuple_id

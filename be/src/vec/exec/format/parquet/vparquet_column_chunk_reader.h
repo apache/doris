@@ -23,10 +23,10 @@
 #include <vector>
 
 #include "common/status.h"
+#include "decoder.h"
 #include "gen_cpp/parquet_types.h"
 #include "io/buffered_reader.h"
 #include "level_decoder.h"
-#include "parquet_common.h"
 #include "schema_desc.h"
 #include "util/block_compression.h"
 #include "vparquet_page_reader.h"

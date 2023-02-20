@@ -88,6 +88,12 @@ echo "******************************"
 echo "    Runing DorisFe Unittest    "
 echo "******************************"
 
+echo "Build docs"
+cd "${DORIS_HOME}/docs"
+./build_help_zip.sh
+cp build/help-resource.zip "${DORIS_HOME}"/fe/fe-core/src/test/resources/real-help-resource.zip
+cd "${DORIS_HOME}"
+
 cd "${DORIS_HOME}/fe"
 mkdir -p build/compile
 

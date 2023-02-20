@@ -47,6 +47,7 @@ public class ModifyPartitionInfo implements Writable {
     private short replicationNum;
     @SerializedName(value = "isInMemory")
     private boolean isInMemory;
+
     @SerializedName(value = "replicaAlloc")
     private ReplicaAllocation replicaAlloc;
 

@@ -120,7 +120,6 @@ void PipelineFragmentContext::cancel(const PPlanFragmentCancelReason& reason,
         }
         if (reason != PPlanFragmentCancelReason::LIMIT_REACH) {
             _exec_status = Status::Cancelled(msg);
-            _set_is_report_on_cancel(false);
         }
         _runtime_state->set_is_cancelled(true);
         if (_pipe != nullptr) {

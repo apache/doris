@@ -52,6 +52,7 @@ public class JdbcExternalCatalog extends ExternalCatalog {
 
     @Override
     public void onClose() {
+        super.onClose();
         if (jdbcClient != null) {
             jdbcClient.closeClient();
         }

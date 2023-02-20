@@ -418,22 +418,26 @@ Status Compaction::modify_rowsets() {
         _tablet->enable_unique_key_merge_on_write()) {
         Version version = _tablet->max_version();
         DeleteBitmap output_rowset_delete_bitmap(_tablet->tablet_id());
+        std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>> location_map;
         // Convert the delete bitmap of the input rowsets to output rowset.
         // New loads are not blocked, so some keys of input rowsets might
         // be deleted during the time. We need to deal with delete bitmap
         // of incremental data later.
         _tablet->calc_compaction_output_rowset_delete_bitmap(_input_rowsets, _rowid_conversion, 0,
-                                                             version.second + 1,
+                                                             version.second + 1, &location_map,
                                                              &output_rowset_delete_bitmap);
+        RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
+        location_map.clear();
         {
             std::lock_guard<std::mutex> wrlock_(_tablet->get_rowset_update_lock());
             std::lock_guard<std::shared_mutex> wrlock(_tablet->get_header_lock());
 
             // Convert the delete bitmap of the input rowsets to output rowset for
             // incremental data.
-            _tablet->calc_compaction_output_rowset_delete_bitmap(_input_rowsets, _rowid_conversion,
-                                                                 version.second, UINT64_MAX,
-                                                                 &output_rowset_delete_bitmap);
+            _tablet->calc_compaction_output_rowset_delete_bitmap(
+                    _input_rowsets, _rowid_conversion, version.second, UINT64_MAX, &location_map,
+                    &output_rowset_delete_bitmap);
+            RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
 
             _tablet->merge_delete_bitmap(output_rowset_delete_bitmap);
             RETURN_NOT_OK(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));

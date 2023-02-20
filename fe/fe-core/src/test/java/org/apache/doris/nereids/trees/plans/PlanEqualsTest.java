@@ -309,23 +309,23 @@ public class PlanEqualsTest {
                 ImmutableList.of(new OrderKey(
                         new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()), true,
                         true)),
-                logicalProperties,
-                child, SortPhase.LOCAL_SORT);
+                SortPhase.LOCAL_SORT, logicalProperties,
+                child);
 
         PhysicalQuickSort<Plan> expected = new PhysicalQuickSort<>(
                 ImmutableList.of(new OrderKey(
                         new SlotReference(new ExprId(1), "b", BigIntType.INSTANCE, true, Lists.newArrayList()), true,
                         true)),
-                logicalProperties,
-                child, SortPhase.LOCAL_SORT);
+                SortPhase.LOCAL_SORT, logicalProperties,
+                child);
         Assertions.assertEquals(expected, actual);
 
         PhysicalQuickSort<Plan> unexpected = new PhysicalQuickSort<>(
                 ImmutableList.of(new OrderKey(
                         new SlotReference(new ExprId(2), "a", BigIntType.INSTANCE, true, Lists.newArrayList()), true,
                         true)),
-                logicalProperties,
-                child, SortPhase.LOCAL_SORT);
+                SortPhase.LOCAL_SORT, logicalProperties,
+                child);
         Assertions.assertNotEquals(unexpected, actual);
     }
 }

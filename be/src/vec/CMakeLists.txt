@@ -235,6 +235,7 @@ set(VEC_FILES
   functions/function_java_udf.cpp
   functions/function_rpc.cpp
   functions/function_convert_tz.cpp
+  functions/function_nonnullable.cpp
   functions/least_greast.cpp
   functions/function_fake.cpp
   functions/url/function_url.cpp
@@ -280,6 +281,11 @@ set(VEC_FILES
   exec/format/parquet/schema_desc.cpp
   exec/format/parquet/vparquet_column_reader.cpp
   exec/format/parquet/level_decoder.cpp
+  exec/format/parquet/decoder.cpp
+  exec/format/parquet/fix_length_plain_decoder.cpp
+  exec/format/parquet/byte_array_plain_decoder.cpp
+  exec/format/parquet/byte_array_dict_decoder.cpp
+  exec/format/parquet/bool_plain_decoder.cpp
   exec/format/parquet/parquet_common.cpp
   exec/scan/vscan_node.cpp
   exec/scan/vscanner.cpp

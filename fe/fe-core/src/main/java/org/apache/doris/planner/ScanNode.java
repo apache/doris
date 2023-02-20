@@ -485,4 +485,11 @@ public abstract class ScanNode extends PlanNode {
                 desc.getTable().getName()).add("keyRanges", "").addValue(
                 super.debugString()).toString();
     }
+
+    // Some of scan node(eg, DataGenScanNode) does not need to check column priv
+    // (because the it has no corresponding catalog/db/table info)
+    // Subclass may override this method.
+    public boolean needToCheckColumnPriv() {
+        return true;
+    }
 }

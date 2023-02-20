@@ -194,9 +194,9 @@ FinishTime: 2019-06-25 17:08:34
 * Timeout: Job timeout. The unit is seconds. This time is calculated from CreateTime.
 * Error Msg: If there is an error in the job, the cause of the error is shown here.
 
-<version since="dev">
-
 ### Cancel export job
+
+<version since="dev"></version>
 
 After submitting a job, the job can be canceled by using the  [CANCEL EXPORT](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/CANCEL-EXPORT.md)  command. For example:
 
@@ -205,8 +205,6 @@ CANCEL EXPORT
 FROM example_db
 WHERE LABEL like "%example%";
 ````
-
-</version>
 
 ## Best Practices
 

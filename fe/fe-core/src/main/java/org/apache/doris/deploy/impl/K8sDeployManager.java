@@ -19,8 +19,8 @@ package org.apache.doris.deploy.impl;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.Pair;
 import org.apache.doris.deploy.DeployManager;
+import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
@@ -44,7 +44,9 @@ public class K8sDeployManager extends DeployManager {
     private static final Logger LOG = LogManager.getLogger(K8sDeployManager.class);
 
     public static final String ENV_APP_NAMESPACE = "APP_NAMESPACE";
+    public static final String ENV_DOMAIN_LTD = "DOMAIN_LTD";
     public static final String DEFAULT_APP_NAMESPACE = "default";
+    public static final String DEFAULT_DOMAIN_LTD = "svc.cluster.local";
     // each SERVICE (FE/BE/OBSERVER/BROKER) represents a module of Doris, such as Frontends, Backends, ...
     // and each service has a name in k8s.
     public static final String ENV_FE_SERVICE = "FE_SERVICE";
@@ -63,6 +65,7 @@ public class K8sDeployManager extends DeployManager {
     // corresponding to the environment variable ENV_APP_NAMESPACE.
     // App represents a Palo cluster in K8s, and has a namespace, and default namespace is 'default'
     private String appNamespace;
+    private String domainLTD;
     private KubernetesClient client = null;
 
     // =======for test only==========
@@ -94,10 +97,18 @@ public class K8sDeployManager extends DeployManager {
         }
 
         LOG.info("use namespace: {}", appNamespace);
+
+        domainLTD = Strings.nullToEmpty(System.getenv(ENV_DOMAIN_LTD));
+
+        if (Strings.isNullOrEmpty(domainLTD)) {
+            domainLTD = DEFAULT_DOMAIN_LTD;
+        }
+
+        LOG.info("use domainLTD: {}", domainLTD);
     }
 
     @Override
-    protected List<Pair<String, Integer>> getGroupHostPorts(String groupName) {
+    protected List<SystemInfoService.HostInfo> getGroupHostInfos(String groupName) {
         // 1. get namespace and port name
         String portName = null;
         if (groupName.equals(electableFeServiceGroup)) {
@@ -133,7 +144,7 @@ public class K8sDeployManager extends DeployManager {
         }
 
         // 3. get host port
-        List<Pair<String, Integer>> result = Lists.newArrayList();
+        List<SystemInfoService.HostInfo> result = Lists.newArrayList();
         List<EndpointSubset> subsets = endpoints.getSubsets();
         for (EndpointSubset subset : subsets) {
             Integer port = -1;
@@ -151,7 +162,8 @@ public class K8sDeployManager extends DeployManager {
 
             List<EndpointAddress> addrs = subset.getAddresses();
             for (EndpointAddress eaddr : addrs) {
-                result.add(Pair.of(eaddr.getIp(), port));
+                result.add(new SystemInfoService.HostInfo(eaddr.getIp(), getDomainName(eaddr.getHostname(), groupName),
+                        port));
             }
         }
 
@@ -159,9 +171,21 @@ public class K8sDeployManager extends DeployManager {
         return result;
     }
 
+    private String getDomainName(String hostName, String serviceName) {
+        StringBuilder builder = new StringBuilder();
+        builder.append(hostName);
+        builder.append(".");
+        builder.append(serviceName);
+        builder.append(".");
+        builder.append(appNamespace);
+        builder.append(".");
+        builder.append(domainLTD);
+        return builder.toString();
+    }
+
     @Override
-    protected Map<String, List<Pair<String, Integer>>> getBrokerGroupHostPorts() {
-        List<Pair<String, Integer>> hostPorts = getGroupHostPorts(brokerServiceGroup);
+    protected Map<String, List<SystemInfoService.HostInfo>> getBrokerGroupHostInfos() {
+        List<SystemInfoService.HostInfo> hostPorts = getGroupHostInfos(brokerServiceGroup);
         if (hostPorts == null) {
             return null;
         }
@@ -171,7 +195,7 @@ public class K8sDeployManager extends DeployManager {
             System.exit(-1);
         }
 
-        Map<String, List<Pair<String, Integer>>> brokers = Maps.newHashMap();
+        Map<String, List<SystemInfoService.HostInfo>> brokers = Maps.newHashMap();
         brokers.put(brokerName, hostPorts);
         LOG.info("get brokers from k8s: {}", brokers);
         return brokers;

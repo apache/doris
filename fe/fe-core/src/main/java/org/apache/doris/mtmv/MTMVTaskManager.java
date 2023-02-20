@@ -442,6 +442,9 @@ public class MTMVTaskManager {
     }
 
     public void dropTasks(List<String> taskIds, boolean isReplay) {
+        if (taskIds.isEmpty()) {
+            return;
+        }
         if (!tryLock()) {
             return;
         }

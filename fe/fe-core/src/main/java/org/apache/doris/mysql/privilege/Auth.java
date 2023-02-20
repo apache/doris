@@ -37,6 +37,7 @@ import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
+import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -182,6 +183,8 @@ public class Auth implements Writable {
         readLock();
         try {
             userManager.checkPassword(remoteUser, remoteHost, remotePasswd, randomString, currentUser);
+            Set<String> roles = userRoleManager.getRolesByUser(currentUser.get(0));
+            currentUser.get(0).setRoles(roles);
         } finally {
             readUnlock();
         }
@@ -206,13 +209,17 @@ public class Auth implements Writable {
                 throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
                         Strings.isNullOrEmpty(remotePasswd) ? "NO" : "YES");
             }
-            return;
+        } else {
+            readLock();
+            try {
+                userManager.checkPlainPassword(remoteUser, remoteHost, remotePasswd, currentUser);
+            } finally {
+                readUnlock();
+            }
         }
-        readLock();
-        try {
-            userManager.checkPlainPassword(remoteUser, remoteHost, remotePasswd, currentUser);
-        } finally {
-            readUnlock();
+        if (currentUser != null) {
+            Set<String> roles = userRoleManager.getRolesByUser(currentUser.get(0));
+            currentUser.get(0).setRoles(roles);
         }
     }
 
@@ -305,6 +312,13 @@ public class Auth implements Writable {
             readUnlock();
         }
     }
+
+    // ==== Column ====
+    public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
+            PrivPredicate wanted) throws AuthorizationException {
+        // TODO: Support column priv
+    }
+
 
     // ==== Resource ====
     public boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
