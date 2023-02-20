@@ -50,7 +50,8 @@ public class MysqlChannel {
     protected ByteBuffer headerByteBuffer = ByteBuffer.allocate(PACKET_HEADER_LEN);
     // used to receive/send ssl header, avoiding new this many time.
     protected ByteBuffer sslHeaderByteBuffer = ByteBuffer.allocate(SSL_PACKET_HEADER_LEN);
-    protected ByteBuffer encryptAppData;
+    protected ByteBuffer decryptAppData;
+    protected ByteBuffer encryptNetData;
     // default packet byte buffer for most packet
     protected ByteBuffer defaultBuffer = ByteBuffer.allocate(16 * 1024);
     protected ByteBuffer sendBuffer;
@@ -111,7 +112,8 @@ public class MysqlChannel {
 
     public void setSslEngine(SSLEngine sslEngine) {
         this.sslEngine = sslEngine;
-        encryptAppData = ByteBuffer.allocate(sslEngine.getSession().getApplicationBufferSize() * 2);
+        decryptAppData = ByteBuffer.allocate(sslEngine.getSession().getApplicationBufferSize() * 2);
+        encryptNetData = ByteBuffer.allocate(sslEngine.getSession().getPacketBufferSize() * 2);
     }
 
     public void setSslMode(boolean sslMode) {
@@ -179,12 +181,12 @@ public class MysqlChannel {
         // after decrypt, we get a mysql packet with mysql header.
         if (!isSslMode || isHeader) return;
         dstBuf.flip();
-        encryptAppData.clear();
+        decryptAppData.clear();
         // unwrap will remove ssl header.
-        sslEngine.unwrap(dstBuf, encryptAppData);
-        encryptAppData.flip();
+        sslEngine.unwrap(dstBuf, decryptAppData);
+        decryptAppData.flip();
         dstBuf.clear();
-        dstBuf.put(encryptAppData);
+        dstBuf.put(decryptAppData);
         dstBuf.flip();
     }
 
@@ -280,11 +282,11 @@ public class MysqlChannel {
 
     protected void encryptData(ByteBuffer dstBuf) throws SSLException {
         if (!isSslMode) return;
-        ByteBuffer netData = ByteBuffer.allocate(sslEngine.getSession().getPacketBufferSize());
-        sslEngine.wrap(dstBuf, netData);
-        netData.flip();
+        encryptNetData.clear();
+        sslEngine.wrap(dstBuf, encryptNetData);
+        encryptNetData.flip();
         dstBuf.clear();
-        dstBuf.put(netData);
+        dstBuf.put(encryptNetData);
         dstBuf.flip();
     }
 
