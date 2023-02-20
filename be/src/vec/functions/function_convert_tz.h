@@ -140,17 +140,11 @@ public:
         if (scope != FunctionContext::THREAD_LOCAL) {
             return Status::OK();
         }
-        context->set_function_state(scope, new ConvertTzCtx);
+        context->set_function_state(scope, std::make_shared<ConvertTzCtx>());
         return Status::OK();
     }
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::THREAD_LOCAL) {
-            auto* convert_ctx = reinterpret_cast<ConvertTzCtx*>(
-                    context->get_function_state(FunctionContext::THREAD_LOCAL));
-            delete convert_ctx;
-            context->set_function_state(FunctionContext::THREAD_LOCAL, nullptr);
-        }
         return Status::OK();
     }
 
