@@ -217,6 +217,8 @@ public class Column implements Writable, GsonPostProcessable {
         } else if (type.isMapType()) {
             Column k = new Column(COLUMN_MAP_KEY, ((MapType) type).getKeyType());
             Column v = new Column(COLUMN_MAP_VALUE, ((MapType) type).getValueType());
+            k.setIsAllowNull(((MapType) type).getIsKeyContainsNull());
+            v.setIsAllowNull(((MapType) type).getIsValueContainsNull());
             column.addChildrenColumn(k);
             column.addChildrenColumn(v);
         } else if (type.isStructType()) {

@@ -24,6 +24,7 @@ import org.apache.doris.thrift.TTypeNodeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.Objects;
@@ -138,7 +139,7 @@ public class ArrayType extends Type {
         container.types.add(node);
         Preconditions.checkNotNull(itemType);
         node.setType(TTypeNodeType.ARRAY);
-        node.setContainsNull(containsNull);
+        node.setContainsNulls(Lists.newArrayList(containsNull));
         itemType.toThrift(container);
     }
 

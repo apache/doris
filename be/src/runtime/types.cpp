@@ -55,9 +55,10 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
     case TTypeNodeType::ARRAY: {
         DCHECK(!node.__isset.scalar_type);
         DCHECK_LT(*idx, types.size() - 1);
+        DCHECK_EQ(node.contains_nulls.size(), 1);
         type = TYPE_ARRAY;
         contains_nulls.reserve(1);
-        contains_nulls.push_back(node.contains_null);
+        contains_nulls.push_back(node.contains_nulls[0]);
         ++(*idx);
         children.push_back(TypeDescriptor(types, idx));
         break;
@@ -65,7 +66,7 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
     case TTypeNodeType::STRUCT: {
         DCHECK(!node.__isset.scalar_type);
         DCHECK_LT(*idx, types.size() - 1);
-        DCHECK(!node.__isset.contains_null);
+        DCHECK(!node.__isset.contains_nulls);
         DCHECK(node.__isset.struct_fields);
         DCHECK_GE(node.struct_fields.size(), 1);
         type = TYPE_STRUCT;
@@ -85,31 +86,19 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
         type = TYPE_VARIANT;
         break;
     }
-    // case TTypeNodeType::STRUCT:
-    //     type = TYPE_STRUCT;
-    //     for (int i = 0; i < node.struct_fields.size(); ++i) {
-    //         ++(*idx);
-    //         children.push_back(TypeDescriptor(types, idx));
-    //         field_names.push_back(node.struct_fields[i].name);
-    //     }
-    //     break;
-    // case TTypeNodeType::ARRAY:
-    //     DCHECK(!node.__isset.scalar_type);
-    //     DCHECK_LT(*idx, types.size() - 1);
-    //     type = TYPE_ARRAY;
-    //     ++(*idx);
-    //     children.push_back(TypeDescriptor(types, idx));
-    //     break;
     case TTypeNodeType::MAP: {
         //TODO(xy): handle contains_null[0] for key and [1] for value
         DCHECK(!node.__isset.scalar_type);
         DCHECK_LT(*idx, types.size() - 2);
-        DCHECK(!node.__isset.contains_null);
+        DCHECK_EQ(node.contains_nulls.size(), 2);
+        contains_nulls.reserve(2);
         type = TYPE_MAP;
         ++(*idx);
         children.push_back(TypeDescriptor(types, idx));
+        contains_nulls.push_back(node.contains_nulls[0]);
         ++(*idx);
         children.push_back(TypeDescriptor(types, idx));
+        contains_nulls.push_back(node.contains_nulls[1]);
         break;
     }
     default:
@@ -122,11 +111,16 @@ void TypeDescriptor::to_thrift(TTypeDesc* thrift_type) const {
     TTypeNode& node = thrift_type->types.back();
     if (is_complex_type()) {
         if (type == TYPE_ARRAY) {
+            DCHECK_EQ(contains_nulls.size(), 1);
             node.type = TTypeNodeType::ARRAY;
-            node.contains_null = contains_nulls[0];
+            node.contains_nulls.reserve(1);
+            node.contains_nulls.push_back(contains_nulls[0]);
         } else if (type == TYPE_MAP) {
-            //TODO(xy): need to process children for map
+            DCHECK_EQ(contains_nulls.size(), 2);
             node.type = TTypeNodeType::MAP;
+            node.contains_nulls.reserve(2);
+            node.contains_nulls.push_back(contains_nulls[0]);
+            node.contains_nulls.push_back(contains_nulls[1]);
         } else if (type == TYPE_VARIANT) {
             node.type = TTypeNodeType::VARIANT;
         } else {
