@@ -497,8 +497,7 @@ private:
 public:
     AggregateFunctionsSingleValue(const DataTypePtr& type_)
             : IAggregateFunctionDataHelper<
-                      Data, AggregateFunctionsSingleValue<Data, AllocatesMemoryInArena>>({type_},
-                                                                                         {}),
+                      Data, AggregateFunctionsSingleValue<Data, AllocatesMemoryInArena>>({type_}),
               type(this->argument_types[0]) {
         if (StringRef(Data::name()) == StringRef("min") ||
             StringRef(Data::name()) == StringRef("max")) {
@@ -628,17 +627,14 @@ public:
 
 AggregateFunctionPtr create_aggregate_function_max(const std::string& name,
                                                    const DataTypes& argument_types,
-                                                   const Array& parameters,
                                                    const bool result_is_nullable);
 
 AggregateFunctionPtr create_aggregate_function_min(const std::string& name,
                                                    const DataTypes& argument_types,
-                                                   const Array& parameters,
                                                    const bool result_is_nullable);
 
 AggregateFunctionPtr create_aggregate_function_any(const std::string& name,
                                                    const DataTypes& argument_types,
-                                                   const Array& parameters,
                                                    const bool result_is_nullable);
 
 } // namespace doris::vectorized
