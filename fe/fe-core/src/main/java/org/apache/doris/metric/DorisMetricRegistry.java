@@ -19,8 +19,6 @@ package org.apache.doris.metric;
 
 import org.apache.doris.catalog.Env;
 
-import com.google.common.collect.Lists;
-
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
