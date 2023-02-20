@@ -18,6 +18,9 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.common.AuthorizationException;
+
+import java.util.Set;
 
 public interface CatalogAccessController {
     // ==== Catalog ====
@@ -45,4 +48,19 @@ public interface CatalogAccessController {
     }
 
     boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted);
+
+    // ==== Column ====
+    default void checkColsPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, String db, String tbl,
+            Set<String> cols, PrivPredicate wanted) throws AuthorizationException {
+        try {
+            checkColsPriv(currentUser, ctl, db, tbl, cols, wanted);
+        } catch (AuthorizationException e) {
+            if (!hasGlobal) {
+                throw e;
+            }
+        }
+    }
+
+    void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl,
+            Set<String> cols, PrivPredicate wanted) throws AuthorizationException;
 }

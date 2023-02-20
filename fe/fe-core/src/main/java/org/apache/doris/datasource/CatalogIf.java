@@ -136,7 +136,7 @@ public interface CatalogIf<T extends DatabaseIf> {
                 s -> new AnalysisException(ErrorCode.ERR_BAD_DB_ERROR.formatErrorMsg(s), ErrorCode.ERR_BAD_DB_ERROR));
     }
 
+    // Called when catalog is dropped
     default void onClose() {
-
     }
 }

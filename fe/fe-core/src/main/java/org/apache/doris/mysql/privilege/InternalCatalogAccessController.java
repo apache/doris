@@ -18,6 +18,9 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.common.AuthorizationException;
+
+import java.util.Set;
 
 public class InternalCatalogAccessController implements CatalogAccessController {
     private Auth auth;
@@ -39,5 +42,11 @@ public class InternalCatalogAccessController implements CatalogAccessController 
     @Override
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
         return auth.checkTblPriv(currentUser, ctl, db, tbl, wanted);
+    }
+
+    @Override
+    public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
+            PrivPredicate wanted) throws AuthorizationException {
+        auth.checkColsPriv(currentUser, ctl, db, tbl, cols, wanted);
     }
 }

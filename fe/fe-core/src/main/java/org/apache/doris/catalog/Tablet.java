@@ -587,7 +587,7 @@ public class Tablet extends MetaObject implements Writable {
     }
 
     private boolean checkHost(Set<String> hosts, Backend backend) {
-        return !Config.allow_replica_on_same_host && !FeConstants.runningUnitTest && !hosts.add(backend.getHost());
+        return !Config.allow_replica_on_same_host && !FeConstants.runningUnitTest && !hosts.add(backend.getIp());
     }
 
     /**

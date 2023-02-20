@@ -108,4 +108,26 @@ suite("aggregate_group_by_metric_type") {
     sql 'set enable_nereids_planner=false'
 
     sql "DROP TABLE test_group_by_array"
+
+    sql "DROP TABLE IF EXISTS test_group_by_struct"
+    sql "ADMIN SET FRONTEND CONFIG ('enable_struct_type' = 'true')"
+    sql """
+        CREATE TABLE IF NOT EXISTS test_group_by_struct (id int, s_struct struct<f1:tinyint, f2:char(5)>) ENGINE=OLAP DUPLICATE KEY(`id`)
+        DISTRIBUTED BY HASH(`id`) BUCKETS 1 properties("replication_num" = "1");
+        """
+
+    sql "insert into test_group_by_struct values(1, {1, 'a'})"
+
+    test {
+        sql "select distinct s_struct from test_group_by_struct"
+        exception "${error_msg}"
+    }
+    test {
+        sql "select s_struct from test_group_by_struct order by s_struct"
+        exception "${error_msg}"
+    }
+    test {
+        sql "select s_struct,count(*) from test_group_by_struct group by s_struct"
+        exception "${error_msg}"
+    }
 }

@@ -79,10 +79,8 @@ protected:
     }
 
 public:
-    AggregateFunctionNullBase(AggregateFunctionPtr nested_function_, const DataTypes& arguments,
-                              const Array& params)
-            : IAggregateFunctionHelper<Derived>(arguments, params),
-              nested_function {nested_function_} {
+    AggregateFunctionNullBase(AggregateFunctionPtr nested_function_, const DataTypes& arguments)
+            : IAggregateFunctionHelper<Derived>(arguments), nested_function {nested_function_} {
         if (result_is_nullable) {
             prefix_size = nested_function->align_of_data();
         } else {
@@ -204,11 +202,10 @@ class AggregateFunctionNullUnary final
         : public AggregateFunctionNullBase<result_is_nullable,
                                            AggregateFunctionNullUnary<result_is_nullable>> {
 public:
-    AggregateFunctionNullUnary(AggregateFunctionPtr nested_function_, const DataTypes& arguments,
-                               const Array& params)
+    AggregateFunctionNullUnary(AggregateFunctionPtr nested_function_, const DataTypes& arguments)
             : AggregateFunctionNullBase<result_is_nullable,
                                         AggregateFunctionNullUnary<result_is_nullable>>(
-                      std::move(nested_function_), arguments, params) {}
+                      std::move(nested_function_), arguments) {}
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena* arena) const override {
@@ -351,11 +348,10 @@ class AggregateFunctionNullVariadic final
         : public AggregateFunctionNullBase<result_is_nullable,
                                            AggregateFunctionNullVariadic<result_is_nullable>> {
 public:
-    AggregateFunctionNullVariadic(AggregateFunctionPtr nested_function_, const DataTypes& arguments,
-                                  const Array& params)
+    AggregateFunctionNullVariadic(AggregateFunctionPtr nested_function_, const DataTypes& arguments)
             : AggregateFunctionNullBase<result_is_nullable,
                                         AggregateFunctionNullVariadic<result_is_nullable>>(
-                      std::move(nested_function_), arguments, params),
+                      std::move(nested_function_), arguments),
               number_of_arguments(arguments.size()) {
         if (number_of_arguments == 1) {
             LOG(FATAL)
@@ -449,8 +445,8 @@ protected:
 
 public:
     AggregateFunctionNullBaseInline(IAggregateFunction* nested_function_,
-                                    const DataTypes& arguments, const Array& params)
-            : IAggregateFunctionHelper<Derived>(arguments, params),
+                                    const DataTypes& arguments)
+            : IAggregateFunctionHelper<Derived>(arguments),
               nested_function {assert_cast<NestFunction*>(nested_function_)} {
         if (result_is_nullable) {
             prefix_size = nested_function->align_of_data();
@@ -575,11 +571,11 @@ class AggregateFunctionNullUnaryInline final
                   AggregateFunctionNullUnaryInline<NestFuction, result_is_nullable>> {
 public:
     AggregateFunctionNullUnaryInline(IAggregateFunction* nested_function_,
-                                     const DataTypes& arguments, const Array& params)
+                                     const DataTypes& arguments)
             : AggregateFunctionNullBaseInline<
                       NestFuction, result_is_nullable,
                       AggregateFunctionNullUnaryInline<NestFuction, result_is_nullable>>(
-                      nested_function_, arguments, params) {}
+                      nested_function_, arguments) {}
 
     void add(AggregateDataPtr __restrict place, const IColumn** columns, size_t row_num,
              Arena* arena) const override {

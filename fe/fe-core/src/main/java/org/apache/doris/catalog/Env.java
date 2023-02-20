@@ -171,6 +171,7 @@ import org.apache.doris.mtmv.MTMVJobManager;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.persist.AlterMultiMaterializedView;
 import org.apache.doris.persist.BackendIdsUpdateInfo;
 import org.apache.doris.persist.BackendReplicasInfo;
 import org.apache.doris.persist.BackendTabletsInfo;
@@ -3042,7 +3043,8 @@ public class Env {
             sb.append("\"max_docvalue_fields\" = \"").append(esTable.getMaxDocValueFields()).append("\",\n");
             sb.append("\"enable_keyword_sniff\" = \"").append(esTable.isEnableKeywordSniff()).append("\",\n");
             sb.append("\"nodes_discovery\" = \"").append(esTable.isNodesDiscovery()).append("\",\n");
-            sb.append("\"http_ssl_enabled\" = \"").append(esTable.isHttpSslEnabled()).append("\"\n");
+            sb.append("\"http_ssl_enabled\" = \"").append(esTable.isHttpSslEnabled()).append("\",\n");
+            sb.append("\"like_push_down\" = \"").append(esTable.isLikePushDown()).append("\"\n");
             sb.append(")");
         } else if (table.getType() == TableType.HIVE) {
             HiveTable hiveTable = (HiveTable) table;
@@ -3665,7 +3667,8 @@ public class Env {
     }
 
     public void alterMaterializedView(AlterMaterializedViewStmt stmt) throws UserException {
-        this.alter.processAlterMaterializedView(stmt);
+        AlterMultiMaterializedView alter = new AlterMultiMaterializedView(stmt.getTable(), stmt.getRefreshInfo());
+        this.alter.processAlterMaterializedView(alter, false);
     }
 
     /**
@@ -5135,7 +5138,7 @@ public class Env {
             TNetworkAddress address = null;
             boolean ok = false;
             try {
-                address = new TNetworkAddress(backend.getHost(), backend.getBePort());
+                address = new TNetworkAddress(backend.getIp(), backend.getBePort());
                 client = ClientPool.backendPool.borrowObject(address);
                 client.cleanTrash(); // async
                 ok = true;

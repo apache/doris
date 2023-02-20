@@ -1361,6 +1361,26 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             Map<String, String> properties = singlePartitionDesc.getProperties();
+
+            /*
+             * sql: alter table test_tbl add  partition  xxx values less than ('xxx') properties('mutable' = 'false');
+             *
+             * sql_parser.cup definition:
+             * AddPartitionClause:
+             *      KW_ADD ... single_partition_desc:desc opt_distribution:distribution opt_properties:properties)
+             * SinglePartitionDesc:
+             *      single_partition_desc ::= KW_PARTITION ... ident:partName KW_VALUES KW_LESS KW_THAN
+             *                       partition_key_desc:desc opt_key_value_map:properties)
+             *
+             * If there is no opt_distribution definition, the properties in SQL is ambiguous to JCUP. It can bind
+             * properties to AddPartitionClause(`opt_properties`) or SinglePartitionDesc(`opt_key_value_map`).
+             * And JCUP choose to bind to AddPartitionClause, so we should add properties of AddPartitionClause to
+             * SinglePartitionDesc's properties here.
+             */
+            if (null != addPartitionClause.getProperties()) {
+                properties.putAll(addPartitionClause.getProperties());
+            }
+
             // partition properties should inherit table properties
             ReplicaAllocation replicaAlloc = olapTable.getDefaultReplicaAllocation();
             if (!properties.containsKey(PropertyAnalyzer.PROPERTIES_REPLICATION_NUM) && !properties.containsKey(
@@ -1528,12 +1548,12 @@ public class InternalCatalog implements CatalogIf<Database> {
                     info = new PartitionPersistInfo(db.getId(), olapTable.getId(), partition,
                             partitionInfo.getItem(partitionId).getItems(), ListPartitionItem.DUMMY_ITEM, dataProperty,
                             partitionInfo.getReplicaAllocation(partitionId), partitionInfo.getIsInMemory(partitionId),
-                            isTempPartition);
+                            isTempPartition, partitionInfo.getIsMutable(partitionId));
                 } else if (partitionInfo.getType() == PartitionType.LIST) {
                     info = new PartitionPersistInfo(db.getId(), olapTable.getId(), partition,
                             RangePartitionItem.DUMMY_ITEM, partitionInfo.getItem(partitionId), dataProperty,
                             partitionInfo.getReplicaAllocation(partitionId), partitionInfo.getIsInMemory(partitionId),
-                            isTempPartition);
+                            isTempPartition, partitionInfo.getIsMutable(partitionId));
                 }
                 Env.getCurrentEnv().getEditLog().logAddPartition(info);
 
@@ -1570,7 +1590,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             }
 
             partitionInfo.unprotectHandleNewSinglePartitionDesc(partition.getId(), info.isTempPartition(),
-                    partitionItem, info.getDataProperty(), info.getReplicaAlloc(), info.isInMemory());
+                    partitionItem, info.getDataProperty(), info.getReplicaAlloc(), info.isInMemory(), info.isMutable());
 
             if (!Env.isCheckpointThread()) {
                 // add to inverted index
@@ -1988,6 +2008,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                 PropertyAnalyzer.PROPERTIES_DYNAMIC_SCHEMA, false);
         olapTable.setIsDynamicSchema(isDynamicSchema);
 
+        boolean isMutable = PropertyAnalyzer.analyzeBooleanProp(properties, PropertyAnalyzer.PROPERTIES_MUTABLE, true);
+
         // set storage policy
         String storagePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);
         Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(storagePolicy);
@@ -2019,6 +2041,7 @@ public class InternalCatalog implements CatalogIf<Database> {
             partitionInfo.setReplicaAllocation(partitionId, replicaAlloc);
             partitionInfo.setIsInMemory(partitionId, isInMemory);
             partitionInfo.setTabletType(partitionId, tabletType);
+            partitionInfo.setIsMutable(partitionId, isMutable);
         }
 
         // check colocation properties
@@ -2988,7 +3011,7 @@ public class InternalCatalog implements CatalogIf<Database> {
                 for (Long id : decomBackendIds) {
                     final Backend backend = Env.getCurrentSystemInfo().getBackend(id);
                     hostPortList.add(
-                            new StringBuilder().append(backend.getHost()).append(":").append(backend.getHeartbeatPort())
+                            new StringBuilder().append(backend.getIp()).append(":").append(backend.getHeartbeatPort())
                                     .toString());
                 }
 
@@ -3362,12 +3385,12 @@ public class InternalCatalog implements CatalogIf<Database> {
         // make sure one host hold only one backend.
         Set<String> beHost = Sets.newHashSet();
         for (Backend be : defaultClusterBackends) {
-            if (beHost.contains(be.getHost())) {
+            if (beHost.contains(be.getIp())) {
                 // we can not handle this situation automatically.
-                LOG.error("found more than one backends in same host: {}", be.getHost());
+                LOG.error("found more than one backends in same host: {}", be.getIp());
                 System.exit(-1);
             } else {
-                beHost.add(be.getHost());
+                beHost.add(be.getIp());
             }
         }
 

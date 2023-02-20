@@ -192,11 +192,11 @@ public:
                      InvertedIndexParserType analyser_type, uint32_t* count) override;
     Status bkd_query(OlapReaderStatistics* stats, const std::string& column_name,
                      const void* query_value, InvertedIndexQueryType query_type,
-                     std::shared_ptr<lucene::util::bkd::bkd_reader>&& r,
+                     std::shared_ptr<lucene::util::bkd::bkd_reader>& r,
                      InvertedIndexVisitor* visitor);
 
     InvertedIndexReaderType type() override;
-    Status get_bkd_reader(lucene::util::bkd::bkd_reader*& reader);
+    Status get_bkd_reader(std::shared_ptr<lucene::util::bkd::bkd_reader>& reader);
 
 private:
     const TypeInfo* _type_info {};

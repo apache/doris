@@ -40,7 +40,7 @@ class AggregateFunctionCount final
         : public IAggregateFunctionDataHelper<AggregateFunctionCountData, AggregateFunctionCount> {
 public:
     AggregateFunctionCount(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper(argument_types_, {}) {}
+            : IAggregateFunctionDataHelper(argument_types_) {}
 
     String get_name() const override { return "count"; }
 
@@ -128,7 +128,7 @@ class AggregateFunctionCountNotNullUnary final
                                               AggregateFunctionCountNotNullUnary> {
 public:
     AggregateFunctionCountNotNullUnary(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper(argument_types_, {}) {}
+            : IAggregateFunctionDataHelper(argument_types_) {}
 
     String get_name() const override { return "count"; }
 

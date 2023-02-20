@@ -74,9 +74,8 @@ public:
     void test_agg_collect(const std::string& fn_name, size_t input_nums = 0) {
         DataTypes data_types = {(DataTypePtr)std::make_shared<DataType>()};
         LOG(INFO) << "test_agg_collect for " << fn_name << "(" << data_types[0]->get_name() << ")";
-        Array array;
         AggregateFunctionSimpleFactory factory = AggregateFunctionSimpleFactory::instance();
-        auto agg_function = factory.get(fn_name, data_types, array);
+        auto agg_function = factory.get(fn_name, data_types);
         EXPECT_NE(agg_function, nullptr);
 
         std::unique_ptr<char[]> memory(new char[agg_function->size_of_data()]);
