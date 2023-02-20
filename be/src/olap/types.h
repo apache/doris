@@ -348,7 +348,7 @@ public:
             auto val_arr = new ArrayTypeInfo(create_static_type_info_ptr(_value_type_info.get()));
             if (int kc = key_arr->cmp(l_k, r_k) != 0) {
                 return kc;
-            }else {
+            } else {
                 return val_arr->cmp(l_v, r_v);
             }
         }
