@@ -992,6 +992,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             info.add(errMsg);
             info.add(progress);
             info.add(timeoutMs / 1000);
+            info.add(getOtherInfo());
             infos.add(info);
         }
     }
@@ -1010,6 +1011,21 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
             }
         }
         return taskInfos;
+    }
+
+    public String getOtherInfo() {
+        String info = null;
+        // can add info as needed
+        List<String> infoList = Lists.newArrayList();
+        if (invertedIndexChange) {
+            String invertedIndexChangeInfo = "";
+            for (Index invertedIndex : alterInvertedIndexes) {
+                invertedIndexChangeInfo += "[" + (isDropOp ? "DROP " : "ADD ") + invertedIndex.toString() + "], ";
+            }
+            infoList.add(invertedIndexChangeInfo);
+        }
+        info = Joiner.on(", ").join(infoList.subList(0, infoList.size()));
+        return info;
     }
 
     @Override
