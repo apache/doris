@@ -238,6 +238,7 @@ public abstract class Type {
                     .put(PrimitiveType.DECIMAL32, Sets.newHashSet(BigDecimal.class))
                     .put(PrimitiveType.DECIMAL64, Sets.newHashSet(BigDecimal.class))
                     .put(PrimitiveType.DECIMAL128, Sets.newHashSet(BigDecimal.class))
+                    .put(PrimitiveType.ARRAY, Sets.newHashSet(ArrayList.class))
                     .build();
 
     public static ArrayList<ScalarType> getIntegerTypes() {
