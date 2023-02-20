@@ -176,7 +176,8 @@ Status OrcReader::init_reader(
         return Status::InternalError("Init OrcReader failed. reason = {}", e.what());
     }
     if (_reader->getNumberOfRows() == 0) {
-        return Status::EndOfFile("init reader failed, empty orc file with row num 0: " + _scan_range.path);
+        return Status::EndOfFile("init reader failed, empty orc file with row num 0: " +
+                                 _scan_range.path);
     }
     // _init_bloom_filter(colname_to_value_range);
 
