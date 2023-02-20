@@ -283,6 +283,8 @@ public class SessionVariable implements Serializable, Writable {
     // fix replica to query. If num = 1, query the smallest replica, if 2 is the second smallest replica.
     public static final String USE_FIX_REPLICA = "use_fix_replica";
 
+    public static final String DRY_RUN_QUERY = "dry_run_query";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -751,6 +753,11 @@ public class SessionVariable implements Serializable, Writable {
     // Default value is -1, which means not fix replica
     @VariableMgr.VarAttr(name = USE_FIX_REPLICA)
     public int useFixReplica = -1;
+
+    // If set to true, all query will be executed without returning result
+    @VariableMgr.VarAttr(name = DRY_RUN_QUERY, needForward = true)
+    public boolean dryRunQuery = false;
+
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -1616,6 +1623,10 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setExternalSortBytesThreshold(externalSortBytesThreshold);
 
         tResult.setEnableFileCache(enableFileCache);
+
+        if (dryRunQuery) {
+            tResult.setDryRunQuery(true);
+        }
 
         return tResult;
     }
