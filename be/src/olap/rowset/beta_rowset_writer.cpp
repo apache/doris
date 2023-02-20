@@ -849,7 +849,7 @@ void BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_met
     }
 
     rowset_meta->set_num_segments(num_seg);
-    // TODO(zhangzhengyu): key_bounds.size() should equal num_seg, but currently not always
+    CHECK_EQ(num_seg, segments_encoded_key_bounds.size());
     rowset_meta->set_num_rows(num_rows_written + _num_rows_written);
     rowset_meta->set_total_disk_size(total_data_size + _total_data_size);
     rowset_meta->set_data_disk_size(total_data_size + _total_data_size);
