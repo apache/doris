@@ -1916,7 +1916,7 @@ public class Config extends ConfigBase {
      * value for p0.
      */
     @ConfField(mutable = true, masterOnly = false)
-    public static String test_type = "p0";
+    public static String fuzzy_test_type = "";
 
     /**
      * Set session variables randomly to check more issues in github workflow
