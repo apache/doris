@@ -561,6 +561,8 @@ public class CreateMaterializedViewStmtTest {
                 result = columnName3;
                 slotRef4.toSql();
                 result = columnName4;
+                selectStmt.getGroupByClause();
+                result = null;
             }
         };
 
@@ -664,6 +666,8 @@ public class CreateMaterializedViewStmtTest {
                 result = 4;
                 selectStmt.getAggInfo(); // return null, so that the mv can be a duplicate mv
                 result = null;
+                selectStmt.getGroupByClause();
+                result = null;
             }
         };
 
@@ -762,6 +766,8 @@ public class CreateMaterializedViewStmtTest {
                 result = true;
                 selectStmt.getAggInfo(); // return null, so that the mv can be a duplicate mv
                 result = null;
+                selectStmt.getGroupByClause();
+                result = null;
             }
         };
 
@@ -859,6 +865,8 @@ public class CreateMaterializedViewStmtTest {
                 slotRef3.getType().getPrimitiveType();
                 result = PrimitiveType.VARCHAR;
                 selectStmt.getAggInfo(); // return null, so that the mv can be a duplicate mv
+                result = null;
+                selectStmt.getGroupByClause();
                 result = null;
             }
         };
@@ -964,6 +972,8 @@ public class CreateMaterializedViewStmtTest {
                 result = columnName1;
                 slotRef1.getType().getPrimitiveType();
                 result = PrimitiveType.VARCHAR;
+                selectStmt.getGroupByClause();
+                result = null;
             }
         };
 
@@ -1040,6 +1050,8 @@ public class CreateMaterializedViewStmtTest {
                 result = columnName1;
                 slotRef2.getColumnName();
                 result = columnName2;
+                selectStmt.getGroupByClause();
+                result = null;
             }
         };
 
@@ -1094,6 +1106,8 @@ public class CreateMaterializedViewStmtTest {
                 selectStmt.getWhereClause();
                 result = null;
                 selectStmt.getHavingPred();
+                result = null;
+                selectStmt.getGroupByClause();
                 result = null;
                 selectStmt.getLimit();
                 result = -1;
