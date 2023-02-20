@@ -155,10 +155,15 @@ Status CsvReader::init_reader(bool is_load) {
 
     switch (_file_format_type) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
+        [[fallthrough]];
     case TFileFormatType::FORMAT_CSV_GZ:
+        [[fallthrough]];
     case TFileFormatType::FORMAT_CSV_BZ2:
+        [[fallthrough]];
     case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+        [[fallthrough]];
     case TFileFormatType::FORMAT_CSV_LZOP:
+        [[fallthrough]];
     case TFileFormatType::FORMAT_CSV_DEFLATE:
         _line_reader.reset(new NewPlainTextLineReader(_profile, _file_reader, _decompressor.get(),
                                                       _size, _line_delimiter,
@@ -298,6 +303,7 @@ Status CsvReader::_create_decompressor() {
     } else {
         switch (_file_format_type) {
         case TFileFormatType::FORMAT_PROTO:
+            [[fallthrough]];
         case TFileFormatType::FORMAT_CSV_PLAIN:
             compress_type = CompressType::UNCOMPRESSED;
             break;

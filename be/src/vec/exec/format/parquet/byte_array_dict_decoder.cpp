@@ -81,6 +81,7 @@ Status ByteArrayDictDecoder::decode_values(MutableColumnPtr& doris_column, DataT
     TypeIndex logical_type = remove_nullable(data_type)->get_type_id();
     switch (logical_type) {
     case TypeIndex::String:
+        [[fallthrough]];
     case TypeIndex::FixedString: {
         size_t dict_index = 0;
 
