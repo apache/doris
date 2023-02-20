@@ -17,6 +17,7 @@
 
 package org.apache.doris.analysis;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
@@ -104,11 +105,33 @@ public class AlterTableStmt extends DdlStmt {
                 // analyse sequence column
                 Type sequenceColType = null;
                 if (alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
+                    String sequenceMapCol = null;
                     Map<String, String> propertyMap = alterClause.getProperties();
                     try {
-                        sequenceColType = PropertyAnalyzer.analyzeSequenceType(propertyMap, table.getKeysType());
-                        if (sequenceColType == null) {
-                            throw new AnalysisException("unknown sequence column type");
+                        sequenceMapCol = PropertyAnalyzer.analyzeSequenceMapCol(propertyMap, table.getKeysType());
+                        if (sequenceMapCol != null) {
+                            Column col = table.getColumn(sequenceMapCol);
+                            if (col == null) {
+                                throw new AnalysisException("The specified sequence column[" + sequenceMapCol + "]"
+                                    + " not exists");
+                            }
+                            if (!col.getType().isFixedPointType() && !col.getType().isDateType()) {
+                                throw new AnalysisException("Sequence type only support integer types and date types");
+                            }
+                            table.setSequenceMapCol(sequenceMapCol);
+                            table.setSequenceInfo(col.getType());
+                            sequenceColType = col.getType();
+                        }
+                        Type seqColType = PropertyAnalyzer.analyzeSequenceType(propertyMap, table.getKeysType());
+                        if (sequenceMapCol != null && seqColType != null) {
+                            throw new AnalysisException("The sequence_col and sequence_type cannot be set"
+                                + " at the same time");
+                        }
+                        if (seqColType != null) {
+                            table.setSequenceInfo(seqColType);
+                            sequenceColType = seqColType;
+                        } else if (sequenceMapCol == null && seqColType == null) {
+                            throw new AnalysisException("unknown sequence column type or column name");
                         }
                     } catch (Exception e) {
                         throw new AnalysisException(e.getMessage());
