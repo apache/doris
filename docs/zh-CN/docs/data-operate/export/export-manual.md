@@ -187,9 +187,9 @@ FinishTime: 2019-06-25 17:08:34
 * Timeout：作业超时时间。单位是秒。该时间从 CreateTime 开始计算。
 * ErrorMsg：如果作业出现错误，这里会显示错误原因。
 
-<version since="dev">
-
 ### 取消导出任务
+
+<version since="1.2.2"></version>
 
 提交作业后，可以通过  [CANCEL EXPORT](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/CANCEL-EXPORT.md) 命令取消导出作业。取消命令举例如下：
 
@@ -198,8 +198,6 @@ CANCEL EXPORT
 FROM example_db
 WHERE LABEL like "%example%";
 ````
-
-</version>
 
 ## 最佳实践
 

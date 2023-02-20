@@ -313,11 +313,9 @@ Doris 的权限管理功能提供了对 Catalog 层级的扩展，具体可参�
 
 ### 自动刷新
 
-<version since="dev">
+<version since="1.2.2"></version>
 
 自动刷新目前仅支持 Hive Metastore 元数据服务。通过让 FE 节点定时读取 HMS 的 notification event 来感知 Hive 表元数据的变更情况，目前支持处理如下event：
-
-</version>
 
 |事件 | 事件行为和对应的动作 |
 |---|---|
