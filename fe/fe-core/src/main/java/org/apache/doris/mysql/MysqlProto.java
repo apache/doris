@@ -41,7 +41,6 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.util.List;
-import javax.net.ssl.SSLEngine;
 
 // MySQL protocol util
 public class MysqlProto {
@@ -201,7 +200,7 @@ public class MysqlProto {
                 // try to establish ssl connection.
                 try {
                     // set channel to handshake mode to process data packet as ssl packet.
-                    channel.setHandshaking(true);
+                    channel.setSslHandshaking(true);
                     // The ssl handshake phase still uses plaintext.
                     if (!mysqlSslContext.sslExchange(channel)) {
                         ErrorReport.report(ErrorCode.ERR_NOT_SUPPORTED_AUTH_MODE);
