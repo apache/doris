@@ -679,6 +679,7 @@ Status FileColumnIterator::read_by_rowids(const rowid_t* rowids, const size_t co
                         auto* null_col =
                                 vectorized::check_and_get_column<vectorized::ColumnNullable>(dst);
                         if (UNLIKELY(null_col == nullptr)) {
+                            LOG(WARNING) << "Column " << dst->get_name() << " should be Nullable";
                             return Status::InternalError("unexpected column type in column reader");
                         }
 
