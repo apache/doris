@@ -750,7 +750,7 @@ public class SessionVariable implements Serializable, Writable {
             // this.enableTwoPhaseReadOpt = true;
         }
 
-        if (Config.test_type == "p0") {
+        if (Config.test_type.equals("p0")) {
             if (Config.pull_request_id % 2 == 1) {
                 this.batchSize = 4064;
             } else {
