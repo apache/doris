@@ -418,9 +418,9 @@ Status VScanNode::_normalize_conjuncts() {
         switch (type) {
 #define M(NAME)                                                                              \
     case TYPE_##NAME: {                                                                      \
-        ColumnValueRange<TYPE_##NAME> range(slots[slot_idx]->col_name(),                     \
-                                            slots[slot_idx]->type().precision,               \
-                                            slots[slot_idx]->type().scale);                  \
+        ColumnValueRange<TYPE_##NAME> range(                                                 \
+                slots[slot_idx]->col_name(), slots[slot_idx]->is_nullable(),                 \
+                slots[slot_idx]->type().precision, slots[slot_idx]->type().scale);           \
         _slot_id_to_value_range[slots[slot_idx]->id()] = std::pair {slots[slot_idx], range}; \
         break;                                                                               \
     }
