@@ -190,6 +190,58 @@ jobs:
           echo "{$execute_command}"
           eval ${execute_command}
 
+  run_clickbench_pipeline:
+    if: contains(github.event.comment.body, 'clickbench') && contains(github.event.comment.body, 'run')
+
+    runs-on: ubuntu-latest
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Run compile pipeline by restful
+        run: |
+          echo "trigger compile_only pipeline"
+          
+          if [ "_xx""${{ github.event.issue.pull_request.url }}" != "_xx" ]; then
+            echo "Comment was made on pull request: $(echo ${{ github.event.issue.pull_request.url }} | awk -F/ '{print $NF}')"
+          else
+            echo "Comment was made on an issue, not a pull request."
+          fi
+          pull_request_num=$(echo "${{ github.event.issue.pull_request.url }}" | awk -F/ '{print $NF}')
+          comment="${{ github.event.comment.body }}"
+          encoded_string=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${comment}")
+          echo ${encoded_string}
+          sleep 10s
+          execute_command="curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_Benchmark_Clickbench\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
+          echo "{$execute_command}"
+          eval ${execute_command}
+
+  run_arm_pipeline:
+    if: contains(github.event.comment.body, 'arm') && contains(github.event.comment.body, 'run')
+
+    runs-on: ubuntu-latest
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Run compile pipeline by restful
+        run: |
+          echo "trigger compile_only pipeline"
+          
+          if [ "_xx""${{ github.event.issue.pull_request.url }}" != "_xx" ]; then
+            echo "Comment was made on pull request: $(echo ${{ github.event.issue.pull_request.url }} | awk -F/ '{print $NF}')"
+          else
+            echo "Comment was made on an issue, not a pull request."
+          fi
+          pull_request_num=$(echo "${{ github.event.issue.pull_request.url }}" | awk -F/ '{print $NF}')
+          comment="${{ github.event.comment.body }}"
+          encoded_string=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${comment}")
+          echo ${encoded_string}
+          sleep 10s
+          execute_command="curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_ArmPipeline_P0Regression\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
+          echo "{$execute_command}"
+          eval ${execute_command}
+
 
   run_for_test_pipeline:
     if: contains(github.event.comment.body, 'just_for_test') && contains(github.event.comment.body, 'run')
