@@ -215,7 +215,7 @@ PROPERTIES
 - `broker.kerberos_keytab`：指定 kerberos 的 keytab 文件路径。该文件必须为 Broker 进程所在服务器上的文件的绝对路径。并且可以被 Broker 进程访问。
 - `broker.kerberos_keytab_content`：指定 kerberos 中 keytab 文件内容经过 base64 编码之后的内容。这个跟 `kerberos_keytab` 配置二选一即可。
 
-实例：
+示例：
 
 ```sql
 CREATE EXTERNAL RESOURCE "spark_on_kerberos"

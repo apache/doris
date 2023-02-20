@@ -23,7 +23,6 @@ const std::string AggregateFunctionGroupConcatImplStr::separator = ", ";
 
 AggregateFunctionPtr create_aggregate_function_group_concat(const std::string& name,
                                                             const DataTypes& argument_types,
-                                                            const Array& parameters,
                                                             const bool result_is_nullable) {
     if (argument_types.size() == 1) {
         return AggregateFunctionPtr(
