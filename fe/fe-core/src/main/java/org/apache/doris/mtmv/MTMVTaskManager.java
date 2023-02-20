@@ -50,6 +50,7 @@ import java.util.concurrent.Future;
 import java.util.concurrent.PriorityBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
 
@@ -73,6 +74,8 @@ public class MTMVTaskManager {
     private ScheduledExecutorService taskScheduler = Executors.newScheduledThreadPool(1);
 
     private final MTMVJobManager mtmvJobManager;
+
+    private final AtomicInteger failedTaskCount = new AtomicInteger(0);
 
     public MTMVTaskManager(MTMVJobManager mtmvJobManager) {
         this.mtmvJobManager = mtmvJobManager;
@@ -194,8 +197,11 @@ public class MTMVTaskManager {
             if (future.isDone()) {
                 runningIterator.remove();
                 addHistory(taskExecutor.getTask());
-                changeAndLogTaskStatus(taskExecutor.getJobId(), taskExecutor.getTask(), TaskState.RUNNING,
-                        taskExecutor.getTask().getState());
+                MTMVUtils.TaskState finalState = taskExecutor.getTask().getState();
+                if (finalState == TaskState.FAILURE) {
+                    failedTaskCount.incrementAndGet();
+                }
+                changeAndLogTaskStatus(taskExecutor.getJobId(), taskExecutor.getTask(), TaskState.RUNNING, finalState);
 
                 TriggerMode triggerMode = taskExecutor.getJob().getTriggerMode();
                 if (triggerMode == TriggerMode.ONCE) {
@@ -209,6 +215,10 @@ public class MTMVTaskManager {
                 }
             }
         }
+    }
+
+    public int getFailedTaskCount() {
+        return failedTaskCount.get();
     }
 
     private void scheduledPendingTask() {
