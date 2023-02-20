@@ -331,8 +331,11 @@ static std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* ty
         case orc::TypeKind::DOUBLE:
             return std::make_tuple(true, orc::Literal(*((double*)value)));
         case orc::TypeKind::STRING:
+            [[fallthrough]];
         case orc::TypeKind::BINARY:
+            [[fallthrough]];
         case orc::TypeKind::CHAR:
+            [[fallthrough]];
         case orc::TypeKind::VARCHAR: {
             StringRef* string_value = (StringRef*)value;
             return std::make_tuple(true, orc::Literal(string_value->data, string_value->size));
