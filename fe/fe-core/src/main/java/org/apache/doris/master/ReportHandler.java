@@ -851,7 +851,9 @@ public class ReportHandler extends Daemon {
                     // if add failed. delete this tablet from backend.
                     try {
                         tabletMeta = invertedIndex.getTabletMeta(tabletId);
-                        if (tabletMeta != null) {
+                        // Directly forbid re-add replica with cooldowned rowsets, because these cooldowned rowsets may
+                        // already been confirmed as unused data and deleted.
+                        if (tabletMeta != null && !backendTabletInfo.isSetCooldownMetaId()) {
                             addReplica(tabletId, tabletMeta, backendTabletInfo, backendId);
                             // update counter
                             ++addToMetaCounter;
