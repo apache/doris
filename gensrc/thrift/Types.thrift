@@ -567,7 +567,8 @@ enum TTableType {
     HIVE_TABLE,
     ICEBERG_TABLE,
     HUDI_TABLE,
-    JDBC_TABLE
+    JDBC_TABLE,
+    TEST_EXTERNAL_TABLE,
 }
 
 enum TOdbcTableType {
