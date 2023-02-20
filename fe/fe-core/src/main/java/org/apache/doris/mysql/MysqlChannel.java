@@ -266,13 +266,6 @@ public class MysqlChannel {
         return result;
     }
 
-    private void removeSslHeader(ByteBuffer result) {
-        result.flip();
-        result.position(5);
-        result.compact();
-        result.flip();
-    }
-
     protected void realNetSend(ByteBuffer buffer) throws IOException {
         encryptData(buffer);
         long bufLen = buffer.remaining();
@@ -310,17 +303,6 @@ public class MysqlChannel {
         sendData.flip();
         realNetSend(sendData);
         sendData.clear();
-        isSend = true;
-    }
-
-    public void sslFlush() throws IOException {
-        if (null == sendSslBuffer || sendSslBuffer.position() == 0) {
-            // Nothing to send
-            return;
-        }
-        sendSslBuffer.flip();
-        realNetSend(sendSslBuffer);
-        sendSslBuffer.clear();
         isSend = true;
     }
 
@@ -399,9 +381,8 @@ public class MysqlChannel {
     }
 
     public void sendOnePacket(ByteBuffer packet) throws IOException {
-        // todo combine ssl packet.
-        // handshake in packet with header and has jiami, need to send in ssl format
-        // ssl mode in packet no header and no jiami, need to jiami and add header and send in ssl format
+        // handshake in packet with header and has encrypted, need to send in ssl format
+        // ssl mode in packet no header and no encrypted, need to encrypted and add header and send in ssl format
         int bufLen;
         int oldLimit = packet.limit();
         while (oldLimit - packet.position() >= MAX_PHYSICAL_PACKET_LENGTH) {
@@ -433,18 +414,6 @@ public class MysqlChannel {
             writeBuffer(packet);
             accSequenceId();
         }
-    }
-
-    public void sendOneSslPacket(ByteBuffer packet) throws IOException {
-        int bufLen;
-        int oldLimit = packet.limit();
-        while (oldLimit - packet.position() >= MAX_PHYSICAL_PACKET_LENGTH) {
-            bufLen = MAX_PHYSICAL_PACKET_LENGTH;
-            packet.limit(packet.position() + bufLen);
-            writeSslBuffer(packet);
-        }
-        packet.limit(oldLimit);
-        writeSslBuffer(packet);
     }
 
     public void sendAndFlush(ByteBuffer packet) throws IOException {
