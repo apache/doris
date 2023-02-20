@@ -36,6 +36,7 @@ public class InitDatabaseLog implements Writable {
         HMS,
         ES,
         JDBC,
+        TEST,
         UNKNOWN;
     }
 

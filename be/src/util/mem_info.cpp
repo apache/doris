@@ -69,7 +69,7 @@ void MemInfo::refresh_allocator_mem() {
 #elif defined(USE_JEMALLOC)
     uint64_t epoch = 0;
     size_t sz = sizeof(epoch);
-    je_mallctl("epoch", &epoch, &sz, &epoch, sz);
+    jemallctl("epoch", &epoch, &sz, &epoch, sz);
 
     // https://jemalloc.net/jemalloc.3.html
     _s_allocator_cache_mem =

@@ -61,6 +61,20 @@ class RuntimeFilterMergeController;
 
 std::string to_load_error_http_path(const std::string& file_name);
 
+struct ReportStatusRequest {
+    const Status& status;
+    RuntimeProfile* profile;
+    bool done;
+    TNetworkAddress coord_addr;
+    TUniqueId query_id;
+    int fragment_id;
+    TUniqueId fragment_instance_id;
+    int backend_num;
+    RuntimeState* runtime_state;
+    std::function<Status(Status)> update_fn;
+    std::function<void(const PPlanFragmentCancelReason&, const std::string&)> cancel_fn;
+};
+
 // This class used to manage all the fragment execute in this instance
 class FragmentMgr : public RestMonitorIface {
 public:
@@ -78,9 +92,9 @@ public:
             std::shared_ptr<pipeline::PipelineFragmentContext> pipeline_context);
 
     // TODO(zc): report this is over
-    Status exec_plan_fragment(const TExecPlanFragmentParams& params, FinishCallback cb);
+    Status exec_plan_fragment(const TExecPlanFragmentParams& params, const FinishCallback& cb);
 
-    Status exec_plan_fragment(const TPipelineFragmentParams& params, FinishCallback cb);
+    Status exec_plan_fragment(const TPipelineFragmentParams& params, const FinishCallback& cb);
 
     Status start_query_execution(const PExecPlanFragmentStartRequest* request);
 
@@ -116,8 +130,12 @@ public:
 
     std::shared_ptr<io::StreamLoadPipe> get_pipe(const TUniqueId& fragment_instance_id);
 
+    std::string to_http_path(const std::string& file_name);
+
+    void coordinator_callback(const ReportStatusRequest& req);
+
 private:
-    void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, FinishCallback cb);
+    void _exec_actual(std::shared_ptr<FragmentExecState> exec_state, const FinishCallback& cb);
 
     void _set_scan_concurrency(const TExecPlanFragmentParams& params,
                                QueryFragmentsCtx* fragments_ctx);

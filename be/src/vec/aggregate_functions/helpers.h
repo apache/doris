@@ -21,8 +21,10 @@
 #pragma once
 
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/aggregate_functions/aggregate_function_null.h"
 #include "vec/data_types/data_type.h"
 
+// TODO: Should we support decimal in numeric types?
 #define FOR_NUMERIC_TYPES(M) \
     M(UInt8)                 \
     M(UInt16)                \
@@ -35,6 +37,12 @@
     M(Int128)                \
     M(Float32)               \
     M(Float64)
+
+#define FOR_DECIMAL_TYPES(M) \
+    M(Decimal32)             \
+    M(Decimal64)             \
+    M(Decimal128)            \
+    M(Decimal128I)
 
 namespace doris::vectorized {
 
@@ -49,12 +57,20 @@ static IAggregateFunction* create_with_numeric_type(const IDataType& argument_ty
         return new AggregateFunctionTemplate<TYPE>(std::forward<TArgs>(args)...);
     FOR_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
-    if (which.idx == TypeIndex::Enum8) {
-        return new AggregateFunctionTemplate<Int8>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::Enum16) {
-        return new AggregateFunctionTemplate<Int16>(std::forward<TArgs>(args)...);
-    }
+    return nullptr;
+}
+
+template <template <typename> class AggregateFunctionTemplate, typename... TArgs>
+static IAggregateFunction* create_with_numeric_type_null(const DataTypes& argument_types,
+                                                         TArgs&&... args) {
+    WhichDataType which(argument_types[0]);
+#define DISPATCH(TYPE)                                                                      \
+    if (which.idx == TypeIndex::TYPE)                                                       \
+        return new AggregateFunctionNullUnaryInline<AggregateFunctionTemplate<TYPE>, true>( \
+                new AggregateFunctionTemplate<TYPE>(std::forward<TArgs>(args)...),          \
+                argument_types);
+    FOR_NUMERIC_TYPES(DISPATCH)
+#undef DISPATCH
     return nullptr;
 }
 
@@ -68,12 +84,6 @@ static IAggregateFunction* create_with_numeric_type(const IDataType& argument_ty
         return new AggregateFunctionTemplate<TYPE, bool_param>(std::forward<TArgs>(args)...);
     FOR_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
-    if (which.idx == TypeIndex::Enum8) {
-        return new AggregateFunctionTemplate<Int8, bool_param>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::Enum16) {
-        return new AggregateFunctionTemplate<Int16, bool_param>(std::forward<TArgs>(args)...);
-    }
     return nullptr;
 }
 
@@ -87,12 +97,6 @@ static IAggregateFunction* create_with_numeric_type(const IDataType& argument_ty
         return new AggregateFunctionTemplate<TYPE, Data>(std::forward<TArgs>(args)...);
     FOR_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
-    if (which.idx == TypeIndex::Enum8) {
-        return new AggregateFunctionTemplate<Int8, Data>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::Enum16) {
-        return new AggregateFunctionTemplate<Int16, Data>(std::forward<TArgs>(args)...);
-    }
     return nullptr;
 }
 
@@ -106,12 +110,6 @@ static IAggregateFunction* create_with_numeric_type(const IDataType& argument_ty
         return new AggregateFunctionTemplate<TYPE, Data<TYPE>>(std::forward<TArgs>(args)...);
     FOR_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
-    if (which.idx == TypeIndex::Enum8) {
-        return new AggregateFunctionTemplate<Int8, Data<Int8>>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::Enum16) {
-        return new AggregateFunctionTemplate<Int16, Data<Int16>>(std::forward<TArgs>(args)...);
-    }
     return nullptr;
 }
 
@@ -125,51 +123,6 @@ static IAggregateFunction* create_with_numeric_type(const IDataType& argument_ty
         return new AggregateFunctionTemplate<Data<TYPE>>(std::forward<TArgs>(args)...);
     FOR_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
-    // if (which.idx == TypeIndex::Enum8) return new AggregateFunctionTemplate<Data<Int8>>(std::forward<TArgs>(args)...);
-    // if (which.idx == TypeIndex::Enum16) return new AggregateFunctionTemplate<Data<Int16>>(std::forward<TArgs>(args)...);
-    return nullptr;
-}
-
-template <template <typename, typename> class AggregateFunctionTemplate,
-          template <typename> class Data, typename... TArgs>
-static IAggregateFunction* create_with_unsigned_integer_type(const IDataType& argument_type,
-                                                             TArgs&&... args) {
-    WhichDataType which(argument_type);
-    if (which.idx == TypeIndex::UInt8) {
-        return new AggregateFunctionTemplate<UInt8, Data<UInt8>>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::UInt16) {
-        return new AggregateFunctionTemplate<UInt16, Data<UInt16>>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::UInt32) {
-        return new AggregateFunctionTemplate<UInt32, Data<UInt32>>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::UInt64) {
-        return new AggregateFunctionTemplate<UInt64, Data<UInt64>>(std::forward<TArgs>(args)...);
-    }
-    return nullptr;
-}
-
-template <template <typename> class AggregateFunctionTemplate, typename... TArgs>
-static IAggregateFunction* create_with_numeric_based_type(const IDataType& argument_type,
-                                                          TArgs&&... args) {
-    IAggregateFunction* f = create_with_numeric_type<AggregateFunctionTemplate>(
-            argument_type, std::forward<TArgs>(args)...);
-    if (f) {
-        return f;
-    }
-
-    /// expects that DataTypeDate based on UInt16, DataTypeDateTime based on UInt32 and UUID based on UInt128
-    WhichDataType which(argument_type);
-    if (which.idx == TypeIndex::Date) {
-        return new AggregateFunctionTemplate<UInt16>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::DateTime) {
-        return new AggregateFunctionTemplate<UInt32>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::UUID) {
-        return new AggregateFunctionTemplate<UInt128>(std::forward<TArgs>(args)...);
-    }
     return nullptr;
 }
 
@@ -177,18 +130,25 @@ template <template <typename> class AggregateFunctionTemplate, typename... TArgs
 static IAggregateFunction* create_with_decimal_type(const IDataType& argument_type,
                                                     TArgs&&... args) {
     WhichDataType which(argument_type);
-    if (which.idx == TypeIndex::Decimal32) {
-        return new AggregateFunctionTemplate<Decimal32>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::Decimal64) {
-        return new AggregateFunctionTemplate<Decimal64>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::Decimal128) {
-        return new AggregateFunctionTemplate<Decimal128>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::Decimal128I) {
-        return new AggregateFunctionTemplate<Decimal128I>(std::forward<TArgs>(args)...);
-    }
+#define DISPATCH(TYPE)                \
+    if (which.idx == TypeIndex::TYPE) \
+        return new AggregateFunctionTemplate<TYPE>(std::forward<TArgs>(args)...);
+    FOR_DECIMAL_TYPES(DISPATCH)
+#undef DISPATCH
+    return nullptr;
+}
+
+template <template <typename> class AggregateFunctionTemplate, typename... TArgs>
+static IAggregateFunction* create_with_decimal_type_null(const DataTypes& argument_types,
+                                                         TArgs&&... args) {
+    WhichDataType which(argument_types[0]);
+#define DISPATCH(TYPE)                                                                      \
+    if (which.idx == TypeIndex::TYPE)                                                       \
+        return new AggregateFunctionNullUnaryInline<AggregateFunctionTemplate<TYPE>, true>( \
+                new AggregateFunctionTemplate<TYPE>(std::forward<TArgs>(args)...),          \
+                argument_types);
+    FOR_DECIMAL_TYPES(DISPATCH)
+#undef DISPATCH
     return nullptr;
 }
 
@@ -197,18 +157,11 @@ template <template <typename, typename> class AggregateFunctionTemplate, typenam
 static IAggregateFunction* create_with_decimal_type(const IDataType& argument_type,
                                                     TArgs&&... args) {
     WhichDataType which(argument_type);
-    if (which.idx == TypeIndex::Decimal32) {
-        return new AggregateFunctionTemplate<Decimal32, Data>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::Decimal64) {
-        return new AggregateFunctionTemplate<Decimal64, Data>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::Decimal128) {
-        return new AggregateFunctionTemplate<Decimal128, Data>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::Decimal128I) {
-        return new AggregateFunctionTemplate<Decimal128I, Data>(std::forward<TArgs>(args)...);
-    }
+#define DISPATCH(TYPE)                \
+    if (which.idx == TypeIndex::TYPE) \
+        return new AggregateFunctionTemplate<TYPE, Data>(std::forward<TArgs>(args)...);
+    FOR_DECIMAL_TYPES(DISPATCH)
+#undef DISPATCH
     return nullptr;
 }
 
@@ -224,12 +177,6 @@ static IAggregateFunction* create_with_two_numeric_types_second(const IDataType&
         return new AggregateFunctionTemplate<FirstType, TYPE>(std::forward<TArgs>(args)...);
     FOR_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
-    if (which.idx == TypeIndex::Enum8) {
-        return new AggregateFunctionTemplate<FirstType, Int8>(std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::Enum16) {
-        return new AggregateFunctionTemplate<FirstType, Int16>(std::forward<TArgs>(args)...);
-    }
     return nullptr;
 }
 
@@ -244,14 +191,6 @@ static IAggregateFunction* create_with_two_numeric_types(const IDataType& first_
                 second_type, std::forward<TArgs>(args)...);
     FOR_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
-    if (which.idx == TypeIndex::Enum8) {
-        return create_with_two_numeric_types_second<Int8, AggregateFunctionTemplate>(
-                second_type, std::forward<TArgs>(args)...);
-    }
-    if (which.idx == TypeIndex::Enum16) {
-        return create_with_two_numeric_types_second<Int16, AggregateFunctionTemplate>(
-                second_type, std::forward<TArgs>(args)...);
-    }
     return nullptr;
 }
 

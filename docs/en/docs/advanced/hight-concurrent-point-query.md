@@ -51,9 +51,9 @@ CREATE TABLE `tbl_point_query` (
   `v6` float NULL,
   `v7` datev2 NULL
 ) ENGINE=OLAP
-UNIQUE KEY(key)
+UNIQUE KEY(`key`)
 COMMENT 'OLAP'
-DISTRIBUTED BY HASH(key) BUCKETS 1
+DISTRIBUTED BY HASH(`key)` BUCKETS 1
 PROPERTIES (
 "replication_allocation" = "tag.location.default: 1",
 "enable_unique_key_merge_on_write" = "true",
@@ -71,7 +71,7 @@ In order to reduce CPU cost for parsing query SQL and SQL expressions, we provid
 
 1. Setup JDBC url and enable server side prepared statement
 ```
-url = jdbc:mysql://127.0.0.1:9137/ycsb?useServerPrepStmts=true
+url = jdbc:mysql://127.0.0.1:9030/ycsb?useServerPrepStmts=true
 ``
 
 2. Using `PreparedStatement`

@@ -25,7 +25,6 @@ namespace doris::vectorized {
 template <bool is_nullable>
 AggregateFunctionPtr create_aggregate_function_percentile_approx(const std::string& name,
                                                                  const DataTypes& argument_types,
-                                                                 const Array& parameters,
                                                                  const bool result_is_nullable) {
     if (argument_types.size() == 1) {
         return std::make_shared<AggregateFunctionPercentileApproxMerge<is_nullable>>(
@@ -44,19 +43,13 @@ AggregateFunctionPtr create_aggregate_function_percentile_approx(const std::stri
 
 AggregateFunctionPtr create_aggregate_function_percentile(const std::string& name,
                                                           const DataTypes& argument_types,
-                                                          const Array& parameters,
                                                           const bool result_is_nullable) {
-    assert_no_parameters(name, parameters);
-
     return std::make_shared<AggregateFunctionPercentile>(argument_types);
 }
 
 AggregateFunctionPtr create_aggregate_function_percentile_array(const std::string& name,
                                                                 const DataTypes& argument_types,
-                                                                const Array& parameters,
                                                                 const bool result_is_nullable) {
-    assert_no_parameters(name, parameters);
-
     return std::make_shared<AggregateFunctionPercentileArray>(argument_types);
 }
 

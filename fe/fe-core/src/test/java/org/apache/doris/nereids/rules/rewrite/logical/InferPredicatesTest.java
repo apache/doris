@@ -498,14 +498,18 @@ public class InferPredicatesTest extends TestWithFeService implements PatternMat
                 .analyze(sql)
                 .rewrite()
                 .matchesFromRoot(
-                    logicalJoin(
-                        logicalJoin(
-                                logicalOlapScan(),
-                                logicalFilter(
-                                        logicalOlapScan()
-                                ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
+                    innerLogicalJoin(
+                        innerLogicalJoin(
+                            logicalFilter(
+                                logicalOlapScan()
+                            ).when(filter -> filter.getPredicate().toSql().contains("id > 1")),
+                            logicalFilter(
+                                logicalOlapScan()
+                            ).when(filter -> filter.getPredicate().toSql().contains("sid > 1"))
                         ),
-                        logicalOlapScan()
+                        logicalFilter(
+                            logicalOlapScan()
+                        ).when(filter -> filter.getPredicate().toSql().contains("id > 1"))
                     )
                 );
     }

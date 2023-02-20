@@ -382,7 +382,7 @@ public:
     Status init() override;
 
     Status append_data(const uint8_t** ptr, size_t num_rows) override;
-
+    Status append_nullable(const uint8_t* null_map, const uint8_t** ptr, size_t num_rows) override;
     uint64_t estimate_buffer_size() override;
 
     Status finish() override;

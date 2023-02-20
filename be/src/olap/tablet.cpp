@@ -38,6 +38,7 @@
 #include <set>
 #include <shared_mutex>
 #include <string>
+#include <unordered_set>
 
 #include "agent/utils.h"
 #include "common/config.h"
@@ -1709,23 +1710,14 @@ Status Tablet::cooldown() {
     if (cooldown_replica_id <= 0) { // wait for FE to push cooldown conf
         return Status::InternalError("invalid cooldown_replica_id");
     }
-    auto storage_policy = get_storage_policy(storage_policy_id());
-    if (storage_policy == nullptr) {
-        return Status::InternalError("could not find storage_policy, storage_policy_id={}",
-                                     storage_policy_id());
-    }
-    auto resource = get_storage_resource(storage_policy->resource_id);
-    auto dest_fs = std::static_pointer_cast<io::RemoteFileSystem>(resource.fs);
-    if (dest_fs == nullptr) {
-        return Status::InternalError("could not find resource, resouce_id={}",
-                                     storage_policy->resource_id);
-    }
-    DCHECK(atol(dest_fs->id().c_str()) == storage_policy->resource_id);
-    DCHECK(dest_fs->type() != io::FileSystemType::LOCAL);
+
+    std::shared_ptr<io::RemoteFileSystem> fs;
+    RETURN_IF_ERROR(get_remote_file_system(storage_policy_id(), &fs));
+
     if (cooldown_replica_id == replica_id()) {
-        RETURN_IF_ERROR(_cooldown_data(dest_fs));
+        RETURN_IF_ERROR(_cooldown_data(fs));
     } else {
-        RETURN_IF_ERROR(_follow_cooldowned_data(dest_fs.get(), cooldown_replica_id));
+        RETURN_IF_ERROR(_follow_cooldowned_data(fs, cooldown_replica_id));
     }
     return Status::OK();
 }
@@ -1768,7 +1760,7 @@ Status Tablet::_cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_
     UniqueId cooldown_meta_id = UniqueId::gen_uid();
 
     // upload cooldowned rowset meta to remote fs
-    RETURN_IF_ERROR(_write_cooldown_meta(dest_fs.get(), cooldown_meta_id, new_rowset_meta.get()));
+    RETURN_IF_ERROR(write_cooldown_meta(dest_fs, cooldown_meta_id, new_rowset_meta, {}));
 
     RowsetSharedPtr new_rowset;
     RowsetFactory::create_rowset(_schema, _tablet_path, new_rowset_meta, &new_rowset);
@@ -1789,8 +1781,8 @@ Status Tablet::_cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_
     return Status::OK();
 }
 
-Status Tablet::_read_cooldown_meta(io::RemoteFileSystem* fs, int64_t cooldown_replica_id,
-                                   TabletMetaPB* tablet_meta_pb) {
+Status Tablet::_read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
+                                   int64_t cooldown_replica_id, TabletMetaPB* tablet_meta_pb) {
     std::string remote_meta_path =
             BetaRowset::remote_tablet_meta_path(tablet_id(), cooldown_replica_id);
     IOContext io_ctx;
@@ -1807,29 +1799,53 @@ Status Tablet::_read_cooldown_meta(io::RemoteFileSystem* fs, int64_t cooldown_re
     return Status::OK();
 }
 
-Status Tablet::_write_cooldown_meta(io::RemoteFileSystem* fs, UniqueId cooldown_meta_id,
-                                    RowsetMeta* new_rs_meta) {
+Status Tablet::write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
+                                   UniqueId cooldown_meta_id,
+                                   const RowsetMetaSharedPtr& new_rs_meta,
+                                   const std::vector<RowsetMetaSharedPtr>& to_deletes) {
+    std::unordered_set<Version, HashOfVersion> to_delete_set;
+    for (auto& rs_meta : to_deletes) {
+        to_delete_set.emplace(rs_meta->version());
+    }
+
     std::vector<RowsetMetaSharedPtr> cooldowned_rs_metas;
     {
         std::shared_lock meta_rlock(_meta_lock);
         for (auto& rs_meta : _tablet_meta->all_rs_metas()) {
             if (!rs_meta->is_local()) {
-                cooldowned_rs_metas.push_back(rs_meta);
+                if (to_delete_set.find(rs_meta->version()) != to_delete_set.end()) {
+                    continue;
+                }
+                cooldowned_rs_metas.emplace_back(rs_meta);
             }
         }
     }
+    cooldowned_rs_metas.emplace_back(new_rs_meta);
     std::sort(cooldowned_rs_metas.begin(), cooldowned_rs_metas.end(), RowsetMeta::comparator);
-    if (UNLIKELY(!cooldowned_rs_metas.empty() &&
-                 new_rs_meta->start_version() != cooldowned_rs_metas.back()->end_version() + 1)) {
-        return Status::InternalError("version not continuous");
+
+    // check_version_continuity
+    if (!cooldowned_rs_metas.empty()) {
+        RowsetMetaSharedPtr prev_rowset_meta = cooldowned_rs_metas.front();
+        for (size_t i = 1; i < cooldowned_rs_metas.size(); ++i) {
+            RowsetMetaSharedPtr rowset_meta = cooldowned_rs_metas[i];
+            if (rowset_meta->start_version() != prev_rowset_meta->end_version() + 1) {
+                LOG(WARNING) << "There are missed versions among rowsets. "
+                             << "prev_rowset_meta version=" << prev_rowset_meta->start_version()
+                             << "-" << prev_rowset_meta->end_version()
+                             << ", rowset_meta version=" << rowset_meta->start_version() << "-"
+                             << rowset_meta->end_version();
+                return Status::Error<CUMULATIVE_MISS_VERSION>();
+            }
+            prev_rowset_meta = rowset_meta;
+        }
     }
+
     TabletMetaPB tablet_meta_pb;
     auto rs_metas = tablet_meta_pb.mutable_rs_metas();
-    rs_metas->Reserve(cooldowned_rs_metas.size() + 1);
+    rs_metas->Reserve(cooldowned_rs_metas.size());
     for (auto& rs_meta : cooldowned_rs_metas) {
         rs_metas->Add(rs_meta->get_rowset_pb());
     }
-    rs_metas->Add(new_rs_meta->get_rowset_pb());
     tablet_meta_pb.mutable_cooldown_meta_id()->set_hi(cooldown_meta_id.hi);
     tablet_meta_pb.mutable_cooldown_meta_id()->set_lo(cooldown_meta_id.lo);
 
@@ -1842,7 +1858,8 @@ Status Tablet::_write_cooldown_meta(io::RemoteFileSystem* fs, UniqueId cooldown_
     return tablet_meta_writer->close();
 }
 
-Status Tablet::_follow_cooldowned_data(io::RemoteFileSystem* fs, int64_t cooldown_replica_id) {
+Status Tablet::_follow_cooldowned_data(const std::shared_ptr<io::RemoteFileSystem>& fs,
+                                       int64_t cooldown_replica_id) {
     LOG(INFO) << "try to follow cooldowned data. tablet_id=" << tablet_id()
               << " cooldown_replica_id=" << cooldown_replica_id
               << " local replica=" << replica_id();
