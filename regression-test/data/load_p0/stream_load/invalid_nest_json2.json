@@ -5,3 +5,12 @@
 {"no": 3, xxxxx": ["id": 3, "city"], "hangzhou", "code": 2345673}}
 {"no": 4, "item": {"id": 4, "city": "shenzhen", "code": 2345674}}
 {"no": 5, "item": {"id": 5, "city": "guangzhou", "code": 2345675}}
+{"no": 5, "item": {"id": 5, "city": ["guangzhou"], "code": 2345675}}
+{"no": 5, "item": {"id": 5, "city": {"guangzhou": 1}, "code": 2345675}}
+{"no": 5, "item": {"id": 5, "city": ["guangzhou", "code": 2345675]]}
+{"no": 5, "item": {"id": 5, "city": ["guangzhou", "code": 2345675}}
+{"no": 5, "item": {"id": 5, "city": {"guangzhou", "code": 2345675}}
+{"no": 5, "item": {"id": 5, "city": {"guangzhou":1, "code": 2345675}}}
+{"no": 5, "item": {"id": 5, "city": "1}}}
+{"no": 5, "item": {"id": 5, "city": "1]}}}
+{"no": 5, ["item": {"id": 5, "city": {"guangzhou": 1, "code": 2345675}]}

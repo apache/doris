@@ -197,9 +197,10 @@ private:
     // name mapping
     phmap::flat_hash_map<String, size_t> _slot_desc_index;
     // simdjson
-    static constexpr size_t _buffer_size = 1024 * 1024 * 8;
-    static constexpr size_t _padded_size = _buffer_size + simdjson::SIMDJSON_PADDING;
-    char _simdjson_ondemand_padding_buffer[_padded_size];
+    static constexpr size_t _init_buffer_size = 1024 * 1024 * 8;
+    size_t _padded_size = _init_buffer_size + simdjson::SIMDJSON_PADDING;
+    std::string _simdjson_ondemand_padding_buffer;
+    // char _simdjson_ondemand_padding_buffer[_padded_size];
     simdjson::ondemand::document _original_json_doc;
     simdjson::ondemand::value _json_value;
     // for strip outer array

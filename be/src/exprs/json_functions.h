@@ -97,6 +97,7 @@ public:
                                  std::vector<JsonPath>* parsed_paths);
     // extract_from_object extracts value from object according to the json path.
     // Now, we do not support complete functions of json path.
+    // Eg. city[*].id is not supported in this function
     static Status extract_from_object(simdjson::ondemand::object& obj,
                                       const std::vector<JsonPath>& jsonpath,
                                       simdjson::ondemand::value* value) noexcept;
