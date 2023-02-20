@@ -183,13 +183,12 @@ static RT get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bo
     }
 
     return binary_cast<doris::vectorized::DateV2Value<T>, RT>(
-            *reinterpret_cast<vectorized::DateV2Value<T>*>(
-                    &dt_slot));
-
+            *reinterpret_cast<vectorized::DateV2Value<T>*>(&dt_slot));
 }
 
 template <typename T, typename RT>
-static RT get_date_int(const rapidjson::Value& sub_col, PrimitiveType sub_type, bool pure_doc_value) {
+static RT get_date_int(const rapidjson::Value& sub_col, PrimitiveType sub_type,
+                       bool pure_doc_value) {
     // this would happend just only when `enable_docvalue_scan = false`, and field has timestamp format date from _source
     if (sub_col.IsNumber()) {
         // ES process date/datetime field would use millisecond timestamp for index or docvalue
@@ -673,11 +672,13 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                 // see https://github.com/apache/doris/pull/16304
                 // No need to support date and datetime types.
                 case TYPE_DATEV2: {
-                    array.push_back(get_date_int<vectorized::DateV2ValueType, uint32_t>(sub_col, sub_type, pure_doc_value));
+                    array.push_back(get_date_int<vectorized::DateV2ValueType, uint32_t>(
+                            sub_col, sub_type, pure_doc_value));
                     break;
                 }
                 case TYPE_DATETIMEV2: {
-                    array.push_back(get_date_int<vectorized::DateTimeV2ValueType, uint64_t>(sub_col, sub_type, pure_doc_value));
+                    array.push_back(get_date_int<vectorized::DateTimeV2ValueType, uint64_t>(
+                            sub_col, sub_type, pure_doc_value));
                     break;
                 }
                 default: {
