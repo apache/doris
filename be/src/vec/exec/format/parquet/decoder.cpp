@@ -59,6 +59,7 @@ Status Decoder::get_decoder(tparquet::Type::type type, tparquet::Encoding::type 
             if (encoding != tparquet::Encoding::PLAIN) {
                 return Status::InternalError("Bool type can't has dictionary page");
             }
+            break;
         case tparquet::Type::BYTE_ARRAY:
             decoder.reset(new ByteArrayDictDecoder());
             break;
