@@ -135,9 +135,12 @@ public class ExternalFileScanNode extends ExternalScanNode {
      * External file scan node for:
      * 1. Query hms table
      * 2. Load from file
+     * needCheckColumnPriv: Some of ExternalFileScanNode do not need to check column priv
+     * eg: s3 tvf, load scan node.
+     * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
-    public ExternalFileScanNode(PlanNodeId id, TupleDescriptor desc) {
-        super(id, desc, "EXTERNAL_FILE_SCAN_NODE", StatisticalType.FILE_SCAN_NODE);
+    public ExternalFileScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
+        super(id, desc, "EXTERNAL_FILE_SCAN_NODE", StatisticalType.FILE_SCAN_NODE, needCheckColumnPriv);
     }
 
     // Only for broker load job.
