@@ -1958,7 +1958,7 @@ public class SingleNodePlanner {
             case HIVE:
                 throw new RuntimeException("Hive external table is not supported, try to use hive catalog please");
             case ICEBERG:
-                scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc());
+                scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
                 break;
             case HUDI:
                 throw new UserException(
@@ -1971,13 +1971,16 @@ public class SingleNodePlanner {
                 break;
             case HMS_EXTERNAL_TABLE:
             case ICEBERG_EXTERNAL_TABLE:
-                scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc());
+                scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
                 break;
             case ES_EXTERNAL_TABLE:
                 scanNode = new EsScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "EsScanNode", true);
                 break;
             case JDBC_EXTERNAL_TABLE:
                 scanNode = new JdbcScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                break;
+            case TEST_EXTERNAL_TABLE:
+                scanNode = new TestExternalTableScanNode(ctx.getNextNodeId(), tblRef.getDesc());
                 break;
             default:
                 break;
