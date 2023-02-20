@@ -173,7 +173,7 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
                                               const PTabletWriterOpenRequest* request,
                                               PTabletWriterOpenResult* response,
                                               google::protobuf::Closure* done) {
-    _light_work_pool.offer([this, request, response, done]() {
+    bool ret = _light_work_pool.offer([this, request, response, done]() {
         VLOG_RPC << "tablet writer open, id=" << request->id()
                  << ", index_id=" << request->index_id() << ", txn_id=" << request->txn_id();
         brpc::ClosureGuard closure_guard(done);
@@ -185,6 +185,12 @@ void PInternalServiceImpl::tablet_writer_open(google::protobuf::RpcController* c
         }
         st.to_protobuf(response->mutable_status());
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
 }
 
 void PInternalServiceImpl::exec_plan_fragment(google::protobuf::RpcController* controller,
@@ -209,29 +215,41 @@ void PInternalServiceImpl::exec_plan_fragment_prepare(google::protobuf::RpcContr
                                                       const PExecPlanFragmentRequest* request,
                                                       PExecPlanFragmentResult* response,
                                                       google::protobuf::Closure* done) {
-    _light_work_pool.offer([this, controller, request, response, done]() {
+    bool ret = _light_work_pool.offer([this, controller, request, response, done]() {
         exec_plan_fragment(controller, request, response, done);
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
 }
 
 void PInternalServiceImpl::exec_plan_fragment_start(google::protobuf::RpcController* controller,
                                                     const PExecPlanFragmentStartRequest* request,
                                                     PExecPlanFragmentResult* result,
                                                     google::protobuf::Closure* done) {
-    _light_work_pool.offer([this, controller, request, result, done]() {
+    bool ret = _light_work_pool.offer([this, controller, request, result, done]() {
         auto span = telemetry::start_rpc_server_span("exec_plan_fragment_start", controller);
         auto scope = OpentelemetryScope {span};
         brpc::ClosureGuard closure_guard(done);
         auto st = _exec_env->fragment_mgr()->start_query_execution(request);
         st.to_protobuf(result->mutable_status());
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        result->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        result->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
 }
 
 void PInternalServiceImpl::tablet_writer_add_block(google::protobuf::RpcController* controller,
                                                    const PTabletWriterAddBlockRequest* request,
                                                    PTabletWriterAddBlockResult* response,
                                                    google::protobuf::Closure* done) {
-    _heavy_work_pool.offer([this, controller, request, response, done]() {
+    bool ret = _heavy_work_pool.offer([this, controller, request, response, done]() {
         // TODO(zxy) delete in 1.2 version
         google::protobuf::Closure* new_done = new NewHttpClosure<PTransmitDataParams>(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
@@ -239,12 +257,18 @@ void PInternalServiceImpl::tablet_writer_add_block(google::protobuf::RpcControll
 
         _tablet_writer_add_block(controller, request, response, new_done);
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
 }
 
 void PInternalServiceImpl::tablet_writer_add_block_by_http(
         google::protobuf::RpcController* controller, const ::doris::PEmptyRequest* request,
         PTabletWriterAddBlockResult* response, google::protobuf::Closure* done) {
-    _heavy_work_pool.offer([this, controller, response, done]() {
+    bool ret = _heavy_work_pool.offer([this, controller, response, done]() {
         PTabletWriterAddBlockRequest* new_request = new PTabletWriterAddBlockRequest();
         google::protobuf::Closure* new_done =
                 new NewHttpClosure<PTabletWriterAddBlockRequest>(new_request, done);
@@ -257,6 +281,12 @@ void PInternalServiceImpl::tablet_writer_add_block_by_http(
             st.to_protobuf(response->mutable_status());
         }
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
 }
 
 void PInternalServiceImpl::_tablet_writer_add_block(google::protobuf::RpcController* controller,
@@ -264,7 +294,7 @@ void PInternalServiceImpl::_tablet_writer_add_block(google::protobuf::RpcControl
                                                     PTabletWriterAddBlockResult* response,
                                                     google::protobuf::Closure* done) {
     int64_t submit_task_time_ns = MonotonicNanos();
-    _heavy_work_pool.offer([request, response, done, submit_task_time_ns, this]() {
+    bool ret = _heavy_work_pool.offer([request, response, done, submit_task_time_ns, this]() {
         int64_t wait_execution_time_ns = MonotonicNanos() - submit_task_time_ns;
         brpc::ClosureGuard closure_guard(done);
         int64_t execution_time_ns = 0;
@@ -282,13 +312,19 @@ void PInternalServiceImpl::_tablet_writer_add_block(google::protobuf::RpcControl
         response->set_execution_time_us(execution_time_ns / NANOS_PER_MICRO);
         response->set_wait_execution_time_us(wait_execution_time_ns / NANOS_PER_MICRO);
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
 }
 
 void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController* controller,
                                                 const PTabletWriterCancelRequest* request,
                                                 PTabletWriterCancelResult* response,
                                                 google::protobuf::Closure* done) {
-    _light_work_pool.offer([this, request, done]() {
+    bool ret = _light_work_pool.offer([this, request, done]() {
         VLOG_RPC << "tablet writer cancel, id=" << request->id()
                  << ", index_id=" << request->index_id() << ", sender_id=" << request->sender_id();
         brpc::ClosureGuard closure_guard(done);
@@ -299,6 +335,10 @@ void PInternalServiceImpl::tablet_writer_cancel(google::protobuf::RpcController*
                          << ", sender_id=" << request->sender_id();
         }
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+    }
 }
 
 Status PInternalServiceImpl::_exec_plan_fragment(const std::string& ser_request,
@@ -333,7 +373,7 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
                                                 const PCancelPlanFragmentRequest* request,
                                                 PCancelPlanFragmentResult* result,
                                                 google::protobuf::Closure* done) {
-    _light_work_pool.offer([this, controller, request, result, done]() {
+    bool ret = _light_work_pool.offer([this, controller, request, result, done]() {
         auto span = telemetry::start_rpc_server_span("exec_plan_fragment_start", controller);
         auto scope = OpentelemetryScope {span};
         brpc::ClosureGuard closure_guard(done);
@@ -353,23 +393,35 @@ void PInternalServiceImpl::cancel_plan_fragment(google::protobuf::RpcController*
         // TODO: the logic seems useless, cancel only return Status::OK. remove it
         st.to_protobuf(result->mutable_status());
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        result->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        result->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
 }
 
 void PInternalServiceImpl::fetch_data(google::protobuf::RpcController* controller,
                                       const PFetchDataRequest* request, PFetchDataResult* result,
                                       google::protobuf::Closure* done) {
-    _heavy_work_pool.offer([this, controller, request, result, done]() {
+    bool ret = _heavy_work_pool.offer([this, controller, request, result, done]() {
         brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
         GetResultBatchCtx* ctx = new GetResultBatchCtx(cntl, result, done);
         _exec_env->result_mgr()->fetch_data(request->finst_id(), ctx);
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        result->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        result->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
 }
 
 void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* controller,
                                               const PFetchTableSchemaRequest* request,
                                               PFetchTableSchemaResult* result,
                                               google::protobuf::Closure* done) {
-    _heavy_work_pool.offer([request, result, done]() {
+    bool ret = _heavy_work_pool.offer([request, result, done]() {
         VLOG_RPC << "fetch table schema";
         brpc::ClosureGuard closure_guard(done);
         TFileScanRange file_scan_range;
@@ -454,6 +506,12 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         }
         st.to_protobuf(result->mutable_status());
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        result->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        result->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
 }
 
 Status PInternalServiceImpl::_tablet_fetch_data(const PTabletKeyLookupRequest* request,
@@ -472,18 +530,24 @@ void PInternalServiceImpl::tablet_fetch_data(google::protobuf::RpcController* co
                                              const PTabletKeyLookupRequest* request,
                                              PTabletKeyLookupResponse* response,
                                              google::protobuf::Closure* done) {
-    _heavy_work_pool.offer([this, controller, request, response, done]() {
+    bool ret = _heavy_work_pool.offer([this, controller, request, response, done]() {
         [[maybe_unused]] brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
         brpc::ClosureGuard guard(done);
         Status st = _tablet_fetch_data(request, response);
         st.to_protobuf(response->mutable_status());
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
 }
 
 void PInternalServiceImpl::get_info(google::protobuf::RpcController* controller,
                                     const PProxyRequest* request, PProxyResult* response,
                                     google::protobuf::Closure* done) {
-    _heavy_work_pool.offer([this, request, response, done]() {
+    bool ret = _heavy_work_pool.offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         // PProxyRequest is defined in gensrc/proto/internal_service.proto
         // Currently it supports 2 kinds of requests:
@@ -540,40 +604,61 @@ void PInternalServiceImpl::get_info(google::protobuf::RpcController* controller,
         }
         Status::OK().to_protobuf(response->mutable_status());
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
 }
 
 void PInternalServiceImpl::update_cache(google::protobuf::RpcController* controller,
                                         const PUpdateCacheRequest* request,
                                         PCacheResponse* response, google::protobuf::Closure* done) {
-    _light_work_pool.offer([this, request, response, done]() {
+    bool ret = _light_work_pool.offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         _exec_env->result_cache()->update(request, response);
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->set_status(PCacheStatus::CANCELED);
+    }
 }
 
 void PInternalServiceImpl::fetch_cache(google::protobuf::RpcController* controller,
                                        const PFetchCacheRequest* request, PFetchCacheResult* result,
                                        google::protobuf::Closure* done) {
-    _heavy_work_pool.offer([this, request, result, done]() {
+    bool ret = _heavy_work_pool.offer([this, request, result, done]() {
         brpc::ClosureGuard closure_guard(done);
         _exec_env->result_cache()->fetch(request, result);
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        result->set_status(PCacheStatus::CANCELED);
+    }
 }
 
 void PInternalServiceImpl::clear_cache(google::protobuf::RpcController* controller,
                                        const PClearCacheRequest* request, PCacheResponse* response,
                                        google::protobuf::Closure* done) {
-    _light_work_pool.offer([this, request, response, done]() {
+    bool ret = _light_work_pool.offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         _exec_env->result_cache()->clear(request, response);
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->set_status(PCacheStatus::CANCELED);
+    }
 }
 
 void PInternalServiceImpl::merge_filter(::google::protobuf::RpcController* controller,
                                         const ::doris::PMergeFilterRequest* request,
                                         ::doris::PMergeFilterResponse* response,
                                         ::google::protobuf::Closure* done) {
-    _light_work_pool.offer([this, controller, request, response, done]() {
+    bool ret = _light_work_pool.offer([this, controller, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
         butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
@@ -583,13 +668,19 @@ void PInternalServiceImpl::merge_filter(::google::protobuf::RpcController* contr
         }
         st.to_protobuf(response->mutable_status());
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
 }
 
 void PInternalServiceImpl::apply_filter(::google::protobuf::RpcController* controller,
                                         const ::doris::PPublishFilterRequest* request,
                                         ::doris::PPublishFilterResponse* response,
                                         ::google::protobuf::Closure* done) {
-    _light_work_pool.offer([this, controller, request, response, done]() {
+    bool ret = _light_work_pool.offer([this, controller, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         auto attachment = static_cast<brpc::Controller*>(controller)->request_attachment();
         butil::IOBufAsZeroCopyInputStream zero_copy_input_stream(attachment);
@@ -601,12 +692,18 @@ void PInternalServiceImpl::apply_filter(::google::protobuf::RpcController* contr
         }
         st.to_protobuf(response->mutable_status());
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
 }
 
 void PInternalServiceImpl::send_data(google::protobuf::RpcController* controller,
                                      const PSendDataRequest* request, PSendDataResult* response,
                                      google::protobuf::Closure* done) {
-    _heavy_work_pool.offer([this, request, response, done]() {
+    bool ret = _heavy_work_pool.offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         TUniqueId fragment_instance_id;
         fragment_instance_id.hi = request->fragment_instance_id().hi();
@@ -626,12 +723,18 @@ void PInternalServiceImpl::send_data(google::protobuf::RpcController* controller
             response->mutable_status()->set_status_code(0);
         }
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
 }
 
 void PInternalServiceImpl::commit(google::protobuf::RpcController* controller,
                                   const PCommitRequest* request, PCommitResult* response,
                                   google::protobuf::Closure* done) {
-    _light_work_pool.offer([this, request, response, done]() {
+    bool ret = _light_work_pool.offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         TUniqueId fragment_instance_id;
         fragment_instance_id.hi = request->fragment_instance_id().hi();
@@ -646,12 +749,18 @@ void PInternalServiceImpl::commit(google::protobuf::RpcController* controller,
             response->mutable_status()->set_status_code(0);
         }
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
 }
 
 void PInternalServiceImpl::rollback(google::protobuf::RpcController* controller,
                                     const PRollbackRequest* request, PRollbackResult* response,
                                     google::protobuf::Closure* done) {
-    _light_work_pool.offer([this, request, response, done]() {
+    bool ret = _light_work_pool.offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         TUniqueId fragment_instance_id;
         fragment_instance_id.hi = request->fragment_instance_id().hi();
@@ -666,13 +775,19 @@ void PInternalServiceImpl::rollback(google::protobuf::RpcController* controller,
             response->mutable_status()->set_status_code(0);
         }
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
 }
 
 void PInternalServiceImpl::fold_constant_expr(google::protobuf::RpcController* controller,
                                               const PConstantExprRequest* request,
                                               PConstantExprResult* response,
                                               google::protobuf::Closure* done) {
-    _light_work_pool.offer([this, request, response, done]() {
+    bool ret = _light_work_pool.offer([this, request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         Status st = Status::OK();
         st = _fold_constant_expr(request->request(), response);
@@ -681,6 +796,12 @@ void PInternalServiceImpl::fold_constant_expr(google::protobuf::RpcController* c
         }
         st.to_protobuf(response->mutable_status());
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
 }
 
 Status PInternalServiceImpl::_fold_constant_expr(const std::string& ser_request,
@@ -699,7 +820,7 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
                                           const PTransmitDataParams* request,
                                           PTransmitDataResult* response,
                                           google::protobuf::Closure* done) {
-    _heavy_work_pool.offer([this, controller, request, response, done]() {
+    bool ret = _heavy_work_pool.offer([this, controller, request, response, done]() {
         // TODO(zxy) delete in 1.2 version
         google::protobuf::Closure* new_done = new NewHttpClosure<PTransmitDataParams>(done);
         brpc::Controller* cntl = static_cast<brpc::Controller*>(controller);
@@ -707,13 +828,19 @@ void PInternalServiceImpl::transmit_block(google::protobuf::RpcController* contr
 
         _transmit_block(controller, request, response, new_done, Status::OK());
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
 }
 
 void PInternalServiceImpl::transmit_block_by_http(google::protobuf::RpcController* controller,
                                                   const PEmptyRequest* request,
                                                   PTransmitDataResult* response,
                                                   google::protobuf::Closure* done) {
-    _heavy_work_pool.offer([this, controller, response, done]() {
+    bool ret = _heavy_work_pool.offer([this, controller, response, done]() {
         PTransmitDataParams* new_request = new PTransmitDataParams();
         google::protobuf::Closure* new_done =
                 new NewHttpClosure<PTransmitDataParams>(new_request, done);
@@ -722,6 +849,12 @@ void PInternalServiceImpl::transmit_block_by_http(google::protobuf::RpcControlle
                 attachment_extract_request_contain_block<PTransmitDataParams>(new_request, cntl);
         _transmit_block(controller, new_request, response, new_done, st);
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
 }
 
 void PInternalServiceImpl::_transmit_block(google::protobuf::RpcController* controller,
@@ -762,7 +895,7 @@ void PInternalServiceImpl::check_rpc_channel(google::protobuf::RpcController* co
                                              const PCheckRPCChannelRequest* request,
                                              PCheckRPCChannelResponse* response,
                                              google::protobuf::Closure* done) {
-    _light_work_pool.offer([request, response, done]() {
+    bool ret = _light_work_pool.offer([request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         response->mutable_status()->set_status_code(0);
         if (request->data().size() != request->size()) {
@@ -785,13 +918,19 @@ void PInternalServiceImpl::check_rpc_channel(google::protobuf::RpcController* co
             }
         }
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
 }
 
 void PInternalServiceImpl::reset_rpc_channel(google::protobuf::RpcController* controller,
                                              const PResetRPCChannelRequest* request,
                                              PResetRPCChannelResponse* response,
                                              google::protobuf::Closure* done) {
-    _light_work_pool.offer([request, response, done]() {
+    bool ret = _light_work_pool.offer([request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         response->mutable_status()->set_status_code(0);
         if (request->all()) {
@@ -820,19 +959,31 @@ void PInternalServiceImpl::reset_rpc_channel(google::protobuf::RpcController* co
             }
         }
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
 }
 
 void PInternalServiceImpl::hand_shake(google::protobuf::RpcController* controller,
                                       const PHandShakeRequest* request,
                                       PHandShakeResponse* response,
                                       google::protobuf::Closure* done) {
-    _light_work_pool.offer([request, response, done]() {
+    bool ret = _light_work_pool.offer([request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         if (request->has_hello()) {
             response->set_hello(request->hello());
         }
         response->mutable_status()->set_status_code(0);
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
 }
 
 void PInternalServiceImpl::request_slave_tablet_pull_rowset(
@@ -847,8 +998,8 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
     int64_t brpc_port = request->brpc_port();
     std::string token = request->token();
     int64_t node_id = request->node_id();
-    _heavy_work_pool.offer([rowset_meta_pb, host, brpc_port, node_id, segments_size, http_port,
-                            token, rowset_path, this]() {
+    bool ret = _heavy_work_pool.offer([rowset_meta_pb, host, brpc_port, node_id, segments_size,
+                                       http_port, token, rowset_path, this]() {
         TabletSharedPtr tablet = StorageEngine::instance()->tablet_manager()->get_tablet(
                 rowset_meta_pb.tablet_id(), rowset_meta_pb.tablet_schema_hash());
         if (tablet == nullptr) {
@@ -989,6 +1140,12 @@ void PInternalServiceImpl::request_slave_tablet_pull_rowset(
         _response_pull_slave_rowset(host, brpc_port, rowset_meta->txn_id(),
                                     rowset_meta->tablet_id(), node_id, true);
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
     Status::OK().to_protobuf(response->mutable_status());
 }
 
@@ -1047,7 +1204,7 @@ void PInternalServiceImpl::_response_pull_slave_rowset(const std::string& remote
 void PInternalServiceImpl::response_slave_tablet_pull_rowset(
         google::protobuf::RpcController* controller, const PTabletWriteSlaveDoneRequest* request,
         PTabletWriteSlaveDoneResult* response, google::protobuf::Closure* done) {
-    _heavy_work_pool.offer([request, response, done]() {
+    bool ret = _heavy_work_pool.offer([request, response, done]() {
         brpc::ClosureGuard closure_guard(done);
         VLOG_CRITICAL << "receive the result of slave replica pull rowset from slave replica. "
                          "slave server="
@@ -1057,6 +1214,12 @@ void PInternalServiceImpl::response_slave_tablet_pull_rowset(
                 request->txn_id(), request->tablet_id(), request->node_id(), request->is_succeed());
         Status::OK().to_protobuf(response->mutable_status());
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
 }
 
 static Status read_by_rowids(
@@ -1175,7 +1338,7 @@ void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* contro
                                          const PMultiGetRequest* request,
                                          PMultiGetResponse* response,
                                          google::protobuf::Closure* done) {
-    _heavy_work_pool.offer([request, response, done, this]() {
+    bool ret = _heavy_work_pool.offer([request, response, done, this]() {
         // multi get data by rowid
         MonotonicStopWatch watch;
         watch.start();
@@ -1185,6 +1348,12 @@ void PInternalServiceImpl::multiget_data(google::protobuf::RpcController* contro
         st.to_protobuf(response->mutable_status());
         LOG(INFO) << "multiget_data finished, cost(us):" << watch.elapsed_time() / 1000;
     });
+    if (!ret) {
+        LOG(WARNING) << "fail to offer request to the work pool";
+        brpc::ClosureGuard closure_guard(done);
+        response->mutable_status()->set_status_code(TStatusCode::CANCELLED);
+        response->mutable_status()->add_error_msgs("fail to offer request to the work pool");
+    }
 }
 
 } // namespace doris
