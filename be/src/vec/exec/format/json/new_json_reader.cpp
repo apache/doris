@@ -988,7 +988,9 @@ std::string NewJsonReader::_print_json_value(const rapidjson::Value& value) {
 Status NewJsonReader::_read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size) {
     switch (_params.file_type) {
     case TFileType::FILE_LOCAL:
+        [[fallthrough]];
     case TFileType::FILE_HDFS:
+        [[fallthrough]];
     case TFileType::FILE_S3: {
         size_t file_size = _file_reader->size();
         file_buf->reset(new uint8_t[file_size]);
