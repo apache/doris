@@ -1296,13 +1296,11 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
         Optional<Database> database = Env.getCurrentInternalCatalog().getDb(dbId);
         Optional<Table> table = database.flatMap(db -> db.getTable(tableId));
 
-
         readLock();
         try {
             List<String> row = Lists.newArrayList();
             row.add(String.valueOf(id));
             row.add(name);
-            row.add(userIdentity.getQualifiedUser());
             row.add(TimeUtils.longToTimeString(createTimestamp));
             row.add(TimeUtils.longToTimeString(pauseTimestamp));
             row.add(TimeUtils.longToTimeString(endTimestamp));
@@ -1329,6 +1327,7 @@ public abstract class RoutineLoadJob extends AbstractTxnStateChangeCallback impl
             }
             row.add(Joiner.on(", ").join(errorLogUrls));
             row.add(otherMsg);
+            row.add(userIdentity.getQualifiedUser());
             row.add(comment);
             return row;
         } finally {

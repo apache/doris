@@ -45,7 +45,7 @@ import java.util.Map;
 public class LoadManagerTest {
     private LoadManager loadManager;
     private final String fieldName = "idToLoadJob";
-    private UserIdentity userInfo = new UserIdentity("root", "localhost");
+    private UserIdentity userInfo = UserIdentity.createAnalyzedUserIdentWithIp("root", "localhost");
 
     @Before
     public void setUp() throws Exception {

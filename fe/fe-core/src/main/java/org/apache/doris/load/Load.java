@@ -1404,8 +1404,6 @@ public class Load {
                 jobInfo.add(loadJob.getId());
                 // label
                 jobInfo.add(label);
-                // user
-                jobInfo.add(loadJob.getUser());
                 // state
                 jobInfo.add(state.name());
 
@@ -1491,6 +1489,8 @@ public class Load {
                 jobInfo.add(loadJob.getTransactionId());
                 // error tablets(not used for hadoop load, just return an empty string)
                 jobInfo.add("");
+                // user
+                jobInfo.add(loadJob.getUser());
                 // comment
                 jobInfo.add(loadJob.getComment());
 

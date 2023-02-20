@@ -756,8 +756,6 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             jobInfo.add(id);
             // label
             jobInfo.add(label);
-            // user
-            jobInfo.add(userInfo.getQualifiedUser());
             // state
             jobInfo.add(state.name());
 
@@ -814,6 +812,9 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             jobInfo.add(transactionId);
             // error tablets
             jobInfo.add(errorTabletsToJson());
+            // user
+            jobInfo.add(userInfo.getQualifiedUser());
+            // comment
             jobInfo.add(comment);
             return jobInfo;
         } finally {
