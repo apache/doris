@@ -34,7 +34,6 @@ AggregateFunctionPtr create_agg_function_collect(bool distinct, const DataTypes&
 
 AggregateFunctionPtr create_aggregate_function_collect(const std::string& name,
                                                        const DataTypes& argument_types,
-                                                       const Array& parameters,
                                                        const bool result_is_nullable) {
     if (argument_types.size() != 1) {
         LOG(WARNING) << fmt::format("Illegal number {} of argument for aggregate function {}",

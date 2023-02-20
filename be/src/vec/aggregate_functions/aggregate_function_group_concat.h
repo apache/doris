@@ -103,8 +103,7 @@ class AggregateFunctionGroupConcat final
 public:
     AggregateFunctionGroupConcat(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<AggregateFunctionGroupConcatData,
-                                           AggregateFunctionGroupConcat<Impl>>(argument_types_,
-                                                                               {}) {}
+                                           AggregateFunctionGroupConcat<Impl>>(argument_types_) {}
 
     String get_name() const override { return "group_concat"; }
 

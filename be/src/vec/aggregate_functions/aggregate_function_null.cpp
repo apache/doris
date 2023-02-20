@@ -47,7 +47,7 @@ public:
 
     AggregateFunctionPtr transform_aggregate_function(
             const AggregateFunctionPtr& nested_function, const DataTypes& arguments,
-            const Array& params, const bool result_is_nullable) const override {
+            const bool result_is_nullable) const override {
         if (nested_function == nullptr) {
             return nullptr;
         }
@@ -61,24 +61,24 @@ public:
         }
 
         if (has_null_types) {
-            return std::make_shared<AggregateFunctionNothing>(arguments, params);
+            return std::make_shared<AggregateFunctionNothing>(arguments);
         }
 
         if (arguments.size() == 1) {
             if (result_is_nullable) {
                 return std::make_shared<AggregateFunctionNullUnary<true>>(nested_function,
-                                                                          arguments, params);
+                                                                          arguments);
             } else {
                 return std::make_shared<AggregateFunctionNullUnary<false>>(nested_function,
-                                                                           arguments, params);
+                                                                           arguments);
             }
         } else {
             if (result_is_nullable) {
                 return std::make_shared<AggregateFunctionNullVariadic<true>>(nested_function,
-                                                                             arguments, params);
+                                                                             arguments);
             } else {
                 return std::make_shared<AggregateFunctionNullVariadic<false>>(nested_function,
-                                                                              arguments, params);
+                                                                              arguments);
             }
         }
     }
@@ -86,11 +86,11 @@ public:
 
 void register_aggregate_function_combinator_null(AggregateFunctionSimpleFactory& factory) {
     AggregateFunctionCreator creator = [&](const std::string& name, const DataTypes& types,
-                                           const Array& params, const bool result_is_nullable) {
+                                           const bool result_is_nullable) {
         auto function_combinator = std::make_shared<AggregateFunctionCombinatorNull>();
         auto transform_arguments = function_combinator->transform_arguments(types);
-        auto nested_function = factory.get(name, transform_arguments, params);
-        return function_combinator->transform_aggregate_function(nested_function, types, params,
+        auto nested_function = factory.get(name, transform_arguments);
+        return function_combinator->transform_aggregate_function(nested_function, types,
                                                                  result_is_nullable);
     };
     factory.register_nullable_function_combinator(creator);
