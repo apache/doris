@@ -292,27 +292,38 @@ const uint8_t* RowGroupReader::_build_filter_map(ColumnPtr& sv, size_t num_rows,
             *can_filter_all = true;
         } else {
             DCHECK_EQ(column_size, num_rows);
-            const uint8_t* null_map_column = nullable_column->get_null_map_data().data();
-            ColumnUInt8* concrete_column = typeid_cast<ColumnUInt8*>(
-                    nullable_column->get_nested_column_ptr()->assume_mutable().get());
-            uint8_t* filter_data = concrete_column->get_data().data();
-            for (int i = 0; i < num_rows; ++i) {
-                (*_filter_ptr)[i] &= (!null_map_column[i]) & filter_data[i];
+            ColumnPtr nested_column = nullable_column->get_nested_column_ptr();
+
+            MutableColumnPtr mutable_holder = nested_column->assume_mutable();
+
+            ColumnUInt8* concrete_column = typeid_cast<ColumnUInt8*>(mutable_holder.get());
+
+            IColumn::Filter& filter = concrete_column->get_data();
+            const NullMap& null_map = nullable_column->get_null_map_data();
+
+            std::vector<FilterContext> filters;
+            filters.emplace_back(&null_map, true);
+            if (_position_delete_ctx.has_filter) {
+                filters.emplace_back(_pos_delete_filter_ptr.get(), false);
             }
-            filter_map = _filter_ptr->data();
+            _merge_filter(filter, filters);
+            filter_map = filter.data();
         }
     } else if (auto* const_column = check_and_get_column<ColumnConst>(*sv)) {
         // filter all
         *can_filter_all = !const_column->get_bool(0);
     } else {
-        const IColumn::Filter& filter =
-                assert_cast<const doris::vectorized::ColumnVector<UInt8>&>(*sv).get_data();
+        MutableColumnPtr mutable_holder = sv->assume_mutable();
 
-        auto* __restrict filter_data = filter.data();
-        const size_t size = filter.size();
-        for (size_t i = 0; i < size; ++i) {
-            (*_filter_ptr)[i] &= filter_data[i];
+        ColumnUInt8* mutable_filter_column = typeid_cast<ColumnUInt8*>(mutable_holder.get());
+
+        IColumn::Filter& filter = mutable_filter_column->get_data();
+
+        std::vector<FilterContext> filters;
+        if (_position_delete_ctx.has_filter) {
+            filters.emplace_back(_pos_delete_filter_ptr.get(), false);
         }
+        _merge_filter(filter, filters);
         filter_map = filter.data();
     }
     return filter_map;
@@ -437,11 +448,12 @@ Status RowGroupReader::_read_empty_batch(size_t batch_size, size_t* read_rows, b
 }
 
 Status RowGroupReader::_build_pos_delete_filter(size_t read_rows) {
-    _filter_ptr.reset(new IColumn::Filter(read_rows, 1));
     if (!_position_delete_ctx.has_filter) {
+        _pos_delete_filter_ptr.reset(nullptr);
         _total_read_rows += read_rows;
         return Status::OK();
     }
+    _pos_delete_filter_ptr.reset(new IColumn::Filter(read_rows, 1));
     while (_position_delete_ctx.index < _position_delete_ctx.end_index) {
         const int64_t delete_row_index_in_row_group =
                 _position_delete_ctx.delete_rows[_position_delete_ctx.index] -
@@ -459,7 +471,7 @@ Status RowGroupReader::_build_pos_delete_filter(size_t read_rows) {
                     _total_read_rows += read_rows;
                     return Status::OK();
                 }
-                (*_filter_ptr)[index] = 0;
+                (*_pos_delete_filter_ptr)[index] = 0;
                 ++_position_delete_ctx.index;
                 break;
             } else { // delete_row >= range.last_row
@@ -496,15 +508,22 @@ Status RowGroupReader::_filter_block(Block* block, const ColumnPtr filter_column
                     "Illegal type {} of column for filter. Must be UInt8 or Nullable(UInt8).",
                     filter_column->get_name());
         }
-        auto* __restrict null_map = nullable_column->get_null_map_data().data();
         IColumn::Filter& filter = concrete_column->get_data();
-        auto* __restrict filter_data = filter.data();
 
-        const size_t size = filter.size();
-        for (size_t i = 0; i < size; ++i) {
-            (*_filter_ptr)[i] &= (!null_map[i]) & filter_data[i];
+        const NullMap& null_map = nullable_column->get_null_map_data();
+
+        std::vector<FilterContext> filters;
+        filters.emplace_back(&null_map, true);
+        if (_position_delete_ctx.has_filter) {
+            filters.emplace_back(_pos_delete_filter_ptr.get(), false);
         }
-        RETURN_IF_ERROR(_filter_block_internal(block, columns_to_filter));
+        if (_merge_filter(filter, filters)) {
+            RETURN_IF_ERROR(_filter_block_internal(block, columns_to_filter, filter));
+        } else {
+            for (auto& col : columns_to_filter) {
+                std::move(*block->get_by_position(col).column).assume_mutable()->clear();
+            }
+        }
     } else if (auto* const_column = check_and_get_column<ColumnConst>(*filter_column)) {
         bool ret = const_column->get_bool(0);
         if (!ret) {
@@ -513,33 +532,85 @@ Status RowGroupReader::_filter_block(Block* block, const ColumnPtr filter_column
             }
         }
     } else {
-        const IColumn::Filter& filter =
-                assert_cast<const doris::vectorized::ColumnVector<UInt8>&>(*filter_column)
-                        .get_data();
-
-        auto* __restrict filter_data = filter.data();
-        const size_t size = filter.size();
-        for (size_t i = 0; i < size; ++i) {
-            (*_filter_ptr)[i] &= filter_data[i];
+        MutableColumnPtr mutable_holder =
+                filter_column->use_count() == 1
+                        ? filter_column->assume_mutable()
+                        : filter_column->clone_resized(filter_column->size());
+        ColumnUInt8* mutable_filter_column = typeid_cast<ColumnUInt8*>(mutable_holder.get());
+        if (!mutable_filter_column) {
+            return Status::InvalidArgument(
+                    "Illegal type {} of column for filter. Must be UInt8 or Nullable(UInt8).",
+                    filter_column->get_name());
         }
-        RETURN_IF_ERROR(_filter_block_internal(block, columns_to_filter));
+
+        IColumn::Filter& filter = mutable_filter_column->get_data();
+
+        std::vector<FilterContext> filters;
+        if (_position_delete_ctx.has_filter) {
+            filters.emplace_back(_pos_delete_filter_ptr.get(), false);
+        }
+        if (_merge_filter(filter, filters)) {
+            RETURN_IF_ERROR(_filter_block_internal(block, columns_to_filter, filter));
+        } else {
+            for (auto& col : columns_to_filter) {
+                std::move(*block->get_by_position(col).column).assume_mutable()->clear();
+            }
+        }
     }
     Block::erase_useless_column(block, column_to_keep);
     return Status::OK();
 }
 
+bool RowGroupReader::_merge_filter(IColumn::Filter& to_filter,
+                                   std::vector<FilterContext>& from_filters) {
+    auto* __restrict to_filter_data = to_filter.data();
+    for (auto& filter_ctx : from_filters) {
+        auto* filter = filter_ctx.filter;
+        auto* __restrict filter_data = filter->data();
+        size_t count = filter->size() - simd::count_zero_num((int8_t*)filter_data, filter->size());
+        if (!filter_ctx.reverse) {
+            if (count == 0) { // all zero
+                return false;
+            } else if (count == filter->size()) { // all one
+                continue;
+            } else {
+                const size_t size = filter->size();
+                for (size_t i = 0; i < size; ++i) {
+                    to_filter_data[i] &= filter_data[i];
+                }
+            }
+        } else {
+            if (count == filter->size()) { // all zero
+                return false;
+            } else if (count == 0) { // all one
+                continue;
+            } else {
+                const size_t size = filter->size();
+                for (size_t i = 0; i < size; ++i) {
+                    to_filter_data[i] &= (!filter_data[i]);
+                }
+            }
+        }
+    }
+    return true;
+}
+
 Status RowGroupReader::_filter_block(Block* block, int column_to_keep,
                                      const std::vector<uint32_t>& columns_to_filter) {
-    RETURN_IF_ERROR(_filter_block_internal(block, columns_to_filter));
+    if (_pos_delete_filter_ptr) {
+        RETURN_IF_ERROR(
+                _filter_block_internal(block, columns_to_filter, (*_pos_delete_filter_ptr)));
+    }
     Block::erase_useless_column(block, column_to_keep);
 
     return Status::OK();
 }
 
 Status RowGroupReader::_filter_block_internal(Block* block,
-                                              const std::vector<uint32_t>& columns_to_filter) {
-    size_t count = _filter_ptr->size() -
-                   simd::count_zero_num((int8_t*)_filter_ptr->data(), _filter_ptr->size());
+                                              const std::vector<uint32_t>& columns_to_filter,
+                                              const IColumn::Filter& filter) {
+    size_t filter_size = filter.size();
+    size_t count = filter_size - simd::count_zero_num((int8_t*)filter.data(), filter_size);
     if (count == 0) {
         for (auto& col : columns_to_filter) {
             std::move(*block->get_by_position(col).column).assume_mutable()->clear();
@@ -548,7 +619,7 @@ Status RowGroupReader::_filter_block_internal(Block* block,
         for (auto& col : columns_to_filter) {
             if (block->get_by_position(col).column->size() != count) {
                 block->get_by_position(col).column =
-                        block->get_by_position(col).column->filter(*_filter_ptr, count);
+                        block->get_by_position(col).column->filter(filter, count);
             }
         }
     }
