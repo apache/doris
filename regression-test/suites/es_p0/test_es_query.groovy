@@ -37,6 +37,7 @@ suite("test_es_query", "p0") {
                 "elasticsearch.keyword_sniff"="true"
             );
         """
+
         // test new create catalog syntax
         sql """create resource if not exists es7_resource properties(
             "type"="es",
