@@ -578,14 +578,14 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     tablet_meta_pb->set_enable_unique_key_merge_on_write(_enable_unique_key_merge_on_write);
 
     if (_enable_unique_key_merge_on_write) {
-        std::set<RowsetId> rs_ids;
-        for (const auto& rowset : _rs_metas) {
-            rs_ids.insert(rowset->rowset_id());
+        std::set<RowsetId> stale_rs_ids;
+        for (const auto& rowset : _stale_rs_metas) {
+            stale_rs_ids.insert(rowset->rowset_id());
         }
         DeleteBitmapPB* delete_bitmap_pb = tablet_meta_pb->mutable_delete_bitmap();
         for (auto& [id, bitmap] : delete_bitmap().snapshot().delete_bitmap) {
             auto& [rowset_id, segment_id, ver] = id;
-            if (rs_ids.count(rowset_id) == 0) {
+            if (stale_rs_ids.count(rowset_id) != 0) {
                 continue;
             }
             delete_bitmap_pb->add_rowset_ids(rowset_id.to_string());
