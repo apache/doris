@@ -555,7 +555,8 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                 }
                 case TYPE_SMALLINT: {
                     int16_t val;
-                    RETURN_IF_ERROR(get_int_value<int16_t>(sub_col, sub_type, &val, pure_doc_value));
+                    RETURN_IF_ERROR(
+                            get_int_value<int16_t>(sub_col, sub_type, &val, pure_doc_value));
                     array.push_back(val);
                     break;
                 }
@@ -567,25 +568,29 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                 }
                 case TYPE_BIGINT: {
                     int64_t val;
-                    RETURN_IF_ERROR(get_int_value<int64_t>(sub_col, sub_type, &val, pure_doc_value));
+                    RETURN_IF_ERROR(
+                            get_int_value<int64_t>(sub_col, sub_type, &val, pure_doc_value));
                     array.push_back(val);
                     break;
                 }
                 case TYPE_LARGEINT: {
                     __int128 val;
-                    RETURN_IF_ERROR(get_int_value<__int128>(sub_col, sub_type, &val, pure_doc_value));
+                    RETURN_IF_ERROR(
+                            get_int_value<__int128>(sub_col, sub_type, &val, pure_doc_value));
                     array.push_back(val);
                     break;
                 }
                 case TYPE_FLOAT: {
                     float val;
-                    RETURN_IF_ERROR(get_float_value<float>(sub_col, sub_type, &val, pure_doc_value));
+                    RETURN_IF_ERROR(
+                            get_float_value<float>(sub_col, sub_type, &val, pure_doc_value));
                     array.push_back(val);
                     break;
                 }
                 case TYPE_DOUBLE: {
                     double val;
-                    RETURN_IF_ERROR(get_float_value<double>(sub_col, sub_type, &val, pure_doc_value));
+                    RETURN_IF_ERROR(
+                            get_float_value<double>(sub_col, sub_type, &val, pure_doc_value));
                     array.push_back(val);
                     break;
                 }
@@ -758,8 +763,8 @@ uint32_t ScrollParser::get_datev2_int(const rapidjson::Value& col, bool is_date_
         (!is_date_str && !dt_slot.from_unixtime(col.GetInt64() / 1000, "+08:00"))) {
         RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, TYPE_DATEV2);
     }
-    return binary_cast<
-            doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>, uint32_t>(
+    return binary_cast<doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>,
+                       uint32_t>(
             *reinterpret_cast<vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(
                     &dt_slot));
 }
@@ -772,8 +777,7 @@ uint64_t ScrollParser::get_datetimev2_int(const rapidjson::Value& col, bool is_d
         (!is_date_str && !dt_slot.from_unixtime(col.GetInt64() / 1000, "+08:00"))) {
         RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, TYPE_DATETIMEV2);
     }
-    return binary_cast<
-            vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>, uint64_t>(
+    return binary_cast<vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>, uint64_t>(
             *reinterpret_cast<vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(
                     &dt_slot));
 }
