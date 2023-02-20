@@ -28,6 +28,10 @@ feHttpAddress = "172.19.0.2:8131"
 feHttpUser = "root"
 feHttpPassword = ""
 
+beHttpAddress = "127.0.0.1:8161"
+beAddress = "127.0.0.1"
+brpcPort = "8161"
+
 // set DORIS_HOME by system properties
 // e.g. java -DDORIS_HOME=./
 suitePath = "${DORIS_HOME}/regression-test/suites"

@@ -50,66 +50,72 @@ def doGet(uri) {
     return conn
 }
 
-suite("test_check_rpc_channel") {
+suite("test_be_http") {
+    def tableName = "test_be_http"
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+    sql """ CREATE TABLE IF NOT EXISTS ${tableName} (c1 int) DISTRIBUTED BY HASH(c1) PROPERTIES('replication_num'='1')  """
+    for (i in 0..<10) {
+        sql """ INSERT INTO ${tableName} (c1) VALUES (${i}) """
+    }
+    // fetch tablet_id and schema_hash for testing
+    def tabletsInfo = sql """ SHOW TABLETS FROM test_be_http """
+    def tabletId = tabletsInfo[0][0]
+    def schemaHash = tabletsInfo[0][3]
+    def version = tabletsInfo[0][4]
+
+    //test_check_rpc_channel
     def uri = "/api/check_rpc_channel/" + context.config.otherConfigs.get("beAddress") + "/" + context.config.otherConfigs.get("brpcPort") + "/1024000"
     def conn = doGet(uri)
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
-}
 
-suite("test_reset_rpc_channel") {
-    def conn = doGet("/api/reset_rpc_channel/all")
-    assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
-}
-
-suite("test_check_tablet_segment") {
-    def conn = doPost("/api/check_tablet_segment_lost?repair=true", null)
-    assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
-}
-
-suite("test_check_sum") {
-    def conn = doGet("/api/checksum?tablet_id=12562&schema_hash=1296025096&version=1")
-    assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
-}
-
-suite("test_compaction_action") {
-    def conn = doGet("/api/compaction/run_status")
+    //test_reset_rpc_channel
+    conn = doGet("/api/reset_rpc_channel/all")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
-    conn = doGet("/api/compaction/show?tablet_id=12562")
+    //test_check_tablet_segment
+    conn = doPost("/api/check_tablet_segment_lost?repair=true", null)
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
-    conn = doPost("/api/compaction/run?tablet_id=12562&compact_type=cumulative")
+    //test_checksum
+    conn = doGet("/api/checksum?tablet_id=${tabletId}&schema_hash=${schemaHash}&version=${version}")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
-    conn = doGet("/api/compaction/run_status?tablet_id=12562")
-    assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
-}
 
-suite("test_config") {
-    def conn = doGet("/api/show_config")
+    //test_compaction
+    conn = doGet("/api/compaction/run_status")
+    assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
+
+    conn = doGet("/api/compaction/show?tablet_id=${tabletId}")
+    assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
+
+    conn = doPost("/api/compaction/run?tablet_id=${tabletId}&compact_type=cumulative")
+    assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
+
+    conn = doGet("/api/compaction/run_status?tablet_id=${tabletId}")
+    assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
+
+
+    //test_config
+    conn = doGet("/api/show_config")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
     conn = doPost("/api/update_config?&persist=false&slave_replica_writer_rpc_timeout_sec=90")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
-}
 
-suite("test_health") {
-    def conn = doGet("/api/health")
+    //test_health
+    conn = doGet("/api/health")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
-}
 
-suite("test_jeprofile") {
-    def conn = doGet("/jeheap/dump")
+    //test_jeprofile
+    conn = doGet("/jeheap/dump")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
-}
 
-suite("test_meta") {
-    def conn = doGet("/api/meta/header/12562")
+    //test_meta
+    conn = doGet("/api/meta/header/${tabletId}")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
-}
 
-suite("test_metrics") {
-    def conn = doGet("/metrics?type=core")
+    //test_metrics
+    conn = doGet("/metrics?type=core")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
     conn = doGet("/metrics?type=json?with_tablet=true")
@@ -117,15 +123,10 @@ suite("test_metrics") {
 
     conn = doGet("/metrics?with_tablet=false")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
-}
 
-suite("test_pad_rowset") {
-    def conn = doPost("/api/pad_rowset?tablet_id=12562&start_version=1&end_version=2")
-    assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
-}
 
-suite("test_pprof") {
-    def conn = doGet("/api/pprof/heap")
+    //test_pprof
+    conn = doGet("/api/pprof/heap")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
     conn = doGet("/api/pprof/growth")
@@ -142,43 +143,37 @@ suite("test_pprof") {
 
     conn = doPost("/api/pprof/symbol")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
-}
 
-suite("test_reload_tablet") {
-    //FIXME: certainly failed test
-    def conn = doGet("/api/reload_tablet")
+
+    //test_snapshot
+    conn = doGet("/api/snapshot?tablet_id=${tabletId}&schema_hash=${schemaHash}")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
-}
 
-suite("test_restore_tablet") {
-    //FIXME: certainly failed test
-    def conn = doPost("/api/restore_tablet?tablet_id=12562&schema_hash=1296025096")
+    //test_reset_rpc_channel
+    conn = doGet("/api/reset_rpc_channel/all")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
-}
 
-suite("test_reset_rpc_channel") {
-    def conn = doGet("/api/reset_rpc_channel/all")
+    //test_distribution
+    conn = doGet("/api/tablets_distribution?group_by=partition&partition_id=1")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
-}
 
-suite("test_snapshot") {
-    def conn = doGet("/api/snapshot?tablet_id=12560&schema_hash=1296025096")
+    //test_tablets_info
+    conn = doGet("/tablets_json")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
-}
 
-
-
-suite("test_distribution") {
-    def conn = doGet("/api/tablets_distribution?group_by=partition&partition_id=1")
+    //test_be_info
+    conn = doGet("/api/be_version_info")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
-}
 
-suite("test_tablets_info") {
-    def conn = doGet("/tablets_json")
+    def partitionInfo = sql """ SHOW PARTITIONS FROM ${tableName} """
+    def partitionId = partitionInfo[0][0]
+    conn = doGet("/api/tablets_distribution?group_by=partition&partition_id=${partitionId}")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
-}
 
-suite("test_be_version") {
-    def conn = doGet("/api/be_version_info")
+    //test_pad_rowset
+    conn = doPost("/api/pad_rowset?tablet_id=${tabletId}&start_version=1&end_version=2")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
+
+
+    sql """ DROP TABLE IF EXISTS ${tableName} """
 }

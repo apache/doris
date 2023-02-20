@@ -94,7 +94,6 @@ Status PadRowsetHandler::_pad_rowset(TabletSharedPtr tablet, const Version& vers
     ctx.rowset_state = VISIBLE;
     ctx.segments_overlap = NONOVERLAPPING;
     ctx.tablet_schema = tablet->tablet_schema();
-    ctx.oldest_write_timestamp = UnixSeconds();
     ctx.newest_write_timestamp = UnixSeconds();
     RETURN_IF_ERROR(tablet->create_rowset_writer(ctx, &writer));
     auto rowset = writer->build();
