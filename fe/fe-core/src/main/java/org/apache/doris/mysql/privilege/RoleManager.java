@@ -192,6 +192,12 @@ public class RoleManager implements Writable {
         return roles;
     }
 
+    public void rectifyPrivs() {
+        for (Map.Entry<String, Role> entry : roles.entrySet()) {
+            entry.getValue().rectifyPrivs();
+        }
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder("Roles: ");

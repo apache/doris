@@ -532,6 +532,41 @@ public class Role implements Writable, GsonPostProcessable {
         tablePrivTable.revoke(entry, false, true);
     }
 
+    /**
+     * eg:
+     * Before, tblPatternToPrivs has 1 entry: ctl.*.* -> SELECT_PRIV, ADMIN_PRIV, ALTER_PRIV
+     * After, tblPatternToPrivs has 2 entries:
+     * *.*.* -> ADMIN_PRIV
+     * ctl.*.* -> SELECT_PRIV, ALTER_PRIV
+     */
+    public void rectifyPrivs() {
+        PrivBitSet modifiedGlobalPrivs = new PrivBitSet();
+        for (Map.Entry<TablePattern, PrivBitSet> entry : tblPatternToPrivs.entrySet()) {
+            TablePattern tblPattern = entry.getKey();
+            PrivBitSet privs = entry.getValue();
+            if (privs.containsPrivs(Privilege.ADMIN_PRIV, Privilege.NODE_PRIV, Privilege.USAGE_PRIV)
+                    && tblPattern.getPrivLevel() != PrivLevel.GLOBAL) {
+                LOG.info("retify privs: {} -> {}", tblPattern, privs);
+                PrivBitSet copiedPrivs = privs.copy();
+                copiedPrivs.and(PrivBitSet.of(Privilege.ADMIN_PRIV, Privilege.NODE_PRIV, Privilege.USAGE_PRIV));
+                modifiedGlobalPrivs.or(copiedPrivs);
+                // remove these privs from non global table pattern's priv set
+                privs.unset(Privilege.USAGE_PRIV.getIdx());
+                privs.unset(Privilege.NODE_PRIV.getIdx());
+                privs.unset(Privilege.ADMIN_PRIV.getIdx());
+
+            }
+        }
+        if (!modifiedGlobalPrivs.isEmpty()) {
+            PrivBitSet privBitSet = tblPatternToPrivs.get(TablePattern.ALL);
+            if (privBitSet == null) {
+                tblPatternToPrivs.put(TablePattern.ALL, modifiedGlobalPrivs);
+            } else {
+                privBitSet.or(modifiedGlobalPrivs);
+            }
+        }
+    }
+
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
