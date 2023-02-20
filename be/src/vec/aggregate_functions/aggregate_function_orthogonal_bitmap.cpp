@@ -37,11 +37,11 @@ AggregateFunctionPtr create_aggregate_function_orthogonal(const std::string& nam
         return std::make_shared<AggFunctionOrthBitmapFunc<Impl<StringRef>>>(argument_types);
     } else {
         const IDataType& argument_type = *argument_types[1];
-        AggregateFunctionPtr res(create_with_numeric_type<AggFunctionOrthBitmapFunc, Impl>(
-                argument_type, argument_types));
+        WhichDataType which(*argument_types[1]);
 
-        WhichDataType which(argument_type);
-
+        AggregateFunctionPtr res(
+                creator_with_type_base<true, true, false, 1>::create<AggFunctionOrthBitmapFunc,
+                                                                     Impl>(argument_types));
         if (res) {
             return res;
         } else if (which.is_string_or_fixed_string()) {

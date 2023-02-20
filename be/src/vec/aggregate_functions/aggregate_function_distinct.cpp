@@ -49,12 +49,11 @@ public:
             return nullptr;
         }
 
-        AggregateFunctionPtr res;
         if (arguments.size() == 1) {
-            res.reset(create_with_numeric_type<AggregateFunctionDistinct,
-                                               AggregateFunctionDistinctSingleNumericData>(
-                    *arguments[0], nested_function, arguments));
-
+            AggregateFunctionPtr res(
+                    creator_with_numeric_type::create<AggregateFunctionDistinct,
+                                                      AggregateFunctionDistinctSingleNumericData>(
+                            arguments, nested_function));
             if (res) {
                 return res;
             }
@@ -93,5 +92,6 @@ void register_aggregate_function_combinator_distinct(AggregateFunctionSimpleFact
                                                                  result_is_nullable);
     };
     factory.register_distinct_function_combinator(creator, DISTINCT_FUNCTION_PREFIX);
+    factory.register_distinct_function_combinator(creator, DISTINCT_FUNCTION_PREFIX, true);
 }
 } // namespace doris::vectorized
