@@ -27,7 +27,6 @@ namespace doris::vectorized {
 template <template <typename, typename> typename AggregateFunction>
 AggregateFunctionPtr create_aggregate_function_sequence_base(const std::string& name,
                                                              const DataTypes& argument_types,
-                                                             const Array& parameters,
                                                              const bool result_is_nullable) {
     const auto arg_count = argument_types.size();
 

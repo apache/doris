@@ -566,7 +566,7 @@ public:
     AggregateFunctionSequenceBase(const DataTypes& arguments)
             : IAggregateFunctionDataHelper<
                       AggregateFunctionSequenceMatchData<DateValueType, NativeType, Derived>,
-                      Derived>(arguments, {}) {
+                      Derived>(arguments) {
         arg_count = arguments.size();
     }
 

@@ -75,9 +75,7 @@ static IAggregateFunction* create_aggregate_function_min_max_by_impl(
 template <template <typename, bool> class AggregateFunctionTemplate,
           template <typename, typename> class Data>
 static IAggregateFunction* create_aggregate_function_min_max_by(const String& name,
-                                                                const DataTypes& argument_types,
-                                                                const Array& parameters) {
-    assert_no_parameters(name, parameters);
+                                                                const DataTypes& argument_types) {
     assert_binary(name, argument_types);
 
     const DataTypePtr& value_arg_type = argument_types[0];
@@ -129,20 +127,18 @@ static IAggregateFunction* create_aggregate_function_min_max_by(const String& na
 
 AggregateFunctionPtr create_aggregate_function_max_by(const std::string& name,
                                                       const DataTypes& argument_types,
-                                                      const Array& parameters,
                                                       const bool result_is_nullable) {
-    return AggregateFunctionPtr(create_aggregate_function_min_max_by<AggregateFunctionsMinMaxBy,
-                                                                     AggregateFunctionMaxByData>(
-            name, argument_types, parameters));
+    return AggregateFunctionPtr(
+            create_aggregate_function_min_max_by<AggregateFunctionsMinMaxBy,
+                                                 AggregateFunctionMaxByData>(name, argument_types));
 }
 
 AggregateFunctionPtr create_aggregate_function_min_by(const std::string& name,
                                                       const DataTypes& argument_types,
-                                                      const Array& parameters,
                                                       const bool result_is_nullable) {
-    return AggregateFunctionPtr(create_aggregate_function_min_max_by<AggregateFunctionsMinMaxBy,
-                                                                     AggregateFunctionMinByData>(
-            name, argument_types, parameters));
+    return AggregateFunctionPtr(
+            create_aggregate_function_min_max_by<AggregateFunctionsMinMaxBy,
+                                                 AggregateFunctionMinByData>(name, argument_types));
 }
 
 void register_aggregate_function_min_max_by(AggregateFunctionSimpleFactory& factory) {

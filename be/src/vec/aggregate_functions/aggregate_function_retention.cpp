@@ -25,7 +25,6 @@ namespace doris::vectorized {
 
 AggregateFunctionPtr create_aggregate_function_retention(const std::string& name,
                                                          const DataTypes& argument_types,
-                                                         const Array& parameters,
                                                          const bool result_is_nullable) {
     return std::make_shared<AggregateFunctionRetention>(argument_types);
 }

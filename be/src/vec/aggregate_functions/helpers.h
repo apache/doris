@@ -62,13 +62,13 @@ static IAggregateFunction* create_with_numeric_type(const IDataType& argument_ty
 
 template <template <typename> class AggregateFunctionTemplate, typename... TArgs>
 static IAggregateFunction* create_with_numeric_type_null(const DataTypes& argument_types,
-                                                         const Array& params, TArgs&&... args) {
+                                                         TArgs&&... args) {
     WhichDataType which(argument_types[0]);
-#define DISPATCH(TYPE)                                                                             \
-    if (which.idx == TypeIndex::TYPE)                                                              \
-        return new AggregateFunctionNullUnaryInline<AggregateFunctionTemplate<TYPE>, true>(        \
-                new AggregateFunctionTemplate<TYPE>(std::forward<TArgs>(args)...), argument_types, \
-                params);
+#define DISPATCH(TYPE)                                                                      \
+    if (which.idx == TypeIndex::TYPE)                                                       \
+        return new AggregateFunctionNullUnaryInline<AggregateFunctionTemplate<TYPE>, true>( \
+                new AggregateFunctionTemplate<TYPE>(std::forward<TArgs>(args)...),          \
+                argument_types);
     FOR_NUMERIC_TYPES(DISPATCH)
 #undef DISPATCH
     return nullptr;
@@ -140,13 +140,13 @@ static IAggregateFunction* create_with_decimal_type(const IDataType& argument_ty
 
 template <template <typename> class AggregateFunctionTemplate, typename... TArgs>
 static IAggregateFunction* create_with_decimal_type_null(const DataTypes& argument_types,
-                                                         const Array& params, TArgs&&... args) {
+                                                         TArgs&&... args) {
     WhichDataType which(argument_types[0]);
-#define DISPATCH(TYPE)                                                                             \
-    if (which.idx == TypeIndex::TYPE)                                                              \
-        return new AggregateFunctionNullUnaryInline<AggregateFunctionTemplate<TYPE>, true>(        \
-                new AggregateFunctionTemplate<TYPE>(std::forward<TArgs>(args)...), argument_types, \
-                params);
+#define DISPATCH(TYPE)                                                                      \
+    if (which.idx == TypeIndex::TYPE)                                                       \
+        return new AggregateFunctionNullUnaryInline<AggregateFunctionTemplate<TYPE>, true>( \
+                new AggregateFunctionTemplate<TYPE>(std::forward<TArgs>(args)...),          \
+                argument_types);
     FOR_DECIMAL_TYPES(DISPATCH)
 #undef DISPATCH
     return nullptr;

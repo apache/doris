@@ -215,8 +215,7 @@ public:
     String get_name() const override { return Impl::name; }
 
     AggFunctionOrthBitmapFunc(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper<Impl, AggFunctionOrthBitmapFunc<Impl>>(argument_types_,
-                                                                                  {}),
+            : IAggregateFunctionDataHelper<Impl, AggFunctionOrthBitmapFunc<Impl>>(argument_types_),
               _argument_size(argument_types_.size()) {}
 
     DataTypePtr get_return_type() const override { return Impl::get_return_type(); }
