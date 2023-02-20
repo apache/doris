@@ -285,6 +285,8 @@ void JsonFunctions::get_parsed_paths(const std::vector<std::string>& path_exprs,
 Status JsonFunctions::extract_from_object(simdjson::ondemand::object& obj,
                                           const std::vector<JsonPath>& jsonpath,
                                           simdjson::ondemand::value* value) noexcept {
+// Return DataQualityError when it's a malformed json.
+// Otherwise the path was not found, due to array out of bound or not exist
 #define HANDLE_SIMDJSON_ERROR(err, msg)                                                        \
     do {                                                                                       \
         const simdjson::error_code& _err = err;                                                \
@@ -327,6 +329,7 @@ Status JsonFunctions::extract_from_object(simdjson::ondemand::object& obj,
                                   fmt::format("unable to find field: {}", col));
         }
 
+        // TODO support [*] which idex == -2
         if (index != -1) {
             // try to access tvalue as array.
             // If the index is beyond the length of array, simdjson::INDEX_OUT_OF_BOUNDS would be returned.

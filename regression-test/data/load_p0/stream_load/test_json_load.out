@@ -145,10 +145,17 @@
 
 -- !select14 --
 10	2345671	\N
+10	beijing	2345671
 20	2345672	\N
+20	shanghai	2345672
 30	2345673	\N
 40	2345674	\N
+40	shenzhen	2345674
 50	2345675	\N
+50	{"guangzhou":1,"code":2345675}	\N
+50	["guangzhou"]	2345675
+50	guangzhou	2345675
+50	{"guangzhou":1}	2345675
 200	changsha	3456789
 
 -- !select15 --
@@ -172,6 +179,5 @@
 -- !select17 --
 
 -- !select18 --
-1	xihu	2345671
 200	changsha	3456789
 

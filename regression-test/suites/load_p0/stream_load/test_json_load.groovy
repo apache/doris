@@ -358,13 +358,13 @@ suite("test_json_load", "p0") {
         create_test_table1.call(testTable)
         
         load_json_data.call('test_json_load_case10_2', '', 'true', 'json', 'id= id * 10', '',
-                            '$.item', '', 'true', 'invalid_json.json', false, 5)
+                            '$.item', '', 'false', 'invalid_json.json', false, 4)
 
         sql "sync"
         qt_select10 "select * from ${testTable} order by id"
 
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${testTable}")
+        // try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
 
     // case11: test json file which is unordered and no use json_path
@@ -444,18 +444,18 @@ suite("test_json_load", "p0") {
                             '$.item', '', 'true', 'nest_json.json')
 
         // invalid nest_json
-        load_json_data.call('test_json_load_case14_3', '', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
+        load_json_data.call('test_json_load_case14_3', '', 'true', 'json', 'id= id * 10', '[\"$.id\",  \"$.city\", \"$.code\"]',
                             '$.item', '', 'true', 'invalid_nest_json1.json', true) 
-        load_json_data.call('test_json_load_case14_4', '', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
-                            '$.item', '', 'true', 'invalid_nest_json2.json', false, 4) 
-        load_json_data.call('test_json_load_case14_5', '', 'true', 'json', 'id= id * 10', '[\"$.id\", \"$.code\"]',
+        load_json_data.call('test_json_load_case14_4', '', 'true', 'json', 'id= id * 10', '[\"$.id\",  \"$.city\", \"$.code\"]',
+                            '$.item', '', 'true', 'invalid_nest_json2.json', false, 7) 
+        load_json_data.call('test_json_load_case14_5', '', 'true', 'json', 'id= id * 10', '[\"$.id\",  \"$.city\", \"$.code\"]',
                             '$.item', '', 'true', 'invalid_nest_json3.json', true) 
 
         sql "sync"
-        qt_select14 "select * from ${testTable} order by id"
+        qt_select14 "select * from ${testTable} order by id, code, city"
 
     } finally {
-        try_sql("DROP TABLE IF EXISTS ${testTable}")
+        // try_sql("DROP TABLE IF EXISTS ${testTable}")
     }
 
     // case15: apply jsonpaths & exprs & json_root
@@ -518,9 +518,9 @@ suite("test_json_load", "p0") {
         load_json_data.call('test_json_load_case16_2', 'true', '', 'json', 'id, code, city',
                             '[\"$.id\", \"$.code\", \"$.city[2]\"]', '$.item', '', 'true', 'invalid_nest_json_array.json', true) 
         load_json_data.call('test_json_load_case16_2', 'true', '', 'json', 'id, code, city',
-                            '[\"$.id\", \"$.code\", \"$.city[2]\"]', '$.item', '', 'true', 'invalid_nest_json_array1.json', true) 
+                            '[\"$.id\", \"$.code\", \"$.city[100]\"]', '$.item', '', 'true', 'invalid_nest_json_array1.json', true) 
         load_json_data.call('test_json_load_case16_2', 'true', '', 'json', 'id, code, city',
-                            '[\"$.id\", \"$.code\", \"$.city[2]\"]', '$.item', '', 'true', 'invalid_nest_json_array2.json', true) 
+                            '[\"$.id\", \"$.code\", \"$.city\"]', '$.item', '', 'true', 'invalid_nest_json_array2.json', true) 
         load_json_data.call('test_json_load_case16_2', 'true', '', 'json', 'id, code, city',
                             '[\"$.id\", \"$.code\", \"$.city[2]\"]', '$.item', '', 'true', 'invalid_nest_json_array3.json', true) 
 
