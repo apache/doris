@@ -46,6 +46,7 @@ suite("test_es_query", "p0") {
             "enable_keyword_sniff"="true"
         );
         """
+
         sql """create resource if not exists es8_resource properties(
             "type"="es",
             "hosts"="http://127.0.0.1:$es_8_port",
