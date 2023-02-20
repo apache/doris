@@ -269,12 +269,14 @@ class Config {
         if (config.jdbcUrl == null) {
             //jdbcUrl needs parameter here. Refer to function: buildUrl(String dbName)
             String useSsl = random() > 0.5 ? "true" : "false"
+            useSsl = "true"
             String useSslConfig = "verifyServerCertificate=true&useSSL=" + useSsl + "&requireSSL=" + useSsl
             String tlsVersion = random() > 0.5 ? "TLSv1.2" : "TLSv1.3"
-            String tlsVersionConfig = "&enabledTLSProtocols="+tlsVersion
-            String keyStoreFile = "&trustCertificateKeyStoreUrl=file:/Users/lian/Work/certificate.p12&clientCertificateKeyStoreUrl=file:/Users/lian/Work/certificate.p12"
+            String tlsVersionConfig = "&enabledTLSProtocols=" + tlsVersion
+            String keyStoreFile = "file:regression-test/certificate.p12"
+            String keyStoreFileConfig = "&trustCertificateKeyStoreUrl=" + keyStoreFile + "&clientCertificateKeyStoreUrl=" + keyStoreFile
             String password = "&trustCertificateKeyStorePassword=doris&clientCertificateKeyStorePassword=doris"
-            config.jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&" + useSslConfig+tlsVersionConfig+keyStoreFile+password
+            config.jdbcUrl = "jdbc:mysql://127.0.0.1:9030/?useLocalSessionState=true&allowLoadLocalInfile=true&" + useSslConfig + tlsVersionConfig + keyStoreFileConfig + password
             log.info("Set jdbcUrl to '${config.jdbcUrl}' because not specify.".toString())
         }
 

@@ -46,8 +46,8 @@ public class MysqlSslContext {
     private String protocol;
     private ByteBuffer serverAppData;
     private ByteBuffer serverNetData;
-    private static final String keyStoreFile = "/Users/lian/Work/certificate.p12";
-    private static final String trustStoreFile = "/Users/lian/Work/certificate.p12";
+    private static final String keyStoreFile = "../../../regression-test/certificate.p12";
+    private static final String trustStoreFile = "../../../regression-test/certificate.p12";
     private ByteBuffer clientAppData;
     private ByteBuffer clientNetData;
 
