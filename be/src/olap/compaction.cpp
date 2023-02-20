@@ -424,9 +424,9 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
         // New loads are not blocked, so some keys of input rowsets might
         // be deleted during the time. We need to deal with delete bitmap
         // of incremental data later.
-        missed_rows += _tablet->calc_compaction_output_rowset_delete_bitmap(_input_rowsets, _rowid_conversion, 0,
-                                                             version.second + 1, &location_map,
-                                                             &output_rowset_delete_bitmap);
+        missed_rows += _tablet->calc_compaction_output_rowset_delete_bitmap(
+                _input_rowsets, _rowid_conversion, 0, version.second + 1, &location_map,
+                &output_rowset_delete_bitmap);
         RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
         location_map.clear();
         {

@@ -2568,7 +2568,7 @@ uint64_t Tablet::calc_compaction_output_rowset_delete_bitmap(
         uint64_t start_version, uint64_t end_version,
         std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,
         DeleteBitmap* output_rowset_delete_bitmap) {
-    uint64_t  missed_rows = 0;
+    uint64_t missed_rows = 0;
     RowLocation src;
     RowLocation dst;
     for (auto& rowset : input_rowsets) {
