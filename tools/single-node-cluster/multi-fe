@@ -168,7 +168,7 @@ function create_role_and_version() {
 	echo "${header}" | sed -n '/cluster_id/,/token/p' | sed '{s/cluster_id: /clusterId=/;s/token: /token=/;}' \
 		>"${meta_dir}/image/VERSION"
 
-	mysql_command "ALTER SYSTEM ADD FOLLOWER \"127.0.0.1:$((PORT + id))\"" >/dev/null 2>&1
+	mysql_command "ALTER SYSTEM ADD FOLLOWER \"127.0.0.1:$((PORT + id))\"" >/dev/null 2>&1 || true
 	cat >"${meta_dir}/image/ROLE" <<EOF
 role=FOLLOWER
 name=$(
