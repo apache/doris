@@ -87,6 +87,7 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params) 
     std::vector<bool> iterator_init_flag;
     std::vector<RowsetId> rowset_ids;
     std::vector<RowwiseIterator*>* segment_iters_ptr = read_params.segment_iters_ptr;
+    std::vector<RowwiseIterator*> segment_iters;
 
     if (!segment_iters_ptr) {
         RETURN_IF_ERROR(_get_segment_iterators(read_params, &segment_iters, &iterator_init_flag,

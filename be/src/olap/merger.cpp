@@ -112,7 +112,7 @@ Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
     }
 
     RETURN_NOT_OK_LOG(
-            dst_rowset_writer->flush(),
+            dst_rowset_writer->flush_by_merger(),
             "failed to flush rowset when merging rowsets of tablet " + tablet->full_name());
 
     return Status::OK();

@@ -1639,7 +1639,6 @@ void Tablet::_init_context_common_fields(RowsetWriterContext& context) {
     }
     context.data_dir = data_dir();
     context.enable_unique_key_merge_on_write = enable_unique_key_merge_on_write();
-    context.tablet = std::shared_ptr<Tablet>(this);
 }
 
 Status Tablet::create_rowset(const RowsetMetaSharedPtr& rowset_meta, RowsetSharedPtr* rowset) {
@@ -2091,7 +2090,7 @@ void Tablet::remove_unused_remote_files() {
                 if (UNLIKELY(end == std::string::npos)) {
                     return false;
                 }
-                return !!cooldowned_rowsets.count(path_str.substr(0, end)); 
+                return !!cooldowned_rowsets.count(path_str.substr(0, end));
             }
             if (StringPiece(path_str).ends_with(".idx")) {
                 // extract rowset id. filename format: {rowset_id}_{segment_num}_{index_id}.idx

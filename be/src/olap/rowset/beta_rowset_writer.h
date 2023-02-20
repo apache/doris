@@ -57,6 +57,8 @@ public:
 
     Status flush() override;
 
+    Status flush_by_merger() override;
+
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
     Status flush_single_memtable(const vectorized::Block* block, int64_t* flush_size) override;
@@ -148,6 +150,7 @@ protected:
     std::shared_ptr<RowsetMeta> _rowset_meta;
 
     std::atomic<int32_t> _num_segment;
+    std::atomic<int32_t> _num_flushed_segment;
     std::atomic<int32_t> _segcompacted_point; // segemnts before this point have
                                               // already been segment compacted
     std::atomic<int32_t> _num_segcompacted;   // index for segment compaction

@@ -47,6 +47,7 @@ class StorageEngine;
 BetaRowsetWriter::BetaRowsetWriter()
         : _rowset_meta(nullptr),
           _num_segment(0),
+          _num_flushed_segment(0),
           _segcompacted_point(0),
           _num_segcompacted(0),
           _segment_writer(nullptr),
@@ -514,7 +515,8 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
     if (_segcompaction_status.load() != OK) {
         status = Status::Error<SEGCOMPACTION_FAILED>();
     } else if ((_num_segment - _segcompacted_point) >=
-               config::segcompaction_threshold_segment_num) {
+               config::segcompaction_threshold_segment_num
+               && _num_segment == _num_flushed_segment) /* no segment in the middle is flushing */ {
         SegCompactionCandidatesSharedPtr segments = std::make_shared<SegCompactionCandidates>();
         status = _get_segcompaction_candidates(segments, false);
         if (LIKELY(status.ok()) && (segments->size() > 0)) {
@@ -634,15 +636,23 @@ Status BetaRowsetWriter::flush() {
     return Status::OK();
 }
 
+Status BetaRowsetWriter::flush_by_merger() {
+    if (_segment_writer != nullptr) {
+        RETURN_NOT_OK(_flush_segment_writer(&_segment_writer));
+    }
+    return Status::OK();
+}
+
 Status BetaRowsetWriter::flush_single_memtable(const vectorized::Block* block, int64* flush_size) {
     if (block->rows() == 0) {
         return Status::OK();
     }
-    RETURN_NOT_OK(_segcompaction_if_necessary());
+
     std::unique_ptr<segment_v2::SegmentWriter> writer;
     RETURN_NOT_OK(_create_segment_writer(&writer, block));
     RETURN_NOT_OK(_add_block(block, &writer));
     RETURN_NOT_OK(_flush_segment_writer(&writer, flush_size));
+    RETURN_NOT_OK(_segcompaction_if_necessary());
     return Status::OK();
 }
 
@@ -805,7 +815,10 @@ void BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_met
         segments_encoded_key_bounds.push_back(*itr);
     }
     if (!_is_segment_overlapping(segments_encoded_key_bounds)) {
+        LOG(WARNING) << "OOXXOO NONOVERLAPPING";
         rowset_meta->set_segments_overlap(NONOVERLAPPING);
+    } else {
+        LOG(WARNING) << "OOXXOO OVERLAPPING";
     }
 
     rowset_meta->set_num_segments(num_seg);
@@ -934,6 +947,10 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
         LOG(WARNING) << "failed to finalize segment: " << s.to_string();
         return Status::Error<WRITER_DATA_WRITE_ERROR>();
     }
+    VLOG_DEBUG << "tablet_id:" << _context.tablet_id
+               << " flushing filename: " << (*writer)->get_data_dir()->path()
+               << " rowset_id:" << _context.rowset_id << " segment num:" << _num_segment;
+
     KeyBoundsPB key_bounds;
     Slice min_key = (*writer)->min_encoded_key();
     Slice max_key = (*writer)->max_encoded_key();
@@ -961,6 +978,7 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
     if (flush_size) {
         *flush_size = segment_size + index_size;
     }
+    _num_flushed_segment.fetch_add(1);
     return Status::OK();
 }
 
@@ -975,13 +993,6 @@ Status BetaRowsetWriter::_flush_segment_writer_for_segcompaction(
         LOG(WARNING) << "failed to finalize segment: " << s.to_string();
         return Status::Error<WRITER_DATA_WRITE_ERROR>();
     }
-
-    // KeyBoundsPB key_bounds;
-    Slice min_key = (*writer)->min_encoded_key();
-    Slice max_key = (*writer)->max_encoded_key();
-    DCHECK_LE(min_key.compare(max_key), 0);
-    // key_bounds.set_min_key(min_key.to_string());
-    // key_bounds.set_max_key(max_key.to_string());
 
     Statistics segstat;
     segstat.row_num = row_num;
