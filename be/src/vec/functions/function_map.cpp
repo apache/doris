@@ -18,11 +18,11 @@
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_const.h"
 #include "vec/columns/column_map.h"
-#include "vec/data_types/get_least_supertype.h"
 #include "vec/data_types/data_type.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_number.h"
+#include "vec/data_types/get_least_supertype.h"
 #include "vec/functions/array/function_array_index.h"
 #include "vec/functions/function.h"
 #include "vec/functions/function_helpers.h"
@@ -61,7 +61,7 @@ public:
         DataTypePtr val_type;
         get_least_supertype(key_types, &key_type);
         get_least_supertype(val_types, &val_type);
-        
+
         return std::make_shared<DataTypeMap>(key_type, val_type);
     }
 
@@ -94,8 +94,8 @@ public:
         for (size_t i = 0; i < num_element; ++i) {
             auto& col = block.get_by_position(arguments[i]).column;
             col = col->convert_to_full_column_if_const();
-            bool is_nullable = i % 2 == 0 ? 
-                result_col_map_keys_data.is_nullable() : result_col_map_vals_data.is_nullable();
+            bool is_nullable = i % 2 == 0 ? result_col_map_keys_data.is_nullable()
+                                          : result_col_map_vals_data.is_nullable();
             if (is_nullable && !col->is_nullable()) {
                 col = ColumnNullable::create(col, ColumnUInt8::create(col->size(), 0));
             }
@@ -105,8 +105,10 @@ public:
         ColumnArray::Offset64 offset = 0;
         for (size_t row = 0; row < input_rows_count; ++row) {
             for (size_t i = 0; i < num_element; i += 2) {
-                result_col_map_keys_data.insert_from(*block.get_by_position(arguments[i]).column, row);
-                result_col_map_vals_data.insert_from(*block.get_by_position(arguments[i + 1]).column, row);
+                result_col_map_keys_data.insert_from(*block.get_by_position(arguments[i]).column,
+                                                     row);
+                result_col_map_vals_data.insert_from(
+                        *block.get_by_position(arguments[i + 1]).column, row);
             }
             offset += num_element / 2;
             result_col_map_keys_offsets[row] = offset;
@@ -157,7 +159,7 @@ public:
     }
 };
 
-template<bool is_key>
+template <bool is_key>
 class FunctionMapContains : public IFunction {
 public:
     static constexpr auto name = is_key ? "map_contains_key" : "map_contains_value";
@@ -173,7 +175,7 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DCHECK(is_map(arguments[0]))
                 << "first argument for function: " << name << " should be DataTypeMap";
-        
+
         if (arguments[0]->is_nullable()) {
             return make_nullable(std::make_shared<DataTypeNumber<UInt8>>());
         } else {
@@ -193,25 +195,23 @@ public:
                                         block.get_by_position(arguments[0]).type->get_name());
         }
 
-        const auto datatype_map = 
-            static_cast<const DataTypeMap*>(block.get_by_position(arguments[0]).type.get());
-        if constexpr(is_key) {
+        const auto datatype_map =
+                static_cast<const DataTypeMap*>(block.get_by_position(arguments[0]).type.get());
+        if constexpr (is_key) {
             block.get_by_position(arguments[0]) = {
-                col_map->get_keys_ptr(),
-                std::make_shared<DataTypeArray>(datatype_map->get_key_type()),
-                block.get_by_position(arguments[0]).name + ".keys"
-            };
+                    col_map->get_keys_ptr(),
+                    std::make_shared<DataTypeArray>(datatype_map->get_key_type()),
+                    block.get_by_position(arguments[0]).name + ".keys"};
         } else {
             block.get_by_position(arguments[0]) = {
-                col_map->get_values_ptr(),
-                std::make_shared<DataTypeArray>(datatype_map->get_value_type()),
-                block.get_by_position(arguments[0]).name + ".values"
-            };
+                    col_map->get_values_ptr(),
+                    std::make_shared<DataTypeArray>(datatype_map->get_value_type()),
+                    block.get_by_position(arguments[0]).name + ".values"};
         }
 
         RETURN_IF_ERROR(
-            array_contains.execute_impl(context, block, arguments, result, input_rows_count));
-        
+                array_contains.execute_impl(context, block, arguments, result, input_rows_count));
+
         // restore original argument 0
         block.get_by_position(arguments[0]) = orig_arg0;
         return Status::OK();
@@ -237,7 +237,7 @@ private:
 //     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
 //         DCHECK(is_map(arguments[0]))
 //                 << "first argument for function: " << name << " should be DataTypeMap";
-        
+
 //         if (arguments[0]->is_nullable()) {
 //             return make_nullable(std::make_shared<DataTypeNumber<UInt8>>());
 //         } else {
@@ -257,7 +257,7 @@ private:
 //                                         block.get_by_position(arguments[0]).type->get_name());
 //         }
 
-//         const auto datatype_map = 
+//         const auto datatype_map =
 //             static_cast<const DataTypeMap*>(block.get_by_position(arguments[0]).type.get());
 //         if constexpr(is_key) {
 //             block.get_by_position(arguments[0]) = {
@@ -275,14 +275,14 @@ private:
 
 //         RETURN_IF_ERROR(
 //             array_contains.execute_impl(context, block, arguments, result, input_rows_count));
-        
+
 //         // restore original argument 0
 //         block.get_by_position(arguments[0]) = orig_arg0;
 //         return Status::OK();
 //     }
 // };
 
-template<bool is_key>
+template <bool is_key>
 class FunctionMapEntries : public IFunction {
 public:
     static constexpr auto name = is_key ? "map_keys" : "map_values";
@@ -298,8 +298,7 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         DCHECK(is_map(arguments[0]))
                 << "first argument for function: " << name << " should be DataTypeMap";
-        const auto datatype_map = 
-            static_cast<const DataTypeMap*>(arguments[0].get());
+        const auto datatype_map = static_cast<const DataTypeMap*>(arguments[0].get());
         if (is_key) {
             return std::make_shared<DataTypeArray>(datatype_map->get_key_type());
         } else {
@@ -317,7 +316,7 @@ public:
                                         block.get_by_position(arguments[0]).type->get_name());
         }
 
-        if constexpr(is_key) {
+        if constexpr (is_key) {
             block.replace_by_position(result, col_map->get_keys_ptr());
         } else {
             block.replace_by_position(result, col_map->get_values_ptr());
