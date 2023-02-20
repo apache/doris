@@ -210,7 +210,7 @@ def generateGenFnSQL(function_meta: Dict[str, List[List[str]]]) -> List[str]:
                     sql = define.const_sql[fn_title]
                     sql = sql.replace('${t}', t)
                 else:
-                    sql = f'select id, e from {t} lateral view {fn_name}({args}) lv as e'
+                    sql = f'select id, e from {t} lateral view {fn_name}({args}) lv as e order by id, e'
 
                 SQLs.append(f'\t{run_tag} "{sql}"\n')
             SQLs.append('\n')
