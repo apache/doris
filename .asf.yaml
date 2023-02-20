@@ -62,6 +62,7 @@ github:
           - BE UT (macOS)
           - Build Third Party Libraries (Linux)
           - Build Third Party Libraries (macOS)
+          - COMPILE (DORIS_COMPILE)
 
       required_pull_request_reviews:
         dismiss_stale_reviews: true
