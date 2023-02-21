@@ -118,7 +118,8 @@ vectorized::IColumn::MutablePtr Schema::get_column_by_field(const Field& field) 
 }
 
 vectorized::IColumn::MutablePtr Schema::get_predicate_column_ptr(const Field& field) {
-    if (UNLIKELY(field.type() == OLAP_FIELD_TYPE_ARRAY)) {
+    if (UNLIKELY(field.type() == OLAP_FIELD_TYPE_ARRAY || field.type() == OLAP_FIELD_TYPE_STRUCT ||
+                 field.type() == OLAP_FIELD_TYPE_MAP)) {
         return get_data_type_ptr(field)->create_column();
     }
 
