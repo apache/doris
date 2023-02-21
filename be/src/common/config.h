@@ -219,7 +219,7 @@ CONF_mInt64(memory_limitation_per_thread_for_schema_change_bytes, "2147483648");
 CONF_mInt64(memory_limitation_per_thread_for_storage_migration_bytes, "100000000");
 
 // the clean interval of file descriptor cache and segment cache
-CONF_mInt32(cache_clean_interval, "1800");
+CONF_mInt32(cache_clean_interval, "60");
 // the clean interval of tablet lookup cache
 CONF_mInt32(tablet_lookup_cache_clean_interval, "30");
 CONF_mInt32(disk_stat_monitor_interval, "5");

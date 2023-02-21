@@ -91,7 +91,8 @@ Status SegmentLoader::prune() {
 
     MonotonicStopWatch watch;
     watch.start();
-    int64_t prune_num = _cache->prune_if(pred);
+    // Prune cache in lazy mode to save cpu and minimize the time holding write lock
+    int64_t prune_num = _cache->prune_if(pred, true);
     LOG(INFO) << "prune " << prune_num
               << " entries in segment cache. cost(ms): " << watch.elapsed_time() / 1000 / 1000;
     return Status::OK();
