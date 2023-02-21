@@ -89,6 +89,18 @@ public class RowBatchBuilder {
         }
     }
 
+    public void buildPartitionIndexForNereids(Column partColumn, List<PartitionRange.PartitionSingle> newSingleList) {
+        keyType = partColumn.getType();
+        keyIndex = 0;
+        if (newSingleList != null) {
+            for (PartitionRange.PartitionSingle single : newSingleList) {
+                cachePartMap.put(single.getCacheKey().realValue(), single);
+            }
+        } else {
+            LOG.info("no new partition single list ");
+        }
+    }
+
     public void copyRowData(RowBatch rowBatch) {
         batchSize++;
         rowSize += rowBatch.getBatch().getRowsSize();

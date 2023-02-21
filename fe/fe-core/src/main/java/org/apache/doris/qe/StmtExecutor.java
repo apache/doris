@@ -100,6 +100,7 @@ import org.apache.doris.mysql.MysqlCommand;
 import org.apache.doris.mysql.MysqlEofPacket;
 import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.nereids.CacheContext;
 import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.nereids.glue.LogicalPlanAdapter;
@@ -1073,7 +1074,7 @@ public class StmtExecutor implements ProfileWriter {
     // the meta fields must be sent right before the first batch of data(or eos flag).
     // so if it has data(or eos is true), this method must return true.
     private boolean sendCachedValues(MysqlChannel channel, List<InternalService.PCacheValue> cacheValues,
-            SelectStmt selectStmt, boolean isSendFields, boolean isEos)
+            Queriable selectStmt, boolean isSendFields, boolean isEos)
             throws Exception {
         RowBatch batch = null;
         boolean isSend = isSendFields;
@@ -1115,25 +1116,25 @@ public class StmtExecutor implements ProfileWriter {
     /**
      * Handle the SelectStmt via Cache.
      */
-    private void handleCacheStmt(CacheAnalyzer cacheAnalyzer, MysqlChannel channel, SelectStmt selectStmt)
+    private void handleCacheStmt(CacheAnalyzer cacheAnalyzer, MysqlChannel channel)
             throws Exception {
         InternalService.PFetchCacheResult cacheResult = cacheAnalyzer.getCacheData();
         CacheMode mode = cacheAnalyzer.getCacheMode();
-        SelectStmt newSelectStmt = selectStmt;
+        Queriable queryStmt = (Queriable) parsedStmt;
         boolean isSendFields = false;
         if (cacheResult != null) {
             isCached = true;
             if (cacheAnalyzer.getHitRange() == Cache.HitRange.Full) {
-                sendCachedValues(channel, cacheResult.getValuesList(), newSelectStmt, isSendFields, true);
+                sendCachedValues(channel, cacheResult.getValuesList(), queryStmt, isSendFields, true);
                 return;
             }
             // rewrite sql
             if (mode == CacheMode.Partition) {
                 if (cacheAnalyzer.getHitRange() == Cache.HitRange.Left) {
                     isSendFields = sendCachedValues(channel, cacheResult.getValuesList(),
-                            newSelectStmt, isSendFields, false);
+                        queryStmt, isSendFields, false);
                 }
-                newSelectStmt = cacheAnalyzer.getRewriteStmt();
+                StatementBase newSelectStmt = cacheAnalyzer.getRewriteStmt();
                 newSelectStmt.reset();
                 analyzer = new Analyzer(context.getEnv(), context);
                 newSelectStmt.analyze(analyzer);
@@ -1143,9 +1144,31 @@ public class StmtExecutor implements ProfileWriter {
                     planner = new OriginalPlanner(analyzer);
                 }
                 planner.plan(newSelectStmt, context.getSessionVariable().toThrift());
+                queryStmt = (Queriable) newSelectStmt;
             }
         }
-        sendResult(false, isSendFields, newSelectStmt, channel, cacheAnalyzer, cacheResult);
+        sendResult(false, isSendFields, queryStmt, channel, cacheAnalyzer, cacheResult);
+    }
+
+    private void handleCacheAdapter(CacheAnalyzer cacheAnalyzer, MysqlChannel channel) throws Exception {
+        CacheContext cacheContext = ((NereidsPlanner) planner).getStatementContext().getCacheContext();
+        InternalService.PFetchCacheResult cacheResult = cacheContext.getCacheResult();
+        Queriable queryStmt = (Queriable) parsedStmt;
+        boolean isSendFields = false;
+        if (cacheResult != null) {
+            isCached = true;
+            if (cacheAnalyzer.getHitRange() == Cache.HitRange.Full) {
+                sendCachedValues(channel, cacheResult.getValuesList(), queryStmt, isSendFields, true);
+                return;
+            }
+
+            if (cacheAnalyzer.getHitRange() == Cache.HitRange.Left) {
+                isSendFields = sendCachedValues(channel, cacheResult.getValuesList(),
+                    queryStmt, isSendFields, false);
+            }
+
+        }
+        sendResult(false, isSendFields, queryStmt, channel, cacheAnalyzer, cacheResult);
     }
 
     private boolean handleSelectRequestInFe(SelectStmt parsedSelectStmt) throws IOException {
@@ -1214,10 +1237,16 @@ public class StmtExecutor implements ProfileWriter {
         boolean isOutfileQuery = queryStmt.hasOutFileClause();
 
         // Sql and PartitionCache
-        CacheAnalyzer cacheAnalyzer = new CacheAnalyzer(context, parsedStmt, planner);
-        if (cacheAnalyzer.enableCache() && !isOutfileQuery && queryStmt instanceof SelectStmt) {
-            handleCacheStmt(cacheAnalyzer, channel, (SelectStmt) queryStmt);
+        if (queryStmt instanceof LogicalPlanAdapter) {
+            CacheAnalyzer cacheAnalyzer = new CacheAnalyzer(context, parsedStmt, (NereidsPlanner) planner);
+            handleCacheAdapter(cacheAnalyzer, channel);
             return;
+        } else {
+            CacheAnalyzer cacheAnalyzer = new CacheAnalyzer(context, parsedStmt, (OriginalPlanner) planner);
+            if (cacheAnalyzer.enableCache() && !isOutfileQuery && queryStmt instanceof SelectStmt) {
+                handleCacheStmt(cacheAnalyzer, channel);
+                return;
+            }
         }
 
         // handle select .. from xx  limit 0

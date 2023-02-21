@@ -21,6 +21,7 @@ import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.CacheContext;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.thrift.TUniqueId;
@@ -35,13 +36,21 @@ public class SqlCache extends Cache {
         super(queryId, selectStmt);
     }
 
+    public SqlCache(TUniqueId queryId, CacheContext ctx) {
+        super(queryId, ctx);
+    }
+
     public void setCacheInfo(CacheAnalyzer.CacheTable latestTable, String allViewExpandStmtListStr) {
         this.latestTable = latestTable;
         this.allViewExpandStmtListStr = allViewExpandStmtListStr;
     }
 
     public String getSqlWithViewStmt() {
-        return selectStmt.toSql() + "|" + allViewExpandStmtListStr;
+        if (selectStmt != null)  {
+            return selectStmt.toSql() + "|" + allViewExpandStmtListStr;
+        } else {
+            return allViewExpandStmtListStr;
+        }
     }
 
     public InternalService.PFetchCacheResult getCacheData(Status status) {
@@ -60,6 +69,28 @@ public class SqlCache extends Cache {
             hitRange = HitRange.Full;
         }
         return cacheResult;
+    }
+
+    public static boolean getCacheDataForNereids(CacheContext ctx) {
+        InternalService.PFetchCacheRequest request = InternalService.PFetchCacheRequest.newBuilder()
+                .setSqlKey(CacheProxy.getMd5(ctx.getCacheKey()))
+                .addParams(InternalService.PCacheParam.newBuilder()
+                        .setPartitionKey(ctx.getLastPartition().getId())
+                        .setLastVersion(ctx.getLastPartition().getVisibleVersion())
+                        .setLastVersionTime(ctx.getLastPartition().getVisibleVersionTime()))
+                .build();
+
+        Status status = new Status();
+        CacheProxy proxy = CacheProxy.getCacheProxy(CacheProxy.CacheProxyType.BE);
+        InternalService.PFetchCacheResult cacheResult = proxy.fetchCache(request, 10000, status);
+        if (status.ok() && cacheResult != null && cacheResult.getStatus() == InternalService.PCacheStatus.CACHE_OK) {
+            ctx.setCacheResult(cacheResult.toBuilder().setAllCount(1).build());
+            MetricRepo.COUNTER_CACHE_HIT_SQL.increase(1L);
+            ctx.setHitRange(HitRange.Full);
+            return true;
+        } else {
+            return false;
+        }
     }
 
     public SelectStmt getRewriteStmt() {

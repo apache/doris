@@ -35,6 +35,14 @@ import org.apache.doris.catalog.RangePartitionItem;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.planner.PartitionColumnFilter;
 
 import com.google.common.collect.Lists;
@@ -45,6 +53,7 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -208,6 +217,43 @@ public class PartitionRange {
             return true;
         }
 
+        public boolean init(Type type, Literal expr) {
+            switch (type.getPrimitiveType()) {
+                case BOOLEAN:
+                case TIME:
+                case TIMEV2:
+                case DATETIME:
+                case DATETIMEV2:
+                case FLOAT:
+                case DOUBLE:
+                case DECIMALV2:
+                case DECIMAL32:
+                case DECIMAL64:
+                case DECIMAL128:
+                case CHAR:
+                case VARCHAR:
+                case STRING:
+                case LARGEINT:
+                    LOG.info("PartitionCache not support such key type {}", type.toSql());
+                    return false;
+                case DATE:
+                case DATEV2:
+                    date = getDateValue(expr);
+                    keyType = KeyType.DATE;
+                    break;
+                case TINYINT:
+                case SMALLINT:
+                case INT:
+                case BIGINT:
+                    value = (long) expr.getValue();
+                    keyType = KeyType.LONG;
+                    break;
+                default:
+                    return true;
+            }
+            return true;
+        }
+
         public void clone(PartitionKeyType key) {
             keyType = key.keyType;
             value = key.value;
@@ -250,8 +296,20 @@ public class PartitionRange {
             }
             return dt;
         }
+
+        private Date getDateValue(Literal expr) {
+            value = (Long) expr.getValue() / 1000000;
+            Date dt = null;
+            try {
+                dt = df8.parse(String.valueOf(value));
+            } catch (Exception e) {
+                // CHECKSTYLE IGNORE THIS LINE
+            }
+            return dt;
+        }
     }
 
+    private Set<Expression> conjuncts;
     private CompoundPredicate partitionKeyPredicate;
     private OlapTable olapTable;
     private RangePartitionInfo rangePartitionInfo;
@@ -297,6 +355,13 @@ public class PartitionRange {
         this.partitionSingleList = Lists.newArrayList();
     }
 
+    public PartitionRange(Set<Expression> conjuncts, OlapTable olapTable, RangePartitionInfo rangePartitionInfo) {
+        this.conjuncts = conjuncts;
+        this.olapTable = olapTable;
+        this.rangePartitionInfo = rangePartitionInfo;
+        this.partitionSingleList = Lists.newArrayList();
+    }
+
     /**
      * analytics PartitionKey and PartitionInfo
      *
@@ -311,6 +376,46 @@ public class PartitionRange {
         try {
             if (!buildPartitionKeyRange(filter, partitionColumn)) {
                 return false;
+            }
+            getTablePartitionList(olapTable);
+        } catch (AnalysisException e) {
+            LOG.warn("get partition range failed, because:", e);
+            return false;
+        }
+        return true;
+    }
+
+    public boolean analyticsForNereids() {
+        if (rangePartitionInfo.getPartitionColumns().size() != 1) {
+            return false;
+        }
+        partitionColumn = rangePartitionInfo.getPartitionColumns().get(0);
+        try {
+            PartitionKeyType begin = new PartitionKeyType();
+            PartitionKeyType end = new PartitionKeyType();
+            for (Expression expr : conjuncts) {
+                ComparisonPredicate comparisonPredicate = (ComparisonPredicate) expr;
+                if (expr instanceof GreaterThan) {
+                    begin.init(partitionColumn.getType(), (Literal) comparisonPredicate.child(1));
+                    begin.add(1);
+                } else if (expr instanceof GreaterThanEqual) {
+                    begin.init(partitionColumn.getType(), (Literal) comparisonPredicate.child(1));
+                } else if (expr instanceof LessThanEqual) {
+                    end.init(partitionColumn.getType(), (Literal) comparisonPredicate.child(1));
+                } else if (expr instanceof LessThan) {
+                    end.init(partitionColumn.getType(), (Literal) comparisonPredicate.child(1));
+                    end.add(-1);
+                }
+            }
+            while (begin.realValue() <= end.realValue()) {
+                PartitionKey key = PartitionKey.createPartitionKey(
+                        Lists.newArrayList(new PartitionValue(begin.toString())),
+                        Lists.newArrayList(partitionColumn));
+                PartitionSingle single = new PartitionSingle();
+                single.setCacheKey(begin);
+                single.setPartitionKey(key);
+                partitionSingleList.add(single);
+                begin.add(1);
             }
             getTablePartitionList(olapTable);
         } catch (AnalysisException e) {
@@ -484,6 +589,38 @@ public class PartitionRange {
             }
         }
         return true;
+    }
+
+    public Set<Expression> rewriteConjuncts(Set<Expression> conjuncts, List<PartitionSingle> rangeList) {
+        if (rangeList.size() < 2) {
+            return conjuncts;
+        }
+        PartitionSingle begin = rangeList.get(0);
+        PartitionSingle end = rangeList.get(1);
+        return conjuncts.stream().map(conjunct -> {
+            PartitionRange.PartitionKeyType key = new PartitionRange.PartitionKeyType();
+            Literal newLiteral = (Literal) conjunct.child(1);
+            if (conjunct instanceof GreaterThan) {
+                key.clone(begin.getCacheKey());
+            } else  if (conjunct instanceof GreaterThanEqual) {
+                key.clone(begin.getCacheKey());
+                key.add(-1);
+            } else if (conjunct instanceof LessThan) {
+                key.clone(end.getCacheKey());
+                key.add(1);
+            } else if (conjunct instanceof LessThanEqual) {
+                key.clone(end.getCacheKey());
+            }
+
+            if (key.keyType == PartitionRange.KeyType.DATE) {
+                newLiteral = new org.apache.doris.nereids.trees.expressions.literal.DateLiteral(key.toString());
+            } else if (key.keyType == KeyType.LONG) {
+                newLiteral = new BigIntLiteral(key.realValue());
+            } else {
+                LOG.warn("Partition cache not support type {}", key.keyType);
+            }
+            return conjunct.withChildren(conjunct.child(0), newLiteral);
+        }).collect(Collectors.toSet());
     }
 
     /**

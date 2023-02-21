@@ -20,6 +20,7 @@ package org.apache.doris.qe.cache;
 import org.apache.doris.analysis.SelectStmt;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
+import org.apache.doris.nereids.CacheContext;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.thrift.TUniqueId;
@@ -51,6 +52,13 @@ public abstract class Cache {
         this.selectStmt = selectStmt;
         proxy = CacheProxy.getCacheProxy(CacheProxy.CacheProxyType.BE);
         hitRange = HitRange.None;
+    }
+
+    protected Cache(TUniqueId queryId, CacheContext ctx) {
+        this.queryId = queryId;
+        this.proxy = CacheProxy.getCacheProxy(CacheProxy.CacheProxyType.BE);
+        this.allViewExpandStmtListStr = ctx.getCacheKey();
+        this.hitRange = ctx.getHitRange();
     }
 
     public abstract InternalService.PFetchCacheResult getCacheData(Status status);

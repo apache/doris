@@ -29,6 +29,7 @@ import org.apache.doris.catalog.RangePartitionInfo;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.CacheContext;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.RowBatch;
 import org.apache.doris.thrift.TUniqueId;
@@ -62,11 +63,24 @@ public class PartitionCache extends Cache {
     }
 
     public String getSqlWithViewStmt() {
-        return nokeyStmt.toSql() + "|" + allViewExpandStmtListStr;
+        if (nokeyStmt != null) {
+            return nokeyStmt.toSql() + "|" + allViewExpandStmtListStr;
+        } else {
+            return allViewExpandStmtListStr;
+        }
     }
 
     public PartitionCache(TUniqueId queryId, SelectStmt selectStmt) {
         super(queryId, selectStmt);
+    }
+
+    public PartitionCache(TUniqueId queryId, CacheContext ctx) {
+        super(queryId, ctx);
+
+        this.olapTable = ctx.getLastOlapTable();
+        this.partitionInfo = ctx.getRangePartitionInfo();
+        this.partColumn = ctx.getPartColumn();
+        this.range = ctx.getRange();
     }
 
     public void setCacheInfo(CacheAnalyzer.CacheTable latestTable, RangePartitionInfo partitionInfo, Column partColumn,
@@ -117,11 +131,46 @@ public class PartitionCache extends Cache {
         return cacheResult;
     }
 
+    public static boolean getCacheDataForNereids(CacheContext ctx, PartitionRange range) {
+        if (!range.analyticsForNereids()) {
+            return false;
+        }
+        InternalService.PFetchCacheRequest request = InternalService.PFetchCacheRequest.newBuilder()
+                .setSqlKey(CacheProxy.getMd5(ctx.getCacheKey()))
+                .addAllParams(range.getPartitionSingleList().stream().map(
+                    p -> InternalService.PCacheParam.newBuilder()
+                        .setPartitionKey(p.getCacheKey().realValue())
+                        .setLastVersion(p.getPartition().getVisibleVersion())
+                        .setLastVersionTime(p.getPartition().getVisibleVersionTime())
+                        .build()).collect(Collectors.toList())
+                ).build();
+
+        boolean ret = false;
+        CacheProxy proxy = CacheProxy.getCacheProxy(CacheProxy.CacheProxyType.BE);
+        Status status = new Status();
+        InternalService.PFetchCacheResult cacheResult = proxy.fetchCache(request, 10000, status);
+        if (status.ok() && cacheResult != null && cacheResult.getStatus() == InternalService.PCacheStatus.CACHE_OK) {
+            ret = true;
+            for (InternalService.PCacheValue value : cacheResult.getValuesList()) {
+                range.setCacheFlag(value.getParam().getPartitionKey());
+            }
+            ctx.setCacheResult(cacheResult.toBuilder().setAllCount(range.getPartitionSingleList().size()).build());
+            MetricRepo.COUNTER_CACHE_HIT_PARTITION.increase(1L);
+        }
+        range.setTooNewByID(ctx.getLastPartition().getId());
+
+        return ret;
+    }
+
     public void copyRowBatch(RowBatch rowBatch) {
         if (rowBatchBuilder == null) {
             rowBatchBuilder = new RowBatchBuilder(CacheAnalyzer.CacheMode.Partition);
-            rowBatchBuilder.buildPartitionIndex(selectStmt.getResultExprs(), selectStmt.getColLabels(),
-                    partColumn, range.buildUpdatePartitionRange());
+            if (selectStmt == null) {
+                rowBatchBuilder.buildPartitionIndexForNereids(partColumn, range.buildUpdatePartitionRange());
+            } else {
+                rowBatchBuilder.buildPartitionIndex(selectStmt.getResultExprs(), selectStmt.getColLabels(),
+                        partColumn, range.buildUpdatePartitionRange());
+            }
         }
         rowBatchBuilder.copyRowData(rowBatch);
     }

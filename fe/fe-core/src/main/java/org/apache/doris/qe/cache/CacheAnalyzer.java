@@ -39,8 +39,10 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.Status;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.metric.MetricRepo;
+import org.apache.doris.nereids.CacheContext;
+import org.apache.doris.nereids.NereidsPlanner;
 import org.apache.doris.planner.OlapScanNode;
-import org.apache.doris.planner.Planner;
+import org.apache.doris.planner.OriginalPlanner;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.qe.ConnectContext;
@@ -98,7 +100,7 @@ public class CacheAnalyzer {
         return cache;
     }
 
-    public CacheAnalyzer(ConnectContext context, StatementBase parsedStmt, Planner planner) {
+    public CacheAnalyzer(ConnectContext context, StatementBase parsedStmt, OriginalPlanner planner) {
         this.context = context;
         this.queryId = context.queryId();
         this.parsedStmt = parsedStmt;
@@ -106,6 +108,26 @@ public class CacheAnalyzer {
         latestTable = new CacheTable();
         allViewStmtSet = new HashSet<>();
         checkCacheConfig();
+    }
+
+    public CacheAnalyzer(ConnectContext context, StatementBase parsedStmt, NereidsPlanner planner) {
+        this.context = context;
+        this.queryId = context.queryId();
+        this.parsedStmt = parsedStmt;
+        scanNodes = planner.getScanNodes();
+        checkCacheConfig();
+        final CacheContext cacheContext = planner.getStatementContext().getCacheContext();
+        if (this.enableSqlCache && cacheContext.isSqlCacheSuccess()) {
+            cacheMode = CacheMode.Sql;
+            cache = new SqlCache(this.queryId, cacheContext);
+            CacheTable cacheTable = new CacheTable(cacheContext);
+            ((SqlCache) cache).setCacheInfo(cacheTable, cacheContext.getCacheKey());
+        } else if (this.enablePartitionCache && cacheContext.isPartitionCacheSuccess()) {
+            cacheMode = CacheMode.Partition;
+            cache = new PartitionCache(this.queryId, cacheContext);
+        } else {
+            cacheMode = CacheMode.None;
+        }
     }
 
     //for unit test
@@ -145,6 +167,13 @@ public class CacheAnalyzer {
             latestPartitionId = 0;
             latestVersion = 0;
             latestTime = 0;
+        }
+
+        public CacheTable(CacheContext ctx) {
+            olapTable = ctx.getLastOlapTable();
+            latestPartitionId = ctx.getLastPartition().getId();
+            latestVersion = ctx.getLastPartition().getVisibleVersion();
+            latestTime = ctx.getLastPartition().getVisibleVersionTime();
         }
 
         @Override

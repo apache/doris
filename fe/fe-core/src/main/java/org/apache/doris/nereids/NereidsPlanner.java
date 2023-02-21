@@ -29,6 +29,7 @@ import org.apache.doris.nereids.glue.translator.PhysicalPlanTranslator;
 import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.nereids.jobs.batch.CascadesOptimizer;
 import org.apache.doris.nereids.jobs.batch.NereidsRewriter;
+import org.apache.doris.nereids.jobs.batch.NereidsCacheJobExecutor;
 import org.apache.doris.nereids.jobs.cascades.DeriveStatsJob;
 import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
 import org.apache.doris.nereids.memo.CopyInResult;
@@ -42,9 +43,11 @@ import org.apache.doris.nereids.properties.PhysicalProperties;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -53,6 +56,7 @@ import org.apache.doris.planner.Planner;
 import org.apache.doris.planner.RuntimeFilter;
 import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.cache.SqlCache;
 
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.collect.Lists;
@@ -77,6 +81,7 @@ public class NereidsPlanner extends Planner {
     private Plan parsedPlan;
     private Plan analyzedPlan;
     private Plan rewrittenPlan;
+    private Plan cachedPlan;
     private Plan optimizedPlan;
     // The cost of optimized plan
     private double cost = 0;
@@ -177,6 +182,14 @@ public class NereidsPlanner extends Planner {
 
             initMemo();
 
+            cache();
+            if (explainLevel == ExplainLevel.CACHED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
+                cachedPlan = cascadesContext.getMemo().copyOut(false);
+                if (explainLevel == ExplainLevel.CACHED_PLAN) {
+                    return cachedPlan;
+                }
+            }
+
             deriveStats();
 
             optimize();
@@ -216,6 +229,33 @@ public class NereidsPlanner extends Planner {
 
     private void analyze() {
         cascadesContext.newAnalyzer().analyze();
+    }
+
+    private void cache() {
+        ConnectContext connectContext = cascadesContext.getConnectContext();
+        boolean isEnableSqlCache = connectContext.getSessionVariable().isEnableSqlCache();
+        boolean isEnablePartitionCache = connectContext.getSessionVariable().isEnablePartitionCache();
+        CacheContext cacheContext = cascadesContext.getStatementContext().getCacheContext();
+        Plan plan = cascadesContext.getMemo().copyOut(false);
+        if (!isEnableSqlCache && !isEnablePartitionCache) {
+            return;
+        }
+        if (!cacheContext.checkOlapScans(plan.collect(OlapScan.class::isInstance))) {
+            return;
+        }
+        if (isEnableSqlCache && cacheContext.isEnableSqlCache()) {
+            cacheContext.setCacheKey(plan.treeString());
+            SqlCache.getCacheDataForNereids(cacheContext);
+            if (cacheContext.isCacheSuccess()) {
+                return;
+            }
+        }
+        if (!cacheContext.checkAggs(plan.collect(LogicalAggregate.class::isInstance))) {
+            return;
+        }
+        if (isEnablePartitionCache && cacheContext.isEnablePartitionCache()) {
+            new NereidsCacheJobExecutor(cascadesContext).execute();
+        }
     }
 
     /**
@@ -330,6 +370,8 @@ public class NereidsPlanner extends Planner {
                 return analyzedPlan.treeString();
             case REWRITTEN_PLAN:
                 return rewrittenPlan.treeString();
+            case CACHED_PLAN:
+                return cachedPlan.treeString();
             case OPTIMIZED_PLAN:
                 return "cost = " + cost + "\n" + optimizedPlan.treeString();
             case ALL_PLAN:
@@ -339,6 +381,8 @@ public class NereidsPlanner extends Planner {
                         + analyzedPlan.treeString() + "\n\n"
                         + "========== REWRITTEN PLAN ==========\n"
                         + rewrittenPlan.treeString() + "\n\n"
+                        + "========== CACHED PLAN ==========\n"
+                        + cachedPlan.treeString() + "\n\n"
                         + "========== OPTIMIZED PLAN ==========\n"
                         + optimizedPlan.treeString();
             default:
@@ -402,5 +446,10 @@ public class NereidsPlanner extends Planner {
     @VisibleForTesting
     public Plan getOptimizedPlan() {
         return optimizedPlan;
+    }
+
+    @VisibleForTesting
+    public StatementContext getStatementContext() {
+        return this.statementContext;
     }
 }

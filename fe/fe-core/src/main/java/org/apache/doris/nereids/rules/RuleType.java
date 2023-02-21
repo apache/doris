@@ -99,6 +99,12 @@ public enum RuleType {
     INFER_PREDICATES(RuleTypeClass.REWRITE),
     INFER_FILTER_NOT_NULL(RuleTypeClass.REWRITE),
     INFER_JOIN_NOT_NULL(RuleTypeClass.REWRITE),
+    ELIMINATE_NOT_NULL(RuleTypeClass.REWRITE),
+
+    // cache
+    PARTITION_CACHE_REWRITE(RuleTypeClass.REWRITE),
+    PARTITION_CACHE_FETCH(RuleTypeClass.REWRITE),
+
     // subquery analyze
     FILTER_SUBQUERY_TO_APPLY(RuleTypeClass.REWRITE),
     PROJECT_SUBQUERY_TO_APPLY(RuleTypeClass.REWRITE),

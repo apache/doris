@@ -41,6 +41,8 @@ public class StatementContext {
 
     private ConnectContext connectContext;
 
+    private CacheContext cacheContext;
+
     private OriginStatement originStatement;
 
     private int maxNAryInnerJoin = 0;
@@ -60,11 +62,13 @@ public class StatementContext {
 
     public StatementContext() {
         this.connectContext = ConnectContext.get();
+        this.cacheContext = new CacheContext();
     }
 
     public StatementContext(ConnectContext connectContext, OriginStatement originStatement) {
         this.connectContext = connectContext;
         this.originStatement = originStatement;
+        this.cacheContext = new CacheContext();
     }
 
     public void setConnectContext(ConnectContext connectContext) {
@@ -73,6 +77,14 @@ public class StatementContext {
 
     public ConnectContext getConnectContext() {
         return connectContext;
+    }
+
+    public void setCacheContext(CacheContext cacheContext) {
+        this.cacheContext = cacheContext;
+    }
+
+    public CacheContext getCacheContext() {
+        return cacheContext;
     }
 
     public void setOriginStatement(OriginStatement originStatement) {
