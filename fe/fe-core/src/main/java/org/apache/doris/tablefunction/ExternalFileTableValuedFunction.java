@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HdfsResource;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
@@ -51,11 +52,12 @@ import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TStatusCode;
 
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.protobuf.ByteString;
-import org.apache.log4j.LogManager;
-import org.apache.log4j.Logger;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.thrift.TException;
 import org.apache.thrift.TSerializer;
 
@@ -82,6 +84,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected static final String FUZZY_PARSE = "fuzzy_parse";
     protected static final String TRIM_DOUBLE_QUOTES = "trim_double_quotes";
     protected static final String SKIP_LINES = "skip_lines";
+    protected static final String CSV_SCHEMA = "fuzzy_parse";
 
     protected static final ImmutableSet<String> FILE_FORMAT_PROPERTIES = new ImmutableSet.Builder<String>()
             .add(FORMAT)
@@ -95,10 +98,14 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             .add(LINE_DELIMITER)
             .add(TRIM_DOUBLE_QUOTES)
             .add(SKIP_LINES)
+            .add(CSV_SCHEMA)
             .build();
 
-
+    // Columns got from file
     protected List<Column> columns = null;
+    // User specified csv columns, it will override columns got from file
+    private List<Column> csvSchema = Lists.newArrayList();
+
     protected List<TBrokerFileStatus> fileStatuses = Lists.newArrayList();
     protected Map<String, String> locationProperties;
 
@@ -128,6 +135,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     public Map<String, String> getLocationProperties() {
         return locationProperties;
+    }
+
+    public List<Column> getCsvSchema() {
+        return csvSchema;
     }
 
     public String getFsName() {
@@ -187,6 +198,68 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fuzzyParse = Boolean.valueOf(validParams.get(FUZZY_PARSE)).booleanValue();
         trimDoubleQuotes = Boolean.valueOf(validParams.get(TRIM_DOUBLE_QUOTES)).booleanValue();
         skipLines = Integer.valueOf(validParams.getOrDefault(SKIP_LINES, "0")).intValue();
+
+        if (formatString.equals("csv") || formatString.equals("csv_with_names")
+                || formatString.equals("csv_with_names_and_types")) {
+            parseCsvSchema(validParams);
+        }
+    }
+
+    private void parseCsvSchema(Map<String, String> validParams) throws AnalysisException {
+        String csvSchemaStr = validParams.get(CSV_SCHEMA);
+        if (Strings.isNullOrEmpty(csvSchemaStr)) {
+            return;
+        }
+        // the schema str is like: "k1:int,k2:bigint,k3:varchar(20)"
+        String[] schemaStrs = csvSchemaStr.split(",");
+        for (String schemaStr : schemaStrs) {
+            String[] kv = schemaStr.replace(" ", "").split(":");
+            if (kv.length != 2) {
+                throw new AnalysisException("invalid csv schema: " + csvSchemaStr);
+            }
+            Column column;
+            String name = kv[0].toLowerCase();
+            String type = kv[1].toLowerCase();
+            switch (type) {
+                case "int":
+                    column = new Column(name, PrimitiveType.INT, true);
+                    break;
+                case "bigint":
+                    column = new Column(name, PrimitiveType.BIGINT, true);
+                    break;
+                case "smallint":
+                    column = new Column(name, PrimitiveType.BIGINT, true);
+                    break;
+                case "tinyint":
+                    column = new Column(name, PrimitiveType.BIGINT, true);
+                    break;
+                case "float":
+                case "double":
+                    column = new Column(name, PrimitiveType.DOUBLE, true);
+                    break;
+                case "decimal":
+                    column = new Column(name, ScalarType.createDecimalV3Type(), false, null, true, null, "");
+                    break;
+                case "date":
+                    column = new Column(name, ScalarType.createDateV2Type(), false, null, true, null, "");
+                    break;
+                case "datetime":
+                    column = new Column(name, ScalarType.createDatetimeV2Type(0), false, null, true, null, "");
+                    break;
+                case "char":
+                case "varchar":
+                case "stirng":
+                    column = new Column(name, PrimitiveType.STRING, true);
+                    break;
+                case "boolean":
+                    column = new Column(name, PrimitiveType.BOOLEAN, true);
+                    break;
+                default:
+                    throw new AnalysisException("invalid csv schema: " + csvSchemaStr);
+            }
+            csvSchema.add(column);
+        }
+        LOG.debug("get csv schema: {}", csvSchema);
     }
 
     public List<TBrokerFileStatus> getFileStatuses() {
@@ -221,6 +294,9 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     @Override
     public List<Column> getTableColumns() throws AnalysisException {
+        if (!csvSchema.isEmpty()) {
+            return csvSchema;
+        }
         if (this.columns != null) {
             return columns;
         }
