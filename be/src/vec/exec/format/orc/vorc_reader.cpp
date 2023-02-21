@@ -607,20 +607,17 @@ TypeDescriptor OrcReader::_convert_to_doris_type(const orc::Type* orc_type) {
     case orc::TypeKind::TIMESTAMP_INSTANT:
         return TypeDescriptor(PrimitiveType::TYPE_DATETIMEV2);
     case orc::TypeKind::LIST: {
-        // Use Object PrimitiveType to construct TypeDescriptor also need init containers_nulls with the default value of bool
         TypeDescriptor list_type(PrimitiveType::TYPE_ARRAY);
         list_type.add_sub_type(_convert_to_doris_type(orc_type->getSubtype(0)));
         return list_type;
     }
     case orc::TypeKind::MAP: {
-        // Use Object PrimitiveType to construct TypeDescriptor also need init containers_nulls with the default value of bool
         TypeDescriptor map_type(PrimitiveType::TYPE_MAP);
         map_type.add_sub_type(_convert_to_doris_type(orc_type->getSubtype(0)));
         map_type.add_sub_type(_convert_to_doris_type(orc_type->getSubtype(1)));
         return map_type;
     }
     case orc::TypeKind::STRUCT: {
-        // Use Object PrimitiveType to construct TypeDescriptor also need init containers_nulls with the default value of bool
         TypeDescriptor struct_type(PrimitiveType::TYPE_STRUCT);
         for (int i = 0; i < orc_type->getSubtypeCount(); ++i) {
             struct_type.add_sub_type(_convert_to_doris_type(orc_type->getSubtype(i)),
