@@ -332,7 +332,7 @@ TEST_F(CacheTest, PruneIfLazyMode) {
     EXPECT_EQ(3, cache.get_usage());
 
     CacheKey key4("666");
-    insert_LRUCache(cache, key4, 400, CachePriority::NORMAL);
+    insert_LRUCache(cache, key4, 666, CachePriority::NORMAL);
     EXPECT_EQ(4, cache.get_usage());
 
     CacheKey key5("500");
@@ -357,7 +357,7 @@ TEST_F(CacheTest, PruneIfLazyMode) {
     cache.prune_if(pred2, true);
     EXPECT_EQ(5, cache.get_usage());
 
-    auto pred3 = [](const void* value) -> bool { return DecodeValue((void*)value) < 600; };
+    auto pred3 = [](const void* value) -> bool { return DecodeValue((void*)value) <= 600; };
     EXPECT_EQ(3, cache.prune_if(pred3, true));
     EXPECT_EQ(3, cache.get_usage()); // keys before 666 are removed
 }
