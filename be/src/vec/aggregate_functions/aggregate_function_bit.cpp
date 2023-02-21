@@ -35,8 +35,8 @@ AggregateFunctionPtr createAggregateFunctionBitwise(const std::string& name,
                                     " is illegal, because it cannot be used in bitwise operations");
     }
 
-    AggregateFunctionPtr res(
-            creator_with_integer_type::create<AggregateFunctionBitwise, Data>(argument_types));
+    AggregateFunctionPtr res(creator_with_integer_type::create<AggregateFunctionBitwise, Data>(
+            result_is_nullable, argument_types));
     if (res) {
         return res;
     }

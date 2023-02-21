@@ -119,7 +119,7 @@ struct AggregateFunction {
     static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
         DataTypes data_types = {remove_nullable(data_type_ptr)};
         AggregateFunctionPtr nested_function;
-        nested_function.reset(creator_with_type::create<Function>(data_types));
+        nested_function.reset(creator_with_type::create<Function>(false, data_types));
 
         AggregateFunctionPtr function;
         function.reset(new AggregateFunctionNullUnary<true>(nested_function,

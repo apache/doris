@@ -23,6 +23,7 @@
 #include "vec/aggregate_functions/aggregate_function.h"
 #include "vec/aggregate_functions/aggregate_function_null.h"
 #include "vec/data_types/data_type.h"
+#include "vec/utils/template_helpers.hpp"
 
 // TODO: Should we support decimal in numeric types?
 #define FOR_INTEGER_TYPES(M) \
@@ -89,18 +90,38 @@ struct CurryBuilerDirectAndData {
 template <bool allow_integer, bool allow_float, bool allow_decimal, int define_index = 0>
 struct creator_with_type_base {
     template <typename Class, typename... TArgs>
-    static IAggregateFunction* create_base(const DataTypes& argument_types, TArgs&&... args) {
+    static IAggregateFunction* create_base(const bool result_is_nullable,
+                                           const DataTypes& argument_types, TArgs&&... args) {
         WhichDataType which(remove_nullable(argument_types[define_index]));
-#define DISPATCH(TYPE)                                                                    \
-    if (which.idx == TypeIndex::TYPE) {                                                   \
-        using T = typename Class::template Builder<TYPE>::T;                              \
-        if (argument_types[define_index]->is_nullable()) {                                \
-            return new AggregateFunctionNullUnaryInline<T, true>(                         \
-                    new T(std::forward<TArgs>(args)..., remove_nullable(argument_types)), \
-                    argument_types);                                                      \
-        } else {                                                                          \
-            return new T(std::forward<TArgs>(args)..., argument_types);                   \
-        }                                                                                 \
+#define DISPATCH(TYPE)                                                                            \
+    if (which.idx == TypeIndex::TYPE) {                                                           \
+        using T = typename Class::template Builder<TYPE>::T;                                      \
+        if (argument_types[define_index]->is_nullable()) {                                        \
+            IAggregateFunction* result = nullptr;                                                 \
+            if (argument_types.size() > 1) {                                                      \
+                std::visit(                                                                       \
+                        [&](auto result_is_nullable) {                                            \
+                            result = new AggregateFunctionNullVariadicInline<T,                   \
+                                                                             result_is_nullable>( \
+                                    new T(std::forward<TArgs>(args)...,                           \
+                                          remove_nullable(argument_types)),                       \
+                                    argument_types);                                              \
+                        },                                                                        \
+                        make_bool_variant(result_is_nullable));                                   \
+            } else {                                                                              \
+                std::visit(                                                                       \
+                        [&](auto result_is_nullable) {                                            \
+                            result = new AggregateFunctionNullUnaryInline<T, result_is_nullable>( \
+                                    new T(std::forward<TArgs>(args)...,                           \
+                                          remove_nullable(argument_types)),                       \
+                                    argument_types);                                              \
+                        },                                                                        \
+                        make_bool_variant(result_is_nullable));                                   \
+            }                                                                                     \
+            return result;                                                                        \
+        } else {                                                                                  \
+            return new T(std::forward<TArgs>(args)..., argument_types);                           \
+        }                                                                                         \
     }
 
         if constexpr (allow_integer) {
@@ -140,4 +161,39 @@ using creator_with_integer_type = creator_with_type_base<true, false, false>;
 using creator_with_numeric_type = creator_with_type_base<true, true, false>;
 using creator_with_decimal_type = creator_with_type_base<false, false, true>;
 using creator_with_type = creator_with_type_base<true, true, true>;
+
+template <int define_index = 0>
+struct creator_with_no_type {
+    template <typename AggregateFunctionTemplate, typename... TArgs>
+    static IAggregateFunction* create(const bool result_is_nullable,
+                                      const DataTypes& argument_types, TArgs&&... args) {
+        if (argument_types[define_index]->is_nullable()) {
+            IAggregateFunction* result = nullptr;
+            if (argument_types.size() > 1) {
+                std::visit(
+                        [&](auto result_is_nullable) {
+                            result = new AggregateFunctionNullVariadicInline<
+                                    AggregateFunctionTemplate, result_is_nullable>(
+                                    new AggregateFunctionTemplate(std::forward<TArgs>(args)...,
+                                                                  remove_nullable(argument_types)),
+                                    argument_types);
+                        },
+                        make_bool_variant(result_is_nullable));
+            } else {
+                std::visit(
+                        [&](auto result_is_nullable) {
+                            result = new AggregateFunctionNullUnaryInline<AggregateFunctionTemplate,
+                                                                          result_is_nullable>(
+                                    new AggregateFunctionTemplate(std::forward<TArgs>(args)...,
+                                                                  remove_nullable(argument_types)),
+                                    argument_types);
+                        },
+                        make_bool_variant(result_is_nullable));
+            }
+            return result;
+        } else {
+            return new AggregateFunctionTemplate(std::forward<TArgs>(args)..., argument_types);
+        }
+    }
+};
 } // namespace  doris::vectorized

@@ -41,8 +41,8 @@ AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
         const IDataType& argument_type = *argument_types[0];
         WhichDataType which(argument_type);
         // TODO: DateType
-        AggregateFunctionPtr res(
-                creator_with_numeric_type::create<AggregateFunctionUniq, Data>(argument_types));
+        AggregateFunctionPtr res(creator_with_numeric_type::create<AggregateFunctionUniq, Data>(
+                result_is_nullable, argument_types));
         if (res) {
             return res;
         } else if (which.is_decimal32()) {

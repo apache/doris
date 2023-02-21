@@ -53,25 +53,26 @@ public:
             AggregateFunctionPtr res(
                     creator_with_numeric_type::create<AggregateFunctionDistinct,
                                                       AggregateFunctionDistinctSingleNumericData>(
-                            arguments, nested_function));
+                            result_is_nullable, arguments, nested_function));
             if (res) {
                 return res;
             }
 
             if (arguments[0]->is_value_unambiguously_represented_in_contiguous_memory_region()) {
-                return std::make_shared<AggregateFunctionDistinct<
-                        AggregateFunctionDistinctSingleGenericData<true>>>(nested_function,
-                                                                           arguments);
+                res.reset(creator_with_no_type<0>::create<AggregateFunctionDistinct<
+                                  AggregateFunctionDistinctSingleGenericData<true>>>(
+                        result_is_nullable, arguments, nested_function));
             } else {
-                return std::make_shared<AggregateFunctionDistinct<
-                        AggregateFunctionDistinctSingleGenericData<false>>>(nested_function,
-                                                                            arguments);
+                res.reset(creator_with_no_type<0>::create<AggregateFunctionDistinct<
+                                  AggregateFunctionDistinctSingleGenericData<false>>>(
+                        result_is_nullable, arguments, nested_function));
             }
+            return res;
         }
-
-        return std::make_shared<
-                AggregateFunctionDistinct<AggregateFunctionDistinctMultipleGenericData>>(
-                nested_function, arguments);
+        return AggregateFunctionPtr(
+                creator_with_no_type<0>::create<
+                        AggregateFunctionDistinct<AggregateFunctionDistinctMultipleGenericData>>(
+                        result_is_nullable, arguments, nested_function));
     }
 };
 
