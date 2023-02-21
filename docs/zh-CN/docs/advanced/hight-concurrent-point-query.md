@@ -85,3 +85,9 @@ readStatement.setInt(1235);
 resultSet = readStatement.executeQuery();
 ...
 ```
+
+## 开启行缓存
+Doris中有针对page级别的cache，每个page中存的是某一列的数据, 所以page cache是针对列的缓存，对于前面提到的行存，一行里包括了多列数据，缓存可能被大查询给刷掉，为了增加行缓存命中率，单独引入了行存缓存，行缓存复用了Doris中的LRU cache机制来保障内存的使用，通过指定下面的的BE配置来开启
+
+- `disable_storage_row_cache` 是否开启行缓存， 默认不开启
+- `row_cache_mem_limit` 指定row cache占用内存的百分比， 默认20%内存
