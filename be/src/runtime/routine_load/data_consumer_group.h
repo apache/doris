@@ -70,7 +70,7 @@ public:
 
     virtual Status start_all(std::shared_ptr<StreamLoadContext> ctx) override;
     // assign topic partitions to all consumers equally
-    Status assign_topic_partitions(StreamLoadContext* ctx);
+    Status assign_topic_partitions(std::shared_ptr<StreamLoadContext> ctx);
 
 private:
     // start a single consumer

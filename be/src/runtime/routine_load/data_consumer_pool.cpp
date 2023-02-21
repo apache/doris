@@ -30,7 +30,7 @@ Status DataConsumerPool::get_consumer(std::shared_ptr<StreamLoadContext> ctx,
     // if has, return it, also remove it from the pool
     auto iter = std::begin(_pool);
     while (iter != std::end(_pool)) {
-        if ((*iter)->match(ctx.get())) {
+        if ((*iter)->match(ctx)) {
             VLOG_NOTICE << "get an available data consumer from pool: " << (*iter)->id();
             (*iter)->reset();
             *ret = *iter;

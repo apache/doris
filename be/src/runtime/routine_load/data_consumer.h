@@ -121,18 +121,19 @@ public:
         }
     }
 
-    virtual Status init(StreamLoadContext* ctx) override;
+    virtual Status init(std::shared_ptr<StreamLoadContext> ctx) override;
     // TODO(cmy): currently do not implement single consumer start method, using group_consume
-    virtual Status consume(StreamLoadContext* ctx) override { return Status::OK(); }
-    virtual Status cancel(StreamLoadContext* ctx) override;
+    virtual Status consume(std::shared_ptr<StreamLoadContext> ctx) override { return Status::OK(); }
+    virtual Status cancel(std::shared_ptr<StreamLoadContext> ctx) override;
     // reassign partition topics
     virtual Status reset() override;
-    virtual bool match(StreamLoadContext* ctx) override;
+    virtual bool match(std::shared_ptr<StreamLoadContext> ctx) override;
     // commit kafka offset
     Status commit(std::vector<RdKafka::TopicPartition*>& offset);
 
     Status assign_topic_partitions(const std::map<int32_t, int64_t>& begin_partition_offset,
-                                   const std::string& topic, StreamLoadContext* ctx);
+                                   const std::string& topic,
+                                   std::shared_ptr<StreamLoadContext> ctx);
 
     // start the consumer and put msgs to queue
     Status group_consume(BlockingQueue<RdKafka::Message*>* queue, int64_t max_running_time_ms);
