@@ -441,7 +441,6 @@ Status StreamLoadWithSqlAction::_process_put(HttpRequest* http_req, StreamLoadCo
     request.fileType = TFileType::FILE_STREAM;
     request.__set_thrift_rpc_timeout_ms(20000);
 
-#ifndef BE_TEST
     // exec this load
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     int64_t stream_load_put_start_time = MonotonicNanos();
@@ -451,9 +450,6 @@ Status StreamLoadWithSqlAction::_process_put(HttpRequest* http_req, StreamLoadCo
                 client->streamLoadPut(ctx->put_result, request);
             }));
     ctx->stream_load_put_cost_nanos = MonotonicNanos() - stream_load_put_start_time;
-#else
-    ctx->put_result = k_stream_load_put_result;
-#endif
     Status plan_status(ctx->put_result.status);
     if (!plan_status.ok()) {
         LOG(WARNING) << "exec streaming load failed. errmsg=" << plan_status << ctx->brief();

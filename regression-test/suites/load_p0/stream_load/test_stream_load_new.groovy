@@ -19,12 +19,6 @@ import java.util.Random;
 
 suite("test_stream_load_new", "p0") {
 
-    // csv desc
-    // | c1  | c2   | c3     | c4      | c5      | c6       | c7     | c8       |
-    // | int | char | varchar| boolean | tinyint | smallint | bigint | largeint |
-    // | c9    | c10    | c11     | c12       | c13  | c14    | c15      | c16        |
-    // | float | double | decimal | decimalv3 | date | datev2 | datetime | datetimev2 |
-
     // 1. test column with currenttimestamp default value
     def tableName1 = "test_stream_load_new_current_timestamp"
 
@@ -459,6 +453,91 @@ suite("test_stream_load_new", "p0") {
         qt_sql10 "select count(*) from ${tableName10}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName10}"
+    }
+
+    // 11. test stream load column separator
+    def tableName11 = "test_stream_load_column_separator"
+
+    try {
+        sql """
+        CREATE TABLE IF NOT EXISTS ${tableName11} (
+            id int,
+            name CHAR(10),
+            dt_1 DATETIME DEFAULT CURRENT_TIMESTAMP,
+            dt_2 DATETIMEV2 DEFAULT CURRENT_TIMESTAMP,
+            dt_3 DATETIMEV2(3) DEFAULT CURRENT_TIMESTAMP,
+            dt_4 DATETIMEV2(6) DEFAULT CURRENT_TIMESTAMP
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+          "replication_num" = "1"
+        )
+        """
+
+        streamLoad {
+            set 'column_separator', '--'
+            set 'columns', 'id, name'
+            table "${tableName11}"
+            time 10000
+            file 'test_stream_load_new_column_separator.csv'
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(11, json.NumberTotalRows)
+                assertEquals(0, json.NumberFilteredRows)
+            }
+        }
+
+        qt_sql11 "select id, name from ${tableName11}"
+    } finally {
+        try_sql "DROP TABLE IF EXISTS ${tableName11}"
+    }
+
+    // 12. test stream load line delimiter
+    def tableName12 = "test_stream_load_line_delimiter"
+    
+    try {
+        sql """
+        CREATE TABLE IF NOT EXISTS ${tableName12} (
+            id int,
+            name CHAR(10),
+            dt_1 DATETIME DEFAULT CURRENT_TIMESTAMP,
+            dt_2 DATETIMEV2 DEFAULT CURRENT_TIMESTAMP,
+            dt_3 DATETIMEV2(3) DEFAULT CURRENT_TIMESTAMP,
+            dt_4 DATETIMEV2(6) DEFAULT CURRENT_TIMESTAMP
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+          "replication_num" = "1"
+        )
+        """
+
+        streamLoad {
+            set 'column_separator', ','
+            set 'line_delimiter', '||'
+            set 'columns', 'id, name'
+            table "${tableName12}"
+            time 10000
+            file 'test_stream_load_new_line_delimiter.csv'
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(11, json.NumberTotalRows)
+                assertEquals(0, json.NumberFilteredRows)
+            }
+        }
+
+        qt_sql12 "select id, name from ${tableName12}"
+    } finally {
+        try_sql "DROP TABLE IF EXISTS ${tableName12}"
     }
 }
 

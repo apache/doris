@@ -49,7 +49,6 @@ suite("test_stream_load_with_sql", "p0") {
             set 'sql', """
                     insert into ${db}.${tableName1} (id, name) select c1, c2 from stream("format"="csv")
                     """
-            table "${tableName1}"
             time 10000
             file 'test_stream_load_with_sql.csv'
             check { result, exception, startTime, endTime ->
@@ -93,7 +92,6 @@ suite("test_stream_load_with_sql", "p0") {
             set 'sql', """
                     insert into ${db}.${tableName2} select c1, c6, c2, c7, c11, c9 from stream("format"="csv")
                     """
-            table "${tableName2}"
             time 10000
             file 'test_stream_load_with_sql.csv'
             check { result, exception, startTime, endTime ->
@@ -136,7 +134,6 @@ suite("test_stream_load_with_sql", "p0") {
             set 'sql', """
                     insert into ${db}.${tableName3} select c1, c2, year(c14), month(c14), day(c14) from stream("format"="csv")
                     """
-            table "${tableName3}"
             time 10000
             file 'test_stream_load_with_sql.csv'
             check { result, exception, startTime, endTime ->
@@ -177,7 +174,6 @@ suite("test_stream_load_with_sql", "p0") {
             set 'sql', """
                     insert into  ${db}.${tableName4} select c1, c2, c6, c3 from stream("format"="csv")
                     """
-            table "${tableName4}"
             time 10000
             file 'test_stream_load_with_sql.csv'
             check { result, exception, startTime, endTime ->
@@ -218,7 +214,6 @@ suite("test_stream_load_with_sql", "p0") {
             set 'sql', """
                     insert into  ${db}.${tableName5} (id, name, date) select c1, c2, c13 from stream("format"="csv")
                     """
-            table "${tableName5}"
             time 10000
             file 'test_stream_load_with_sql.csv'
             check { result, exception, startTime, endTime ->
@@ -272,7 +267,6 @@ suite("test_stream_load_with_sql", "p0") {
             set 'sql', """
                     insert into  ${db}.${tableName6} select * from stream("format"="csv")
                     """
-            table "${tableName6}"
             time 10000
             file 'test_stream_load_with_sql.csv'
             check { result, exception, startTime, endTime ->
@@ -320,7 +314,6 @@ suite("test_stream_load_with_sql", "p0") {
             set 'sql', """
                     insert into  ${db}.${tableName7} select * from stream("format"="csv")
                     """
-            table "${tableName7}"
             time 10000
             file 'test_stream_load_with_sql_data_model.csv'
             check { result, exception, startTime, endTime ->
@@ -368,7 +361,6 @@ suite("test_stream_load_with_sql", "p0") {
             set 'sql', """
                     insert into  ${db}.${tableName8} select * from stream("format"="csv")
                     """
-            table "${tableName8}"
             time 10000
             file 'test_stream_load_with_sql_data_model.csv'
             check { result, exception, startTime, endTime ->
@@ -417,7 +409,6 @@ suite("test_stream_load_with_sql", "p0") {
             set 'sql', """
                     insert into  ${db}.${tableName9} select * from stream("format"="csv")
                     """
-            table "${tableName9}"
             time 10000
             file 'test_stream_load_with_sql_data_model.csv'
             check { result, exception, startTime, endTime ->
@@ -466,7 +457,6 @@ suite("test_stream_load_with_sql", "p0") {
                 set 'sql', """
                     insert into  ${db}.${tableName10} select * from stream("format"="csv")
                     """
-                table "${tableName10}"
                 time 10000
                 file 'test_stream_load_with_sql_multiple_times.csv'
                 check { result, exception, startTime, endTime ->
@@ -485,6 +475,90 @@ suite("test_stream_load_with_sql", "p0") {
         qt_sql10 "select count(*) from ${tableName10}"
     } finally {
         try_sql "DROP TABLE IF EXISTS ${tableName10}"
+    }
+
+    // 11. test column separator 
+    def tableName11 = "test_stream_load_with_sql_column_separator"
+    try {
+        sql """
+        CREATE TABLE IF NOT EXISTS ${tableName11} (
+            id int,
+            name CHAR(10),
+            dt_1 DATETIME DEFAULT CURRENT_TIMESTAMP,
+            dt_2 DATETIMEV2 DEFAULT CURRENT_TIMESTAMP,
+            dt_3 DATETIMEV2(3) DEFAULT CURRENT_TIMESTAMP,
+            dt_4 DATETIMEV2(6) DEFAULT CURRENT_TIMESTAMP
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+          "replication_num" = "1"
+        )
+        """
+
+        streamLoad {
+            set 'version', '1'
+            set 'sql', """
+                    insert into ${db}.${tableName11} (id, name) select c1, c2 from stream("format"="csv", "column_separator"="--")
+                    """
+            time 10000
+            file 'test_stream_load_with_sql_column_separator.csv'
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(11, json.NumberTotalRows)
+                assertEquals(0, json.NumberFilteredRows)
+            }
+        }
+
+        qt_sql11 "select id, name from ${tableName11}"
+    } finally {
+        try_sql "DROP TABLE IF EXISTS ${tableName11}"
+    }
+
+    // 12. test line delimiter 
+    def tableName12 = "test_stream_load_with_sql_line_delimiter"
+    try {
+        sql """
+        CREATE TABLE IF NOT EXISTS ${tableName12} (
+            id int,
+            name CHAR(10),
+            dt_1 DATETIME DEFAULT CURRENT_TIMESTAMP,
+            dt_2 DATETIMEV2 DEFAULT CURRENT_TIMESTAMP,
+            dt_3 DATETIMEV2(3) DEFAULT CURRENT_TIMESTAMP,
+            dt_4 DATETIMEV2(6) DEFAULT CURRENT_TIMESTAMP
+        )
+        DISTRIBUTED BY HASH(id) BUCKETS 1
+        PROPERTIES (
+          "replication_num" = "1"
+        )
+        """
+
+        streamLoad {
+            set 'version', '1'
+            set 'sql', """
+                    insert into ${db}.${tableName12} (id, name) select c1, c2 from stream("format"="csv", "line_delimiter"="||")
+                    """
+            time 10000
+            file 'test_stream_load_with_sql_line_delimiter.csv'
+            check { result, exception, startTime, endTime ->
+                if (exception != null) {
+                    throw exception
+                }
+                log.info("Stream load result: ${result}".toString())
+                def json = parseJson(result)
+                assertEquals("success", json.Status.toLowerCase())
+                assertEquals(11, json.NumberTotalRows)
+                assertEquals(0, json.NumberFilteredRows)
+            }
+        }
+
+        qt_sql12 "select id, name from ${tableName12}"
+    } finally {
+        try_sql "DROP TABLE IF EXISTS ${tableName12}"
     }
 }
 
