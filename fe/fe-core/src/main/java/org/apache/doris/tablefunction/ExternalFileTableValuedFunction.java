@@ -26,6 +26,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
+import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.planner.PlanNodeId;
@@ -65,6 +66,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * ExternalFileTableValuedFunction is used for S3/HDFS/LOCAL table-valued-function
@@ -201,65 +204,71 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
         if (formatString.equals("csv") || formatString.equals("csv_with_names")
                 || formatString.equals("csv_with_names_and_types")) {
-            parseCsvSchema(validParams);
+            parseCsvSchema(csvSchema, validParams);
         }
     }
 
-    private void parseCsvSchema(Map<String, String> validParams) throws AnalysisException {
+    // public for unit test
+    public static void parseCsvSchema(List<Column> csvSchema, Map<String, String> validParams)
+            throws AnalysisException {
         String csvSchemaStr = validParams.get(CSV_SCHEMA);
         if (Strings.isNullOrEmpty(csvSchemaStr)) {
             return;
         }
-        // the schema str is like: "k1:int,k2:bigint,k3:varchar(20)"
-        String[] schemaStrs = csvSchemaStr.split(",");
-        for (String schemaStr : schemaStrs) {
-            String[] kv = schemaStr.replace(" ", "").split(":");
-            if (kv.length != 2) {
-                throw new AnalysisException("invalid csv schema: " + csvSchemaStr);
-            }
-            Column column;
-            String name = kv[0].toLowerCase();
-            String type = kv[1].toLowerCase();
-            switch (type) {
-                case "int":
-                    column = new Column(name, PrimitiveType.INT, true);
-                    break;
-                case "bigint":
-                    column = new Column(name, PrimitiveType.BIGINT, true);
-                    break;
-                case "smallint":
-                    column = new Column(name, PrimitiveType.BIGINT, true);
-                    break;
-                case "tinyint":
-                    column = new Column(name, PrimitiveType.BIGINT, true);
-                    break;
-                case "float":
-                case "double":
-                    column = new Column(name, PrimitiveType.DOUBLE, true);
-                    break;
-                case "decimal":
-                    column = new Column(name, ScalarType.createDecimalV3Type(), false, null, true, null, "");
-                    break;
-                case "date":
-                    column = new Column(name, ScalarType.createDateV2Type(), false, null, true, null, "");
-                    break;
-                case "datetime":
-                    column = new Column(name, ScalarType.createDatetimeV2Type(0), false, null, true, null, "");
-                    break;
-                case "char":
-                case "varchar":
-                case "string":
-                    column = new Column(name, PrimitiveType.STRING, true);
-                    break;
-                case "boolean":
-                    column = new Column(name, PrimitiveType.BOOLEAN, true);
-                    break;
-                default:
+        // the schema str is like: "k1:int;k2:bigint;k3:varchar(20)"
+        String[] schemaStrs = csvSchemaStr.split(";");
+        try {
+            for (String schemaStr : schemaStrs) {
+                String[] kv = schemaStr.replace(" ", "").split(":");
+                if (kv.length != 2) {
                     throw new AnalysisException("invalid csv schema: " + csvSchemaStr);
+                }
+                Column column = null;
+                String name = kv[0].toLowerCase();
+                FeNameFormat.checkColumnName(name);
+                String type = kv[1].toLowerCase();
+                if (type.equals("tinyint")) {
+                    column = new Column(name, PrimitiveType.TINYINT, true);
+                } else if (type.equals("smallint")) {
+                    column = new Column(name, PrimitiveType.SMALLINT, true);
+                } else if (type.equals("int")) {
+                    column = new Column(name, PrimitiveType.INT, true);
+                } else if (type.equals("bigint")) {
+                    column = new Column(name, PrimitiveType.BIGINT, true);
+                } else if (type.equals("largeint")) {
+                    column = new Column(name, PrimitiveType.LARGEINT, true);
+                } else if (type.equals("float")) {
+                    column = new Column(name, PrimitiveType.FLOAT, true);
+                } else if (type.equals("double")) {
+                    column = new Column(name, PrimitiveType.DOUBLE, true);
+                } else if (type.startsWith("decimal")) {
+                    // regex decimal(p, s)
+                    Pattern pattern = Pattern.compile("decimal\\((\\d+),(\\d+)\\)");
+                    Matcher matcher = pattern.matcher(type);
+                    if (!matcher.find()) {
+                        throw new AnalysisException("invalid decimal type: " + type);
+                    }
+                    int precision = Integer.parseInt(matcher.group(1));
+                    int scale = Integer.parseInt(matcher.group(2));
+                    column = new Column(name, ScalarType.createDecimalV3Type(precision, scale), false, null, true, null,
+                            "");
+                } else if (type.equals("date")) {
+                    column = new Column(name, ScalarType.createDateType(), false, null, true, null, "");
+                } else if (type.equals("datetime")) {
+                    column = new Column(name, ScalarType.createDatetimeType(), false, null, true, null, "");
+                } else if (type.equals("string")) {
+                    column = new Column(name, PrimitiveType.STRING, true);
+                } else if (type.equals("boolean")) {
+                    column = new Column(name, PrimitiveType.BOOLEAN, true);
+                } else {
+                    throw new AnalysisException("unsupported column type: " + type);
+                }
+                csvSchema.add(column);
             }
-            csvSchema.add(column);
+            LOG.debug("get csv schema: {}", csvSchema);
+        } catch (Exception e) {
+            throw new AnalysisException("invalid csv schema: " + e.getMessage());
         }
-        LOG.debug("get csv schema: {}", csvSchema);
     }
 
     public List<TBrokerFileStatus> getFileStatuses() {

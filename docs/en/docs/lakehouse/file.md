@@ -85,6 +85,57 @@ As can be seen, Doris is able to automatically infer column types based on the m
 
 Besides Parquet, Doris supports analysis and auto column type inference of ORC, CSV, and Json files.
 
+**CSV Schema**
+
+<version since="dev"></version>
+
+在默认情况下，对 CSV 格式文件，所有列类型均为 String。可以通过 `csv_schema` 属性单独指定列名和列类型。Doris 会使用指定的列类型进行文件读取。格式如下：
+
+`name1:type1,name2:type2,...`
+
+对于格式不匹配的列（比如文件中为字符串，用户定义为 int），或缺失列（比如文件中有4列，用户定义了5列），则这些列将返回null。
+
+当前支持的列类型为：
+
+By default, for CSV format files, all columns are of type String. Column names and column types can be specified individually via the `csv_schema` attribute. Doris will use the specified column type for file reading. The format is as follows:
+
+`name1:type1;name2:type2;...`
+
+For columns with mismatched formats (such as string in the file and int defined by the user), or missing columns (such as 4 columns in the file and 5 columns defined by the user), these columns will return null.
+
+Currently supported column types are:
+
+| name | mapping type |
+| --- | --- |
+|tinyint |tinyint |
+|smallint |smallint |
+|int |int |
+| bigint | bigint |
+| largeint | largeint |
+| float| float |
+| double| double|
+| decimal(p,s) | decimalv3(p,s) |
+| date | datev2 |
+| datetime | datetimev2 |
+| char |string |
+|varchar |string |
+|string|string |
+|boolean| boolean |
+
+Example:
+
+```
+s3 (
+    'URI' = 'https://bucket1/inventory.dat',
+    'ACCESS_KEY'= 'ak',
+    'SECRET_KEY' = 'sk',
+    'FORMAT' = 'csv',
+    'column_separator' = '|',
+    'csv_schema' = 'k1:int;k2:int;k3:int;k4:decimal(38,10)',
+    'use_path_style'='true'
+)
+```
+
 ### Query and Analysis
 
 You can conduct queries and analysis on this Parquet file using any SQL statements:
