@@ -384,7 +384,8 @@ void PInternalServiceImpl::_tablet_writer_add_batch(google::protobuf::RpcControl
     // this will influence query execution, because the pthreads under bthread may be
     // exhausted, so we put this to a local thread pool to process
     int64_t submit_task_time_ns = MonotonicNanos();
-    bool ret = _heavy_work_pool.offer([cntl_base, request, response, done, submit_task_time_ns, this]() {
+    bool ret = _heavy_work_pool.offer([cntl_base, request, response, done, submit_task_time_ns,
+                                       this]() {
         int64_t wait_execution_time_ns = MonotonicNanos() - submit_task_time_ns;
         brpc::ClosureGuard closure_guard(done);
         int64_t execution_time_ns = 0;
@@ -555,8 +556,7 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         case TFileFormatType::FORMAT_CSV_DEFLATE: {
             // file_slots is no use
             std::vector<SlotDescriptor*> file_slots;
-            reader.reset(
-                    new vectorized::CsvReader(profile.get(), params, range, file_slots));
+            reader.reset(new vectorized::CsvReader(profile.get(), params, range, file_slots));
             break;
         }
         case TFileFormatType::FORMAT_PARQUET: {

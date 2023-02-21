@@ -494,8 +494,8 @@ Status VFileScanner::_get_next_reader() {
                 IcebergTableReader* iceberg_reader =
                         new IcebergTableReader((GenericReader*)parquet_reader, _profile, _state,
                                                _params, range, _kv_cache);
-                iceberg_reader->init_reader(_file_col_names, _col_id_name_map,
-                                            _colname_to_value_range, _push_down_expr);
+                init_status = iceberg_reader->init_reader(_file_col_names, _col_id_name_map,
+                                                          _colname_to_value_range, _push_down_expr);
                 RETURN_IF_ERROR(iceberg_reader->init_row_filters(range));
                 _cur_reader.reset((GenericReader*)iceberg_reader);
             } else {
