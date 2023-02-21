@@ -18,9 +18,6 @@
 name: Auto trigger teamcity
 
 on:
-  pull_request:
-    branches:
-      - master
   issue_comment:
     types: [created, edited]
   pull_request_review_comment:
@@ -32,7 +29,7 @@ env:
 
 jobs:
   run_compile_pipeline:
-    if: contains(github.event.comment.body, 'buildall') && contains(github.event.comment.body, 'run')
+    if: contains(github.event.comment.body, 'buildall') && contains(github.event.comment.body, 'run') && !contains(github.event.comment.body, 'Thanks for your contribution')
 
     runs-on: ubuntu-latest
 
@@ -63,7 +60,7 @@ jobs:
   
 
   run_p0_external_pipeline:
-    if: (contains(github.event.comment.body, 'p0') || contains(github.event.comment.body, 'external')) && contains(github.event.comment.body, 'run')
+    if: (contains(github.event.comment.body, 'p0') || contains(github.event.comment.body, 'external')) && contains(github.event.comment.body, 'run') && !contains(github.event.comment.body, 'Thanks for your contribution')
 
     runs-on: ubuntu-latest
 
@@ -88,7 +85,7 @@ jobs:
           eval ${execute_command}
 
   run_p1_pipeline:
-    if: contains(github.event.comment.body, 'p1') && contains(github.event.comment.body, 'run')
+    if: contains(github.event.comment.body, 'p1') && contains(github.event.comment.body, 'run')  && !contains(github.event.comment.body, 'Thanks for your contribution')
 
     runs-on: ubuntu-latest
 
@@ -113,7 +110,7 @@ jobs:
           eval ${execute_command}
 
   run_fe_ut_pipeline:
-    if: contains(github.event.comment.body, 'feut') && contains(github.event.comment.body, 'run')
+    if: contains(github.event.comment.body, 'feut') && contains(github.event.comment.body, 'run') && !contains(github.event.comment.body, 'Thanks for your contribution')
 
     runs-on: ubuntu-latest
 
@@ -139,7 +136,7 @@ jobs:
           eval ${execute_command}
 
   run_be_ut_pipeline:
-    if: contains(github.event.comment.body, 'beut') && contains(github.event.comment.body, 'run')
+    if: contains(github.event.comment.body, 'beut') && contains(github.event.comment.body, 'run') && !contains(github.event.comment.body, 'Thanks for your contribution')
 
     runs-on: ubuntu-latest
 
@@ -165,7 +162,7 @@ jobs:
           eval ${execute_command}
 
   run_compile_only_pipeline:
-    if: contains(github.event.comment.body, 'compile') && contains(github.event.comment.body, 'run')
+    if: contains(github.event.comment.body, 'compile') && contains(github.event.comment.body, 'run') && !contains(github.event.comment.body, 'Thanks for your contribution')
 
     runs-on: ubuntu-latest
 
@@ -191,7 +188,7 @@ jobs:
           eval ${execute_command}
 
   run_clickbench_pipeline:
-    if: contains(github.event.comment.body, 'clickbench') && contains(github.event.comment.body, 'run')
+    if: contains(github.event.comment.body, 'clickbench') && contains(github.event.comment.body, 'run') && !contains(github.event.comment.body, 'Thanks for your contribution')
 
     runs-on: ubuntu-latest
 
@@ -217,7 +214,7 @@ jobs:
           eval ${execute_command}
 
   run_arm_pipeline:
-    if: contains(github.event.comment.body, 'arm') && contains(github.event.comment.body, 'run')
+    if: contains(github.event.comment.body, 'arm') && contains(github.event.comment.body, 'run') && !contains(github.event.comment.body, 'Thanks for your contribution')
 
     runs-on: ubuntu-latest
 
@@ -244,7 +241,7 @@ jobs:
 
 
   run_for_test_pipeline:
-    if: contains(github.event.comment.body, 'just_for_test') && contains(github.event.comment.body, 'run')
+    if: contains(github.event.comment.body, 'just_for_test') && contains(github.event.comment.body, 'run') && !contains(github.event.comment.body, 'Thanks for your contribution')
 
     runs-on: ubuntu-latest
 
