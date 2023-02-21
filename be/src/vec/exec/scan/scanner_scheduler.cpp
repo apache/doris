@@ -46,10 +46,10 @@ ScannerScheduler::~ScannerScheduler() {
     _scheduler_pool->shutdown();
     _local_scan_thread_pool->shutdown();
     _remote_scan_thread_pool->shutdown();
+    _limited_scan_thread_pool->shutdown();
 
     _scheduler_pool->wait();
     _local_scan_thread_pool->join();
-    _remote_scan_thread_pool->join();
 
     for (int i = 0; i < QUEUE_NUM; i++) {
         delete _pending_queues[i];
@@ -76,10 +76,13 @@ Status ScannerScheduler::init(ExecEnv* env) {
             config::doris_scanner_thread_pool_queue_size, "local_scan"));
 
     // 3. remote scan thread pool
-    _remote_scan_thread_pool.reset(
-            new PriorityThreadPool(config::doris_scanner_thread_pool_thread_num,
-                                   config::doris_scanner_thread_pool_queue_size, "remote_scan"));
+    ThreadPoolBuilder("RemoteScanThreadPool")
+            .set_min_threads(config::doris_scanner_thread_pool_thread_num)            // 48 default
+            .set_max_threads(config::doris_max_remote_scanner_thread_pool_thread_num) // 512 default
+            .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
+            .build(&_remote_scan_thread_pool);
 
+    // 4. limited scan thread pool
     ThreadPoolBuilder("LimitedScanThreadPool")
             .set_min_threads(config::doris_scanner_thread_pool_thread_num)
             .set_max_threads(config::doris_scanner_thread_pool_thread_num)
@@ -162,20 +165,20 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
         }
     } else {
         while (iter != this_run.end()) {
-            PriorityThreadPool::Task task;
-            task.work_function = [this, scanner = *iter, ctx] {
-                this->_scanner_scan(this, ctx, scanner);
-            };
-            task.priority = nice;
-            task.queue_id = (*iter)->queue_id();
             (*iter)->start_wait_worker_timer();
-
             TabletStorageType type = (*iter)->get_storage_type();
             bool ret = false;
             if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
+                PriorityThreadPool::Task task;
+                task.work_function = [this, scanner = *iter, ctx] {
+                    this->_scanner_scan(this, ctx, scanner);
+                };
+                task.priority = nice;
+                task.queue_id = (*iter)->queue_id();
                 ret = _local_scan_thread_pool->offer(task);
             } else {
-                ret = _remote_scan_thread_pool->offer(task);
+                ret = _remote_scan_thread_pool->submit_func(
+                        [this, scanner = *iter, ctx] { this->_scanner_scan(this, ctx, scanner); });
             }
             if (ret) {
                 this_run.erase(iter++);
