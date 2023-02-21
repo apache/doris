@@ -44,18 +44,18 @@ public:
     virtual ~DataConsumer() {}
 
     // init the consumer with the given parameters
-    virtual Status init(StreamLoadContext* ctx) = 0;
+    virtual Status init(std::shared_ptr<StreamLoadContext> ctx) = 0;
     // start consuming
-    virtual Status consume(StreamLoadContext* ctx) = 0;
+    virtual Status consume(std::shared_ptr<StreamLoadContext> ctx) = 0;
     // cancel the consuming process.
     // if the consumer is not initialized, or the consuming
     // process is already finished, call cancel() will
     // return ERROR
-    virtual Status cancel(StreamLoadContext* ctx) = 0;
+    virtual Status cancel(std::shared_ptr<StreamLoadContext> ctx) = 0;
     // reset the data consumer before being reused
     virtual Status reset() = 0;
     // return true the if the consumer match the need
-    virtual bool match(StreamLoadContext* ctx) = 0;
+    virtual bool match(std::shared_ptr<StreamLoadContext> ctx) = 0;
 
     const UniqueId& id() { return _id; }
     time_t last_visit_time() { return _last_visit_time; }
