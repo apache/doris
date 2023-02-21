@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
@@ -35,8 +36,8 @@ import com.google.common.collect.Lists;
 import java.util.List;
 
 /** Window function: lag */
-public class Lag extends WindowFunction implements TernaryExpression, PropagateNullable,
-        ExplicitlyCastableSignature, RequireTrivialTypes {
+public class Lag extends WindowFunction implements TernaryExpression, ExplicitlyCastableSignature,
+        RequireTrivialTypes {
 
     static {
         List<FunctionSignature> signatures = Lists.newArrayList();
@@ -76,6 +77,14 @@ public class Lag extends WindowFunction implements TernaryExpression, PropagateN
             throw new AnalysisException("Not set default value of Lead(): " + this.toSql());
         }
         return child(2);
+    }
+
+    @Override
+    public boolean nullable() {
+        if (children.size() == 3 && children.get(3) instanceof NullLiteral) {
+            return true;
+        }
+        return children.get(0).nullable();
     }
 
     @Override
