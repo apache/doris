@@ -2497,7 +2497,6 @@ public class SchemaChangeHandler extends AlterHandler {
         // set Job state then add job
         schemaChangeJob.setJobState(AlterJobV2.JobState.WAITING_TXN);
         this.addAlterJobV2(schemaChangeJob);
-        LOG.debug("logAlterJob schemaChangeJob:{}", schemaChangeJob);
         LOG.info("finished modify table's meta for add or drop inverted index. table: {}, is replay: {}",
                  olapTable.getName(), isReplay);
     }
