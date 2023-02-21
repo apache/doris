@@ -166,20 +166,20 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
         }
     } else {
         while (iter != this_run.end()) {
-            PriorityThreadPool::Task task;
-            task.work_function = [this, scanner = *iter, ctx] {
-                this->_scanner_scan(this, ctx, scanner);
-            };
-            task.priority = nice;
-            task.queue_id = (*iter)->queue_id();
             (*iter)->start_wait_worker_timer();
-
             TabletStorageType type = (*iter)->get_storage_type();
             bool ret = false;
             if (type == TabletStorageType::STORAGE_TYPE_LOCAL) {
+                PriorityThreadPool::Task task;
+                task.work_function = [this, scanner = *iter, ctx] {
+                    this->_scanner_scan(this, ctx, scanner);
+                };
+                task.priority = nice;
+                task.queue_id = (*iter)->queue_id();
                 ret = _local_scan_thread_pool->offer(task);
             } else {
-                ret = _remote_scan_thread_pool->offer(task);
+                ret = _remote_scan_thread_pool->submit_func([this, scanner = *iter, ctx] {
+                        this->_scanner_scan(this, ctx, scanner);
             }
             if (ret) {
                 this_run.erase(iter++);
