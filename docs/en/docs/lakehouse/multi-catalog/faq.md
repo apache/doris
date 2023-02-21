@@ -41,8 +41,29 @@ under the License.
 
 2. What to do with the `GSS initiate failed` error when connecting to Hive Metastore with Kerberos authentication?
 
-   In Doris 1.2.1 and the older versions, gsasl is disabled for libhdfs3, so please update to Doris 1.2.2 or newer.
+   Usually it is caused by incorrect Kerberos authentication information, you can troubleshoot by the following steps:
+
+   1. In versions before  1.2.1, the libhdfs3 library that Doris depends on does not enable gsasl. Please update to a version later than 1.2.2.
+   2. Confirm that the correct keytab and principal are set for each component, and confirm that the keytab file exists on all FE and BE nodes.
+
+       1. `hadoop.kerberos.keytab`/`hadoop.kerberos.principal`: for Hadoop HDFS
+       2. `hive.metastore.kerberos.principal`: for hive metastore.
+
+   3. Try to replace the IP in the principal with a domain name (do not use the default `_HOST` placeholder)
+   4. Confirm that the `/etc/krb5.conf` file exists on all FE and BE nodes.
 
 3. What to do with the`java.lang.VerifyError: xxx` error when accessing HDFS 3.x?
 
    Doris 1.2.1 and the older versions rely on Hadoop 2.8. Please update Hadoop to 2.10.2 or update Doris to 1.2.2 or newer.
+
+4. An error is reported when using KMS to access HDFS: `java.security.InvalidKeyException: Illegal key size`
+
+    Upgrade the JDK version to a version >= Java 8 u162. Or download and install the JCE Unlimited Strength Jurisdiction Policy Files corresponding to the JDK.
+
+5. When querying a table in ORC format, FE reports an error `Could not obtain block`
+
+    For ORC files, by default, FE will access HDFS to obtain file information and split files. In some cases, FE may not be able to access HDFS. It can be solved by adding the following parameters:
+
+    `"hive.exec.orc.split.strategy" = "BI"`
+
+    Other options: HYBRID (default), ETL.
