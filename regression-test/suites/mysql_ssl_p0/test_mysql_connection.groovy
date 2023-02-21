@@ -16,9 +16,8 @@
 // under the License.
 
 suite("test_mysql_connection") {
-    def sout = new StringBuilder(), serr = new StringBuilder()
-    'mysql -uroot -P9030 -h127.0.0.1'.execute()
-    'mysql --ssl-mode=DISABLE -uroot -P9030 -h127.0.0.1'.execute()
-    'mysql --ssl-mode=REQUIRED -uroot -P9030 -h127.0.0.1 --tls-version=TLSv1.2'.execute()
-    'mysql --ssl-mode=REQUIRED -uroot -P9030 -h127.0.0.1 --tls-version=TLSv1.3'.execute()
+    """mysql -uroot -P9030 -h127.0.0.1 -e 'show databases; status;'""".execute()
+    """mysql --ssl-mode=DISABLE -uroot -P9030 -h127.0.0.1 -e 'show databases; status'""".execute()
+    """mysql --ssl-mode=REQUIRED -uroot -P9030 -h127.0.0.1 --tls-version=TLSv1.2 -e 'show databases; status'""".execute()
+    """mysql --ssl-mode=REQUIRED -uroot -P9030 -h127.0.0.1 --tls-version=TLSv1.3 -e 'show databases; status'""".execute()
 }

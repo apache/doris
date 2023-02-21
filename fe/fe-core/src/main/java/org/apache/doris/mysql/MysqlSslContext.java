@@ -179,10 +179,6 @@ public class MysqlSslContext {
 
     private void handleNeedWrap(MysqlChannel channel) {
         try {
-            serverAppData.flip();
-            serverAppData.clear();
-            serverNetData.flip();
-            serverNetData.clear();
             while (true) {
                 SSLEngineResult sslEngineResult = sslEngine.wrap(serverAppData, serverNetData);
                 if (handleWrapResult(sslEngineResult)) {
