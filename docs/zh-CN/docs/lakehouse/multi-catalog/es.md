@@ -93,6 +93,7 @@ CREATE CATALOG es PROPERTIES (
 
 Elasticsearch 没有明确的数组类型，但是它的某个字段可以含有[0个或多个值](https://www.elastic.co/guide/en/elasticsearch/reference/current/array.html)。
 为了表示一个字段是数组类型，可以在索引映射的[_meta](https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-meta-field.html)部分添加特定的`doris`结构注释。
+对于 Elasticsearch 6.x 及之前版本，请参考[_meta](https://www.elastic.co/guide/en/elasticsearch/reference/6.8/mapping-meta-field.html)。
 
 举例说明，假设有一个索引`doc`包含以下的数据结构：
 
@@ -114,7 +115,8 @@ Elasticsearch 没有明确的数组类型，但是它的某个字段可以含有
 该结构的数组字段可以通过使用以下命令将字段属性定义添加到目标索引映射的`_meta.doris`属性来定义。
 
 ```bash
-curl -X PUT localhost:9200/doc/_mapping?pretty -H 'Content-Type:application/json' -d '
+# ES 7.x and above
+curl -X PUT "localhost:9200/doc/_mapping?pretty" -H 'Content-Type:application/json' -d '
 {
     "_meta": {
         "doris":{
@@ -126,6 +128,22 @@ curl -X PUT localhost:9200/doc/_mapping?pretty -H 'Content-Type:application/json
         }
     }
 }'
+
+# ES 6.x and before
+curl -X PUT "localhost:9200/doc/_mapping?pretty" -H 'Content-Type: application/json' -d '
+{
+    "_doc": {
+        "_meta": {
+            "doris":{
+                "array_fields":[
+                    "array_int_field",
+                    "array_string_field",
+                    "array_object_field"
+                ]
+            }
+    }
+    }
+}
 ```
 
 `array_fields`：用来表示是数组类型的字段。

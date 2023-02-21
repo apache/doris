@@ -691,7 +691,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
             break;
         }
         default: {
-            LOG(ERROR) << "Do not support data type: " << type_to_string(type);
+            LOG(ERROR) << "Unsupported data type: " << type_to_string(type);
             DCHECK(false);
             break;
         }

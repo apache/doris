@@ -95,6 +95,7 @@ Elasticsearch does not have an explicit array type, but one of its fields can co
 [0 or more values](https://www.elastic.co/guide/en/elasticsearch/reference/current/array.html).
 To indicate that a field is an array type, a specific `doris` structural annotation can be added to the 
 [_meta](https://www.elastic.co/guide/en/elasticsearch/reference/current/mapping-meta-field.html) section of the index mapping.
+For Elasticsearch 6.x and before release, please refer [_meta](https://www.elastic.co/guide/en/elasticsearch/reference/6.8/mapping-meta-field.html).
 
 For example, suppose there is an index `doc` containing the following data structure.
 
@@ -117,7 +118,8 @@ The array fields of this structure can be defined by using the following command
 to the `_meta.doris` property of the target index mapping.
 
 ```bash
-curl -X PUT localhost:9200/doc/_mapping?pretty -H 'Content-Type:application/json' -d '
+# ES 7.x and above
+curl -X PUT "localhost:9200/doc/_mapping?pretty" -H 'Content-Type:application/json' -d '
 {
     "_meta": {
         "doris":{
@@ -129,6 +131,24 @@ curl -X PUT localhost:9200/doc/_mapping?pretty -H 'Content-Type:application/json
         }
     }
 }'
+
+# ES 6.x and before
+curl -X PUT "localhost:9200/doc/_mapping?pretty" -H 'Content-Type: application/json' -d '
+{
+    "_doc": {
+        "_meta": {
+            "doris":{
+                "array_fields":[
+                    "array_int_field",
+                    "array_string_field",
+                    "array_object_field"
+                ]
+            }
+    }
+    }
+}
+'
+
 ```
 
 `array_fields`：Used to indicate a field that is an array type.
