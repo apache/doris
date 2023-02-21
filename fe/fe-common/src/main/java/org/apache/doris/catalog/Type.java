@@ -609,7 +609,7 @@ public abstract class Type {
                 && !sourceType.isNull()) {
             // TODO: current not support cast any non-array type(except for null) to nested array type.
             return false;
-        } else if (targetType.isStructType() && sourceType.isStringType()) {
+        } else if ((targetType.isStructType() || targetType.isMapType()) && sourceType.isStringType()) {
             return true;
         } else if (sourceType.isStructType() && targetType.isStructType()) {
             return StructType.canCastTo((StructType) sourceType, (StructType) targetType);

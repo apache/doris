@@ -1542,6 +1542,7 @@ private:
         }
     }
 
+    //TODO(Amory) . Need support more cast for key , value for map
     WrapperType create_map_wrapper(const DataTypePtr& from_type, const DataTypeMap& to_type) const {
         switch (from_type->get_type_id()) {
         case TypeIndex::String:

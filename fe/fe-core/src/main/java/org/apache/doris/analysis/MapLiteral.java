@@ -47,18 +47,35 @@ public class MapLiteral extends LiteralExpr {
         Type keyType = Type.NULL;
         Type valueType = Type.NULL;
         children = new ArrayList<>();
+        // check types here
+        // 1. limit key type with map-key support
+        // 2. check type can be assigment for cast
         for (int idx = 0; idx < exprs.length && idx + 1 < exprs.length; idx += 2) {
-            // limit key type to scalar type
+            if (type.supportSubType(exprs[idx].getType())) {
+                throw new AnalysisException("Invalid key type in Map, not support " + keyType);
+            }
             keyType = Type.getAssignmentCompatibleType(keyType, exprs[idx].getType(), true);
-            if (keyType == Type.INVALID || !keyType.isScalarType()) {
-                throw new AnalysisException("Invalid key type in Map Only support scalar type");
-            }
             valueType = Type.getAssignmentCompatibleType(valueType, exprs[idx + 1].getType(), true);
-            if (valueType == Type.INVALID) {
-                throw new AnalysisException("Invalid value type in Map");
+        }
+
+        if (keyType == Type.INVALID) {
+            throw new AnalysisException("Invalid key type in Map.");
+        }
+        if (valueType == Type.INVALID) {
+            throw new AnalysisException("Invalid value type in Map.");
+        }
+
+        for (int idx = 0; idx < exprs.length && idx + 1 < exprs.length; idx += 2) {
+            if (exprs[idx].getType().equals(keyType)) {
+                children.add(exprs[idx]);
+            } else {
+                children.add(exprs[idx].castTo(keyType));
             }
-            children.add(exprs[idx]);
-            children.add(exprs[idx + 1]);
+            if (exprs[idx + 1].getType().equals(valueType)) {
+                children.add(exprs[idx + 1]);
+            } else {
+                children.add(exprs[idx + 1].castTo(valueType));
+            }
         }
 
         type = new MapType(keyType, valueType);
