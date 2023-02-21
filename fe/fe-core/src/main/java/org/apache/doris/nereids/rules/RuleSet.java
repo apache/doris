@@ -72,15 +72,17 @@ import java.util.List;
  */
 public class RuleSet {
     public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
+            .add(new PushdownFilterThroughProject())
+            .add(new MergeProjects())
+            .build();
+
+    public static final List<Rule> OTHER_REORDER_RULES = planRuleFactories()
             .add(OuterJoinLAsscom.INSTANCE)
             .add(OuterJoinLAsscomProject.INSTANCE)
             .add(SemiJoinLogicalJoinTranspose.LEFT_DEEP)
             .add(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP)
             .add(SemiJoinSemiJoinTranspose.INSTANCE)
             .add(SemiJoinSemiJoinTransposeProject.INSTANCE)
-            // .add(new DisassembleDistinctAggregate())
-            .add(new PushdownFilterThroughProject())
-            .add(new MergeProjects())
             .build();
 
     /**
@@ -168,6 +170,13 @@ public class RuleSet {
     public List<Rule> getExplorationRules() {
         List<Rule> rules = new ArrayList<>();
         rules.addAll(JOINORDER_RULE);
+        rules.addAll(OTHER_REORDER_RULES);
+        rules.addAll(EXPLORATION_RULES);
+        return rules;
+    }
+
+    public List<Rule> getExplorationRulesWithoutReorder() {
+        List<Rule> rules = new ArrayList<>();
         rules.addAll(EXPLORATION_RULES);
         return rules;
     }
