@@ -29,6 +29,7 @@
 #include "gen_cpp/FrontendService_types.h"
 #include "io/fs/stream_load_pipe.h"
 #include "runtime/exec_env.h"
+#include "runtime/message_body_sink.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_executor.h"
 #include "service/backend_options.h"
@@ -158,7 +159,7 @@ public:
     TFileFormatType::type format = TFileFormatType::FORMAT_CSV_PLAIN;
     TFileCompressType::type compress_type = TFileCompressType::UNKNOWN;
 
-    std::shared_ptr<io::MessageBodySink> body_sink;
+    std::shared_ptr<MessageBodySink> body_sink;
 
     TStreamLoadPutResult put_result;
 

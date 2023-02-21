@@ -21,6 +21,7 @@
 #include <mutex>
 #include <unordered_map>
 
+#include "runtime/stream_load/stream_load_context.h"
 #include "util/doris_metrics.h"
 #include "util/uid_util.h"
 
