@@ -309,6 +309,13 @@ ColumnPtr ColumnNullable::filter(const Filter& filt, ssize_t result_size_hint) c
     return ColumnNullable::create(filtered_data, filtered_null_map);
 }
 
+size_t ColumnNullable::filter(const Filter& filter) {
+    const auto data_result_size = get_nested_column().filter(filter);
+    const auto map_result_size = get_null_map_column().filter(filter);
+    CHECK_EQ(data_result_size, map_result_size);
+    return data_result_size;
+}
+
 Status ColumnNullable::filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) {
     const ColumnNullable* nullable_col_ptr = reinterpret_cast<const ColumnNullable*>(col_ptr);
     ColumnPtr nest_col_ptr = nullable_col_ptr->nested_column;

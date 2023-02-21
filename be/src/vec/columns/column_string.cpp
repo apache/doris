@@ -148,6 +148,16 @@ ColumnPtr ColumnString::filter(const Filter& filt, ssize_t result_size_hint) con
     return res;
 }
 
+size_t ColumnString::filter(const Filter& filter) {
+    CHECK_EQ(filter.size(), offsets.size());
+    if (offsets.size() == 0) {
+        resize(0);
+        return 0;
+    }
+
+    return filter_arrays_impl<UInt8, Offset>(chars, offsets, filter);
+}
+
 ColumnPtr ColumnString::permute(const Permutation& perm, size_t limit) const {
     size_t size = offsets.size();
 
