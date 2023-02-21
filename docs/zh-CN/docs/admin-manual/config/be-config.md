@@ -1433,4 +1433,9 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 * 描述: 在动态表中是否解析多维数组，如果是false遇到多维数组则会报错。
 * 默认值: true
 
+#### `enable_simdjson_reader`
+
+* 描述: 是否在导入json数据时用simdjson来解析。
+* 默认值: false
+
 </version>
