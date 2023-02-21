@@ -607,21 +607,28 @@ TypeDescriptor OrcReader::_convert_to_doris_type(const orc::Type* orc_type) {
     case orc::TypeKind::TIMESTAMP_INSTANT:
         return TypeDescriptor(PrimitiveType::TYPE_DATETIMEV2);
     case orc::TypeKind::LIST: {
+        // Use Object PrimitiveType to construct TypeDescriptor also need init containers_nulls with the default value of bool
         TypeDescriptor list_type(PrimitiveType::TYPE_ARRAY);
         list_type.children.emplace_back(_convert_to_doris_type(orc_type->getSubtype(0)));
+        list_type.contains_nulls.push_back(false);
         return list_type;
     }
     case orc::TypeKind::MAP: {
+        // Use Object PrimitiveType to construct TypeDescriptor also need init containers_nulls with the default value of bool
         TypeDescriptor map_type(PrimitiveType::TYPE_MAP);
         map_type.children.emplace_back(_convert_to_doris_type(orc_type->getSubtype(0)));
         map_type.children.emplace_back(_convert_to_doris_type(orc_type->getSubtype(1)));
+        map_type.contains_nulls.push_back(false);
+        map_type.contains_nulls.push_back(false);
         return map_type;
     }
     case orc::TypeKind::STRUCT: {
+        // Use Object PrimitiveType to construct TypeDescriptor also need init containers_nulls with the default value of bool
         TypeDescriptor struct_type(PrimitiveType::TYPE_STRUCT);
         for (int i = 0; i < orc_type->getSubtypeCount(); ++i) {
             struct_type.children.emplace_back(_convert_to_doris_type(orc_type->getSubtype(i)));
             struct_type.field_names.emplace_back(_get_field_name_lower_case(orc_type, i));
+            struct_type.contains_nulls.push_back(false);
         }
         return struct_type;
     }
