@@ -77,6 +77,12 @@ public class FEFunctions {
         return new IntLiteral(datediff, Type.INT);
     }
 
+    @FEFunction(name = "dayofweek", argTypes = {"DATETIME"}, returnType = "INT")
+    public static IntLiteral dayOfWeek(LiteralExpr day) throws AnalysisException {
+        //
+        return
+    }
+
     @FEFunction(name = "date_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateLiteral dateAdd(LiteralExpr date, LiteralExpr day) throws AnalysisException {
         return daysAdd(date, day);
