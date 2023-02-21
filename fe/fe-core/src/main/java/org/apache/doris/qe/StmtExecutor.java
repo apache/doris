@@ -1289,7 +1289,14 @@ public class StmtExecutor implements ProfileWriter {
             }
             if (!isSendFields) {
                 if (!isOutfileQuery) {
-                    sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
+                    if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery) {
+                        List<String> data = Lists.newArrayList();
+                        ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(data));
+                        sendResultSet(resultSet);
+                        return;
+                    } else {
+                        sendFields(queryStmt.getColLabels(), exprToType(queryStmt.getResultExprs()));
+                    }
                 } else {
                     sendFields(OutFileClause.RESULT_COL_NAMES, OutFileClause.RESULT_COL_TYPES);
                 }
