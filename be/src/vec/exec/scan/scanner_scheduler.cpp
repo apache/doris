@@ -46,6 +46,7 @@ ScannerScheduler::~ScannerScheduler() {
     _scheduler_pool->shutdown();
     _local_scan_thread_pool->shutdown();
     _remote_scan_thread_pool->shutdown();
+    _limited_scan_thread_pool->shutdown();
 
     _scheduler_pool->wait();
     _local_scan_thread_pool->join();
@@ -76,10 +77,13 @@ Status ScannerScheduler::init(ExecEnv* env) {
             config::doris_scanner_thread_pool_queue_size, "local_scan"));
 
     // 3. remote scan thread pool
-    _remote_scan_thread_pool.reset(
-            new PriorityThreadPool(config::doris_scanner_thread_pool_thread_num,
-                                   config::doris_scanner_thread_pool_queue_size, "remote_scan"));
+    ThreadPoolBuilder("RemoteScanThreadPool")
+            .set_min_threads(config::doris_scanner_thread_pool_thread_num)            // 48 default
+            .set_max_threads(config::doris_max_remote_scanner_thread_pool_thread_num) // 512 default
+            .set_max_queue_size(config::doris_scanner_thread_pool_queue_size)
+            .build(&_remote_scan_thread_pool);
 
+    // 4. limited scan thread pool
     ThreadPoolBuilder("LimitedScanThreadPool")
             .set_min_threads(config::doris_scanner_thread_pool_thread_num)
             .set_max_threads(config::doris_scanner_thread_pool_thread_num)
