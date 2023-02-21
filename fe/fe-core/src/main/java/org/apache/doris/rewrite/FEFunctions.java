@@ -83,6 +83,10 @@ public class FEFunctions {
         long year = ((DateLiteral) date).getYear();
         long month = ((DateLiteral) date).getMonth();
         long day = ((DateLiteral) date).getDay();
+        if (month < 3) {
+            month += 12;
+            year -= 1;
+        }
         long c = year / 100;
         long y = year % 100;
         long t;

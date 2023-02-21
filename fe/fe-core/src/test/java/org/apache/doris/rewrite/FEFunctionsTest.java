@@ -215,6 +215,11 @@ public class FEFunctionsTest {
     }
 
     @Test
+    public void dayOfWeekTest() throws AnalysisException {
+        Assert.assertEquals(FEFunctions.dayOfWeek(new DateLiteral("2023-02-20", Type.DATE)).getStringValue(), "1");
+    }
+
+    @Test
     public void fromUnixTimeTest() throws AnalysisException {
         StringLiteral actualResult = FEFunctions.fromUnixTime(new IntLiteral(100000));
         StringLiteral expectedResult = new StringLiteral("1970-01-02 11:46:40");
