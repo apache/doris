@@ -224,7 +224,7 @@ static void insert_LRUCache(LRUCache& cache, const CacheKey& key, int value,
     static std::unique_ptr<MemTrackerLimiter> lru_cache_tracker =
             std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::GLOBAL, "TestLruCache");
     cache.release(cache.insert(key, hash, EncodeValue(value), value, &deleter,
-                               lru_cache_tracker.get(), priority));
+                               lru_cache_tracker.get(), priority, value));
 }
 
 TEST_F(CacheTest, Usage) {
