@@ -54,10 +54,10 @@ public class JoinEstimation {
 
     private static double estimateEqualJoinCondition(EqualTo equalto,
             StatsDeriveResult leftStats, StatsDeriveResult rightStats) {
-        SlotReference eqRight = (SlotReference) equalto.child(1).getInputSlots().toArray()[0];
+        SlotReference eqRight = (SlotReference) equalto.child(1).getInputSlots().iterator().next();
 
         ColumnStatistic rColumnStats = rightStats.getSlotIdToColumnStats().get(eqRight.getExprId());
-        SlotReference eqLeft = (SlotReference) equalto.child(0).getInputSlots().toArray()[0];
+        SlotReference eqLeft = (SlotReference) equalto.child(0).getInputSlots().iterator().next();
 
         if (rColumnStats == null) {
             rColumnStats = rightStats.getSlotIdToColumnStats().get(eqLeft.getExprId());
