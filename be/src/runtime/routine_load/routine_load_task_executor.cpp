@@ -162,7 +162,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     }
 
     // create the context
-    std::shared_ptr<StreamLoadContext> ctx = std : make_shared<StreamLoadContext>(_exec_env);
+    std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
     ctx->load_type = TLoadType::ROUTINE_LOAD;
     ctx->load_src_type = task.type;
     ctx->job_id = task.job_id;
@@ -223,9 +223,6 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
                                                           << ", status: " << ctx->status
                                                           << ", current tasks num: "
                                                           << _task_map.size();
-                                                if (ctx->unref()) {
-                                                    delete ctx;
-                                                }
                                             }))) {
         // failed to submit task, clear and return
         LOG(WARNING) << "failed to submit routine load task: " << ctx->brief();
@@ -254,7 +251,8 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
 
     // create data consumer group
     std::shared_ptr<DataConsumerGroup> consumer_grp;
-    HANDLE_ERROR(consumer_pool->get_consumer_grp(ctx, &consumer_grp), "failed to get consumers");
+    HANDLE_ERROR(consumer_pool->get_consumer_grp(ctx.get(), &consumer_grp),
+                 "failed to get consumers");
 
     // create and set pipe
     std::shared_ptr<io::StreamLoadPipe> pipe;
