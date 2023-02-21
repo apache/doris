@@ -362,7 +362,8 @@ void RoutineLoadTaskExecutor::err_handler(std::shared_ptr<StreamLoadContext> ctx
 Status RoutineLoadTaskExecutor::_execute_plan_for_test(std::shared_ptr<StreamLoadContext> ctx) {
     auto mock_consumer = [this, ctx]() {
         ctx->ref();
-        std::shared_ptr<io::StreamLoadPipe> pipe = _exec_env->new_load_stream_mgr()->get(ctx->id);
+        std::shared_ptr<io::StreamLoadPipe> pipe = std::static_pointer_cast<io::StreamLoadPipe>(
+                _exec_env->new_load_stream_mgr()->get(ctx->id)->body_sink);
         std::stringstream ss;
         while (true) {
             char one;

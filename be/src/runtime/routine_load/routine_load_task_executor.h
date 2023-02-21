@@ -68,7 +68,7 @@ private:
                      const std::string& err_msg);
 
     // for test only
-    Status _execute_plan_for_test(StreamLoadContext* ctx);
+    Status _execute_plan_for_test(std::shared_ptr<StreamLoadContext> ctx);
     // create a dummy StreamLoadContext for PKafkaMetaProxyRequest
     Status _prepare_ctx(const PKafkaMetaProxyRequest& request, StreamLoadContext* ctx);
 
