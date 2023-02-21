@@ -686,11 +686,14 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         _inverted_index_iterators[unique_id] == nullptr ||
         (pred->type() != PredicateType::MATCH && handle_by_fulltext) ||
         pred->type() == PredicateType::IS_NULL || pred->type() == PredicateType::IS_NOT_NULL ||
-        pred->type() == PredicateType::BF) {
+        pred->type() == PredicateType::BF ||
+        ((pred->type() == PredicateType::IN_LIST || pred->type() == PredicateType::NOT_IN_LIST) &&
+         pred->predicate_params()->marked_by_runtime_filter)) {
         // 1. this column no inverted index
         // 2. equal or range for fulltext index
         // 3. is_null or is_not_null predicate
         // 4. bloom filter predicate
+        // 5. in_list or not_in_list predicate produced by runtime filter
         remaining_predicates.emplace_back(pred);
     } else {
         roaring::Roaring bitmap = _row_bitmap;
