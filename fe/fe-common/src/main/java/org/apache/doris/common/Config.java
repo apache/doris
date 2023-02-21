@@ -1980,7 +1980,7 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, masterOnly = false)
     public static String mysql_ssl_default_certificate = System.getenv("DORIS_HOME")
-        + "/mysql_ssl_default_certificate/certificate.p12";
+            + "/mysql_ssl_default_certificate/certificate.p12";
 
     /**
      * Password for default certificate file.
