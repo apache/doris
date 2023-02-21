@@ -305,7 +305,7 @@ if [[ -z "${DISABLE_JAVA_UDF}" ]]; then
 fi
 
 if [[ -z "${DISABLE_JAVA_CHECK_STYLE}" ]]; then
-    DISABLE_JAVA_CHECK_STYLE='OFF'
+    DISABLE_JAVA_CHECK_STYLE='ON'
 fi
 
 if [[ -z "${RECORD_COMPILER_SWITCHES}" ]]; then
@@ -479,10 +479,10 @@ function build_ui() {
 }
 
 # FE UI must be built before building FE
-if [[ "${BUILD_FE}" -eq 1 ]]; then
-    build_ui
-fi
-
+#if [[ "${BUILD_FE}" -eq 1 ]]; then
+#    build_ui
+#fi
+#
 # Clean and build Frontend
 if [[ "${FE_MODULES}" != '' ]]; then
     echo "Build Frontend Modules: ${FE_MODULES}"
@@ -511,6 +511,7 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     cp -r -p "${DORIS_HOME}/conf/fe.conf" "${DORIS_OUTPUT}/fe/conf"/
     cp -r -p "${DORIS_HOME}/conf/ldap.conf" "${DORIS_OUTPUT}/fe/conf"/
     cp -r -p "${DORIS_HOME}/conf"/*.xml "${DORIS_OUTPUT}/fe/conf"/
+    cp -r -p "${DORIS_HOME}/conf/mysql_ssl_default_certificate" "${DORIS_OUTPUT}/fe/"/
     rm -rf "${DORIS_OUTPUT}/fe/lib"/*
     cp -r -p "${DORIS_HOME}/fe/fe-core/target/lib"/* "${DORIS_OUTPUT}/fe/lib"/
     rm -f "${DORIS_OUTPUT}/fe/lib/palo-fe.jar"

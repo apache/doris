@@ -17,6 +17,7 @@
 
 package org.apache.doris.mysql;
 
+import org.apache.doris.common.Config;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
@@ -45,9 +46,10 @@ public class MysqlSslContext {
     private SSLContext sslContext;
     private String protocol;
     private ByteBuffer serverAppData;
+    private static final String keyStoreFile = Config.mysql_ssl_default_certificate;
+    private static final String trustStoreFile = Config.mysql_ssl_default_certificate;
+    private static final String certificatePassword = Config.mysql_ssl_default_certificate_password;
     private ByteBuffer serverNetData;
-    private static final String keyStoreFile = "../../../regression-test/certificate.p12";
-    private static final String trustStoreFile = "../../../regression-test/certificate.p12";
     private ByteBuffer clientAppData;
     private ByteBuffer clientNetData;
 
@@ -65,7 +67,7 @@ public class MysqlSslContext {
             KeyStore ks = KeyStore.getInstance("PKCS12");
             KeyStore ts = KeyStore.getInstance("PKCS12");
 
-            char[] password = "doris".toCharArray();
+            char[] password = certificatePassword.toCharArray();
 
             ks.load(Files.newInputStream(Paths.get(keyStoreFile)), password);
             ts.load(Files.newInputStream(Paths.get(trustStoreFile)), password);
