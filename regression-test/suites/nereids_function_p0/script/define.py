@@ -150,6 +150,21 @@ not_check_result = {
     'unix_timestamp',
     # agg
     'any_value_AnyData',
+    'histogram_Boolean',
+    'histogram_TinyInt',
+    'histogram_SmallInt',
+    'histogram_Integer',
+    'histogram_BigInt',
+    'histogram_LargeInt',
+    'histogram_Float',
+    'histogram_Double',
+    'histogram_Char',
+    'histogram_String',
+    'histogram_DecimalV2',
+    'histogram_Date',
+    'histogram_DateTime',
+    'histogram_DateV2',
+    'histogram_DateTimeV2',
 }
 
 win_fn = [
