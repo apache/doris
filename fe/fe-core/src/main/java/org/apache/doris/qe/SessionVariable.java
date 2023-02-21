@@ -406,7 +406,7 @@ public class SessionVariable implements Serializable, Writable {
     public int codegenLevel = 0;
 
     // 4096 minus 16 + 16 bytes padding that in padding pod array
-    @VariableMgr.VarAttr(name = BATCH_SIZE)
+    @VariableMgr.VarAttr(name = BATCH_SIZE, fuzzy = true)
     public int batchSize = 4064;
 
     @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS, fuzzy = true)
@@ -748,6 +748,14 @@ public class SessionVariable implements Serializable, Writable {
             this.enablePipelineEngine = false;
             // this.enableFoldConstantByBe = false;
             // this.enableTwoPhaseReadOpt = true;
+        }
+
+        if (Config.fuzzy_test_type.equals("p0")) {
+            if (Config.pull_request_id % 2 == 1) {
+                this.batchSize = 4064;
+            } else {
+                this.batchSize = 50;
+            }
         }
 
         // set random 1, 10, 100, 1000, 10000
