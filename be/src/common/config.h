@@ -178,8 +178,11 @@ CONF_mInt32(status_report_interval, "5");
 CONF_Bool(doris_enable_scanner_thread_pool_per_disk, "true");
 // the timeout of a work thread to wait the blocking priority queue to get a task
 CONF_mInt64(doris_blocking_priority_queue_wait_timeout_ms, "500");
-// number of olap scanner thread pool size
+// number of scanner thread pool size for olap table
+// and the min thread num of remote scanner thread pool
 CONF_Int32(doris_scanner_thread_pool_thread_num, "48");
+// max number of remote scanner thread pool size
+CONF_Int32(doris_max_remote_scanner_thread_pool_thread_num, "512");
 // number of olap scanner thread pool queue size
 CONF_Int32(doris_scanner_thread_pool_queue_size, "102400");
 // default thrift client connect timeout(in seconds)
