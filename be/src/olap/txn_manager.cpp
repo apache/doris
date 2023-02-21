@@ -291,9 +291,9 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
     RowsetSharedPtr rowset_ptr = nullptr;
     TabletTxnInfo* load_info = nullptr;
     {
-        std::unique_lock<std::mutex> txn_lock(_get_txn_lock(transaction_id));
         {
-            std::shared_lock rlock(_get_txn_map_lock(transaction_id));
+            std::unique_lock<std::mutex> txn_rlock(_get_txn_lock(transaction_id));
+            std::shared_lock txn_map_rlock(_get_txn_map_lock(transaction_id));
             txn_tablet_map_t& txn_tablet_map = _get_txn_tablet_map(transaction_id);
             auto it = txn_tablet_map.find(key);
             if (it != txn_tablet_map.end()) {
