@@ -260,7 +260,7 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
     case TLoadSourceType::KAFKA: {
         pipe = std::make_shared<io::KafkaConsumerPipe>();
         Status st = std::static_pointer_cast<KafkaDataConsumerGroup>(consumer_grp)
-                            ->assign_topic_partitions(ctx);
+                            ->assign_topic_partitions(ctx.get());
         if (!st.ok()) {
             err_handler(ctx, st, st.to_string());
             cb(ctx);
@@ -279,7 +279,7 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
     ctx->body_sink = pipe;
 
     // must put pipe before executing plan fragment
-    HANDLE_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, pipe), "failed to add pipe");
+    HANDLE_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, ctx), "failed to add pipe");
 
 #ifndef BE_TEST
     // execute plan fragment, async
