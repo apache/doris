@@ -396,7 +396,7 @@ public:
     int minute() const { return _minute; }
     int second() const { return _second; }
     int neg() const { return _neg; }
-    int64_t to_seconds() const {
+    int64_t time_part_to_seconds() const {
         return _hour * SECOND_PER_HOUR + _minute * SECOND_PER_MINUTE + _second;
     }
 
@@ -612,22 +612,13 @@ public:
         return _s_max_datetime_value;
     }
 
-    //only calculate the diff of dd:mm:ss
-    int64_t time_part_diff(const VecDateTimeValue& rhs) const {
-        return to_seconds() - rhs.to_seconds();
+    template <typename T>
+    int64_t time_part_diff(const T& rhs) const {
+        return time_part_to_seconds() - rhs.time_part_to_seconds();
     }
 
     template <typename T>
-    int64_t time_part_diff(const DateV2Value<T>& rhs) const {
-        return to_seconds() - rhs.to_seconds();
-    }
-
-    int64_t second_diff(const VecDateTimeValue& rhs) const {
-        return (daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY + time_part_diff(rhs);
-    }
-
-    template <typename T>
-    int64_t second_diff(const DateV2Value<T>& rhs) const {
+    int64_t second_diff(const T& rhs) const {
         return (daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY + time_part_diff(rhs);
     }
 
@@ -880,7 +871,7 @@ public:
         }
     }
 
-    int64_t to_seconds() const {
+    int64_t time_part_to_seconds() const {
         return hour() * SECOND_PER_HOUR + minute() * SECOND_PER_MINUTE + second();
     }
 
@@ -1074,21 +1065,13 @@ public:
     }
 
     //only calculate the diff of dd:mm:ss
-    int64_t time_part_diff(const VecDateTimeValue& rhs) const {
-        return to_seconds() - rhs.to_seconds();
+    template <typename RHS>
+    int64_t time_part_diff(const RHS& rhs) const {
+        return time_part_to_seconds() - rhs.time_part_to_seconds();
     }
 
     template <typename RHS>
-    int64_t time_part_diff(const DateV2Value<RHS>& rhs) const {
-        return to_seconds() - rhs.to_seconds();
-    }
-
-    int64_t second_diff(const VecDateTimeValue& rhs) const {
-        return (daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY + time_part_diff(rhs);
-    }
-
-    template <typename RHS>
-    int64_t second_diff(const DateV2Value<RHS>& rhs) const {
+    int64_t second_diff(const RHS& rhs) const {
         return (daynr() - rhs.daynr()) * SECOND_PER_HOUR * HOUR_PER_DAY + time_part_diff(rhs);
     }
 
