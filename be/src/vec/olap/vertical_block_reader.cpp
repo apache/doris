@@ -86,8 +86,7 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params) 
     std::vector<RowwiseIteratorUPtr> segment_iters;
     std::vector<bool> iterator_init_flag;
     std::vector<RowsetId> rowset_ids;
-    std::vector<RowwiseIterator*>* segment_iters_ptr = read_params.segment_iters_ptr;
-    std::vector<RowwiseIterator*> segment_iters;
+    std::vector<RowwiseIteratorUPtr>* segment_iters_ptr = read_params.segment_iters_ptr;
 
     if (!segment_iters_ptr) {
         RETURN_IF_ERROR(_get_segment_iterators(read_params, &segment_iters, &iterator_init_flag,
@@ -115,10 +114,10 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params) 
             seq_col_idx = read_params.tablet->tablet_schema()->sequence_col_idx();
         }
         _vcollect_iter = new_vertical_heap_merge_iterator(
-                *segment_iters_ptr, iterator_init_flag, rowset_ids, ori_return_col_size,
+                std::move(*segment_iters_ptr), iterator_init_flag, rowset_ids, ori_return_col_size,
                 read_params.tablet->keys_type(), seq_col_idx, _row_sources_buffer);
     } else {
-        _vcollect_iter = new_vertical_mask_merge_iterator(*segment_iters_ptr, ori_return_col_size,
+        _vcollect_iter = new_vertical_mask_merge_iterator(std::move(*segment_iters_ptr), ori_return_col_size,
                                                           _row_sources_buffer);
     }
     // init collect iterator

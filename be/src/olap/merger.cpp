@@ -27,8 +27,6 @@
 #include "util/trace.h"
 #include "vec/olap/block_reader.h"
 
-
-
 namespace doris {
 
 Status Merger::vmerge_rowsets(TabletSharedPtr tablet, ReaderType reader_type,
@@ -242,12 +240,14 @@ Status Merger::vertical_compact_one_group(
 }
 
 // for segcompaction
-Status Merger::vertical_compact_one_group(
-        TabletSharedPtr tablet, ReaderType reader_type, TabletSchemaSPtr tablet_schema, bool is_key,
-        const std::vector<uint32_t>& column_group, vectorized::RowSourcesBuffer* row_source_buf,
-        vectorized::VerticalBlockReader& src_block_reader,
-        segment_v2::SegmentWriter& dst_segment_writer, int64_t max_rows_per_segment,
-        Statistics* stats_output, uint64_t* index_size, KeyBoundsPB& key_bounds) {
+Status Merger::vertical_compact_one_group(TabletSharedPtr tablet, ReaderType reader_type,
+                                          TabletSchemaSPtr tablet_schema, bool is_key,
+                                          const std::vector<uint32_t>& column_group,
+                                          vectorized::RowSourcesBuffer* row_source_buf,
+                                          vectorized::VerticalBlockReader& src_block_reader,
+                                          segment_v2::SegmentWriter& dst_segment_writer,
+                                          int64_t max_rows_per_segment, Statistics* stats_output,
+                                          uint64_t* index_size, KeyBoundsPB& key_bounds) {
     // build tablet reader
     VLOG_NOTICE << "vertical compact one group, max_rows_per_segment=" << max_rows_per_segment;
     // TODO: record_rowids

@@ -24,6 +24,7 @@
 
 #include "common/config.h"
 #include "env/env_posix.h"
+#include "gen_cpp/AgentService_types.h"
 #include "gen_cpp/olap_file.pb.h"
 #include "olap/data_dir.h"
 #include "olap/row_cursor.h"
@@ -34,6 +35,7 @@
 #include "olap/rowset/rowset_writer.h"
 #include "olap/rowset/rowset_writer_context.h"
 #include "olap/storage_engine.h"
+#include "olap/tablet_meta.h"
 #include "olap/tablet_schema.h"
 #include "olap/utils.h"
 #include "runtime/exec_env.h"
@@ -41,9 +43,6 @@
 #include "runtime/memory/mem_tracker.h"
 #include "util/file_utils.h"
 #include "util/slice.h"
-#include "gen_cpp/AgentService_types.h"
-#include "olap/tablet_meta.h"
-#include "olap/data_dir.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -202,7 +201,7 @@ protected:
         tablet_meta->_tablet_id = 1;
         tablet_meta->_schema = tablet_schema;
         auto tablet = std::make_shared<Tablet>(tablet_meta, data_dir.get(), "test_str");
-        char *tmp_str = (char*)malloc(20);
+        char* tmp_str = (char*)malloc(20);
         strncpy(tmp_str, "test_tablet_name", 20);
 
         tablet->_full_name = tmp_str;
@@ -301,7 +300,8 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
             bool eof = false;
             while (!eof) {
                 std::shared_ptr<vectorized::Block> output_block =
-                    std::make_shared<vectorized::Block>(tablet_schema->create_block(return_columns));
+                        std::make_shared<vectorized::Block>(
+                                tablet_schema->create_block(return_columns));
                 s = rowset_reader->next_block(output_block.get());
                 if (s != Status::OK()) {
                     eof = true;
@@ -802,7 +802,8 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
             bool eof = false;
             while (!eof) {
                 std::shared_ptr<vectorized::Block> output_block =
-                        std::make_shared<vectorized::Block>(tablet_schema->create_block(return_columns));
+                        std::make_shared<vectorized::Block>(
+                                tablet_schema->create_block(return_columns));
                 s = rowset_reader->next_block(output_block.get());
                 if (s != Status::OK()) {
                     eof = true;
@@ -865,7 +866,6 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
         uint32_t k1 = 0;
         uint32_t k2 = 0;
         uint32_t k3 = 0;
-
 
         // segment#0
         k1 = k2 = 1;
@@ -1037,7 +1037,8 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
             bool eof = false;
             while (!eof) {
                 std::shared_ptr<vectorized::Block> output_block =
-                        std::make_shared<vectorized::Block>(tablet_schema->create_block(return_columns));
+                        std::make_shared<vectorized::Block>(
+                                tablet_schema->create_block(return_columns));
                 s = rowset_reader->next_block(output_block.get());
                 if (s != Status::OK()) {
                     eof = true;

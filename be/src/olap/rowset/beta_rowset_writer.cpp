@@ -27,6 +27,7 @@
 #include "gutil/strings/substitute.h"
 #include "io/fs/file_writer.h"
 #include "olap/memtable.h"
+#include "olap/merger.h"
 #include "olap/olap_define.h"
 #include "olap/row_cursor.h" // RowCursor
 #include "olap/rowset/beta_rowset.h"
@@ -37,7 +38,6 @@
 #include "runtime/memory/mem_tracker_limiter.h"
 #include "vec/common/schema_util.h" // LocalSchemaChangeRecorder
 #include "vec/jsonb/serialize.h"
-#include "olap/merger.h"
 
 namespace doris {
 using namespace ErrorCode;
@@ -120,7 +120,9 @@ Status BetaRowsetWriter::add_block(const vectorized::Block* block) {
 
 std::unique_ptr<vectorized::VerticalBlockReader> BetaRowsetWriter::_get_segcompaction_reader(
         SegCompactionCandidatesSharedPtr segments, TabletSharedPtr tablet,
-        std::shared_ptr<Schema> schema, OlapReaderStatistics* stat, uint64_t* merged_row_stat, vectorized::RowSourcesBuffer& row_sources_buf, bool is_key, std::vector<uint32_t>& return_columns) {
+        std::shared_ptr<Schema> schema, OlapReaderStatistics* stat, uint64_t* merged_row_stat,
+        vectorized::RowSourcesBuffer& row_sources_buf, bool is_key,
+        std::vector<uint32_t>& return_columns) {
     StorageReadOptions read_options;
     read_options.stats = stat;
     read_options.use_page_cache = false;
@@ -128,24 +130,20 @@ std::unique_ptr<vectorized::VerticalBlockReader> BetaRowsetWriter::_get_segcompa
     std::vector<std::unique_ptr<RowwiseIterator>> seg_iterators;
     for (auto& seg_ptr : *segments) {
         std::unique_ptr<RowwiseIterator> iter;
-        auto s = seg_ptr->new_iterator(*schema, read_options, &iter); // TODO: the schama here must be a mistake
+        auto s = seg_ptr->new_iterator(*schema, read_options, &iter);
         if (!s.ok()) {
             LOG(WARNING) << "failed to create iterator[" << seg_ptr->id() << "]: " << s.to_string();
             return nullptr;
         }
         seg_iterators.push_back(std::move(iter));
     }
-    std::vector<RowwiseIterator*> iterators;
-    for (auto& owned_it : seg_iterators) {
-        // transfer ownership
-        iterators.push_back(owned_it.release());
-    }
 
-    auto reader = std::unique_ptr<vectorized::VerticalBlockReader>{new vectorized::VerticalBlockReader(&row_sources_buf)};
+    auto reader = std::unique_ptr<vectorized::VerticalBlockReader> {
+            new vectorized::VerticalBlockReader(&row_sources_buf)};
 
     TabletReader::ReaderParams reader_params;
     reader_params.is_segcompaction = true;
-    reader_params.segment_iters_ptr = &iterators;
+    reader_params.segment_iters_ptr = &seg_iterators;
     // no reader_params.version shouldn't break segcompaction
     reader_params.tablet_schema = _context.tablet_schema;
     reader_params.tablet = tablet;
@@ -298,7 +296,8 @@ Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr s
 
     std::vector<std::vector<uint32_t>> column_groups;
     Merger::vertical_split_columns(_context.tablet_schema, &column_groups);
-    vectorized::RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(), READER_SEGMENT_COMPACTION);
+    vectorized::RowSourcesBuffer row_sources_buf(tablet->tablet_id(), tablet->tablet_path(),
+                                                 READER_SEGMENT_COMPACTION);
 
     KeyBoundsPB key_bounds;
     // compact group one by one
@@ -310,7 +309,9 @@ Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr s
         writer->clear();
         writer->init(column_ids, is_key);
         auto schema = std::make_shared<Schema>(_context.tablet_schema->columns(), column_ids);
-        auto reader = _get_segcompaction_reader(segments, tablet, schema, stat.get(), &merged_row_stat, row_sources_buf, is_key, column_ids);
+        auto reader =
+                _get_segcompaction_reader(segments, tablet, schema, stat.get(), &merged_row_stat,
+                                          row_sources_buf, is_key, column_ids);
         if (UNLIKELY(reader == nullptr)) {
             LOG(WARNING) << "failed to get segcompaction reader";
             return Status::Error<SEGCOMPACTION_INIT_READER>();
@@ -319,10 +320,9 @@ Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr s
         // ========= Merger Compaction
         Merger::Statistics stats;
 
-        RETURN_IF_ERROR(Merger::vertical_compact_one_group(tablet, READER_SEGMENT_COMPACTION,
-                                                     _context.tablet_schema, is_key,
-                                                     column_ids, &row_sources_buf,
-                                                     *reader, *writer, INT_MAX, &stats, &index_size, key_bounds));
+        RETURN_IF_ERROR(Merger::vertical_compact_one_group(
+                tablet, READER_SEGMENT_COMPACTION, _context.tablet_schema, is_key, column_ids,
+                &row_sources_buf, *reader, *writer, INT_MAX, &stats, &index_size, key_bounds));
         total_index_size += index_size;
         if (is_key) {
             row_sources_buf.flush();
@@ -515,8 +515,8 @@ Status BetaRowsetWriter::_segcompaction_if_necessary() {
     if (_segcompaction_status.load() != OK) {
         status = Status::Error<SEGCOMPACTION_FAILED>();
     } else if ((_num_segment - _segcompacted_point) >=
-               config::segcompaction_threshold_segment_num
-               && _num_segment == _num_flushed_segment) /* no segment in the middle is flushing */ {
+                       config::segcompaction_threshold_segment_num &&
+               _num_segment == _num_flushed_segment) /* no segment in the middle is flushing */ {
         SegCompactionCandidatesSharedPtr segments = std::make_shared<SegCompactionCandidates>();
         status = _get_segcompaction_candidates(segments, false);
         if (LIKELY(status.ok()) && (segments->size() > 0)) {
@@ -980,7 +980,8 @@ Status BetaRowsetWriter::_flush_segment_writer(std::unique_ptr<segment_v2::Segme
 }
 
 Status BetaRowsetWriter::_flush_segment_writer_for_segcompaction(
-        std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size, KeyBoundsPB& key_bounds) {
+        std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size,
+        KeyBoundsPB& key_bounds) {
     uint32_t segid = (*writer)->get_segment_id();
     uint32_t row_num = (*writer)->row_count();
     uint64_t segment_size;

@@ -269,7 +269,7 @@ export UBSAN_OPTIONS=print_stacktrace=1
 test="${DORIS_TEST_BINARY_DIR}/doris_be_test"
 file_name="${test##*/}"
 if [[ -f "${test}" ]]; then
-    gdb --args "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}"
+    "${test}" --gtest_output="xml:${GTEST_OUTPUT_DIR}/${file_name}.xml" --gtest_print_time=true "${FILTER}"
     echo "=== Finished. Gtest output: ${GTEST_OUTPUT_DIR}"
 else
     echo "unit test file: ${test} does not exist."
