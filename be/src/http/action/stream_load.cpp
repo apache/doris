@@ -144,7 +144,8 @@ StreamLoadAction::~StreamLoadAction() {
 }
 
 void StreamLoadAction::handle(HttpRequest* req) {
-    StreamLoadContext* ctx = (StreamLoadContext*)req->handler_ctx();
+    std::shared_ptr<StreamLoadContext> ctx =
+            std::static_pointer_cast<StreamLoadContext>(req->handler_ctx());
     if (ctx == nullptr) {
         return;
     }
@@ -341,7 +342,8 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
 }
 
 void StreamLoadAction::on_chunk_data(HttpRequest* req) {
-    StreamLoadContext* ctx = (StreamLoadContext*)req->handler_ctx();
+    std::shared_ptr<StreamLoadContext> ctx =
+            std::static_pointer_cast<StreamLoadContext>(req->handler_ctx());
     if (ctx == nullptr || !ctx->status.ok()) {
         return;
     }
