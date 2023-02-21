@@ -186,6 +186,7 @@ public class MysqlProto {
             // During development, we set SSL mode to true by default.
             if (SERVER_USE_SSL) {
                 MysqlSslContext mysqlSslContext = context.getMysqlSslContext();
+                mysqlSslContext.init();
                 sslConnectionRequest = clientRequestPacket;
                 if (sslConnectionRequest == null) {
                     // receive response failed.
