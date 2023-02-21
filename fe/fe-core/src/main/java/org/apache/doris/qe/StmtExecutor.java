@@ -109,6 +109,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.proto.Data;
 import org.apache.doris.proto.InternalService;
 import org.apache.doris.proto.Types;
+import org.apache.doris.qe.CommonResultSet.CommonResultSetMetaData;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.qe.cache.Cache;
 import org.apache.doris.qe.cache.CacheAnalyzer;
@@ -197,6 +198,9 @@ public class StmtExecutor implements ProfileWriter {
     private QueryPlannerProfile plannerProfile = new QueryPlannerProfile();
     private String stmtName;
     private PrepareStmt prepareStmt;
+
+    private static final CommonResultSetMetaData DRY_RUN_QUERY_METADATA = new CommonResultSetMetaData(
+            Lists.newArrayList(new Column("ReturnedRows", PrimitiveType.STRING)));
 
     // this constructor is mainly for proxy
     public StmtExecutor(ConnectContext context, OriginStatement originStmt, boolean isProxy) {
@@ -1290,8 +1294,10 @@ public class StmtExecutor implements ProfileWriter {
             if (!isSendFields) {
                 if (!isOutfileQuery) {
                     if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery) {
-                        List<String> data = Lists.newArrayList();
-                        ResultSet resultSet = new CommonResultSet(metadata, Collections.singletonList(data));
+                        List<String> data = Lists.newArrayList(batch.getQueryStatistics() == null ? "0"
+                                : batch.getQueryStatistics().getReturnedRows() + "");
+                        ResultSet resultSet = new CommonResultSet(DRY_RUN_QUERY_METADATA,
+                                Collections.singletonList(data));
                         sendResultSet(resultSet);
                         return;
                     } else {
