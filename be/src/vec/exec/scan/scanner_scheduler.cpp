@@ -50,7 +50,6 @@ ScannerScheduler::~ScannerScheduler() {
 
     _scheduler_pool->wait();
     _local_scan_thread_pool->join();
-    _remote_scan_thread_pool->join();
 
     for (int i = 0; i < QUEUE_NUM; i++) {
         delete _pending_queues[i];
@@ -178,8 +177,8 @@ void ScannerScheduler::_schedule_scanners(ScannerContext* ctx) {
                 task.queue_id = (*iter)->queue_id();
                 ret = _local_scan_thread_pool->offer(task);
             } else {
-                ret = _remote_scan_thread_pool->submit_func([this, scanner = *iter, ctx] {
-                        this->_scanner_scan(this, ctx, scanner);
+                ret = _remote_scan_thread_pool->submit_func(
+                        [this, scanner = *iter, ctx] { this->_scanner_scan(this, ctx, scanner); });
             }
             if (ret) {
                 this_run.erase(iter++);
