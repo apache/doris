@@ -158,7 +158,7 @@ public:
     TFileFormatType::type format = TFileFormatType::FORMAT_CSV_PLAIN;
     TFileCompressType::type compress_type = TFileCompressType::UNKNOWN;
 
-    std::shared_ptr<io::StreamLoadPipe> body_sink;
+    std::shared_ptr<io::MessageBodySink> body_sink;
 
     TStreamLoadPutResult put_result;
 
