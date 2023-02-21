@@ -15,8 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-def initConnection(uri, method) {
-    def dst = "http://" + context.config.otherConfigs.get("beHttpAddress")
+def initConnection(dst, uri, method) {
     def conn = new URL(dst + uri).openConnection()
     conn.setRequestMethod(method)
     conn.setRequestProperty("Content-Type", "application/text")
@@ -27,8 +26,8 @@ def initConnection(uri, method) {
  * @Params uri is "/xxx", data is request body
  * @Return response body
  */
-def doPost(uri, data = null) {
-    def conn = initConnection(uri, "POST")
+def doPost(dst, uri, data = null) {
+    def conn = initConnection(dst, uri, "POST")
     if (data) {
         //
         logger.info("query body: " + data)
@@ -39,18 +38,30 @@ def doPost(uri, data = null) {
         writer.close()
     }
     conn.connect()
-    logger.info(conn.content.text)
     return conn
 }
 
-def doGet(uri) {
-    def conn = initConnection(uri, "GET")
+def doGet(dst, uri) {
+    def conn = initConnection(dst, uri, "GET")
     conn.connect()
-    logger.info(conn.content.text)
     return conn
 }
 
 suite("test_be_http") {
+    String[][] backends = sql """ show backends; """
+    assertTrue(backends.size() > 0)
+    String backendId
+    def beIdToIp = [:]
+    def beIdToPort = [:]
+    for (String[] backend in backends) {
+        beIdToIp.put(backend[0], backend[2])
+        beIdToPort.put(backend[0], backend[6])
+    }
+    backendId = beIdToIp.keySet()[0]
+    String beIp = beIdToIp.get(backendId)
+    String bePort = beIdToPort.get(backendId)
+    String dst = "http://${beIp}:${bePort}"
+
     def tableName = "test_be_http"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """ CREATE TABLE IF NOT EXISTS ${tableName} (c1 int) DISTRIBUTED BY HASH(c1) PROPERTIES('replication_num'='1')  """
@@ -64,114 +75,114 @@ suite("test_be_http") {
     def version = tabletsInfo[0][4]
 
     //test_check_rpc_channel
-    def uri = "/api/check_rpc_channel/" + context.config.otherConfigs.get("beAddress") + "/" + context.config.otherConfigs.get("brpcPort") + "/1024000"
-    def conn = doGet(uri)
+    def uri = "/api/check_rpc_channel/${beIp}/${bePort}/1024000"
+    def conn = doGet(dst, uri)
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
     //test_reset_rpc_channel
-    conn = doGet("/api/reset_rpc_channel/all")
+    conn = doGet(dst,"/api/reset_rpc_channel/all")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
     //test_check_tablet_segment
-    conn = doPost("/api/check_tablet_segment_lost?repair=true", null)
+    conn = doPost(dst,"/api/check_tablet_segment_lost?repair=true", null)
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
     //test_checksum
-    conn = doGet("/api/checksum?tablet_id=${tabletId}&schema_hash=${schemaHash}&version=${version}")
+    conn = doGet(dst,"/api/checksum?tablet_id=${tabletId}&schema_hash=${schemaHash}&version=${version}")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
 
     //test_compaction
-    conn = doGet("/api/compaction/run_status")
+    conn = doGet(dst,"/api/compaction/run_status")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
-    conn = doGet("/api/compaction/show?tablet_id=${tabletId}")
+    conn = doGet(dst,"/api/compaction/show?tablet_id=${tabletId}")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
-    conn = doPost("/api/compaction/run?tablet_id=${tabletId}&compact_type=cumulative")
+    conn = doPost(dst,"/api/compaction/run?tablet_id=${tabletId}&compact_type=cumulative")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
-    conn = doGet("/api/compaction/run_status?tablet_id=${tabletId}")
+    conn = doGet(dst,"/api/compaction/run_status?tablet_id=${tabletId}")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
 
     //test_config
-    conn = doGet("/api/show_config")
+    conn = doGet(dst,"/api/show_config")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
-    conn = doPost("/api/update_config?&persist=false&slave_replica_writer_rpc_timeout_sec=90")
+    conn = doPost(dst,"/api/update_config?&persist=false&slave_replica_writer_rpc_timeout_sec=90")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
     //test_health
-    conn = doGet("/api/health")
+    conn = doGet(dst,"/api/health")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
     //test_jeprofile
-    conn = doGet("/jeheap/dump")
+    conn = doGet(dst,"/jeheap/dump")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
     //test_meta
-    conn = doGet("/api/meta/header/${tabletId}")
+    conn = doGet(dst,"/api/meta/header/${tabletId}")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
     //test_metrics
-    conn = doGet("/metrics?type=core")
+    conn = doGet(dst,"/metrics?type=core")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
-    conn = doGet("/metrics?type=json?with_tablet=true")
+    conn = doGet(dst,"/metrics?type=json?with_tablet=true")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
-    conn = doGet("/metrics?with_tablet=false")
+    conn = doGet(dst,"/metrics?with_tablet=false")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
 
     //test_pprof
-    conn = doGet("/api/pprof/heap")
+    conn = doGet(dst,"/api/pprof/heap")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
-    conn = doGet("/api/pprof/growth")
+    conn = doGet(dst,"/api/pprof/growth")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
-    conn = doGet("/api/pprof/profile")
+    conn = doGet(dst,"/api/pprof/profile")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
-    conn = doGet("/api/pprof/cmdline")
+    conn = doGet(dst,"/api/pprof/cmdline")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
-    conn = doGet("/api/pprof/symbol")
+    conn = doGet(dst,"/api/pprof/symbol")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
-    conn = doPost("/api/pprof/symbol")
+    conn = doPost(dst,"/api/pprof/symbol")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
 
     //test_snapshot
-    conn = doGet("/api/snapshot?tablet_id=${tabletId}&schema_hash=${schemaHash}")
+    conn = doGet(dst,"/api/snapshot?tablet_id=${tabletId}&schema_hash=${schemaHash}")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
     //test_reset_rpc_channel
-    conn = doGet("/api/reset_rpc_channel/all")
+    conn = doGet(dst,"/api/reset_rpc_channel/all")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
     //test_distribution
-    conn = doGet("/api/tablets_distribution?group_by=partition&partition_id=1")
+    conn = doGet(dst,"/api/tablets_distribution?group_by=partition&partition_id=1")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
     //test_tablets_info
-    conn = doGet("/tablets_json")
+    conn = doGet(dst,"/tablets_json")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
     //test_be_info
-    conn = doGet("/api/be_version_info")
+    conn = doGet(dst,"/api/be_version_info")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
     def partitionInfo = sql """ SHOW PARTITIONS FROM ${tableName} """
     def partitionId = partitionInfo[0][0]
-    conn = doGet("/api/tablets_distribution?group_by=partition&partition_id=${partitionId}")
+    conn = doGet(dst,"/api/tablets_distribution?group_by=partition&partition_id=${partitionId}")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
     //test_pad_rowset
-    conn = doPost("/api/pad_rowset?tablet_id=${tabletId}&start_version=1&end_version=2")
+    conn = doPost(dst,"/api/pad_rowset?tablet_id=${tabletId}&start_version=1&end_version=2")
     assertTrue(conn.responseCode == 200 || conn.responseCode == 201)
 
 

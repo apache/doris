@@ -24,13 +24,11 @@ jdbcUrl = "jdbc:mysql://172.19.0.2:9132/?useLocalSessionState=true&allowLoadLoca
 jdbcUser = "root"
 jdbcPassword = ""
 
-feHttpAddress = "172.19.0.2:8131"
+feHttpAddress = "172.19.0.2:8132"
 feHttpUser = "root"
 feHttpPassword = ""
 
-beHttpAddress = "127.0.0.1:8162"
-beAddress = "127.0.0.1"
-brpcPort = "8162"
+beHttpAddress = "172.19.0.2:8142"
 
 // set DORIS_HOME by system properties
 // e.g. java -DDORIS_HOME=./
