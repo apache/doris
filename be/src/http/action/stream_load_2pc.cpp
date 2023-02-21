@@ -93,7 +93,7 @@ std::string StreamLoad2PCAction::get_success_info(const std::string txn_id,
 }
 
 void StreamLoad2PCAction::free_handler_ctx(std::shared_ptr<void> param) {
-    std::shared_ptr<StreamLoadContext> ctx = (std::shared_ptr<StreamLoadContext>)param;
+    std::shared_ptr<StreamLoadContext> ctx = static_pointer_cast<StreamLoadContext>(param);
     if (ctx == nullptr) {
         return;
     }
