@@ -160,7 +160,6 @@ public class MysqlProto {
             throws IOException {
         MysqlSerializer serializer = context.getSerializer();
         MysqlChannel channel = context.getMysqlChannel();
-        MysqlSslContext mysqlSslContext = context.getMysqlSslContext();
         context.getState().setOk();
 
         // Server send handshake packet to client.
@@ -186,6 +185,7 @@ public class MysqlProto {
         if (capability.isClientUseSsl()) {
             // During development, we set SSL mode to true by default.
             if (SERVER_USE_SSL) {
+                MysqlSslContext mysqlSslContext = context.getMysqlSslContext();
                 sslConnectionRequest = clientRequestPacket;
                 if (sslConnectionRequest == null) {
                     // receive response failed.
