@@ -110,6 +110,10 @@ struct PredicateTypeTraits {
         return (type == PredicateType::IN_LIST || type == PredicateType::NOT_IN_LIST);
     }
 
+    static constexpr bool is_eqaul_and_list(PredicateType type) {
+        return (type == PredicateType::EQ || type == PredicateType::IN_LIST);
+    }
+
     static constexpr bool is_comparison(PredicateType type) {
         return (type == PredicateType::EQ || type == PredicateType::NE ||
                 type == PredicateType::LT || type == PredicateType::LE ||
