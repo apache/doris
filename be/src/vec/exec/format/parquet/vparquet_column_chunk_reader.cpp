@@ -232,9 +232,11 @@ Status ColumnChunkReader::decode_values(MutableColumnPtr& doris_column, DataType
 int32_t ColumnChunkReader::_get_type_length() {
     switch (_field_schema->physical_type) {
     case tparquet::Type::INT32:
+        [[fallthrough]];
     case tparquet::Type::FLOAT:
         return 4;
     case tparquet::Type::INT64:
+        [[fallthrough]];
     case tparquet::Type::DOUBLE:
         return 8;
     case tparquet::Type::INT96:

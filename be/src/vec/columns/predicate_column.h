@@ -433,6 +433,10 @@ public:
         LOG(FATAL) << "filter not supported in PredicateColumnType";
     }
 
+    [[noreturn]] size_t filter(const IColumn::Filter&) override {
+        LOG(FATAL) << "filter not supported in PredicateColumnType";
+    }
+
     [[noreturn]] ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
         LOG(FATAL) << "permute not supported in PredicateColumnType";
     }

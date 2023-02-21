@@ -77,6 +77,12 @@ public class JdbcClient {
             config.setUsername(jdbcUser);
             config.setPassword(password);
             config.setMaximumPoolSize(1);
+            // set connection timeout to 5s.
+            // The default is 30s, which is too long.
+            // Because when querying information_schema db, BE will call thrift rpc(default timeout is 30s)
+            // to FE to get schema info, and may create connection here, if we set it too long and the url is invalid,
+            // it may cause the thrift rpc timeout.
+            config.setConnectionTimeout(5000);
             dataSource = new HikariDataSource(config);
         } catch (MalformedURLException e) {
             throw new JdbcClientException("MalformedURLException to load class about " + driverUrl, e);

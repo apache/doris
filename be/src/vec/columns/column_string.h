@@ -419,6 +419,7 @@ public:
                              const int* indices_end) override;
 
     ColumnPtr filter(const Filter& filt, ssize_t result_size_hint) const override;
+    size_t filter(const Filter& filter) override;
 
     ColumnPtr permute(const Permutation& perm, size_t limit) const override;
 
