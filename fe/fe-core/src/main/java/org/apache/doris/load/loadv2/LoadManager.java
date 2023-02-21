@@ -61,6 +61,7 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -339,6 +340,24 @@ public class LoadManager implements Writable {
         }
     }
 
+    /**
+     * Get load job num, used by proc.
+     **/
+    public int getLoadJobNum(JobState jobState) {
+        readLock();
+        try {
+            Map<String, List<LoadJob>> labelToLoadJobs = new HashMap<>();
+            for (Long dbId : dbIdToLabelToLoadJobs.keySet()) {
+                labelToLoadJobs.putAll(dbIdToLabelToLoadJobs.get(dbId));
+            }
+
+            List<LoadJob> loadJobList =
+                    labelToLoadJobs.values().stream().flatMap(entity -> entity.stream()).collect(Collectors.toList());
+            return (int) loadJobList.stream().filter(entity -> entity.getState() == jobState).count();
+        } finally {
+            readUnlock();
+        }
+    }
 
     /**
      * Get load job num, used by metric.

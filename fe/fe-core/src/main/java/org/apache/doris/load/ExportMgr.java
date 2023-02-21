@@ -376,4 +376,19 @@ public class ExportMgr {
         }
         return size;
     }
+
+    public long getJobNum(ExportJob.JobState state) {
+        int size = 0;
+        readLock();
+        try {
+            for (ExportJob job : idToJob.values()) {
+                if (job.getState() == state) {
+                    ++size;
+                }
+            }
+        } finally {
+            readUnlock();
+        }
+        return size;
+    }
 }
