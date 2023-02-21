@@ -320,6 +320,9 @@ public class JdbcExecutor {
         if (isNullable) {
             firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
         }
+        if (firstNotNullIndex == numRows) {
+            return;
+        }
         // TODO(ftw): There is an enhancement:
         // because column[i] == null may have been judged outside the function
         // so we can start at index 'i' other than start at 0 in bigDecimalPutToByte.
@@ -391,6 +394,9 @@ public class JdbcExecutor {
         if (isNullable) {
             firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
         }
+        if (firstNotNullIndex == numRows) {
+            return;
+        }
         if (column[firstNotNullIndex] instanceof BigDecimal) {
             bigDecimalPutToShort(column, isNullable, numRows, nullMapAddr, columnAddr);
         } else if (column[firstNotNullIndex] instanceof Integer) {
@@ -442,6 +448,9 @@ public class JdbcExecutor {
         if (isNullable) {
             firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
         }
+        if (firstNotNullIndex == numRows) {
+            return;
+        }
         if (column[firstNotNullIndex] instanceof BigDecimal) {
             bigDecimalPutToInt(column, isNullable, numRows, nullMapAddr, columnAddr);
         } else if (column[firstNotNullIndex] instanceof Integer) {
@@ -489,6 +498,9 @@ public class JdbcExecutor {
         int firstNotNullIndex = 0;
         if (isNullable) {
             firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
+        }
+        if (firstNotNullIndex == numRows) {
+            return;
         }
         if (column[firstNotNullIndex] instanceof BigDecimal) {
             bigDecimalPutToLong(column, isNullable, numRows, nullMapAddr, columnAddr);
@@ -552,6 +564,9 @@ public class JdbcExecutor {
         int firstNotNullIndex = 0;
         if (isNullable) {
             firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
+        }
+        if (firstNotNullIndex == numRows) {
+            return;
         }
         if (column[firstNotNullIndex] instanceof BigDecimal) {
             bigDecimalPutToBigInteger(column, isNullable, numRows, nullMapAddr, columnAddr);
@@ -619,6 +634,9 @@ public class JdbcExecutor {
         int firstNotNullIndex = 0;
         if (isNullable) {
             firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
+        }
+        if (firstNotNullIndex == numRows) {
+            return;
         }
         if (column[firstNotNullIndex] instanceof BigDecimal) {
             bigDecimalPutToDouble(column, isNullable, numRows, nullMapAddr, columnAddr);
@@ -695,6 +713,9 @@ public class JdbcExecutor {
         if (isNullable) {
             firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
         }
+        if (firstNotNullIndex == numRows) {
+            return;
+        }
         if (column[firstNotNullIndex] instanceof LocalDate) {
             localDatePutToLong(column, isNullable, numRows, nullMapAddr, columnAddr);
         } else if (column[firstNotNullIndex] instanceof Date) {
@@ -752,6 +773,9 @@ public class JdbcExecutor {
         int firstNotNullIndex = 0;
         if (isNullable) {
             firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
+        }
+        if (firstNotNullIndex == numRows) {
+            return;
         }
         if (column[firstNotNullIndex] instanceof LocalDate) {
             localDatePutToInt(column, isNullable, numRows, nullMapAddr, columnAddr);
@@ -863,6 +887,9 @@ public class JdbcExecutor {
         if (isNullable) {
             firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
         }
+        if (firstNotNullIndex == numRows) {
+            return;
+        }
         if (column[firstNotNullIndex] instanceof LocalDateTime) {
             localDateTimePutToLong(column, isNullable, numRows, nullMapAddr, columnAddr);
         } else if (column[firstNotNullIndex] instanceof java.sql.Timestamp) {
@@ -949,6 +976,9 @@ public class JdbcExecutor {
         int firstNotNullIndex = 0;
         if (isNullable) {
             firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
+        }
+        if (firstNotNullIndex == numRows) {
+            return;
         }
         if (column[firstNotNullIndex] instanceof LocalDateTime) {
             localDateTimePutToLongV2(column, isNullable, numRows, nullMapAddr, columnAddr);
@@ -1058,6 +1088,9 @@ public class JdbcExecutor {
         int firstNotNullIndex = 0;
         if (isNullable) {
             firstNotNullIndex = getFirstNotNullObject(column, numRows, nullMapAddr);
+        }
+        if (firstNotNullIndex == numRows) {
+            return;
         }
         if (column[firstNotNullIndex] instanceof String) {
             stringPutToString(column, isNullable, numRows, nullMapAddr, offsetsAddr, charsAddr);
