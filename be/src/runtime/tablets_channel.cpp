@@ -111,8 +111,11 @@ Status TabletsChannel::close(
             if (_partition_ids.count(it.second->partition_id()) > 0) {
                 auto st = it.second->close();
                 if (!st.ok()) {
-                    LOG(WARNING) << "close tablet writer failed, tablet_id=" << it.first
-                                 << ", transaction_id=" << _txn_id << ", err=" << st;
+                    auto err_msg = fmt::format(
+                            "close tablet writer failed, tablet_id={}, "
+                            "transaction_id={}, err={}",
+                            it.first, _txn_id, st.to_string());
+                    LOG(WARNING) << err_msg;
                     PTabletError* tablet_error = tablet_errors->Add();
                     tablet_error->set_tablet_id(it.first);
                     tablet_error->set_msg(st.to_string());
@@ -247,12 +250,12 @@ Status TabletsChannel::_open_all_writers(const PTabletWriterOpenRequest& request
         DeltaWriter* writer = nullptr;
         auto st = DeltaWriter::open(&wrequest, &writer, _load_id);
         if (!st.ok()) {
-            std::stringstream ss;
-            ss << "open delta writer failed, tablet_id=" << tablet.tablet_id()
-               << ", txn_id=" << _txn_id << ", partition_id=" << tablet.partition_id()
-               << ", err=" << st;
-            LOG(WARNING) << ss.str();
-            return Status::InternalError(ss.str());
+            auto err_msg = fmt::format(
+                    "open delta writer failed, tablet_id={}"
+                    ", txn_id={}, partition_id={}, err={}",
+                    tablet.tablet_id(), _txn_id, tablet.partition_id(), st.to_string());
+            LOG(WARNING) << err_msg;
+            return Status::InternalError(err_msg);
         }
         {
             std::lock_guard<SpinLock> l(_tablet_writers_lock);
@@ -338,7 +341,7 @@ Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
         if (!st.ok()) {
             auto err_msg =
                     fmt::format("tablet writer write failed, tablet_id={}, txn_id={}, err={}",
-                                tablet_to_rowidxs_it.first, _txn_id, st);
+                                tablet_to_rowidxs_it.first, _txn_id, st.to_string());
             LOG(WARNING) << err_msg;
             PTabletError* error = tablet_errors->Add();
             error->set_tablet_id(tablet_to_rowidxs_it.first);
@@ -381,7 +384,7 @@ void TabletsChannel::flush_memtable_async(int64_t tablet_id) {
         auto err_msg = fmt::format(
                 "tablet writer failed to reduce mem consumption by flushing memtable, "
                 "tablet_id={}, txn_id={}, err={}",
-                tablet_id, _txn_id, st);
+                tablet_id, _txn_id, st.to_string());
         LOG(WARNING) << err_msg;
         iter->second->cancel_with_status(st);
         _broken_tablets.insert(iter->second->tablet_id());
@@ -409,7 +412,7 @@ void TabletsChannel::wait_flush(int64_t tablet_id) {
         auto err_msg = fmt::format(
                 "tablet writer failed to reduce mem consumption by flushing memtable, "
                 "tablet_id={}, txn_id={}, err={}",
-                tablet_id, _txn_id, st);
+                tablet_id, _txn_id, st.to_string());
         LOG(WARNING) << err_msg;
         iter->second->cancel_with_status(st);
         _broken_tablets.insert(iter->second->tablet_id());
