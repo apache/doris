@@ -203,6 +203,7 @@ Status StreamLoadExecutor::pre_commit_txn(StreamLoadContext* ctx) {
         if (status.is<PUBLISH_TIMEOUT>()) {
             ctx->need_rollback = false;
         }
+        ctx->status = status;
         return status;
     }
     // precommit success, set need_rollback to false
@@ -284,6 +285,7 @@ Status StreamLoadExecutor::commit_txn(StreamLoadContext* ctx) {
         if (status.is<PUBLISH_TIMEOUT>()) {
             ctx->need_rollback = false;
         }
+        ctx->status = status;
         return status;
     }
     // commit success, set need_rollback to false
