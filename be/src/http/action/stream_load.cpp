@@ -367,7 +367,7 @@ void StreamLoadAction::on_chunk_data(HttpRequest* req) {
 }
 
 void StreamLoadAction::free_handler_ctx(std::shared_ptr<void> param) {
-    std::shared_ptr<StreamLoadContext> ctx = static_pointer_cast<StreamLoadContext>(param);
+    std::shared_ptr<StreamLoadContext> ctx = std::static_pointer_cast<StreamLoadContext>(param);
     if (ctx == nullptr) {
         return;
     }
