@@ -50,6 +50,8 @@ public:
 
     void set_compound_filters(const std::vector<TCondition>& compound_filters);
 
+    doris::TabletStorageType get_storage_type() override;
+
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;
     void _update_counters_before_close() override;
