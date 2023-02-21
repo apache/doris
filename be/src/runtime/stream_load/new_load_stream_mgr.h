@@ -21,6 +21,7 @@
 #include <mutex>
 #include <unordered_map>
 
+#include "common/status.h"
 #include "util/doris_metrics.h"
 #include "util/uid_util.h"
 
