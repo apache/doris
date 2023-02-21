@@ -1728,20 +1728,17 @@ Status Tablet::_cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_
         return Status::InternalError("cannot pick cooldown rowset in tablet {}", tablet_id());
     }
     RowsetId new_rowset_id = StorageEngine::instance()->next_rowset_id();
-
-    auto start = std::chrono::steady_clock::now();
-
+    add_pending_remote_rowset(new_rowset_id.to_string());
     Status st;
-    {
-        std::shared_lock slock(_remote_files_lock, std::try_to_lock);
-        if (!slock.owns_lock()) {
-            return Status::Status::Error<TRY_LOCK_FAILED>("try remote_files_lock failed");
+    Defer defer {[&] {
+        if (!st.ok()) {
+            erase_pending_remote_rowset(new_rowset_id.to_string());
+            // reclaim the incomplete rowset data in remote storage
+            record_unused_remote_rowset(new_rowset_id, dest_fs->id(), old_rowset->num_segments());
         }
-        st = old_rowset->upload_to(dest_fs.get(), new_rowset_id);
-    }
-    if (!st.ok()) {
-        // reclaim the incomplete rowset data in remote storage
-        record_unused_remote_rowset(new_rowset_id, dest_fs->id(), old_rowset->num_segments());
+    }};
+    auto start = std::chrono::steady_clock::now();
+    if (st = old_rowset->upload_to(dest_fs.get(), new_rowset_id); !st.ok()) {
         return st;
     }
 
@@ -1760,7 +1757,10 @@ Status Tablet::_cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_
     UniqueId cooldown_meta_id = UniqueId::gen_uid();
 
     // upload cooldowned rowset meta to remote fs
-    RETURN_IF_ERROR(write_cooldown_meta(dest_fs, cooldown_meta_id, new_rowset_meta, {}));
+    st = write_cooldown_meta(dest_fs, cooldown_meta_id, new_rowset_meta, {});
+    if (!st.ok()) {
+        return st;
+    }
 
     RowsetSharedPtr new_rowset;
     RowsetFactory::create_rowset(_schema, _tablet_path, new_rowset_meta, &new_rowset);
@@ -1774,6 +1774,7 @@ Status Tablet::_cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_
             _tablet_meta->set_cooldown_meta_id(cooldown_meta_id);
         }
     }
+    erase_pending_remote_rowset(new_rowset_id.to_string());
     {
         std::unique_lock meta_rlock(_meta_lock);
         save_meta();
@@ -2047,6 +2048,18 @@ Status Tablet::remove_all_remote_rowsets() {
                                       gc_pb.SerializeAsString());
 }
 
+static std::unordered_set<std::string> s_pending_remote_rowsets;
+static std::mutex s_pending_remote_rowsets_mtx;
+
+void Tablet::add_pending_remote_rowset(std::string rowset_id) {
+    std::lock_guard lock(s_pending_remote_rowsets_mtx);
+    s_pending_remote_rowsets.insert(std::move(rowset_id));
+}
+void Tablet::erase_pending_remote_rowset(const std::string& rowset_id) {
+    std::lock_guard lock(s_pending_remote_rowsets_mtx);
+    s_pending_remote_rowsets.erase(rowset_id);
+}
+
 void Tablet::remove_unused_remote_files() {
     auto tablets = StorageEngine::instance()->tablet_manager()->get_all_tablet([](Tablet* t) {
         return t->tablet_meta()->cooldown_meta_id().initialized() && t->is_used() &&
@@ -2080,16 +2093,9 @@ void Tablet::remove_unused_remote_files() {
 
         Status st;
         std::vector<io::Path> files;
-        {
-            std::unique_lock xlock(t->_remote_files_lock, std::try_to_lock);
-            if (!xlock.owns_lock()) {
-                LOG(WARNING) << "try remote_files_lock failed. tablet_id=" << t->tablet_id();
-                return;
-            }
-            // FIXME(plat1ko): What if user reset resource in storage policy to another resource?
-            //  Maybe we should also list files in previously uploaded resources.
-            st = dest_fs->list(BetaRowset::remote_tablet_path(t->tablet_id()), &files);
-        }
+        // FIXME(plat1ko): What if user reset resource in storage policy to another resource?
+        //  Maybe we should also list files in previously uploaded resources.
+        st = dest_fs->list(BetaRowset::remote_tablet_path(t->tablet_id()), &files);
         if (!st.ok()) {
             LOG(WARNING) << "encounter error when remove unused remote files, tablet_id="
                          << t->tablet_id() << " : " << st;
@@ -2099,6 +2105,10 @@ void Tablet::remove_unused_remote_files() {
         }
         // get all cooldowned rowsets
         std::unordered_set<std::string> cooldowned_rowsets;
+        {
+            std::lock_guard lock(s_pending_remote_rowsets_mtx);
+            cooldowned_rowsets = s_pending_remote_rowsets;
+        }
         UniqueId cooldown_meta_id;
         {
             std::shared_lock rlock(t->_meta_lock);
