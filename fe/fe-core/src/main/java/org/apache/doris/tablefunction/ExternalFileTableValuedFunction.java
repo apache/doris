@@ -84,7 +84,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected static final String FUZZY_PARSE = "fuzzy_parse";
     protected static final String TRIM_DOUBLE_QUOTES = "trim_double_quotes";
     protected static final String SKIP_LINES = "skip_lines";
-    protected static final String CSV_SCHEMA = "fuzzy_parse";
+    protected static final String CSV_SCHEMA = "csv_schema";
 
     protected static final ImmutableSet<String> FILE_FORMAT_PROPERTIES = new ImmutableSet.Builder<String>()
             .add(FORMAT)
@@ -248,7 +248,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                     break;
                 case "char":
                 case "varchar":
-                case "stirng":
+                case "string":
                     column = new Column(name, PrimitiveType.STRING, true);
                     break;
                 case "boolean":
