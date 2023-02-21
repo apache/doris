@@ -199,6 +199,8 @@ public class StmtExecutor implements ProfileWriter {
     private String stmtName;
     private PrepareStmt prepareStmt;
 
+    // The result schema if "dry_run_query" is true.
+    // Only one column to indicate the real return row numbers.
     private static final CommonResultSetMetaData DRY_RUN_QUERY_METADATA = new CommonResultSetMetaData(
             Lists.newArrayList(new Column("ReturnedRows", PrimitiveType.STRING)));
 
@@ -1294,6 +1296,7 @@ public class StmtExecutor implements ProfileWriter {
             if (!isSendFields) {
                 if (!isOutfileQuery) {
                     if (ConnectContext.get() != null && ConnectContext.get().getSessionVariable().dryRunQuery) {
+                        // Return a one row one column result set, with the real result number
                         List<String> data = Lists.newArrayList(batch.getQueryStatistics() == null ? "0"
                                 : batch.getQueryStatistics().getReturnedRows() + "");
                         ResultSet resultSet = new CommonResultSet(DRY_RUN_QUERY_METADATA,

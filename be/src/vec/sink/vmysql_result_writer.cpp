@@ -802,6 +802,7 @@ Status VMysqlResultWriter<is_binary_format>::append_block(Block& input_block) {
 
     if (status) {
         SCOPED_TIMER(_result_send_timer);
+        // If this is a dry run task, no need to send data block
         if (!_is_dry_run) {
             if (_sinker) {
                 status = _sinker->add_batch(result);
