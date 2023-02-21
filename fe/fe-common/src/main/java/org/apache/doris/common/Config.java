@@ -1911,6 +1911,14 @@ public class Config extends ConfigBase {
     public static long external_cache_expire_time_minutes_after_access = 24 * 60; // 1 day
 
     /**
+     * Github workflow test type, for setting some session variables
+     * only for certain test type. E.g. only settting batch_size to small
+     * value for p0.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static String fuzzy_test_type = "";
+
+    /**
      * Set session variables randomly to check more issues in github workflow
      */
     @ConfField(mutable = true, masterOnly = false)
