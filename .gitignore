@@ -92,6 +92,7 @@ tools/**/TPC-H_Tools_v*/
 tools/**/tpc-h_v*.docx
 tools/**/tpc-h_v*.pdf
 tools/**/tpch-data/
+tools/single-node-cluster/fe*
 
 # be-ut
 data_test
