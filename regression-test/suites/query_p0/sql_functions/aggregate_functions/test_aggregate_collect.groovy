@@ -159,46 +159,46 @@ suite("test_aggregate_collect") {
 
     qt_select """
         SELECT
-            collect_set(c_bool,1),
-            collect_set(c_tinyint,1),
-            collect_set(c_smallint,1),
-            collect_set(c_int,1),
-            collect_set(c_bigint,1),
-            collect_set(c_largeint,3),
-            collect_set(c_float,1),
-            collect_set(c_double,2),
-            collect_set(c_decimal,1),
-            collect_set(c_char,1),
-            collect_set(c_varchar,1),
-            collect_set(c_string,1),
-            collect_set(c_date,1),
-            collect_set(c_datev2,2),
-            collect_set(c_date_time,1),
-            collect_set(c_date_timev2,1),
-            collect_set(c_string_not_null,1)
+            size(collect_set(c_bool,1)),
+            size(collect_set(c_tinyint,1)),
+            size(collect_set(c_smallint,1)),
+            size(collect_set(c_int,1)),
+            size(collect_set(c_bigint,1)),
+            size(collect_set(c_largeint,3)),
+            size(collect_set(c_float,1)),
+            size(collect_set(c_double,2)),
+            size(collect_set(c_decimal,1)),
+            size(collect_set(c_char,1)),
+            size(collect_set(c_varchar,1)),
+            size(collect_set(c_string,1)),
+            size(collect_set(c_date,1)),
+            size(collect_set(c_datev2,2)),
+            size(collect_set(c_date_time,1)),
+            size(collect_set(c_date_timev2,1)),
+            size(collect_set(c_string_not_null,1))
         FROM
             ${tableName}
     """
 
     qt_select """
         SELECT
-            collect_list(c_bool,1),
-            collect_list(c_tinyint,1),
-            collect_list(c_smallint,1),
-            collect_list(c_int,1),
-            collect_list(c_bigint,1),
-            collect_list(c_largeint,3),
-            collect_list(c_float,1),
-            collect_list(c_double,2),
-            collect_list(c_decimal,1),
-            collect_list(c_char,1),
-            collect_list(c_varchar,1),
-            collect_list(c_string,1),
-            collect_list(c_date,1),
-            collect_list(c_datev2,2),
-            collect_list(c_date_time,1),
-            collect_list(c_date_timev2,1),
-            collect_list(c_string_not_null,1)
+            size(collect_list(c_bool,1)),
+            size(collect_list(c_tinyint,1)),
+            size(collect_list(c_smallint,1)),
+            size(collect_list(c_int,1)),
+            size(collect_list(c_bigint,1)),
+            size(collect_list(c_largeint,3)),
+            size(collect_list(c_float,1)),
+            size(collect_list(c_double,2)),
+            size(collect_list(c_decimal,1)),
+            size(collect_list(c_char,1)),
+            size(collect_list(c_varchar,1)),
+            size(collect_list(c_string,1)),
+            size(collect_list(c_date,1)),
+            size(collect_list(c_datev2,2)),
+            size(collect_list(c_date_time,1)),
+            size(collect_list(c_date_timev2,1)),
+            size(collect_list(c_string_not_null,1))
         FROM
             ${tableName}
     """
@@ -233,23 +233,23 @@ suite("test_aggregate_collect") {
         CREATE TABLE ${tableCTAS2} PROPERTIES("replication_num" = "1") AS
         SELECT
 	    1,
-            collect_set(c_bool,1),
-            collect_set(c_tinyint,1),
-            collect_set(c_smallint,1),
-            collect_set(c_int,1),
-            collect_set(c_bigint,1),
-            collect_set(c_largeint,3),
-            collect_set(c_float,1),
-            collect_set(c_double,2),
-            collect_set(c_decimal,1),
-            collect_set(c_char,1),
-            collect_set(c_varchar,1),
-            collect_set(c_string,1),
-            collect_set(c_date,1),
-            collect_set(c_datev2,2),
-            collect_set(c_date_time,1),
-            collect_set(c_date_timev2,1),
-            collect_set(c_string_not_null,1)
+            size(collect_set(c_bool,1)),
+            size(collect_set(c_tinyint,1)),
+            size(collect_set(c_smallint,1)),
+            size(collect_set(c_int,1)),
+            size(collect_set(c_bigint,1)),
+            size(collect_set(c_largeint,3)),
+            size(collect_set(c_float,1)),
+            size(collect_set(c_double,2)),
+            size(collect_set(c_decimal,1)),
+            size(collect_set(c_char,1)),
+            size(collect_set(c_varchar,1)),
+            size(collect_set(c_string,1)),
+            size(collect_set(c_date,1)),
+            size(collect_set(c_datev2,2)),
+            size(collect_set(c_date_time,1)),
+            size(collect_set(c_date_timev2,1)),
+            size(collect_set(c_string_not_null,1))
         FROM
             ${tableName}
     """
@@ -283,23 +283,23 @@ suite("test_aggregate_collect") {
         CREATE TABLE ${tableCTAS4} PROPERTIES("replication_num" = "1") AS
         SELECT
 	    1,
-            collect_list(c_bool),
-            collect_list(c_tinyint),
-            collect_list(c_smallint),
-            collect_list(c_int),
-            collect_list(c_bigint),
-            collect_list(c_largeint),
-            collect_list(c_float),
-            collect_list(c_double),
-            collect_list(c_decimal),
-            collect_list(c_char),
-            collect_list(c_varchar),
-            collect_list(c_string),
-            collect_list(c_date),
-            collect_list(c_datev2),
-            collect_list(c_date_time),
-            collect_list(c_date_timev2),
-            collect_list(c_string_not_null)
+            size(collect_list(c_bool,1)),
+            size(collect_list(c_tinyint,1)),
+            size(collect_list(c_smallint,1)),
+            size(collect_list(c_int,1)),
+            size(collect_list(c_bigint,1)),
+            size(collect_list(c_largeint,3)),
+            size(collect_list(c_float,1)),
+            size(collect_list(c_double,2)),
+            size(collect_list(c_decimal,1)),
+            size(collect_list(c_char,1)),
+            size(collect_list(c_varchar,1)),
+            size(collect_list(c_string,1)),
+            size(collect_list(c_date,1)),
+            size(collect_list(c_datev2,2)),
+            size(collect_list(c_date_time,1)),
+            size(collect_list(c_date_timev2,1)),
+            size(collect_list(c_string_not_null,1))
         FROM
             ${tableName}
     """
@@ -454,46 +454,46 @@ suite("test_aggregate_collect") {
 
     qt_select """
         SELECT
-            group_uniq_array(c_bool,1),
-            group_uniq_array(c_tinyint,1),
-            group_uniq_array(c_smallint,1),
-            group_uniq_array(c_int,1),
-            group_uniq_array(c_bigint,1),
-            group_uniq_array(c_largeint,3),
-            group_uniq_array(c_float,1),
-            group_uniq_array(c_double,2),
-            group_uniq_array(c_decimal,1),
-            group_uniq_array(c_char,1),
-            group_uniq_array(c_varchar,1),
-            group_uniq_array(c_string,1),
-            group_uniq_array(c_date,1),
-            group_uniq_array(c_datev2,2),
-            group_uniq_array(c_date_time,1),
-            group_uniq_array(c_date_timev2,1),
-            group_uniq_array(c_string_not_null,1)
+            size(group_uniq_array(c_bool,1)),
+            size(group_uniq_array(c_tinyint,1)),
+            size(group_uniq_array(c_smallint,1)),
+            size(group_uniq_array(c_int,1)),
+            size(group_uniq_array(c_bigint,1)),
+            size(group_uniq_array(c_largeint,3)),
+            size(group_uniq_array(c_float,1)),
+            size(group_uniq_array(c_double,2)),
+            size(group_uniq_array(c_decimal,1)),
+            size(group_uniq_array(c_char,1)),
+            size(group_uniq_array(c_varchar,1)),
+            size(group_uniq_array(c_string,1)),
+            size(group_uniq_array(c_date,1)),
+            size(group_uniq_array(c_datev2,2)),
+            size(group_uniq_array(c_date_time,1)),
+            size(group_uniq_array(c_date_timev2,1)),
+            size(group_uniq_array(c_string_not_null,1))
         FROM
             ${tableName_11}
     """
 
     qt_select """
         SELECT
-            group_array(c_bool,1),
-            group_array(c_tinyint,1),
-            group_array(c_smallint,1),
-            group_array(c_int,1),
-            group_array(c_bigint,1),
-            group_array(c_largeint,3),
-            group_array(c_float,1),
-            group_array(c_double,2),
-            group_array(c_decimal,1),
-            group_array(c_char,1),
-            group_array(c_varchar,1),
-            group_array(c_string,1),
-            group_array(c_date,1),
-            group_array(c_datev2,2),
-            group_array(c_date_time,1),
-            group_array(c_date_timev2,1),
-            group_array(c_string_not_null,1)
+            size(group_array(c_bool,1)),
+            size(group_array(c_tinyint,1)),
+            size(group_array(c_smallint,1)),
+            size(group_array(c_int,1)),
+            size(group_array(c_bigint,1)),
+            size(group_array(c_largeint,3)),
+            size(group_array(c_float,1)),
+            size(group_array(c_double,2)),
+            size(group_array(c_decimal,1)),
+            size(group_array(c_char,1)),
+            size(group_array(c_varchar,1)),
+            size(group_array(c_string,1)),
+            size(group_array(c_date,1)),
+            size(group_array(c_datev2,2)),
+            size(group_array(c_date_time,1)),
+            size(group_array(c_date_timev2,1)),
+            size(group_array(c_string_not_null,1))
         FROM
             ${tableName_11}
     """
@@ -527,23 +527,23 @@ suite("test_aggregate_collect") {
         CREATE TABLE ${tableCTAS2_11} PROPERTIES("replication_num" = "1") AS
         SELECT
 	    1,
-            group_uniq_array(c_bool,1),
-            group_uniq_array(c_tinyint,1),
-            group_uniq_array(c_smallint,1),
-            group_uniq_array(c_int,1),
-            group_uniq_array(c_bigint,1),
-            group_uniq_array(c_largeint,3),
-            group_uniq_array(c_float,1),
-            group_uniq_array(c_double,2),
-            group_uniq_array(c_decimal,1),
-            group_uniq_array(c_char,1),
-            group_uniq_array(c_varchar,1),
-            group_uniq_array(c_string,1),
-            group_uniq_array(c_date,1),
-            group_uniq_array(c_datev2,2),
-            group_uniq_array(c_date_time,1),
-            group_uniq_array(c_date_timev2,1),
-            group_uniq_array(c_string_not_null,1)
+            size(group_uniq_array(c_bool,1)),
+            size(group_uniq_array(c_tinyint,1)),
+            size(group_uniq_array(c_smallint,1)),
+            size(group_uniq_array(c_int,1)),
+            size(group_uniq_array(c_bigint,1)),
+            size(group_uniq_array(c_largeint,3)),
+            size(group_uniq_array(c_float,1)),
+            size(group_uniq_array(c_double,2)),
+            size(group_uniq_array(c_decimal,1)),
+            size(group_uniq_array(c_char,1)),
+            size(group_uniq_array(c_varchar,1)),
+            size(group_uniq_array(c_string,1)),
+            size(group_uniq_array(c_date,1)),
+            size(group_uniq_array(c_datev2,2)),
+            size(group_uniq_array(c_date_time,1)),
+            size(group_uniq_array(c_date_timev2,1)),
+            size(group_uniq_array(c_string_not_null,1))
         FROM
             ${tableName_11}
     """
@@ -577,23 +577,23 @@ suite("test_aggregate_collect") {
         CREATE TABLE ${tableCTAS4_11} PROPERTIES("replication_num" = "1") AS
         SELECT
 	    1,
-            group_array(c_bool,1),
-            group_array(c_tinyint,1),
-            group_array(c_smallint,1),
-            group_array(c_int,1),
-            group_array(c_bigint,1),
-            group_array(c_largeint,3),
-            group_array(c_float,1),
-            group_array(c_double,2),
-            group_array(c_decimal,1),
-            group_array(c_char,1),
-            group_array(c_varchar,1),
-            group_array(c_string,1),
-            group_array(c_date,1),
-            group_array(c_datev2,2),
-            group_array(c_date_time,1),
-            group_array(c_date_timev2,1),
-            group_array(c_string_not_null,1)
+            size(group_array(c_bool,1)),
+            size(group_array(c_tinyint,1)),
+            size(group_array(c_smallint,1)),
+            size(group_array(c_int,1)),
+            size(group_array(c_bigint,1)),
+            size(group_array(c_largeint,3)),
+            size(group_array(c_float,1)),
+            size(group_array(c_double,2)),
+            size(group_array(c_decimal,1)),
+            size(group_array(c_char,1)),
+            size(group_array(c_varchar,1)),
+            size(group_array(c_string,1)),
+            size(group_array(c_date,1)),
+            size(group_array(c_datev2,2)),
+            size(group_array(c_date_time,1)),
+            size(group_array(c_date_timev2,1)),
+            size(group_array(c_string_not_null,1))
         FROM
             ${tableName_11}
     """
