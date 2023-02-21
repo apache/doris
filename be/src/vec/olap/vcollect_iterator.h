@@ -244,7 +244,7 @@ private:
     // Iterate from LevelIterators (maybe Level0Iterators or Level1Iterator or mixed)
     class Level1Iterator : public LevelIterator {
     public:
-        Level1Iterator(std::list<LevelIterator*>&& children, TabletReader* reader, bool merge,
+        Level1Iterator(const std::list<LevelIterator*>& children, TabletReader* reader, bool merge,
                        bool is_reverse, bool skip_same);
 
         Status init(bool get_data_by_ref = false) override;
