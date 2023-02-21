@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <memory>
+
 namespace doris {
 
 class HttpRequest;
