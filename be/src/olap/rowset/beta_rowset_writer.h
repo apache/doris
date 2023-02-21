@@ -22,7 +22,6 @@
 #include "vec/olap/vgeneric_iterators.h"
 
 #include "vec/olap/vertical_block_reader.h"
-
 #include "vec/columns/column.h"
 
 namespace doris {

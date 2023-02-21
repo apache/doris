@@ -815,10 +815,7 @@ void BetaRowsetWriter::_build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_met
         segments_encoded_key_bounds.push_back(*itr);
     }
     if (!_is_segment_overlapping(segments_encoded_key_bounds)) {
-        LOG(WARNING) << "OOXXOO NONOVERLAPPING";
         rowset_meta->set_segments_overlap(NONOVERLAPPING);
-    } else {
-        LOG(WARNING) << "OOXXOO OVERLAPPING";
     }
 
     rowset_meta->set_num_segments(num_seg);

@@ -2090,7 +2090,7 @@ void Tablet::remove_unused_remote_files() {
                 if (UNLIKELY(end == std::string::npos)) {
                     return false;
                 }
-                return !!cooldowned_rowsets.count(path_str.substr(0, end));
+                return !!cooldowned_rowsets.count(path_str.substr(0, end)); 
             }
             if (StringPiece(path_str).ends_with(".idx")) {
                 // extract rowset id. filename format: {rowset_id}_{segment_num}_{index_id}.idx
