@@ -38,6 +38,7 @@
 #include "olap/iterators.h"
 #include "runtime/exec_env.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
+#include "runtime/stream_load/stream_load_context.h"
 
 namespace doris {
 
