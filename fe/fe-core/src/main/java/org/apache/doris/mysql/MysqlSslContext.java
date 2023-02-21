@@ -18,6 +18,7 @@
 package org.apache.doris.mysql;
 
 import org.apache.doris.common.Config;
+
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
