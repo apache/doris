@@ -33,7 +33,7 @@ class Status;
 
 class DataConsumer {
 public:
-    DataConsumer(StreamLoadContext* ctx)
+    DataConsumer()
             : _id(UniqueId::gen_uid()),
               _grp_id(UniqueId::gen_uid()),
               _has_grp(false),
@@ -109,10 +109,8 @@ public:
 
 class KafkaDataConsumer : public DataConsumer {
 public:
-    KafkaDataConsumer(StreamLoadContext* ctx)
-            : DataConsumer(ctx),
-              _brokers(ctx->kafka_info->brokers),
-              _topic(ctx->kafka_info->topic) {}
+    KafkaDataConsumer(std::shared_ptr<StreamLoadContext> ctx)
+            : DataConsumer(), _brokers(ctx->kafka_info->brokers), _topic(ctx->kafka_info->topic) {}
 
     virtual ~KafkaDataConsumer() {
         VLOG_NOTICE << "deconstruct consumer";
