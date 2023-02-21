@@ -183,11 +183,7 @@ public class RoleManager implements Writable {
     }
 
     public Role removeDefaultRole(UserIdentity userIdent) {
-        Role role = roles.remove(getUserDefaultRoleName(userIdent));
-        if (role == null) {
-            roles.remove(getUserDefaultRoleName(userIdent));
-        }
-        return role;
+        return roles.remove(getUserDefaultRoleName(userIdent));
     }
 
     public String getUserDefaultRoleName(UserIdentity userIdentity) {
