@@ -179,6 +179,10 @@ public:
         LOG(FATAL) << "filter not supported in ColumnDictionary";
     }
 
+    [[noreturn]] size_t filter(const IColumn::Filter&) override {
+        LOG(FATAL) << "filter not supported in ColumnDictionary";
+    }
+
     [[noreturn]] ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
         LOG(FATAL) << "permute not supported in ColumnDictionary";
     }

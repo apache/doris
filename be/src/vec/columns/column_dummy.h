@@ -87,6 +87,12 @@ public:
         return clone_dummy(count_bytes_in_filter(filt));
     }
 
+    size_t filter(const Filter& filter) override {
+        const auto result_size = count_bytes_in_filter(filter);
+        s = result_size;
+        return result_size;
+    }
+
     ColumnPtr permute(const Permutation& perm, size_t limit) const override {
         if (s != perm.size()) {
             LOG(FATAL) << "Size of permutation doesn't match size of column.";

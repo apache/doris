@@ -248,6 +248,18 @@ ColumnPtr ColumnStruct::filter(const Filter& filt, ssize_t result_size_hint) con
     return ColumnStruct::create(new_columns);
 }
 
+size_t ColumnStruct::filter(const Filter& filter) {
+    const size_t tuple_size = columns.size();
+
+    size_t result_size = 0;
+    for (size_t i = 0; i < tuple_size; ++i) {
+        const auto this_result_size = columns[i]->filter(filter);
+        CHECK(result_size == 0 || result_size == this_result_size);
+        result_size = this_result_size;
+    }
+    return result_size;
+}
+
 ColumnPtr ColumnStruct::permute(const Permutation& perm, size_t limit) const {
     const size_t tuple_size = columns.size();
     Columns new_columns(tuple_size);
