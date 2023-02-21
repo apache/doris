@@ -1061,7 +1061,12 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             Text.writeString(out, entry.getKey());
             Text.writeString(out, String.valueOf(entry.getValue()));
         }
-        userInfo.write(out);
+        if (userInfo == null) {
+            out.writeBoolean(false);
+        } else {
+            out.writeBoolean(true);
+            userInfo.write(out);
+        }
         Text.writeString(out, comment);
     }
 
@@ -1107,9 +1112,11 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             throw new IOException("failed to replay job property", e);
         }
         if (Env.getCurrentEnvJournalVersion() >= FeMetaVersion.VERSION_117) {
-            userInfo = UserIdentity.read(in);
-            // must set is as analyzed, because when write the user info to meta image, it will be checked.
-            userInfo.setIsAnalyzed();
+            if (in.readBoolean()) {
+                userInfo = UserIdentity.read(in);
+                // must set is as analyzed, because when write the user info to meta image, it will be checked.
+                userInfo.setIsAnalyzed();
+            }
             comment = Text.readString(in);
         }
     }

@@ -126,9 +126,9 @@ public class LoadJob implements Writable {
 
     private long execMemLimit;
 
-    private String user;
+    private String user = "";
 
-    private String comment;
+    private String comment = "";
 
     // save table names for auth check
     private Set<String> tableNames = Sets.newHashSet();
