@@ -179,7 +179,9 @@ public class MysqlChannel {
 
     protected void decryptData(ByteBuffer dstBuf, boolean isHeader) throws SSLException {
         // after decrypt, we get a mysql packet with mysql header.
-        if (!isSslMode || isHeader) return;
+        if (!isSslMode || isHeader) {
+            return;
+        }
         dstBuf.flip();
         decryptAppData.clear();
         // unwrap will remove ssl header.
@@ -254,7 +256,7 @@ public class MysqlChannel {
             }
             if (readLen != packetLen) {
                 LOG.warn("Length of received packet content(" + readLen
-                    + ") is not equal with length in head.(" + packetLen + ")");
+                        + ") is not equal with length in head.(" + packetLen + ")");
                 return null;
             }
             if (!isSslHandshaking) {
@@ -281,7 +283,9 @@ public class MysqlChannel {
     }
 
     protected void encryptData(ByteBuffer dstBuf) throws SSLException {
-        if (!isSslMode) return;
+        if (!isSslMode) {
+            return;
+        }
         encryptNetData.clear();
         sslEngine.wrap(dstBuf, encryptNetData);
         encryptNetData.flip();

@@ -208,7 +208,6 @@ public class MysqlSslContext {
                 }
                 // if BUFFER_OVERFLOW or BUFFER_UNDERFLOW, need to unwrap again, so we do nothing.
             }
-        } catch (SSLException ignored) {
         } catch (IOException e) {
             throw new RuntimeException("send failed");
         }
