@@ -1331,6 +1331,26 @@ public class Load {
         }
     }
 
+    public long getLoadJobNum(JobState jobState) {
+        readLock();
+        try {
+            List<LoadJob> loadJobs = new ArrayList<>();
+            for (Long dbId : dbToLoadJobs.keySet()) {
+                loadJobs.addAll(this.dbToLoadJobs.get(dbId));
+            }
+
+            int jobNum = 0;
+            for (LoadJob job : loadJobs) {
+                if (job.getState() == jobState) {
+                    ++jobNum;
+                }
+            }
+            return jobNum;
+        } finally {
+            readUnlock();
+        }
+    }
+
     public LoadJob getLoadJob(long jobId) {
         readLock();
         try {
