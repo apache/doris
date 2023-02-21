@@ -55,7 +55,7 @@ public class MysqlSslContext {
         this.protocol = protocol;
     }
 
-    public void init(){
+    public void init() {
         initSslContext();
         initSslEngine();
     }
