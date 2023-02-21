@@ -316,7 +316,7 @@ TEST_F(CacheTest, Prune) {
 
 TEST_F(CacheTest, PruneIfLazyMode) {
     LRUCache cache(LRUCacheType::NUMBER);
-    cache.set_capacity(5);
+    cache.set_capacity(10);
 
     // The lru usage is 1, add one entry
     CacheKey key1("100");
@@ -341,25 +341,27 @@ TEST_F(CacheTest, PruneIfLazyMode) {
 
     CacheKey key6("600");
     insert_LRUCache(cache, key6, 600, CachePriority::NORMAL);
-    EXPECT_EQ(5, cache.get_usage());
+    EXPECT_EQ(6, cache.get_usage());
 
     CacheKey key7("700");
     insert_LRUCache(cache, key7, 700, CachePriority::DURABLE);
-    EXPECT_EQ(5, cache.get_usage());
+    EXPECT_EQ(7, cache.get_usage());
 
     auto pred = [](const void* value) -> bool { return false; };
     cache.prune_if(pred, true);
-    EXPECT_EQ(5, cache.get_usage());
+    EXPECT_EQ(7, cache.get_usage());
 
     // in lazy mode, the first item not satisfied the pred2, `prune_if` then stopped
     // and no item's removed.
     auto pred2 = [](const void* value) -> bool { return DecodeValue((void*)value) > 400; };
     cache.prune_if(pred2, true);
-    EXPECT_EQ(5, cache.get_usage());
+    EXPECT_EQ(7, cache.get_usage());
 
+    // in normal priority, 100, 300 are removed
+    // in durable priority, 200 is removed
     auto pred3 = [](const void* value) -> bool { return DecodeValue((void*)value) <= 600; };
     EXPECT_EQ(3, cache.prune_if(pred3, true));
-    EXPECT_EQ(3, cache.get_usage()); // keys before 666 are removed
+    EXPECT_EQ(4, cache.get_usage());
 }
 
 TEST_F(CacheTest, HeavyEntries) {
