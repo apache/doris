@@ -135,7 +135,7 @@ public class MysqlChannel {
     }
 
     private int packetLen() {
-        if (isSslMode|| isSslHandshaking) {
+        if (isSslMode || isSslHandshaking) {
             byte[] header = sslHeaderByteBuffer.array();
             return (header[4] & 0xFF) | ((header[3] & 0XFF) << 8);
         } else {
@@ -173,7 +173,7 @@ public class MysqlChannel {
             readLen += ret;
         }
         // if use ssl mode, wo need to decrypt received net data(ciphertext) to app data(plaintext).
-        decryptData(dstBuf,isHeader);
+        decryptData(dstBuf, isHeader);
         return readLen;
     }
 
@@ -200,7 +200,7 @@ public class MysqlChannel {
         result.clear();
 
         while (true) {
-            if(isSslMode || isSslHandshaking){
+            if (isSslMode || isSslHandshaking) {
                 sslHeaderByteBuffer.clear();
                 readLen = readAll(sslHeaderByteBuffer, true);
                 if (readLen != SSL_PACKET_HEADER_LEN) {
@@ -210,7 +210,7 @@ public class MysqlChannel {
                 }
                 // when handshaking and ssl mode, sslengine unwrap need a packet with header.
                 result.put(sslHeaderByteBuffer.array());
-            }else{
+            } else {
                 headerByteBuffer.clear();
                 readLen = readAll(headerByteBuffer, true);
                 if (readLen != PACKET_HEADER_LEN) {
@@ -241,8 +241,8 @@ public class MysqlChannel {
             // read one physical packet
             // before read, set limit to make read only one packet
             result.limit(result.position() + packetLen);
-            readLen = readAll(result,false);
-            if(isSslMode){
+            readLen = readAll(result, false);
+            if (isSslMode) {
                 byte[] header = result.array();
                 int packetId = header[3] & 0xFF;
                 if (packetId != sequenceId) {
@@ -254,10 +254,10 @@ public class MysqlChannel {
             }
             if (readLen != packetLen) {
                 LOG.warn("Length of received packet content(" + readLen
-                        + ") is not equal with length in head.(" + packetLen + ")");
+                    + ") is not equal with length in head.(" + packetLen + ")");
                 return null;
             }
-            if(!isSslHandshaking){
+            if (!isSslHandshaking) {
                 accSequenceId();
             }
             if (packetLen != MAX_PHYSICAL_PACKET_LENGTH) {
@@ -274,7 +274,7 @@ public class MysqlChannel {
         long writeLen = channel.write(buffer);
         if (bufLen != writeLen) {
             throw new IOException("Write mysql packet failed.[write=" + writeLen
-                    + ", needToWrite=" + bufLen + "]");
+                + ", needToWrite=" + bufLen + "]");
         }
         channel.write(buffer);
         isSend = true;
@@ -348,19 +348,19 @@ public class MysqlChannel {
         while (oldLimit - packet.position() >= MAX_PHYSICAL_PACKET_LENGTH) {
             bufLen = MAX_PHYSICAL_PACKET_LENGTH;
             packet.limit(packet.position() + bufLen);
-            if(isSslHandshaking){
+            if (isSslHandshaking) {
                 writeBuffer(packet, true);
-            }else {
+            } else {
                 writeHeader(bufLen, isSslMode);
                 writeBuffer(packet, isSslMode);
                 accSequenceId();
             }
         }
-        if(isSslHandshaking){
+        if (isSslHandshaking) {
             packet.limit(oldLimit);
             writeBuffer(packet, true);
-        }else {
-            writeHeader(oldLimit-packet.position(), isSslMode);
+        } else {
+            writeHeader(oldLimit - packet.position(), isSslMode);
             packet.limit(oldLimit);
             writeBuffer(packet, isSslMode);
             accSequenceId();
