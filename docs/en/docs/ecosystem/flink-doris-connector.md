@@ -477,3 +477,7 @@ Before Connector1.1.0, it was written in batches, and the writing was driven by 
 9. **tablet writer write failed, tablet_id=190958, txn_id=3505530, err=-235**
 
 It usually occurs before Connector1.1.0, because the writing frequency is too fast, resulting in too many versions. The frequency of Streamload can be reduced by setting the sink.batch.size and sink.batch.interval parameters.
+
+10. **Flink imports dirty data, how to skip it? **
+
+When Flink imports data, if there is dirty data, such as field format, length, etc., it will cause StreamLoad to report an error, and Flink will continue to retry at this time. If you need to skip, you can disable the strict mode of StreamLoad (strict_mode=false, max_filter_ratio=1) or filter the data before the Sink operator.
