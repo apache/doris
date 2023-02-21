@@ -516,7 +516,8 @@ void FragmentMgr::_exec_actual(std::shared_ptr<FragmentExecState> exec_state,
 
 Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
     if (params.txn_conf.need_txn) {
-        StreamLoadContext* stream_load_ctx = new StreamLoadContext(_exec_env);
+        std::shared_ptr<StreamLoadContext> stream_load_ctx =
+                std::make_shared<StreamLoadContext>(_exec_env);
         stream_load_ctx->db = params.txn_conf.db;
         stream_load_ctx->db_id = params.txn_conf.db_id;
         stream_load_ctx->table = params.txn_conf.tbl;
@@ -538,7 +539,8 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params) {
         stream_load_ctx->body_sink = pipe;
         stream_load_ctx->max_filter_ratio = params.txn_conf.max_filter_ratio;
 
-        RETURN_IF_ERROR(_exec_env->new_load_stream_mgr()->put(stream_load_ctx->id, pipe));
+        RETURN_IF_ERROR(
+                _exec_env->new_load_stream_mgr()->put(stream_load_ctx->id, stream_load_ctx));
 
         RETURN_IF_ERROR(_exec_env->stream_load_executor()->execute_plan_fragment(stream_load_ctx));
         set_pipe(params.params.fragment_instance_id, pipe,

@@ -21,7 +21,6 @@
 #include <mutex>
 #include <unordered_map>
 
-#include "io/fs/stream_load_pipe.h"
 #include "util/doris_metrics.h"
 #include "util/uid_util.h"
 
@@ -33,7 +32,7 @@ public:
     NewLoadStreamMgr();
     ~NewLoadStreamMgr();
 
-    Status put(const UniqueId& id, std::shared_ptr<io::StreamLoadPipe> stream) {
+    Status put(const UniqueId& id, std::shared_ptr<StreamLoadContext> stream) {
         std::lock_guard<std::mutex> l(_lock);
         auto it = _stream_map.find(id);
         if (it != std::end(_stream_map)) {
@@ -44,7 +43,7 @@ public:
         return Status::OK();
     }
 
-    std::shared_ptr<io::StreamLoadPipe> get(const UniqueId& id) {
+    std::shared_ptr<StreamLoadContext> get(const UniqueId& id) {
         std::lock_guard<std::mutex> l(_lock);
         auto it = _stream_map.find(id);
         if (it == std::end(_stream_map)) {
@@ -66,6 +65,6 @@ public:
 
 private:
     std::mutex _lock;
-    std::unordered_map<UniqueId, std::shared_ptr<io::StreamLoadPipe>> _stream_map;
+    std::unordered_map<UniqueId, std::shared_ptr<StreamLoadContext>> _stream_map;
 };
 } // namespace doris

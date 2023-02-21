@@ -55,12 +55,6 @@ RoutineLoadTaskExecutor::~RoutineLoadTaskExecutor() {
     _thread_pool.join();
 
     LOG(INFO) << _task_map.size() << " not executed tasks left, cleanup";
-    for (auto it = _task_map.begin(); it != _task_map.end(); ++it) {
-        auto ctx = it->second;
-        if (ctx->unref()) {
-            delete ctx;
-        }
-    }
     _task_map.clear();
 }
 
@@ -168,7 +162,7 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     }
 
     // create the context
-    StreamLoadContext* ctx = new StreamLoadContext(_exec_env);
+    std::shared_ptr<StreamLoadContext> ctx = std : make_shared<StreamLoadContext>(_exec_env);
     ctx->load_type = TLoadType::ROUTINE_LOAD;
     ctx->load_src_type = task.type;
     ctx->job_id = task.job_id;
@@ -212,13 +206,11 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
         break;
     default:
         LOG(WARNING) << "unknown load source type: " << task.type;
-        delete ctx;
         return Status::InternalError("unknown load source type");
     }
 
     VLOG_CRITICAL << "receive a new routine load task: " << ctx->brief();
     // register the task
-    ctx->ref();
     _task_map[ctx->id] = ctx;
 
     // offer the task to thread pool
@@ -238,9 +230,6 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
         // failed to submit task, clear and return
         LOG(WARNING) << "failed to submit routine load task: " << ctx->brief();
         _task_map.erase(ctx->id);
-        if (ctx->unref()) {
-            delete ctx;
-        }
         return Status::InternalError("failed to submit routine load task");
     } else {
         LOG(INFO) << "submit a new routine load task: " << ctx->brief()
@@ -249,8 +238,8 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
     }
 }
 
-void RoutineLoadTaskExecutor::exec_task(StreamLoadContext* ctx, DataConsumerPool* consumer_pool,
-                                        ExecFinishCallback cb) {
+void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
+                                        DataConsumerPool* consumer_pool, ExecFinishCallback cb) {
 #define HANDLE_ERROR(stmt, err_msg)                                        \
     do {                                                                   \
         Status _status_ = (stmt);                                          \
@@ -358,12 +347,12 @@ void RoutineLoadTaskExecutor::exec_task(StreamLoadContext* ctx, DataConsumerPool
     cb(ctx);
 }
 
-void RoutineLoadTaskExecutor::err_handler(StreamLoadContext* ctx, const Status& st,
+void RoutineLoadTaskExecutor::err_handler(std::shared_ptr<StreamLoadContext> ctx, const Status& st,
                                           const std::string& err_msg) {
     LOG(WARNING) << err_msg << ", routine load task: " << ctx->brief(true);
     ctx->status = st;
     if (ctx->need_rollback) {
-        _exec_env->stream_load_executor()->rollback_txn(ctx);
+        _exec_env->stream_load_executor()->rollback_txn(ctx.get());
         ctx->need_rollback = false;
     }
     if (ctx->body_sink != nullptr) {
@@ -372,7 +361,7 @@ void RoutineLoadTaskExecutor::err_handler(StreamLoadContext* ctx, const Status& 
 }
 
 // for test only
-Status RoutineLoadTaskExecutor::_execute_plan_for_test(StreamLoadContext* ctx) {
+Status RoutineLoadTaskExecutor::_execute_plan_for_test(std::shared_ptr<StreamLoadContext> ctx) {
     auto mock_consumer = [this, ctx]() {
         ctx->ref();
         std::shared_ptr<io::StreamLoadPipe> pipe = _exec_env->new_load_stream_mgr()->get(ctx->id);
@@ -402,9 +391,6 @@ Status RoutineLoadTaskExecutor::_execute_plan_for_test(StreamLoadContext* ctx) {
             } else {
                 ss << one;
             }
-        }
-        if (ctx->unref()) {
-            delete ctx;
         }
     };
 

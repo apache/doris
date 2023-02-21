@@ -19,6 +19,7 @@
 
 #include <functional>
 #include <map>
+#include <memory>
 #include <mutex>
 
 #include "gen_cpp/internal_service.pb.h"
@@ -40,7 +41,7 @@ class TRoutineLoadTask;
 // to FE finally.
 class RoutineLoadTaskExecutor {
 public:
-    typedef std::function<void(StreamLoadContext*)> ExecFinishCallback;
+    typedef std::function<void(std::shared_ptr<StreamLoadContext>)> ExecFinishCallback;
 
     RoutineLoadTaskExecutor(ExecEnv* exec_env);
 
@@ -60,9 +61,11 @@ public:
 
 private:
     // execute the task
-    void exec_task(StreamLoadContext* ctx, DataConsumerPool* pool, ExecFinishCallback cb);
+    void exec_task(std::shared_ptr<StreamLoadContext> ctx, DataConsumerPool* pool,
+                   ExecFinishCallback cb);
 
-    void err_handler(StreamLoadContext* ctx, const Status& st, const std::string& err_msg);
+    void err_handler(std::shared_ptr<StreamLoadContext> ctx, const Status& st,
+                     const std::string& err_msg);
 
     // for test only
     Status _execute_plan_for_test(StreamLoadContext* ctx);
@@ -76,7 +79,7 @@ private:
 
     std::mutex _lock;
     // task id -> load context
-    std::unordered_map<UniqueId, StreamLoadContext*> _task_map;
+    std::unordered_map<UniqueId, std::shared_ptr<StreamLoadContext>> _task_map;
 };
 
 } // namespace doris
