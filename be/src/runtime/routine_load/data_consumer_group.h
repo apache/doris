@@ -68,7 +68,7 @@ public:
 
     virtual ~KafkaDataConsumerGroup();
 
-    virtual Status start_all(StreamLoadContext* ctx) override;
+    virtual Status start_all(std::shared_ptr<StreamLoadContext> ctx) override;
     // assign topic partitions to all consumers equally
     Status assign_topic_partitions(StreamLoadContext* ctx);
 
