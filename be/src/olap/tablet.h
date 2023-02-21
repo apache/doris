@@ -328,7 +328,11 @@ public:
 
     static void remove_unused_remote_files();
 
-    std::shared_mutex& get_remote_files_lock() { return _remote_files_lock; }
+    // If a rowset is to be written to remote filesystem, MUST add it to `pending_remote_rowsets` before uploading,
+    // and then erase it from `pending_remote_rowsets` after it has been insert to the Tablet.
+    // `remove_unused_remote_files` MUST NOT delete files of these pending rowsets.
+    static void add_pending_remote_rowset(std::string rowset_id);
+    static void erase_pending_remote_rowset(const std::string& rowset_id);
 
     uint32_t calc_cold_data_compaction_score() const;
 
@@ -524,7 +528,6 @@ private:
     // cooldown related
     int64_t _cooldown_replica_id = -1;
     int64_t _cooldown_term = -1;
-    std::shared_mutex _remote_files_lock;
     std::mutex _cold_compaction_lock;
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);

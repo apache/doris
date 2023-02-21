@@ -272,6 +272,9 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     bool vertical_compaction = should_vertical_compaction();
     RETURN_NOT_OK(construct_input_rowset_readers());
     RETURN_NOT_OK(construct_output_rowset_writer(vertical_compaction));
+    if (compaction_type() == ReaderType::READER_COLD_DATA_COMPACTION) {
+        Tablet::add_pending_remote_rowset(_output_rs_writer->rowset_id().to_string());
+    }
     TRACE("prepare finished");
 
     // 2. write merged rows to output rowset
@@ -282,45 +285,35 @@ Status Compaction::do_compaction_impl(int64_t permits) {
         stats.rowid_conversion = &_rowid_conversion;
     }
 
-    auto build_output_rowset = [&]() {
-        Status res;
-        if (use_vectorized_compaction) {
-            if (vertical_compaction) {
-                res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
-                                                     _input_rs_readers, _output_rs_writer.get(),
-                                                     get_avg_segment_rows(), &stats);
-            } else {
-                res = Merger::vmerge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
-                                             _input_rs_readers, _output_rs_writer.get(), &stats);
-            }
+    Status res;
+    if (use_vectorized_compaction) {
+        if (vertical_compaction) {
+            res = Merger::vertical_merge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
+                                                 _input_rs_readers, _output_rs_writer.get(),
+                                                 get_avg_segment_rows(), &stats);
         } else {
-            LOG(FATAL) << "Only support vectorized compaction";
+            res = Merger::vmerge_rowsets(_tablet, compaction_type(), _cur_tablet_schema,
+                                         _input_rs_readers, _output_rs_writer.get(), &stats);
         }
-
-        if (!res.ok()) {
-            LOG(WARNING) << "fail to do " << merge_type << compaction_name() << ". res=" << res
-                         << ", tablet=" << _tablet->full_name()
-                         << ", output_version=" << _output_version;
-            return res;
-        }
-        TRACE("merge rowsets finished");
-        TRACE_COUNTER_INCREMENT("merged_rows", stats.merged_rows);
-        TRACE_COUNTER_INCREMENT("filtered_rows", stats.filtered_rows);
-
-        _output_rowset = _output_rs_writer->build();
-        if (_output_rowset == nullptr) {
-            LOG(WARNING) << "rowset writer build failed. writer version:"
-                         << ", output_version=" << _output_version;
-            return Status::Error<ROWSET_BUILDER_INIT>();
-        }
-        return res;
-    };
-
-    if (compaction_type() == ReaderType::READER_COLD_DATA_COMPACTION) {
-        std::shared_lock slock(_tablet->get_remote_files_lock());
-        RETURN_IF_ERROR(build_output_rowset());
     } else {
-        RETURN_IF_ERROR(build_output_rowset());
+        LOG(FATAL) << "Only support vectorized compaction";
+    }
+
+    if (!res.ok()) {
+        LOG(WARNING) << "fail to do " << merge_type << compaction_name() << ". res=" << res
+                     << ", tablet=" << _tablet->full_name()
+                     << ", output_version=" << _output_version;
+        return res;
+    }
+    TRACE("merge rowsets finished");
+    TRACE_COUNTER_INCREMENT("merged_rows", stats.merged_rows);
+    TRACE_COUNTER_INCREMENT("filtered_rows", stats.filtered_rows);
+
+    _output_rowset = _output_rs_writer->build();
+    if (_output_rowset == nullptr) {
+        LOG(WARNING) << "rowset writer build failed. writer version:"
+                     << ", output_version=" << _output_version;
+        return Status::Error<ROWSET_BUILDER_INIT>();
     }
 
     TRACE_COUNTER_INCREMENT("output_rowset_data_size", _output_rowset->data_disk_size());
@@ -457,6 +450,7 @@ Status Compaction::modify_rowsets() {
 void Compaction::gc_output_rowset() {
     if (_state != CompactionState::SUCCESS && _output_rowset != nullptr) {
         if (!_output_rowset->is_local()) {
+            Tablet::erase_pending_remote_rowset(_output_rowset->rowset_id().to_string());
             _tablet->record_unused_remote_rowset(_output_rowset->rowset_id(),
                                                  _output_rowset->rowset_meta()->resource_id(),
                                                  _output_rowset->num_segments());
