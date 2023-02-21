@@ -19,14 +19,28 @@ package org.apache.doris.nereids.trees.expressions.functions.window;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.functions.CustomSignature;
+import org.apache.doris.nereids.trees.expressions.functions.IdenticalSignature;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.shape.UnaryExpression;
-import org.apache.doris.nereids.types.DataType;
+
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Lists;
+
+import java.util.List;
 
 /** parent class for first_value() and last_value() */
 public abstract class FirstOrLastValue extends WindowFunction
-        implements UnaryExpression, PropagateNullable, CustomSignature {
+        implements UnaryExpression, PropagateNullable, IdenticalSignature, RequireTrivialTypes {
+
+    static {
+        List<FunctionSignature> signatures = Lists.newArrayList();
+        trivialTypes.forEach(t ->
+                signatures.add(FunctionSignature.ret(t).args(t))
+        );
+        SIGNATURES = ImmutableList.copyOf(signatures);
+    }
+
+    private static final List<FunctionSignature> SIGNATURES;
 
     public FirstOrLastValue(String name, Expression child) {
         super(name, child);
@@ -41,8 +55,7 @@ public abstract class FirstOrLastValue extends WindowFunction
     }
 
     @Override
-    public FunctionSignature customSignature() {
-        DataType dataType = getArgument(0).getDataType();
-        return FunctionSignature.ret(dataType).args(dataType);
+    public List<FunctionSignature> getSignatures() {
+        return SIGNATURES;
     }
 }
