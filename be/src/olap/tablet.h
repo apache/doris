@@ -341,12 +341,13 @@ public:
     // NOTE: the method only works in unique key model with primary key index, you will got a
     //       not supported error in other data model.
     Status lookup_row_key(const Slice& encoded_key, const RowsetIdUnorderedSet* rowset_ids,
-                          RowLocation* row_location, uint32_t version);
+                          RowLocation* row_location, uint32_t version,
+                          RowsetSharedPtr* rowset = nullptr);
 
     // Lookup a row with TupleDescriptor and fill Block
     Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
-                           const TupleDescriptor* desc, vectorized::Block* block,
-                           bool write_to_cache = false);
+                           RowsetSharedPtr rowset, const TupleDescriptor* desc,
+                           vectorized::Block* block, bool write_to_cache = false);
 
     // calc delete bitmap when flush memtable, use a fake version to calc
     // For example, cur max version is 5, and we use version 6 to calc but
@@ -366,8 +367,13 @@ public:
     void calc_compaction_output_rowset_delete_bitmap(
             const std::vector<RowsetSharedPtr>& input_rowsets,
             const RowIdConversion& rowid_conversion, uint64_t start_version, uint64_t end_version,
+            std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,
             DeleteBitmap* output_rowset_delete_bitmap);
     void merge_delete_bitmap(const DeleteBitmap& delete_bitmap);
+    Status check_rowid_conversion(
+            RowsetSharedPtr dst_rowset,
+            const std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>&
+                    location_map);
     RowsetIdUnorderedSet all_rs_id(int64_t max_version) const;
 
     bool check_all_rowset_segment();

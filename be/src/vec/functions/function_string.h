@@ -2473,6 +2473,14 @@ struct SubReplaceFourImpl {
     }
 };
 
+// Wrap iconv_open and iconv_close to a shared ptr call
+class IconvWrapper {
+public:
+    iconv_t cd_;
+    IconvWrapper(iconv_t cd) : cd_(cd) {}
+    ~IconvWrapper() { iconv_close(cd_); }
+};
+
 class FunctionConvertTo : public IFunction {
 public:
     static constexpr auto name = "convert_to";
@@ -2504,7 +2512,9 @@ public:
                 return Status::RuntimeError("function {} is convert to gbk failed in iconv_open",
                                             get_name());
             }
-            context->set_function_state(scope, cd);
+            // IconvWrapper will call iconv_close during deconstructor
+            std::shared_ptr<IconvWrapper> cd_wrapper = std::make_shared<IconvWrapper>(cd);
+            context->set_function_state(scope, cd_wrapper);
         } else {
             return Status::RuntimeError(
                     "Illegal second argument column of function convert. now only support "
@@ -2525,8 +2535,9 @@ public:
         auto& res_offset = col_res->get_offsets();
         auto& res_chars = col_res->get_chars();
         res_offset.resize(input_rows_count);
-        iconv_t cd = reinterpret_cast<iconv_t>(
-                context->get_function_state(FunctionContext::THREAD_LOCAL));
+        iconv_t cd = reinterpret_cast<IconvWrapper*>(
+                             context->get_function_state(FunctionContext::THREAD_LOCAL))
+                             ->cd_;
         DCHECK(cd != nullptr);
 
         size_t in_len = 0, out_len = 0;
@@ -2549,12 +2560,6 @@ public:
     }
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::THREAD_LOCAL) {
-            iconv_t cd = reinterpret_cast<iconv_t>(
-                    context->get_function_state(FunctionContext::THREAD_LOCAL));
-            iconv_close(cd);
-            context->set_function_state(FunctionContext::THREAD_LOCAL, nullptr);
-        }
         return Status::OK();
     }
 };

@@ -386,6 +386,10 @@ public:
     using Filter = PaddedPODArray<UInt8>;
     virtual Ptr filter(const Filter& filt, ssize_t result_size_hint) const = 0;
 
+    /// This function will modify the original table.
+    /// Return rows number after filtered.
+    virtual size_t filter(const Filter& filter) = 0;
+
     /**
      *  used by lazy materialization to filter column by selected rowids
      *  Q: Why use IColumn* as args type instead of MutablePtr or ImmutablePtr ?

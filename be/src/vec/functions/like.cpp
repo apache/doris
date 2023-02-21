@@ -391,11 +391,6 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
 
 Status FunctionLikeBase::close(FunctionContext* context,
                                FunctionContext::FunctionStateScope scope) {
-    if (scope == FunctionContext::THREAD_LOCAL) {
-        auto* state = reinterpret_cast<LikeState*>(
-                context->get_function_state(FunctionContext::THREAD_LOCAL));
-        delete state;
-    }
     return Status::OK();
 }
 
@@ -540,7 +535,7 @@ Status FunctionLike::prepare(FunctionContext* context, FunctionContext::Function
     if (scope != FunctionContext::THREAD_LOCAL) {
         return Status::OK();
     }
-    auto* state = new LikeState();
+    std::shared_ptr<LikeState> state = std::make_shared<LikeState>();
     context->set_function_state(scope, state);
     state->function = like_fn;
     state->predicate_like_function = like_fn_predicate;
@@ -600,7 +595,7 @@ Status FunctionRegexp::prepare(FunctionContext* context,
     if (scope != FunctionContext::THREAD_LOCAL) {
         return Status::OK();
     }
-    auto* state = new LikeState();
+    std::shared_ptr<LikeState> state = std::make_shared<LikeState>();
     context->set_function_state(scope, state);
     state->function = regexp_fn;
     state->predicate_like_function = regexp_fn_predicate;
