@@ -170,12 +170,7 @@ public class NereidsPlanner extends Planner {
             }
             deriveStats();
 
-            if (statementContext.getConnectContext().getSessionVariable().isEnableDPHypOptimizer()) {
-                // TODO: use DPHyp according the number of join table
-                dpHypOptimize();
-            } else {
-                optimize();
-            }
+            optimize();
 
             PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), requireProperties);
 
@@ -225,7 +220,6 @@ public class NereidsPlanner extends Planner {
         }
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
-        optimize();
     }
 
     /**
@@ -234,6 +228,12 @@ public class NereidsPlanner extends Planner {
      * try to find best plan under the guidance of statistic information and cost model.
      */
     private void optimize() {
+        if (!statementContext.getConnectContext().getSessionVariable().isDisableJoinReorder()
+                && statementContext.getConnectContext().getSessionVariable().isEnableDPHypOptimizer()
+                && statementContext.getMaxNAryInnerJoin() > statementContext.getConnectContext()
+                .getSessionVariable().getMaxTableCountUseCascadesJoinReorder()) {
+            dpHypOptimize();
+        }
         new OptimizeRulesJob(cascadesContext).execute();
     }
 

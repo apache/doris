@@ -40,6 +40,8 @@ public class StatementContext {
 
     private OriginStatement originStatement;
 
+    private int maxNAryInnerJoin = 0;
+
     private final IdGenerator<ExprId> exprIdGenerator = ExprId.createGenerator();
 
     private final IdGenerator<RelationId> relationIdGenerator = RelationId.createGenerator();
@@ -72,6 +74,16 @@ public class StatementContext {
 
     public OriginStatement getOriginStatement() {
         return originStatement;
+    }
+
+    public void setMaxNArayInnerJoin(int maxNAryInnerJoin) {
+        if (maxNAryInnerJoin > this.maxNAryInnerJoin) {
+            this.maxNAryInnerJoin = maxNAryInnerJoin;
+        }
+    }
+
+    public int getMaxNAryInnerJoin() {
+        return maxNAryInnerJoin;
     }
 
     public StatementBase getParsedStatement() {
