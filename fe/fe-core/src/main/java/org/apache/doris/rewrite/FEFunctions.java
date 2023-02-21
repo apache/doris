@@ -95,7 +95,7 @@ public class FEFunctions {
         } else {
             t = (y + y / 4 - c + 26 * (month + 1) / 10 + day + 4) % 7;
         }
-        return new IntLiteral(((t - 1) % 7 + 7) % 7);
+        return new IntLiteral(((t + 1) % 7 + 7) % 7);
     }
 
     @FEFunction(name = "date_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")

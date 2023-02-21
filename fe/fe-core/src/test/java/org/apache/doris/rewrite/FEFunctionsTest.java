@@ -216,7 +216,7 @@ public class FEFunctionsTest {
 
     @Test
     public void dayOfWeekTest() throws AnalysisException {
-        Assert.assertEquals(FEFunctions.dayOfWeek(new DateLiteral("2023-02-20", Type.DATE)).getStringValue(), "1");
+        Assert.assertEquals(FEFunctions.dayOfWeek(new DateLiteral("2019-06-25", Type.DATE)).getStringValue(), "3");
     }
 
     @Test
