@@ -608,6 +608,7 @@ struct TStreamLoadPutRequest {
     47: optional string load_sql // insert into sql used by stream load
     48: optional i64 backend_id
     49: optional i32 version // version 1 means use load_sql
+    50: optional string label
 }
 
 struct TStreamLoadPutResult {

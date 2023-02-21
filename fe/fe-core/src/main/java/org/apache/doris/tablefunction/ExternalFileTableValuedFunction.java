@@ -382,7 +382,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                 ConnectContext ctx = ConnectContext.get();
                 long streamLoadBackendId = ctx.getBackendId();
                 if (be.getId() == streamLoadBackendId) {
-                    address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
+                    address = new TNetworkAddress(be.getIp(), be.getBrpcPort());
                     break;
                 }
             }

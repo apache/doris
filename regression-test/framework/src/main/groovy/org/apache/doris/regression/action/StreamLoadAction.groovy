@@ -147,7 +147,7 @@ class StreamLoadAction implements SuiteAction {
         try {
             if (headers.containsKey("version")) {
                 log.info("Stream load with sql")
-                def uri = "http://${address.hostString}:${address.port}/api/${db}/${table}/_stream_load_with_sql"
+                def uri = "http://${address.hostString}:${address.port}/api/_stream_load_with_sql"
                 HttpClients.createDefault().withCloseable { client ->
                     RequestBuilder requestBuilder = prepareRequestHeader(RequestBuilder.put(uri))
                     HttpEntity httpEntity = prepareHttpEntity(client)

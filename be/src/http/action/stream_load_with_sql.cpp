@@ -72,9 +72,47 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_with_sql_duration_ms, Metric
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(streaming_load_with_sql_current_processing,
                                    MetricUnit::REQUESTS);
 
-#ifdef BE_TEST
-TStreamLoadPutResult k_stream_load_put_result;
-#endif
+static void parse_format(const std::string& format_str, const std::string& compress_type_str,
+                         TFileFormatType::type* format_type,
+                         TFileCompressType::type* compress_type) {
+    if (format_str.empty()) {
+        parse_format("CSV", compress_type_str, format_type, compress_type);
+        return;
+    }
+    *compress_type = TFileCompressType::PLAIN;
+    *format_type = TFileFormatType::FORMAT_UNKNOWN;
+    if (iequal(format_str, "CSV")) {
+        if (compress_type_str.empty()) {
+            *format_type = TFileFormatType::FORMAT_CSV_PLAIN;
+        } else if (iequal(compress_type_str, "GZ")) {
+            *format_type = TFileFormatType::FORMAT_CSV_GZ;
+            *compress_type = TFileCompressType::GZ;
+        } else if (iequal(compress_type_str, "LZO")) {
+            *format_type = TFileFormatType::FORMAT_CSV_LZO;
+            *compress_type = TFileCompressType::LZO;
+        } else if (iequal(compress_type_str, "BZ2")) {
+            *format_type = TFileFormatType::FORMAT_CSV_BZ2;
+            *compress_type = TFileCompressType::BZ2;
+        } else if (iequal(compress_type_str, "LZ4")) {
+            *format_type = TFileFormatType::FORMAT_CSV_LZ4FRAME;
+            *compress_type = TFileCompressType::LZ4FRAME;
+        } else if (iequal(compress_type_str, "LZOP")) {
+            *format_type = TFileFormatType::FORMAT_CSV_LZOP;
+            *compress_type = TFileCompressType::LZO;
+        } else if (iequal(compress_type_str, "DEFLATE")) {
+            *format_type = TFileFormatType::FORMAT_CSV_DEFLATE;
+            *compress_type = TFileCompressType::DEFLATE;
+        }
+    } else if (iequal(format_str, "JSON")) {
+        if (compress_type_str.empty()) {
+            *format_type = TFileFormatType::FORMAT_JSON;
+        }
+    } else if (iequal(format_str, "PARQUET")) {
+        *format_type = TFileFormatType::FORMAT_PARQUET;
+    } else if (iequal(format_str, "ORC")) {
+        *format_type = TFileFormatType::FORMAT_ORC;
+    }
+}
 
 static bool is_format_support_streaming(TFileFormatType::type format) {
     switch (format) {
@@ -218,8 +256,6 @@ int StreamLoadWithSqlAction::on_header(HttpRequest* req) {
     ctx->load_type = TLoadType::MANUL_LOAD;
     ctx->load_src_type = TLoadSourceType::RAW;
 
-    ctx->db = req->param(HTTP_DB_KEY);
-    ctx->table = req->param(HTTP_TABLE_KEY);
     ctx->label = req->header(HTTP_LABEL_KEY);
     if (ctx->label.empty()) {
         ctx->label = generate_uuid_string();
@@ -227,8 +263,8 @@ int StreamLoadWithSqlAction::on_header(HttpRequest* req) {
 
     ctx->two_phase_commit = req->header(HTTP_TWO_PHASE_COMMIT) == "true" ? true : false;
 
-    LOG(INFO) << "new income streaming load request." << ctx->brief() << ", db=" << ctx->db
-              << ", tbl=" << ctx->table;
+    LOG(INFO) << "new income streaming load request." << ctx->brief()
+              << " sql : " << req->header(HTTP_SQL);
 
     auto st = _on_header(req, ctx);
     if (!st.ok()) {
@@ -257,14 +293,20 @@ int StreamLoadWithSqlAction::on_header(HttpRequest* req) {
 }
 
 Status StreamLoadWithSqlAction::_on_header(HttpRequest* http_req, StreamLoadContext* ctx) {
-    // auth information
-    if (!parse_basic_auth(*http_req, &ctx->auth)) {
-        LOG(WARNING) << "parse basic authorization failed." << ctx->brief();
-        return Status::InternalError("no valid Basic authorization");
+    // get format of this put
+    if (!http_req->header(HTTP_COMPRESS_TYPE).empty() &&
+        iequal(http_req->header(HTTP_FORMAT_KEY), "JSON")) {
+        return Status::InternalError("compress data of JSON format is not supported.");
     }
-    // default csv
-    ctx->format = TFileFormatType::FORMAT_CSV_PLAIN;
-
+    std::string format_str = http_req->header(HTTP_FORMAT_KEY);
+    if (iequal(format_str, BeConsts::CSV_WITH_NAMES) ||
+        iequal(format_str, BeConsts::CSV_WITH_NAMES_AND_TYPES)) {
+        ctx->header_type = format_str;
+        //treat as CSV
+        format_str = BeConsts::CSV;
+    }
+    parse_format(format_str, http_req->header(HTTP_COMPRESS_TYPE), &ctx->format,
+                 &ctx->compress_type);
     if (ctx->format == TFileFormatType::FORMAT_UNKNOWN) {
         return Status::InternalError("unknown data format, format={}",
                                      http_req->header(HTTP_FORMAT_KEY));
@@ -273,24 +315,44 @@ Status StreamLoadWithSqlAction::_on_header(HttpRequest* http_req, StreamLoadCont
     // check content length
     ctx->body_bytes = 0;
     size_t csv_max_body_bytes = config::streaming_load_max_mb * 1024 * 1024;
-
+    size_t json_max_body_bytes = config::streaming_load_json_max_mb * 1024 * 1024;
+    bool read_json_by_line = false;
+    if (!http_req->header(HTTP_READ_JSON_BY_LINE).empty()) {
+        if (iequal(http_req->header(HTTP_READ_JSON_BY_LINE), "true")) {
+            read_json_by_line = true;
+        }
+    }
+    if (!http_req->header(HttpHeaders::CONTENT_LENGTH).empty()) {
+        ctx->body_bytes = std::stol(http_req->header(HttpHeaders::CONTENT_LENGTH));
+        // json max body size
+        if ((ctx->format == TFileFormatType::FORMAT_JSON) &&
+            (ctx->body_bytes > json_max_body_bytes) && !read_json_by_line) {
+            return Status::InternalError(
+                    "The size of this batch exceed the max size [{}]  of json type data "
+                    " data [ {} ]. Split the file, or use 'read_json_by_line'",
+                    json_max_body_bytes, ctx->body_bytes);
+        }
+        // csv max body size
+        else if (ctx->body_bytes > csv_max_body_bytes) {
+            LOG(WARNING) << "body exceed max size." << ctx->brief();
+            return Status::InternalError("body exceed max size: {}, data: {}", csv_max_body_bytes,
+                                         ctx->body_bytes);
+        }
+    } else {
 #ifndef BE_TEST
-    evhttp_connection_set_max_body_size(
-            evhttp_request_get_connection(http_req->get_evhttp_request()), csv_max_body_bytes);
+        evhttp_connection_set_max_body_size(
+                evhttp_request_get_connection(http_req->get_evhttp_request()), csv_max_body_bytes);
 #endif
-
-    // begin transaction
-    int64_t begin_txn_start_time = MonotonicNanos();
-    // RETURN_IF_ERROR(_exec_env->stream_load_executor()->begin_txn(ctx));
-    ctx->begin_txn_cost_nanos = MonotonicNanos() - begin_txn_start_time;
+    }
 
     // create stream load pipe
-    auto pipe = std::make_shared<io::StreamLoadPipe>(kMaxPipeBufferedBytes /* max_buffered_bytes */,
-                                                     64 * 1024 /* min_chunk_size */,
-                                                     ctx->body_bytes /* total_length */);
+    auto pipe = std::make_shared<io::StreamLoadPipe>(
+            io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
+            ctx->body_bytes /* total_length */);
     RETURN_IF_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, pipe));
     ctx->future = _exec_env->new_load_stream_mgr()->get_future(ctx->id);
     ctx->body_sink = pipe;
+    ctx->txn_id = 0;
 
     return Status::OK();
 }
@@ -305,6 +367,10 @@ void StreamLoadWithSqlAction::on_chunk_data(HttpRequest* req) {
     auto evbuf = evhttp_request_get_input_buffer(ev_req);
 
     int64_t start_read_data_time = MonotonicNanos();
+
+    // Use buffer to store the first 1MB of stream data so that the schema can be parsed later
+    // It is assumed that 1MB is sufficient here,
+    // but later modifications may be needed to resolve different line lengths
     const size_t buffer_max_size = 1 * 1024 * 1024;
     size_t buffer_size = 0;
     char* buffer = new char[buffer_max_size];
@@ -354,29 +420,29 @@ void StreamLoadWithSqlAction::free_handler_ctx(void* param) {
 Status StreamLoadWithSqlAction::_process_put(HttpRequest* http_req, StreamLoadContext* ctx) {
     // Now we use stream
     ctx->use_streaming = is_format_support_streaming(ctx->format);
+    if (!ctx->use_streaming) {
+        return Status::InvalidArgument("Not support file format in stream load with sql");
+    }
 
     // put request
     TStreamLoadPutRequest request;
     set_request_auth(&request, ctx->auth);
-    request.db = ctx->db;
-    request.tbl = ctx->table;
     request.txnId = ctx->txn_id;
-    request.formatType = ctx->format;
     request.__set_version(version);
     request.__set_load_sql(http_req->header(HTTP_SQL));
     request.__set_loadId(ctx->id.to_thrift());
+    request.__set_label(ctx->label);
     if (_exec_env->master_info()->__isset.backend_id) {
         request.__set_backend_id(_exec_env->master_info()->backend_id);
     } else {
         LOG(WARNING) << "_exec_env->master_info not set backend_id";
     }
-    request.__set_backend_id(10046);
     request.__set_execMemLimit(2 * 1024 * 1024 * 1024L);
     request.fileType = TFileType::FILE_STREAM;
     request.__set_thrift_rpc_timeout_ms(20000);
 
 #ifndef BE_TEST
-    // plan this load
+    // exec this load
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;
     int64_t stream_load_put_start_time = MonotonicNanos();
     RETURN_IF_ERROR(ThriftRpcHelper::rpc<FrontendServiceClient>(
@@ -390,10 +456,9 @@ Status StreamLoadWithSqlAction::_process_put(HttpRequest* http_req, StreamLoadCo
 #endif
     Status plan_status(ctx->put_result.status);
     if (!plan_status.ok()) {
-        LOG(WARNING) << "plan streaming load failed. errmsg=" << plan_status << ctx->brief();
+        LOG(WARNING) << "exec streaming load failed. errmsg=" << plan_status << ctx->brief();
         return plan_status;
     }
-    VLOG_NOTICE << "params is " << apache::thrift::ThriftDebugString(ctx->put_result.params);
     ctx->is_stream_load_put_success = true;
     return Status::OK();
 }

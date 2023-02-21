@@ -83,7 +83,7 @@ Status HttpService::start() {
     // register stream load with sql
     StreamLoadWithSqlAction* streamload_with_sql_action =
             _pool.add(new StreamLoadWithSqlAction(_env));
-    _ev_http_server->register_handler(HttpMethod::PUT, "/api/{db}/{table}/_stream_load_with_sql",
+    _ev_http_server->register_handler(HttpMethod::PUT, "/api/_stream_load_with_sql",
                                       streamload_with_sql_action);
 
     // register download action

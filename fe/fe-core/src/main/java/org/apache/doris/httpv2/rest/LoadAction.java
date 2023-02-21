@@ -85,15 +85,36 @@ public class LoadAction extends RestBaseController {
         return executeWithoutPassword(request, response, db, table, true);
     }
 
-    @RequestMapping(path = "/api/{" + DB_KEY + "}/{" + TABLE_KEY + "}/_stream_load_with_sql",
+    @RequestMapping(path = "/api/_stream_load_with_sql",
                         method = RequestMethod.PUT)
     public Object streamLoadWithSql(HttpServletRequest request,
-                             HttpServletResponse response,
-                             @PathVariable(value = DB_KEY) String db, @PathVariable(value = TABLE_KEY) String table) {
+                             HttpServletResponse response) {
         executeCheckPassword(request, response);
         String sql = request.getHeader("sql");
         LOG.info("streaming load sql={}", sql);
-        return executeWithoutPassword(request, response, db, table, true);
+        try {
+            // A 'Load' request must have 100-continue header
+            if (request.getHeader(HttpHeaderNames.EXPECT.toString()) == null) {
+                return new RestBaseResult("There is no 100-continue header");
+            }
+
+            final String clusterName = ConnectContext.get().getClusterName();
+            if (Strings.isNullOrEmpty(clusterName)) {
+                return new RestBaseResult("No cluster selected.");
+            }
+
+            String label = request.getHeader(LABEL_KEY);
+            TNetworkAddress redirectAddr;
+            redirectAddr = selectRedirectBackend(clusterName);
+
+            LOG.info("redirect load action to destination={}, label: {}",
+                    redirectAddr.toString(), label);
+
+            RedirectView redirectView = redirectTo(request, redirectAddr);
+            return redirectView;
+        } catch (Exception e) {
+            return new RestBaseResult(e.getMessage());
+        }
     }
 
     @RequestMapping(path = "/api/{" + DB_KEY + "}/_stream_load_2pc", method = RequestMethod.PUT)
