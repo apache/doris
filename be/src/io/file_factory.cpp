@@ -195,7 +195,7 @@ Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderS
     if (!stream_load_ctx) {
         return Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
-    *file_reader = stream_load_ctx->body_sink;
+    *file_reader = std::reinterpret_pointer_cast(stream_load_ctx->body_sink);
     return Status::OK();
 }
 
