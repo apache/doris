@@ -21,12 +21,12 @@
 #include <mutex>
 #include <unordered_map>
 
-#include "runtime/stream_load/stream_load_context.h"
 #include "util/doris_metrics.h"
 #include "util/uid_util.h"
 
 namespace doris {
 
+class StreamLoadContext;
 // used to register all streams in process so that other module can get this stream
 class NewLoadStreamMgr {
 public:
@@ -48,7 +48,7 @@ public:
         std::lock_guard<std::mutex> l(_lock);
         auto it = _stream_map.find(id);
         if (it == std::end(_stream_map)) {
-            return nullptr;
+            return std::shared_ptr<StreamLoadContext>(nullptr);
         }
         auto stream = it->second;
         _stream_map.erase(it);
