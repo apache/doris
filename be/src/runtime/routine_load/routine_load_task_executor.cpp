@@ -110,7 +110,7 @@ Status RoutineLoadTaskExecutor::get_kafka_partition_offsets_for_times(
     RETURN_IF_ERROR(_prepare_ctx(request, ctx));
 
     std::shared_ptr<DataConsumer> consumer;
-    RETURN_IF_ERROR(_data_consumer_pool.get_consumer(&ctx, &consumer));
+    RETURN_IF_ERROR(_data_consumer_pool.get_consumer(ctx, &consumer));
 
     Status st = std::static_pointer_cast<KafkaDataConsumer>(consumer)->get_offsets_for_times(
             std::vector<PIntegerPair>(request.offset_times().begin(), request.offset_times().end()),
@@ -130,7 +130,7 @@ Status RoutineLoadTaskExecutor::get_kafka_latest_offsets_for_partitions(
     RETURN_IF_ERROR(_prepare_ctx(request, ctx));
 
     std::shared_ptr<DataConsumer> consumer;
-    RETURN_IF_ERROR(_data_consumer_pool.get_consumer(&ctx, &consumer));
+    RETURN_IF_ERROR(_data_consumer_pool.get_consumer(ctx, &consumer));
 
     Status st =
             std::static_pointer_cast<KafkaDataConsumer>(consumer)
