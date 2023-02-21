@@ -226,8 +226,8 @@ Status RoutineLoadTaskExecutor::submit_task(const TRoutineLoadTask& task) {
                 }))) {
         // failed to submit task, clear and return
         LOG(WARNING) << "failed to submit routine load task: " << ctx->brief();
-        _task_map.erase(ctx->id);
         ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
+        _task_map.erase(ctx->id);
         return Status::InternalError("failed to submit routine load task");
     } else {
         LOG(INFO) << "submit a new routine load task: " << ctx->brief()
