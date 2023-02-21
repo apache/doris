@@ -61,7 +61,7 @@ RoutineLoadTaskExecutor::~RoutineLoadTaskExecutor() {
 // Create a temp StreamLoadContext and set some kafka connection info in it.
 // So that we can use this ctx to get kafka data consumer instance.
 Status RoutineLoadTaskExecutor::_prepare_ctx(const PKafkaMetaProxyRequest& request,
-                                             StreamLoadContext* ctx) {
+                                             std::shared_ptr<StreamLoadContext> ctx) {
     ctx->load_type = TLoadType::ROUTINE_LOAD;
     ctx->load_src_type = TLoadSourceType::KAFKA;
     ctx->label = "NaN";
@@ -87,11 +87,11 @@ Status RoutineLoadTaskExecutor::get_kafka_partition_meta(const PKafkaMetaProxyRe
     CHECK(request.has_kafka_info());
 
     // This context is meaningless, just for unifing the interface
-    StreamLoadContext ctx(_exec_env);
-    RETURN_IF_ERROR(_prepare_ctx(request, &ctx));
+    std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
+    RETURN_IF_ERROR(_prepare_ctx(request, ctx));
 
     std::shared_ptr<DataConsumer> consumer;
-    RETURN_IF_ERROR(_data_consumer_pool.get_consumer(&ctx, &consumer));
+    RETURN_IF_ERROR(_data_consumer_pool.get_consumer(ctx, &consumer));
 
     Status st = std::static_pointer_cast<KafkaDataConsumer>(consumer)->get_partition_meta(
             partition_ids);
@@ -106,8 +106,8 @@ Status RoutineLoadTaskExecutor::get_kafka_partition_offsets_for_times(
     CHECK(request.has_kafka_info());
 
     // This context is meaningless, just for unifing the interface
-    StreamLoadContext ctx(_exec_env);
-    RETURN_IF_ERROR(_prepare_ctx(request, &ctx));
+    std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
+    RETURN_IF_ERROR(_prepare_ctx(request, ctx));
 
     std::shared_ptr<DataConsumer> consumer;
     RETURN_IF_ERROR(_data_consumer_pool.get_consumer(&ctx, &consumer));
@@ -126,8 +126,8 @@ Status RoutineLoadTaskExecutor::get_kafka_latest_offsets_for_partitions(
     CHECK(request.has_kafka_info());
 
     // This context is meaningless, just for unifing the interface
-    StreamLoadContext ctx(_exec_env);
-    RETURN_IF_ERROR(_prepare_ctx(request, &ctx));
+    std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
+    RETURN_IF_ERROR(_prepare_ctx(request, ctx));
 
     std::shared_ptr<DataConsumer> consumer;
     RETURN_IF_ERROR(_data_consumer_pool.get_consumer(&ctx, &consumer));
@@ -251,8 +251,7 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
 
     // create data consumer group
     std::shared_ptr<DataConsumerGroup> consumer_grp;
-    HANDLE_ERROR(consumer_pool->get_consumer_grp(ctx.get(), &consumer_grp),
-                 "failed to get consumers");
+    HANDLE_ERROR(consumer_pool->get_consumer_grp(ctx, &consumer_grp), "failed to get consumers");
 
     // create and set pipe
     std::shared_ptr<io::StreamLoadPipe> pipe;
@@ -361,7 +360,6 @@ void RoutineLoadTaskExecutor::err_handler(std::shared_ptr<StreamLoadContext> ctx
 // for test only
 Status RoutineLoadTaskExecutor::_execute_plan_for_test(std::shared_ptr<StreamLoadContext> ctx) {
     auto mock_consumer = [this, ctx]() {
-        ctx->ref();
         std::shared_ptr<io::StreamLoadPipe> pipe = std::static_pointer_cast<io::StreamLoadPipe>(
                 _exec_env->new_load_stream_mgr()->get(ctx->id)->body_sink);
         std::stringstream ss;

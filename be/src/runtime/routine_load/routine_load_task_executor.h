@@ -70,7 +70,8 @@ private:
     // for test only
     Status _execute_plan_for_test(std::shared_ptr<StreamLoadContext> ctx);
     // create a dummy StreamLoadContext for PKafkaMetaProxyRequest
-    Status _prepare_ctx(const PKafkaMetaProxyRequest& request, StreamLoadContext* ctx);
+    Status _prepare_ctx(const PKafkaMetaProxyRequest& request,
+                        std::shared_ptr<StreamLoadContext> ctx);
 
 private:
     ExecEnv* _exec_env;
