@@ -220,8 +220,7 @@ Status StreamLoadAction::_handle(StreamLoadContext* ctx) {
 int StreamLoadAction::on_header(HttpRequest* req) {
     streaming_load_current_processing->increment(1);
 
-    StreamLoadContext* ctx = new StreamLoadContext(_exec_env);
-    ctx->ref();
+    std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
     req->set_handler_ctx(ctx);
 
     ctx->load_type = TLoadType::MANUL_LOAD;
@@ -265,7 +264,7 @@ int StreamLoadAction::on_header(HttpRequest* req) {
     return 0;
 }
 
-Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ctx) {
+Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<StreamLoadContext> ctx) {
     // auth information
     if (!parse_basic_auth(*http_req, &ctx->auth)) {
         LOG(WARNING) << "parse basic authorization failed." << ctx->brief();
@@ -334,7 +333,7 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, StreamLoadContext* ct
 
     // begin transaction
     int64_t begin_txn_start_time = MonotonicNanos();
-    RETURN_IF_ERROR(_exec_env->stream_load_executor()->begin_txn(ctx));
+    RETURN_IF_ERROR(_exec_env->stream_load_executor()->begin_txn(ctx.get()));
     ctx->begin_txn_cost_nanos = MonotonicNanos() - begin_txn_start_time;
 
     // process put file
@@ -367,8 +366,8 @@ void StreamLoadAction::on_chunk_data(HttpRequest* req) {
     ctx->read_data_cost_nanos += (MonotonicNanos() - start_read_data_time);
 }
 
-void StreamLoadAction::free_handler_ctx(void* param) {
-    StreamLoadContext* ctx = (StreamLoadContext*)param;
+void StreamLoadAction::free_handler_ctx(std::shared_ptr<void> param) {
+    std::shared_ptr<StreamLoadContext> ctx = (std::shared_ptr<StreamLoadContext>)param;
     if (ctx == nullptr) {
         return;
     }
@@ -376,12 +375,12 @@ void StreamLoadAction::free_handler_ctx(void* param) {
     if (ctx->body_sink != nullptr) {
         ctx->body_sink->cancel("sender is gone");
     }
-    if (ctx->unref()) {
-        delete ctx;
-    }
+    // remove stream load context from stream load manager and the resource will be released
+    ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
 }
 
-Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* ctx) {
+Status StreamLoadAction::_process_put(HttpRequest* http_req,
+                                      std::shared_ptr<StreamLoadContext> ctx) {
     // Now we use stream
     ctx->use_streaming = is_format_support_streaming(ctx->format);
 
@@ -399,10 +398,9 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req, StreamLoadContext* 
         auto pipe = std::make_shared<io::StreamLoadPipe>(
                 io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
                 ctx->body_bytes /* total_length */);
-        RETURN_IF_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, pipe));
-
         request.fileType = TFileType::FILE_STREAM;
         ctx->body_sink = pipe;
+        RETURN_IF_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, ctx));
     } else {
         RETURN_IF_ERROR(_data_saved_path(http_req, &request.path));
         auto file_sink = std::make_shared<MessageBodyFileSink>(request.path);
@@ -621,7 +619,8 @@ Status StreamLoadAction::_data_saved_path(HttpRequest* req, std::string* file_pa
     return Status::OK();
 }
 
-void StreamLoadAction::_save_stream_load_record(StreamLoadContext* ctx, const std::string& str) {
+void StreamLoadAction::_save_stream_load_record(std::shared_ptr<StreamLoadContext> ctx,
+                                                const std::string& str) {
     auto stream_load_recorder = StorageEngine::instance()->get_stream_load_recorder();
     if (stream_load_recorder != nullptr) {
         std::string key =

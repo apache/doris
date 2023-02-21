@@ -39,10 +39,9 @@ TLoadTxnRollbackResult k_stream_load_rollback_result;
 Status k_stream_load_plan_status;
 #endif
 
-Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
+Status StreamLoadExecutor::execute_plan_fragment(std::shared_ptr<StreamLoadContext> ctx) {
 // submit this params
 #ifndef BE_TEST
-    ctx->ref();
     ctx->start_write_data_nanos = MonotonicNanos();
     LOG(INFO) << "begin to execute job. label=" << ctx->label << ", txn_id=" << ctx->txn_id
               << ", query_id=" << print_id(ctx->put_result.params.params.query_id);
@@ -110,19 +109,14 @@ Status StreamLoadExecutor::execute_plan_fragment(StreamLoadContext* ctx) {
                 if (ctx->need_commit_self && ctx->body_sink != nullptr) {
                     if (ctx->body_sink->cancelled() || !status->ok()) {
                         ctx->status = *status;
-                        this->rollback_txn(ctx);
+                        this->rollback_txn(ctx.get());
                     } else {
-                        this->commit_txn(ctx);
+                        this->commit_txn(ctx.get());
                     }
-                }
-
-                if (ctx->unref()) {
-                    delete ctx;
                 }
             });
     if (!st.ok()) {
         // no need to check unref's return value
-        ctx->unref();
         return st;
     }
 #else

@@ -37,7 +37,7 @@ public:
     virtual int on_header(HttpRequest* req) { return 0; }
 
     virtual void on_chunk_data(HttpRequest* req) {}
-    virtual void free_handler_ctx(void* handler_ctx) {}
+    virtual void free_handler_ctx(std::shared_ptr<void> handler_ctx) {}
 };
 
 } // namespace doris

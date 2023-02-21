@@ -40,8 +40,7 @@ void StreamLoad2PCAction::handle(HttpRequest* req) {
     Status status = Status::OK();
     std::string status_result;
 
-    StreamLoadContext* ctx = new StreamLoadContext(_exec_env);
-    ctx->ref();
+    std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
     req->set_handler_ctx(ctx);
     ctx->db = req->param(HTTP_DB_KEY);
     std::string req_txn_id = req->header(HTTP_TXN_ID_KEY);
@@ -66,7 +65,7 @@ void StreamLoad2PCAction::handle(HttpRequest* req) {
         status = Status::InternalError("no valid Basic authorization");
     }
 
-    status = _exec_env->stream_load_executor()->operate_txn_2pc(ctx);
+    status = _exec_env->stream_load_executor()->operate_txn_2pc(ctx.get());
 
     if (!status.ok()) {
         status_result = status.to_json();
@@ -93,8 +92,8 @@ std::string StreamLoad2PCAction::get_success_info(const std::string txn_id,
     return s.GetString();
 }
 
-void StreamLoad2PCAction::free_handler_ctx(void* param) {
-    StreamLoadContext* ctx = (StreamLoadContext*)param;
+void StreamLoad2PCAction::free_handler_ctx(std::shared_ptr<void> param) {
+    std::shared_ptr<StreamLoadContext> ctx = (std::shared_ptr<StreamLoadContext>)param;
     if (ctx == nullptr) {
         return;
     }
@@ -102,9 +101,8 @@ void StreamLoad2PCAction::free_handler_ctx(void* param) {
     if (ctx->body_sink != nullptr) {
         ctx->body_sink->cancel("sender is gone");
     }
-    if (ctx->unref()) {
-        delete ctx;
-    }
+    // remove stream load context from stream load manager and the resource will be released
+    ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
 }
 
 } // namespace doris

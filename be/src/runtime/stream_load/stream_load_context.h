@@ -82,7 +82,7 @@ class MessageBodySink;
 
 class StreamLoadContext {
 public:
-    StreamLoadContext(ExecEnv* exec_env) : id(UniqueId::gen_uid()), _exec_env(exec_env), _refs(0) {
+    StreamLoadContext(ExecEnv* exec_env) : id(UniqueId::gen_uid()), _exec_env(exec_env) {
         start_millis = UnixMillis();
     }
 
@@ -91,8 +91,6 @@ public:
             _exec_env->stream_load_executor()->rollback_txn(this);
             need_rollback = false;
         }
-
-        _exec_env->new_load_stream_mgr()->remove(id);
     }
 
     std::string to_json() const;
@@ -108,10 +106,6 @@ public:
     // return the brief info of this context.
     // also print the load source info if detail is set to true
     std::string brief(bool detail = false) const;
-
-    void ref() { _refs.fetch_add(1); }
-    // If unref() returns true, this object should be delete
-    bool unref() { return _refs.fetch_sub(1) == 1; }
 
 public:
     // load type, eg: ROUTINE LOAD/MANUAL LOAD
@@ -211,7 +205,6 @@ public:
 
 private:
     ExecEnv* _exec_env;
-    std::atomic<int> _refs;
 };
 
 } // namespace doris

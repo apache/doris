@@ -21,6 +21,7 @@
 
 #include <boost/algorithm/string.hpp>
 #include <map>
+#include <memory>
 #include <string>
 
 #include "http/http_common.h"
@@ -72,10 +73,12 @@ public:
     void set_handler(HttpHandler* handler) { _handler = handler; }
     HttpHandler* handler() const { return _handler; }
 
-    struct evhttp_request* get_evhttp_request() const { return _ev_req; }
+    struct evhttp_request* get_evhttp_request() const {
+        return _ev_req;
+    }
 
-    void* handler_ctx() const { return _handler_ctx; }
-    void set_handler_ctx(void* ctx) {
+    std::shared_ptr<void> handler_ctx() const { return _handler_ctx; }
+    void set_handler_ctx(std::shared_ptr<void> ctx) {
         DCHECK(_handler != nullptr);
         _handler_ctx = ctx;
     }
@@ -94,7 +97,7 @@ private:
     struct evhttp_request* _ev_req = nullptr;
     HttpHandler* _handler = nullptr;
 
-    void* _handler_ctx = nullptr;
+    std::shared_ptr<void> _handler_ctx;
     std::string _request_body;
 };
 
