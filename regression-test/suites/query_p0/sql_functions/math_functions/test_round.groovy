@@ -22,6 +22,9 @@ suite("test_round") {
     qt_select "SELECT round(10.12345)"
     qt_select "SELECT round(10.12345, 2)"
 
+    def tableTest = "test_query_db.test"
+    qt_truncate "select truncate(k1, 1), truncate(k2, 1), truncate(k3, 1), truncate(k5, 1), truncate(k8, 1), truncate(k9, 1) from ${tableTest} order by 1;"
+
     def tableName = "test_round"
     sql """DROP TABLE IF EXISTS `${tableName}`"""
     sql """ CREATE TABLE `${tableName}` (

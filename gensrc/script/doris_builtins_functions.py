@@ -1799,6 +1799,9 @@ visible_functions = [
     [['ceil', 'dceil'], 'DECIMAL128', ['DECIMAL128', 'INT'],
             '_ZN5doris13MathFunctions11round_up_toEPN9doris_udf'
             '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
+    [['truncate'], 'DOUBLE', ['DOUBLE', 'INT'],
+            '_ZN5doris13MathFunctions8truncateEPN9doris_udf'
+            '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
     [['truncate'], 'DECIMAL32', ['DECIMAL32', 'INT'],
             '_ZN5doris13MathFunctions11round_up_toEPN9doris_udf'
             '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
@@ -1807,9 +1810,6 @@ visible_functions = [
             '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
     [['truncate'], 'DECIMAL128', ['DECIMAL128', 'INT'],
             '_ZN5doris13MathFunctions11round_up_toEPN9doris_udf'
-            '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
-    [['truncate'], 'DOUBLE', ['DOUBLE', 'INT'],
-            '_ZN5doris13MathFunctions8truncateEPN9doris_udf'
             '15FunctionContextERKNS1_9DoubleValERKNS1_6IntValE', '', '', 'vec', ''],
 
     [['ln', 'dlog1'], 'DOUBLE', ['DOUBLE'],
