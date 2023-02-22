@@ -168,7 +168,7 @@ not_check_result = {
 }
 
 win_fn = [
-    'count()',
+    'count(kbint)',
     'avg(kbint)',
     'min(kbint)',
     'max(kbint)',
@@ -185,7 +185,7 @@ win_fn = [
 
 win_clause_Support = [
     {
-        'count()',
+        'count(kbint)'
         'avg(kbint)',
         'max(kbint)',
         'min(kbint)',
@@ -194,7 +194,7 @@ win_clause_Support = [
         'last_value(kint)',
     },
     {
-        'count()',
+        'count(kbint)',
         'avg(kbint)',
         'sum(kbint)',
         'first_value(kint)',

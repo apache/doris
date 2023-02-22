@@ -306,8 +306,8 @@ getCharRange: Callable[[int, int], Callable[[str], bool]] = lambda c1, c2: \
 
 FUNCTION_DIR = '../../../../fe/fe-core/src/main/java/org/apache/doris/nereids/trees/expressions/functions/'
 
-genHeaderAndFooter('agg',
-                   f'{FUNCTION_DIR}agg',
-                   f'../agg_function/agg1.groovy',
-                   f'nereids_agg1_fn',
+genHeaderAndFooter('win',
+                   f'{FUNCTION_DIR}window',
+                   f'../agg_function/win1.groovy',
+                   f'nereids_win1_fn',
                    lambda c: True)
