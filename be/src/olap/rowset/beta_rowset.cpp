@@ -98,9 +98,9 @@ std::string BetaRowset::local_segment_path_segcompacted(const std::string& table
     return fmt::format("{}/{}_{}-{}.dat", tablet_path, rowset_id.to_string(), begin, end);
 }
 
-BetaRowset::BetaRowset(TabletSchemaSPtr schema, const std::string& tablet_path,
-                       RowsetMetaSharedPtr rowset_meta)
-        : Rowset(schema, tablet_path, std::move(rowset_meta)) {
+BetaRowset::BetaRowset(const TabletSchemaSPtr& schema, const std::string& tablet_path,
+                       const RowsetMetaSharedPtr& rowset_meta)
+        : Rowset(schema, tablet_path, rowset_meta) {
     if (_rowset_meta->is_local()) {
         _rowset_dir = tablet_path;
     } else {
