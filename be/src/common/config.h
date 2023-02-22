@@ -373,6 +373,14 @@ CONF_mInt32(migration_task_timeout_secs, "20480");
 
 // Port to start debug webserver on
 CONF_Int32(webserver_port, "8040");
+// Https enable flag
+CONF_Bool(enable_https, "false");
+// Path of certificate
+CONF_String(ssl_certificate_path, "");
+// Path of private key
+CONF_String(ssl_private_key_path, "");
+// format: *.com, xxx.org
+CONF_String(ssl_sni_filters, "");
 // Number of webserver workers
 CONF_Int32(webserver_num_workers, "48");
 // Period to update rate counters and sampling counters in ms.

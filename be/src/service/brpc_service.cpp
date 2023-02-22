@@ -20,6 +20,7 @@
 #include <string.h>
 
 #include "common/logging.h"
+#include "gutil/strings/split.h"
 #include "service/brpc.h"
 #include "service/internal_service.h"
 
@@ -47,6 +48,14 @@ Status BRpcService::start(int port, int num_threads) {
     brpc::ServerOptions options;
     if (num_threads != -1) {
         options.num_threads = num_threads;
+    }
+
+    if (config::enable_https) {
+        auto sslOptions = options.mutable_ssl_options();
+        sslOptions->default_cert.certificate = config::ssl_certificate_path;
+        sslOptions->default_cert.private_key = config::ssl_private_key_path;
+        sslOptions->default_cert.sni_filters =
+                strings::Split(config::ssl_sni_filters, ",", strings::SkipWhitespace());
     }
 
     butil::EndPoint point;
