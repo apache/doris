@@ -299,6 +299,7 @@ Status VerticalMergeIteratorContext::init(const StorageReadOptions& opts) {
 
 Status VerticalMergeIteratorContext::advance() {
     // NOTE: we increase _index_in_block directly to valid one check
+    _is_same = false;
     do {
         _index_in_block++;
         if (LIKELY(_index_in_block < _block->rows())) {
