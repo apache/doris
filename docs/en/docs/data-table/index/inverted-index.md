@@ -40,7 +40,7 @@ From version 2.0.0, Doris implemented inverted index to support fulltext search 
 
 ## Basic Principles
 
-Doris use [CLucene](https://clucene.sourceforge.net/) as its underlying lib for inverted index. CLucene is a high performance and robust implementation of the famous Lucene inverted index library. Doris optimize CLucene to be more simple, fast and suitable for a database.
+Doris use [CLucene](https://clucene.sourceforge.net/) as its underlying lib for inverted index. CLucene is a high performance and robust implementation of the famous Lucene inverted index library written in C++. Doris optimize CLucene to be more simple, fast and suitable for a database.
 
 In the inverted index of Doris, a row in a table corresponds to a doc in CLucene, a column corresponds to a field in doc. So using inverted index, doris can get the rows that meet the filter of SQL WHERE clause, and then get the rows quickly without reading other unrelated rows.
 

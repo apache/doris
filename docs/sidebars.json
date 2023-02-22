@@ -54,10 +54,10 @@
                     "type": "category",
                     "label": "Index",
                     "items": [
+                        "data-table/index/prefix-index",
                         "data-table/index/inverted-index",
                         "data-table/index/bloomfilter",
                         "data-table/index/ngram-bloomfilter-index",
-                        "data-table/index/prefix-index",
                         "data-table/index/bitmap-index"
                     ]
                 }
