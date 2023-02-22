@@ -132,27 +132,4 @@ void Decoder::init(FieldSchema* field_schema, cctz::time_zone* ctz) {
         }
     }
 }
-template <typename DecimalPrimitiveType>
-void Decoder::init_decimal_converter(DataTypePtr& data_type) {
-    if (_decode_params == nullptr || _field_schema == nullptr ||
-        _decode_params->decimal_scale.scale_type != DecimalScaleParams::NOT_INIT) {
-        return;
-    }
-    auto scale = _field_schema->parquet_schema.scale;
-    auto* decimal_type = reinterpret_cast<DataTypeDecimal<Decimal<DecimalPrimitiveType>>*>(
-            const_cast<IDataType*>(remove_nullable(data_type).get()));
-    auto dest_scale = decimal_type->get_scale();
-    if (dest_scale > scale) {
-        _decode_params->decimal_scale.scale_type = DecimalScaleParams::SCALE_UP;
-        _decode_params->decimal_scale.scale_factor =
-                DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(dest_scale - scale);
-    } else if (dest_scale < scale) {
-        _decode_params->decimal_scale.scale_type = DecimalScaleParams::SCALE_DOWN;
-        _decode_params->decimal_scale.scale_factor =
-                DecimalScaleParams::get_scale_factor<DecimalPrimitiveType>(scale - dest_scale);
-    } else {
-        _decode_params->decimal_scale.scale_type = DecimalScaleParams::NO_SCALE;
-        _decode_params->decimal_scale.scale_factor = 1;
-    }
-}
 } // namespace doris::vectorized
