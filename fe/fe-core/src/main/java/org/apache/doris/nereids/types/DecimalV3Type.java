@@ -43,22 +43,24 @@ public class DecimalV3Type extends FractionalType {
     public static final DecimalV3Type DEFAULT_DECIMAL32 = new DecimalV3Type(MAX_DECIMAL32_PRECISION, DEFAULT_SCALE);
     public static final DecimalV3Type DEFAULT_DECIMAL64 = new DecimalV3Type(MAX_DECIMAL64_PRECISION, DEFAULT_SCALE);
     public static final DecimalV3Type DEFAULT_DECIMAL128 = new DecimalV3Type(MAX_DECIMAL128_PRECISION, DEFAULT_SCALE);
-    public static final DecimalV3Type SYSTEM_DEFAULT = DEFAULT_DECIMAL32;
+    public static final DecimalV3Type SYSTEM_DEFAULT = DEFAULT_DECIMAL128;
 
-    private static final DecimalV3Type BOOLEAN_DECIMAL = DEFAULT_DECIMAL32;
-    private static final DecimalV3Type TINYINT_DECIMAL = DEFAULT_DECIMAL32;
-    private static final DecimalV3Type SMALLINT_DECIMAL = DEFAULT_DECIMAL32;
-    private static final DecimalV3Type INTEGER_DECIMAL = DEFAULT_DECIMAL32;
-    private static final DecimalV3Type BIGINT_DECIMAL = DEFAULT_DECIMAL64;
-    private static final DecimalV3Type FLOAT_DECIMAL = DEFAULT_DECIMAL64;
-    private static final DecimalV3Type DOUBLE_DECIMAL = DEFAULT_DECIMAL128;
+    private static final DecimalV3Type BOOLEAN_DECIMAL = new DecimalV3Type(1, 0);
+    private static final DecimalV3Type TINYINT_DECIMAL = new DecimalV3Type(3, 0);
+    private static final DecimalV3Type SMALLINT_DECIMAL = new DecimalV3Type(5, 0);
+    private static final DecimalV3Type INTEGER_DECIMAL = new DecimalV3Type(10, 0);
+    private static final DecimalV3Type BIGINT_DECIMAL = new DecimalV3Type(20, 0);
+    private static final DecimalV3Type LARGEINT_DECIMAL = new DecimalV3Type(38, 0);
+    private static final DecimalV3Type FLOAT_DECIMAL = new DecimalV3Type(14, 7);
+    private static final DecimalV3Type DOUBLE_DECIMAL = new DecimalV3Type(30, 15);
 
     private static final Map<DataType, DecimalV3Type> FOR_TYPE_MAP = ImmutableMap.<DataType, DecimalV3Type>builder()
+            .put(BooleanType.INSTANCE, BOOLEAN_DECIMAL)
             .put(TinyIntType.INSTANCE, TINYINT_DECIMAL)
             .put(SmallIntType.INSTANCE, SMALLINT_DECIMAL)
             .put(IntegerType.INSTANCE, INTEGER_DECIMAL)
             .put(BigIntType.INSTANCE, BIGINT_DECIMAL)
-            .put(LargeIntType.INSTANCE, DEFAULT_DECIMAL128)
+            .put(LargeIntType.INSTANCE, LARGEINT_DECIMAL)
             .put(FloatType.INSTANCE, FLOAT_DECIMAL)
             .put(DoubleType.INSTANCE, DOUBLE_DECIMAL)
             .build();
@@ -72,11 +74,18 @@ public class DecimalV3Type extends FractionalType {
         this.scale = scale;
     }
 
+    /**
+     * create DecimalV3Type with appropriate scale and precision.
+     */
     public static DecimalV3Type forType(DataType dataType) {
         if (FOR_TYPE_MAP.containsKey(dataType)) {
             return FOR_TYPE_MAP.get(dataType);
         }
-        throw new RuntimeException("Could not create decimal for type " + dataType);
+        if (dataType instanceof DecimalV2Type) {
+            return createDecimalV3Type(
+                    ((DecimalV2Type) dataType).getPrecision(), ((DecimalV2Type) dataType).getScale());
+        }
+        return SYSTEM_DEFAULT;
     }
 
     /** createDecimalV3Type. */
