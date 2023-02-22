@@ -406,7 +406,7 @@ public:
     Slice value_slice(Handle* handle) override;
     virtual uint64_t new_id() override;
     virtual int64_t prune() override;
-    virtual int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false) override;
+    int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false) override;
     int64_t mem_consumption() override;
 
 private:
