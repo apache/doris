@@ -154,7 +154,8 @@ public class PartitionCache extends Cache {
             for (InternalService.PCacheValue value : cacheResult.getValuesList()) {
                 range.setCacheFlag(value.getParam().getPartitionKey());
             }
-            ctx.setCacheResult(cacheResult.toBuilder().setAllCount(range.getPartitionSingleList().size()).build());
+            cacheResult = cacheResult.toBuilder().setAllCount(range.getPartitionSingleList().size()).build();
+            ctx.setPartitionCacheResult(cacheResult);
             MetricRepo.COUNTER_CACHE_HIT_PARTITION.increase(1L);
         }
         range.setTooNewByID(ctx.getLastPartition().getId());

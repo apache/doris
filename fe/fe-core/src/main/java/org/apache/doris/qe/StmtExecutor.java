@@ -1152,7 +1152,14 @@ public class StmtExecutor implements ProfileWriter {
 
     private void handleCacheAdapter(CacheAnalyzer cacheAnalyzer, MysqlChannel channel) throws Exception {
         CacheContext cacheContext = ((NereidsPlanner) planner).getStatementContext().getCacheContext();
-        InternalService.PFetchCacheResult cacheResult = cacheContext.getCacheResult();
+        InternalService.PFetchCacheResult cacheResult;
+        if (cacheAnalyzer.getCacheMode() == CacheMode.Sql) {
+            cacheResult = cacheContext.getSqlCacheResult();
+        } else if (cacheAnalyzer.getCacheMode() == CacheMode.Partition) {
+            cacheResult = cacheContext.getPartitionCacheResult();
+        } else {
+            cacheResult = null;
+        }
         Queriable queryStmt = (Queriable) parsedStmt;
         boolean isSendFields = false;
         if (cacheResult != null) {
@@ -1239,8 +1246,10 @@ public class StmtExecutor implements ProfileWriter {
         // Sql and PartitionCache
         if (queryStmt instanceof LogicalPlanAdapter) {
             CacheAnalyzer cacheAnalyzer = new CacheAnalyzer(context, parsedStmt, (NereidsPlanner) planner);
-            handleCacheAdapter(cacheAnalyzer, channel);
-            return;
+            if (cacheAnalyzer.enableCache()) {
+                handleCacheAdapter(cacheAnalyzer, channel);
+                return;
+            }
         } else {
             CacheAnalyzer cacheAnalyzer = new CacheAnalyzer(context, parsedStmt, (OriginalPlanner) planner);
             if (cacheAnalyzer.enableCache() && !isOutfileQuery && queryStmt instanceof SelectStmt) {

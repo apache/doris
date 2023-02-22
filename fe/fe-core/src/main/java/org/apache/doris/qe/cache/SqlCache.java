@@ -84,7 +84,7 @@ public class SqlCache extends Cache {
         CacheProxy proxy = CacheProxy.getCacheProxy(CacheProxy.CacheProxyType.BE);
         InternalService.PFetchCacheResult cacheResult = proxy.fetchCache(request, 10000, status);
         if (status.ok() && cacheResult != null && cacheResult.getStatus() == InternalService.PCacheStatus.CACHE_OK) {
-            ctx.setCacheResult(cacheResult.toBuilder().setAllCount(1).build());
+            ctx.setSqlCacheResult(cacheResult.toBuilder().setAllCount(1).build());
             MetricRepo.COUNTER_CACHE_HIT_SQL.increase(1L);
             ctx.setHitRange(HitRange.Full);
             return true;

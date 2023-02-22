@@ -20,6 +20,7 @@ package org.apache.doris.nereids;
 import org.apache.doris.analysis.DescriptorTable;
 import org.apache.doris.analysis.ExplainOptions;
 import org.apache.doris.analysis.StatementBase;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.NereidsException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.CascadesContext.Lock;
@@ -233,9 +234,11 @@ public class NereidsPlanner extends Planner {
 
     private void cache() {
         ConnectContext connectContext = cascadesContext.getConnectContext();
-        boolean isEnableSqlCache = connectContext.getSessionVariable().isEnableSqlCache();
-        boolean isEnablePartitionCache = connectContext.getSessionVariable().isEnablePartitionCache();
         CacheContext cacheContext = cascadesContext.getStatementContext().getCacheContext();
+        boolean isEnableSqlCache = Config.cache_enable_sql_mode
+                    && connectContext.getSessionVariable().isEnableSqlCache();
+        boolean isEnablePartitionCache = Config.cache_enable_partition_mode
+                    && connectContext.getSessionVariable().isEnablePartitionCache();
         Plan plan = cascadesContext.getMemo().copyOut(false);
         if (!isEnableSqlCache && !isEnablePartitionCache) {
             return;
@@ -246,7 +249,7 @@ public class NereidsPlanner extends Planner {
         if (isEnableSqlCache && cacheContext.isEnableSqlCache()) {
             cacheContext.setCacheKey(plan.treeString());
             SqlCache.getCacheDataForNereids(cacheContext);
-            if (cacheContext.isCacheSuccess()) {
+            if (cacheContext.isSqlCacheSuccess()) {
                 return;
             }
         }

@@ -49,7 +49,9 @@ public class CacheContext {
 
     private Cache.HitRange hitRange;
 
-    private InternalService.PFetchCacheResult cacheResult;
+    private InternalService.PFetchCacheResult sqlCacheResult;
+
+    private InternalService.PFetchCacheResult partitionCacheResult;
 
     private int countNewTable;
 
@@ -78,8 +80,12 @@ public class CacheContext {
         return hitRange;
     }
 
-    public InternalService.PFetchCacheResult getCacheResult() {
-        return cacheResult;
+    public InternalService.PFetchCacheResult getSqlCacheResult() {
+        return sqlCacheResult;
+    }
+
+    public InternalService.PFetchCacheResult getPartitionCacheResult() {
+        return partitionCacheResult;
     }
 
     public void setLastOlapTable(OlapTable lastOlapTable) {
@@ -102,8 +108,12 @@ public class CacheContext {
         this.hitRange = hitRange;
     }
 
-    public void setCacheResult(InternalService.PFetchCacheResult cacheResult) {
-        this.cacheResult = cacheResult;
+    public void setSqlCacheResult(InternalService.PFetchCacheResult cacheResult) {
+        this.sqlCacheResult = cacheResult;
+    }
+
+    public void setPartitionCacheResult(InternalService.PFetchCacheResult cacheResult) {
+        this.partitionCacheResult = cacheResult;
     }
 
     /**
@@ -166,10 +176,6 @@ public class CacheContext {
             && lastOlapTable.getPartitionInfo().getPartitionColumns().size() == 1;
     }
 
-    public boolean isCacheSuccess() {
-        return cacheResult != null && cacheResult.getStatus() == InternalService.PCacheStatus.CACHE_OK;
-    }
-
     public Column getPartColumn() {
         List<Column> columnList = lastOlapTable.getPartitionInfo().getPartitionColumns();
         Preconditions.checkArgument(columnList.size() == 1, "empty column list");
@@ -181,10 +187,12 @@ public class CacheContext {
     }
 
     public boolean isSqlCacheSuccess() {
-        return isEnableSqlCache() && isCacheSuccess();
+        return sqlCacheResult != null
+                && sqlCacheResult.getStatus() == InternalService.PCacheStatus.CACHE_OK;
     }
 
     public boolean isPartitionCacheSuccess() {
-        return isEnablePartitionCache() && isCacheSuccess();
+        return partitionCacheResult != null
+                && partitionCacheResult.getStatus() == InternalService.PCacheStatus.CACHE_OK;
     }
 }

@@ -85,7 +85,6 @@ suite("partition_cache_nereids") {
                        """
     sql " set enable_partition_cache=false "
 
-    sql "set enable_fallback_to_original_planner=true;"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -113,7 +112,6 @@ suite("partition_cache_nereids") {
                     ("2022-06-02",0)
         """
     sql " set enable_partition_cache=true "
-    sql "set enable_fallback_to_original_planner=false;"
 
     qt_partition_cache """
                         select
@@ -143,7 +141,6 @@ suite("partition_cache_nereids") {
                        """
     sql " set enable_partition_cache=false "
 
-    sql "set enable_fallback_to_original_planner=true;"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -171,7 +168,6 @@ suite("partition_cache_nereids") {
                     ("2022-06-02 11:11:11.111",0)
         """
     sql " set enable_partition_cache=true "
-    sql "set enable_fallback_to_original_planner=false;"
 
     qt_partition_cache """
                         select
@@ -201,7 +197,6 @@ suite("partition_cache_nereids") {
                        """
     sql " set enable_partition_cache=false "
 
-    sql "set enable_fallback_to_original_planner=true;"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -229,7 +224,6 @@ suite("partition_cache_nereids") {
                     ("2022-06-02 11:11:11.111",0)
         """
     sql " set enable_partition_cache=true "
-    sql "set enable_fallback_to_original_planner=false;"
 
     qt_partition_cache """
                         select
@@ -259,7 +253,6 @@ suite("partition_cache_nereids") {
                        """
     sql " set enable_partition_cache=false "
 
-    sql "set enable_fallback_to_original_planner=true;"
     sql """ DROP TABLE IF EXISTS ${tableName} """
     sql """
             CREATE TABLE IF NOT EXISTS ${tableName} (
@@ -287,7 +280,6 @@ suite("partition_cache_nereids") {
                     ("2022-06-02 11:11:11.111111",0)
         """
     sql " set enable_partition_cache=true "
-    sql "set enable_fallback_to_original_planner=false;"
 
     qt_partition_cache """
                         select
