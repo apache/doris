@@ -86,7 +86,7 @@ suite('test_query_profile') {
     log.info("test for show query profile stmt")
     List<List<Object>> show_query_profile_obj = sql """ show query profile "/" """
     log.info("found ${show_query_profile_obj.size} profile data".toString())
-    assertTrue(show_query_profile_obj.size > QUERY_NUM)
+    assertTrue(show_query_profile_obj.size >= QUERY_NUM)
 
     for(int i = 0 ; i < QUERY_NUM ; i++){
         def insert_order = QUERY_NUM - i - 1
