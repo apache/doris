@@ -482,7 +482,12 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 }
             } else {
                 if (column.isAllowNull()) {
-                    expr = NullLiteral.create(column.getType());
+                    if (type == Type.LOAD) {
+                        // In load process, the source type is string.
+                        expr = NullLiteral.create(org.apache.doris.catalog.Type.VARCHAR);
+                    } else {
+                        expr = NullLiteral.create(column.getType());
+                    }
                 } else {
                     expr = null;
                 }
