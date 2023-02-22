@@ -172,7 +172,7 @@ Status ColumnMap::filter_by_selector(const uint16_t* sel, size_t sel_size, IColu
 
     auto& array_values = assert_cast<vectorized::ColumnArray&>(*values);
     array_values.filter_by_selector(sel, sel_size, &to->get_values());
-    
+
     return Status::OK();
 }
 

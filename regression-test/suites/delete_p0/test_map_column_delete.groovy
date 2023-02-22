@@ -1,4 +1,3 @@
-2023-02-22 13:20:33.367 INFO [main] (RegressionTest.groovy:74) - Test finished
 // Licensed to the Apache Software Foundation (ASF) under one
 // or more contributor license agreements.  See the NOTICE file
 // distributed with this work for additional information
