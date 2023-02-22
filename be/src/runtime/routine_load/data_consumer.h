@@ -124,7 +124,7 @@ public:
     Status init(std::shared_ptr<StreamLoadContext> ctx) override;
     // TODO(cmy): currently do not implement single consumer start method, using group_consume
     Status consume(std::shared_ptr<StreamLoadContext> ctx) override { return Status::OK(); }
-    virtual Status cancel(std::shared_ptr<StreamLoadContext> ctx) override;
+    Status cancel(std::shared_ptr<StreamLoadContext> ctx) override;
     // reassign partition topics
     virtual Status reset() override;
     virtual bool match(std::shared_ptr<StreamLoadContext> ctx) override;
