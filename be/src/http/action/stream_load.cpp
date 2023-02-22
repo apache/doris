@@ -402,6 +402,7 @@ Status StreamLoadAction::_process_put(HttpRequest* http_req,
                 ctx->body_bytes /* total_length */);
         request.fileType = TFileType::FILE_STREAM;
         ctx->body_sink = pipe;
+        ctx->pipe = pipe;
         RETURN_IF_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, ctx));
     } else {
         RETURN_IF_ERROR(_data_saved_path(http_req, &request.path));

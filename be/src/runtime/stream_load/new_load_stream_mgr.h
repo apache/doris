@@ -51,9 +51,7 @@ public:
         if (it == std::end(_stream_map)) {
             return std::shared_ptr<StreamLoadContext>(nullptr);
         }
-        auto stream = it->second;
-        _stream_map.erase(it);
-        return stream;
+        return it->second;
     }
 
     void remove(const UniqueId& id) {
