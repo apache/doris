@@ -385,7 +385,7 @@ public:
         return true;
     }
 
-    uint32_t daynr() const { return calc_daynr(_year, _month, _day); }
+    int32_t daynr() const { return calc_daynr(_year, _month, _day); }
 
     int year() const { return _year; }
     int month() const { return _month; }
@@ -835,7 +835,7 @@ public:
         return true;
     }
 
-    uint32_t daynr() const {
+    int32_t daynr() const {
         return calc_daynr(date_v2_value_.year_, date_v2_value_.month_, date_v2_value_.day_);
     }
 

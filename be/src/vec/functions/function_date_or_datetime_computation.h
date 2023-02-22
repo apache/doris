@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include "common/logging.h"
 #include "fmt/format.h"
 #include "runtime/datetime_value.h"
