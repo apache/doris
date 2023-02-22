@@ -175,7 +175,7 @@ public:
     // value will be passed to "deleter".
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
                            void (*deleter)(const CacheKey& key, void* value),
-                           CachePriority priority = CachePriority::NORMAL) = 0;
+                           CachePriority priority = CachePriority::NORMAL, size_t bytes = -1) = 0;
 
     // If the cache has no mapping for "key", returns nullptr.
     //
@@ -240,12 +240,14 @@ typedef struct LRUHandle {
     size_t charge;
     size_t key_length;
     size_t total_size; // including key length
+    size_t bytes;      // Used by LRUCacheType::NUMBER, LRUCacheType::SIZE equal to total_size.
     bool in_cache;     // Whether entry is in the cache.
     uint32_t refs;
     uint32_t hash; // Hash of key(); used for fast sharding and comparisons
     CachePriority priority = CachePriority::NORMAL;
     MemTrackerLimiter* mem_tracker;
     char key_data[1]; // Beginning of key
+    LRUCacheType type;
 
     CacheKey key() const {
         // For cheaper lookups, we allow a temporary Handle object
@@ -259,7 +261,7 @@ typedef struct LRUHandle {
 
     void free() {
         (*deleter)(key(), value);
-        THREAD_MEM_TRACKER_TRANSFER_FROM(total_size, mem_tracker);
+        THREAD_MEM_TRACKER_TRANSFER_FROM(bytes, mem_tracker);
         ::free(this);
     }
 
@@ -332,7 +334,7 @@ public:
     Cache::Handle* insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
                           void (*deleter)(const CacheKey& key, void* value),
                           MemTrackerLimiter* tracker,
-                          CachePriority priority = CachePriority::NORMAL);
+                          CachePriority priority = CachePriority::NORMAL, size_t bytes = -1);
     Cache::Handle* lookup(const CacheKey& key, uint32_t hash);
     void release(Cache::Handle* handle);
     void erase(const CacheKey& key, uint32_t hash);
@@ -398,7 +400,8 @@ public:
     virtual ~ShardedLRUCache();
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
                            void (*deleter)(const CacheKey& key, void* value),
-                           CachePriority priority = CachePriority::NORMAL) override;
+                           CachePriority priority = CachePriority::NORMAL,
+                           size_t bytes = -1) override;
     virtual Handle* lookup(const CacheKey& key) override;
     virtual void release(Handle* handle) override;
     virtual void erase(const CacheKey& key) override;
