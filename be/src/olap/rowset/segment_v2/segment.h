@@ -111,6 +111,8 @@ public:
         return _footer.primary_key_index_meta().max_key();
     };
 
+    int64_t meta_mem_usage() const { return _meta_mem_usage; }
+
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);
     Segment(uint32_t segment_id, RowsetId rowset_id, TabletSchemaSPtr tablet_schema);
