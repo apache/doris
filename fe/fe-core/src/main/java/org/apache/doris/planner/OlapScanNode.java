@@ -469,13 +469,7 @@ public class OlapScanNode extends ScanNode {
     }
 
     public boolean isDupKeysOrMergeOnWrite() {
-        if (olapTable.getKeysType() == KeysType.DUP_KEYS
-                || (olapTable.getKeysType() == KeysType.UNIQUE_KEYS
-                        && olapTable.getEnableUniqueKeyMergeOnWrite())) {
-            return true;
-        } else {
-            return false;
-        }
+        return olapTable.isDupKeysOrMergeOnWrite();
     }
 
     @Override
