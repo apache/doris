@@ -41,7 +41,7 @@ struct AggregateFunctionCollectSetData {
     using SelfType = AggregateFunctionCollectSetData;
     using Set = HashSetWithStackMemory<ElementNativeType, DefaultHash<ElementNativeType>, 4>;
     Set data_set;
-    UInt64 max_size;
+    Int64 max_size = -1;
 
     size_t size() const { return data_set.size(); }
 
@@ -51,14 +51,14 @@ struct AggregateFunctionCollectSetData {
 
     void merge(const SelfType& rhs) {
         if constexpr (HasLimit::value) {
-            data_set.merge(rhs.data_set);
-        } else {
             for (auto& rhs_elem : rhs.data_set) {
                 if (size() >= max_size) {
                     return;
                 }
                 data_set.insert(rhs_elem.get_value());
             }
+        } else {
+            data_set.merge(rhs.data_set);
         }
     }
 
@@ -69,7 +69,7 @@ struct AggregateFunctionCollectSetData {
     void insert_result_into(IColumn& to) const {
         auto& vec = assert_cast<ColVecType&>(to).get_data();
         vec.reserve(size());
-        for (auto item : data_set) {
+        for (const auto& item : data_set) {
             vec.push_back(item.key);
         }
     }
@@ -84,7 +84,7 @@ struct AggregateFunctionCollectSetData<StringRef, HasLimit> {
     using SelfType = AggregateFunctionCollectSetData<ElementType, HasLimit>;
     using Set = HashSetWithSavedHashWithStackMemory<ElementType, DefaultHash<ElementType>, 4>;
     Set data_set;
-    UInt64 max_size;
+    Int64 max_size = -1;
 
     size_t size() const { return data_set.size(); }
 
@@ -143,7 +143,7 @@ struct AggregateFunctionCollectListData {
     using ColVecType = ColumnVectorOrDecimal<ElementType>;
     using SelfType = AggregateFunctionCollectListData<ElementType, HasLimit>;
     PaddedPODArray<ElementType> data;
-    UInt64 max_size;
+    Int64 max_size = -1;
 
     size_t size() const { return data.size(); }
 
@@ -154,14 +154,14 @@ struct AggregateFunctionCollectListData {
 
     void merge(const SelfType& rhs) {
         if constexpr (HasLimit::value) {
-            data.insert(rhs.data.begin(), rhs.data.end());
-        } else {
             for (auto& rhs_elem : rhs.data) {
                 if (size() >= max_size) {
                     return;
                 }
                 data.push_back(rhs_elem);
             }
+        } else {
+            data.insert(rhs.data.begin(), rhs.data.end());
         }
     }
 
@@ -192,7 +192,7 @@ struct AggregateFunctionCollectListData<StringRef, HasLimit> {
     using ElementType = StringRef;
     using ColVecType = ColumnString;
     MutableColumnPtr data;
-    UInt64 max_size;
+    Int64 max_size = -1;
 
     AggregateFunctionCollectListData() { data = ColVecType::create(); }
 
@@ -202,10 +202,10 @@ struct AggregateFunctionCollectListData<StringRef, HasLimit> {
 
     void merge(const AggregateFunctionCollectListData& rhs) {
         if constexpr (HasLimit::value) {
-            data->insert_range_from(*rhs.data, 0, rhs.size());
-        } else {
             data->insert_range_from(*rhs.data, 0,
                                     std::min(static_cast<size_t>(max_size - size()), rhs.size()));
+        } else {
+            data->insert_range_from(*rhs.data, 0, rhs.size());
         }
     }
 
@@ -249,10 +249,10 @@ class AggregateFunctionCollect
     static constexpr bool ENABLE_ARENA = std::is_same_v<Data, GenericType>;
 
 public:
-    AggregateFunctionCollect(const DataTypePtr& argument_type, const Array& parameters_,
+    AggregateFunctionCollect(const DataTypePtr& argument_type,
                              UInt64 max_size_ = std::numeric_limits<UInt64>::max())
             : IAggregateFunctionDataHelper<Data, AggregateFunctionCollect<Data, HasLimit>>(
-                      {argument_type}, parameters_),
+                      {argument_type}),
               return_type(argument_type) {}
 
     std::string get_name() const override {
@@ -275,8 +275,10 @@ public:
              Arena* arena) const override {
         auto& data = this->data(place);
         if constexpr (HasLimit::value) {
-            data.max_size =
-                    (UInt64) static_cast<const ColumnInt32*>(columns[1])->get_element(row_num);
+            if (data.max_size == -1) {
+                data.max_size =
+                        (UInt64) static_cast<const ColumnInt32*>(columns[1])->get_element(row_num);
+            }
             if (data.size() >= data.max_size) {
                 return;
             }

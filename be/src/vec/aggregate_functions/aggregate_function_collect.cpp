@@ -28,63 +28,43 @@ namespace doris::vectorized {
     M(Decimal128)            \
     M(Decimal128I)
 
-template <typename T, typename HasLimit, typename... TArgs>
-AggregateFunctionPtr do_create_agg_function_collect(bool distinct, const DataTypePtr& argument_type,
-                                                    TArgs... args) {
+template <typename T, typename HasLimit>
+AggregateFunctionPtr do_create_agg_function_collect(bool distinct,
+                                                    const DataTypePtr& argument_type) {
     if (distinct) {
         return AggregateFunctionPtr(
                 new AggregateFunctionCollect<AggregateFunctionCollectSetData<T, HasLimit>,
-                                             HasLimit>(argument_type,
-                                                       std::forward<TArgs>(args)...));
+                                             HasLimit>(argument_type));
     } else {
         return AggregateFunctionPtr(
                 new AggregateFunctionCollect<AggregateFunctionCollectListData<T, HasLimit>,
-                                             HasLimit>(argument_type,
-                                                       std::forward<TArgs>(args)...));
+                                             HasLimit>(argument_type));
     }
 }
 
-<<<<<<< HEAD
-AggregateFunctionPtr create_aggregate_function_collect(const std::string& name,
-                                                       const DataTypes& argument_types,
-                                                       const bool result_is_nullable) {
-    if (argument_types.size() != 1) {
-        LOG(WARNING) << fmt::format("Illegal number {} of argument for aggregate function {}",
-                                    argument_types.size(), name);
-        return nullptr;
-    }
-
-=======
-template <typename HasLimit, typename... TArgs>
+template <typename HasLimit>
 AggregateFunctionPtr create_aggregate_function_collect_impl(const std::string& name,
-                                                            const DataTypePtr& argument_type,
-                                                            TArgs... args) {
->>>>>>> 87b550b47... enhanced aggregate collect
+                                                            const DataTypePtr& argument_type) {
     bool distinct = false;
     if (name == "collect_set") {
         distinct = true;
     }
 
     WhichDataType which(argument_type);
-#define DISPATCH(TYPE)                                                                 \
-    if (which.idx == TypeIndex::TYPE)                                                  \
-        return do_create_agg_function_collect<TYPE, HasLimit>(distinct, argument_type, \
-                                                              std::forward<TArgs>(args)...);
+#define DISPATCH(TYPE)                \
+    if (which.idx == TypeIndex::TYPE) \
+        return do_create_agg_function_collect<TYPE, HasLimit>(distinct, argument_type);
     FOR_NUMERIC_TYPES(DISPATCH)
     FOR_DECIMAL_TYPES(DISPATCH)
 #undef DISPATCH
     if (which.is_date_or_datetime()) {
-        return do_create_agg_function_collect<Int64, HasLimit>(distinct, argument_type,
-                                                               std::forward<TArgs>(args)...);
+        return do_create_agg_function_collect<Int64, HasLimit>(distinct, argument_type);
     } else if (which.is_date_v2()) {
-        return do_create_agg_function_collect<UInt32, HasLimit>(distinct, argument_type,
-                                                                std::forward<TArgs>(args)...);
+        return do_create_agg_function_collect<UInt32, HasLimit>(distinct, argument_type);
     } else if (which.is_date_time_v2()) {
-        return do_create_agg_function_collect<UInt64, HasLimit>(distinct, argument_type,
-                                                                std::forward<TArgs>(args)...);
+        return do_create_agg_function_collect<UInt64, HasLimit>(distinct, argument_type);
     } else if (which.is_string()) {
-        return do_create_agg_function_collect<StringRef, HasLimit>(distinct, argument_type,
-                                                                   std::forward<TArgs>(args)...);
+        return do_create_agg_function_collect<StringRef, HasLimit>(distinct, argument_type);
     }
 
     LOG(WARNING) << fmt::format("unsupported input type {} for aggregate function {}",
@@ -94,15 +74,12 @@ AggregateFunctionPtr create_aggregate_function_collect_impl(const std::string& n
 
 AggregateFunctionPtr create_aggregate_function_collect(const std::string& name,
                                                        const DataTypes& argument_types,
-                                                       const Array& parameters,
                                                        const bool result_is_nullable) {
     if (argument_types.size() == 1) {
-        return create_aggregate_function_collect_impl<std::false_type>(name, argument_types[0],
-                                                                       parameters);
+        return create_aggregate_function_collect_impl<std::false_type>(name, argument_types[0]);
     }
     if (argument_types.size() == 2) {
-        return create_aggregate_function_collect_impl<std::true_type>(name, argument_types[0],
-                                                                      parameters);
+        return create_aggregate_function_collect_impl<std::true_type>(name, argument_types[0]);
     }
     LOG(WARNING) << fmt::format("number of parameters for aggregate function {}, should be 1 or 2",
                                 name);
