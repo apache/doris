@@ -56,35 +56,46 @@ namespace doris::vectorized {
 /** Create an aggregate function with a numeric type in the template parameter, depending on the type of the argument.
   */
 template <template <typename> class AggregateFunctionTemplate, typename Type>
-struct BuilerDirect {
+struct BuilderDirect {
     using T = AggregateFunctionTemplate<Type>;
 };
 template <template <typename> class AggregateFunctionTemplate, template <typename> class Data,
           typename Type>
-struct BuilerData {
+struct BuilderData {
     using T = AggregateFunctionTemplate<Data<Type>>;
+};
+template <template <typename> class AggregateFunctionTemplate, template <typename> class Data,
+          template <typename> class Impl, typename Type>
+struct BuilderDataImpl {
+    using T = AggregateFunctionTemplate<Data<Impl<Type>>>;
 };
 template <template <typename, typename> class AggregateFunctionTemplate,
           template <typename> class Data, typename Type>
-struct BuilerDirectAndData {
+struct BuilderDirectAndData {
     using T = AggregateFunctionTemplate<Type, Data<Type>>;
 };
 
 template <template <typename> class AggregateFunctionTemplate>
 struct CurryDirect {
     template <typename Type>
-    using Builder = BuilerDirect<AggregateFunctionTemplate, Type>;
+    using Builder = BuilderDirect<AggregateFunctionTemplate, Type>;
 };
 template <template <typename> class AggregateFunctionTemplate, template <typename> class Data>
 struct CurryData {
     template <typename Type>
-    using Builder = BuilerData<AggregateFunctionTemplate, Data, Type>;
+    using Builder = BuilderData<AggregateFunctionTemplate, Data, Type>;
+};
+template <template <typename> class AggregateFunctionTemplate, template <typename> class Data,
+          template <typename> class Impl>
+struct CurryDataImpl {
+    template <typename Type>
+    using Builder = BuilderDataImpl<AggregateFunctionTemplate, Data, Impl, Type>;
 };
 template <template <typename, typename> class AggregateFunctionTemplate,
           template <typename> class Data>
-struct CurryBuilerDirectAndData {
+struct CurryDirectAndData {
     template <typename Type>
-    using Builder = BuilerDirectAndData<AggregateFunctionTemplate, Data, Type>;
+    using Builder = BuilderDirectAndData<AggregateFunctionTemplate, Data, Type>;
 };
 
 template <bool allow_integer, bool allow_float, bool allow_decimal, int define_index = 0>
@@ -96,7 +107,7 @@ struct creator_with_type_base {
 #define DISPATCH(TYPE)                                                                            \
     if (which.idx == TypeIndex::TYPE) {                                                           \
         using T = typename Class::template Builder<TYPE>::T;                                      \
-        if (argument_types[define_index]->is_nullable()) {                                        \
+        if (have_nullable(argument_types)) {                                                      \
             IAggregateFunction* result = nullptr;                                                 \
             if (argument_types.size() > 1) {                                                      \
                 std::visit(                                                                       \
@@ -149,10 +160,17 @@ struct creator_with_type_base {
                 std::forward<TArgs>(args)...);
     }
 
+    template <template <typename> class AggregateFunctionTemplate, template <typename> class Data,
+              template <typename> class Impl, typename... TArgs>
+    static IAggregateFunction* create(TArgs&&... args) {
+        return create_base<CurryDataImpl<AggregateFunctionTemplate, Data, Impl>>(
+                std::forward<TArgs>(args)...);
+    }
+
     template <template <typename, typename> class AggregateFunctionTemplate,
               template <typename> class Data, typename... TArgs>
     static IAggregateFunction* create(TArgs&&... args) {
-        return create_base<CurryBuilerDirectAndData<AggregateFunctionTemplate, Data>>(
+        return create_base<CurryDirectAndData<AggregateFunctionTemplate, Data>>(
                 std::forward<TArgs>(args)...);
     }
 };
@@ -162,12 +180,11 @@ using creator_with_numeric_type = creator_with_type_base<true, true, false>;
 using creator_with_decimal_type = creator_with_type_base<false, false, true>;
 using creator_with_type = creator_with_type_base<true, true, true>;
 
-template <int define_index = 0>
-struct creator_with_no_type {
+struct creator_without_type {
     template <typename AggregateFunctionTemplate, typename... TArgs>
     static IAggregateFunction* create(const bool result_is_nullable,
                                       const DataTypes& argument_types, TArgs&&... args) {
-        if (argument_types[define_index]->is_nullable()) {
+        if (have_nullable(argument_types)) {
             IAggregateFunction* result = nullptr;
             if (argument_types.size() > 1) {
                 std::visit(

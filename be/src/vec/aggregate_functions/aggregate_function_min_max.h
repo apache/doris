@@ -485,19 +485,16 @@ struct AggregateFunctionAnyData : Data {
     static const char* name() { return "any"; }
 };
 
-template <typename Data, bool AllocatesMemoryInArena>
+template <typename Data>
 class AggregateFunctionsSingleValue final
-        : public IAggregateFunctionDataHelper<
-                  Data, AggregateFunctionsSingleValue<Data, AllocatesMemoryInArena>> {
+        : public IAggregateFunctionDataHelper<Data, AggregateFunctionsSingleValue<Data>> {
 private:
     DataTypePtr& type;
-    using Base = IAggregateFunctionDataHelper<
-            Data, AggregateFunctionsSingleValue<Data, AllocatesMemoryInArena>>;
+    using Base = IAggregateFunctionDataHelper<Data, AggregateFunctionsSingleValue<Data>>;
 
 public:
-    AggregateFunctionsSingleValue(const DataTypePtr& type_)
-            : IAggregateFunctionDataHelper<
-                      Data, AggregateFunctionsSingleValue<Data, AllocatesMemoryInArena>>({type_}),
+    AggregateFunctionsSingleValue(const DataTypes& arguments)
+            : IAggregateFunctionDataHelper<Data, AggregateFunctionsSingleValue<Data>>(arguments),
               type(this->argument_types[0]) {
         if (StringRef(Data::name()) == StringRef("min") ||
             StringRef(Data::name()) == StringRef("max")) {
@@ -534,8 +531,6 @@ public:
                      Arena*) const override {
         this->data(place).read(buf);
     }
-
-    bool allocates_memory_in_arena() const override { return AllocatesMemoryInArena; }
 
     void insert_result_into(ConstAggregateDataPtr __restrict place, IColumn& to) const override {
         this->data(place).insert_result_into(to);
