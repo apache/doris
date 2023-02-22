@@ -185,7 +185,7 @@ win_fn = [
 
 win_clause_Support = [
     {
-        'count(kbint)'
+        'count(kbint)',
         'avg(kbint)',
         'max(kbint)',
         'min(kbint)',
