@@ -41,7 +41,7 @@ class TRoutineLoadTask;
 // to FE finally.
 class RoutineLoadTaskExecutor {
 public:
-    using ExecFinishCallback = std::function<void (std::shared_ptr<StreamLoadContext>)>;
+    using ExecFinishCallback = std::function<void(std::shared_ptr<StreamLoadContext>)>;
 
     RoutineLoadTaskExecutor(ExecEnv* exec_env);
 

@@ -110,7 +110,7 @@ public:
 class KafkaDataConsumer : public DataConsumer {
 public:
     KafkaDataConsumer(std::shared_ptr<StreamLoadContext> ctx)
-            : , _brokers(ctx->kafka_info->brokers), _topic(ctx->kafka_info->topic) {}
+            : _brokers(ctx->kafka_info->brokers), _topic(ctx->kafka_info->topic) {}
 
     virtual ~KafkaDataConsumer() {
         VLOG_NOTICE << "deconstruct consumer";
