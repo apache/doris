@@ -1206,13 +1206,19 @@ public class Analyzer {
         }
     }
 
-    public void registerMigrateFailedConjuncts(InlineViewRef ref, Expr e) {
+    public void registerMigrateFailedConjuncts(InlineViewRef ref, Expr e) throws AnalysisException {
+        markConstantConjunct(e, false);
         Set<Expr> exprSet = globalState.migrateFailedConjuncts.computeIfAbsent(ref, (k) -> new HashSet<>());
         exprSet.add(e);
     }
 
     public Set<Expr> findMigrateFailedConjuncts(InlineViewRef inlineViewRef) {
         return globalState.migrateFailedConjuncts.get(inlineViewRef);
+    }
+
+    public Set<Expr> getAllMigrateFailedConjuncts() {
+        return globalState.migrateFailedConjuncts.values()
+                .stream().flatMap(Collection::stream).collect(Collectors.toSet());
     }
 
     /**
@@ -1371,7 +1377,8 @@ public class Analyzer {
                     && !e.isAuxExpr()
                     && !globalState.assignedConjuncts.contains(e.getId())
                     && ((inclOjConjuncts && !e.isConstant())
-                    || !globalState.ojClauseByConjunct.containsKey(e.getId()))) {
+                    || (!globalState.ojClauseByConjunct.containsKey(e.getId())
+                    && !globalState.sjClauseByConjunct.containsKey(e.getId())))) {
                 result.add(e);
             }
         }
@@ -2414,7 +2421,7 @@ public class Analyzer {
 
         if (tids.size() > 1 || globalState.ojClauseByConjunct.containsKey(e.getId())
                 || globalState.outerJoinedTupleIds.containsKey(e.getId()) && whereClauseConjuncts.contains(e.getId())
-                ||  globalState.conjunctsByOjClause.containsKey(e.getId())) {
+                || globalState.conjunctsByOjClause.containsKey(e.getId())) {
             return true;
         }
 

@@ -576,4 +576,23 @@ public class SlotRef extends Expr {
         }
         return !CreateMaterializedViewStmt.isMVColumn(name) && exprs.isEmpty();
     }
+
+    @Override
+    public Expr getResultValue() throws AnalysisException {
+        if (!isConstant() || desc == null) {
+            return this;
+        }
+        List<Expr> exprs = desc.getSourceExprs();
+        if (CollectionUtils.isEmpty(exprs)) {
+            return this;
+        }
+        Expr expr = exprs.get(0);
+        if (expr instanceof SlotRef) {
+            return expr.getResultValue();
+        }
+        if (expr.isConstant()) {
+            return expr;
+        }
+        return this;
+    }
 }
