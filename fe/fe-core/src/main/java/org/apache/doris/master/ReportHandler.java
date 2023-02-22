@@ -921,6 +921,12 @@ public class ReportHandler extends Daemon {
                 throw new MetaNotFoundException("tablet[" + tabletId + "] does not exist");
             }
 
+            // check replica id
+            long replicaId = backendTabletInfo.getReplicaId();
+            if (replicaId <= 0) {
+                throw new MetaNotFoundException("replica id is invalid, tablet id: " + tabletId);
+            }
+
             long visibleVersion = partition.getVisibleVersion();
 
             // check replica version
@@ -964,8 +970,7 @@ public class ReportHandler extends Daemon {
                 } else if (version < partition.getCommittedVersion()) {
                     lastFailedVersion = partition.getCommittedVersion();
                 }
-
-                long replicaId = Env.getCurrentEnv().getNextId();
+                // use replicaId reported by BE to maintain replica meta consistent between FE and BE
                 Replica replica = new Replica(replicaId, backendId, version, schemaHash,
                         dataSize, remoteDataSize, rowCount, ReplicaState.NORMAL,
                         lastFailedVersion, version);
