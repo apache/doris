@@ -201,11 +201,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 return;
             }
             Tablet tablet;
+            int replicaNum;
             try {
                 OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId())
                         .getTable(tabletMeta.getTableId())
                         .get();
                 table.readLock();
+                replicaNum = table.getPartitionInfo().getReplicaAllocation(tabletMeta.getPartitionId())
+                        .getTotalReplicaNum();
                 try {
                     tablet = table.getPartition(tabletMeta.getPartitionId()).getIndex(tabletMeta.getIndexId())
                             .getTablet(info.tablet_id);
@@ -225,7 +228,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             // check cooldownMetaId of all replicas are the same
             List<Replica> replicas = Env.getCurrentEnv().getTabletInvertedIndex().getReplicas(info.tablet_id);
+            // FIXME(plat1ko): We only delete remote files when tablet is under a stable state: enough replicas and
+            //  all replicas are alive. Are these conditions really sufficient or necessary?
+            if (replicas.size() < replicaNum) {
+                LOG.info("num replicas are not enough, tablet={}", info.tablet_id);
+                return;
+            }
             for (Replica replica : replicas) {
+                if (!replica.isAlive()) {
+                    LOG.info("replica is not alive, tablet={}, replica={}", info.tablet_id, replica.getId());
+                    return;
+                }
                 if (!info.cooldown_meta_id.equals(replica.getCooldownMetaId())) {
                     LOG.info("cooldown meta id are not same, tablet={}", info.tablet_id);
                     return;

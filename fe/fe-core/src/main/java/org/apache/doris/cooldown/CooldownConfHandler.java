@@ -72,8 +72,9 @@ public class CooldownConfHandler extends MasterDaemon {
 
         TabletInvertedIndex invertedIndex = Env.getCurrentInvertedIndex();
         for (CooldownConf conf : confToUpdate) {
-            // choose cooldown replica
-            List<Replica> replicas = invertedIndex.getReplicas(conf.getTabletId());
+            // choose cooldown replica from alive replicas
+            List<Replica> replicas = invertedIndex.getReplicas(conf.getTabletId()).stream().filter(r -> r.isAlive())
+                    .collect(Collectors.toList());
             if (replicas.isEmpty()) {
                 continue;
             }
