@@ -60,9 +60,6 @@ illustrate:
 
   - `select_expr`: All columns in the schema of the materialized view.
     - Only supports single column without expression calculation, aggregate column.
-    - The aggregate function currently only supports three types of SUM, MIN, and MAX, and the parameter of the aggregate function can only be a single column without expression calculation.
-    - Contains at least one single column.
-    - All involved columns can only appear once.
   - `base view name`: The original table name of the materialized view, required.
     - Must be a single table and not a subquery
   - `group by`: The grouping column of the materialized view, optional.
