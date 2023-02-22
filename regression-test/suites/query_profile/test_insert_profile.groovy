@@ -61,6 +61,8 @@ suite('test_insert_profile') {
         sql """ INSERT INTO ${table} values (${id_data[i]}, "${name_data[i]}") """
     }
     
+    log.info("test HTTP API interface for insert profile")
+    
     def url = '/rest/v1/query_profile/'
     def query_list_result = http_get(url)
 
@@ -69,7 +71,7 @@ suite('test_insert_profile') {
     assertEquals(obj.code, SUCCESS_CODE)
 
     for(int i = 0 ; i < len ; i++){
-        def insert_order = len - i - 1;
+        def insert_order = len - i - 1
         def stmt_query_info = obj.data.rows[i]
         
         assertNotNull(stmt_query_info["Query ID"])

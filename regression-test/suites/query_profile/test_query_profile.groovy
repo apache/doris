@@ -78,6 +78,26 @@ suite('test_query_profile') {
         sql """ SELECT * FROM ${table} WHERE cost ${ops[i]} ${nums[i]} """
     }
     
+    
+    /*  test for `show query profile` stmt
+        query profile header
+        JobID|QueryId|User|DefaultDb|SQL|QueryType|StartTime|EndTime|TotalTime|QueryState */
+
+    log.info("test for show query profile stmt")
+    List<List<Object>> show_query_profile_obj = sql """ show query profile "/" """
+    log.info("found ${show_query_profile_obj.size} profile data".toString())
+    assertTrue(show_query_profile_obj.size > QUERY_NUM)
+
+    for(int i = 0 ; i < QUERY_NUM ; i++){
+        def insert_order = QUERY_NUM - i - 1
+        def current_obj = show_query_profile_obj[i]
+        def stmt_query_info = current_obj[4]
+        assertNotEquals(current_obj[1].toString(), "N/A".toString())
+        assertEquals(stmt_query_info.toString(),  """ SELECT * FROM ${table} WHERE cost ${ops[insert_order]} ${nums[insert_order]} """.toString())
+    }
+
+    //test for Http API interface
+    log.info("test HTTP API interface for query profile")
     def url = '/rest/v1/query_profile/'
     def query_list_result = http_get(url)
 
@@ -86,7 +106,7 @@ suite('test_query_profile') {
     assertEquals(obj.code, SUCCESS_CODE)
 
     for(int i = 0 ; i < QUERY_NUM ; i++){
-        def insert_order = QUERY_NUM - i - 1;
+        def insert_order = QUERY_NUM - i - 1
         def stmt_query_info = obj.data.rows[i]
         
         assertNotNull(stmt_query_info["Query ID"])
