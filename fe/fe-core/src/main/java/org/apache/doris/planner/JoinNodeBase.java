@@ -586,4 +586,35 @@ public abstract class JoinNodeBase extends PlanNode {
     public void setvSrcToOutputSMap(List<Expr> lhs) {
         this.vSrcToOutputSMap = new ExprSubstitutionMap(lhs, Collections.emptyList());
     }
+
+    public void setOutputSmap(ExprSubstitutionMap smap, Analyzer analyzer) {
+        outputSmap = smap;
+        List<Expr> newRhs = Lists.newArrayList();
+        boolean bSmapChanged = false;
+        for (Expr expr : smap.getRhs()) {
+            if (expr instanceof SlotRef) {
+                newRhs.add(expr);
+            } else {
+                // we need do project in the join node
+                // add a new slot for projection result and add the project expr to vSrcToOutputSMap
+                SlotDescriptor slotDesc = analyzer.addSlotDescriptor(vOutputTupleDesc);
+                slotDesc.initFromExpr(expr);
+                slotDesc.setIsMaterialized(true);
+                vSrcToOutputSMap.getLhs().add(expr);
+                SlotRef slotRef = new SlotRef(slotDesc);
+                vSrcToOutputSMap.getRhs().add(slotRef);
+                newRhs.add(slotRef);
+                bSmapChanged = true;
+            }
+        }
+
+        if (bSmapChanged) {
+            outputSmap.updateRhsExprs(newRhs);
+            ExprSubstitutionMap tmpSmap = new ExprSubstitutionMap(outputSmap.getRhs(), outputSmap.getLhs());
+            // the project expr is from smap, which use the slot of hash join node's output tuple
+            // so we need substitute it to make sure the project expr use slot from the children's input tuple
+            vSrcToOutputSMap.updateLhsExprs(Expr.substituteList(vSrcToOutputSMap.getLhs(), tmpSmap, analyzer, true));
+            vOutputTupleDesc.computeStatAndMemLayout();
+        }
+    }
 }
