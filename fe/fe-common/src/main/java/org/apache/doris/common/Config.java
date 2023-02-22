@@ -2057,7 +2057,15 @@ public class Config extends ConfigBase {
     @ConfField(mutable = false, masterOnly = false)
     public static String mysql_load_server_secure_path = "";
 
+
     @ConfField(mutable = false, masterOnly = false)
     public static int mysql_load_thread_pool = 4;
+
+    /**
+     * BDBJE file logging level
+     * OFF, SEVERE, WARNING, INFO, CONFIG, FINE, FINER, FINEST, ALL
+     */
+    @ConfField
+    public static String bdbje_file_logging_level = "ALL";
 }
 
