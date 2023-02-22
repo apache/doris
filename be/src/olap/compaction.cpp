@@ -326,7 +326,7 @@ Status Compaction::do_compaction_impl(int64_t permits) {
     TRACE("check correctness finished");
 
     // 4. modify rowsets in memory
-    RETURN_NOT_OK(modify_rowsets());
+    RETURN_NOT_OK(modify_rowsets(&stats));
     TRACE("modify rowsets finished");
 
     // 5. update last success compaction time
@@ -403,9 +403,10 @@ Status Compaction::construct_input_rowset_readers() {
     return Status::OK();
 }
 
-Status Compaction::modify_rowsets() {
+Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
     std::vector<RowsetSharedPtr> output_rowsets;
     output_rowsets.push_back(_output_rowset);
+    uint64_t missed_rows = 0;
 
     if (_tablet->keys_type() == KeysType::UNIQUE_KEYS &&
         _tablet->enable_unique_key_merge_on_write()) {
@@ -416,9 +417,9 @@ Status Compaction::modify_rowsets() {
         // New loads are not blocked, so some keys of input rowsets might
         // be deleted during the time. We need to deal with delete bitmap
         // of incremental data later.
-        _tablet->calc_compaction_output_rowset_delete_bitmap(_input_rowsets, _rowid_conversion, 0,
-                                                             version.second + 1, &location_map,
-                                                             &output_rowset_delete_bitmap);
+        missed_rows += _tablet->calc_compaction_output_rowset_delete_bitmap(
+                _input_rowsets, _rowid_conversion, 0, version.second + 1, &location_map,
+                &output_rowset_delete_bitmap);
         RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
         location_map.clear();
         {
@@ -427,10 +428,19 @@ Status Compaction::modify_rowsets() {
 
             // Convert the delete bitmap of the input rowsets to output rowset for
             // incremental data.
-            _tablet->calc_compaction_output_rowset_delete_bitmap(
+            missed_rows += _tablet->calc_compaction_output_rowset_delete_bitmap(
                     _input_rowsets, _rowid_conversion, version.second, UINT64_MAX, &location_map,
                     &output_rowset_delete_bitmap);
             RETURN_IF_ERROR(_tablet->check_rowid_conversion(_output_rowset, location_map));
+
+            if (compaction_type() == READER_CUMULATIVE_COMPACTION) {
+                std::string err_msg =
+                        "The merged rows is not equal to missed rows in rowid conversion";
+                DCHECK(stats != nullptr || stats->merged_rows == missed_rows) << err_msg;
+                if (stats != nullptr && stats->merged_rows != missed_rows) {
+                    return Status::InternalError(err_msg);
+                }
+            }
 
             _tablet->merge_delete_bitmap(output_rowset_delete_bitmap);
             RETURN_NOT_OK(_tablet->modify_rowsets(output_rowsets, _input_rowsets, true));
