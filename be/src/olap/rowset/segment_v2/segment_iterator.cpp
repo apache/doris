@@ -576,7 +576,7 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool
         // can apply 'match qeury' and 'equal query' and 'list query' for fulltext index.
         return (pred_in_compound ? pred->type() == PredicateType::MATCH
                                  : (pred->type() == PredicateType::MATCH ||
-                                    PredicateTypeTraits::is_eqaul_and_list(pred->type())));
+                                    PredicateTypeTraits::is_equal_or_list(pred->type())));
     }
 
     return true;
@@ -703,7 +703,7 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
     } else {
         int32_t unique_id = _schema.unique_id(pred->column_id());
         bool need_remaining_after_evaluate = _column_has_fulltext_index(unique_id) &&
-                                             PredicateTypeTraits::is_eqaul_and_list(pred->type());
+                                             PredicateTypeTraits::is_equal_or_list(pred->type());
         roaring::Roaring bitmap = _row_bitmap;
         Status res =
                 pred->evaluate(_schema, _inverted_index_iterators[unique_id], num_rows(), &bitmap);
@@ -713,7 +713,18 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
                 res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT ||
                 (res.code() == ErrorCode::INVERTED_INDEX_NO_TERMS &&
                  need_remaining_after_evaluate)) {
-                //downgrade without index query
+                // 1. INVERTED_INDEX_FILE_NOT_FOUND means index file has not been built,
+                //    usually occurs when creating a new index, because match query must
+                //    need index file, queries other than match query can be downgraded
+                //    without index.
+                // 2. INVERTED_INDEX_FILE_HIT_LIMIT means the hit of condition by index
+                //    has reached the optimal limit, downgrade without index query can
+                //    improve query performance.
+                // 3. INVERTED_INDEX_NO_TERMS means the column has fulltext index,
+                //    but the column condition value no terms in specified parser,
+                //    such as: where A = '' and B = ','
+                //    the predicate of A and B need downgrade without index query.
+                // above case can downgrade without index query
                 remaining_predicates.emplace_back(pred);
                 return Status::OK();
             }
