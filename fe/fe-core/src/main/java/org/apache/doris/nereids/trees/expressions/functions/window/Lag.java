@@ -80,10 +80,10 @@ public class Lag extends WindowFunction implements TernaryExpression, Explicitly
 
     @Override
     public boolean nullable() {
-        if (children.size() == 3 && children.get(2) instanceof NullLiteral) {
+        if (children.size() == 3 && child(2) instanceof NullLiteral) {
             return true;
         }
-        return children.get(0).nullable();
+        return child(0).nullable();
     }
 
     @Override
