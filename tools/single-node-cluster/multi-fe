@@ -72,7 +72,7 @@ ${BASH_SOURCE[0]} start|stop|clean [OPTIONS ...]
 
     stop     Stop the FE cluster.
 
-    clean    Stop the data (rm -rf "\$(pwd)"/fe*).
+    clean    Clean the data (rm -rf "\$(pwd)"/fe*).
 EOF
 	exit 1
 }
