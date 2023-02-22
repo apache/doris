@@ -94,13 +94,9 @@ public class MapLiteral extends LiteralExpr {
         Type keyType = ((MapType) targetType).getKeyType();
         Type valueType = ((MapType) targetType).getValueType();
 
-        for (int i = 0; i < children.size(); ++ i) {
-            Expr child = children.get(i);
-            if ((i % 2) == 0) {
-                literal.children.set(i, child.uncheckedCastTo(keyType));
-            } else {
-                literal.children.set(i, child.uncheckedCastTo(valueType));
-            }
+        for (int i = 0; i < children.size() &&  i + 1 < children.size(); i += 2) {
+            literal.children.set(i, children.get(i).uncheckedCastTo(keyType));
+            literal.children.set(i, children.get(i + 1).uncheckedCastTo(valueType));
         }
         literal.setType(targetType);
         return literal;
@@ -116,7 +112,7 @@ public class MapLiteral extends LiteralExpr {
     @Override
     protected String toSqlImpl() {
         List<String> list = new ArrayList<>(children.size());
-        for (int i = 0; i < children.size(); i += 2) {
+        for (int i = 0; i < children.size() && i + 1 < children.size(); i += 2) {
             list.add(children.get(i).toSqlImpl() + ":" + children.get(i + 1).toSqlImpl());
         }
         return "MAP{" + StringUtils.join(list, ", ") + "}";

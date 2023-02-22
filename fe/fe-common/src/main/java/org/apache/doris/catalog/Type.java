@@ -197,6 +197,7 @@ public abstract class Type {
         mapSubTypes.add(CHAR);
         mapSubTypes.add(VARCHAR);
         mapSubTypes.add(STRING);
+        mapSubTypes.add(NULL);
 
         structSubTypes = Lists.newArrayList();
         structSubTypes.add(BOOLEAN);
