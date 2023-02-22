@@ -160,7 +160,7 @@ public:
     TFileCompressType::type compress_type = TFileCompressType::UNKNOWN;
 
     std::shared_ptr<MessageBodySink> body_sink;
-    std::shared_ptr<StreamLoadPipe> pipe;
+    std::shared_ptr<io::StreamLoadPipe> pipe;
 
     TStreamLoadPutResult put_result;
 
