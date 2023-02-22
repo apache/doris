@@ -121,7 +121,7 @@ public:
         }
     }
 
-    virtual Status init(std::shared_ptr<StreamLoadContext> ctx) override;
+    Status init(std::shared_ptr<StreamLoadContext> ctx) override;
     // TODO(cmy): currently do not implement single consumer start method, using group_consume
     virtual Status consume(std::shared_ptr<StreamLoadContext> ctx) override { return Status::OK(); }
     virtual Status cancel(std::shared_ptr<StreamLoadContext> ctx) override;
