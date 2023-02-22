@@ -79,7 +79,7 @@ Doris can upgrade smoothly by rolling upgrades. The following steps are recommen
 10. **The purpose of the above 2-6 steps is to prevent the FE of the test environment from being misconnected to the online environment after it starts.**
 
 **Note:**
-1.1.x Before upgrading 1.2.x, you need to delete existing C++ UDF ; otherwise, FE startup fails
+1.1.x Before upgrading 1.2.x, you need to delete existing Native UDF ; otherwise, FE startup fails ; And since version 1.2 no longer supports Native UDF, please use [Java UDF](../../ecosystem/udf/java-user-defined-function.md).
 
 ## Upgrade preparation
 
