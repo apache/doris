@@ -605,20 +605,20 @@ TypeDescriptor OrcReader::_convert_to_doris_type(const orc::Type* orc_type) {
         return TypeDescriptor(PrimitiveType::TYPE_DATETIMEV2);
     case orc::TypeKind::LIST: {
         TypeDescriptor list_type(PrimitiveType::TYPE_ARRAY);
-        list_type.children.emplace_back(_convert_to_doris_type(orc_type->getSubtype(0)));
+        list_type.add_sub_type(_convert_to_doris_type(orc_type->getSubtype(0)));
         return list_type;
     }
     case orc::TypeKind::MAP: {
         TypeDescriptor map_type(PrimitiveType::TYPE_MAP);
-        map_type.children.emplace_back(_convert_to_doris_type(orc_type->getSubtype(0)));
-        map_type.children.emplace_back(_convert_to_doris_type(orc_type->getSubtype(1)));
+        map_type.add_sub_type(_convert_to_doris_type(orc_type->getSubtype(0)));
+        map_type.add_sub_type(_convert_to_doris_type(orc_type->getSubtype(1)));
         return map_type;
     }
     case orc::TypeKind::STRUCT: {
         TypeDescriptor struct_type(PrimitiveType::TYPE_STRUCT);
         for (int i = 0; i < orc_type->getSubtypeCount(); ++i) {
-            struct_type.children.emplace_back(_convert_to_doris_type(orc_type->getSubtype(i)));
-            struct_type.field_names.emplace_back(_get_field_name_lower_case(orc_type, i));
+            struct_type.add_sub_type(_convert_to_doris_type(orc_type->getSubtype(i)),
+                                     _get_field_name_lower_case(orc_type, i));
         }
         return struct_type;
     }
