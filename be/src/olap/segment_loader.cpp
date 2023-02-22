@@ -60,8 +60,7 @@ void SegmentLoader::_insert(const SegmentLoader::CacheKey& key, SegmentLoader::C
 
     auto lru_handle = _cache->insert(key.encode(), &value, sizeof(SegmentLoader::CacheValue),
                                      deleter, CachePriority::NORMAL, meta_mem_usage);
-    LOG(INFO) << "1111111 " << sizeof(SegmentLoader::CacheValue) << ", " << meta_mem_usage << ", "
-              << _cache->mem_consumption();
+    << _cache->mem_consumption();
     *handle = SegmentCacheHandle(_cache.get(), lru_handle);
 }
 
