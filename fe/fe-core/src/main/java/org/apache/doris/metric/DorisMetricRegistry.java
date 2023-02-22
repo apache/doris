@@ -49,11 +49,11 @@ public class DorisMetricRegistry {
         }
     }
 
-    public synchronized Collection<Metric> getMetrics() {
+    public synchronized List<Metric> getMetrics() {
         return metrics.stream().sorted(Comparator.comparing(Metric::getName)).collect(Collectors.toList());
     }
 
-    public synchronized Collection<Metric> getSystemMetrics() {
+    public synchronized List<Metric> getSystemMetrics() {
         return systemMetrics.stream().sorted(Comparator.comparing(Metric::getName)).collect(Collectors.toList());
     }
 

@@ -62,6 +62,9 @@ import java.util.stream.Collectors;
 public class MTMVJobManager {
     private static final Logger LOG = LogManager.getLogger(MTMVJobManager.class);
 
+    // make sure that metrics were registered only once.
+    private static volatile boolean metricsRegistered = false;
+
     private final Map<Long, MTMVJob> idToJobMap;
     private final Map<String, MTMVJob> nameToJobMap;
     private final Map<Long, ScheduledFuture<?>> periodFutureMap;
@@ -82,6 +85,7 @@ public class MTMVJobManager {
         periodFutureMap = Maps.newConcurrentMap();
         reentrantLock = new ReentrantLock(true);
         taskManager = new MTMVTaskManager(this);
+        initMetrics();
     }
 
     public void start() {
@@ -117,11 +121,15 @@ public class MTMVJobManager {
             }, 0, 1, TimeUnit.MINUTES);
 
             taskManager.startTaskScheduler();
-            initMetrics();
         }
     }
 
     private void initMetrics() {
+        if (metricsRegistered) {
+            return;
+        }
+        metricsRegistered = true;
+
         // total jobs
         GaugeMetric<Integer> totalJob = new GaugeMetric<Integer>("mtmv_job",
                 Metric.MetricUnit.NOUNIT, "Total job number of mtmv.") {
