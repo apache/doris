@@ -100,14 +100,6 @@ public:
         PositionDeleteContext(const PositionDeleteContext& filter) = default;
     };
 
-    struct FilterContext {
-        const IColumn::Filter* filter;
-        bool reverse;
-
-        FilterContext(const IColumn::Filter* filter, bool reverse)
-                : filter(filter), reverse(reverse) {}
-    };
-
     RowGroupReader(io::FileReaderSPtr file_reader,
                    const std::vector<ParquetReadColumn>& read_columns, const int32_t row_group_id,
                    const tparquet::RowGroup& row_group, cctz::time_zone* ctz,
@@ -142,7 +134,6 @@ private:
     Status _build_pos_delete_filter(size_t read_rows);
     Status _filter_block(Block* block, const ColumnPtr filter_column, int column_to_keep,
                          std::vector<uint32_t> columns_to_filter);
-    bool _merge_filter(IColumn::Filter& to_filter, std::vector<FilterContext>& from_filters);
     Status _filter_block(Block* block, int column_to_keep,
                          const vector<uint32_t>& columns_to_filter);
     Status _filter_block_internal(Block* block, const vector<uint32_t>& columns_to_filter,
