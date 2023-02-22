@@ -173,11 +173,10 @@ static Status get_int_value(const rapidjson::Value& col, PrimitiveType type, voi
 
 template <typename T, typename RT>
 static RT get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool is_date_str) {
-    const std::string& val = col.GetString();
-    size_t val_size = col.GetStringLength();
-
     vectorized::DateV2Value<T> dt_slot;
-    if ((is_date_str && !dt_slot.from_date_str(val.c_str(), val_size)) ||
+    if ((is_date_str &&
+         !dt_slot.from_date_str(static_cast<const std::string>(col.GetString()).c_str(),
+                                col.GetStringLength())) ||
         (!is_date_str && !dt_slot.from_unixtime(col.GetInt64() / 1000, "+08:00"))) {
         RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
     }
