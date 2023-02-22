@@ -1076,13 +1076,7 @@ public class FunctionCallExpr extends Expr {
             // This is the function call expr after splitting up to a merge aggregation.
             // The function has already been analyzed so just do the minimal sanity
             // check here.
-            AggregateFunction aggFn = (AggregateFunction) fn;
-            Preconditions.checkNotNull(aggFn);
-            Type intermediateType = aggFn.getIntermediateType();
-            if (intermediateType == null) {
-                intermediateType = type;
-            }
-            // Preconditions.checkState(!type.isWildcardDecimal());
+            Preconditions.checkNotNull(fn);
             return;
         }
 
@@ -1221,10 +1215,10 @@ public class FunctionCallExpr extends Expr {
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[1], childTypes[2], true);
             if (assignmentCompatibleType.isDecimalV3()) {
-                if (childTypes[1].isDecimalV3() && !((ScalarType) childTypes[1]).equals(assignmentCompatibleType)) {
+                if (childTypes[1].isDecimalV3() && !childTypes[1].equals(assignmentCompatibleType)) {
                     uncheckedCastChild(assignmentCompatibleType, 1);
                 }
-                if (childTypes[2].isDecimalV3() && !((ScalarType) childTypes[2]).equals(assignmentCompatibleType)) {
+                if (childTypes[2].isDecimalV3() && !childTypes[2].equals(assignmentCompatibleType)) {
                     uncheckedCastChild(assignmentCompatibleType, 2);
                 }
             }
@@ -1417,7 +1411,7 @@ public class FunctionCallExpr extends Expr {
         if (fn.getFunctionName().getFunction().equals("str_to_date")) {
             Expr child1Result = getChild(1).getResultValue();
             if (child1Result instanceof StringLiteral) {
-                if (DateLiteral.hasTimePart(((StringLiteral) child1Result).getStringValue())) {
+                if (DateLiteral.hasTimePart(child1Result.getStringValue())) {
                     this.type = Type.DATETIME;
                 } else {
                     this.type = Type.DATE;
@@ -1634,11 +1628,6 @@ public class FunctionCallExpr extends Expr {
             oriExpr = LiteralExpr.init((LiteralExpr) oriExpr);
         }
         return oriExpr;
-    }
-
-    @Override
-    public boolean isVectorized() {
-        return false;
     }
 
     public static FunctionCallExpr createMergeAggCall(

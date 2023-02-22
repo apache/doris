@@ -15,30 +15,18 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.trees.expressions;
+suite("nereids_timestamp_arithmetic") {
 
-import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
+    sql "SET enable_nereids_planner=true"
+    sql "SET enable_fallback_to_original_planner=false"
 
-import com.google.common.base.Preconditions;
-
-import java.util.List;
-
-/**
- * like expression: a regexp '^xxx$'.
- */
-public class Regexp extends StringRegexPredicate {
-
-    public Regexp(Expression left, Expression right) {
-        super("regexp", left, right);
+    test {
+        sql = "select bitmap_empty() + interval 1 year;"
+        exception = "Unexpected exception: Operand 'bitmap_empty()' of timestamp arithmetic expression 'years_add(bitmap_empty(), INTERVAL 1 YEAR)' returns type 'BITMAP'. Expected type 'TIMESTAMP/DATE/DATETIME'"
     }
 
-    @Override
-    public Regexp withChildren(List<Expression> children) {
-        Preconditions.checkArgument(children.size() == 2);
-        return new Regexp(children.get(0), children.get(1));
-    }
-
-    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
-        return visitor.visitRegexp(this, context);
+    test {
+        sql = "select date '20200808' + interval array() day;"
+        exception = "the second argument must be a scalar type. but it is array()"
     }
 }

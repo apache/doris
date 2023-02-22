@@ -108,11 +108,6 @@ public class CompoundPredicate extends Predicate {
     }
 
     @Override
-    public boolean isVectorized() {
-        return false;
-    }
-
-    @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
 

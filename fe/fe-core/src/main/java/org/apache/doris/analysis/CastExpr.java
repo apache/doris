@@ -581,22 +581,6 @@ public class CastExpr extends Expr {
             Preconditions.checkState(false,
                     "Implicit casts should never throw analysis exception.");
         }
-        FunctionName fnName = new FunctionName(getFnName(type));
-        Function searchDesc = new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
-        if (type.isScalarType()) {
-            if (isImplicit) {
-                fn = Env.getCurrentEnv().getFunction(
-                        searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            } else {
-                fn = Env.getCurrentEnv().getFunction(
-                        searchDesc, Function.CompareMode.IS_IDENTICAL);
-            }
-        } else if (type.isArrayType()) {
-            fn = ScalarFunction.createBuiltin(getFnName(Type.ARRAY),
-                    type, Function.NullableMode.ALWAYS_NULLABLE,
-                    Lists.newArrayList(Type.VARCHAR), false,
-                    "doris::CastFunctions::cast_to_array_val", null, null, true);
-        }
     }
 
     @Override
