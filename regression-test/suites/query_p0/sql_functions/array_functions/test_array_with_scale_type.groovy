@@ -68,5 +68,10 @@ suite("test_array_with_scale_type") {
         qt_select "select array(cast ('2022-12-02 22:23:24.999999' as datetimev2(3)),cast ('2022-12-02 22:23:23.997799' as datetimev2(3))) from ${tableName}"
         qt_select "select array(cast ('2022-12-02 22:23:24.999999' as datetimev2(3)),cast ('2022-12-02 22:23:23.997799' as datetimev2(3)))"
 
+        qt_select """select array_apply(c_array_datetimev2, "=", '2022-12-02 22:23:24.999999') from ${tableName}"""
+        qt_select """select array_apply(c_array_datetimev2, ">", '2022-12-01 22:23:24.999999') from ${tableName}"""
+        qt_select """select array_apply(c_array_decimal, "=", 22.678) from ${tableName}"""
+        qt_select """select array_apply(c_array_decimal, ">=", 22.1) from ${tableName}"""
+
         sql "DROP TABLE IF EXISTS ${tableName}"
 }
