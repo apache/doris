@@ -86,6 +86,8 @@ check_prerequest "wget --version" "wget"
 
 source $CURDIR/conf/doris-cluster.conf
 
+wget_pids=()
+
 echo "FE_HOST: $FE_HOST"
 echo "FE_HTTP_PORT: $FE_HTTP_PORT"
 echo "USER: $USER"
@@ -113,6 +115,8 @@ function load() {
             echo "will download hits_split${i} to $DATA_DIR"
             wget --continue "https://doris-test-data.oss-cn-hongkong.aliyuncs.com/ClickBench/hits_split${i}" &
             # wget --continue "https://doris-test-data.oss-cn-hongkong-internal.aliyuncs.com/ClickBench/hits_split${i}" &
+            PID=$!
+            wget_pids[${#wget_pids[@]}]=$PID
         fi
     done
 
@@ -131,6 +135,15 @@ function load() {
             http://$FE_HOST:$FE_HTTP_PORT/api/$DB/hits/_stream_load
     done
 }
+
+function signal_handler() {
+
+    for PID in ${wget_pids[@]}; do
+        kill -9 $PID
+    done
+}
+
+trap signal_handler 2 3 6 15
 
 echo "start..."
 start=$(date +%s)
