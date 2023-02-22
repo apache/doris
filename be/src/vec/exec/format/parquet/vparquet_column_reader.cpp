@@ -22,12 +22,39 @@
 
 #include "schema_desc.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_map.h"
 #include "vec/columns/column_nullable.h"
+#include "vec/columns/column_struct.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_struct.h"
 #include "vparquet_column_chunk_reader.h"
 
 namespace doris::vectorized {
+
+static void fill_struct_null_map(FieldSchema* field, NullMap& null_map,
+                                 const std::vector<level_t>& rep_levels,
+                                 const std::vector<level_t>& def_levels) {
+    size_t num_levels = def_levels.size();
+    DCHECK_EQ(num_levels, rep_levels.size());
+    size_t origin_size = null_map.size();
+    null_map.resize(origin_size + num_levels);
+    size_t pos = 0;
+    for (size_t i = 0; i < num_levels; ++i) {
+        // skip the levels affect its ancestor or its descendants
+        if (def_levels[i] < field->repeated_parent_def_level ||
+            rep_levels[i] > field->repetition_level) {
+            continue;
+        }
+        if (def_levels[i] >= field->definition_level) {
+            null_map[pos++] = 0;
+        } else {
+            null_map[pos++] = 1;
+        }
+    }
+    null_map.resize(origin_size + pos);
+}
 
 static void fill_array_offset(FieldSchema* field, ColumnArray::Offsets64& offsets_data,
                               NullMap* null_map_ptr, const std::vector<level_t>& rep_levels,
@@ -72,9 +99,6 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
                                    const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz,
                                    std::unique_ptr<ParquetColumnReader>& reader,
                                    size_t max_buf_size) {
-    if (field->type.type == TYPE_MAP || field->type.type == TYPE_STRUCT) {
-        return Status::Corruption("not supported type");
-    }
     if (field->type.type == TYPE_ARRAY) {
         std::unique_ptr<ParquetColumnReader> element_reader;
         RETURN_IF_ERROR(create(file, &field->children[0], row_group, row_ranges, ctz,
@@ -83,6 +107,30 @@ Status ParquetColumnReader::create(io::FileReaderSPtr file, FieldSchema* field,
         ArrayColumnReader* array_reader = new ArrayColumnReader(row_ranges, ctz);
         RETURN_IF_ERROR(array_reader->init(std::move(element_reader), field));
         reader.reset(array_reader);
+    } else if (field->type.type == TYPE_MAP) {
+        std::unique_ptr<ParquetColumnReader> key_reader;
+        std::unique_ptr<ParquetColumnReader> value_reader;
+        RETURN_IF_ERROR(create(file, &field->children[0].children[0], row_group, row_ranges, ctz,
+                               key_reader, max_buf_size));
+        RETURN_IF_ERROR(create(file, &field->children[0].children[1], row_group, row_ranges, ctz,
+                               value_reader, max_buf_size));
+        key_reader->set_nested_column();
+        value_reader->set_nested_column();
+        MapColumnReader* map_reader = new MapColumnReader(row_ranges, ctz);
+        RETURN_IF_ERROR(map_reader->init(std::move(key_reader), std::move(value_reader), field));
+        reader.reset(map_reader);
+    } else if (field->type.type == TYPE_STRUCT) {
+        std::vector<std::unique_ptr<ParquetColumnReader>> child_readers;
+        for (int i = 0; i < field->children.size(); ++i) {
+            std::unique_ptr<ParquetColumnReader> child_reader;
+            RETURN_IF_ERROR(create(file, &field->children[i], row_group, row_ranges, ctz,
+                                   child_reader, max_buf_size));
+            child_reader->set_nested_column();
+            child_readers.emplace_back(std::move(child_reader));
+        }
+        StructColumnReader* struct_reader = new StructColumnReader(row_ranges, ctz);
+        RETURN_IF_ERROR(struct_reader->init(std::move(child_readers), field));
+        reader.reset(struct_reader);
     } else {
         const tparquet::ColumnChunk& chunk = row_group.columns[field->physical_column_index];
         ScalarColumnReader* scalar_reader = new ScalarColumnReader(row_ranges, chunk, ctz);
@@ -229,35 +277,44 @@ Status ScalarColumnReader::_read_values(size_t num_values, ColumnPtr& doris_colu
 Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataTypePtr& type,
                                                ColumnSelectVector& select_vector, size_t batch_size,
                                                size_t* read_rows, bool* eof) {
-    // prepare repetition and definition levels
     _rep_levels.resize(0);
     _def_levels.resize(0);
     size_t parsed_rows = 0;
-    if (_nested_first_read) {
-        _nested_first_read = false;
-    } else {
-        // we have read one more repetition leve in last loop
-        parsed_rows = 1;
-        _rep_levels.emplace_back(0);
-    }
-    size_t remaining_values = _chunk_reader->remaining_num_values() - parsed_rows;
-    LevelDecoder& rep_decoder = _chunk_reader->rep_level_decoder();
-    while (parsed_rows <= batch_size && remaining_values > 0) {
-        level_t rep_level;
-        // TODO(gaoxin): It's better to read repetition levels in a batch.
-        size_t loop_parsed = rep_decoder.get_next_run(&rep_level, remaining_values);
-        for (size_t i = 0; i < loop_parsed; ++i) {
+    size_t remaining_values = _chunk_reader->remaining_num_values();
+    bool has_rep_level = _chunk_reader->max_rep_level() > 0;
+    bool has_def_level = _chunk_reader->max_def_level() > 0;
+
+    if (has_rep_level) {
+        LevelDecoder& rep_decoder = _chunk_reader->rep_level_decoder();
+        while (parsed_rows <= batch_size && remaining_values > 0) {
+            level_t rep_level = rep_decoder.get_next();
+            if (rep_level == 0) {
+                if (parsed_rows == batch_size) {
+                    rep_decoder.rewind_one();
+                    break;
+                }
+                parsed_rows++;
+            }
             _rep_levels.emplace_back(rep_level);
+            remaining_values--;
         }
-        remaining_values -= loop_parsed;
-        // when repetition level == 1, it's a new row in doris_column.
-        if (rep_level == 0) {
-            parsed_rows += loop_parsed;
+    } else {
+        parsed_rows = std::min(remaining_values, batch_size);
+        remaining_values -= parsed_rows;
+        _rep_levels.resize(parsed_rows);
+        for (size_t i = 0; i < parsed_rows; ++i) {
+            _rep_levels[i] = 0;
         }
     }
     size_t parsed_values = _chunk_reader->remaining_num_values() - remaining_values;
     _def_levels.resize(parsed_values);
-    _chunk_reader->def_level_decoder().get_levels(&_def_levels[0], parsed_values);
+    if (has_def_level) {
+        _chunk_reader->def_level_decoder().get_levels(&_def_levels[0], parsed_values);
+    } else {
+        for (size_t i = 0; i < parsed_values; ++i) {
+            _def_levels[i] = 0;
+        }
+    }
 
     MutableColumnPtr data_column;
     std::vector<uint16_t> null_map;
@@ -444,6 +501,121 @@ Status ArrayColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr&
     fill_array_offset(_field_schema, static_cast<ColumnArray&>(*data_column).get_offsets(),
                       null_map_ptr, _element_reader->get_rep_level(),
                       _element_reader->get_def_level());
+
+    return Status::OK();
+}
+
+Status MapColumnReader::init(std::unique_ptr<ParquetColumnReader> key_reader,
+                             std::unique_ptr<ParquetColumnReader> value_reader,
+                             FieldSchema* field) {
+    _field_schema = field;
+    _key_reader = std::move(key_reader);
+    _value_reader = std::move(value_reader);
+    return Status::OK();
+}
+
+Status MapColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
+                                         ColumnSelectVector& select_vector, size_t batch_size,
+                                         size_t* read_rows, bool* eof) {
+    MutableColumnPtr data_column;
+    NullMap* null_map_ptr = nullptr;
+    if (doris_column->is_nullable()) {
+        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
+                (*std::move(doris_column)).mutate().get());
+        null_map_ptr = &nullable_column->get_null_map_data();
+        data_column = nullable_column->get_nested_column_ptr();
+    } else {
+        if (_field_schema->is_nullable) {
+            return Status::Corruption("Not nullable column has null values in parquet file");
+        }
+        data_column = doris_column->assume_mutable();
+    }
+
+    auto& map = static_cast<ColumnMap&>(*data_column);
+    DataTypePtr& key_type = const_cast<DataTypePtr&>(
+            reinterpret_cast<const DataTypeMap*>(remove_nullable(type).get())->get_key_type());
+    DataTypePtr& value_type = const_cast<DataTypePtr&>(
+            reinterpret_cast<const DataTypeMap*>(remove_nullable(type).get())->get_value_type());
+    ColumnPtr& key_column =
+            typeid_cast<ColumnArray*>(map.get_keys_ptr()->assume_mutable().get())->get_data_ptr();
+    ColumnPtr& value_column =
+            typeid_cast<ColumnArray*>(map.get_values_ptr()->assume_mutable().get())->get_data_ptr();
+
+    size_t key_rows = 0;
+    size_t value_rows = 0;
+    bool key_eof = false;
+    bool value_eof = false;
+    RETURN_IF_ERROR(_key_reader->read_column_data(key_column, key_type, select_vector, batch_size,
+                                                  &key_rows, &key_eof));
+    select_vector.reset();
+    RETURN_IF_ERROR(_value_reader->read_column_data(value_column, value_type, select_vector,
+                                                    batch_size, &value_rows, &value_eof));
+    DCHECK_EQ(key_rows, value_rows);
+    DCHECK_EQ(key_eof, value_eof);
+    *read_rows = key_rows;
+    *eof = key_eof;
+
+    if (*read_rows == 0) {
+        return Status::OK();
+    }
+
+    // fill offset and null map
+    fill_array_offset(_field_schema, map.get_offsets(), null_map_ptr, _key_reader->get_rep_level(),
+                      _key_reader->get_def_level());
+
+    return Status::OK();
+}
+
+Status StructColumnReader::init(std::vector<std::unique_ptr<ParquetColumnReader>>&& child_readers,
+                                FieldSchema* field) {
+    _field_schema = field;
+    _child_readers = std::move(child_readers);
+    return Status::OK();
+}
+Status StructColumnReader::read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
+                                            ColumnSelectVector& select_vector, size_t batch_size,
+                                            size_t* read_rows, bool* eof) {
+    MutableColumnPtr data_column;
+    NullMap* null_map_ptr = nullptr;
+    if (doris_column->is_nullable()) {
+        auto* nullable_column = reinterpret_cast<vectorized::ColumnNullable*>(
+                (*std::move(doris_column)).mutate().get());
+        null_map_ptr = &nullable_column->get_null_map_data();
+        data_column = nullable_column->get_nested_column_ptr();
+    } else {
+        if (_field_schema->is_nullable) {
+            return Status::Corruption("Not nullable column has null values in parquet file");
+        }
+        data_column = doris_column->assume_mutable();
+    }
+
+    auto& doris_struct = static_cast<ColumnStruct&>(*data_column);
+    if (_child_readers.size() != doris_struct.tuple_size()) {
+        return Status::InternalError("Wrong number of struct fields");
+    }
+    const DataTypeStruct* doris_struct_type =
+            reinterpret_cast<const DataTypeStruct*>(remove_nullable(type).get());
+    for (int i = 0; i < doris_struct.tuple_size(); ++i) {
+        ColumnPtr& doris_field = doris_struct.get_column_ptr(i);
+        DataTypePtr& doris_type = const_cast<DataTypePtr&>(doris_struct_type->get_element(i));
+        select_vector.reset();
+        size_t loop_rows = 0;
+        bool loop_eof = false;
+        _child_readers[i]->read_column_data(doris_field, doris_type, select_vector, batch_size,
+                                            &loop_rows, &loop_eof);
+        if (i != 0) {
+            DCHECK_EQ(*read_rows, loop_rows);
+            DCHECK_EQ(*eof, loop_eof);
+        } else {
+            *read_rows = loop_rows;
+            *eof = loop_eof;
+        }
+    }
+
+    if (null_map_ptr != nullptr) {
+        fill_struct_null_map(_field_schema, *null_map_ptr, _child_readers[0]->get_rep_level(),
+                             _child_readers[0]->get_def_level());
+    }
 
     return Status::OK();
 }

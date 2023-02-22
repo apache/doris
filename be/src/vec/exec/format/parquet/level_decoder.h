@@ -43,6 +43,17 @@ public:
         return _rle_decoder.GetNextRun(val, max_run);
     }
 
+    inline level_t get_next() {
+        level_t next;
+        if (LIKELY(_rle_decoder.Get(&next))) {
+            return next;
+        } else {
+            return -1;
+        }
+    }
+
+    inline void rewind_one() { _rle_decoder.RewindOne(); }
+
 private:
     tparquet::Encoding::type _encoding;
     level_t _bit_width = 0;
