@@ -142,15 +142,19 @@ public:
 
     MutableColumnPtr clone_resized(size_t size) const override;
 
-    [[noreturn]] void insert(const Field& x) override {
-        LOG(FATAL) << "insert field not implemented";
+    void insert(const Field& x) override {
+        const String& s = doris::vectorized::get<const String&>(x);
+        data.push_back(*reinterpret_cast<const T*>(s.c_str()));
     }
 
-    [[noreturn]] Field operator[](size_t n) const override {
-        LOG(FATAL) << "operator[] not implemented";
+    Field operator[](size_t n) const override {
+        assert(n < size());
+        return Field(reinterpret_cast<const char*>(&data[n]), sizeof(data[n]));
     }
-    [[noreturn]] void get(size_t n, Field& res) const override {
-        LOG(FATAL) << "get field not implemented";
+
+    void get(size_t n, Field& res) const override {
+        assert(n < size());
+        res.assign_string(reinterpret_cast<const char*>(&data[n]), sizeof(data[n]));
     }
 
     [[noreturn]] UInt64 get64(size_t n) const override {

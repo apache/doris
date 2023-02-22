@@ -235,6 +235,7 @@ public:
 
         if constexpr (std::is_same_v<ColumnType, ColumnString> ||
                       std::is_same_v<ColumnType, ColumnBitmap> ||
+                      std::is_same_v<ColumnType, ColumnArray>  ||
                       std::is_same_v<ColumnType, ColumnHLL>) {
             // result_column and all then_column is not nullable.
             // can't simd when type is string.

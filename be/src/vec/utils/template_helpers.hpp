@@ -22,6 +22,7 @@
 
 #include "http/http_status.h"
 #include "vec/aggregate_functions/aggregate_function.h"
+#include "vec/columns/column_array.h"
 #include "vec/columns/column_complex.h"
 #include "vec/columns/columns_number.h"
 #include "vec/data_types/data_type.h"
@@ -65,6 +66,7 @@
 
 #define TYPE_TO_COLUMN_TYPE(M)   \
     TYPE_TO_BASIC_COLUMN_TYPE(M) \
+    M(Array, ColumnArray)        \
     COMPLEX_TYPE_TO_COLUMN_TYPE(M)
 
 namespace doris::vectorized {
