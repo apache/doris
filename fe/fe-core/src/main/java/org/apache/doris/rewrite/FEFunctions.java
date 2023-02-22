@@ -77,6 +77,27 @@ public class FEFunctions {
         return new IntLiteral(datediff, Type.INT);
     }
 
+    @FEFunction(name = "dayofweek", argTypes = {"DATETIME"}, returnType = "INT")
+    public static IntLiteral dayOfWeek(LiteralExpr date) throws AnalysisException {
+        // use zellar algorithm.
+        long year = ((DateLiteral) date).getYear();
+        long month = ((DateLiteral) date).getMonth();
+        long day = ((DateLiteral) date).getDay();
+        if (month < 3) {
+            month += 12;
+            year -= 1;
+        }
+        long c = year / 100;
+        long y = year % 100;
+        long t;
+        if (date.compareTo(new DateLiteral(1582, 10, 4)) > 0) {
+            t = (y + y / 4 + c / 4 - 2 * c + 26 * (month + 1) / 10 + day - 1) % 7;
+        } else {
+            t = (y + y / 4 - c + 26 * (month + 1) / 10 + day + 4) % 7;
+        }
+        return new IntLiteral(t + 1);
+    }
+
     @FEFunction(name = "date_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateLiteral dateAdd(LiteralExpr date, LiteralExpr day) throws AnalysisException {
         return daysAdd(date, day);
