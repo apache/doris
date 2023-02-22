@@ -364,14 +364,7 @@ public class JdbcClient {
                 case "DECIMAL":
                     int precision = fieldSchema.getColumnSize() + 1;
                     int scale = fieldSchema.getDecimalDigits();
-                    if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
-                        if (!Config.enable_decimal_conversion && precision > ScalarType.MAX_DECIMALV2_PRECISION) {
-                            return ScalarType.createStringType();
-                        }
-                        return ScalarType.createDecimalType(precision, scale);
-                    } else {
-                        return ScalarType.createStringType();
-                    }
+                    return createDecimalOrStringType(precision, scale);
                 default:
                     throw new JdbcClientException("Unknown UNSIGNED type of mysql, type: [" + mysqlType + "]");
             }
@@ -406,14 +399,7 @@ public class JdbcClient {
             case "DECIMALV3": // for jdbc catalog connecting Doris database
                 int precision = fieldSchema.getColumnSize();
                 int scale = fieldSchema.getDecimalDigits();
-                if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
-                    if (!Config.enable_decimal_conversion && precision > ScalarType.MAX_DECIMALV2_PRECISION) {
-                        return ScalarType.createStringType();
-                    }
-                    return ScalarType.createDecimalType(precision, scale);
-                } else {
-                    return ScalarType.createStringType();
-                }
+                return createDecimalOrStringType(precision, scale);
             case "CHAR":
                 ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
                 charType.setLength(fieldSchema.columnSize);
@@ -460,14 +446,7 @@ public class JdbcClient {
             case "numeric": {
                 int precision = fieldSchema.getColumnSize();
                 int scale = fieldSchema.getDecimalDigits();
-                if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
-                    if (!Config.enable_decimal_conversion && precision > ScalarType.MAX_DECIMALV2_PRECISION) {
-                        return ScalarType.createStringType();
-                    }
-                    return ScalarType.createDecimalType(precision, scale);
-                } else {
-                    return ScalarType.createStringType();
-                }
+                return createDecimalOrStringType(precision, scale);
             }
             case "float4":
                 return Type.FLOAT;
@@ -523,14 +502,7 @@ public class JdbcClient {
             String[] accuracy = ckType.substring(8, ckType.length() - 1).split(", ");
             int precision = Integer.parseInt(accuracy[0]);
             int scale = Integer.parseInt(accuracy[1]);
-            if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
-                if (!Config.enable_decimal_conversion && precision > ScalarType.MAX_DECIMALV2_PRECISION) {
-                    return ScalarType.createStringType();
-                }
-                return ScalarType.createDecimalType(precision, scale);
-            } else {
-                return ScalarType.createStringType();
-            }
+            return createDecimalOrStringType(precision, scale);
         } else if ("String".contains(ckType) || ckType.startsWith("Enum")
                 || ckType.startsWith("IPv") || "UUID".contains(ckType)
                 || ckType.startsWith("FixedString")) {
@@ -586,7 +558,8 @@ public class JdbcClient {
             case "NUMBER":
                 int precision = fieldSchema.getColumnSize();
                 int scale = fieldSchema.getDecimalDigits();
-                if (scale == 0) {
+                if (scale <= 0) {
+                    precision -= scale;
                     if (precision < 3) {
                         return Type.TINYINT;
                     } else if (precision < 5) {
@@ -595,19 +568,15 @@ public class JdbcClient {
                         return Type.INT;
                     } else if (precision < 19) {
                         return Type.BIGINT;
-                    } else if (precision < 39) {
+                    } else {
                         return Type.LARGEINT;
                     }
-                    return ScalarType.createStringType();
                 }
-                if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
-                    if (!Config.enable_decimal_conversion && precision > ScalarType.MAX_DECIMALV2_PRECISION) {
-                        return ScalarType.createStringType();
-                    }
-                    return ScalarType.createDecimalType(precision, scale);
-                } else {
-                    return ScalarType.createStringType();
+                // scale > 0
+                if (precision < scale) {
+                    precision = scale;
                 }
+                return createDecimalOrStringType(precision, scale);
             case "FLOAT":
                 return Type.DOUBLE;
             case "DATE":
@@ -677,6 +646,18 @@ public class JdbcClient {
                 return Type.UNSUPPORTED;
         }
     }
+
+    private Type createDecimalOrStringType(int precision, int scale) {
+        if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
+            if (!Config.enable_decimal_conversion && (precision > ScalarType.MAX_DECIMALV2_PRECISION
+                    || scale > ScalarType.MAX_DECIMALV2_SCALE)) {
+                return ScalarType.createStringType();
+            }
+            return ScalarType.createDecimalType(precision, scale);
+        }
+        return ScalarType.createStringType();
+    }
+
 
     public List<Column> getColumnsFromJdbc(String dbName, String tableName) {
         List<JdbcFieldSchema> jdbcTableSchema = getJdbcColumnsInfo(dbName, tableName);
