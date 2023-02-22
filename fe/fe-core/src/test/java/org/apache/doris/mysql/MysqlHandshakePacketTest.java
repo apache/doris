@@ -77,7 +77,7 @@ public class MysqlHandshakePacketTest {
         // capability flags
         flags |= MysqlProto.readInt2(buffer) << 16;
         Assert.assertEquals(MysqlProto.SERVER_USE_SSL
-            ? MysqlCapability.SSL_CAPABILITY.getFlags() : MysqlCapability.DEFAULT_CAPABILITY.getFlags(), flags);
+                ? MysqlCapability.SSL_CAPABILITY.getFlags() : MysqlCapability.DEFAULT_CAPABILITY.getFlags(), flags);
         // length of plugin data
         Assert.assertEquals(21, MysqlProto.readInt1(buffer));
         // length of plugin data
