@@ -24,8 +24,7 @@
 namespace doris::vectorized {
 
 NewOlapScanner::NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit,
-                               bool aggregation, bool need_agg_finalize,
-                               const TPaloScanRange& scan_range, RuntimeProfile* profile)
+                               bool aggregation, bool need_agg_finalize, RuntimeProfile* profile)
         : VScanner(state, static_cast<VScanNode*>(parent), limit, profile),
           _aggregation(aggregation),
           _need_agg_finalize(need_agg_finalize),
@@ -90,6 +89,11 @@ Status NewOlapScanner::prepare(const TPaloScanRange& scan_range,
             for (const auto& column_desc : olap_scan_node.columns_desc) {
                 _tablet_schema->append_column(TabletColumn(column_desc));
             }
+        }
+
+        if (olap_scan_node.__isset.indexes_desc && !olap_scan_node.indexes_desc.empty() &&
+            olap_scan_node.indexes_desc[0].index_id >= 0) {
+            _tablet_schema->update_indexes_from_thrift(olap_scan_node.indexes_desc);
         }
 
         {
@@ -211,6 +215,7 @@ Status NewOlapScanner::_init_tablet_reader_params(
     _tablet_reader_params.version = Version(0, _version);
     _tablet_reader_params.remaining_vconjunct_root =
             (_vconjunct_ctx == nullptr) ? nullptr : _vconjunct_ctx->root();
+    _tablet_reader_params.output_columns = ((NewOlapScanNode*)_parent)->_maybe_read_column_ids;
 
     // Condition
     for (auto& filter : filters) {
@@ -363,14 +368,9 @@ Status NewOlapScanner::_init_return_columns() {
                                 : _tablet_schema->field_index(slot->col_name());
 
         if (index < 0) {
-            const std::string MATERIALIZED_VIEW_NAME_PREFIX = "mv_";
-            index = _tablet_schema->field_index(MATERIALIZED_VIEW_NAME_PREFIX + slot->col_name());
-        }
-
-        if (index < 0) {
             std::stringstream ss;
-            ss << "field name is invalid. field=" << slot->col_name();
-            LOG(WARNING) << ss.str();
+            ss << "field name is invalid. field=" << slot->col_name()
+               << ", field_name_to_index=" << _tablet_schema->get_all_field_names();
             return Status::InternalError(ss.str());
         }
         _return_columns.push_back(index);
@@ -383,6 +383,21 @@ Status NewOlapScanner::_init_return_columns() {
         return Status::InternalError("failed to build storage scanner, no materialized slot!");
     }
     return Status::OK();
+}
+
+doris::TabletStorageType NewOlapScanner::get_storage_type() {
+    int local_reader = 0;
+    for (const auto& reader : _tablet_reader_params.rs_readers) {
+        local_reader += reader->rowset()->is_local();
+    }
+    int total_reader = _tablet_reader_params.rs_readers.size();
+
+    if (local_reader == total_reader) {
+        return doris::TabletStorageType::STORAGE_TYPE_LOCAL;
+    } else if (local_reader == 0) {
+        return doris::TabletStorageType::STORAGE_TYPE_REMOTE;
+    }
+    return doris::TabletStorageType::STORAGE_TYPE_REMOTE_AND_LOCAL;
 }
 
 Status NewOlapScanner::_get_block_impl(RuntimeState* state, Block* block, bool* eof) {
@@ -491,6 +506,21 @@ void NewOlapScanner::_update_counters_before_close() {
 
     COUNTER_UPDATE(olap_parent->_inverted_index_filter_counter, stats.rows_inverted_index_filtered);
     COUNTER_UPDATE(olap_parent->_inverted_index_filter_timer, stats.inverted_index_filter_timer);
+    COUNTER_UPDATE(olap_parent->_inverted_index_query_cache_hit_counter,
+                   stats.inverted_index_query_cache_hit);
+    COUNTER_UPDATE(olap_parent->_inverted_index_query_cache_miss_counter,
+                   stats.inverted_index_query_cache_miss);
+    COUNTER_UPDATE(olap_parent->_inverted_index_query_timer, stats.inverted_index_query_timer);
+    COUNTER_UPDATE(olap_parent->_inverted_index_query_bitmap_copy_timer,
+                   stats.inverted_index_query_bitmap_copy_timer);
+    COUNTER_UPDATE(olap_parent->_inverted_index_query_bitmap_op_timer,
+                   stats.inverted_index_query_bitmap_op_timer);
+    COUNTER_UPDATE(olap_parent->_inverted_index_searcher_open_timer,
+                   stats.inverted_index_searcher_open_timer);
+    COUNTER_UPDATE(olap_parent->_inverted_index_searcher_search_timer,
+                   stats.inverted_index_searcher_search_timer);
+    COUNTER_UPDATE(olap_parent->_inverted_index_searcher_bitmap_timer,
+                   stats.inverted_index_searcher_bitmap_timer);
 
     COUNTER_UPDATE(olap_parent->_output_index_result_column_timer,
                    stats.output_index_result_column_timer);

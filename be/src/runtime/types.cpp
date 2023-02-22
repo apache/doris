@@ -78,6 +78,13 @@ TypeDescriptor::TypeDescriptor(const std::vector<TTypeNode>& types, int* idx)
         }
         break;
     }
+    case TTypeNodeType::VARIANT: {
+        DCHECK(!node.__isset.scalar_type);
+        // variant column must be the last column
+        DCHECK_EQ(*idx, types.size() - 1);
+        type = TYPE_VARIANT;
+        break;
+    }
     // case TTypeNodeType::STRUCT:
     //     type = TYPE_STRUCT;
     //     for (int i = 0; i < node.struct_fields.size(); ++i) {
@@ -120,6 +127,8 @@ void TypeDescriptor::to_thrift(TTypeDesc* thrift_type) const {
         } else if (type == TYPE_MAP) {
             //TODO(xy): need to process children for map
             node.type = TTypeNodeType::MAP;
+        } else if (type == TYPE_VARIANT) {
+            node.type = TTypeNodeType::VARIANT;
         } else {
             DCHECK_EQ(type, TYPE_STRUCT);
             node.type = TTypeNodeType::STRUCT;
@@ -186,6 +195,8 @@ void TypeDescriptor::to_protobuf(PTypeDesc* ptype) const {
         for (const TypeDescriptor& child : children) {
             child.to_protobuf(ptype);
         }
+    } else if (type == TYPE_VARIANT) {
+        node->set_type(TTypeNodeType::VARIANT);
     }
 }
 
@@ -234,6 +245,7 @@ TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNod
         children.push_back(TypeDescriptor(types, idx));
         ++(*idx);
         children.push_back(TypeDescriptor(types, idx));
+        break;
     }
     case TTypeNodeType::STRUCT: {
         type = TYPE_STRUCT;
@@ -249,9 +261,25 @@ TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNod
         }
         break;
     }
+    case TTypeNodeType::VARIANT: {
+        type = TYPE_VARIANT;
+        break;
+    }
     default:
         DCHECK(false) << node.type();
     }
+}
+
+void TypeDescriptor::add_sub_type(TypeDescriptor&& sub_type, bool&& is_nullable) {
+    children.emplace_back(sub_type);
+    contains_nulls.emplace_back(is_nullable);
+}
+
+void TypeDescriptor::add_sub_type(TypeDescriptor&& sub_type, std::string&& field_name,
+                                  bool&& is_nullable) {
+    children.emplace_back(sub_type);
+    field_names.emplace_back(field_name);
+    contains_nulls.emplace_back(is_nullable);
 }
 
 std::string TypeDescriptor::debug_string() const {
@@ -292,6 +320,9 @@ std::string TypeDescriptor::debug_string() const {
         ss << ">";
         return ss.str();
     }
+    case TYPE_VARIANT:
+        ss << "VARIANT";
+        return ss.str();
     default:
         return type_to_string(type);
     }

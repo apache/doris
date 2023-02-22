@@ -38,7 +38,7 @@ public class ShowTrashDiskStmt extends ShowStmt {
     public ShowTrashDiskStmt(String backendQuery) {
         ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getIdToBackend();
         for (Backend backend : backendsInfo.values()) {
-            String backendStr = String.valueOf(backend.getHost()) + ":" + String.valueOf(backend.getHeartbeatPort());
+            String backendStr = String.valueOf(backend.getIp()) + ":" + String.valueOf(backend.getHeartbeatPort());
             if (backendQuery.equals(backendStr)) {
                 this.backend = backend;
                 break;
@@ -52,8 +52,8 @@ public class ShowTrashDiskStmt extends ShowStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
-                && !Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(),
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)
+                && !Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(),
                         PrivPredicate.OPERATOR)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN/OPERATOR");
         }

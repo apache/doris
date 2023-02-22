@@ -349,7 +349,7 @@ under the License.
 
 ## SHOW-ALTER
 
-### Nameo
+### Name
 
 SHOW ALTER
 

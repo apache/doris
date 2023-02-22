@@ -49,12 +49,15 @@
                 "data-table/basic-usage",
                 "data-table/hit-the-rollup",
                 "data-table/best-practice",
+                "data-table/dynamic-schema-table",
                 {
                     "type": "category",
                     "label": "Index",
                     "items": [
-                        "data-table/index/bloomfilter",
                         "data-table/index/prefix-index",
+                        "data-table/index/inverted-index",
+                        "data-table/index/bloomfilter",
+                        "data-table/index/ngram-bloomfilter-index",
                         "data-table/index/bitmap-index"
                     ]
                 }
@@ -177,7 +180,8 @@
                 "advanced/time-zone",
                 "advanced/small-file-mgr",
                 "advanced/cold_hot_separation",
-                "advanced/compute_node"
+                "advanced/compute_node",
+                "advanced/hight-concurrent-point-query"
             ]
         },
         {
@@ -208,7 +212,8 @@
                         "lakehouse/external-table/hive"
                     ]
                 },
-                "lakehouse/file"
+                "lakehouse/file",
+                "lakehouse/filecache"
             ]
         },
         {
@@ -337,6 +342,7 @@
                                 "sql-manual/sql-functions/date-time-functions/date_trunc",
                                 "sql-manual/sql-functions/date-time-functions/date_format",
                                 "sql-manual/sql-functions/date-time-functions/datediff",
+                                "sql-manual/sql-functions/date-time-functions/microseconds_add",
                                 "sql-manual/sql-functions/date-time-functions/minutes_add",
                                 "sql-manual/sql-functions/date-time-functions/minutes_diff",
                                 "sql-manual/sql-functions/date-time-functions/minutes_sub",
@@ -1172,6 +1178,7 @@
             "type": "category",
             "label": "Release notes",
             "items": [
+                "releasenotes/release-1.2.2",
                 "releasenotes/release-1.2.1",
                 "releasenotes/release-1.2.0",
                 "releasenotes/release-1.1.5",

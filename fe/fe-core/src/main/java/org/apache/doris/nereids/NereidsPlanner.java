@@ -96,7 +96,6 @@ public class NereidsPlanner extends Planner {
         if (explainLevel.isPlanLevel) {
             return;
         }
-
         PhysicalPlan physicalPlan = (PhysicalPlan) resultPlan;
         PhysicalPlanTranslator physicalPlanTranslator = new PhysicalPlanTranslator();
         PlanTranslatorContext planTranslatorContext = new PlanTranslatorContext(cascadesContext);
@@ -161,7 +160,6 @@ public class NereidsPlanner extends Planner {
                     return analyzedPlan;
                 }
             }
-
             // rule-based optimize
             rewrite();
             if (explainLevel == ExplainLevel.REWRITTEN_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
@@ -170,19 +168,12 @@ public class NereidsPlanner extends Planner {
                     return rewrittenPlan;
                 }
             }
-
             deriveStats();
 
-            if (statementContext.getConnectContext().getSessionVariable().isEnableDPHypOptimizer()) {
-                // TODO: use DPHyp according the number of join table
-                dpHypOptimize();
-            } else {
-                optimize();
-            }
+            optimize();
 
             PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), requireProperties);
 
-            // post-process physical plan out of memo, just for future use.
             physicalPlan = postProcess(physicalPlan);
             if (explainLevel == ExplainLevel.OPTIMIZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
                 optimizedPlan = physicalPlan;
@@ -229,7 +220,6 @@ public class NereidsPlanner extends Planner {
         }
         cascadesContext.pushJob(new JoinOrderJob(root, cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
-        optimize();
     }
 
     /**
@@ -238,6 +228,12 @@ public class NereidsPlanner extends Planner {
      * try to find best plan under the guidance of statistic information and cost model.
      */
     private void optimize() {
+        if (!statementContext.getConnectContext().getSessionVariable().isDisableJoinReorder()
+                && statementContext.getConnectContext().getSessionVariable().isEnableDPHypOptimizer()
+                && statementContext.getMaxNAryInnerJoin() > statementContext.getConnectContext()
+                .getSessionVariable().getMaxTableCountUseCascadesJoinReorder()) {
+            dpHypOptimize();
+        }
         new OptimizeRulesJob(cascadesContext).execute();
     }
 

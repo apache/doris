@@ -46,6 +46,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalSortToPhysicalQuickS
 import org.apache.doris.nereids.rules.implementation.LogicalTVFRelationToPhysicalTVFRelation;
 import org.apache.doris.nereids.rules.implementation.LogicalTopNToPhysicalTopN;
 import org.apache.doris.nereids.rules.implementation.LogicalUnionToPhysicalUnion;
+import org.apache.doris.nereids.rules.implementation.LogicalWindowToPhysicalWindow;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateOuterJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeGenerates;
@@ -71,15 +72,17 @@ import java.util.List;
  */
 public class RuleSet {
     public static final List<Rule> EXPLORATION_RULES = planRuleFactories()
+            .add(new PushdownFilterThroughProject())
+            .add(new MergeProjects())
+            .build();
+
+    public static final List<Rule> OTHER_REORDER_RULES = planRuleFactories()
             .add(OuterJoinLAsscom.INSTANCE)
             .add(OuterJoinLAsscomProject.INSTANCE)
             .add(SemiJoinLogicalJoinTranspose.LEFT_DEEP)
             .add(SemiJoinLogicalJoinTransposeProject.LEFT_DEEP)
             .add(SemiJoinSemiJoinTranspose.INSTANCE)
             .add(SemiJoinSemiJoinTransposeProject.INSTANCE)
-            // .add(new DisassembleDistinctAggregate())
-            .add(new PushdownFilterThroughProject())
-            .add(new MergeProjects())
             .build();
 
     /**
@@ -116,6 +119,7 @@ public class RuleSet {
             .add(new LogicalFileScanToPhysicalFileScan())
             .add(new LogicalProjectToPhysicalProject())
             .add(new LogicalLimitToPhysicalLimit())
+            .add(new LogicalWindowToPhysicalWindow())
             .add(new LogicalSortToPhysicalQuickSort())
             .add(new LogicalTopNToPhysicalTopN())
             .add(new LogicalAssertNumRowsToPhysicalAssertNumRows())
@@ -166,6 +170,13 @@ public class RuleSet {
     public List<Rule> getExplorationRules() {
         List<Rule> rules = new ArrayList<>();
         rules.addAll(JOINORDER_RULE);
+        rules.addAll(OTHER_REORDER_RULES);
+        rules.addAll(EXPLORATION_RULES);
+        return rules;
+    }
+
+    public List<Rule> getExplorationRulesWithoutReorder() {
+        List<Rule> rules = new ArrayList<>();
         rules.addAll(EXPLORATION_RULES);
         return rules;
     }

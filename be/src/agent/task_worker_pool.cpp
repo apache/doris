@@ -29,6 +29,7 @@
 #include <sstream>
 #include <string>
 
+#include "agent/utils.h"
 #include "common/logging.h"
 #include "common/status.h"
 #include "env/env.h"
@@ -71,13 +72,11 @@ const int64_t PUBLISH_TIMEOUT_SEC = 10;
 std::atomic_ulong TaskWorkerPool::_s_report_version(time(nullptr) * 10000);
 std::mutex TaskWorkerPool::_s_task_signatures_lock;
 std::map<TTaskType::type, std::set<int64_t>> TaskWorkerPool::_s_task_signatures;
-FrontendServiceClientCache TaskWorkerPool::_master_service_client_cache;
 
 TaskWorkerPool::TaskWorkerPool(const TaskWorkerType task_worker_type, ExecEnv* env,
                                const TMasterInfo& master_info, ThreadModel thread_model)
         : _master_info(master_info),
           _agent_utils(new AgentUtils()),
-          _master_client(new MasterServerClient(_master_info, &_master_service_client_cache)),
           _env(env),
           _stop_background_threads_latch(1),
           _is_work(false),
@@ -148,6 +147,10 @@ void TaskWorkerPool::start() {
     case TaskWorkerType::ALTER_TABLE:
         _worker_count = config::alter_tablet_worker_count;
         cb = std::bind<void>(&TaskWorkerPool::_alter_tablet_worker_thread_callback, this);
+        break;
+    case TaskWorkerType::ALTER_INVERTED_INDEX:
+        _worker_count = config::alter_inverted_index_worker_count;
+        cb = std::bind<void>(&TaskWorkerPool::_alter_inverted_index_worker_thread_callback, this);
         break;
     case TaskWorkerType::CLONE:
         _worker_count = config::clone_worker_count;
@@ -299,7 +302,8 @@ void TaskWorkerPool::_finish_task(const TFinishTaskRequest& finish_task_request)
 
     while (try_time < TASK_FINISH_MAX_RETRY) {
         DorisMetrics::instance()->finish_task_requests_total->increment(1);
-        Status client_status = _master_client->finish_task(finish_task_request, &result);
+        Status client_status =
+                MasterServerClient::instance()->finish_task(finish_task_request, &result);
 
         if (client_status.ok()) {
             break;
@@ -467,6 +471,121 @@ void TaskWorkerPool::_drop_tablet_worker_thread_callback() {
         _finish_task(finish_task_request);
         _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
     }
+}
+
+void TaskWorkerPool::_alter_inverted_index_worker_thread_callback() {
+    while (_is_work) {
+        TAgentTaskRequest agent_task_req;
+        {
+            std::unique_lock<std::mutex> worker_thread_lock(_worker_thread_lock);
+            while (_is_work && _tasks.empty()) {
+                _worker_thread_condition_variable.wait(worker_thread_lock);
+            }
+            if (!_is_work) {
+                return;
+            }
+
+            agent_task_req = _tasks.front();
+            _tasks.pop_front();
+        }
+        int64_t signature = agent_task_req.signature;
+        LOG(INFO) << "get alter inverted index task, signature: " << agent_task_req.signature;
+        bool is_task_timeout = false;
+        if (agent_task_req.__isset.recv_time) {
+            int64_t time_elapsed = time(nullptr) - agent_task_req.recv_time;
+            if (time_elapsed > config::report_task_interval_seconds * 20) {
+                LOG(INFO) << "task elapsed " << time_elapsed
+                          << " seconds since it is inserted to queue, it is timeout";
+                is_task_timeout = true;
+            }
+        }
+        if (!is_task_timeout) {
+            TFinishTaskRequest finish_task_request;
+            TTaskType::type task_type = agent_task_req.task_type;
+            switch (task_type) {
+            case TTaskType::ALTER_INVERTED_INDEX:
+                _alter_inverted_index(agent_task_req, signature, task_type, &finish_task_request);
+                break;
+            default:
+                // pass
+                break;
+            }
+            _finish_task(finish_task_request);
+        }
+        _remove_task_info(agent_task_req.task_type, agent_task_req.signature);
+    }
+}
+
+void TaskWorkerPool::_alter_inverted_index(const TAgentTaskRequest& alter_inverted_index_request,
+                                           int64_t signature, const TTaskType::type task_type,
+                                           TFinishTaskRequest* finish_task_request) {
+    Status status = Status::OK();
+    string process_name;
+    switch (task_type) {
+    case TTaskType::ALTER_INVERTED_INDEX:
+        process_name = "AlterInvertedIndex";
+        break;
+    default:
+        std::string task_name;
+        EnumToString(TTaskType, task_type, task_name);
+        LOG(WARNING) << "schema change type invalid. type: " << task_name
+                     << ", signature: " << signature;
+        status = Status::NotSupported("Schema change type invalid");
+        break;
+    }
+
+    TTabletId tablet_id;
+    TSchemaHash schema_hash = 0;
+    if (status.ok()) {
+        tablet_id = alter_inverted_index_request.alter_inverted_index_req.tablet_id;
+        schema_hash = alter_inverted_index_request.alter_inverted_index_req.schema_hash;
+        EngineAlterInvertedIndexTask engine_task(
+                alter_inverted_index_request.alter_inverted_index_req);
+        Status sc_status = _env->storage_engine()->execute_task(&engine_task);
+        if (!sc_status.ok()) {
+            status = Status::DataQualityError("The data quality does not satisfy");
+        } else {
+            status = Status::OK();
+        }
+    }
+
+    if (status.ok()) {
+        ++_s_report_version;
+        LOG(INFO) << process_name << " finished. signature: " << signature;
+    }
+
+    // Return result to fe
+    finish_task_request->__set_backend(_backend);
+    finish_task_request->__set_report_version(_s_report_version);
+    finish_task_request->__set_task_type(task_type);
+    finish_task_request->__set_signature(signature);
+
+    std::vector<TTabletInfo> finish_tablet_infos;
+    if (status.ok()) {
+        TTabletInfo tablet_info;
+        status = _get_tablet_info(tablet_id, schema_hash, signature, &tablet_info);
+
+        if (!status.ok()) {
+            LOG(WARNING) << process_name << " success, but get tablet info failed."
+                         << "tablet_id: " << tablet_id << ", schema_hash: " << schema_hash
+                         << ", signature: " << signature;
+        } else {
+            finish_tablet_infos.push_back(tablet_info);
+        }
+    }
+
+    if (status.ok()) {
+        finish_task_request->__set_finish_tablet_infos(finish_tablet_infos);
+        LOG_INFO("successfully {}", process_name)
+                .tag("signature", signature)
+                .tag("tablet_id", tablet_id);
+    } else {
+        LOG_WARNING("failed to {}", process_name)
+                .tag("signature", signature)
+                .tag("tablet_id", tablet_id)
+                .error(status);
+    }
+    finish_task_request->__set_task_status(status.to_thrift());
 }
 
 void TaskWorkerPool::_alter_tablet_worker_thread_callback() {
@@ -1529,7 +1648,7 @@ Status TaskWorkerPool::_move_dir(const TTabletId tablet_id, const std::string& s
 
 void TaskWorkerPool::_handle_report(TReportRequest& request, ReportType type) {
     TMasterResult result;
-    Status status = _master_client->report(request, &result);
+    Status status = MasterServerClient::instance()->report(request, &result);
     bool is_report_success = false;
     if (!status.ok()) {
         LOG_WARNING("failed to report {}", TYPE_STRING(type))

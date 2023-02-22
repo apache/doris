@@ -293,9 +293,16 @@ public:
 
     Status create_rowset(RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset);
 
+    // MUST hold EXCLUSIVE `_meta_lock`
+    void add_rowsets(const std::vector<RowsetSharedPtr>& to_add);
+    // MUST hold EXCLUSIVE `_meta_lock`
+    void delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete, bool move_to_stale);
+
     ////////////////////////////////////////////////////////////////////////////
     // begin cooldown functions
     ////////////////////////////////////////////////////////////////////////////
+    int64_t cooldown_replica_id() const { return _cooldown_replica_id; }
+
     // Cooldown to remote fs.
     Status cooldown();
 
@@ -318,6 +325,18 @@ public:
 
     void record_unused_remote_rowset(const RowsetId& rowset_id, const std::string& resource,
                                      int64_t num_segments);
+
+    static void remove_unused_remote_files();
+
+    // If a rowset is to be written to remote filesystem, MUST add it to `pending_remote_rowsets` before uploading,
+    // and then erase it from `pending_remote_rowsets` after it has been insert to the Tablet.
+    // `remove_unused_remote_files` MUST NOT delete files of these pending rowsets.
+    static void add_pending_remote_rowset(std::string rowset_id);
+    static void erase_pending_remote_rowset(const std::string& rowset_id);
+
+    uint32_t calc_cold_data_compaction_score() const;
+
+    std::mutex& get_cold_compaction_lock() { return _cold_compaction_lock; }
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
@@ -326,12 +345,13 @@ public:
     // NOTE: the method only works in unique key model with primary key index, you will got a
     //       not supported error in other data model.
     Status lookup_row_key(const Slice& encoded_key, const RowsetIdUnorderedSet* rowset_ids,
-                          RowLocation* row_location, uint32_t version);
+                          RowLocation* row_location, uint32_t version,
+                          RowsetSharedPtr* rowset = nullptr);
 
     // Lookup a row with TupleDescriptor and fill Block
     Status lookup_row_data(const Slice& encoded_key, const RowLocation& row_location,
-                           const TupleDescriptor* desc, vectorized::Block* block,
-                           bool write_to_cache = false);
+                           RowsetSharedPtr rowset, const TupleDescriptor* desc,
+                           vectorized::Block* block, bool write_to_cache = false);
 
     // calc delete bitmap when flush memtable, use a fake version to calc
     // For example, cur max version is 5, and we use version 6 to calc but
@@ -348,6 +368,16 @@ public:
     Status update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset);
     Status update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapPtr delete_bitmap,
                                 const RowsetIdUnorderedSet& pre_rowset_ids);
+    uint64_t calc_compaction_output_rowset_delete_bitmap(
+            const std::vector<RowsetSharedPtr>& input_rowsets,
+            const RowIdConversion& rowid_conversion, uint64_t start_version, uint64_t end_version,
+            std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,
+            DeleteBitmap* output_rowset_delete_bitmap);
+    void merge_delete_bitmap(const DeleteBitmap& delete_bitmap);
+    Status check_rowid_conversion(
+            RowsetSharedPtr dst_rowset,
+            const std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>&
+                    location_map);
     RowsetIdUnorderedSet all_rs_id(int64_t max_version) const;
 
     bool check_all_rowset_segment();
@@ -360,6 +390,20 @@ public:
     bool should_skip_compaction(CompactionType compaction_type, int64_t now);
 
     RowsetSharedPtr get_rowset(const RowsetId& rowset_id);
+
+    void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor) {
+        std::shared_lock rlock(_meta_lock);
+        for (auto& [v, rs] : _rs_version_map) {
+            visitor(rs);
+        }
+        for (auto& [v, rs] : _stale_rs_version_map) {
+            visitor(rs);
+        }
+    }
+
+    Status write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
+                               UniqueId cooldown_meta_id, const RowsetMetaSharedPtr& new_rs_meta,
+                               const std::vector<RowsetMetaSharedPtr>& to_deletes);
 
 private:
     Status _init_once_action();
@@ -401,10 +445,10 @@ private:
     // begin cooldown functions
     ////////////////////////////////////////////////////////////////////////////
     Status _cooldown_data(const std::shared_ptr<io::RemoteFileSystem>& dest_fs);
-    Status _follow_cooldowned_data(io::RemoteFileSystem* fs, int64_t cooldown_replica_id);
-    Status _read_cooldown_meta(io::RemoteFileSystem* fs, int64_t cooldown_replica_id,
-                               TabletMetaPB* tablet_meta_pb);
-    Status _write_cooldown_meta(io::RemoteFileSystem* fs, RowsetMeta* new_rs_meta);
+    Status _follow_cooldowned_data(const std::shared_ptr<io::RemoteFileSystem>& fs,
+                                   int64_t cooldown_replica_id);
+    Status _read_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
+                               int64_t cooldown_replica_id, TabletMetaPB* tablet_meta_pb);
     ////////////////////////////////////////////////////////////////////////////
     // end cooldown functions
     ////////////////////////////////////////////////////////////////////////////
@@ -481,9 +525,10 @@ private:
     bool _skip_base_compaction = false;
     int64_t _skip_base_compaction_ts;
 
-    // cooldown conf
+    // cooldown related
     int64_t _cooldown_replica_id = -1;
     int64_t _cooldown_term = -1;
+    std::mutex _cold_compaction_lock;
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
 

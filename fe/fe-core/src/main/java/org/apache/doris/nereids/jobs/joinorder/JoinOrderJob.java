@@ -138,7 +138,7 @@ public class JoinOrderJob extends Job {
                 .getPlan();
 
         for (NamedExpression expr : logicalProject.getProjects()) {
-            if (expr.isAlias()) {
+            if (expr instanceof Alias) {
                 hyperGraph.addAlias((Alias) expr);
             } else if (!expr.isSlot()) {
                 otherProject.add(expr);

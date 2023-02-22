@@ -31,7 +31,6 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.IsNullPredicate;
-import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
@@ -57,12 +56,10 @@ import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
-import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
-import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
@@ -76,6 +73,7 @@ import org.apache.doris.nereids.trees.expressions.functions.generator.TableGener
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonArray;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.JsonObject;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
+import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunction;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
@@ -240,22 +238,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     }
 
     @Override
-    public Expr visitLike(Like like, PlanTranslatorContext context) {
-        return new org.apache.doris.analysis.LikePredicate(
-                LikePredicate.Operator.LIKE,
-                like.left().accept(this, context),
-                like.right().accept(this, context));
-    }
-
-    @Override
-    public Expr visitRegexp(Regexp regexp, PlanTranslatorContext context) {
-        return new org.apache.doris.analysis.LikePredicate(
-                LikePredicate.Operator.REGEXP,
-                regexp.left().accept(this, context),
-                regexp.right().accept(this, context));
-    }
-
-    @Override
     public Expr visitCaseWhen(CaseWhen caseWhen, PlanTranslatorContext context) {
         List<CaseWhenClause> caseWhenClauses = new ArrayList<>();
         for (WhenClause whenClause : caseWhen.getWhenClauses()) {
@@ -282,11 +264,56 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
     @Override
     public Expr visitInPredicate(InPredicate inPredicate, PlanTranslatorContext context) {
         List<Expr> inList = inPredicate.getOptions().stream()
-                .map(e -> translate(e, context))
+                .map(e -> e.accept(this, context))
                 .collect(Collectors.toList());
         return new org.apache.doris.analysis.InPredicate(inPredicate.getCompareExpr().accept(this, context),
                 inList,
                 false);
+    }
+
+    @Override
+    public Expr visitWindowFunction(WindowFunction function, PlanTranslatorContext context) {
+        // translate argument types from DataType to Type
+        List<Expr> catalogArguments = function.getArguments()
+                .stream()
+                .map(arg -> arg.accept(this, context))
+                .collect(ImmutableList.toImmutableList());
+        ImmutableList<Type> argTypes = catalogArguments.stream()
+                .map(arg -> arg.getType())
+                .collect(ImmutableList.toImmutableList());
+
+        // translate argument from List<Expression> to FunctionParams
+        List<Expr> arguments = function.getArguments()
+                .stream()
+                .map(arg -> new SlotRef(arg.getDataType().toCatalogDataType(), arg.nullable()))
+                .collect(ImmutableList.toImmutableList());
+        FunctionParams windowFnParams = new FunctionParams(false, arguments);
+
+        // translate isNullable()
+        NullableMode nullableMode = function.nullable()
+                ? NullableMode.ALWAYS_NULLABLE
+                : NullableMode.ALWAYS_NOT_NULLABLE;
+
+        // translate function from WindowFunction to old AggregateFunction
+        boolean isAnalyticFunction = true;
+        org.apache.doris.catalog.AggregateFunction catalogFunction = new org.apache.doris.catalog.AggregateFunction(
+                new FunctionName(function.getName()), argTypes,
+                function.getDataType().toCatalogDataType(),
+                function.getDataType().toCatalogDataType(),
+                function.hasVarArguments(),
+                null, "", "", null, "",
+                null, "", null, false,
+                isAnalyticFunction, false, TFunctionBinaryType.BUILTIN,
+                true, true, nullableMode
+        );
+
+        // generate FunctionCallExpr
+        boolean isMergeFn = false;
+        FunctionCallExpr functionCallExpr =
+                new FunctionCallExpr(catalogFunction, windowFnParams, windowFnParams, isMergeFn, catalogArguments);
+        functionCallExpr.setIsAnalyticFnCall(true);
+        return functionCallExpr;
+
     }
 
     @Override

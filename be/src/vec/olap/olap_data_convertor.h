@@ -48,12 +48,17 @@ public:
 
 class OlapBlockDataConvertor {
 public:
+    OlapBlockDataConvertor() = default;
     OlapBlockDataConvertor(const TabletSchema* tablet_schema);
     OlapBlockDataConvertor(const TabletSchema* tablet_schema, const std::vector<uint32_t>& col_ids);
     void set_source_content(const vectorized::Block* block, size_t row_pos, size_t num_rows);
     void clear_source_content();
     std::pair<Status, IOlapColumnDataAccessor*> convert_column_data(size_t cid);
     void add_column_data_convertor(const TabletColumn& column);
+
+    bool empty() const { return _convertors.empty(); }
+    void reserve(size_t size) { _convertors.reserve(size); }
+    void reset() { _convertors.clear(); }
 
 private:
     class OlapColumnDataConvertorBase;
@@ -408,7 +413,6 @@ private:
 
         Status convert_to_olap() override;
         const void* get_data() const override { return _results.data(); };
-
         const void* get_data_at(size_t offset) const override {
             LOG(FATAL) << "now not support get_data_at for OlapColumnDataConvertorMap";
         };

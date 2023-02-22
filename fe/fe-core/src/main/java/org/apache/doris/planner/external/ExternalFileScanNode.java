@@ -135,9 +135,12 @@ public class ExternalFileScanNode extends ExternalScanNode {
      * External file scan node for:
      * 1. Query hms table
      * 2. Load from file
+     * needCheckColumnPriv: Some of ExternalFileScanNode do not need to check column priv
+     * eg: s3 tvf, load scan node.
+     * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
-    public ExternalFileScanNode(PlanNodeId id, TupleDescriptor desc) {
-        super(id, desc, "EXTERNAL_FILE_SCAN_NODE", StatisticalType.FILE_SCAN_NODE);
+    public ExternalFileScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
+        super(id, desc, "EXTERNAL_FILE_SCAN_NODE", StatisticalType.FILE_SCAN_NODE, needCheckColumnPriv);
     }
 
     // Only for broker load job.
@@ -401,6 +404,12 @@ public class ExternalFileScanNode extends ExternalScanNode {
             createScanRangeLocations(context, scanProvider);
             this.inputSplitsNum += scanProvider.getInputSplitNum();
             this.totalFileSize += scanProvider.getInputFileSize();
+            TableIf table = desc.getTable();
+            if (table instanceof HMSExternalTable) {
+                if (((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE)) {
+                    genSlotToSchemaIdMap(context);
+                }
+            }
             if (scanProvider instanceof HiveScanProvider) {
                 this.totalPartitionNum = ((HiveScanProvider) scanProvider).getTotalPartitionNum();
                 this.readPartitionNum = ((HiveScanProvider) scanProvider).getReadPartitionNum();
@@ -420,6 +429,12 @@ public class ExternalFileScanNode extends ExternalScanNode {
             createScanRangeLocations(context, scanProvider);
             this.inputSplitsNum += scanProvider.getInputSplitNum();
             this.totalFileSize += scanProvider.getInputFileSize();
+            TableIf table = desc.getTable();
+            if (table instanceof HMSExternalTable) {
+                if (((HMSExternalTable) table).getDlaType().equals(HMSExternalTable.DLAType.HIVE)) {
+                    genSlotToSchemaIdMap(context);
+                }
+            }
             if (scanProvider instanceof HiveScanProvider) {
                 this.totalPartitionNum = ((HiveScanProvider) scanProvider).getTotalPartitionNum();
                 this.readPartitionNum = ((HiveScanProvider) scanProvider).getReadPartitionNum();
@@ -632,6 +647,22 @@ public class ExternalFileScanNode extends ExternalScanNode {
     private void createScanRangeLocations(ParamCreateContext context, FileScanProviderIf scanProvider)
             throws UserException {
         scanProvider.createScanRangeLocations(context, backendPolicy, scanRangeLocations);
+    }
+
+    private void genSlotToSchemaIdMap(ParamCreateContext context) {
+        List<Column> baseSchema = desc.getTable().getBaseSchema();
+        Map<String, Integer> columnNameToPosition = Maps.newHashMap();
+        for (SlotDescriptor slot : desc.getSlots()) {
+            int idx = 0;
+            for (Column col : baseSchema) {
+                if (col.getName().equals(slot.getColumn().getName())) {
+                    columnNameToPosition.put(col.getName(), idx);
+                    break;
+                }
+                idx += 1;
+            }
+        }
+        context.params.setSlotNameToSchemaPos(columnNameToPosition);
     }
 
     @Override

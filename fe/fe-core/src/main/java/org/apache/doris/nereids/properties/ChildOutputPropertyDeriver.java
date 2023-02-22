@@ -34,7 +34,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -102,15 +101,6 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     }
 
     @Override
-    public PhysicalProperties visitPhysicalLocalQuickSort(
-            PhysicalLocalQuickSort<? extends Plan> sort, PlanContext context) {
-        Preconditions.checkState(childrenOutputProperties.size() == 1);
-        return new PhysicalProperties(
-                childrenOutputProperties.get(0).getDistributionSpec(),
-                new OrderSpec(sort.getOrderKeys()));
-    }
-
-    @Override
     public PhysicalProperties visitPhysicalTopN(PhysicalTopN<? extends Plan> topN, PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 1);
         return new PhysicalProperties(DistributionSpecGather.INSTANCE, new OrderSpec(topN.getOrderKeys()));
@@ -119,6 +109,11 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
     @Override
     public PhysicalProperties visitPhysicalQuickSort(PhysicalQuickSort<? extends Plan> sort, PlanContext context) {
         Preconditions.checkState(childrenOutputProperties.size() == 1);
+        if (sort.getSortPhase().isLocal()) {
+            return new PhysicalProperties(
+                    childrenOutputProperties.get(0).getDistributionSpec(),
+                    new OrderSpec(sort.getOrderKeys()));
+        }
         return new PhysicalProperties(DistributionSpecGather.INSTANCE, new OrderSpec(sort.getOrderKeys()));
     }
 

@@ -68,6 +68,8 @@ private:
     // _compound_filters store conditions in the one compound relationship in conjunct expr tree except leaf node of `and` node,
     // such as: "(a or b) and (c or d)", conditions for a,b,c,d will be stored
     std::vector<TCondition> _compound_filters;
+    // If column id in this set, indicate that we need to read data after index filtering
+    std::set<int32_t> _maybe_read_column_ids;
 
 private:
     std::unique_ptr<RuntimeProfile> _segment_profile;
@@ -129,6 +131,14 @@ private:
 
     RuntimeProfile::Counter* _inverted_index_filter_counter = nullptr;
     RuntimeProfile::Counter* _inverted_index_filter_timer = nullptr;
+    RuntimeProfile::Counter* _inverted_index_query_cache_hit_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_query_cache_miss_counter = nullptr;
+    RuntimeProfile::Counter* _inverted_index_query_timer = nullptr;
+    RuntimeProfile::Counter* _inverted_index_query_bitmap_copy_timer = nullptr;
+    RuntimeProfile::Counter* _inverted_index_query_bitmap_op_timer = nullptr;
+    RuntimeProfile::Counter* _inverted_index_searcher_open_timer = nullptr;
+    RuntimeProfile::Counter* _inverted_index_searcher_search_timer = nullptr;
+    RuntimeProfile::Counter* _inverted_index_searcher_bitmap_timer = nullptr;
 
     RuntimeProfile::Counter* _output_index_result_column_timer = nullptr;
 

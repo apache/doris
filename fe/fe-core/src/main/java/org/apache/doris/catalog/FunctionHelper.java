@@ -23,6 +23,7 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.functions.generator.TableGeneratingFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ScalarFunction;
 import org.apache.doris.nereids.trees.expressions.functions.table.TableValuedFunction;
+import org.apache.doris.nereids.trees.expressions.functions.window.WindowFunction;
 
 import com.google.common.collect.ImmutableList;
 
@@ -67,6 +68,10 @@ public interface FunctionHelper {
     default AggregateFunc agg(Class<? extends AggregateFunction> functionClass) {
         String functionName = functionClass.getSimpleName();
         return new AggregateFunc(functionClass, functionName);
+    }
+
+    default WindowFunc window(Class<? extends WindowFunction> functionClass, String... functionNames) {
+        return new WindowFunc(functionClass, functionNames);
     }
 
     /**
@@ -126,6 +131,12 @@ public interface FunctionHelper {
 
     class TableGeneratingFunc extends NamedFunc<TableGeneratingFunction> {
         public TableGeneratingFunc(Class<? extends TableGeneratingFunction> functionClass, String... names) {
+            super(functionClass, names);
+        }
+    }
+
+    class WindowFunc extends NamedFunc<WindowFunction> {
+        public WindowFunc(Class<? extends WindowFunction> functionClass, String... names) {
             super(functionClass, names);
         }
     }

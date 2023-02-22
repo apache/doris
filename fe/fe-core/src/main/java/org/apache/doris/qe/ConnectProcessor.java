@@ -408,6 +408,8 @@ public class ConnectProcessor {
             parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
             executor = new StmtExecutor(ctx, parsedStmt);
             ctx.setExecutor(executor);
+            // reset the executionTimeout corresponding with the StmtExecutor
+            ctx.resetExecTimeout();
 
             try {
                 executor.execute();

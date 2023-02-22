@@ -477,7 +477,7 @@ public class SingleNodePlanner {
                         // over the length: https://github.com/apache/doris/pull/6293
                         if (aggOp == TPushAggOp.MINMAX || aggOp == TPushAggOp.MIX) {
                             PrimitiveType colType = col.getDataType();
-                            if (colType.isArrayType() || colType.isComplexType()
+                            if (colType.isComplexType() || colType.isHllType() || colType.isBitmapType()
                                     || colType == PrimitiveType.STRING) {
                                 returnColumnValidate = false;
                                 break;
@@ -1193,6 +1193,23 @@ public class SingleNodePlanner {
             // create left-deep sequence of binary hash joins; assign node ids as we go along
             TableRef tblRef = selectStmt.getTableRefs().get(0);
             materializeTableResultForCrossJoinOrCountStar(tblRef, analyzer);
+            if (selectStmt.getResultExprs().size() == 1) {
+                final List<SlotId> slotIds = Lists.newArrayList();
+                final List<TupleId> tupleIds = Lists.newArrayList();
+                Expr resultExprSelected =  selectStmt.getResultExprs().get(0);
+                if (resultExprSelected != null && resultExprSelected instanceof SlotRef) {
+                    resultExprSelected.getIds(tupleIds, slotIds);
+                    for (SlotId id : slotIds) {
+                        final SlotDescriptor slot = analyzer.getDescTbl().getSlotDesc(id);
+                        slot.setIsMaterialized(true);
+                        slot.materializeSrcExpr();
+                    }
+                    for (TupleId id : tupleIds) {
+                        final TupleDescriptor tuple = analyzer.getDescTbl().getTupleDesc(id);
+                        tuple.setIsMaterialized(true);
+                    }
+                }
+            }
             root = createTableRefNode(analyzer, tblRef, selectStmt);
             // to change the inner contains analytic function
             // selectStmt.seondSubstituteInlineViewExprs(analyzer.getChangeResSmap());
@@ -1329,33 +1346,30 @@ public class SingleNodePlanner {
                 }
 
                 // select index by the new Materialized selector
-                MaterializedViewSelector.BestIndexInfo bestIndexInfo
-                        = materializedViewSelector.selectBestMV(olapScanNode);
+                MaterializedViewSelector.BestIndexInfo bestIndexInfo = materializedViewSelector
+                        .selectBestMV(olapScanNode);
+                boolean tupleSelectFailed = false;
                 if (bestIndexInfo == null) {
-                    selectFailed = true;
-                    TupleId tupleId = olapScanNode.getTupleId();
-                    selectStmt.updateDisableTuplesMVRewriter(tupleId);
-                    LOG.debug("MV rewriter of tuple [] will be disable", tupleId);
-                    continue;
-                }
-                try {
-                    // if the new selected index id is different from the old one, scan node will be
-                    // updated.
-                    olapScanNode.updateScanRangeInfoByNewMVSelector(bestIndexInfo.getBestIndexId(),
-                            bestIndexInfo.isPreAggregation(), bestIndexInfo.getReasonOfDisable());
+                    tupleSelectFailed = true;
+                } else {
+                    try {
+                        // if the new selected index id is different from the old one, scan node will be
+                        // updated.
+                        olapScanNode.updateScanRangeInfoByNewMVSelector(bestIndexInfo.getBestIndexId(),
+                                bestIndexInfo.isPreAggregation(), bestIndexInfo.getReasonOfDisable());
 
-                    if (selectStmt.getAggInfo() != null) {
-                        selectStmt.getAggInfo().updateTypeOfAggregateExprs();
+                        if (selectStmt.getAggInfo() != null) {
+                            selectStmt.getAggInfo().updateTypeOfAggregateExprs();
+                        }
+                    } catch (Exception e) {
+                        tupleSelectFailed = true;
                     }
-                } catch (Exception e) {
+                }
+                if (tupleSelectFailed) {
                     selectFailed = true;
-                    TupleId tupleId = olapScanNode.getTupleId();
-                    selectStmt.updateDisableTuplesMVRewriter(tupleId);
-                    LOG.debug("MV rewriter of tuple [] will be disable", tupleId);
-                    continue;
+                    selectStmt.updateDisableTuplesMVRewriter(olapScanNode.getTupleId());
                 }
             }
-
         } else {
             Preconditions.checkState(queryStmt instanceof SetOperationStmt);
             SetOperationStmt unionStmt = (SetOperationStmt) queryStmt;
@@ -1800,8 +1814,9 @@ public class SingleNodePlanner {
                     newConjuncts = cloneExprs(newConjuncts);
                 }
             } else {
-                Preconditions.checkArgument(select.getTableRefs().size() == 1);
-                viewAnalyzer.registerConjuncts(newConjuncts, select.getTableRefs().get(0).getId());
+                for (Expr e : conjuncts) {
+                    viewAnalyzer.registerMigrateFailedConjuncts(inlineViewRef, e);
+                }
             }
         } else {
             Preconditions.checkArgument(stmt instanceof SetOperationStmt);
@@ -1944,7 +1959,7 @@ public class SingleNodePlanner {
             case HIVE:
                 throw new RuntimeException("Hive external table is not supported, try to use hive catalog please");
             case ICEBERG:
-                scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc());
+                scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
                 break;
             case HUDI:
                 throw new UserException(
@@ -1957,13 +1972,16 @@ public class SingleNodePlanner {
                 break;
             case HMS_EXTERNAL_TABLE:
             case ICEBERG_EXTERNAL_TABLE:
-                scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc());
+                scanNode = new ExternalFileScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
                 break;
             case ES_EXTERNAL_TABLE:
                 scanNode = new EsScanNode(ctx.getNextNodeId(), tblRef.getDesc(), "EsScanNode", true);
                 break;
             case JDBC_EXTERNAL_TABLE:
                 scanNode = new JdbcScanNode(ctx.getNextNodeId(), tblRef.getDesc(), true);
+                break;
+            case TEST_EXTERNAL_TABLE:
+                scanNode = new TestExternalTableScanNode(ctx.getNextNodeId(), tblRef.getDesc());
                 break;
             default:
                 break;
@@ -2133,7 +2151,13 @@ public class SingleNodePlanner {
             scanNode = createScanNode(analyzer, tblRef, selectStmt);
         }
         if (tblRef instanceof InlineViewRef) {
-            scanNode = createInlineViewPlan(analyzer, (InlineViewRef) tblRef);
+            InlineViewRef inlineViewRef = (InlineViewRef) tblRef;
+            scanNode = createInlineViewPlan(analyzer, inlineViewRef);
+            Analyzer viewAnalyzer = inlineViewRef.getAnalyzer();
+            Set<Expr> exprs = viewAnalyzer.findMigrateFailedConjuncts(inlineViewRef);
+            if (CollectionUtils.isNotEmpty(exprs)) {
+                scanNode.setVConjunct(exprs);
+            }
         }
         if (scanNode == null) {
             throw new UserException("unknown TableRef node");

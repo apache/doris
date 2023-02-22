@@ -396,6 +396,12 @@ BE 重启后该配置将失效。如果想持久化修改结果，使用如下�
 * 描述：Scanner线程池线程数目。在Doris的扫描任务之中，每一个Scanner会作为一个线程task提交到线程池之中等待被调度，该参数决定了Scanner线程池的大小。
 * 默认值：48
 
+#### `doris_max_remote_scanner_thread_pool_thread_num`
+
+* 类型：int32
+* 描述：Remote scanner thread pool 的最大线程数。Remote scanner thread pool 用于除内表外的所有 scan 任务的执行。
+* 默认值：512
+
 #### `enable_prefetch`
 
 * 类型：bool
@@ -1427,5 +1433,15 @@ load tablets from header failed, failed tablets size: xxx, path=xxx
 
 * 描述: 存放 jdbc driver 的默认目录。
 * 默认值: `${DORIS_HOME}/jdbc_drivers`
+
+#### `enable_parse_multi_dimession_array`
+
+* 描述: 在动态表中是否解析多维数组，如果是false遇到多维数组则会报错。
+* 默认值: true
+
+#### `enable_simdjson_reader`
+
+* 描述: 是否在导入json数据时用simdjson来解析。
+* 默认值: false
 
 </version>

@@ -140,6 +140,7 @@ Status DeltaWriter::init() {
     context.newest_write_timestamp = UnixSeconds();
     context.tablet_id = _tablet->table_id();
     context.is_direct_write = true;
+    context.tablet = _tablet;
     RETURN_NOT_OK(_tablet->create_rowset_writer(context, &_rowset_writer));
     _schema.reset(new Schema(_tablet_schema));
     _reset_mem_table();
@@ -457,6 +458,8 @@ void DeltaWriter::_build_current_tablet_schema(int64_t index_id,
     if (_tablet_schema->schema_version() > ori_tablet_schema.schema_version()) {
         _tablet->update_max_version_schema(_tablet_schema);
     }
+
+    _tablet_schema->set_table_id(table_schema_param->table_id());
 }
 
 void DeltaWriter::_request_slave_tablet_pull_rowset(PNodeInfo node_info) {

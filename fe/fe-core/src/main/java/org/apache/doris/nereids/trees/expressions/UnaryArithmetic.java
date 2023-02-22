@@ -20,14 +20,13 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
-import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 
 /**
  * binary arithmetic operator. Such as +, -, *, /.
  */
-public abstract class UnaryArithmetic extends UnaryOperator implements PropagateNullable, ImplicitCastInputTypes {
+public abstract class UnaryArithmetic extends UnaryOperator implements PropagateNullable {
 
     private final Operator legacyOperator;
 
@@ -43,11 +42,6 @@ public abstract class UnaryArithmetic extends UnaryOperator implements Propagate
     @Override
     public DataType getDataType() throws UnboundException {
         return child().getDataType();
-    }
-
-    @Override
-    public boolean nullable() throws UnboundException {
-        return child().nullable();
     }
 
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {

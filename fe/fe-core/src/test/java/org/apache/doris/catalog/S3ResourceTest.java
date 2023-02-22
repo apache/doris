@@ -24,7 +24,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeMetaVersion;
 import org.apache.doris.common.UserException;
 import org.apache.doris.meta.MetaContext;
-import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
@@ -87,12 +87,13 @@ public class S3ResourceTest {
     }
 
     @Test
-    public void testFromStmt(@Mocked Env env, @Injectable Auth auth) throws UserException {
+    public void testFromStmt(@Mocked Env env, @Injectable AccessControllerManager accessManager)
+            throws UserException {
         new Expectations() {
             {
-                env.getAuth();
-                result = auth;
-                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                env.getAccessManager();
+                result = accessManager;
+                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
             }
         };
@@ -134,12 +135,13 @@ public class S3ResourceTest {
     }
 
     @Test(expected = DdlException.class)
-    public void testAbnormalResource(@Mocked Env env, @Injectable Auth auth) throws UserException {
+    public void testAbnormalResource(@Mocked Env env, @Injectable AccessControllerManager accessManager)
+            throws UserException {
         new Expectations() {
             {
-                env.getAuth();
-                result = auth;
-                auth.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
+                env.getAccessManager();
+                result = accessManager;
+                accessManager.checkGlobalPriv((ConnectContext) any, PrivPredicate.ADMIN);
                 result = true;
             }
         };

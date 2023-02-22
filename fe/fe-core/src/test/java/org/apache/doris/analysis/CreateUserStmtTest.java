@@ -19,6 +19,7 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
@@ -45,13 +46,13 @@ public class CreateUserStmtTest {
 
     @Test
     public void testToString(@Injectable Analyzer analyzer,
-            @Mocked Auth auth) throws UserException, AnalysisException {
+            @Mocked AccessControllerManager accessManager) throws UserException, AnalysisException {
 
         new Expectations() {
             {
                 analyzer.getClusterName();
                 result = "testCluster";
-                auth.checkHasPriv((ConnectContext) any, PrivPredicate.GRANT, Auth.PrivLevel.GLOBAL, Auth
+                accessManager.checkHasPriv((ConnectContext) any, PrivPredicate.GRANT, Auth.PrivLevel.GLOBAL, Auth
                         .PrivLevel.DATABASE);
                 result = true;
             }

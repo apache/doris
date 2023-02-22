@@ -294,7 +294,7 @@ public class CatalogMgrTest extends TestWithFeService {
         dos.flush();
         dos.close();
 
-        CatalogIf internalCatalog = mgr.getCatalog(InternalCatalog.INTERNAL_DS_ID);
+        CatalogIf internalCatalog = mgr.getCatalog(InternalCatalog.INTERNAL_CATALOG_ID);
         CatalogIf internalCatalog2 = mgr.getInternalCatalog();
         Assert.assertTrue(internalCatalog == internalCatalog2);
         CatalogIf myCatalog = mgr.getCatalog(MY_CATALOG);
@@ -307,7 +307,7 @@ public class CatalogMgrTest extends TestWithFeService {
         Assert.assertEquals(7, mgr2.listCatalogs().size());
         Assert.assertEquals(myCatalog.getId(), mgr2.getCatalog(MY_CATALOG).getId());
         Assert.assertEquals(0, mgr2.getInternalCatalog().getId());
-        Assert.assertEquals(0, mgr2.getCatalog(InternalCatalog.INTERNAL_DS_ID).getId());
+        Assert.assertEquals(0, mgr2.getCatalog(InternalCatalog.INTERNAL_CATALOG_ID).getId());
         Assert.assertEquals(0, mgr2.getCatalog(InternalCatalog.INTERNAL_CATALOG_NAME).getId());
 
         EsExternalCatalog esExternalCatalog = (EsExternalCatalog) mgr2.getCatalog("es");
@@ -380,14 +380,14 @@ public class CatalogMgrTest extends TestWithFeService {
         List<List<String>> user1ShowResult = env.getCatalogMgr().showCatalogs(user1Show).getResultRows();
         Assert.assertEquals(user1ShowResult.size(), 1);
         Assert.assertEquals(user1ShowResult.get(0).get(1), InternalCatalog.INTERNAL_CATALOG_NAME);
-        Assert.assertEquals(user1ShowResult.get(0).get(0), String.valueOf(InternalCatalog.INTERNAL_DS_ID));
+        Assert.assertEquals(user1ShowResult.get(0).get(0), String.valueOf(InternalCatalog.INTERNAL_CATALOG_ID));
 
         // have privilege and match
         user1Show = (ShowCatalogStmt) parseAndAnalyzeStmt("show catalogs like 'inter%';", user1Ctx);
         user1ShowResult = env.getCatalogMgr().showCatalogs(user1Show).getResultRows();
         Assert.assertEquals(user1ShowResult.size(), 1);
         Assert.assertEquals(user1ShowResult.get(0).get(1), InternalCatalog.INTERNAL_CATALOG_NAME);
-        Assert.assertEquals(user1ShowResult.get(0).get(0), String.valueOf(InternalCatalog.INTERNAL_DS_ID));
+        Assert.assertEquals(user1ShowResult.get(0).get(0), String.valueOf(InternalCatalog.INTERNAL_CATALOG_ID));
 
         // mock the login of user2
         ConnectContext user2Ctx = createCtx(user2, "127.0.0.1");

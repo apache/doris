@@ -70,16 +70,16 @@ public:
 
     Status init();
 
-    vectorized::Block* get_free_block(bool* get_free_block);
-    void return_free_block(vectorized::Block* block);
+    vectorized::BlockUPtr get_free_block(bool* has_free_block);
+    void return_free_block(std::unique_ptr<vectorized::Block> block);
 
     // Append blocks from scanners to the blocks queue.
-    void append_blocks_to_queue(const std::vector<vectorized::Block*>& blocks);
+    void append_blocks_to_queue(std::vector<vectorized::BlockUPtr>& blocks);
 
     // Get next block from blocks queue. Called by ScanNode
     // Set eos to true if there is no more data to read.
     // And if eos is true, the block returned must be nullptr.
-    virtual Status get_block_from_queue(vectorized::Block** block, bool* eos, bool wait = true);
+    virtual Status get_block_from_queue(vectorized::BlockUPtr* block, bool* eos, bool wait = true);
 
     // When a scanner complete a scan, this method will be called
     // to return the scanner to the list for next scheduling.
@@ -170,7 +170,7 @@ protected:
     // The blocks got from scanners will be added to the "blocks_queue".
     // And the upper scan node will be as a consumer to fetch blocks from this queue.
     // Should be protected by "_transfer_lock"
-    std::list<vectorized::Block*> _blocks_queue;
+    std::list<vectorized::BlockUPtr> _blocks_queue;
     // Wait in get_block_from_queue(), by ScanNode.
     doris::ConditionVariable _blocks_queue_added_cv;
     // Wait in clear_and_join(), by ScanNode.
@@ -196,7 +196,7 @@ protected:
 
     // Pre-allocated blocks for all scanners to share, for memory reuse.
     doris::Mutex _free_blocks_lock;
-    std::vector<vectorized::Block*> _free_blocks;
+    std::vector<vectorized::BlockUPtr> _free_blocks;
 
     // The limit from SQL's limit clause
     int64_t limit;

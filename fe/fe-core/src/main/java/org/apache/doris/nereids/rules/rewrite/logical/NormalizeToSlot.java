@@ -65,6 +65,10 @@ public interface NormalizeToSlot {
             return new NormalizeToSlotContext(normalizeToSlotMap);
         }
 
+        public <E extends Expression> E normalizeToUseSlotRef(E expression) {
+            return normalizeToUseSlotRef(ImmutableList.of(expression)).get(0);
+        }
+
         /** normalizeToUseSlotRef, no custom normalize */
         public <E extends Expression> List<E> normalizeToUseSlotRef(List<E> expressions) {
             return normalizeToUseSlotRef(expressions, (context, expr) -> expr);

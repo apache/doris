@@ -580,7 +580,7 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             checkAuthWithoutAuthInfo(command);
             return;
         }
-        if (!Env.getCurrentEnv().getAuth().checkPrivByAuthInfo(ConnectContext.get(), authorizationInfo,
+        if (!Env.getCurrentEnv().getAccessManager().checkPrivByAuthInfo(ConnectContext.get(), authorizationInfo,
                 PrivPredicate.LOAD)) {
             ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                     Privilege.LOAD_PRIV);
@@ -601,14 +601,14 @@ public abstract class LoadJob extends AbstractTxnStateChangeCallback implements 
             Set<String> tableNames = getTableNames();
             if (tableNames.isEmpty()) {
                 // forward compatibility
-                if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(), db.getFullName(),
+                if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(), db.getFullName(),
                         PrivPredicate.LOAD)) {
                     ErrorReport.reportDdlException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR,
                             Privilege.LOAD_PRIV);
                 }
             } else {
                 for (String tblName : tableNames) {
-                    if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), db.getFullName(),
+                    if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), db.getFullName(),
                             tblName, PrivPredicate.LOAD)) {
                         ErrorReport.reportDdlException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR,
                                 command,

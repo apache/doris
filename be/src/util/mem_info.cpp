@@ -35,6 +35,7 @@
 #include "common/config.h"
 #include "gutil/strings/split.h"
 #include "olap/page_cache.h"
+#include "olap/segment_loader.h"
 #include "util/cgroup_util.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
@@ -69,7 +70,7 @@ void MemInfo::refresh_allocator_mem() {
 #elif defined(USE_JEMALLOC)
     uint64_t epoch = 0;
     size_t sz = sizeof(epoch);
-    je_mallctl("epoch", &epoch, &sz, &epoch, sz);
+    jemallctl("epoch", &epoch, &sz, &epoch, sz);
 
     // https://jemalloc.net/jemalloc.3.html
     _s_allocator_cache_mem =
@@ -97,6 +98,8 @@ void MemInfo::process_cache_gc(int64_t& freed_mem) {
     freed_mem +=
             StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE);
     StoragePageCache::instance()->prune(segment_v2::DATA_PAGE);
+    // TODO add freed_mem
+    SegmentLoader::instance()->prune();
 }
 
 // step1: free all cache
@@ -131,6 +134,11 @@ bool MemInfo::process_full_gc() {
             [&]() { LOG(INFO) << fmt::format("Process Full GC Free Memory {} Bytes", freed_mem); }};
 
     MemInfo::process_cache_gc(freed_mem);
+    if (freed_mem > _s_process_full_gc_size) {
+        return true;
+    }
+    freed_mem += SegmentLoader::instance()->segment_cache_mem_consumption();
+    SegmentLoader::instance()->prune_all();
     if (freed_mem > _s_process_full_gc_size) {
         return true;
     }

@@ -151,7 +151,7 @@ public class FoldConstantRuleOnBE extends AbstractExpressionRewriteRule {
             }
             Collections.shuffle(backendIds);
             Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
-            TNetworkAddress brpcAddress = new TNetworkAddress(be.getHost(), be.getBrpcPort());
+            TNetworkAddress brpcAddress = new TNetworkAddress(be.getIp(), be.getBrpcPort());
 
             TQueryGlobals queryGlobals = new TQueryGlobals();
             queryGlobals.setNowString(DATE_FORMAT.format(LocalDateTime.now()));

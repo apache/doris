@@ -47,7 +47,6 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
-import java.util.Map.Entry;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -235,7 +234,7 @@ public class ResourceMgr implements Writable {
             for (Map.Entry<String, Resource> entry : nameToResource.entrySet()) {
                 Resource resource = entry.getValue();
                 // check resource privs
-                if (!Env.getCurrentEnv().getAuth().checkResourcePriv(ConnectContext.get(), resource.getName(),
+                if (!Env.getCurrentEnv().getAccessManager().checkResourcePriv(ConnectContext.get(), resource.getName(),
                                                                              PrivPredicate.SHOW_RESOURCES)) {
                     continue;
                 }

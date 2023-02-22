@@ -23,6 +23,7 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
+import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.ListPartitionItem;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.MaterializedIndex.IndexExtState;
@@ -51,6 +52,7 @@ import org.apache.doris.thrift.TDataSinkType;
 import org.apache.doris.thrift.TExplainLevel;
 import org.apache.doris.thrift.TExprNode;
 import org.apache.doris.thrift.TNodeInfo;
+import org.apache.doris.thrift.TOlapTableIndex;
 import org.apache.doris.thrift.TOlapTableIndexSchema;
 import org.apache.doris.thrift.TOlapTableIndexTablets;
 import org.apache.doris.thrift.TOlapTableLocationParam;
@@ -199,6 +201,7 @@ public class OlapTableSink extends DataSink {
         schemaParam.setDbId(dbId);
         schemaParam.setTableId(table.getId());
         schemaParam.setVersion(table.getIndexMetaByIndexId(table.getBaseIndexId()).getSchemaVersion());
+        schemaParam.setIsDynamicSchema(table.isDynamicSchema());
 
         schemaParam.tuple_desc = tupleDescriptor.toThrift();
         for (SlotDescriptor slotDesc : tupleDescriptor.getSlots()) {
@@ -209,15 +212,21 @@ public class OlapTableSink extends DataSink {
             MaterializedIndexMeta indexMeta = pair.getValue();
             List<String> columns = Lists.newArrayList();
             List<TColumn> columnsDesc = Lists.newArrayList();
+            List<TOlapTableIndex> indexDesc = Lists.newArrayList();
             columns.addAll(indexMeta.getSchema().stream().map(Column::getName).collect(Collectors.toList()));
             for (Column column : indexMeta.getSchema()) {
                 TColumn tColumn = column.toThrift();
                 column.setIndexFlag(tColumn, table);
                 columnsDesc.add(tColumn);
             }
+            for (Index index : table.getIndexes()) {
+                TOlapTableIndex tIndex = index.toThrift();
+                indexDesc.add(tIndex);
+            }
             TOlapTableIndexSchema indexSchema = new TOlapTableIndexSchema(pair.getKey(), columns,
                     indexMeta.getSchemaHash());
             indexSchema.setColumnsDesc(columnsDesc);
+            indexSchema.setIndexesDesc(indexDesc);
             schemaParam.addToIndexes(indexSchema);
         }
         return schemaParam;
@@ -273,6 +282,7 @@ public class OlapTableSink extends DataSink {
                                 index.getTablets().stream().map(Tablet::getId).collect(Collectors.toList()))));
                         tPartition.setNumBuckets(index.getTablets().size());
                     }
+                    tPartition.setIsMutable(table.getPartitionInfo().getIsMutable(partitionId));
                     partitionParam.addToPartitions(tPartition);
 
                     DistributionInfo distInfo = partition.getDistributionInfo();
@@ -297,6 +307,7 @@ public class OlapTableSink extends DataSink {
 
                 TOlapTablePartition tPartition = new TOlapTablePartition();
                 tPartition.setId(partition.getId());
+                tPartition.setIsMutable(table.getPartitionInfo().getIsMutable(partition.getId()));
                 // No lowerBound and upperBound for this range
                 for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
                     tPartition.addToIndexes(new TOlapTableIndexTablets(index.getId(), Lists.newArrayList(
@@ -404,7 +415,7 @@ public class OlapTableSink extends DataSink {
         SystemInfoService systemInfoService = Env.getCurrentSystemInfo();
         for (Long id : systemInfoService.getBackendIds(false)) {
             Backend backend = systemInfoService.getBackend(id);
-            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getHost(), backend.getBrpcPort()));
+            nodesInfo.addToNodes(new TNodeInfo(backend.getId(), 0, backend.getIp(), backend.getBrpcPort()));
         }
         return nodesInfo;
     }

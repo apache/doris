@@ -35,8 +35,7 @@ struct FilterPredicates;
 class NewOlapScanner : public VScanner {
 public:
     NewOlapScanner(RuntimeState* state, NewOlapScanNode* parent, int64_t limit, bool aggregation,
-                   bool need_agg_finalize, const TPaloScanRange& scan_range,
-                   RuntimeProfile* profile);
+                   bool need_agg_finalize, RuntimeProfile* profile);
 
     Status open(RuntimeState* state) override;
 
@@ -50,6 +49,8 @@ public:
     const std::string& scan_disk() const { return _tablet->data_dir()->path(); }
 
     void set_compound_filters(const std::vector<TCondition>& compound_filters);
+
+    doris::TabletStorageType get_storage_type() override;
 
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eos) override;

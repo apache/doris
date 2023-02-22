@@ -824,7 +824,8 @@ public class RestoreJob extends AbstractJob {
                         }
                         localPartitionInfo.addPartition(restoredPart.getId(), false, remoteItem,
                                 remoteDataProperty, restoreReplicaAlloc,
-                                remotePartitionInfo.getIsInMemory(remotePartId));
+                                remotePartitionInfo.getIsInMemory(remotePartId),
+                                remotePartitionInfo.getIsMutable(remotePartId));
                     }
                     localTbl.addPartition(restoredPart);
                 } finally {
@@ -1006,7 +1007,8 @@ public class RestoreJob extends AbstractJob {
                             localTbl.getCompressionType(),
                             localTbl.getEnableUniqueKeyMergeOnWrite(), localTbl.getStoragePolicy(),
                             localTbl.disableAutoCompaction(),
-                            localTbl.storeRowColumn());
+                            localTbl.storeRowColumn(),
+                            localTbl.isDynamicSchema());
 
                     task.setInRestoreMode(true);
                     batchTask.addTask(task);
@@ -1168,7 +1170,8 @@ public class RestoreJob extends AbstractJob {
             }
             localPartitionInfo.addPartition(restorePart.getId(), false, remotePartitionInfo.getItem(remotePartId),
                     remoteDataProperty, restoreReplicaAlloc,
-                    remotePartitionInfo.getIsInMemory(remotePartId));
+                    remotePartitionInfo.getIsInMemory(remotePartId),
+                    remotePartitionInfo.getIsMutable(remotePartId));
             localTbl.addPartition(restorePart);
 
             // modify tablet inverted index

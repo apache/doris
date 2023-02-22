@@ -21,6 +21,7 @@ import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.Role;
 import org.apache.doris.qe.ConnectContext;
@@ -50,6 +51,8 @@ public class LdapAuthenticateTest {
     private Env env;
     @Mocked
     private Auth auth;
+    @Mocked
+    private AccessControllerManager accessManager;
 
     @Before
     public void setUp() throws DdlException {
@@ -66,6 +69,10 @@ public class LdapAuthenticateTest {
                         ldapGroupsPrivs = savedRole;
                     }
                 };
+
+                env.getAccessManager();
+                minTimes = 0;
+                result = accessManager;
 
                 env.getAuth();
                 minTimes = 0;

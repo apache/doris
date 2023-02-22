@@ -31,7 +31,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
@@ -90,6 +89,14 @@ public class CostCalculator {
         return costWeight.calculate(costEstimate);
     }
 
+    public static double calculateCost(Plan plan, PlanContext planContext) {
+        CostEstimator costCalculator = new CostEstimator();
+        CostEstimate costEstimate = plan.accept(costCalculator, planContext);
+        CostWeight costWeight = new CostWeight(CPU_WEIGHT, MEMORY_WEIGHT, NETWORK_WEIGHT,
+                ConnectContext.get().getSessionVariable().getNereidsCboPenaltyFactor());
+        return costWeight.calculate(costEstimate);
+    }
+
     private static class CostEstimator extends PlanVisitor<CostEstimate, PlanContext> {
         @Override
         public CostEstimate visit(Plan plan, PlanContext context) {
@@ -133,7 +140,10 @@ public class CostCalculator {
             // TODO: consider two-phase sort and enforcer.
             StatsDeriveResult statistics = context.getStatisticsWithCheck();
             StatsDeriveResult childStatistics = context.getChildStatistics(0);
-
+            if (physicalQuickSort.getSortPhase().isGather()) {
+                // Now we do more like two-phase sort, so penalise one-phase sort
+                statistics.updateRowCount(statistics.getRowCount() * 100);
+            }
             return CostEstimate.of(
                     childStatistics.getRowCount(),
                     statistics.getRowCount(),
@@ -145,24 +155,14 @@ public class CostCalculator {
             // TODO: consider two-phase sort and enforcer.
             StatsDeriveResult statistics = context.getStatisticsWithCheck();
             StatsDeriveResult childStatistics = context.getChildStatistics(0);
-
+            if (topN.getSortPhase().isGather()) {
+                // Now we do more like two-phase sort, so penalise one-phase sort
+                statistics.updateRowCount(statistics.getRowCount() * 100);
+            }
             return CostEstimate.of(
                     childStatistics.getRowCount(),
                     statistics.getRowCount(),
                     childStatistics.getRowCount());
-        }
-
-        @Override
-        public CostEstimate visitPhysicalLocalQuickSort(
-                PhysicalLocalQuickSort<? extends Plan> sort, PlanContext context) {
-            // TODO: consider two-phase sort and enforcer.
-            StatsDeriveResult statistics = context.getStatisticsWithCheck();
-            StatsDeriveResult childStatistics = context.getChildStatistics(0);
-
-            return CostEstimate.of(
-                    childStatistics.getRowCount(),
-                    statistics.getRowCount(),
-                    0);
         }
 
         @Override
@@ -226,8 +226,8 @@ public class CostCalculator {
         @Override
         public CostEstimate visitPhysicalHashJoin(
                 PhysicalHashJoin<? extends Plan, ? extends Plan> physicalHashJoin, PlanContext context) {
-            Preconditions.checkState(context.getGroupExpression().arity() == 2);
-            StatsDeriveResult outputStats = physicalHashJoin.getGroupExpression().get().getOwnerGroup().getStatistics();
+            Preconditions.checkState(context.arity() == 2);
+            StatsDeriveResult outputStats = context.getStatisticsWithCheck();
             double outputRowCount = outputStats.getRowCount();
 
             StatsDeriveResult probeStats = context.getChildStatistics(0);
@@ -268,7 +268,7 @@ public class CostCalculator {
                 PhysicalNestedLoopJoin<? extends Plan, ? extends Plan> nestedLoopJoin,
                 PlanContext context) {
             // TODO: copy from physicalHashJoin, should update according to physical nested loop join properties.
-            Preconditions.checkState(context.getGroupExpression().arity() == 2);
+            Preconditions.checkState(context.arity() == 2);
 
             StatsDeriveResult leftStatistics = context.getChildStatistics(0);
             StatsDeriveResult rightStatistics = context.getChildStatistics(1);

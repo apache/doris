@@ -25,7 +25,7 @@
 # It contains all the meta data that describes the function.
 
 # The format is:
-#   [sql aliases], <return_type>, [<args>], <backend symbol>, <nullable mode>
+#   [sql aliases], <return_type>, [<args>], <nullable mode>
 #
 # 'sql aliases' are the function names that can be used from sql. There must be at least
 # one per function.
@@ -139,7 +139,6 @@ visible_functions = [
     [['array_contains'], 'BOOLEAN', ['ARRAY_DECIMAL128', 'DECIMAL128'], 'ALWAYS_NULLABLE'],
     [['array_contains'], 'BOOLEAN', ['ARRAY_VARCHAR', 'VARCHAR'], 'ALWAYS_NULLABLE'],
     [['array_contains'], 'BOOLEAN', ['ARRAY_STRING', 'STRING'], 'ALWAYS_NULLABLE'],
-
 
     [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_BOOLEAN'], ''],
     [['array_enumerate'], 'ARRAY_BIGINT', ['ARRAY_TINYINT'], ''],
@@ -1526,6 +1525,45 @@ visible_functions = [
     [['multi_match_any'], 'TINYINT', ['STRING', 'ARRAY_STRING'], 'ALWAYS_NOT_NULLABLE'],
 
     [['uuid'], 'VARCHAR', [], 'ALWAYS_NOT_NULLABLE'],
+
+    [['non_nullable'], 'BOOLEAN', ['BOOLEAN'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'TINYINT', ['TINYINT'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'SMALLINT', ['SMALLINT'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'INT', ['INT'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'BIGINT', ['BIGINT'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'LARGEINT', ['LARGEINT'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'FLOAT', ['FLOAT'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'DOUBLE', ['DOUBLE'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'DATE', ['DATE'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'DATEV2', ['DATEV2'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'DATETIME', ['DATETIME'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'DATETIMEV2', ['DATETIMEV2'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'DECIMALV2', ['DECIMALV2'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'DECIMAL32', ['DECIMAL32'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'DECIMAL64', ['DECIMAL64'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'DECIMAL128', ['DECIMAL128'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'VARCHAR', ['VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'STRING', ['STRING'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'BITMAP', ['BITMAP'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'JSONB', ['JSONB'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_BOOLEAN', ['ARRAY_BOOLEAN'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_TINYINT', ['ARRAY_TINYINT'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_SMALLINT', ['ARRAY_SMALLINT'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_INT', ['ARRAY_INT'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_BIGINT', ['ARRAY_BIGINT'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_LARGEINT', ['ARRAY_LARGEINT'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_DATETIME', ['ARRAY_DATETIME'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_DATE', ['ARRAY_DATE'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_DATETIMEV2', ['ARRAY_DATETIMEV2'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_DATEV2', ['ARRAY_DATEV2'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_FLOAT', ['ARRAY_FLOAT'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_DOUBLE', ['ARRAY_DOUBLE'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_DECIMALV2', ['ARRAY_DECIMALV2'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_DECIMAL32', ['ARRAY_DECIMAL32'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_DECIMAL64', ['ARRAY_DECIMAL64'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_DECIMAL128', ['ARRAY_DECIMAL128'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_VARCHAR', ['ARRAY_VARCHAR'], 'ALWAYS_NOT_NULLABLE'],
+    [['non_nullable'], 'ARRAY_STRING', ['ARRAY_STRING'], 'ALWAYS_NOT_NULLABLE']
 ]
 
 # Except the following functions, other function will directly return

@@ -31,6 +31,7 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
+import org.apache.doris.datasource.CatalogMgr;
 import org.apache.doris.policy.Policy;
 import org.apache.doris.policy.StoragePolicy;
 import org.apache.doris.resource.Tag;
@@ -95,6 +96,7 @@ public class PropertyAnalyzer {
     // _auto_bucket can only set in create table stmt rewrite bucket and can not be changed
     public static final String PROPERTIES_AUTO_BUCKET = "_auto_bucket";
     public static final String PROPERTIES_ESTIMATE_PARTITION_SIZE = "estimate_partition_size";
+    public static final String PROPERTIES_DYNAMIC_SCHEMA = "dynamic_schema";
 
     public static final String PROPERTIES_TABLET_TYPE = "tablet_type";
 
@@ -120,6 +122,8 @@ public class PropertyAnalyzer {
     public static final String PROPERTIES_DISABLE_AUTO_COMPACTION = "disable_auto_compaction";
 
     public static final String PROPERTIES_STORE_ROW_COLUMN = "store_row_column";
+
+    public static final String PROPERTIES_MUTABLE = "mutable";
 
     private static final Logger LOG = LogManager.getLogger(PropertyAnalyzer.class);
     private static final String COMMA_SEPARATOR = ",";
@@ -225,7 +229,10 @@ public class PropertyAnalyzer {
             }
         }
 
-        return new DataProperty(storageMedium, cooldownTimestamp, newStoragePolicy);
+        boolean mutable = PropertyAnalyzer.analyzeBooleanProp(properties, PROPERTIES_MUTABLE, true);
+        properties.remove(PROPERTIES_MUTABLE);
+
+        return new DataProperty(storageMedium, cooldownTimestamp, newStoragePolicy, mutable);
     }
 
     public static short analyzeShortKeyColumnCount(Map<String, String> properties) throws AnalysisException {
@@ -377,7 +384,7 @@ public class PropertyAnalyzer {
                         // key columns and none/replace aggregate non-key columns support
                         if (type == PrimitiveType.TINYINT || type == PrimitiveType.FLOAT
                                 || type == PrimitiveType.DOUBLE || type == PrimitiveType.BOOLEAN
-                                || type.isArrayType()) {
+                                || type.isComplexType()) {
                             throw new AnalysisException(type + " is not supported in bloom filter index. "
                                     + "invalid column: " + bfColumn);
                         } else if (keysType != KeysType.AGG_KEYS || column.isKey()) {
@@ -806,6 +813,23 @@ public class PropertyAnalyzer {
                 EsResource.valid(properties, true);
             } catch (Exception e) {
                 throw new AnalysisException(e.getMessage());
+            }
+        }
+        // validate access controller properties
+        // eg:
+        // (
+        // "access_controller.class" = "org.apache.doris.mysql.privilege.RangerAccessControllerFactory",
+        // "access_controller.properties.prop1" = "xxx",
+        // "access_controller.properties.prop2" = "yyy",
+        // )
+        // 1. get access controller class
+        String acClass = properties.getOrDefault(CatalogMgr.ACCESS_CONTROLLER_CLASS_PROP, "");
+        if (!Strings.isNullOrEmpty(acClass)) {
+            // 2. check if class exists
+            try {
+                Class.forName(acClass);
+            } catch (ClassNotFoundException e) {
+                throw new AnalysisException("failed to find class " + acClass, e);
             }
         }
     }

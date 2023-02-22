@@ -1071,6 +1071,14 @@ public class Config extends ConfigBase {
     public static int max_query_retry_time = 1;
 
     /**
+     * The number of point query retries in executor.
+     * A query may retry if we encounter RPC exception and no result has been sent to user.
+     * You may reduce this number to avoid Avalanche disaster.
+     */
+    @ConfField(mutable = true)
+    public static int max_point_query_retry_time = 2;
+
+    /**
      * The tryLock timeout configuration of catalog lock.
      * Normally it does not need to change, unless you need to test something.
      */
@@ -1908,6 +1916,14 @@ public class Config extends ConfigBase {
     public static long external_cache_expire_time_minutes_after_access = 24 * 60; // 1 day
 
     /**
+     * Github workflow test type, for setting some session variables
+     * only for certain test type. E.g. only settting batch_size to small
+     * value for p0.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static String fuzzy_test_type = "";
+
+    /**
      * Set session variables randomly to check more issues in github workflow
      */
     @ConfField(mutable = true, masterOnly = false)
@@ -1985,5 +2001,27 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = true, masterOnly = true)
     public static long default_db_max_running_txn_num = -1;
+
+    /**
+     * Used by TokenManager to control the number of tokens keep in memory.
+     * One token will keep alive for {token_queue_size * token_generate_period_hour} hours.
+     * By defaults, one token will keep for 3 days.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static int token_queue_size = 6;
+
+    /**
+     * TokenManager will generate token every token_generate_period_hour.
+     */
+    @ConfField(mutable = false, masterOnly = true)
+    public static int token_generate_period_hour = 12;
+
+    /**
+     * The secure local path of the FE node the place the data which will be loaded in doris.
+     * The default value is empty for this config which means this feature is not allowed.
+     * User who want to load fe server local file should config the value to a right local path.
+     */
+    @ConfField(mutable = false, masterOnly = false)
+    public static String mysql_load_server_secure_path = "";
 }
 

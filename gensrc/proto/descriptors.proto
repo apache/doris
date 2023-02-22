@@ -51,6 +51,7 @@ message POlapTableIndexSchema {
     repeated string columns = 2;
     required int32 schema_hash = 3;
     repeated ColumnPB columns_desc = 4;
+    repeated TabletIndexPB indexes_desc = 5;
 };
 
 message POlapTableSchemaParam {

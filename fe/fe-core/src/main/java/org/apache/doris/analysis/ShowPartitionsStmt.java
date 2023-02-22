@@ -102,7 +102,7 @@ public class ShowPartitionsStmt extends ShowStmt {
         // check access
         String dbName = tableName.getDb();
         String tblName = tableName.getTbl();
-        if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(), dbName, tblName,
+        if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(), dbName, tblName,
                                                                 PrivPredicate.SHOW)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SHOW PARTITIONS",
                                                 ConnectContext.get().getQualifiedUser(),

@@ -87,6 +87,8 @@ public:
 
     // Try to prune the segment cache if expired.
     Status prune();
+    int64_t prune_all() { return _cache->prune(); };
+    int64_t segment_cache_mem_consumption() { return _cache->mem_consumption(); }
 
 private:
     SegmentLoader();

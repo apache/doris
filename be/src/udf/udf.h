@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <functional>
 #include <iostream>
+#include <memory>
 #include <vector>
 
 // This is the only Doris header required to develop UDFs and UDAs. This header
@@ -91,6 +92,7 @@ public:
         TYPE_DECIMAL64,
         TYPE_DECIMAL128I,
         TYPE_JSONB,
+        TYPE_VARIANT
     };
 
     struct TypeDesc {
@@ -214,7 +216,7 @@ public:
     /// GetFunctionState() is called when no pointer is set, it will return
     /// nullptr. SetFunctionState() does not take ownership of 'ptr'; it is up to the UDF/UDA
     /// to clean up any function state if necessary.
-    void set_function_state(FunctionStateScope scope, void* ptr);
+    void set_function_state(FunctionStateScope scope, std::shared_ptr<void> ptr);
 
     void* get_function_state(FunctionStateScope scope) const;
 

@@ -81,6 +81,7 @@ From the version of `Apache Doris 1.2.1 Docker Image`, the interface list of eac
 | FE\BE\BROKER    | FE_SERVERS | FE node main information | fe1:172.20.80.2:9010,fe2:172.20.80.3:9010,fe3:172.20.80.4:9010 |
 | FE | FE_ID       | FE node ID | 1 |
 | BE | BE_ADDR     | BE node main information | 172.20.80.5:9050 |
+| BE | NODE_ROLE | BE node type | computation |
 | BROKER | BROKER_ADDR | Main information of BROKER node | 172.20.80.6:8000 |
 
 Note that the above interface must fill in the information, otherwise the process cannot be started.
@@ -90,6 +91,8 @@ Note that the above interface must fill in the information, otherwise the proces
 > The FE_ID interface rule is: an integer of `1-9`, where the FE number `1` is the Master node.
 >
 > BE_ADDR interface rule is: `BE_HOST:BE_HEARTBEAT_SERVICE_PORT`
+>
+> The NODE_ROLE interface rule is: `computation` or empty, where empty or other values indicate that the node type is `mix` type
 >
 > BROKER_ADDR interface rule is: `BROKER_HOST:BROKER_IPC_PORT`
 
@@ -211,5 +214,4 @@ Then `exit` exits and creates the Doris Docker cluster.
 
 ## Unfinished business
 
-1. The Computer Node interface has not yet been adapted, and the next version will adapt
-2. Compose Demo List
+1. Compose Demo List

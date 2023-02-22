@@ -28,7 +28,7 @@ import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableSet;
 
@@ -63,8 +63,8 @@ public class OuterJoinLAsscom extends OneExplorationRuleFactory {
         return logicalJoin(logicalJoin(), group())
                 .when(join -> VALID_TYPE_PAIR_SET.contains(Pair.of(join.left().getJoinType(), join.getJoinType())))
                 .when(topJoin -> checkReorder(topJoin, topJoin.left()))
-                .when(topJoin -> checkCondition(topJoin, topJoin.left().right().getOutputExprIdSet()))
                 .whenNot(join -> join.hasJoinHint() || join.left().hasJoinHint())
+                .when(topJoin -> checkCondition(topJoin, topJoin.left().right().getOutputExprIdSet()))
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
                     GroupPlan a = bottomJoin.left();
@@ -104,7 +104,7 @@ public class OuterJoinLAsscom extends OneExplorationRuleFactory {
                             .stream()
                             .map(SlotReference::getExprId)
                             .collect(Collectors.toSet());
-                    return !ExpressionUtils.isIntersecting(usedExprIdSet, bOutputExprIdSet);
+                    return !Utils.isIntersecting(usedExprIdSet, bOutputExprIdSet);
                 });
     }
 

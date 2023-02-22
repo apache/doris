@@ -242,6 +242,8 @@ struct StringRef {
     // Trims leading and trailing spaces.
     StringRef trim() const;
 
+    bool empty() const { return size == 0; }
+
     // support for type_limit
     static constexpr char MIN_CHAR = 0;
     static constexpr char MAX_CHAR = char(

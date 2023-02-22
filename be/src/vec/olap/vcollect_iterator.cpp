@@ -129,21 +129,27 @@ Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_reade
             std::advance(base_reader_child, base_reader_idx);
 
             std::list<LevelIterator*> cumu_children;
-            int i = 0;
-            for (const auto& child : _children) {
-                if (i != base_reader_idx) {
-                    cumu_children.push_back(child);
+            for (auto iter = _children.begin(); iter != _children.end();) {
+                if (iter != base_reader_child) {
+                    cumu_children.push_back(*iter);
+                    iter = _children.erase(iter);
+                } else {
+                    ++iter;
                 }
-                ++i;
             }
-            Level1Iterator* cumu_iter = new Level1Iterator(
+            auto cumu_iter = std::make_unique<Level1Iterator>(
                     cumu_children, _reader, cumu_children.size() > 1, _is_reverse, _skip_same);
             RETURN_IF_NOT_EOF_AND_OK(cumu_iter->init());
             std::list<LevelIterator*> children;
             children.push_back(*base_reader_child);
-            children.push_back(cumu_iter);
-            _inner_iter.reset(
-                    new Level1Iterator(children, _reader, _merge, _is_reverse, _skip_same));
+            children.push_back(cumu_iter.get());
+            auto level1_iter =
+                    new Level1Iterator(children, _reader, _merge, _is_reverse, _skip_same);
+            cumu_iter.release();
+            _inner_iter.reset(level1_iter);
+            // need to clear _children here, or else if the following _inner_iter->init() return early
+            // base_reader_child will be double deleted
+            _children.clear();
         } else {
             // _children.size() == 1
             _inner_iter.reset(
@@ -240,6 +246,11 @@ Status VCollectIterator::_topn_next(Block* block) {
 
     auto cloneBlock = block->clone_empty();
     MutableBlock mutable_block = vectorized::MutableBlock::build_mutable_block(&cloneBlock);
+
+    if (!_reader->_reader_context.read_orderby_key_columns) {
+        return Status::Error<ErrorCode::INTERNAL_ERROR>(
+                "read_orderby_key_columns should not be nullptr");
+    }
 
     size_t first_sort_column_idx = (*_reader->_reader_context.read_orderby_key_columns)[0];
     const std::vector<uint32_t>* sort_columns = _reader->_reader_context.read_orderby_key_columns;
@@ -533,7 +544,6 @@ VCollectIterator::Level1Iterator::Level1Iterator(
           _is_reverse(is_reverse),
           _skip_same(skip_same) {
     _ref.reset();
-    _batch_size = reader->_batch_size;
     // !_merge means that data are in order, so we just reverse children to return data in reverse
     if (!_merge && _is_reverse) {
         _children.reverse();
@@ -703,8 +713,9 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
         block->insert(cur_row.block->get_by_position(i).clone_empty());
     }
 
+    auto batch_size = _reader->batch_size();
     if (UNLIKELY(_reader->_reader_context.record_rowids)) {
-        _block_row_locations.resize(_batch_size);
+        _block_row_locations.resize(batch_size);
     }
     int continuous_row_in_block = 0;
     do {
@@ -736,7 +747,7 @@ Status VCollectIterator::Level1Iterator::_merge_next(Block* block) {
             LOG(WARNING) << "next failed: " << res;
             return res;
         }
-        if (target_block_row >= _batch_size) {
+        if (target_block_row >= batch_size) {
             if (continuous_row_in_block > 0) {
                 const auto& src_block = pre_row_ref.block;
                 for (size_t i = 0; i < column_count; ++i) {

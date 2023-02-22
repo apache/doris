@@ -1541,6 +1541,16 @@ private:
             return &ConvertImplGenericToJsonb::execute;
         }
     }
+
+    WrapperType create_map_wrapper(const DataTypePtr& from_type, const DataTypeMap& to_type) const {
+        switch (from_type->get_type_id()) {
+        case TypeIndex::String:
+            return &ConvertImplGenericFromString<ColumnString>::execute;
+        default:
+            return create_unsupport_wrapper(from_type->get_name(), to_type.get_name());
+        }
+    }
+
     // check struct value type and get to_type value
     // TODO: need handle another type to cast struct
     WrapperType create_struct_wrapper(const DataTypePtr& from_type,
@@ -1727,6 +1737,8 @@ private:
                                         static_cast<const DataTypeArray&>(*to_type));
         case TypeIndex::Struct:
             return create_struct_wrapper(from_type, static_cast<const DataTypeStruct&>(*to_type));
+        case TypeIndex::Map:
+            return create_map_wrapper(from_type, static_cast<const DataTypeMap&>(*to_type));
         default:
             break;
         }
@@ -1765,12 +1777,16 @@ protected:
     DataTypePtr get_return_type_impl(const ColumnsWithTypeAndName& arguments) const override {
         const auto type_col =
                 check_and_get_column_const<ColumnString>(arguments.back().column.get());
+        DataTypePtr type;
         if (!type_col) {
-            LOG(FATAL) << fmt::format(
-                    "Second argument to {} must be a constant string describing type", get_name());
+            // only used in schema_util::cast_column
+            // use second arg as type arg
+            // since not all types are in the DatatypeFactory
+            type = arguments[1].type;
+        } else {
+            // TODO(xy): support return struct type for factory
+            type = DataTypeFactory::instance().get(type_col->get_value<String>());
         }
-        // TODO(xy): support return struct type for factory
-        auto type = DataTypeFactory::instance().get(type_col->get_value<String>());
         DCHECK(type != nullptr);
         bool need_to_be_nullable = false;
         // 1. from_type is nullable

@@ -228,6 +228,11 @@ TabletMeta::TabletMeta(int64_t table_id, int64_t partition_id, int64_t tablet_id
     if (tablet_schema.__isset.disable_auto_compaction) {
         schema->set_disable_auto_compaction(tablet_schema.disable_auto_compaction);
     }
+
+    if (tablet_schema.__isset.is_dynamic_schema) {
+        schema->set_is_dynamic_schema(tablet_schema.is_dynamic_schema);
+    }
+
     if (tablet_schema.__isset.delete_sign_idx) {
         schema->set_delete_sign_idx(tablet_schema.delete_sign_idx);
     }
@@ -242,6 +247,7 @@ TabletMeta::TabletMeta(const TabletMeta& b)
         : _table_id(b._table_id),
           _partition_id(b._partition_id),
           _tablet_id(b._tablet_id),
+          _replica_id(b._replica_id),
           _schema_hash(b._schema_hash),
           _shard_id(b._shard_id),
           _creation_time(b._creation_time),
@@ -532,6 +538,10 @@ void TabletMeta::init_from_pb(const TabletMetaPB& tablet_meta_pb) {
     }
 
     _storage_policy_id = tablet_meta_pb.storage_policy_id();
+    if (tablet_meta_pb.has_cooldown_meta_id()) {
+        _cooldown_meta_id = tablet_meta_pb.cooldown_meta_id();
+    }
+
     if (tablet_meta_pb.has_enable_unique_key_merge_on_write()) {
         _enable_unique_key_merge_on_write = tablet_meta_pb.enable_unique_key_merge_on_write();
     }
@@ -600,17 +610,21 @@ void TabletMeta::to_meta_pb(TabletMetaPB* tablet_meta_pb) {
     if (_storage_policy_id > 0) {
         tablet_meta_pb->set_storage_policy_id(_storage_policy_id);
     }
+    if (_cooldown_meta_id.initialized()) {
+        tablet_meta_pb->mutable_cooldown_meta_id()->CopyFrom(_cooldown_meta_id.to_proto());
+    }
+
     tablet_meta_pb->set_enable_unique_key_merge_on_write(_enable_unique_key_merge_on_write);
 
     if (_enable_unique_key_merge_on_write) {
-        std::set<RowsetId> rs_ids;
-        for (const auto& rowset : _rs_metas) {
-            rs_ids.insert(rowset->rowset_id());
+        std::set<RowsetId> stale_rs_ids;
+        for (const auto& rowset : _stale_rs_metas) {
+            stale_rs_ids.insert(rowset->rowset_id());
         }
         DeleteBitmapPB* delete_bitmap_pb = tablet_meta_pb->mutable_delete_bitmap();
         for (auto& [id, bitmap] : delete_bitmap().snapshot().delete_bitmap) {
             auto& [rowset_id, segment_id, ver] = id;
-            if (rs_ids.count(rowset_id) == 0) {
+            if (stale_rs_ids.count(rowset_id) != 0) {
                 continue;
             }
             delete_bitmap_pb->add_rowset_ids(rowset_id.to_string());
@@ -818,44 +832,6 @@ Status TabletMeta::set_partition_id(int64_t partition_id) {
     }
     _partition_id = partition_id;
     return Status::OK();
-}
-
-// We take a delete bitmap's snapshot of origin rowset at the beginning of
-// compaction, some keys of origin rowsets might be deleted during compaction,
-// but exist in dest rowset. so we need to update the bitmap of dest rowset
-// after compaction.
-// ANNT: should take a tablet lock before calling the function
-void TabletMeta::update_delete_bitmap(const std::vector<RowsetSharedPtr>& input_rowsets,
-                                      const Version& version,
-                                      const RowIdConversion& rowid_conversion) {
-    RowLocation src;
-    RowLocation dst;
-    DeleteBitmap output_rowset_delete_bitmap(_tablet_id);
-    for (auto& rowset : input_rowsets) {
-        src.rowset_id = rowset->rowset_id();
-        for (uint32_t seg_id = 0; seg_id < rowset->num_segments(); ++seg_id) {
-            src.segment_id = seg_id;
-            DeleteBitmap upper_map(_tablet_id);
-            delete_bitmap().subset({rowset->rowset_id(), seg_id, version.second},
-                                   {rowset->rowset_id(), seg_id, INT64_MAX}, &upper_map);
-            // traverse all versions and convert rowid
-            for (auto iter = upper_map.delete_bitmap.begin(); iter != upper_map.delete_bitmap.end();
-                 ++iter) {
-                auto cur_version = std::get<2>(iter->first);
-                for (auto index = iter->second.begin(); index != iter->second.end(); ++index) {
-                    src.row_id = *index;
-                    if (rowid_conversion.get(src, &dst) != 0) {
-                        VLOG_CRITICAL << "Can't find rowid, may be deleted by the delete_handler.";
-                        continue;
-                    }
-                    output_rowset_delete_bitmap.add({dst.rowset_id, dst.segment_id, cur_version},
-                                                    dst.row_id);
-                }
-            }
-        }
-    }
-    // update output rowset delete bitmap
-    delete_bitmap().merge(output_rowset_delete_bitmap);
 }
 
 bool operator==(const TabletMeta& a, const TabletMeta& b) {

@@ -162,6 +162,16 @@ public class DateLiteral extends Literal {
         LocalDateTime dateTime = LocalDateTime.parse(getStringValue(), DATE_FORMATTER).plusDays(days);
         return new DateLiteral(dateTime.getYear(), dateTime.getMonthOfYear(), dateTime.getDayOfMonth());
     }
+
+    public DateLiteral plusMonths(int months) {
+        LocalDateTime dateTime = LocalDateTime.parse(getStringValue(), DATE_FORMATTER).plusMonths(months);
+        return new DateLiteral(dateTime.getYear(), dateTime.getMonthOfYear(), dateTime.getDayOfMonth());
+    }
+
+    public DateLiteral plusYears(int years) {
+        LocalDateTime dateTime = LocalDateTime.parse(getStringValue(), DATE_FORMATTER).plusYears(years);
+        return new DateLiteral(dateTime.getYear(), dateTime.getMonthOfYear(), dateTime.getDayOfMonth());
+    }
 }
 
 

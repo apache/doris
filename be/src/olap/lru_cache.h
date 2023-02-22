@@ -175,7 +175,7 @@ public:
     // value will be passed to "deleter".
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
                            void (*deleter)(const CacheKey& key, void* value),
-                           CachePriority priority = CachePriority::NORMAL) = 0;
+                           CachePriority priority = CachePriority::NORMAL, size_t bytes = -1) = 0;
 
     // If the cache has no mapping for "key", returns nullptr.
     //
@@ -240,12 +240,14 @@ typedef struct LRUHandle {
     size_t charge;
     size_t key_length;
     size_t total_size; // including key length
+    size_t bytes;      // Used by LRUCacheType::NUMBER, LRUCacheType::SIZE equal to total_size.
     bool in_cache;     // Whether entry is in the cache.
     uint32_t refs;
     uint32_t hash; // Hash of key(); used for fast sharding and comparisons
     CachePriority priority = CachePriority::NORMAL;
     MemTrackerLimiter* mem_tracker;
     char key_data[1]; // Beginning of key
+    LRUCacheType type;
 
     CacheKey key() const {
         // For cheaper lookups, we allow a temporary Handle object
@@ -259,7 +261,7 @@ typedef struct LRUHandle {
 
     void free() {
         (*deleter)(key(), value);
-        THREAD_MEM_TRACKER_TRANSFER_FROM(total_size, mem_tracker);
+        THREAD_MEM_TRACKER_TRANSFER_FROM(bytes, mem_tracker);
         ::free(this);
     }
 
@@ -288,6 +290,8 @@ public:
     // than the function above.
     // Return whether h is found and removed.
     bool remove(const LRUHandle* h);
+
+    uint32_t element_count() const;
 
 private:
     FRIEND_TEST(CacheTest, HandleTableTest);
@@ -322,12 +326,15 @@ public:
 
     // Separate from constructor so caller can easily make an array of LRUCache
     void set_capacity(size_t capacity) { _capacity = capacity; }
+    void set_element_count_capacity(uint32_t element_count_capacity) {
+        _element_count_capacity = element_count_capacity;
+    }
 
     // Like Cache methods, but with an extra "hash" parameter.
     Cache::Handle* insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
                           void (*deleter)(const CacheKey& key, void* value),
                           MemTrackerLimiter* tracker,
-                          CachePriority priority = CachePriority::NORMAL);
+                          CachePriority priority = CachePriority::NORMAL, size_t bytes = -1);
     Cache::Handle* lookup(const CacheKey& key, uint32_t hash);
     void release(Cache::Handle* handle);
     void erase(const CacheKey& key, uint32_t hash);
@@ -349,6 +356,7 @@ private:
     void _evict_from_lru(size_t total_size, LRUHandle** to_remove_head);
     void _evict_from_lru_with_time(size_t total_size, LRUHandle** to_remove_head);
     void _evict_one_entry(LRUHandle* e);
+    bool _check_element_count_limit();
 
 private:
     LRUCacheType _type;
@@ -376,21 +384,24 @@ private:
     bool _cache_value_check_timestamp = false;
     LRUHandleHeap _sorted_normal_entries_with_timestamp;
     LRUHandleHeap _sorted_durable_entries_with_timestamp;
+
+    uint32_t _element_count_capacity = 0;
 };
 
 class ShardedLRUCache : public Cache {
 public:
     explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
-                             uint32_t num_shards);
+                             uint32_t num_shards, uint32_t element_count_capacity = 0);
     explicit ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
                              uint32_t num_shards,
                              CacheValueTimeExtractor cache_value_time_extractor,
-                             bool cache_value_check_timestamp);
+                             bool cache_value_check_timestamp, uint32_t element_count_capacity = 0);
     // TODO(fdy): 析构时清除所有cache元素
     virtual ~ShardedLRUCache();
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
                            void (*deleter)(const CacheKey& key, void* value),
-                           CachePriority priority = CachePriority::NORMAL) override;
+                           CachePriority priority = CachePriority::NORMAL,
+                           size_t bytes = -1) override;
     virtual Handle* lookup(const CacheKey& key) override;
     virtual void release(Handle* handle) override;
     virtual void erase(const CacheKey& key) override;

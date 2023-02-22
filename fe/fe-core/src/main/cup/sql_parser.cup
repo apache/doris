@@ -1497,19 +1497,19 @@ alter_table_clause ::=
     {:
         RESULT = new DropPartitionClause(ifExists, partitionName, isTempPartition, force ? force : isTempPartition);
     :}
-    | KW_MODIFY KW_PARTITION ident:partitionName KW_SET LPAREN key_value_map:properties RPAREN
+    | KW_MODIFY opt_tmp:isTempPartition KW_PARTITION ident:partitionName KW_SET LPAREN key_value_map:properties RPAREN
     {:
         ArrayList<String> partitions = new ArrayList<String>();
         partitions.add(partitionName);
-        RESULT = new ModifyPartitionClause(partitions, properties);
+        RESULT = new ModifyPartitionClause(partitions, properties, isTempPartition);
     :}
-    | KW_MODIFY KW_PARTITION LPAREN ident_list:partitions RPAREN KW_SET LPAREN key_value_map:properties RPAREN
+    | KW_MODIFY opt_tmp:isTempPartition KW_PARTITION LPAREN ident_list:partitions RPAREN KW_SET LPAREN key_value_map:properties RPAREN
     {:
-        RESULT = new ModifyPartitionClause(partitions, properties);
+        RESULT = new ModifyPartitionClause(partitions, properties, isTempPartition);
     :}
-    | KW_MODIFY KW_PARTITION LPAREN STAR RPAREN KW_SET LPAREN key_value_map:properties RPAREN
+    | KW_MODIFY opt_tmp:isTempPartition KW_PARTITION LPAREN STAR RPAREN KW_SET LPAREN key_value_map:properties RPAREN
     {:
-        RESULT = ModifyPartitionClause.createStarClause(properties);
+        RESULT = ModifyPartitionClause.createStarClause(properties, isTempPartition);
     :}
     | KW_REPLACE opt_partition_names:partitions KW_WITH opt_partition_names:tempPartitions opt_properties:properties
     {:
@@ -1812,6 +1812,19 @@ create_stmt ::=
         distribution, tblProperties, extProperties, tableComment, index);
     :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
+            LPAREN column_definition_list:columns COMMA DOTDOTDOT RPAREN opt_engine:engineName
+            opt_keys:keys
+            opt_comment:tableComment
+            opt_partition:partition
+            opt_distribution:distribution
+            opt_rollup:index
+            opt_properties:tblProperties
+            opt_ext_properties:extProperties
+    {:
+        RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, null, engineName, keys, partition,
+        distribution, tblProperties, extProperties, tableComment, index, true);
+    :}
+    | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
             LPAREN column_definition_list:columns COMMA index_definition_list:indexes RPAREN opt_engine:engineName
             opt_keys:keys
             opt_comment:tableComment
@@ -1822,7 +1835,20 @@ create_stmt ::=
             opt_ext_properties:extProperties
     {:
         RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, indexes, engineName, keys, partition,
-        distribution, tblProperties, extProperties, tableComment, index);
+        distribution, tblProperties, extProperties, tableComment, index, false);
+    :}
+    | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name
+            LPAREN column_definition_list:columns COMMA index_definition_list:indexes COMMA DOTDOTDOT RPAREN opt_engine:engineName
+            opt_keys:keys
+            opt_comment:tableComment
+            opt_partition:partition
+            opt_distribution:distribution
+            opt_rollup:index
+            opt_properties:tblProperties
+            opt_ext_properties:extProperties
+    {:
+        RESULT = new CreateTableStmt(ifNotExists, isExternal, name, columns, indexes, engineName, keys, partition,
+        distribution, tblProperties, extProperties, tableComment, index, true);
     :}
     | KW_CREATE opt_external:isExternal KW_TABLE opt_if_not_exists:ifNotExists table_name:name KW_ENGINE EQUAL ident:engineName
           properties:properties opt_comment:tableComment

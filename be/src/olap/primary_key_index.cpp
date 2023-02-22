@@ -27,7 +27,7 @@ Status PrimaryKeyIndexBuilder::init() {
     // TODO(liaoxin) using the column type directly if there's only one column in unique key columns
     const auto* type_info = get_scalar_type_info<OLAP_FIELD_TYPE_VARCHAR>();
     segment_v2::IndexedColumnWriterOptions options;
-    options.write_ordinal_index = false;
+    options.write_ordinal_index = true;
     options.write_value_index = true;
     options.encoding = segment_v2::EncodingInfo::get_default_encoding(type_info, true);
     // TODO(liaoxin) test to confirm whether it needs to be compressed

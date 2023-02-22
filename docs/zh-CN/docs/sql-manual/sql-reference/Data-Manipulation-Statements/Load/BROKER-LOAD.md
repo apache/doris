@@ -475,6 +475,24 @@ WITH BROKER broker_name
     )
     ```
 
+12. 导入CSV数据时去掉双引号, 并跳过前5行。
+
+    ```SQL
+    LOAD LABEL example_db.label12
+    (
+    DATA INFILE("cosn://my_bucket/input/file.csv")
+    INTO TABLE `my_table`
+    (k1, k2, k3)
+    PROPERTIES("trim_double_quotes" = "true", "skip_lines" = "5")
+    )
+    WITH BROKER "broker_name"
+    (
+        "fs.cosn.userinfo.secretId" = "xxx",
+        "fs.cosn.userinfo.secretKey" = "xxxx",
+        "fs.cosn.bucket.endpoint_suffix" = "cos.xxxxxxxxx.myqcloud.com"
+    )
+    ```
+
 ### Keywords
 
     BROKER, LOAD

@@ -64,7 +64,6 @@ import org.apache.doris.rewrite.RewriteInPredicateRule;
 import org.apache.doris.rewrite.RoundLiteralInBinaryPredicatesRule;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmap;
 import org.apache.doris.rewrite.mvrewrite.CountDistinctToBitmapOrHLLRule;
-import org.apache.doris.rewrite.mvrewrite.CountFieldToSum;
 import org.apache.doris.rewrite.mvrewrite.ExprToSlotRefRule;
 import org.apache.doris.rewrite.mvrewrite.HLLHashToSlotRefRule;
 import org.apache.doris.rewrite.mvrewrite.NDVToHll;
@@ -297,8 +296,8 @@ public class Analyzer {
 
     // state shared between all objects of an Analyzer tree
     // TODO: Many maps here contain properties about tuples, e.g., whether
-    // a tuple is outer/semi joined, etc. Remove the maps in favor of making
-    // them properties of the tuple descriptor itself.
+    //  a tuple is outer/semi joined, etc. Remove the maps in favor of making
+    //  them properties of the tuple descriptor itself.
     private static class GlobalState {
         private final DescriptorTable descTbl = new DescriptorTable();
         private final Env env;
@@ -398,6 +397,8 @@ public class Analyzer {
 
         private final Set<TupleId> markTupleIdsNotProcessed = Sets.newHashSet();
 
+        private final Map<InlineViewRef, Set<Expr>> migrateFailedConjuncts = Maps.newHashMap();
+
         public GlobalState(Env env, ConnectContext context) {
             this.env = env;
             this.context = context;
@@ -427,13 +428,12 @@ public class Analyzer {
             exprRewriter = new ExprRewriter(rules, onceRules);
             // init mv rewriter
             List<ExprRewriteRule> mvRewriteRules = Lists.newArrayList();
-            mvRewriteRules.add(ExprToSlotRefRule.INSTANCE);
+            mvRewriteRules.add(new ExprToSlotRefRule());
             mvRewriteRules.add(ToBitmapToSlotRefRule.INSTANCE);
             mvRewriteRules.add(CountDistinctToBitmapOrHLLRule.INSTANCE);
             mvRewriteRules.add(CountDistinctToBitmap.INSTANCE);
             mvRewriteRules.add(NDVToHll.INSTANCE);
             mvRewriteRules.add(HLLHashToSlotRefRule.INSTANCE);
-            mvRewriteRules.add(CountFieldToSum.INSTANCE);
             mvExprRewriter = new ExprRewriter(mvRewriteRules);
 
             // context maybe null. eg, for StreamLoadPlanner.
@@ -1204,6 +1204,15 @@ public class Analyzer {
             }
             set.add(e);
         }
+    }
+
+    public void registerMigrateFailedConjuncts(InlineViewRef ref, Expr e) {
+        Set<Expr> exprSet = globalState.migrateFailedConjuncts.computeIfAbsent(ref, (k) -> new HashSet<>());
+        exprSet.add(e);
+    }
+
+    public Set<Expr> findMigrateFailedConjuncts(InlineViewRef inlineViewRef) {
+        return globalState.migrateFailedConjuncts.get(inlineViewRef);
     }
 
     /**

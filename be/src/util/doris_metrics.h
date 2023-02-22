@@ -79,6 +79,8 @@ public:
     IntCounter* delete_requests_failed;
     IntCounter* clone_requests_total;
     IntCounter* clone_requests_failed;
+    IntCounter* alter_inverted_index_requests_total;
+    IntCounter* alter_inverted_index_requests_failed;
 
     IntCounter* finish_task_requests_total;
     IntCounter* finish_task_requests_failed;
@@ -219,6 +221,16 @@ public:
     UIntGauge* upload_total_byte;
     IntCounter* upload_rowset_count;
     IntCounter* upload_fail_count;
+
+    UIntGauge* light_work_pool_queue_size;
+    UIntGauge* heavy_work_pool_queue_size;
+    UIntGauge* heavy_work_active_threads;
+    UIntGauge* light_work_active_threads;
+
+    UIntGauge* heavy_work_pool_max_queue_size;
+    UIntGauge* light_work_pool_max_queue_size;
+    UIntGauge* heavy_work_max_threads;
+    UIntGauge* light_work_max_threads;
 
     static DorisMetrics* instance() {
         static DorisMetrics instance;

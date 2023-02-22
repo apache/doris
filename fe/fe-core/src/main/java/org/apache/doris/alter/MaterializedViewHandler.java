@@ -495,7 +495,7 @@ public class MaterializedViewHandler extends AlterHandler {
             if (numOfKeys == olapTable.getBaseSchemaKeyColumns().size() && !addMVClause.isReplay()) {
                 boolean allKeysMatch = true;
                 for (int i = 0; i < numOfKeys; i++) {
-                    if (!newMVColumns.get(i).getName()
+                    if (!CreateMaterializedViewStmt.mvColumnBreaker(newMVColumns.get(i).getName())
                             .equalsIgnoreCase(olapTable.getBaseSchemaKeyColumns().get(i).getName())) {
                         allKeysMatch = false;
                         break;
@@ -527,7 +527,8 @@ public class MaterializedViewHandler extends AlterHandler {
                 if (mvColumnItem.isKey()) {
                     ++numOfKeys;
                 }
-                if (olapTable.getBaseColumn(mvColumnItem.getName()) == null) {
+                if (olapTable
+                        .getBaseColumn(CreateMaterializedViewStmt.mvColumnBreaker(mvColumnItem.getName())) == null) {
                     hasNewColumn = true;
                 }
             }
@@ -535,7 +536,7 @@ public class MaterializedViewHandler extends AlterHandler {
             if (!addMVClause.isReplay() && addMVClause.getMVKeysType() == KeysType.DUP_KEYS && !hasNewColumn) {
                 boolean allKeysMatch = true;
                 for (int i = 0; i < numOfKeys; i++) {
-                    if (!newMVColumns.get(i).getName()
+                    if (!CreateMaterializedViewStmt.mvColumnBreaker(newMVColumns.get(i).getName())
                             .equalsIgnoreCase(olapTable.getBaseSchema().get(i).getName())
                             && olapTable.getBaseSchema().get(i).isKey()) {
                         allKeysMatch = false;
@@ -554,10 +555,11 @@ public class MaterializedViewHandler extends AlterHandler {
         if (KeysType.UNIQUE_KEYS == olapTable.getKeysType() && olapTable.hasSequenceCol()) {
             newMVColumns.add(new Column(olapTable.getSequenceCol()));
         }
-        // if the column is array type, we forbid to create materialized view
+        // if the column is complex type, we forbid to create materialized view
         for (Column column : newMVColumns) {
-            if (column.getDataType() == PrimitiveType.ARRAY) {
-                throw new DdlException("The array column[" + column + "] not support to create materialized view");
+            if (column.getDataType().isComplexType()) {
+                throw new DdlException("The " + column.getDataType() + " column[" + column + "] not support "
+                        + "to create materialized view");
             }
             if (addMVClause.getMVKeysType() != KeysType.AGG_KEYS
                     && (column.getType().isBitmapType() || column.getType().isHllType())) {
@@ -1149,7 +1151,7 @@ public class MaterializedViewHandler extends AlterHandler {
                 continue;
             }
             if (ctx != null) {
-                if (!Env.getCurrentEnv().getAuth().checkTblPriv(ctx, db.getFullName(),
+                if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx, db.getFullName(),
                         alterJob.getTableName(), PrivPredicate.ALTER)) {
                     continue;
                 }

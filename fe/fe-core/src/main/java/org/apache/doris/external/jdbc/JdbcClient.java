@@ -77,6 +77,12 @@ public class JdbcClient {
             config.setUsername(jdbcUser);
             config.setPassword(password);
             config.setMaximumPoolSize(1);
+            // set connection timeout to 5s.
+            // The default is 30s, which is too long.
+            // Because when querying information_schema db, BE will call thrift rpc(default timeout is 30s)
+            // to FE to get schema info, and may create connection here, if we set it too long and the url is invalid,
+            // it may cause the thrift rpc timeout.
+            config.setConnectionTimeout(5000);
             dataSource = new HikariDataSource(config);
         } catch (MalformedURLException e) {
             throw new JdbcClientException("MalformedURLException to load class about " + driverUrl, e);
@@ -360,7 +366,7 @@ public class JdbcClient {
                 case "INT":
                     return Type.BIGINT;
                 case "BIGINT":
-                    return ScalarType.createStringType();
+                    return Type.LARGEINT;
                 case "DECIMAL":
                     int precision = fieldSchema.getColumnSize() + 1;
                     int scale = fieldSchema.getDecimalDigits();
@@ -389,16 +395,21 @@ public class JdbcClient {
                 return Type.INT;
             case "BIGINT":
                 return Type.BIGINT;
+            case "LARGEINT": // for jdbc catalog connecting Doris database
+                return Type.LARGEINT;
             case "DATE":
+            case "DATEV2":
                 return ScalarType.createDateV2Type();
             case "TIMESTAMP":
             case "DATETIME":
+            case "DATETIMEV2": // for jdbc catalog connecting Doris database
                 return ScalarType.createDatetimeV2Type(0);
             case "FLOAT":
                 return Type.FLOAT;
             case "DOUBLE":
                 return Type.DOUBLE;
             case "DECIMAL":
+            case "DECIMALV3": // for jdbc catalog connecting Doris database
                 int precision = fieldSchema.getColumnSize();
                 int scale = fieldSchema.getDecimalDigits();
                 if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
@@ -413,8 +424,9 @@ public class JdbcClient {
                 ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
                 charType.setLength(fieldSchema.columnSize);
                 return charType;
-            case "TIME":
             case "VARCHAR":
+                return ScalarType.createVarcharType(fieldSchema.columnSize);
+            case "TIME":
             case "TINYTEXT":
             case "TEXT":
             case "MEDIUMTEXT":

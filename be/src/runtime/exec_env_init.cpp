@@ -233,6 +233,19 @@ Status ExecEnv::_init_mem_env() {
               << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
               << ", origin config value: " << config::inverted_index_searcher_cache_limit;
 
+    // use memory limit
+    int64_t inverted_index_query_cache_limit =
+            ParseUtil::parse_mem_spec(config::inverted_index_query_cache_limit,
+                                      MemInfo::mem_limit(), MemInfo::physical_mem(), &is_percent);
+    while (!is_percent && inverted_index_query_cache_limit > MemInfo::mem_limit() / 2) {
+        // Reason same as buffer_pool_limit
+        inverted_index_query_cache_limit = inverted_index_query_cache_limit / 2;
+    }
+    InvertedIndexQueryCache::create_global_cache(inverted_index_query_cache_limit, 10);
+    LOG(INFO) << "Inverted index query match cache memory limit: "
+              << PrettyPrinter::print(inverted_index_cache_limit, TUnit::BYTES)
+              << ", origin config value: " << config::inverted_index_query_cache_limit;
+
     // 4. init other managers
     RETURN_IF_ERROR(_tmp_file_mgr->init());
     RETURN_IF_ERROR(_block_spill_mgr->init());

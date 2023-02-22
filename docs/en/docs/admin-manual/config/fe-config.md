@@ -1007,7 +1007,7 @@ Maximum percentage of data that can be filtered (due to reasons such as data is 
 
 #### `max_running_txn_num_per_db`
 
-Default：100
+Default：1000
 
 IsMutable：true
 
@@ -1023,7 +1023,7 @@ current running txns on db xxx is xx, larger than limit xx
 
 When this error is encountered, it means that the load jobs currently running in the cluster exceeds the configuration value. At this time, it is recommended to wait on the business side and retry the load jobs.
 
-Generally it is not recommended to increase this configuration value. An excessively high number of concurrency may cause excessive system load
+If you use the Connector, the value of this parameter can be adjusted appropriately, and there is no problem with thousands
 
 #### `using_old_load_usage_pattern`
 

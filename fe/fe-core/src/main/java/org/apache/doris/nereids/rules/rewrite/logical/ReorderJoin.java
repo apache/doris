@@ -33,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.nereids.util.PlanUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -71,12 +72,16 @@ public class ReorderJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalFilter(subTree(LogicalJoin.class, LogicalFilter.class)).thenApply(ctx -> {
+            if (ctx.statementContext.getConnectContext().getSessionVariable().isDisableJoinReorder()) {
+                return null;
+            }
             LogicalFilter<Plan> filter = ctx.root;
 
             Map<Plan, JoinHintType> planToHintType = Maps.newHashMap();
             Plan plan = joinToMultiJoin(filter, planToHintType);
             Preconditions.checkState(plan instanceof MultiJoin);
             MultiJoin multiJoin = (MultiJoin) plan;
+            ctx.statementContext.setMaxNArayInnerJoin(multiJoin.children().size());
             Plan after = multiJoinToJoin(multiJoin, planToHintType);
             return after;
         }).toRule(RuleType.REORDER_JOIN);
@@ -230,7 +235,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                 Set<ExprId> rightOutputExprIdSet = right.getOutputExprIdSet();
                 Map<Boolean, List<Expression>> split = multiJoin.getJoinFilter().stream()
                         .collect(Collectors.partitioningBy(expr ->
-                                ExpressionUtils.isIntersecting(rightOutputExprIdSet, expr.getInputSlotExprIds())
+                                Utils.isIntersecting(rightOutputExprIdSet, expr.getInputSlotExprIds())
                         ));
                 remainingFilter = split.get(true);
                 List<Expression> pushedFilter = split.get(false);
@@ -244,7 +249,7 @@ public class ReorderJoin extends OneRewriteRuleFactory {
                 Set<ExprId> leftOutputExprIdSet = left.getOutputExprIdSet();
                 Map<Boolean, List<Expression>> split = multiJoin.getJoinFilter().stream()
                         .collect(Collectors.partitioningBy(expr ->
-                                ExpressionUtils.isIntersecting(leftOutputExprIdSet, expr.getInputSlotExprIds())
+                                Utils.isIntersecting(leftOutputExprIdSet, expr.getInputSlotExprIds())
                         ));
                 remainingFilter = split.get(true);
                 List<Expression> pushedFilter = split.get(false);

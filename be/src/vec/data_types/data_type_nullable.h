@@ -93,5 +93,6 @@ private:
 
 DataTypePtr make_nullable(const DataTypePtr& type);
 DataTypePtr remove_nullable(const DataTypePtr& type);
+DataTypes remove_nullable(const DataTypes& types);
 
 } // namespace doris::vectorized

@@ -50,7 +50,7 @@ bool BetaRowsetReader::update_profile(RuntimeProfile* profile) {
 }
 
 Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context,
-                                               std::vector<RowwiseIterator*>* out_iters,
+                                               std::vector<RowwiseIteratorUPtr>* out_iters,
                                                bool use_cache) {
     RETURN_NOT_OK(_rowset->load());
     _context = read_context;
@@ -62,6 +62,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     }
 
     // convert RowsetReaderContext to StorageReadOptions
+    _read_options.block_row_max = read_context->batch_size;
     _read_options.stats = _stats;
     _read_options.push_down_agg_type_opt = _context->push_down_agg_type_opt;
     _read_options.remaining_vconjunct_root = _context->remaining_vconjunct_root;
@@ -162,6 +163,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.read_orderby_key_columns = read_context->read_orderby_key_columns;
     _read_options.io_ctx.reader_type = read_context->reader_type;
     _read_options.runtime_state = read_context->runtime_state;
+    _read_options.output_columns = read_context->output_columns;
 
     // load segments
     // use cache is true when do vertica compaction
@@ -170,7 +172,6 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                                                            should_use_cache));
 
     // create iterator for each segment
-    std::vector<std::unique_ptr<RowwiseIterator>> seg_iterators;
     for (auto& seg_ptr : _segment_cache_handle.get_segments()) {
         std::unique_ptr<RowwiseIterator> iter;
         auto s = seg_ptr->new_iterator(*_input_schema, _read_options, &iter);
@@ -181,47 +182,49 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
         if (iter->empty()) {
             continue;
         }
-        seg_iterators.push_back(std::move(iter));
-    }
-
-    std::vector<RowwiseIterator*> iterators;
-    for (auto& owned_it : seg_iterators) {
-        auto st = owned_it->init(_read_options);
+        auto st = iter->init(_read_options);
         if (!st.ok()) {
             LOG(WARNING) << "failed to init iterator: " << st.to_string();
             return Status::Error<ROWSET_READER_INIT>();
         }
-        // transfer ownership of segment iterator to `_iterator`
-        out_iters->push_back(owned_it.release());
+        out_iters->push_back(std::move(iter));
     }
     return Status::OK();
 }
 
 Status BetaRowsetReader::init(RowsetReaderContext* read_context) {
     _context = read_context;
-    std::vector<RowwiseIterator*> iterators;
+    std::vector<RowwiseIteratorUPtr> iterators;
     RETURN_NOT_OK(get_segment_iterators(_context, &iterators));
 
     // merge or union segment iterator
-    RowwiseIterator* final_iterator;
     if (read_context->need_ordered_result && _rowset->rowset_meta()->is_segments_overlapping()) {
-        final_iterator = vectorized::new_merge_iterator(
-                iterators, read_context->sequence_id_idx, read_context->is_unique,
+        auto sequence_loc = -1;
+        if (read_context->sequence_id_idx != -1) {
+            for (size_t loc = 0; loc < read_context->return_columns->size(); loc++) {
+                if (read_context->return_columns->at(loc) == read_context->sequence_id_idx) {
+                    sequence_loc = loc;
+                    break;
+                }
+            }
+        }
+        _iterator = vectorized::new_merge_iterator(
+                std::move(iterators), sequence_loc, read_context->is_unique,
                 read_context->read_orderby_key_reverse, read_context->merged_rows);
     } else {
         if (read_context->read_orderby_key_reverse) {
             // reverse iterators to read backward for ORDER BY key DESC
             std::reverse(iterators.begin(), iterators.end());
         }
-        final_iterator = vectorized::new_union_iterator(iterators);
+        _iterator = vectorized::new_union_iterator(std::move(iterators));
     }
 
-    auto s = final_iterator->init(_read_options);
+    auto s = _iterator->init(_read_options);
     if (!s.ok()) {
         LOG(WARNING) << "failed to init iterator: " << s.to_string();
+        _iterator.reset();
         return Status::Error<ROWSET_READER_INIT>();
     }
-    _iterator.reset(final_iterator);
     return Status::OK();
 }
 

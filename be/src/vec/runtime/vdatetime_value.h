@@ -36,6 +36,7 @@ class DateTimeValue;
 namespace vectorized {
 
 enum TimeUnit {
+    MICROSECOND,
     SECOND,
     MINUTE,
     HOUR,
@@ -109,6 +110,9 @@ struct TimeInterval {
             second = count;
             break;
         case SECOND_MICROSECOND:
+            microsecond = count;
+            break;
+        case MICROSECOND:
             microsecond = count;
             break;
         default:

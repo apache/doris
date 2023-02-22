@@ -157,6 +157,13 @@ ColumnPtr ColumnMap::filter(const Filter& filt, ssize_t result_size_hint) const 
                              values->filter(filt, result_size_hint));
 }
 
+size_t ColumnMap::filter(const Filter& filter) {
+    const auto key_result_size = keys->filter(filter);
+    const auto value_result_size = values->filter(filter);
+    CHECK_EQ(key_result_size, value_result_size);
+    return value_result_size;
+}
+
 ColumnPtr ColumnMap::permute(const Permutation& perm, size_t limit) const {
     return ColumnMap::create(keys->permute(perm, limit), values->permute(perm, limit));
 }

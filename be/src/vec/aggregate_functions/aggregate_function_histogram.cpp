@@ -39,7 +39,6 @@ AggregateFunctionPtr create_agg_function_histogram(const DataTypes& argument_typ
 
 AggregateFunctionPtr create_aggregate_function_histogram(const std::string& name,
                                                          const DataTypes& argument_types,
-                                                         const Array& parameters,
                                                          const bool result_is_nullable) {
     WhichDataType type(argument_types[0]);
 

@@ -187,10 +187,11 @@ Status ColumnReader::new_bitmap_index_iterator(BitmapIndexIterator** iterator) {
 }
 
 Status ColumnReader::new_inverted_index_iterator(const TabletIndex* index_meta,
+                                                 OlapReaderStatistics* stats,
                                                  InvertedIndexIterator** iterator) {
     RETURN_IF_ERROR(_ensure_inverted_index_loaded(index_meta));
     if (_inverted_index) {
-        RETURN_IF_ERROR(_inverted_index->new_iterator(index_meta, iterator));
+        RETURN_IF_ERROR(_inverted_index->new_iterator(index_meta, stats, iterator));
     }
     return Status::OK();
 }
@@ -210,6 +211,10 @@ Status ColumnReader::read_page(const ColumnIteratorOptions& iter_opts, const Pag
     opts.type = iter_opts.type;
     opts.encoding_info = _encoding_info;
     opts.io_ctx = iter_opts.io_ctx;
+    // index page should not pre decode
+    if (iter_opts.type == INDEX_PAGE) {
+        opts.pre_decode = false;
+    }
 
     return PageIO::read_and_decompress_page(opts, handle, page_body, footer);
 }

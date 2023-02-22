@@ -116,10 +116,12 @@ public:
 
     TabletTypePB tablet_type() const { return _tablet_type; }
     TabletUid tablet_uid() const;
+    void set_tablet_uid(TabletUid uid) { _tablet_uid = uid; }
     int64_t table_id() const;
     int64_t partition_id() const;
     int64_t tablet_id() const;
     int64_t replica_id() const;
+    void set_replica_id(int64_t replica_id);
     int32_t schema_hash() const;
     int16_t shard_id() const;
     void set_shard_id(int32_t shard_id);
@@ -144,7 +146,7 @@ public:
     bool in_restore_mode() const;
     void set_in_restore_mode(bool in_restore_mode);
 
-    TabletSchemaSPtr tablet_schema() const;
+    const TabletSchemaSPtr& tablet_schema() const;
 
     const TabletSchemaSPtr tablet_schema(Version version) const;
 
@@ -193,15 +195,15 @@ public:
         _storage_policy_id = id;
     }
 
+    UniqueId cooldown_meta_id() const { return _cooldown_meta_id; }
+    void set_cooldown_meta_id(UniqueId uid) { _cooldown_meta_id = uid; }
+
     static void init_column_from_tcolumn(uint32_t unique_id, const TColumn& tcolumn,
                                          ColumnPB* column);
 
     DeleteBitmap& delete_bitmap() { return *_delete_bitmap; }
 
     bool enable_unique_key_merge_on_write() const { return _enable_unique_key_merge_on_write; }
-
-    void update_delete_bitmap(const std::vector<RowsetSharedPtr>& input_rowsets,
-                              const Version& version, const RowIdConversion& rowid_conversion);
 
 private:
     Status _save_meta(DataDir* data_dir);
@@ -237,6 +239,7 @@ private:
 
     // meta for cooldown
     int64_t _storage_policy_id = 0; // <= 0 means no storage policy
+    UniqueId _cooldown_meta_id;
 
     // For unique key data model, the feature Merge-on-Write will leverage a primary
     // key index and a delete-bitmap to mark duplicate keys as deleted in load stage,
@@ -435,6 +438,10 @@ inline int64_t TabletMeta::replica_id() const {
     return _replica_id;
 }
 
+inline void TabletMeta::set_replica_id(int64_t replica_id) {
+    _replica_id = replica_id;
+}
+
 inline int32_t TabletMeta::schema_hash() const {
     return _schema_hash;
 }
@@ -519,7 +526,7 @@ inline void TabletMeta::set_in_restore_mode(bool in_restore_mode) {
     _in_restore_mode = in_restore_mode;
 }
 
-inline TabletSchemaSPtr TabletMeta::tablet_schema() const {
+inline const TabletSchemaSPtr& TabletMeta::tablet_schema() const {
     return _schema;
 }
 

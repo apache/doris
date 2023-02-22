@@ -72,7 +72,7 @@ public class UdfExecutor extends BaseExecutor {
         int batchSize = UdfUtils.UNSAFE.getInt(null, batchSizePtr);
         try {
             if (retType.equals(JavaUdfDataType.STRING) || retType.equals(JavaUdfDataType.VARCHAR)
-                    || retType.equals(JavaUdfDataType.CHAR)) {
+                    || retType.equals(JavaUdfDataType.CHAR) || retType.equals(JavaUdfDataType.ARRAY_TYPE)) {
                 // If this udf return variable-size type (e.g.) String, we have to allocate output
                 // buffer multiple times until buffer size is enough to store output column. So we
                 // always begin with the last evaluated row instead of beginning of this batch.
@@ -95,12 +95,12 @@ public class UdfExecutor extends BaseExecutor {
                 }
             }
         } catch (Exception e) {
-            if (retType.equals(JavaUdfDataType.STRING)) {
+            if (retType.equals(JavaUdfDataType.STRING) || retType.equals(JavaUdfDataType.ARRAY_TYPE)) {
                 UdfUtils.UNSAFE.putLong(null, outputIntermediateStatePtr + 8, batchSize);
             }
             throw new UdfRuntimeException("UDF::evaluate() ran into a problem.", e);
         }
-        if (retType.equals(JavaUdfDataType.STRING)) {
+        if (retType.equals(JavaUdfDataType.STRING) || retType.equals(JavaUdfDataType.ARRAY_TYPE)) {
             UdfUtils.UNSAFE.putLong(null, outputIntermediateStatePtr + 8, rowIdx);
         }
     }
@@ -131,6 +131,9 @@ public class UdfExecutor extends BaseExecutor {
             if (retType.equals(JavaUdfDataType.STRING)) {
                 UdfUtils.UNSAFE.putInt(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr)
                         + 4L * row, Integer.parseUnsignedInt(String.valueOf(outputOffset)));
+            } else if (retType.equals(JavaUdfDataType.ARRAY_TYPE)) {
+                UdfUtils.UNSAFE.putLong(null, UdfUtils.UNSAFE.getLong(null, outputOffsetsPtr) + 8L * row,
+                        Long.parseUnsignedLong(String.valueOf(outputOffset)));
             }
             return true;
         }

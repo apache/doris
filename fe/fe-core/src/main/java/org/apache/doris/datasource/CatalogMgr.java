@@ -76,6 +76,10 @@ import java.util.stream.Collectors;
 public class CatalogMgr implements Writable, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(CatalogMgr.class);
 
+    public static final String ACCESS_CONTROLLER_CLASS_PROP = "access_controller.class";
+    public static final String ACCESS_CONTROLLER_PROPERTY_PREFIX_PROP = "access_controller.properties.";
+    public static final String CATALOG_TYPE_PROP = "type";
+
     private static final String YES = "yes";
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
@@ -352,7 +356,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                 }
 
                 for (CatalogIf catalog : nameToCatalog.values()) {
-                    if (Env.getCurrentEnv().getAuth()
+                    if (Env.getCurrentEnv().getAccessManager()
                             .checkCtlPriv(ConnectContext.get(), catalog.getName(), PrivPredicate.SHOW)) {
                         String name = catalog.getName();
                         // Filter catalog name
@@ -381,7 +385,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
                     throw new AnalysisException("No catalog found with name: " + showStmt.getCatalogName());
                 }
                 CatalogIf<DatabaseIf> catalog = nameToCatalog.get(showStmt.getCatalogName());
-                if (!Env.getCurrentEnv().getAuth()
+                if (!Env.getCurrentEnv().getAccessManager()
                         .checkCtlPriv(ConnectContext.get(), catalog.getName(), PrivPredicate.SHOW)) {
                     ErrorReport.reportAnalysisException(ErrorCode.ERR_CATALOG_ACCESS_DENIED,
                             ConnectContext.get().getQualifiedUser(), catalog.getName());
@@ -954,7 +958,7 @@ public class CatalogMgr implements Writable, GsonPostProcessable {
         for (CatalogIf catalog : idToCatalog.values()) {
             nameToCatalog.put(catalog.getName(), catalog);
         }
-        internalCatalog = (InternalCatalog) idToCatalog.get(InternalCatalog.INTERNAL_DS_ID);
+        internalCatalog = (InternalCatalog) idToCatalog.get(InternalCatalog.INTERNAL_CATALOG_ID);
     }
 }
 

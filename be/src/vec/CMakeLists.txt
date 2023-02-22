@@ -57,6 +57,11 @@ set(VEC_FILES
   columns/column_vector.cpp
   columns/column_map.cpp
   columns/columns_common.cpp
+  columns/column_object.cpp
+  json/json_parser.cpp
+  json/parse2column.cpp
+  json/path_in_data.cpp
+  common/schema_util.cpp
   common/demangle.cpp
   common/exception.cpp
   common/mremap.cpp
@@ -92,12 +97,14 @@ set(VEC_FILES
   data_types/data_type_decimal.cpp
   data_types/data_type_map.cpp
   data_types/get_least_supertype.cpp
+  data_types/convert_field_to_type.cpp
   data_types/nested_utils.cpp
   data_types/data_type_date.cpp
   data_types/data_type_date_time.cpp
   data_types/data_type_time_v2.cpp
   data_types/data_type_jsonb.cpp
   data_types/data_type_time.cpp
+  data_types/data_type_object.cpp
   exec/vaggregation_node.cpp
   exec/varrow_scanner.cpp
   exec/vsort_node.cpp
@@ -228,6 +235,7 @@ set(VEC_FILES
   functions/function_java_udf.cpp
   functions/function_rpc.cpp
   functions/function_convert_tz.cpp
+  functions/function_nonnullable.cpp
   functions/least_greast.cpp
   functions/function_fake.cpp
   functions/url/function_url.cpp
@@ -273,6 +281,11 @@ set(VEC_FILES
   exec/format/parquet/schema_desc.cpp
   exec/format/parquet/vparquet_column_reader.cpp
   exec/format/parquet/level_decoder.cpp
+  exec/format/parquet/decoder.cpp
+  exec/format/parquet/fix_length_plain_decoder.cpp
+  exec/format/parquet/byte_array_plain_decoder.cpp
+  exec/format/parquet/byte_array_dict_decoder.cpp
+  exec/format/parquet/bool_plain_decoder.cpp
   exec/format/parquet/parquet_common.cpp
   exec/scan/vscan_node.cpp
   exec/scan/vscanner.cpp
