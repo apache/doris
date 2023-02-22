@@ -533,7 +533,7 @@ Status SegmentIterator::_execute_compound_fn(const std::string& function_name) {
 bool SegmentIterator::_can_filter_by_preds_except_leafnode_of_andnode() {
     for (auto pred : _col_preds_except_leafnode_of_andnode) {
         if (_not_apply_index_pred.count(pred->column_id()) ||
-            (!_check_apply_by_bitmap_index(pred) && !_check_apply_by_inverted_index(pred))) {
+            (!_check_apply_by_bitmap_index(pred) && !_check_apply_by_inverted_index(pred, true))) {
             return false;
         }
     }
@@ -550,21 +550,35 @@ bool SegmentIterator::_check_apply_by_bitmap_index(ColumnPredicate* pred) {
     return true;
 }
 
-bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred) {
+bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool pred_in_compound) {
     int32_t unique_id = _schema.unique_id(pred->column_id());
-    bool handle_by_fulltext = _is_handle_predicate_by_fulltext(unique_id);
-
     if (_inverted_index_iterators.count(unique_id) < 1 ||
-        _inverted_index_iterators[unique_id] == nullptr ||
-        (pred->type() != PredicateType::MATCH && handle_by_fulltext) ||
-        pred->type() == PredicateType::IS_NULL || pred->type() == PredicateType::IS_NOT_NULL ||
-        pred->type() == PredicateType::BF) {
-        // 1. this column without inverted index
-        // 2. equal or range qeury for fulltext index
-        // 3. is_null or is_not_null predicate
-        // 4. bloom filter predicate
+        _inverted_index_iterators[unique_id] == nullptr) {
+        //this column without inverted index
         return false;
     }
+
+    if (_inverted_index_not_support_pred_type(pred->type())) {
+        return false;
+    }
+
+    if ((pred->type() == PredicateType::IN_LIST || pred->type() == PredicateType::NOT_IN_LIST) &&
+        pred->predicate_params()->marked_by_runtime_filter) {
+        // in_list or not_in_list predicate produced by runtime filter
+        return false;
+    }
+
+    bool handle_by_fulltext = _column_has_fulltext_index(unique_id);
+    if (handle_by_fulltext) {
+        // when predicate in compound condition which except leafNode of andNode,
+        // only can apply match query for fulltext index,
+        // when predicate is leafNode of andNode,
+        // can apply 'match qeury' and 'equal query' and 'list query' for fulltext index.
+        return (pred_in_compound ? pred->type() == PredicateType::MATCH
+                                 : (pred->type() == PredicateType::MATCH ||
+                                    PredicateTypeTraits::is_equal_or_list(pred->type())));
+    }
+
     return true;
 }
 
@@ -596,7 +610,7 @@ Status SegmentIterator::_apply_index_except_leafnode_of_andnode() {
         }
 
         bool can_apply_by_bitmap_index = _check_apply_by_bitmap_index(pred);
-        bool can_apply_by_inverted_index = _check_apply_by_inverted_index(pred);
+        bool can_apply_by_inverted_index = _check_apply_by_inverted_index(pred, true);
         roaring::Roaring bitmap = _row_bitmap;
         Status res = Status::OK();
         if (can_apply_by_bitmap_index) {
@@ -658,13 +672,18 @@ std::string SegmentIterator::_gen_predicate_result_sign(ColumnPredicateInfo* pre
     return pred_result_sign;
 }
 
-bool SegmentIterator::_is_handle_predicate_by_fulltext(int32_t unique_id) {
-    bool handle_by_fulltext =
+bool SegmentIterator::_column_has_fulltext_index(int32_t unique_id) {
+    bool has_fulltext_index =
             _inverted_index_iterators[unique_id] != nullptr &&
             _inverted_index_iterators[unique_id]->get_inverted_index_reader_type() ==
                     InvertedIndexReaderType::FULLTEXT;
 
-    return handle_by_fulltext;
+    return has_fulltext_index;
+}
+
+inline bool SegmentIterator::_inverted_index_not_support_pred_type(const PredicateType& type) {
+    return type == PredicateType::IS_NULL || type == PredicateType::IS_NOT_NULL ||
+           type == PredicateType::BF || type == PredicateType::BITMAP_FILTER;
 }
 
 #define all_predicates_are_range_predicate(predicate_set)   \
@@ -679,31 +698,33 @@ bool SegmentIterator::_is_handle_predicate_by_fulltext(int32_t unique_id) {
 Status SegmentIterator::_apply_inverted_index_on_column_predicate(
         ColumnPredicate* pred, std::vector<ColumnPredicate*>& remaining_predicates,
         bool* continue_apply) {
-    int32_t unique_id = _schema.unique_id(pred->column_id());
-    bool handle_by_fulltext = _is_handle_predicate_by_fulltext(unique_id);
-
-    if (_inverted_index_iterators.count(unique_id) < 1 ||
-        _inverted_index_iterators[unique_id] == nullptr ||
-        (pred->type() != PredicateType::MATCH && handle_by_fulltext) ||
-        pred->type() == PredicateType::IS_NULL || pred->type() == PredicateType::IS_NOT_NULL ||
-        pred->type() == PredicateType::BF ||
-        ((pred->type() == PredicateType::IN_LIST || pred->type() == PredicateType::NOT_IN_LIST) &&
-         pred->predicate_params()->marked_by_runtime_filter)) {
-        // 1. this column no inverted index
-        // 2. equal or range for fulltext index
-        // 3. is_null or is_not_null predicate
-        // 4. bloom filter predicate
-        // 5. in_list or not_in_list predicate produced by runtime filter
+    if (!_check_apply_by_inverted_index(pred)) {
         remaining_predicates.emplace_back(pred);
     } else {
+        int32_t unique_id = _schema.unique_id(pred->column_id());
+        bool need_remaining_after_evaluate = _column_has_fulltext_index(unique_id) &&
+                                             PredicateTypeTraits::is_equal_or_list(pred->type());
         roaring::Roaring bitmap = _row_bitmap;
         Status res =
                 pred->evaluate(_schema, _inverted_index_iterators[unique_id], num_rows(), &bitmap);
         if (!res.ok()) {
             if ((res.code() == ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND &&
                  pred->type() != PredicateType::MATCH) ||
-                res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT) {
-                //downgrade without index query
+                res.code() == ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT ||
+                (res.code() == ErrorCode::INVERTED_INDEX_NO_TERMS &&
+                 need_remaining_after_evaluate)) {
+                // 1. INVERTED_INDEX_FILE_NOT_FOUND means index file has not been built,
+                //    usually occurs when creating a new index, because match query must
+                //    need index file, queries other than match query can be downgraded
+                //    without index.
+                // 2. INVERTED_INDEX_FILE_HIT_LIMIT means the hit of condition by index
+                //    has reached the optimal limit, downgrade without index query can
+                //    improve query performance.
+                // 3. INVERTED_INDEX_NO_TERMS means the column has fulltext index,
+                //    but the column condition value no terms in specified parser,
+                //    such as: where A = '' and B = ','
+                //    the predicate of A and B need downgrade without index query.
+                // above case can downgrade without index query
                 remaining_predicates.emplace_back(pred);
                 return Status::OK();
             }
@@ -711,12 +732,6 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
                          << ", column predicate type: " << pred->pred_type_string(pred->type())
                          << ", error msg: " << res.code_as_string();
             return res;
-        }
-
-        auto column_name = _schema.column(pred->column_id())->name();
-        if (_check_column_pred_all_push_down(column_name) &&
-            !pred->predicate_params()->marked_by_runtime_filter) {
-            _need_read_data_indices[unique_id] = false;
         }
 
         auto pred_type = pred->type();
@@ -731,6 +746,17 @@ Status SegmentIterator::_apply_inverted_index_on_column_predicate(
             // all rows have been pruned, no need to process further predicates
             *continue_apply = false;
         }
+
+        if (need_remaining_after_evaluate) {
+            remaining_predicates.emplace_back(pred);
+            return Status::OK();
+        }
+
+        auto column_name = _schema.column(pred->column_id())->name();
+        if (_check_column_pred_all_push_down(column_name) &&
+            !pred->predicate_params()->marked_by_runtime_filter) {
+            _need_read_data_indices[unique_id] = false;
+        }
     }
     return Status::OK();
 }
@@ -740,7 +766,7 @@ Status SegmentIterator::_apply_inverted_index_on_block_column_predicate(
         std::set<const ColumnPredicate*>& no_need_to_pass_column_predicate_set,
         bool* continue_apply) {
     auto unique_id = _schema.unique_id(column_id);
-    bool handle_by_fulltext = _is_handle_predicate_by_fulltext(unique_id);
+    bool handle_by_fulltext = _column_has_fulltext_index(unique_id);
     std::set<const ColumnPredicate*> predicate_set {};
 
     pred->get_all_column_predicate(predicate_set);
