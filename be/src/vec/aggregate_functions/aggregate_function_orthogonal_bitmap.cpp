@@ -36,7 +36,7 @@ AggregateFunctionPtr create_aggregate_function_orthogonal(const std::string& nam
     } else if (argument_types.size() == 1) {
         return std::make_shared<AggFunctionOrthBitmapFunc<Impl<StringRef>>>(argument_types);
     } else {
-        WhichDataType which(*argument_types[1]);
+        WhichDataType which(*remove_nullable(argument_types[1]));
 
         AggregateFunctionPtr res(
                 creator_with_type_base<true, true, false, 1>::create<AggFunctionOrthBitmapFunc,

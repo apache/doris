@@ -38,7 +38,7 @@ AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
     }
 
     if (argument_types.size() == 1) {
-        const IDataType& argument_type = *argument_types[0];
+        const IDataType& argument_type = *remove_nullable(argument_types[0]);
         WhichDataType which(argument_type);
 
         AggregateFunctionPtr res(creator_with_numeric_type::create<AggregateFunctionUniq, Data>(

@@ -44,8 +44,7 @@ static IAggregateFunction* create_aggregate_function_single_value(const String& 
     if (res) {
         return res;
     }
-
-    const DataTypePtr& argument_type = argument_types[0];
+    const DataTypePtr& argument_type = remove_nullable(argument_types[0]);
     WhichDataType which(argument_type);
 
     if (which.idx == TypeIndex::String) {
