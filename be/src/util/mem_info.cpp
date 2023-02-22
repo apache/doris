@@ -98,8 +98,8 @@ void MemInfo::process_cache_gc(int64_t& freed_mem) {
     freed_mem +=
             StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE);
     StoragePageCache::instance()->prune(segment_v2::DATA_PAGE);
-    freed_mem += SegmentLoader::instance()->segment_cache_mem_consumption();
-    SegmentLoader::instance()->prune_all();
+    // TODO add freed_mem
+    SegmentLoader::instance()->prune();
 }
 
 // step1: free all cache
@@ -134,6 +134,11 @@ bool MemInfo::process_full_gc() {
             [&]() { LOG(INFO) << fmt::format("Process Full GC Free Memory {} Bytes", freed_mem); }};
 
     MemInfo::process_cache_gc(freed_mem);
+    if (freed_mem > _s_process_full_gc_size) {
+        return true;
+    }
+    freed_mem += SegmentLoader::instance()->segment_cache_mem_consumption();
+    SegmentLoader::instance()->prune_all();
     if (freed_mem > _s_process_full_gc_size) {
         return true;
     }
