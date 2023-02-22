@@ -309,6 +309,7 @@ public class K8sDeployManager extends DeployManager {
             return port;
         }
         String portName = getPortName(nodeType);
+        Preconditions.checkNotNull(portName);
         List<ServicePort> ports = service.getSpec().getPorts();
         for (ServicePort servicePort : ports) {
             if (servicePort.getName().equals(portName)) {
