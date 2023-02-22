@@ -952,6 +952,9 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     }
 
     public SlotRef findSrcSlotRef(SlotRef slotRef) {
+        if (slotRef.getSrcSlotRef() != null) {
+            slotRef = slotRef.getSrcSlotRef();
+        }
         if (slotRef.getTable() instanceof OlapTable) {
             return slotRef;
         }

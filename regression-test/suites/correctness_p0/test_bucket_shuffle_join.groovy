@@ -78,4 +78,17 @@ suite("test_bucket_shuffle_join") {
         contains "4:VHASH JOIN\n  |  join op: INNER JOIN(BUCKET_SHUFFLE)"
         contains "2:VHASH JOIN\n  |  join op: INNER JOIN(BUCKET_SHUFFLE)"
     }
+
+    explain {
+        sql("""select a.id,a.name,b.id,b.name 
+                from (select * from test_colo1) a 
+                inner join 
+                (select * from test_colo2) b 
+                on a.id = b.id  and a.name = b.name and a.name = b.name
+                inner join 
+                (select * from test_colo3) c 
+                on a.id = c.id  and a.name = c.name and a.name = c.name""")
+        contains "4:VHASH JOIN\n  |  join op: INNER JOIN(BUCKET_SHUFFLE)"
+        contains "2:VHASH JOIN\n  |  join op: INNER JOIN(BUCKET_SHUFFLE)"
+    }
 }
