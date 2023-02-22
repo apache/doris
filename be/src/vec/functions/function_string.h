@@ -2387,15 +2387,15 @@ public:
         const auto& character_data = context->get_constant_col(1)->column_ptr->get_data_at(0);
         if (doris::iequal(character_data.to_string(), "gbk")) {
             iconv_t cd = iconv_open("gb2312", "utf-8");
-            if (cd == nullptr) {
-                return Status::RuntimeError("function {} is convert to gbk failed in iconv_open",
+            if (cd == (iconv_t)-1) {
+                LOG(WARNING) << "iconv_open error: " << strerror(errno);
+                return Status::RuntimeError("function {} converting to gbk failed in iconv_open",
                                             get_name());
             }
             context->set_function_state(scope, cd);
         } else {
-            return Status::RuntimeError(
-                    "Illegal second argument column of function convert. now only support "
-                    "convert to character set of gbk");
+            return Status::RuntimeError("Not supported: convert to character set " +
+                                        character_data.to_string());
         }
 
         return Status::OK();
@@ -2425,7 +2425,8 @@ public:
             char* in = const_cast<char*>(value_data);
             out_len = in_len;
             if (iconv(cd, &in, &in_len, &out, &out_len) == -1) {
-                return Status::RuntimeError("function {} is convert to gbk failed in iconv",
+                LOG(WARNING) << "iconv failed, error: " << strerror(errno);
+                return Status::RuntimeError("function {} converting to gbk failed in iconv",
                                             get_name());
             } else {
                 res_offset[i] = res_chars.size();
@@ -2439,7 +2440,9 @@ public:
         if (scope == FunctionContext::THREAD_LOCAL) {
             iconv_t cd = reinterpret_cast<iconv_t>(
                     context->get_function_state(FunctionContext::THREAD_LOCAL));
-            iconv_close(cd);
+            if (cd) {
+                iconv_close(cd);
+            }
             context->set_function_state(FunctionContext::THREAD_LOCAL, nullptr);
         }
         return Status::OK();
