@@ -127,7 +127,7 @@ public:
     Status cancel(std::shared_ptr<StreamLoadContext> ctx) override;
     // reassign partition topics
     virtual Status reset() override;
-    virtual bool match(std::shared_ptr<StreamLoadContext> ctx) override;
+    bool match(std::shared_ptr<StreamLoadContext> ctx) override;
     // commit kafka offset
     Status commit(std::vector<RdKafka::TopicPartition*>& offset);
 
