@@ -82,7 +82,7 @@ public class MysqlSslContext {
             sslContext.init(kmf.getKeyManagers(), tmf.getTrustManagers(), null);
         } catch (NoSuchAlgorithmException | KeyManagementException | KeyStoreException | IOException
                  | CertificateException | UnrecoverableKeyException e) {
-            LOG.error("Failed to initialize SSL because", e);
+            LOG.fatal("Failed to initialize SSL because", e);
         }
     }
 
