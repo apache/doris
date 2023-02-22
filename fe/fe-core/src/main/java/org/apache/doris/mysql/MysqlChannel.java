@@ -287,6 +287,7 @@ public class MysqlChannel {
             return;
         }
         encryptNetData.clear();
+        // todo: handle BUFFER_OVERFLOW
         sslEngine.wrap(dstBuf, encryptNetData);
         encryptNetData.flip();
         dstBuf.clear();
