@@ -41,7 +41,6 @@ void StreamLoad2PCAction::handle(HttpRequest* req) {
     std::string status_result;
 
     std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
-    req->set_handler_ctx(ctx);
     ctx->db = req->param(HTTP_DB_KEY);
     std::string req_txn_id = req->header(HTTP_TXN_ID_KEY);
     try {
@@ -90,19 +89,6 @@ std::string StreamLoad2PCAction::get_success_info(const std::string txn_id,
     writer.String(msg.c_str());
     writer.EndObject();
     return s.GetString();
-}
-
-void StreamLoad2PCAction::free_handler_ctx(std::shared_ptr<void> param) {
-    std::shared_ptr<StreamLoadContext> ctx = std::static_pointer_cast<StreamLoadContext>(param);
-    if (ctx == nullptr) {
-        return;
-    }
-    // sender is gone, make receiver know it
-    if (ctx->body_sink != nullptr) {
-        ctx->body_sink->cancel("sender is gone");
-    }
-    // remove stream load context from stream load manager and the resource will be released
-    ctx->exec_env()->new_load_stream_mgr()->remove(ctx->id);
 }
 
 } // namespace doris

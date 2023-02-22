@@ -33,7 +33,6 @@ public:
 
     void handle(HttpRequest* req) override;
     std::string get_success_info(const std::string txn_id, const std::string txn_operation);
-    void free_handler_ctx(std::shared_ptr<void> param) override;
 
 private:
     ExecEnv* _exec_env;

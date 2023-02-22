@@ -38,13 +38,10 @@ public:
         std::lock_guard<std::mutex> l(_lock);
         auto it = _stream_map.find(id);
         if (it != std::end(_stream_map)) {
-            Status st = Status::InternalError("id already exist");
-            LOG(INFO) << "put uid failed " << id << st;
-            return st;
+            return Status::InternalError("id already exist");
         }
         _stream_map.emplace(id, stream);
         VLOG_NOTICE << "put stream load pipe: " << id;
-        LOG(INFO) << "put uid success " << id;
         return Status::OK();
     }
 
@@ -52,8 +49,6 @@ public:
         std::lock_guard<std::mutex> l(_lock);
         auto it = _stream_map.find(id);
         if (it == std::end(_stream_map)) {
-            Status st = Status::InternalError("id");
-            LOG(INFO) << "get uid failed " << id << st;
             return std::shared_ptr<StreamLoadContext>(nullptr);
         }
         return it->second;
@@ -64,9 +59,6 @@ public:
         auto it = _stream_map.find(id);
         if (it != std::end(_stream_map)) {
             _stream_map.erase(it);
-
-            Status st = Status::InternalError("id");
-            LOG(INFO) << "remove uid succcess " << id << st;
             VLOG_NOTICE << "remove stream load pipe: " << id;
         }
     }
