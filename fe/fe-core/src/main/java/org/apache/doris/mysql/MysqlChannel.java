@@ -25,6 +25,7 @@ import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import javax.net.ssl.SSLEngine;
+import javax.net.ssl.SSLEngineResult;
 import javax.net.ssl.SSLException;
 
 /**
@@ -185,7 +186,13 @@ public class MysqlChannel {
         dstBuf.flip();
         decryptAppData.clear();
         // unwrap will remove ssl header.
-        sslEngine.unwrap(dstBuf, decryptAppData);
+        while (true) {
+            SSLEngineResult result = sslEngine.unwrap(dstBuf, decryptAppData);
+            if (handleUnwrapResult(result) && !dstBuf.hasRemaining()) {
+                break;
+            }
+            // if BUFFER_OVERFLOW or BUFFER_UNDERFLOW, need to unwrap again, so we do nothing.
+        }
         decryptAppData.flip();
         dstBuf.clear();
         dstBuf.put(decryptAppData);
@@ -287,8 +294,12 @@ public class MysqlChannel {
             return;
         }
         encryptNetData.clear();
-        // todo: handle BUFFER_OVERFLOW
-        sslEngine.wrap(dstBuf, encryptNetData);
+        while (true) {
+            SSLEngineResult result = sslEngine.wrap(dstBuf, encryptNetData);
+            if (handleWrapResult(result) && !dstBuf.hasRemaining()) {
+                break;
+            }
+        }
         encryptNetData.flip();
         dstBuf.clear();
         dstBuf.put(encryptNetData);
@@ -391,5 +402,53 @@ public class MysqlChannel {
 
     public String getRemoteHostPortString() {
         return remoteHostPortString;
+    }
+
+    private boolean handleWrapResult(SSLEngineResult sslEngineResult) throws SSLException {
+        switch (sslEngineResult.getStatus()) {
+            // normal status.
+            case OK:
+                return true;
+            case CLOSED:
+                sslEngine.closeOutbound();
+                return true;
+            case BUFFER_OVERFLOW:
+                // Could attempt to drain the serverNetData buffer of any already obtained
+                // data, but we'll just increase it to the size needed.
+                ByteBuffer newBuffer = ByteBuffer.allocate(encryptNetData.capacity() * 2);
+                encryptNetData.flip();
+                newBuffer.put(encryptNetData);
+                encryptNetData = newBuffer;
+                // retry the operation.
+                return false;
+            // when wrap BUFFER_UNDERFLOW and other status will not appear.
+            case BUFFER_UNDERFLOW:
+            default:
+                throw new IllegalStateException("invalid wrap status: " + sslEngineResult.getStatus());
+        }
+    }
+
+    private boolean handleUnwrapResult(SSLEngineResult sslEngineResult) {
+        switch (sslEngineResult.getStatus()) {
+            // normal status.
+            case OK:
+                return true;
+            case CLOSED:
+                sslEngine.closeOutbound();
+                return true;
+            case BUFFER_OVERFLOW:
+                // Could attempt to drain the clientAppData buffer of any already obtained
+                // data, but we'll just increase it to the size needed.
+                ByteBuffer newAppBuffer = ByteBuffer.allocate(decryptAppData.capacity() * 2);
+                decryptAppData.flip();
+                newAppBuffer.put(decryptAppData);
+                decryptAppData = newAppBuffer;
+                // retry the operation.
+                return false;
+            case BUFFER_UNDERFLOW:
+            default:
+                throw new IllegalStateException("invalid wrap status: " + sslEngineResult.getStatus());
+        }
+
     }
 }
