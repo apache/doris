@@ -32,7 +32,8 @@ void SegmentLoader::create_global_instance(size_t capacity) {
 }
 
 SegmentLoader::SegmentLoader(size_t capacity) {
-    _cache = std::unique_ptr<Cache>(new_lru_cache("SegmentCache", capacity, LRUCacheType::NUMBER));
+    _cache = std::unique_ptr<Cache>(
+            new_lru_cache("SegmentMetaCache", capacity, LRUCacheType::NUMBER));
 }
 
 bool SegmentLoader::_lookup(const SegmentLoader::CacheKey& key, SegmentCacheHandle* handle) {
@@ -52,8 +53,13 @@ void SegmentLoader::_insert(const SegmentLoader::CacheKey& key, SegmentLoader::C
         delete cache_value;
     };
 
+    int64_t meta_mem_usage = 0;
+    for (auto segment : value.segments) {
+        meta_mem_usage += segment->meta_mem_usage();
+    }
+
     auto lru_handle = _cache->insert(key.encode(), &value, sizeof(SegmentLoader::CacheValue),
-                                     deleter, CachePriority::NORMAL);
+                                     deleter, CachePriority::NORMAL, meta_mem_usage);
     *handle = SegmentCacheHandle(_cache.get(), lru_handle);
 }
 
