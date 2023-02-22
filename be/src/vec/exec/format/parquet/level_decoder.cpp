@@ -20,6 +20,8 @@
 #include "util/bit_util.h"
 #include "util/coding.h"
 
+static constexpr size_t V1_LEVEL_SIZE = 4;
+
 doris::Status doris::vectorized::LevelDecoder::init(doris::Slice* slice,
                                                     tparquet::Encoding::type encoding,
                                                     doris::vectorized::level_t max_level,
@@ -30,19 +32,19 @@ doris::Status doris::vectorized::LevelDecoder::init(doris::Slice* slice,
     _num_levels = num_levels;
     switch (encoding) {
     case tparquet::Encoding::RLE: {
-        if (slice->size < 4) {
+        if (slice->size < V1_LEVEL_SIZE) {
             return Status::Corruption("Wrong parquet level format");
         }
 
         uint8_t* data = (uint8_t*)slice->data;
         uint32_t num_bytes = decode_fixed32_le(data);
-        if (num_bytes > slice->size - 4) {
+        if (num_bytes > slice->size - V1_LEVEL_SIZE) {
             return Status::Corruption("Wrong parquet level format");
         }
-        _rle_decoder = RleDecoder<level_t>(data + 4, num_bytes, _bit_width);
+        _rle_decoder = RleDecoder<level_t>(data + V1_LEVEL_SIZE, num_bytes, _bit_width);
 
-        slice->data += 4 + num_bytes;
-        slice->size -= 4 + num_bytes;
+        slice->data += V1_LEVEL_SIZE + num_bytes;
+        slice->size -= V1_LEVEL_SIZE + num_bytes;
         break;
     }
     case tparquet::Encoding::BIT_PACKED: {
@@ -60,6 +62,18 @@ doris::Status doris::vectorized::LevelDecoder::init(doris::Slice* slice,
     default:
         return Status::IOError("Unsupported encoding for parquet level");
     }
+    return Status::OK();
+}
+
+doris::Status doris::vectorized::LevelDecoder::init_v2(const doris::Slice& levels,
+                                                       doris::vectorized::level_t max_level,
+                                                       uint32_t num_levels) {
+    _encoding = tparquet::Encoding::RLE;
+    _bit_width = BitUtil::log2(max_level + 1);
+    _max_level = max_level;
+    _num_levels = num_levels;
+    size_t byte_length = levels.size;
+    _rle_decoder = RleDecoder<level_t>((uint8_t*)levels.data, byte_length, _bit_width);
     return Status::OK();
 }
 
