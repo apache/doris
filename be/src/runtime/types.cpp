@@ -270,6 +270,18 @@ TypeDescriptor::TypeDescriptor(const google::protobuf::RepeatedPtrField<PTypeNod
     }
 }
 
+void TypeDescriptor::add_sub_type(TypeDescriptor&& sub_type, bool&& is_nullable) {
+    children.emplace_back(sub_type);
+    contains_nulls.emplace_back(is_nullable);
+}
+
+void TypeDescriptor::add_sub_type(TypeDescriptor&& sub_type, std::string&& field_name,
+                                  bool&& is_nullable) {
+    children.emplace_back(sub_type);
+    field_names.emplace_back(field_name);
+    contains_nulls.emplace_back(is_nullable);
+}
+
 std::string TypeDescriptor::debug_string() const {
     std::stringstream ss;
     switch (type) {
