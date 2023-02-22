@@ -88,8 +88,12 @@ suite('test_query_profile') {
     for(int i = 0 ; i < QUERY_NUM ; i++){
         def insert_order = QUERY_NUM - i - 1;
         def stmt_query_info = obj.data.rows[i]
+        
         assertNotNull(stmt_query_info["Query ID"])
         assertNotEquals(stmt_query_info["Query ID"].toString(), "N/A".toString())
+        assertNotNull(stmt_query_info["Detail"])
+        assertNotEquals(stmt_query_info["Detail"], "N/A")
+        
         assertEquals(stmt_query_info['Sql Statement'].toString(), 
            """ SELECT * FROM ${table} WHERE cost ${ops[insert_order]} ${nums[insert_order]} """.toString())
     }

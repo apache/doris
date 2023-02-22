@@ -71,8 +71,12 @@ suite('test_insert_profile') {
     for(int i = 0 ; i < len ; i++){
         def insert_order = len - i - 1;
         def stmt_query_info = obj.data.rows[i]
+        
         assertNotNull(stmt_query_info["Query ID"])
         assertNotEquals(stmt_query_info["Query ID"], "N/A")
+        assertNotNull(stmt_query_info["Detail"])
+        assertNotEquals(stmt_query_info["Detail"], "N/A")
+        
         assertEquals(stmt_query_info['Sql Statement'].toString(), 
             """ INSERT INTO ${table} values (${id_data[insert_order]}, "${name_data[insert_order]}") """.toString())
     }
