@@ -42,7 +42,7 @@ under the License.
 
 Doris使用[CLucene](https://clucene.sourceforge.net/)作为底层的倒排索引库。CLucene是一个用C++实现的高性能、稳定的Lucene倒排索引库。Doris进一步优化了CLucene，使得它更简单、更快、更适合数据库场景。
 
-在Doris的倒排索引实现中，table的一行对应一个文档、一列对应文档中的一个字段，因此利用倒排索引可以根据关键词快速定位包含它的行，达到WHERE字句加速的目的。
+在Doris的倒排索引实现中，table的一行对应一个文档、一列对应文档中的一个字段，因此利用倒排索引可以根据关键词快速定位包含它的行，达到WHERE子句加速的目的。
 
 与Doris中其他索引不同的是，在存储层倒排索引使用独立的文件，跟segment文件有逻辑对应关系、但存储的文件相互独立。这样的好处是可以做到创建、删除索引不用重写tablet和segment文件，大幅降低处理开销。
 
@@ -367,7 +367,7 @@ mysql> SELECT count() FROM hackernews_1m WHERE parent = 11189;
 1 row in set (0.01 sec)
 ```
 
-- 对字符串类型的author建立部分词的倒排索引，等值查询也可以利用索引加速
+- 对字符串类型的author建立不分词的倒排索引，等值查询也可以利用索引加速
 ```sql
 mysql> SELECT count() FROM hackernews_1m WHERE author = 'faster';
 +---------+
