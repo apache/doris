@@ -195,6 +195,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String ENABLE_DPHYP_OPTIMIZER = "enable_dphyp_optimizer";
 
+    public static final String NTH_OPTIMIZED_PLAN = "nth_optimized_plan";
+
     public static final String ENABLE_NEREIDS_PLANNER = "enable_nereids_planner";
     public static final String DISABLE_NEREIDS_RULES = "disable_nereids_rules";
 
@@ -566,6 +568,15 @@ public class SessionVariable implements Serializable, Writable {
 
     @VariableMgr.VarAttr(name = ENABLE_DPHYP_OPTIMIZER)
     private boolean enableDPHypOptimizer = false;
+
+    /**
+     * This variable is used to select n-th optimized plan in memo.
+     * It can allow us select different plans for the same SQL statement
+     * and these plans can be used to evaluate the cost model.
+     */
+    @VariableMgr.VarAttr(name = NTH_OPTIMIZED_PLAN)
+    private int nthOptimizedPlan = 1;
+
     /**
      * as the new optimizer is not mature yet, use this var
      * to control whether to use new optimizer, remove it when
@@ -1407,6 +1418,10 @@ public class SessionVariable implements Serializable, Writable {
 
     public boolean isEnableDPHypOptimizer() {
         return isEnableNereidsPlanner() && enableDPHypOptimizer;
+    }
+
+    public int getNthOptimizedPlan() {
+        return nthOptimizedPlan;
     }
 
     public void setEnableDphypOptimizer(boolean enableDPHypOptimizer) {
