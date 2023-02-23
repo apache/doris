@@ -17,14 +17,6 @@
 
 #include "data_type_map.h"
 
-#include "gen_cpp/data.pb.h"
-#include "vec/columns/column_array.h"
-#include "vec/columns/column_map.h"
-#include "vec/columns/column_nullable.h"
-#include "vec/common/assert_cast.h"
-#include "vec/data_types/data_type_array.h"
-#include "vec/data_types/data_type_nullable.h"
-
 namespace doris::vectorized {
 
 DataTypeMap::DataTypeMap(const DataTypePtr& keys_, const DataTypePtr& values_) {
