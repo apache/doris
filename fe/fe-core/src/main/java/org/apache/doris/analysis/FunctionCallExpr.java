@@ -217,10 +217,6 @@ public class FunctionCallExpr extends Expr {
 
     private boolean isRewrote = false;
 
-    // TODO: this field will be removed when we support analyze aggregate function
-    // in the nereids framework.
-    private boolean shouldFinalizeForNereids = true;
-
     // this field is set by nereids, so we would not get arg types by the children.
     private Optional<List<Type>> argTypesForNereids = Optional.empty();
 
@@ -341,7 +337,6 @@ public class FunctionCallExpr extends Expr {
         this.children.addAll(children);
         this.originChildSize = children.size();
         this.isMergeAggFn = isMergeAggFn;
-        this.shouldFinalizeForNereids = false;
     }
 
     // Constructs the same agg function with new params.
@@ -1773,43 +1768,7 @@ public class FunctionCallExpr extends Expr {
     }
 
     public void finalizeImplForNereids() throws AnalysisException {
-        // return if nereids already analyzed out of the FunctionCallExpr.
-        if (!shouldFinalizeForNereids) {
-            return;
-        }
 
-        List<Type> argTypes = getArgTypesForNereids();
-        // TODO: support other functions
-        // TODO: Supports type conversion to match the type of the function's parameters
-        if (fnName.getFunction().equalsIgnoreCase("sum")) {
-            // Prevent the cast type in vector exec engine
-            Type childType = argTypes.get(0).getMaxResolutionType();
-            fn = getBuiltinFunction(fnName.getFunction(), new Type[] { childType },
-                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            type = fn.getReturnType();
-        } else if (fnName.getFunction().equalsIgnoreCase("count")) {
-            fn = getBuiltinFunction(fnName.getFunction(), new Type[0], Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            type = fn.getReturnType();
-        } else if (fnName.getFunction().equalsIgnoreCase("substring")
-                || fnName.getFunction().equalsIgnoreCase("cast")) {
-            Type[] childTypes = argTypes.stream().toArray(Type[]::new);
-            fn = getBuiltinFunction(fnName.getFunction(), childTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            type = fn.getReturnType();
-        } else if (fnName.getFunction().equalsIgnoreCase("year")
-                || fnName.getFunction().equalsIgnoreCase("max")
-                || fnName.getFunction().equalsIgnoreCase("min")
-                || fnName.getFunction().equalsIgnoreCase("avg")
-                || fnName.getFunction().equalsIgnoreCase("weekOfYear")) {
-            Type childType = argTypes.get(0);
-            fn = getBuiltinFunction(fnName.getFunction(), new Type[] { childType },
-                    Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            type = fn.getReturnType();
-        } else {
-            Type[] inputTypes = argTypes.stream().toArray(Type[]::new);
-            // nereids already compute the correct signature, so we can find the
-            fn = getBuiltinFunction(fnName.getFunction(), inputTypes, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            type = fn.getReturnType();
-        }
     }
 
     private List<Type> getArgTypesForNereids() {

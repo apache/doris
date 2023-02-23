@@ -103,11 +103,11 @@ public class PruneOlapScanTabletTest {
         inList4.add(new IntLiteral(2));
         k4Filter.setInPredicate(new org.apache.doris.analysis.InPredicate(new SlotRef(null, "k4"), inList4, false));
 
-        SlotReference k0 = new SlotReference("k0", DataType.convertFromCatalogDataType(Type.INT), false, ImmutableList.of());
-        SlotReference k1 = new SlotReference("k1", DataType.convertFromCatalogDataType(Type.INT), false, ImmutableList.of());
-        SlotReference k2 = new SlotReference("k2", DataType.convertFromCatalogDataType(Type.INT), false, ImmutableList.of());
-        SlotReference k3 = new SlotReference("k3", DataType.convertFromCatalogDataType(Type.INT), false, ImmutableList.of());
-        SlotReference k4 = new SlotReference("k4", DataType.convertFromCatalogDataType(Type.INT), false, ImmutableList.of());
+        SlotReference k0 = new SlotReference("k0", DataType.fromCatalogType(Type.INT), false, ImmutableList.of());
+        SlotReference k1 = new SlotReference("k1", DataType.fromCatalogType(Type.INT), false, ImmutableList.of());
+        SlotReference k2 = new SlotReference("k2", DataType.fromCatalogType(Type.INT), false, ImmutableList.of());
+        SlotReference k3 = new SlotReference("k3", DataType.fromCatalogType(Type.INT), false, ImmutableList.of());
+        SlotReference k4 = new SlotReference("k4", DataType.fromCatalogType(Type.INT), false, ImmutableList.of());
 
         GreaterThanEqual greaterThanEqual = new GreaterThanEqual(k0, new DateLiteral("2019-08-22"));
         LessThanEqual lessThanEqual = new LessThanEqual(k0, new DateLiteral("2019-08-22"));

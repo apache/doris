@@ -195,9 +195,9 @@ public class RegisterCTETest extends TestWithFeService implements MemoPatternMat
 
     @Test
     public void testCTEInHavingAndSubquery() {
-        SlotReference region1 = new SlotReference(new ExprId(5), "s_region", VarcharType.INSTANCE,
+        SlotReference region1 = new SlotReference(new ExprId(5), "s_region", VarcharType.SYSTEM_DEFAULT,
                 false, ImmutableList.of("cte1"));
-        SlotReference region2 = new SlotReference(new ExprId(12), "s_region", VarcharType.INSTANCE,
+        SlotReference region2 = new SlotReference(new ExprId(12), "s_region", VarcharType.SYSTEM_DEFAULT,
                 false, ImmutableList.of("cte2"));
         SlotReference count = new SlotReference(new ExprId(14), "count(*)", BigIntType.INSTANCE,
                 false, ImmutableList.of());
