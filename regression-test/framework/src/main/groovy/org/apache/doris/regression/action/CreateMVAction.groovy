@@ -67,7 +67,7 @@ class CreateMVAction implements SuiteAction {
             if (tryTimes == 60 || sqlResult.contains("CANCELLED")) {
                 throw new IllegalStateException("MV create check times over limit");
             }
-            Thread.sleep(1000)
+            Thread.sleep(1200)
             tryTimes++
         }
 
