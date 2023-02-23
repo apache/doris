@@ -21,6 +21,7 @@
 
 #include "exec/olap_common.h"
 #include "parquet_common.h"
+#include "schema_desc.h"
 
 namespace doris::vectorized {
 

@@ -24,6 +24,7 @@ import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Index;
 import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
@@ -54,6 +55,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.stream.Collectors;
@@ -322,7 +324,12 @@ public class CreateTableStmt extends DdlStmt {
             enableUniqueKeyMergeOnWrite = PropertyAnalyzer.analyzeUniqueKeyMergeOnWrite(new HashMap<>(properties));
             enableStoreRowColumn = PropertyAnalyzer.analyzeStoreRowColumn(new HashMap<>(properties));
         }
-
+        //pre-block creation with column type ALL
+        for (ColumnDef columnDef : columnDefs) {
+            if (Objects.equals(columnDef.getType(), Type.ALL)) {
+                throw new AnalysisException("Disable to create table with `ALL` type columns.");
+            }
+        }
         // analyze key desc
         if (engineName.equalsIgnoreCase("olap")) {
             // olap table
@@ -365,7 +372,7 @@ public class CreateTableStmt extends DdlStmt {
                         if (columnDef.getType().getPrimitiveType() == PrimitiveType.JSONB) {
                             break;
                         }
-                        if (columnDef.getType().isCollectionType()) {
+                        if (columnDef.getType().isComplexType()) {
                             break;
                         }
                         if (columnDef.getType().getPrimitiveType() == PrimitiveType.VARCHAR) {

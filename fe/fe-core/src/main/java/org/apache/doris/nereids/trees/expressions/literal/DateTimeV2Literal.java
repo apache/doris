@@ -60,7 +60,7 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     }
 
     @Override
-    public DateTimeLiteral plusDays(int days) {
+    public DateTimeV2Literal plusDays(int days) {
         LocalDateTime d = LocalDateTime.parse(getStringValue(), DATE_TIME_FORMATTER).plusDays(days);
         return new DateTimeV2Literal(this.getDataType(), d.getYear(), d.getMonthOfYear(), d.getDayOfMonth(),
                 d.getHourOfDay(), d.getMinuteOfHour(), d.getSecondOfMinute());

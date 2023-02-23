@@ -182,7 +182,6 @@ under the License.
 | RowBlock错误代码                                 |        |                                                              |
 | OLAP_ERR_ROWBLOCK_DECOMPRESS_ERROR               | -1300  | Rowblock解压缩错误                                           |
 | OLAP_ERR_ROWBLOCK_FIND_ROW_EXCEPTION             | -1301  | 获取Block Entry失败                                          |
-| OLAP_ERR_ROWBLOCK_READ_INFO_ERROR                | -1302  | 读取Rowblock信息错误                                         |
 | Tablet元数据错误                                 |        |                                                              |
 | OLAP_ERR_HEADER_ADD_VERSION                      | -1400  | tablet元数据增加版本                                         |
 | OLAP_ERR_HEADER_DELETE_VERSION                   | -1401  | tablet元数据删除版本                                         |
@@ -254,9 +253,7 @@ under the License.
 | OLAP_ERR_ROWSET_ALREADY_EXIST                    | -3106  | Rowset已经存在                                               |
 | OLAP_ERR_ROWSET_CREATE_READER                    | -3107  | Rowset创建读对象失败                                         |
 | OLAP_ERR_ROWSET_INVALID                          | -3108  | Rowset无效                                                   |
-| OLAP_ERR_ROWSET_LOAD_FAILED                      | -3109  | Rowset加载失败                                               |
 | OLAP_ERR_ROWSET_READER_INIT                      | -3110  | Rowset读对象初始化失败                                       |
-| OLAP_ERR_ROWSET_READ_FAILED                      | -3111  | Rowset读失败                                                 |
 | OLAP_ERR_ROWSET_INVALID_STATE_TRANSITION         | -3112  | Rowset无效的事务状态                                         |
 | OLAP_ERR_ROWSET_RENAME_FILE_FAILED               | -3116  | Rowset重命名文件失败                                         |
 | OLAP_ERR_SEGCOMPACTION_INIT_READER               | -3117  | SegmentCompaction初始化Reader失败                            |

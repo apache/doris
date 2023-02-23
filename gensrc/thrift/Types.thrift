@@ -426,6 +426,18 @@ struct TJavaUdfExecutorCtorParams {
   // this is used to pass place or places to FE, which could help us call jni
   // only once and can process a batch size data in JAVA-Udaf
   11: optional i64 input_places_ptr
+
+  // for array type about nested column null map
+  12: optional i64 input_array_nulls_buffer_ptr
+
+  // used for array type of nested string column offset
+  13: optional i64 input_array_string_offsets_ptrs
+
+  // for array type about nested column null map when output
+  14: optional i64 output_array_null_ptr
+
+  // used for array type of nested string column offset when output
+  15: optional i64 output_array_string_offsets_ptr
 }
 
 // Contains all interesting statistics from a single 'memory pool' in the JVM.
@@ -555,7 +567,8 @@ enum TTableType {
     HIVE_TABLE,
     ICEBERG_TABLE,
     HUDI_TABLE,
-    JDBC_TABLE
+    JDBC_TABLE,
+    TEST_EXTERNAL_TABLE,
 }
 
 enum TOdbcTableType {

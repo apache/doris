@@ -35,10 +35,12 @@ import org.apache.doris.nereids.rules.rewrite.logical.CheckAndStandardizeWindowF
 import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
 import org.apache.doris.nereids.rules.rewrite.logical.CountDistinctRewrite;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateAggregate;
+import org.apache.doris.nereids.rules.rewrite.logical.EliminateDedupJoinCondition;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateFilter;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateGroupByConstant;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateLimit;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateNotNull;
+import org.apache.doris.nereids.rules.rewrite.logical.EliminateNullAwareLeftAntiJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateOrderByConstant;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateUnnecessaryProject;
 import org.apache.doris.nereids.rules.rewrite.logical.ExtractAndNormalizeWindowExpression;
@@ -46,6 +48,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.ExtractFilterFromCrossJoin
 import org.apache.doris.nereids.rules.rewrite.logical.ExtractSingleTableExpressionFromDisjunction;
 import org.apache.doris.nereids.rules.rewrite.logical.FindHashConditionForJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.InferFilterNotNull;
+import org.apache.doris.nereids.rules.rewrite.logical.InferJoinNotNull;
 import org.apache.doris.nereids.rules.rewrite.logical.InferPredicates;
 import org.apache.doris.nereids.rules.rewrite.logical.InnerToCrossJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.LimitPushDown;
@@ -95,16 +98,18 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .add(topDownBatch(ImmutableList.of(new EliminateGroupByConstant())))
                 .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
                 .add(topDownBatch(ImmutableList.of(new ExtractAndNormalizeWindowExpression())))
-                //execute NormalizeAggregate() again to resolve nested AggregateFunctions in WindowExpression,
-                //e.g. sum(sum(c1)) over(partition by avg(c1))
+                // execute NormalizeAggregate() again to resolve nested AggregateFunctions in WindowExpression,
+                // e.g. sum(sum(c1)) over(partition by avg(c1))
                 .add(topDownBatch(ImmutableList.of(new NormalizeAggregate())))
                 .add(topDownBatch(ImmutableList.of(new CheckAndStandardizeWindowFunctionAndFrame())))
                 .add(topDownBatch(ImmutableList.of(new InferFilterNotNull())))
+                .add(topDownBatch(ImmutableList.of(new InferJoinNotNull())))
                 .add(topDownBatch(RuleSet.PUSH_DOWN_FILTERS, false))
                 .add(visitorJob(RuleType.INFER_PREDICATES, new InferPredicates()))
                 .add(topDownBatch(ImmutableList.of(new ExtractFilterFromCrossJoin())))
                 .add(topDownBatch(ImmutableList.of(new MergeFilters())))
                 .add(topDownBatch(ImmutableList.of(new ReorderJoin())))
+                .add(topDownBatch(ImmutableList.of(new EliminateDedupJoinCondition())))
                 .add(topDownBatch(ImmutableList.of(new ColumnPruning())))
                 .add(topDownBatch(RuleSet.PUSH_DOWN_FILTERS, false))
                 .add(visitorJob(RuleType.INFER_PREDICATES, new InferPredicates()))
@@ -131,6 +136,7 @@ public class NereidsRewriteJobExecutor extends BatchRulesJob {
                 .add(bottomUpBatch(ImmutableList.of(new MergeSetOperations())))
                 .add(topDownBatch(ImmutableList.of(new LimitPushDown())))
                 .add(topDownBatch(ImmutableList.of(new BuildAggForUnion())))
+                .add(topDownBatch(ImmutableList.of(new EliminateNullAwareLeftAntiJoin())))
                 // this rule batch must keep at the end of rewrite to do some plan check
                 .add(bottomUpBatch(ImmutableList.of(
                         new AdjustNullable(),

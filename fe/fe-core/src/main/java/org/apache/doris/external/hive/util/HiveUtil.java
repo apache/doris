@@ -25,7 +25,6 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 
 import com.google.common.collect.Lists;
-import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.ql.io.SymlinkTextInputFormat;
 import org.apache.hadoop.hive.ql.io.parquet.MapredParquetInputFormat;
@@ -55,17 +54,15 @@ public final class HiveUtil {
     /**
      * get input format class from inputFormatName.
      *
-     * @param configuration jobConf used when getInputFormatClass
+     * @param jobConf jobConf used when getInputFormatClass
      * @param inputFormatName inputFormat class name
      * @param symlinkTarget use target inputFormat class when inputFormat is SymlinkTextInputFormat
      * @return a class of inputFormat.
-     * @throws UserException  when class not found.
+     * @throws UserException when class not found.
      */
-    public static InputFormat<?, ?> getInputFormat(Configuration configuration,
-                                                   String inputFormatName, boolean symlinkTarget) throws UserException {
+    public static InputFormat<?, ?> getInputFormat(JobConf jobConf,
+            String inputFormatName, boolean symlinkTarget) throws UserException {
         try {
-            JobConf jobConf = new JobConf(configuration);
-
             Class<? extends InputFormat<?, ?>> inputFormatClass = getInputFormatClass(jobConf, inputFormatName);
             if (symlinkTarget && (inputFormatClass == SymlinkTextInputFormat.class)) {
                 // symlink targets are always TextInputFormat

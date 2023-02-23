@@ -247,7 +247,7 @@ public class MysqlLoadManager {
         }
         StringBuilder sb = new StringBuilder();
         sb.append("http://");
-        sb.append(backend.getHost());
+        sb.append(backend.getIp());
         sb.append(":");
         sb.append(backend.getHttpPort());
         sb.append("/api/");

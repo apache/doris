@@ -31,10 +31,12 @@ import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.EsTable;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.ExceptionChecker;
+import org.apache.doris.external.elasticsearch.QueryBuilders.BuilderOptions;
 
 import mockit.Expectations;
 import mockit.Injectable;
@@ -179,13 +181,14 @@ public class EsUtilTest extends EsTestCase {
         Expr ltExpr = new BinaryPredicate(Operator.LT, k1, intLiteral);
         Expr gtExpr = new BinaryPredicate(Operator.GT, k1, intLiteral);
         Expr efnExpr = new BinaryPredicate(Operator.EQ_FOR_NULL, new SlotRef(null, "k1"), new IntLiteral(3));
-        Assertions.assertEquals("{\"term\":{\"k1\":3}}", EsUtil.toEsDsl(eqExpr).toJson());
-        Assertions.assertEquals("{\"bool\":{\"must_not\":{\"term\":{\"k1\":3}}}}", EsUtil.toEsDsl(neExpr).toJson());
-        Assertions.assertEquals("{\"range\":{\"k1\":{\"lte\":3}}}", EsUtil.toEsDsl(leExpr).toJson());
-        Assertions.assertEquals("{\"range\":{\"k1\":{\"gte\":3}}}", EsUtil.toEsDsl(geExpr).toJson());
-        Assertions.assertEquals("{\"range\":{\"k1\":{\"lt\":3}}}", EsUtil.toEsDsl(ltExpr).toJson());
-        Assertions.assertEquals("{\"range\":{\"k1\":{\"gt\":3}}}", EsUtil.toEsDsl(gtExpr).toJson());
-        Assertions.assertEquals("{\"term\":{\"k1\":3}}", EsUtil.toEsDsl(efnExpr).toJson());
+        Assertions.assertEquals("{\"term\":{\"k1\":3}}", QueryBuilders.toEsDsl(eqExpr).toJson());
+        Assertions.assertEquals("{\"bool\":{\"must_not\":{\"term\":{\"k1\":3}}}}",
+                QueryBuilders.toEsDsl(neExpr).toJson());
+        Assertions.assertEquals("{\"range\":{\"k1\":{\"lte\":3}}}", QueryBuilders.toEsDsl(leExpr).toJson());
+        Assertions.assertEquals("{\"range\":{\"k1\":{\"gte\":3}}}", QueryBuilders.toEsDsl(geExpr).toJson());
+        Assertions.assertEquals("{\"range\":{\"k1\":{\"lt\":3}}}", QueryBuilders.toEsDsl(ltExpr).toJson());
+        Assertions.assertEquals("{\"range\":{\"k1\":{\"gt\":3}}}", QueryBuilders.toEsDsl(gtExpr).toJson());
+        Assertions.assertEquals("{\"term\":{\"k1\":3}}", QueryBuilders.toEsDsl(efnExpr).toJson());
     }
 
     @Test
@@ -202,11 +205,11 @@ public class EsUtilTest extends EsTestCase {
                 binaryPredicate2);
         CompoundPredicate notPredicate = new CompoundPredicate(CompoundPredicate.Operator.NOT, binaryPredicate1, null);
         Assertions.assertEquals("{\"bool\":{\"must\":[{\"term\":{\"k1\":3}},{\"range\":{\"k2\":{\"gt\":5}}}]}}",
-                EsUtil.toEsDsl(andPredicate).toJson());
+                QueryBuilders.toEsDsl(andPredicate).toJson());
         Assertions.assertEquals("{\"bool\":{\"should\":[{\"term\":{\"k1\":3}},{\"range\":{\"k2\":{\"gt\":5}}}]}}",
-                EsUtil.toEsDsl(orPredicate).toJson());
+                QueryBuilders.toEsDsl(orPredicate).toJson());
         Assertions.assertEquals("{\"bool\":{\"must_not\":{\"term\":{\"k1\":3}}}}",
-                EsUtil.toEsDsl(notPredicate).toJson());
+                QueryBuilders.toEsDsl(notPredicate).toJson());
     }
 
     @Test
@@ -215,8 +218,8 @@ public class EsUtilTest extends EsTestCase {
         IsNullPredicate isNullPredicate = new IsNullPredicate(k1, false);
         IsNullPredicate isNotNullPredicate = new IsNullPredicate(k1, true);
         Assertions.assertEquals("{\"bool\":{\"must_not\":{\"exists\":{\"field\":\"k1\"}}}}",
-                EsUtil.toEsDsl(isNullPredicate).toJson());
-        Assertions.assertEquals("{\"exists\":{\"field\":\"k1\"}}", EsUtil.toEsDsl(isNotNullPredicate).toJson());
+                QueryBuilders.toEsDsl(isNullPredicate).toJson());
+        Assertions.assertEquals("{\"exists\":{\"field\":\"k1\"}}", QueryBuilders.toEsDsl(isNotNullPredicate).toJson());
     }
 
     @Test
@@ -228,9 +231,12 @@ public class EsUtilTest extends EsTestCase {
         LikePredicate likePredicate1 = new LikePredicate(LikePredicate.Operator.LIKE, k1, stringLiteral1);
         LikePredicate regexPredicate = new LikePredicate(LikePredicate.Operator.REGEXP, k1, stringLiteral2);
         LikePredicate likePredicate2 = new LikePredicate(LikePredicate.Operator.LIKE, k1, stringLiteral3);
-        Assertions.assertEquals("{\"wildcard\":{\"k1\":\"*1*\"}}", EsUtil.toEsDsl(likePredicate1).toJson());
-        Assertions.assertEquals("{\"wildcard\":{\"k1\":\"*1*\"}}", EsUtil.toEsDsl(regexPredicate).toJson());
-        Assertions.assertEquals("{\"wildcard\":{\"k1\":\"1?2\"}}", EsUtil.toEsDsl(likePredicate2).toJson());
+        Assertions.assertEquals("{\"wildcard\":{\"k1\":\"*1*\"}}", QueryBuilders.toEsDsl(likePredicate1).toJson());
+        Assertions.assertEquals("{\"wildcard\":{\"k1\":\"*1*\"}}", QueryBuilders.toEsDsl(regexPredicate).toJson());
+        Assertions.assertEquals("{\"wildcard\":{\"k1\":\"1?2\"}}", QueryBuilders.toEsDsl(likePredicate2).toJson());
+        List<Expr> notPushDownList = new ArrayList<>();
+        Assertions.assertNull(QueryBuilders.toEsDsl(likePredicate2, notPushDownList, new HashMap<>(), BuilderOptions.builder().likePushDown(false).build()));
+        Assertions.assertFalse(notPushDownList.isEmpty());
     }
 
     @Test
@@ -243,9 +249,9 @@ public class EsUtilTest extends EsTestCase {
         intLiterals.add(intLiteral2);
         InPredicate isInPredicate = new InPredicate(k1, intLiterals, false);
         InPredicate isNotInPredicate = new InPredicate(k1, intLiterals, true);
-        Assertions.assertEquals("{\"terms\":{\"k1\":[3,5]}}", EsUtil.toEsDsl(isInPredicate).toJson());
+        Assertions.assertEquals("{\"terms\":{\"k1\":[3,5]}}", QueryBuilders.toEsDsl(isInPredicate).toJson());
         Assertions.assertEquals("{\"bool\":{\"must_not\":{\"terms\":{\"k1\":[3,5]}}}}",
-                EsUtil.toEsDsl(isNotInPredicate).toJson());
+                QueryBuilders.toEsDsl(isNotInPredicate).toJson());
     }
 
     @Test
@@ -257,7 +263,7 @@ public class EsUtilTest extends EsTestCase {
         exprs.add(k1);
         exprs.add(stringLiteral);
         FunctionCallExpr functionCallExpr = new FunctionCallExpr("esquery", exprs);
-        Assertions.assertEquals(str, EsUtil.toEsDsl(functionCallExpr).toJson());
+        Assertions.assertEquals(str, QueryBuilders.toEsDsl(functionCallExpr).toJson());
 
         SlotRef k2 = new SlotRef(null, "k2");
         IntLiteral intLiteral = new IntLiteral(5);
@@ -266,7 +272,7 @@ public class EsUtilTest extends EsTestCase {
                 functionCallExpr);
         Assertions.assertEquals(
                 "{\"bool\":{\"must\":[{\"term\":{\"k2\":5}},{\"bool\":{\"must_not\":{\"terms\":{\"k1\":[3,5]}}}}]}}",
-                EsUtil.toEsDsl(compoundPredicate).toJson());
+                QueryBuilders.toEsDsl(compoundPredicate).toJson());
     }
 
     @Test
@@ -276,7 +282,9 @@ public class EsUtilTest extends EsTestCase {
         BinaryPredicate castPredicate = new BinaryPredicate(Operator.EQ, castExpr, new IntLiteral(3));
         List<Expr> notPushDownList = new ArrayList<>();
         Map<String, String> fieldsContext = new HashMap<>();
-        Assertions.assertNull(EsUtil.toEsDsl(castPredicate, notPushDownList, fieldsContext));
+        BuilderOptions builderOptions = BuilderOptions.builder()
+                .likePushDown(Boolean.parseBoolean(EsResource.LIKE_PUSH_DOWN_DEFAULT_VALUE)).build();
+        Assertions.assertNull(QueryBuilders.toEsDsl(castPredicate, notPushDownList, fieldsContext, builderOptions));
         Assertions.assertEquals(1, notPushDownList.size());
 
         SlotRef k2 = new SlotRef(null, "k2");
@@ -284,7 +292,8 @@ public class EsUtilTest extends EsTestCase {
         BinaryPredicate eqPredicate = new BinaryPredicate(Operator.EQ, k2, intLiteral);
         CompoundPredicate compoundPredicate = new CompoundPredicate(CompoundPredicate.Operator.OR, castPredicate,
                 eqPredicate);
-        EsUtil.toEsDsl(compoundPredicate, notPushDownList, fieldsContext);
+
+        QueryBuilders.toEsDsl(compoundPredicate, notPushDownList, fieldsContext, builderOptions);
         Assertions.assertEquals(3, notPushDownList.size());
 
         SlotRef k3 = new SlotRef(null, "k3");
@@ -292,7 +301,7 @@ public class EsUtilTest extends EsTestCase {
         CastExpr castDoubleExpr = new CastExpr(Type.DOUBLE, k3);
         BinaryPredicate castDoublePredicate = new BinaryPredicate(Operator.GE, castDoubleExpr,
                 new FloatLiteral(3.0, Type.DOUBLE));
-        EsUtil.toEsDsl(castDoublePredicate, notPushDownList, fieldsContext);
+        QueryBuilders.toEsDsl(castDoublePredicate, notPushDownList, fieldsContext, builderOptions);
         Assertions.assertEquals(3, notPushDownList.size());
     }
 
@@ -317,22 +326,20 @@ public class EsUtilTest extends EsTestCase {
                 + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
                 + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}", testIndex.toJSONString());
 
-        JSONObject testDynamicTemplates = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es6_dynamic_templates_mapping.json"),
-                "doc");
+        JSONObject testDynamicTemplates = EsUtil.getMappingProps("test",
+                loadJsonFromFile("data/es/es6_dynamic_templates_mapping.json"), "doc");
         Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
-                + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
-                + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
+                        + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
+                        + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
                 testDynamicTemplates.toJSONString());
 
         expectedEx.expect(DorisEsException.class);
         expectedEx.expectMessage("Do not support index without explicit mapping.");
-        EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es6_only_dynamic_templates_mapping.json"),
-                "doc");
+        EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es6_only_dynamic_templates_mapping.json"), "doc");
 
         expectedEx.expect(DorisEsException.class);
         expectedEx.expectMessage("Do not support index without explicit mapping.");
-        EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es6_only_dynamic_templates_mapping.json"),
-                null);
+        EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es6_only_dynamic_templates_mapping.json"), null);
     }
 
     @Test
@@ -356,17 +363,16 @@ public class EsUtilTest extends EsTestCase {
                 + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
                 + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}", testIndex.toJSONString());
 
-        JSONObject testDynamicTemplates = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es7_dynamic_templates_mapping.json"),
-                null);
+        JSONObject testDynamicTemplates = EsUtil.getMappingProps("test",
+                loadJsonFromFile("data/es/es7_dynamic_templates_mapping.json"), null);
         Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
-                + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
-                + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
+                        + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
+                        + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
                 testDynamicTemplates.toJSONString());
 
         expectedEx.expect(DorisEsException.class);
         expectedEx.expectMessage("Do not support index without explicit mapping.");
-        EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es7_only_dynamic_templates_mapping.json"),
-                null);
+        EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es7_only_dynamic_templates_mapping.json"), null);
     }
 
     @Test
@@ -390,17 +396,16 @@ public class EsUtilTest extends EsTestCase {
                 + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
                 + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}", testIndex.toJSONString());
 
-        JSONObject testDynamicTemplates = EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es8_dynamic_templates_mapping.json"),
-                "doc");
+        JSONObject testDynamicTemplates = EsUtil.getMappingProps("test",
+                loadJsonFromFile("data/es/es8_dynamic_templates_mapping.json"), "doc");
         Assertions.assertEquals("{\"test4\":{\"type\":\"date\"},\"test2\":{\"type\":\"text\","
-                + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
-                + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
+                        + "\"fields\":{\"keyword\":{\"ignore_above\":256,\"type\":\"keyword\"}}},"
+                        + "\"test3\":{\"type\":\"double\"},\"test1\":{\"type\":\"keyword\"}}",
                 testDynamicTemplates.toJSONString());
 
         expectedEx.expect(DorisEsException.class);
         expectedEx.expectMessage("Do not support index without explicit mapping.");
-        EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es8_only_dynamic_templates_mapping.json"),
-                "doc");
+        EsUtil.getMappingProps("test", loadJsonFromFile("data/es/es8_only_dynamic_templates_mapping.json"), "doc");
     }
 
 }

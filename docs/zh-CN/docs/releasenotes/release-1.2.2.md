@@ -117,7 +117,7 @@ under the License.
 
 # BugFix
 
-- 修复了使用 Doris-Flink-Connectore 导入数据时的内存泄漏问题；[#16430](https://github.com/apache/doris/pull/16430)
+- 修复了使用 Doris-Flink-Connector 导入数据时的内存泄漏问题；[#16430](https://github.com/apache/doris/pull/16430)
 
 - 修复了 BE 可能的线程调度问题，并减少了 BE 线程耗尽导致的 Fragment_sent_timeout。
 
@@ -145,9 +145,116 @@ under the License.
 
 # 其他
 
-添加指标以查看 BE 上的 Rowset 和 Segment 总数字 `doris_be_all_rowset_nums` 和 `doris_be_all_segment_nums`
+添加指标以查看 BE 上的 Rowset 和 Segment 总数字 `doris_be_all_rowsets_num` 和 `doris_be_all_segments_num`
 
 # 致谢
 
-有 53 位贡献者参与到 1.2.1 版本的开发与完善中，感谢他们的付出，他们分别是：
+有 53 位贡献者参与到 1.2.2 版本的开发与完善中，感谢他们的付出，他们分别是：
+
+@adonis0147
+
+@AshinGau
+
+@BePPPower
+
+@BiteTheDDDDt
+
+@ByteYue
+
+@caiconghui
+
+@cambyzju
+
+@chenlinzhong
+
+@DarvenDuan
+
+@dataroaring
+
+@Doris-Extras
+
+@dutyu
+
+@englefly
+
+@freemandealer
+
+@Gabriel39
+
+@HappenLee
+
+@Henry2SS
+
+@htyoung
+
+@isHuangXin
+
+@JackDrogon
+
+@jacktengg
+
+@Jibing-Li
+
+@kaka11chen
+
+@Kikyou1997
+
+@Lchangliang
+
+@LemonLiTree
+
+@liaoxin01
+
+@liqing-coder
+
+@luozenglin
+
+@morningman
+
+@morrySnow
+
+@mrhhsg
+
+@nextdreamblue
+
+@qidaye
+
+@qzsee
+
+@spaces-X
+
+@stalary
+
+
+@starocean999
+
+@weizuo93
+
+@wsjz
+
+@xiaokang
+
+@xinyiZzz
+
+@xy720
+
+@yangzhg
+
+@yiguolei
+
+@yixiutt
+
+@Yukang-Lian
+
+@Yulei-Yang
+
+@zclllyybb
+
+@zddr
+
+@zhangstar333
+
+@zhannngchen
+
+@zy-kkk
 

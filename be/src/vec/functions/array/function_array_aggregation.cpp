@@ -130,7 +130,7 @@ struct AggregateFunction {
 
         AggregateFunctionPtr function;
         function.reset(new AggregateFunctionNullUnary<true>(nested_function,
-                                                            {make_nullable(data_type_ptr)}, {}));
+                                                            {make_nullable(data_type_ptr)}));
         return function;
     }
 };
@@ -238,11 +238,11 @@ struct AggregateFunction<AggregateFunctionImpl<AggregateOperation::MIN>> {
     static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
         DataTypes data_types = {remove_nullable(data_type_ptr)};
         auto nested_function = AggregateFunctionPtr(
-                create_aggregate_function_min(NameArrayMin::name, data_types, {}, false));
+                create_aggregate_function_min(NameArrayMin::name, data_types, false));
 
         AggregateFunctionPtr function;
         function.reset(new AggregateFunctionNullUnary<true>(nested_function,
-                                                            {make_nullable(data_type_ptr)}, {}));
+                                                            {make_nullable(data_type_ptr)}));
         return function;
     }
 };
@@ -256,11 +256,11 @@ struct AggregateFunction<AggregateFunctionImpl<AggregateOperation::MAX>> {
     static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
         DataTypes data_types = {remove_nullable(data_type_ptr)};
         auto nested_function = AggregateFunctionPtr(
-                create_aggregate_function_max(NameArrayMax::name, data_types, {}, false));
+                create_aggregate_function_max(NameArrayMax::name, data_types, false));
 
         AggregateFunctionPtr function;
         function.reset(new AggregateFunctionNullUnary<true>(nested_function,
-                                                            {make_nullable(data_type_ptr)}, {}));
+                                                            {make_nullable(data_type_ptr)}));
         return function;
     }
 };

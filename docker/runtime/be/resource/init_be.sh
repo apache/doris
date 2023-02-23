@@ -135,9 +135,6 @@ register_be_to_fe() {
   # check fe status
   local is_fe_start=false
   for i in {1..300}; do
-    if [[ $(( $i % 20 )) == 1 ]]; then
-      doris_note "Register BE to FE is failed. retry."
-    fi
     docker_process_sql <<<"alter system add backend '${BE_HOST_IP}:${BE_HEARTBEAT_PORT}'"
     register_be_status=$?
     if [[ $register_be_status == 0 ]]; then
@@ -155,6 +152,9 @@ register_be_to_fe() {
           doris_warn "BE failed registered to FE!"
       fi
     fi
+    if [[ $(( $i % 20 )) == 1 ]]; then
+      doris_note "Register BE to FE is failed. retry."
+    fi
     sleep 1
   done
   if ! [[ $is_fe_start ]]; then
@@ -170,17 +170,9 @@ check_arg() {
   fi
 }
 
-# 这里可用 docker_process_sql() 函数封装，为了方便调试，暂未封装
 check_be_status() {
   set +e
   for i in {1..300}; do
-    if [[ $(( $i % 20 )) == 1 ]]; then
-      if [[ $1 == true ]]; then
-        doris_note "MASTER FE is not started. retry."
-      else
-        doris_note "BE is not register. retry."
-      fi
-    fi
     if [[ $1 == true ]]; then
       docker_process_sql <<<"show frontends" | grep "[[:space:]]${MASTER_FE_IP}[[:space:]]"
     else
@@ -195,6 +187,13 @@ check_be_status() {
         BE_ALREADY_EXISTS=true
       fi
       break
+    fi
+    if [[ $(( $i % 20 )) == 1 ]]; then
+      if [[ $1 == true ]]; then
+        doris_note "MASTER FE is not started. retry."
+      else
+        doris_note "BE is not register. retry."
+      fi
     fi
     sleep 1
   done

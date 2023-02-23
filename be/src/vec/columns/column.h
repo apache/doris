@@ -265,6 +265,11 @@ public:
         LOG(FATAL) << "Method insert_many_binary_data is not supported for " << get_name();
     }
 
+    virtual void insert_many_strings_overflow(const StringRef* strings, size_t num,
+                                              size_t max_length) {
+        LOG(FATAL) << "Method insert_many_strings_overflow is not supported for " << get_name();
+    }
+
     // Here `pos` points to the memory data type is the same as the data type of the column.
     // This function is used by `insert_keys_into_columns` in AggregationNode.
     virtual void insert_many_raw_data(const char* pos, size_t num) {
@@ -380,6 +385,10 @@ public:
       */
     using Filter = PaddedPODArray<UInt8>;
     virtual Ptr filter(const Filter& filt, ssize_t result_size_hint) const = 0;
+
+    /// This function will modify the original table.
+    /// Return rows number after filtered.
+    virtual size_t filter(const Filter& filter) = 0;
 
     /**
      *  used by lazy materialization to filter column by selected rowids
@@ -698,7 +707,6 @@ using Columns = std::vector<ColumnPtr>;
 using MutableColumns = std::vector<MutableColumnPtr>;
 
 using ColumnRawPtrs = std::vector<const IColumn*>;
-//using MutableColumnRawPtrs = std::vector<IColumn *>;
 
 template <typename... Args>
 struct IsMutableColumns;

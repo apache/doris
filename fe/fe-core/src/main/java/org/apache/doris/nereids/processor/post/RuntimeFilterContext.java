@@ -27,9 +27,9 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
-import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.RuntimeFilterGenerator.FilterSizeLimits;
 import org.apache.doris.planner.RuntimeFilterId;
+import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.SessionVariable;
 
 import com.google.common.annotations.VisibleForTesting;
@@ -71,7 +71,7 @@ public class RuntimeFilterContext {
     // you can see disjoint set data structure to learn the processing detailed.
     private final Map<NamedExpression, Pair<RelationId, Slot>> aliasTransferMap = Maps.newHashMap();
 
-    private final Map<Slot, OlapScanNode> scanNodeOfLegacyRuntimeFilterTarget = Maps.newHashMap();
+    private final Map<Slot, ScanNode> scanNodeOfLegacyRuntimeFilterTarget = Maps.newHashMap();
 
     private final Set<Plan> effectiveSrcNodes = Sets.newHashSet();
     private final SessionVariable sessionVariable;
@@ -128,7 +128,7 @@ public class RuntimeFilterContext {
         return aliasTransferMap;
     }
 
-    public Map<Slot, OlapScanNode> getScanNodeOfLegacyRuntimeFilterTarget() {
+    public Map<Slot, ScanNode> getScanNodeOfLegacyRuntimeFilterTarget() {
         return scanNodeOfLegacyRuntimeFilterTarget;
     }
 

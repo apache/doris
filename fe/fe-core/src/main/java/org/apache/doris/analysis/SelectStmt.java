@@ -46,6 +46,7 @@ import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rewrite.ExprRewriter;
+import org.apache.doris.rewrite.mvrewrite.MVSelectFailedException;
 import org.apache.doris.thrift.TExprOpcode;
 
 import com.google.common.base.Preconditions;
@@ -381,7 +382,7 @@ public class SelectStmt extends QueryStmt {
                             .checkTblPriv(ConnectContext.get(), tblRef.getName(), PrivPredicate.SELECT)) {
                         ErrorReport.reportAnalysisException(ErrorCode.ERR_TABLEACCESS_DENIED_ERROR, "SELECT",
                                 ConnectContext.get().getQualifiedUser(), ConnectContext.get().getRemoteIP(),
-                                dbName + ": " + tableName);
+                                dbName + "." + tableName);
                     }
                     tableMap.put(table.getId(), table);
                 }
@@ -660,7 +661,7 @@ public class SelectStmt extends QueryStmt {
             // reset slots need to do fetch column
             for (SlotRef slot : resultSlots) {
                 // invalid slots will be pruned from reading from ScanNode
-                slot.setInvalid();
+                slot.setNeedMaterialize(false);
             }
 
             LOG.debug("resultsSlots {}", resultSlots);
@@ -1491,9 +1492,19 @@ public class SelectStmt extends QueryStmt {
         // check that all post-agg exprs point to agg output
         for (int i = 0; i < selectList.getItems().size(); ++i) {
             if (!resultExprs.get(i).isBoundByTupleIds(groupingByTupleIds)) {
-                throw new AnalysisException(
-                        "select list expression not produced by aggregation output " + "(missing from "
-                                + "GROUP BY clause?): " + selectList.getItems().get(i).getExpr().toSql());
+                if (CreateMaterializedViewStmt.isMVColumn(resultExprs.get(i).toSqlWithoutTbl())) {
+                    List<TupleId> tupleIds = Lists.newArrayList();
+                    List<SlotId> slotIds = Lists.newArrayList();
+                    resultExprs.get(i).getIds(tupleIds, slotIds);
+                    for (TupleId id : tupleIds) {
+                        updateDisableTuplesMVRewriter(id);
+                    }
+                    throw new MVSelectFailedException("Materialized View rewrite invalid");
+                } else {
+                    throw new AnalysisException(
+                            "select list expression not produced by aggregation output " + "(missing from "
+                                    + "GROUP BY clause?): " + selectList.getItems().get(i).getExpr().toSql());
+                }
             }
         }
         if (orderByElements != null) {
@@ -2147,7 +2158,7 @@ public class SelectStmt extends QueryStmt {
             strBuilder.append("DISTINCT ");
         }
         ConnectContext ctx = ConnectContext.get();
-        if (ctx == null || ctx.getSessionVariable().internalSession || toSQLWithSelectList) {
+        if (ctx == null || ctx.getSessionVariable().internalSession || toSQLWithSelectList || resultExprs.isEmpty()) {
             for (int i = 0; i < selectList.getItems().size(); i++) {
                 strBuilder.append(selectList.getItems().get(i).toSql());
                 strBuilder.append((i + 1 != selectList.getItems().size()) ? ", " : "");

@@ -72,12 +72,16 @@ public class ReorderJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalFilter(subTree(LogicalJoin.class, LogicalFilter.class)).thenApply(ctx -> {
+            if (ctx.statementContext.getConnectContext().getSessionVariable().isDisableJoinReorder()) {
+                return null;
+            }
             LogicalFilter<Plan> filter = ctx.root;
 
             Map<Plan, JoinHintType> planToHintType = Maps.newHashMap();
             Plan plan = joinToMultiJoin(filter, planToHintType);
             Preconditions.checkState(plan instanceof MultiJoin);
             MultiJoin multiJoin = (MultiJoin) plan;
+            ctx.statementContext.setMaxNArayInnerJoin(multiJoin.children().size());
             Plan after = multiJoinToJoin(multiJoin, planToHintType);
             return after;
         }).toRule(RuleType.REORDER_JOIN);

@@ -18,8 +18,17 @@
 package org.apache.doris.mysql.privilege;
 
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.common.AuthorizationException;
+
+import java.util.Map;
+import java.util.Set;
 
 public class RangerAccessController implements CatalogAccessController {
+
+    public RangerAccessController(Map<String, String> properties) {
+
+    }
+
     @Override
     public boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted) {
         // TODO
@@ -37,5 +46,12 @@ public class RangerAccessController implements CatalogAccessController {
     public boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted) {
         // TODO
         return false;
+    }
+
+    @Override
+    public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
+            PrivPredicate wanted) throws AuthorizationException {
+        // TODO
+        throw new AuthorizationException("not implemented");
     }
 }

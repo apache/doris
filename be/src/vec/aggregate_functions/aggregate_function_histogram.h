@@ -63,6 +63,9 @@ struct AggregateFunctionHistogramData {
             return;
         }
 
+        sample_rate = rhs.sample_rate;
+        max_bucket_num = rhs.max_bucket_num;
+
         for (auto rhs_it : rhs.ordered_map) {
             auto lhs_it = ordered_map.find(rhs_it.first);
             if (lhs_it != ordered_map.end()) {
@@ -121,7 +124,7 @@ struct AggregateFunctionHistogramData {
     std::string get(const DataTypePtr& data_type) const {
         std::vector<Bucket<T>> buckets;
         rapidjson::StringBuffer buffer;
-        build_bucket_from_data(buckets, ordered_map, sample_rate, max_bucket_num);
+        build_bucket_from_data(buckets, ordered_map, max_bucket_num);
         build_json_from_bucket(buffer, buckets, data_type, sample_rate, max_bucket_num);
         return std::string(buffer.GetString());
     }
@@ -135,7 +138,7 @@ struct AggregateFunctionHistogramData {
     }
 
 private:
-    double sample_rate = 0.2;
+    double sample_rate = 1.0;
     uint32_t max_bucket_num = 128;
     std::map<T, uint64_t> ordered_map;
 };
@@ -151,7 +154,7 @@ public:
     AggregateFunctionHistogram(const DataTypes& argument_types_)
             : IAggregateFunctionDataHelper<Data,
                                            AggregateFunctionHistogram<Data, T, has_input_param>>(
-                      argument_types_, {}),
+                      argument_types_),
               _argument_type(argument_types_[0]) {}
 
     std::string get_name() const override { return "histogram"; }

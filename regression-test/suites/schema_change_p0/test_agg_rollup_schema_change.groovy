@@ -20,6 +20,14 @@ import org.codehaus.groovy.runtime.IOGroovyMethods
 
 suite ("test_agg_rollup_schema_change") {
     def tableName = "schema_change_agg_rollup_regression_test"
+    def getMVJobState = { tbName ->
+         def jobStateResult = sql """  SHOW ALTER TABLE ROLLUP WHERE TableName='${tbName}' ORDER BY CreateTime DESC LIMIT 1 """
+         return jobStateResult[0][8]
+    }
+    def getJobState = { tbName ->
+         def jobStateResult = sql """  SHOW ALTER TABLE COLUMN WHERE IndexName='${tbName}' ORDER BY createtime DESC LIMIT 1 """
+         return jobStateResult[0][9]
+    }
 
     try {
 
@@ -78,17 +86,19 @@ suite ("test_agg_rollup_schema_change") {
             """
 
         //add rollup
-        def result = "null"
         def rollupName = "rollup_cost"
         sql "ALTER TABLE ${tableName} ADD ROLLUP ${rollupName}(`user_id`,`date`,`city`,`age`, cost);"
-        while (!result.contains("FINISHED")){
-            result = sql "SHOW ALTER TABLE ROLLUP WHERE TableName='${tableName}' ORDER BY CreateTime DESC LIMIT 1;"
-            result = result.toString()
-            logger.info("result: ${result}")
-            if(result.contains("CANCELLED")){
-                return
+        int max_try_time = 3000
+        while (max_try_time--){
+            String result = getMVJobState(tableName)
+            if (result == "FINISHED") {
+                break
+            } else {
+                sleep(100)
+                if (max_try_time < 1){
+                    assertEquals(1,2)
+                }
             }
-            Thread.sleep(100)
         }
 
         sql """ INSERT INTO ${tableName} VALUES
@@ -111,16 +121,17 @@ suite ("test_agg_rollup_schema_change") {
             ALTER TABLE ${tableName} DROP COLUMN cost
             """
 
-        result = "null"
-        while (!result.contains("FINISHED")){
-            result = sql "SHOW ALTER TABLE COLUMN WHERE IndexName='${tableName}' ORDER BY CreateTime DESC LIMIT 1;"
-            result = result.toString()
-            logger.info("result: ${result}")
-            if(result.contains("CANCELLED")) {
-                log.info("rollup job is cancelled, result: ${result}".toString())
-                return
+        max_try_time = 3000
+        while (max_try_time--){
+            String result = getJobState(tableName)
+            if (result == "FINISHED") {
+                break
+            } else {
+                sleep(100)
+                if (max_try_time < 1){
+                    assertEquals(1,2)
+                }
             }
-            Thread.sleep(100)
         }
 
         sql """ INSERT INTO ${tableName} (`user_id`, `date`, `city`, `age`, `sex`, `max_dwell_time`,`min_dwell_time`, `hll_col`, `bitmap_col`)

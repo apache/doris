@@ -109,7 +109,7 @@ public:
     bool is_unique_key() { return _tablet_schema->keys_type() == UNIQUE_KEYS; }
 
 private:
-    Status _create_writers_with_block(
+    Status _create_writers_with_dynamic_block(
             const vectorized::Block* block,
             std::function<Status(uint32_t, const TabletColumn&)> writer_creator);
     Status _create_writers(std::function<Status(uint32_t, const TabletColumn&)> writer_creator);
@@ -127,13 +127,17 @@ private:
     void _maybe_invalid_row_cache(const std::string& key);
     std::string _encode_keys(const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns,
                              size_t pos, bool null_first = true);
-    // for unique-key merge on write and segment min_max key
+    // used for unique-key with merge on write and segment min_max key
     std::string _full_encode_keys(
             const std::vector<vectorized::IOlapColumnDataAccessor*>& key_columns, size_t pos,
             bool null_first = true);
+    // used for unique-key with merge on write
+    void _encode_seq_column(const vectorized::IOlapColumnDataAccessor* seq_column, size_t pos,
+                            string* encoded_keys);
     void set_min_max_key(const Slice& key);
     void set_min_key(const Slice& key);
     void set_max_key(const Slice& key);
+    bool _should_create_writers_with_dynamic_block(size_t num_columns_in_block);
 
     void clear();
 
@@ -158,6 +162,7 @@ private:
     std::unique_ptr<vectorized::OlapBlockDataConvertor> _olap_data_convertor;
     // used for building short key index or primary key index during vectorized write.
     std::vector<const KeyCoder*> _key_coders;
+    const KeyCoder* _seq_coder = nullptr;
     std::vector<uint16_t> _key_index_size;
     size_t _short_key_row_pos = 0;
 

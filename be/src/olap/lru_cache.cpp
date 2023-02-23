@@ -163,6 +163,10 @@ void HandleTable::_resize() {
     _length = new_length;
 }
 
+uint32_t HandleTable::element_count() const {
+    return _elems;
+}
+
 LRUCache::LRUCache(LRUCacheType type) : _type(type) {
     // Make empty circular linked list
     _lru_normal.next = &_lru_normal;
@@ -269,7 +273,8 @@ void LRUCache::release(Cache::Handle* handle) {
 
 void LRUCache::_evict_from_lru_with_time(size_t total_size, LRUHandle** to_remove_head) {
     // 1. evict normal cache entries
-    while (_usage + total_size > _capacity && !_sorted_normal_entries_with_timestamp.empty()) {
+    while ((_usage + total_size > _capacity || _check_element_count_limit()) &&
+           !_sorted_normal_entries_with_timestamp.empty()) {
         auto entry_pair = _sorted_normal_entries_with_timestamp.top();
         LRUHandle* remove_handle = entry_pair.second;
         if (_cache_value_time_extractor(remove_handle->value) != entry_pair.first) {
@@ -288,7 +293,8 @@ void LRUCache::_evict_from_lru_with_time(size_t total_size, LRUHandle** to_remov
     }
 
     // 2. evict durable cache entries if need
-    while (_usage + total_size > _capacity && !_sorted_durable_entries_with_timestamp.empty()) {
+    while ((_usage + total_size > _capacity || _check_element_count_limit()) &&
+           !_sorted_durable_entries_with_timestamp.empty()) {
         auto entry_pair = _sorted_durable_entries_with_timestamp.top();
         LRUHandle* remove_handle = entry_pair.second;
         if (_cache_value_time_extractor(remove_handle->value) != entry_pair.first) {
@@ -309,7 +315,8 @@ void LRUCache::_evict_from_lru_with_time(size_t total_size, LRUHandle** to_remov
 
 void LRUCache::_evict_from_lru(size_t total_size, LRUHandle** to_remove_head) {
     // 1. evict normal cache entries
-    while (_usage + total_size > _capacity && _lru_normal.next != &_lru_normal) {
+    while ((_usage + total_size > _capacity || _check_element_count_limit()) &&
+           _lru_normal.next != &_lru_normal) {
         LRUHandle* old = _lru_normal.next;
         DCHECK(old->priority == CachePriority::NORMAL);
         _evict_one_entry(old);
@@ -317,7 +324,8 @@ void LRUCache::_evict_from_lru(size_t total_size, LRUHandle** to_remove_head) {
         *to_remove_head = old;
     }
     // 2. evict durable cache entries if need
-    while (_usage + total_size > _capacity && _lru_durable.next != &_lru_durable) {
+    while ((_usage + total_size > _capacity || _check_element_count_limit()) &&
+           _lru_durable.next != &_lru_durable) {
         LRUHandle* old = _lru_durable.next;
         DCHECK(old->priority == CachePriority::DURABLE);
         _evict_one_entry(old);
@@ -337,9 +345,13 @@ void LRUCache::_evict_one_entry(LRUHandle* e) {
     _usage -= e->total_size;
 }
 
+bool LRUCache::_check_element_count_limit() {
+    return _element_count_capacity != 0 && _table.element_count() >= _element_count_capacity;
+}
+
 Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
                                 void (*deleter)(const CacheKey& key, void* value),
-                                MemTrackerLimiter* tracker, CachePriority priority) {
+                                MemTrackerLimiter* tracker, CachePriority priority, size_t bytes) {
     size_t handle_size = sizeof(LRUHandle) - 1 + key.size();
     LRUHandle* e = reinterpret_cast<LRUHandle*>(malloc(handle_size));
     e->value = value;
@@ -347,16 +359,19 @@ Cache::Handle* LRUCache::insert(const CacheKey& key, uint32_t hash, void* value,
     e->charge = charge;
     e->key_length = key.size();
     e->total_size = (_type == LRUCacheType::SIZE ? handle_size + charge : 1);
+    DCHECK(_type == LRUCacheType::SIZE || bytes != -1) << " _type " << _type;
+    e->bytes = (_type == LRUCacheType::SIZE ? handle_size + charge : handle_size + bytes);
     e->hash = hash;
     e->refs = 2; // one for the returned handle, one for LRUCache.
     e->next = e->prev = nullptr;
     e->in_cache = true;
     e->priority = priority;
     e->mem_tracker = tracker;
+    e->type = _type;
     memcpy(e->key_data, key.data(), key.size());
     // The memory of the parameter value should be recorded in the tls mem tracker,
     // transfer the memory ownership of the value to ShardedLRUCache::_mem_tracker.
-    THREAD_MEM_TRACKER_TRANSFER_TO(e->total_size, tracker);
+    THREAD_MEM_TRACKER_TRANSFER_TO(e->bytes, tracker);
     LRUHandle* to_remove_head = nullptr;
     {
         std::lock_guard l(_mutex);
@@ -498,7 +513,7 @@ inline uint32_t ShardedLRUCache::_hash_slice(const CacheKey& s) {
 }
 
 ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
-                                 uint32_t num_shards)
+                                 uint32_t num_shards, uint32_t total_element_count_capacity)
         : _name(name),
           _num_shard_bits(Bits::FindLSBSetNonZero(num_shards)),
           _num_shards(num_shards),
@@ -510,10 +525,13 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
             << "num_shards should be power of two, but got " << num_shards;
 
     const size_t per_shard = (total_capacity + (_num_shards - 1)) / _num_shards;
+    const size_t per_shard_element_count_capacity =
+            (total_element_count_capacity + (_num_shards - 1)) / _num_shards;
     LRUCache** shards = new (std::nothrow) LRUCache*[_num_shards];
     for (int s = 0; s < _num_shards; s++) {
         shards[s] = new LRUCache(type);
         shards[s]->set_capacity(per_shard);
+        shards[s]->set_element_count_capacity(per_shard_element_count_capacity);
     }
     _shards = shards;
 
@@ -531,8 +549,9 @@ ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity,
 ShardedLRUCache::ShardedLRUCache(const std::string& name, size_t total_capacity, LRUCacheType type,
                                  uint32_t num_shards,
                                  CacheValueTimeExtractor cache_value_time_extractor,
-                                 bool cache_value_check_timestamp)
-        : ShardedLRUCache(name, total_capacity, type, num_shards) {
+                                 bool cache_value_check_timestamp,
+                                 uint32_t total_element_count_capacity)
+        : ShardedLRUCache(name, total_capacity, type, num_shards, total_element_count_capacity) {
     for (int s = 0; s < _num_shards; s++) {
         _shards[s]->set_cache_value_time_extractor(cache_value_time_extractor);
         _shards[s]->set_cache_value_check_timestamp(cache_value_check_timestamp);
@@ -552,10 +571,10 @@ ShardedLRUCache::~ShardedLRUCache() {
 
 Cache::Handle* ShardedLRUCache::insert(const CacheKey& key, void* value, size_t charge,
                                        void (*deleter)(const CacheKey& key, void* value),
-                                       CachePriority priority) {
+                                       CachePriority priority, size_t bytes) {
     const uint32_t hash = _hash_slice(key);
     return _shards[_shard(hash)]->insert(key, hash, value, charge, deleter, _mem_tracker.get(),
-                                         priority);
+                                         priority, bytes);
 }
 
 Cache::Handle* ShardedLRUCache::lookup(const CacheKey& key) {

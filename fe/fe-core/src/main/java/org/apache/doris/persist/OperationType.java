@@ -258,6 +258,8 @@ public class OperationType {
     public static final short OP_DROP_MTMV_TASK = 341;
     public static final short OP_CHANGE_MTMV_TASK = 342;
 
+    public static final short OP_ALTER_MTMV_STMT = 345;
+
     public static final short OP_DROP_EXTERNAL_TABLE = 350;
     public static final short OP_DROP_EXTERNAL_DB = 351;
     public static final short OP_CREATE_EXTERNAL_TABLE = 352;

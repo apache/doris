@@ -531,8 +531,12 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                 .build();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, table, context);
         tupleDescriptor.setTable(table);
-
         SchemaScanNode scanNode = new SchemaScanNode(context.nextPlanNodeId(), tupleDescriptor);
+        context.getRuntimeTranslator().ifPresent(
+                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(schemaScan.getId()).forEach(
+                    expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, scanNode, context)
+            )
+        );
         scanNode.finalizeForNereids();
         context.getScanNodes().add(scanNode);
         PlanFragment planFragment =
@@ -547,7 +551,8 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         ExternalTable table = fileScan.getTable();
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, table, context);
         tupleDescriptor.setTable(table);
-        ExternalFileScanNode fileScanNode = new ExternalFileScanNode(context.nextPlanNodeId(), tupleDescriptor);
+        // TODO(cmy): determine the needCheckColumnPriv param
+        ExternalFileScanNode fileScanNode = new ExternalFileScanNode(context.nextPlanNodeId(), tupleDescriptor, false);
         TableName tableName = new TableName(null, "", "");
         TableRef ref = new TableRef(tableName, null, null);
         BaseTableRef tableRef = new BaseTableRef(ref, table, tableName);
@@ -555,6 +560,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         Utils.execWithUncheckedException(fileScanNode::init);
         context.addScanNode(fileScanNode);
+        context.getRuntimeTranslator().ifPresent(
+                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(fileScan.getId()).forEach(
+                    expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, fileScanNode, context)
+            )
+        );
         Utils.execWithUncheckedException(fileScanNode::finalizeForNerieds);
         // Create PlanFragment
         DataPartition dataPartition = DataPartition.RANDOM;
@@ -570,6 +580,11 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
 
         TableValuedFunctionIf catalogFunction = tvfRelation.getFunction().getCatalogFunction();
         ScanNode scanNode = catalogFunction.getScanNode(context.nextPlanNodeId(), tupleDescriptor);
+        context.getRuntimeTranslator().ifPresent(
+                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(tvfRelation.getId()).forEach(
+                    expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, scanNode, context)
+            )
+        );
         scanNode.finalizeForNereids();
         context.addScanNode(scanNode);
 
@@ -807,17 +822,6 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             sortNode.setCardinality((long) sort.getStats().getRowCount());
         }
         return sortNode;
-    }
-
-    @Override
-    public PlanFragment visitAbstractPhysicalSort(
-            AbstractPhysicalSort<? extends Plan> sort,
-            PlanTranslatorContext context) {
-        PlanFragment childFragment = sort.child(0).accept(this, context);
-        PlanNode childNode = childFragment.getPlanRoot();
-        SortNode sortNode = translateSortNode(sort, childNode, context);
-        childFragment.addPlanRoot(sortNode);
-        return childFragment;
     }
 
     /**
@@ -1537,7 +1541,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         for (int i = 0; i < outputs.size(); ++i) {
             Slot right = childOutputs.get(i);
             DataType tightestCommonType = outputs.get(i).getDataType();
-            Expression newRight = TypeCoercionUtils.castIfNotSameType(right, tightestCommonType);
+            Expression newRight = TypeCoercionUtils.castIfNotMatchType(right, tightestCommonType);
             newChildOutputs.add(newRight);
         }
         return ImmutableList.copyOf(newChildOutputs);

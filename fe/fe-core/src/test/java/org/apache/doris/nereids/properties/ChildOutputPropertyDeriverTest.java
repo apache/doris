@@ -40,7 +40,6 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalLocalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalQuickSort;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalTopN;
@@ -354,7 +353,7 @@ public class ChildOutputPropertyDeriverTest {
     public void testLocalQuickSort() {
         SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
         List<OrderKey> orderKeys = Lists.newArrayList(new OrderKey(key, true, true));
-        PhysicalLocalQuickSort<GroupPlan> sort = new PhysicalLocalQuickSort(orderKeys, logicalProperties, groupPlan);
+        PhysicalQuickSort<GroupPlan> sort = new PhysicalQuickSort(orderKeys, SortPhase.LOCAL_SORT, logicalProperties, groupPlan);
         GroupExpression groupExpression = new GroupExpression(sort);
         PhysicalProperties child = new PhysicalProperties(DistributionSpecReplicated.INSTANCE,
                 new OrderSpec(Lists.newArrayList(
@@ -370,7 +369,7 @@ public class ChildOutputPropertyDeriverTest {
     public void testQuickSort() {
         SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
         List<OrderKey> orderKeys = Lists.newArrayList(new OrderKey(key, true, true));
-        PhysicalQuickSort<GroupPlan> sort = new PhysicalQuickSort<>(orderKeys, logicalProperties, groupPlan, SortPhase.MERGE_SORT);
+        PhysicalQuickSort<GroupPlan> sort = new PhysicalQuickSort<>(orderKeys, SortPhase.MERGE_SORT, logicalProperties, groupPlan);
         GroupExpression groupExpression = new GroupExpression(sort);
         PhysicalProperties child = new PhysicalProperties(DistributionSpecReplicated.INSTANCE,
                 new OrderSpec(Lists.newArrayList(
@@ -386,7 +385,7 @@ public class ChildOutputPropertyDeriverTest {
     public void testTopN() {
         SlotReference key = new SlotReference("col1", IntegerType.INSTANCE);
         List<OrderKey> orderKeys = Lists.newArrayList(new OrderKey(key, true, true));
-        PhysicalTopN<GroupPlan> sort = new PhysicalTopN<>(orderKeys, 10, 10, logicalProperties, groupPlan, SortPhase.LOCAL_SORT);
+        PhysicalTopN<GroupPlan> sort = new PhysicalTopN<>(orderKeys, 10, 10, SortPhase.LOCAL_SORT, logicalProperties, groupPlan);
         GroupExpression groupExpression = new GroupExpression(sort);
         PhysicalProperties child = new PhysicalProperties(DistributionSpecReplicated.INSTANCE,
                 new OrderSpec(Lists.newArrayList(

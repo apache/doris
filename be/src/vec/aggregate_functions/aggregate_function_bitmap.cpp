@@ -45,7 +45,6 @@ static IAggregateFunction* createWithIntDataType(const DataTypes& argument_type)
 
 AggregateFunctionPtr create_aggregate_function_bitmap_union(const std::string& name,
                                                             const DataTypes& argument_types,
-                                                            const Array& parameters,
                                                             const bool result_is_nullable) {
     return std::make_shared<AggregateFunctionBitmapOp<AggregateFunctionBitmapUnionOp>>(
             argument_types);
@@ -53,7 +52,6 @@ AggregateFunctionPtr create_aggregate_function_bitmap_union(const std::string& n
 
 AggregateFunctionPtr create_aggregate_function_bitmap_intersect(const std::string& name,
                                                                 const DataTypes& argument_types,
-                                                                const Array& parameters,
                                                                 const bool result_is_nullable) {
     return std::make_shared<AggregateFunctionBitmapOp<AggregateFunctionBitmapIntersectOp>>(
             argument_types);
@@ -61,7 +59,6 @@ AggregateFunctionPtr create_aggregate_function_bitmap_intersect(const std::strin
 
 AggregateFunctionPtr create_aggregate_function_group_bitmap_xor(const std::string& name,
                                                                 const DataTypes& argument_types,
-                                                                const Array& parameters,
                                                                 const bool result_is_nullable) {
     return std::make_shared<AggregateFunctionBitmapOp<AggregateFunctionGroupBitmapXorOp>>(
             argument_types);
@@ -69,7 +66,6 @@ AggregateFunctionPtr create_aggregate_function_group_bitmap_xor(const std::strin
 
 AggregateFunctionPtr create_aggregate_function_bitmap_union_count(const std::string& name,
                                                                   const DataTypes& argument_types,
-                                                                  const Array& parameters,
                                                                   const bool result_is_nullable) {
     const bool arg_is_nullable = argument_types[0]->is_nullable();
     if (arg_is_nullable) {
@@ -81,7 +77,6 @@ AggregateFunctionPtr create_aggregate_function_bitmap_union_count(const std::str
 
 AggregateFunctionPtr create_aggregate_function_bitmap_union_int(const std::string& name,
                                                                 const DataTypes& argument_types,
-                                                                const Array& parameters,
                                                                 const bool result_is_nullable) {
     const bool arg_is_nullable = argument_types[0]->is_nullable();
     if (arg_is_nullable) {

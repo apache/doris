@@ -20,7 +20,10 @@ package org.apache.doris.nereids.trees.expressions.functions;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.ExecFunction;
 import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLiteral;
@@ -177,8 +180,38 @@ public class ExecutableFunctions {
         return dateAdd(date, new IntegerLiteral(-day.getValue()));
     }
 
+    @ExecFunction(name = "date_sub", argTypes = { "DATE", "INT" }, returnType = "DATE")
+    public static DateLiteral dateSub(DateLiteral date, IntegerLiteral day) throws AnalysisException {
+        return dateAdd(date, new IntegerLiteral(-day.getValue()));
+    }
+
+    @ExecFunction(name = "date_sub", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal dateSub(DateTimeV2Literal date, IntegerLiteral day) throws AnalysisException {
+        return dateAdd(date, new IntegerLiteral(-day.getValue()));
+    }
+
+    @ExecFunction(name = "date_sub", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
+    public static DateV2Literal dateSub(DateV2Literal date, IntegerLiteral day) throws AnalysisException {
+        return dateAdd(date, new IntegerLiteral(-day.getValue()));
+    }
+
     @ExecFunction(name = "date_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateTimeLiteral dateAdd(DateTimeLiteral date, IntegerLiteral day) throws AnalysisException {
+        return daysAdd(date, day);
+    }
+
+    @ExecFunction(name = "date_add", argTypes = { "DATE", "INT" }, returnType = "DATE")
+    public static DateLiteral dateAdd(DateLiteral date, IntegerLiteral day) throws AnalysisException {
+        return daysAdd(date, day);
+    }
+
+    @ExecFunction(name = "date_add", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal dateAdd(DateTimeV2Literal date, IntegerLiteral day) throws AnalysisException {
+        return daysAdd(date, day);
+    }
+
+    @ExecFunction(name = "date_add", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
+    public static DateV2Literal dateAdd(DateV2Literal date, IntegerLiteral day) throws AnalysisException {
         return daysAdd(date, day);
     }
 
@@ -187,13 +220,58 @@ public class ExecutableFunctions {
         return date.plusYears(year.getValue());
     }
 
+    @ExecFunction(name = "years_add", argTypes = { "DATE", "INT" }, returnType = "DATE")
+    public static DateLiteral yearsAdd(DateLiteral date, IntegerLiteral year) throws AnalysisException {
+        return date.plusYears(year.getValue());
+    }
+
+    @ExecFunction(name = "years_add", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal yearsAdd(DateTimeV2Literal date, IntegerLiteral year) throws AnalysisException {
+        return date.plusYears(year.getValue());
+    }
+
+    @ExecFunction(name = "years_add", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
+    public static DateV2Literal yearsAdd(DateV2Literal date, IntegerLiteral year) throws AnalysisException {
+        return date.plusYears(year.getValue());
+    }
+
     @ExecFunction(name = "months_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateTimeLiteral monthsAdd(DateTimeLiteral date, IntegerLiteral month) throws AnalysisException {
         return date.plusMonths(month.getValue());
     }
 
+    @ExecFunction(name = "months_add", argTypes = { "DATE", "INT" }, returnType = "DATE")
+    public static DateLiteral monthsAdd(DateLiteral date, IntegerLiteral month) throws AnalysisException {
+        return date.plusMonths(month.getValue());
+    }
+
+    @ExecFunction(name = "months_add", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal monthsAdd(DateTimeV2Literal date, IntegerLiteral month) throws AnalysisException {
+        return date.plusMonths(month.getValue());
+    }
+
+    @ExecFunction(name = "months_add", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
+    public static DateV2Literal monthsAdd(DateV2Literal date, IntegerLiteral month) throws AnalysisException {
+        return date.plusMonths(month.getValue());
+    }
+
     @ExecFunction(name = "days_add", argTypes = { "DATETIME", "INT" }, returnType = "DATETIME")
     public static DateTimeLiteral daysAdd(DateTimeLiteral date, IntegerLiteral day) throws AnalysisException {
+        return date.plusDays(day.getValue());
+    }
+
+    @ExecFunction(name = "days_add", argTypes = { "DATEV2", "INT" }, returnType = "DATEV2")
+    public static DateV2Literal daysAdd(DateV2Literal date, IntegerLiteral day) throws AnalysisException {
+        return date.plusDays(day.getValue());
+    }
+
+    @ExecFunction(name = "days_add", argTypes = { "DATETIMEV2", "INT" }, returnType = "DATETIMEV2")
+    public static DateTimeV2Literal daysAdd(DateTimeV2Literal date, IntegerLiteral day) throws AnalysisException {
+        return date.plusDays(day.getValue());
+    }
+
+    @ExecFunction(name = "days_add", argTypes = { "DATE", "INT" }, returnType = "DATE")
+    public static DateLiteral daysAdd(DateLiteral date, IntegerLiteral day) throws AnalysisException {
         return date.plusDays(day.getValue());
     }
 

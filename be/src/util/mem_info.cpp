@@ -35,6 +35,7 @@
 #include "common/config.h"
 #include "gutil/strings/split.h"
 #include "olap/page_cache.h"
+#include "olap/segment_loader.h"
 #include "util/cgroup_util.h"
 #include "util/parse_util.h"
 #include "util/pretty_printer.h"
@@ -56,10 +57,10 @@ int64_t MemInfo::_s_proc_mem_no_allocator_cache = -1;
 std::atomic<int64_t> MemInfo::refresh_interval_memory_growth = 0;
 
 static std::unordered_map<std::string, int64_t> _mem_info_bytes;
-int64_t MemInfo::_s_sys_mem_available = 0;
+int64_t MemInfo::_s_sys_mem_available = -1;
 std::string MemInfo::_s_sys_mem_available_str = "";
-int64_t MemInfo::_s_sys_mem_available_low_water_mark = 0;
-int64_t MemInfo::_s_sys_mem_available_warning_water_mark = 0;
+int64_t MemInfo::_s_sys_mem_available_low_water_mark = -1;
+int64_t MemInfo::_s_sys_mem_available_warning_water_mark = -1;
 int64_t MemInfo::_s_process_minor_gc_size = -1;
 int64_t MemInfo::_s_process_full_gc_size = -1;
 
@@ -69,7 +70,7 @@ void MemInfo::refresh_allocator_mem() {
 #elif defined(USE_JEMALLOC)
     uint64_t epoch = 0;
     size_t sz = sizeof(epoch);
-    je_mallctl("epoch", &epoch, &sz, &epoch, sz);
+    jemallctl("epoch", &epoch, &sz, &epoch, sz);
 
     // https://jemalloc.net/jemalloc.3.html
     _s_allocator_cache_mem =
@@ -97,12 +98,17 @@ void MemInfo::process_cache_gc(int64_t& freed_mem) {
     freed_mem +=
             StoragePageCache::instance()->get_page_cache_mem_consumption(segment_v2::DATA_PAGE);
     StoragePageCache::instance()->prune(segment_v2::DATA_PAGE);
+    // TODO add freed_mem
+    SegmentLoader::instance()->prune();
 }
 
 // step1: free all cache
 // step2: free top overcommit query, if enable query memroy overcommit
 bool MemInfo::process_minor_gc() {
     int64_t freed_mem = 0;
+    std::string vm_rss_str = PerfCounters::get_vm_rss_str();
+    std::string mem_available_str = MemInfo::sys_mem_available_str();
+
     Defer defer {[&]() {
         LOG(INFO) << fmt::format("Process Minor GC Free Memory {} Bytes", freed_mem);
     }};
@@ -112,8 +118,8 @@ bool MemInfo::process_minor_gc() {
         return true;
     }
     if (config::enable_query_memroy_overcommit) {
-        freed_mem +=
-                MemTrackerLimiter::free_top_overcommit_query(_s_process_minor_gc_size - freed_mem);
+        freed_mem += MemTrackerLimiter::free_top_overcommit_query(
+                _s_process_minor_gc_size - freed_mem, vm_rss_str, mem_available_str);
     }
     if (freed_mem > _s_process_minor_gc_size) {
         return true;
@@ -127,6 +133,9 @@ bool MemInfo::process_minor_gc() {
 // step4: free top memory load
 bool MemInfo::process_full_gc() {
     int64_t freed_mem = 0;
+    std::string vm_rss_str = PerfCounters::get_vm_rss_str();
+    std::string mem_available_str = MemInfo::sys_mem_available_str();
+
     Defer defer {
             [&]() { LOG(INFO) << fmt::format("Process Full GC Free Memory {} Bytes", freed_mem); }};
 
@@ -134,18 +143,25 @@ bool MemInfo::process_full_gc() {
     if (freed_mem > _s_process_full_gc_size) {
         return true;
     }
-    freed_mem += MemTrackerLimiter::free_top_memory_query(_s_process_full_gc_size - freed_mem);
+    freed_mem += SegmentLoader::instance()->segment_cache_mem_consumption();
+    SegmentLoader::instance()->prune_all();
+    if (freed_mem > _s_process_full_gc_size) {
+        return true;
+    }
+    freed_mem += MemTrackerLimiter::free_top_memory_query(_s_process_full_gc_size - freed_mem,
+                                                          vm_rss_str, mem_available_str);
     if (freed_mem > _s_process_full_gc_size) {
         return true;
     }
     if (config::enable_query_memroy_overcommit) {
-        freed_mem +=
-                MemTrackerLimiter::free_top_overcommit_load(_s_process_full_gc_size - freed_mem);
+        freed_mem += MemTrackerLimiter::free_top_overcommit_load(
+                _s_process_full_gc_size - freed_mem, vm_rss_str, mem_available_str);
         if (freed_mem > _s_process_full_gc_size) {
             return true;
         }
     }
-    freed_mem += MemTrackerLimiter::free_top_memory_load(_s_process_full_gc_size - freed_mem);
+    freed_mem += MemTrackerLimiter::free_top_memory_load(_s_process_full_gc_size - freed_mem,
+                                                         vm_rss_str, mem_available_str);
     if (freed_mem > _s_process_full_gc_size) {
         return true;
     }
@@ -177,8 +193,10 @@ void MemInfo::refresh_proc_meminfo() {
     }
     if (meminfo.is_open()) meminfo.close();
 
-    _s_sys_mem_available = _mem_info_bytes["MemAvailable"];
-    _s_sys_mem_available_str = PrettyPrinter::print(_s_sys_mem_available, TUnit::BYTES);
+    if (_mem_info_bytes.find("MemAvailable") != _mem_info_bytes.end()) {
+        _s_sys_mem_available = _mem_info_bytes["MemAvailable"];
+        _s_sys_mem_available_str = PrettyPrinter::print(_s_sys_mem_available, TUnit::BYTES);
+    }
 }
 
 void MemInfo::init() {
@@ -231,22 +249,25 @@ void MemInfo::init() {
     }
     if (vminfo.is_open()) vminfo.close();
 
-    // MemAvailable = MemFree - LowWaterMark + (PageCache - min(PageCache / 2, LowWaterMark))
-    // LowWaterMark = /proc/sys/vm/min_free_kbytes
-    // Ref:
-    // https://serverfault.com/questions/940196/why-is-memavailable-a-lot-less-than-memfreebufferscached
-    // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=34e431b0ae398fc54ea69ff85ec700722c9da773
-    //
-    // available_low_water_mark = p1 - p2
-    // p1: upper sys_mem_available_low_water_mark, avoid wasting too much memory.
-    // p2: vm/min_free_kbytes is usually 0.4% - 5% of the total memory, some cloud machines vm/min_free_kbytes is 5%,
-    //     in order to avoid wasting too much memory, available_low_water_mark minus 1% at most.
-    int64_t p1 = std::min<int64_t>(
-            std::min<int64_t>(_s_physical_mem - _s_mem_limit, _s_physical_mem * 0.1),
-            config::max_sys_mem_available_low_water_mark_bytes);
-    int64_t p2 = std::max<int64_t>(_s_vm_min_free_kbytes - _s_physical_mem * 0.01, 0);
-    _s_sys_mem_available_low_water_mark = std::max<int64_t>(p1 - p2, 0);
-    _s_sys_mem_available_warning_water_mark = _s_sys_mem_available_low_water_mark + p1;
+    // Redhat 4.x OS, `/proc/meminfo` has no `MemAvailable`.
+    if (_mem_info_bytes.find("MemAvailable") != _mem_info_bytes.end()) {
+        // MemAvailable = MemFree - LowWaterMark + (PageCache - min(PageCache / 2, LowWaterMark))
+        // LowWaterMark = /proc/sys/vm/min_free_kbytes
+        // Ref:
+        // https://serverfault.com/questions/940196/why-is-memavailable-a-lot-less-than-memfreebufferscached
+        // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=34e431b0ae398fc54ea69ff85ec700722c9da773
+        //
+        // available_low_water_mark = p1 - p2
+        // p1: upper sys_mem_available_low_water_mark, avoid wasting too much memory.
+        // p2: vm/min_free_kbytes is usually 0.4% - 5% of the total memory, some cloud machines vm/min_free_kbytes is 5%,
+        //     in order to avoid wasting too much memory, available_low_water_mark minus 1% at most.
+        int64_t p1 = std::min<int64_t>(
+                std::min<int64_t>(_s_physical_mem - _s_mem_limit, _s_physical_mem * 0.1),
+                config::max_sys_mem_available_low_water_mark_bytes);
+        int64_t p2 = std::max<int64_t>(_s_vm_min_free_kbytes - _s_physical_mem * 0.01, 0);
+        _s_sys_mem_available_low_water_mark = std::max<int64_t>(p1 - p2, 0);
+        _s_sys_mem_available_warning_water_mark = _s_sys_mem_available_low_water_mark + p1;
+    }
 
     LOG(INFO) << "Physical Memory: " << PrettyPrinter::print(_s_physical_mem, TUnit::BYTES)
               << ", Mem Limit: " << _s_mem_limit_str

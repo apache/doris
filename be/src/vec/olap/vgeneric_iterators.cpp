@@ -374,6 +374,11 @@ Status VUnionIterator::init(const StorageReadOptions& opts) {
         return Status::OK();
     }
 
+    // we use back() and pop_back() of std::vector to handle each iterator,
+    // so reverse the vector here to keep result block of next_batch to be
+    // in the same order as the original segments.
+    std::reverse(_origin_iters.begin(), _origin_iters.end());
+
     for (auto& iter : _origin_iters) {
         RETURN_IF_ERROR(iter->init(opts));
     }

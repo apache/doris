@@ -44,28 +44,27 @@ import java.util.Optional;
  */
 public class PhysicalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhysicalSort<CHILD_TYPE> implements Sort {
     public PhysicalQuickSort(List<OrderKey> orderKeys,
-            LogicalProperties logicalProperties, CHILD_TYPE child, SortPhase phase) {
-        this(orderKeys, Optional.empty(), logicalProperties, child, phase);
+            SortPhase phase, LogicalProperties logicalProperties, CHILD_TYPE child) {
+        this(orderKeys, phase, Optional.empty(), logicalProperties, child);
     }
 
     /**
      * Constructor of PhysicalHashJoinNode.
      */
     public PhysicalQuickSort(List<OrderKey> orderKeys,
-            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            CHILD_TYPE child, SortPhase phase) {
-        super(PlanType.PHYSICAL_QUICK_SORT, orderKeys, groupExpression, logicalProperties, child, phase);
+            SortPhase phase, Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            CHILD_TYPE child) {
+        super(PlanType.PHYSICAL_QUICK_SORT, orderKeys, phase, groupExpression, logicalProperties, child);
     }
 
     /**
      * Constructor of PhysicalQuickSort.
      */
     public PhysicalQuickSort(List<OrderKey> orderKeys,
-            Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult, CHILD_TYPE child,
-            SortPhase phase) {
-        super(PlanType.PHYSICAL_QUICK_SORT, orderKeys, groupExpression, logicalProperties, physicalProperties,
-                statsDeriveResult, child, phase);
+            SortPhase phase, Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
+            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult, CHILD_TYPE child) {
+        super(PlanType.PHYSICAL_QUICK_SORT, orderKeys, phase, groupExpression, logicalProperties, physicalProperties,
+                statsDeriveResult, child);
     }
 
     @Override
@@ -76,24 +75,24 @@ public class PhysicalQuickSort<CHILD_TYPE extends Plan> extends AbstractPhysical
     @Override
     public PhysicalQuickSort<Plan> withChildren(List<Plan> children) {
         Preconditions.checkArgument(children.size() == 1);
-        return new PhysicalQuickSort<>(orderKeys, getLogicalProperties(), children.get(0), phase);
+        return new PhysicalQuickSort<>(orderKeys, phase, getLogicalProperties(), children.get(0));
     }
 
     @Override
     public PhysicalQuickSort<CHILD_TYPE> withGroupExpression(Optional<GroupExpression> groupExpression) {
-        return new PhysicalQuickSort<>(orderKeys, groupExpression, getLogicalProperties(), child(), phase);
+        return new PhysicalQuickSort<>(orderKeys, phase, groupExpression, getLogicalProperties(), child());
     }
 
     @Override
     public PhysicalQuickSort<CHILD_TYPE> withLogicalProperties(Optional<LogicalProperties> logicalProperties) {
-        return new PhysicalQuickSort<>(orderKeys, Optional.empty(), logicalProperties.get(), child(), phase);
+        return new PhysicalQuickSort<>(orderKeys, phase, Optional.empty(), logicalProperties.get(), child());
     }
 
     @Override
     public PhysicalQuickSort<CHILD_TYPE> withPhysicalPropertiesAndStats(PhysicalProperties physicalProperties,
             StatsDeriveResult statsDeriveResult) {
-        return new PhysicalQuickSort<>(orderKeys, Optional.empty(), getLogicalProperties(), physicalProperties,
-                statsDeriveResult, child(), phase);
+        return new PhysicalQuickSort<>(orderKeys, phase, Optional.empty(), getLogicalProperties(), physicalProperties,
+                statsDeriveResult, child());
     }
 
     @Override

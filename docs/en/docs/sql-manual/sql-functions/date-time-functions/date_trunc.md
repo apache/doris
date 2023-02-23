@@ -25,6 +25,13 @@ under the License.
 -->
 
 ## date_trunc
+
+<version since="1.2.0"> 
+
+date_trunc
+
+</version>
+
 ### Description
 #### Syntax
 

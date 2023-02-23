@@ -44,10 +44,6 @@ public:
     Status prepare(VExprContext** vconjunct_ctx_ptr,
                    std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
 
-    doris::TabletStorageType get_storage_type() override {
-        return doris::TabletStorageType::STORAGE_TYPE_REMOTE;
-    }
-
 protected:
     Status _get_block_impl(RuntimeState* state, Block* block, bool* eof) override;
 

@@ -207,7 +207,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
 
     @Override
     public ScanNode getScanNode(PlanNodeId id, TupleDescriptor desc) {
-        return new ExternalFileScanNode(id, desc);
+        return new ExternalFileScanNode(id, desc, false);
     }
 
     @Override
@@ -220,7 +220,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         columns = Lists.newArrayList();
         for (Backend be : Env.getCurrentSystemInfo().getIdToBackend().values()) {
             if (be.isAlive()) {
-                address = new TNetworkAddress(be.getHost(), be.getBrpcPort());
+                address = new TNetworkAddress(be.getIp(), be.getBrpcPort());
                 break;
             }
         }

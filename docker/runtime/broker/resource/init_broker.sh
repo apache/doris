@@ -147,7 +147,6 @@ check_arg() {
   fi
 }
 
-# 这里可用 docker_process_sql() 函数封装，为了方便调试，暂未封装
 check_broker_status() {
   set +e
   for i in {1..300}; do
