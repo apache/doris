@@ -214,7 +214,7 @@ public class CreateFunctionStmt extends DdlStmt {
         if (binaryType == null) {
             throw new AnalysisException("unknown function type");
         }
-        if (type == "NATIVE") {
+        if (type.equals("NATIVE")) {
             throw new AnalysisException("do not support 'NATIVE' udf type after doris version 1.2.0,"
                                     + "please use JAVA_UDF or RPC instead");
         }

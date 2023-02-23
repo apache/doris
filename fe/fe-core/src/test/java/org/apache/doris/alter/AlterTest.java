@@ -117,6 +117,13 @@ public class AlterTest {
                 + "    PARTITION p2 values less than('2020-03-01')\n" + ")\n" + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
                 + "PROPERTIES('replication_num' = '1');");
 
+        createTable("CREATE TABLE test.tbl55\n" + "(\n" + "    k1 date,\n" + "    k2 int,\n" + "    v1 int, \n"
+                + "    v2 int \n"
+                + ") ENGINE=OLAP\n" + "UNIQUE KEY (k1,k2)\n" + "PARTITION BY RANGE(k1)\n" + "(\n"
+                + "    PARTITION p1 values less than('2020-02-01'),\n"
+                + "    PARTITION p2 values less than('2020-03-01')\n" + ")\n" + "DISTRIBUTED BY HASH(k2) BUCKETS 3\n"
+                + "PROPERTIES('replication_num' = '1');");
+
         createTable(
                 "CREATE TABLE test.tbl6\n" + "(\n" + "    k1 datetime(3),\n" + "    k2 datetime(3),\n"
                         + "    v1 int \n,"
@@ -244,6 +251,21 @@ public class AlterTest {
         alterTable(stmt, false);
 
         stmt = "alter table test.tbl5 enable feature \"SEQUENCE_LOAD\" with properties (\"function_column.sequence_type\" = \"double\") ";
+        alterTable(stmt, true);
+
+        stmt = "alter table test.tbl5 enable feature \"SEQUENCE_LOAD\" with properties (\"function_column.sequence_col\" = \"v1\") ";
+        alterTable(stmt, true);
+    }
+
+    @Test
+    public void alterTableWithEnableFeature2() throws Exception {
+        String stmt = "alter table test.tbl55 enable feature \"SEQUENCE_LOAD\" with properties (\"function_column.sequence_col\" = \"v1\") ";
+        alterTable(stmt, false);
+
+        stmt = "alter table test.tbl55 enable feature \"SEQUENCE_LOAD\" with properties (\"function_column.sequence_col\" = \"v2\") ";
+        alterTable(stmt, true);
+
+        stmt = "alter table test.tbl55 enable feature \"SEQUENCE_LOAD\" with properties (\"function_column.sequence_type\" = \"int\") ";
         alterTable(stmt, true);
     }
 
@@ -1153,3 +1175,4 @@ public class AlterTest {
         alterTable(stmt, true);
     }
 }
+

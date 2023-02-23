@@ -34,6 +34,7 @@ import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.qe.ConnectContext;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -104,8 +105,8 @@ public class AlterTableStmt extends DdlStmt {
                 }
                 // analyse sequence column
                 Type sequenceColType = null;
+                String sequenceMapCol = null;
                 if (alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
-                    String sequenceMapCol = null;
                     Map<String, String> propertyMap = alterClause.getProperties();
                     try {
                         sequenceMapCol = PropertyAnalyzer.analyzeSequenceMapCol(propertyMap, table.getKeysType());
@@ -118,8 +119,6 @@ public class AlterTableStmt extends DdlStmt {
                             if (!col.getType().isFixedPointType() && !col.getType().isDateType()) {
                                 throw new AnalysisException("Sequence type only support integer types and date types");
                             }
-                            table.setSequenceMapCol(sequenceMapCol);
-                            table.setSequenceInfo(col.getType());
                             sequenceColType = col.getType();
                         }
                         Type seqColType = PropertyAnalyzer.analyzeSequenceType(propertyMap, table.getKeysType());
@@ -128,7 +127,6 @@ public class AlterTableStmt extends DdlStmt {
                                 + " at the same time");
                         }
                         if (seqColType != null) {
-                            table.setSequenceInfo(seqColType);
                             sequenceColType = seqColType;
                         } else if (sequenceMapCol == null && seqColType == null) {
                             throw new AnalysisException("unknown sequence column type or column name");
@@ -151,8 +149,17 @@ public class AlterTableStmt extends DdlStmt {
                             addColumnClause = new AddColumnClause(ColumnDef.newDeleteSignColumnDef(), null,
                                     table.getIndexNameById(idx.getId()), null);
                         } else if (alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
-                            addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType), null,
-                                    table.getIndexNameById(idx.getId()), null);
+                            if (sequenceMapCol != null) {
+                                Map<String, String> properties = new HashMap<>();
+                                String propertyName = PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                                                        + PropertyAnalyzer.PROPERTIES_SEQUENCE_COL;
+                                properties.put(propertyName, sequenceMapCol);
+                                addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType),
+                                    null, table.getIndexNameById(idx.getId()), properties);
+                            } else {
+                                addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType),
+                                    null, table.getIndexNameById(idx.getId()), null);
+                            }
                         } else {
                             throw new AnalysisException("unknown feature : " + alterFeature);
                         }
@@ -166,8 +173,17 @@ public class AlterTableStmt extends DdlStmt {
                         addColumnClause = new AddColumnClause(ColumnDef.newDeleteSignColumnDef(), null,
                                 null, null);
                     } else if (alterFeature == EnableFeatureClause.Features.SEQUENCE_LOAD) {
-                        addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType), null,
-                                null, null);
+                        if (sequenceMapCol != null) {
+                            Map<String, String> properties = new HashMap<>();
+                            String propertyName = PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                                                    + PropertyAnalyzer.PROPERTIES_SEQUENCE_COL;
+                            properties.put(propertyName, sequenceMapCol);
+                            addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType),
+                                null, null, properties);
+                        } else {
+                            addColumnClause = new AddColumnClause(ColumnDef.newSequenceColumnDef(sequenceColType),
+                                null, null, null);
+                        }
                     }
                     addColumnClause.analyze(analyzer);
                     clauses.add(addColumnClause);

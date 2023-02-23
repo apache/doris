@@ -162,8 +162,20 @@ public class SchemaChangeHandler extends AlterHandler {
 
         Set<String> newColNameSet = Sets.newHashSet(column.getName());
 
-        return addColumnInternal(olapTable, column, columnPos, targetIndexId, baseIndexId, indexSchemaMap,
-                newColNameSet, false, colUniqueIdSupplierMap);
+        boolean clauseCanLigthSchemaChange =  addColumnInternal(olapTable, column, columnPos, targetIndexId,
+                baseIndexId, indexSchemaMap, newColNameSet, false, colUniqueIdSupplierMap);
+        if (olapTable.getKeysType() == KeysType.UNIQUE_KEYS) {
+            Map<String, String> properties = alterClause.getProperties();
+            if (properties != null) {
+                String propertyName = PropertyAnalyzer.PROPERTIES_FUNCTION_COLUMN + "."
+                                        + PropertyAnalyzer.PROPERTIES_SEQUENCE_COL;
+                String sequenceMapCol = properties.get(propertyName);
+                if (!Strings.isNullOrEmpty(sequenceMapCol)) {
+                    olapTable.setSequenceMapCol(sequenceMapCol);
+                }
+            }
+        }
+        return clauseCanLigthSchemaChange;
     }
 
     private void processAddColumn(AddColumnClause alterClause, Table externalTable, List<Column> newSchema)
