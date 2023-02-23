@@ -560,7 +560,7 @@ ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name, int pre
 template <PrimitiveType primitive_type>
 ColumnValueRange<primitive_type>::ColumnValueRange(std::string col_name, bool is_nullable_col,
                                                    int precision, int scale)
-        : ColumnValueRange(std::move(col_name), TYPE_MIN, TYPE_MAX, true, is_nullable_col,
+        : ColumnValueRange(std::move(col_name), TYPE_MIN, TYPE_MAX, is_nullable_col, true,
                            precision, scale) {}
 
 template <PrimitiveType primitive_type>
