@@ -774,6 +774,36 @@ struct TConfirmUnusedRemoteFilesResult {
     1: optional list<Types.TTabletId> confirmed_tablets
 }
 
+enum TPrivilegeType {
+  SHOW = 0,
+  SHOW_RESOURCES = 1,
+  GRANT = 2,
+  ADMIN = 3,
+  LOAD = 4,
+  ALTER = 5,
+  USAGE = 6,
+  CREATE = 7,
+  ALL = 8,
+  OPERATOR = 9,
+  DROP = 10
+}
+
+struct THttpAuthRequest {
+    1: optional string cluster
+    2: required string user
+    3: required string passwd
+    4: optional string user_ip
+    5: optional string glb
+    6: optional string db
+    7: optional string tbl 
+    8: optional TPrivilegeType priv_type
+    9: optional i64 thrift_rpc_timeout_ms
+}
+
+struct THttpAuthResult {
+    1: required Status.TStatus status
+}
+
 service FrontendService {
     TGetDbsResult getDbNames(1: TGetDbsParams params)
     TGetTablesResult getTableNames(1: TGetTablesParams params)
@@ -818,4 +848,6 @@ service FrontendService {
     TMySqlLoadAcquireTokenResult acquireToken()
 
     TConfirmUnusedRemoteFilesResult confirmUnusedRemoteFiles(1: TConfirmUnusedRemoteFilesRequest request)
+
+    THttpAuthResult execHttpAuth(1: THttpAuthRequest request)
 }

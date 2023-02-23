@@ -100,6 +100,8 @@ import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
+import org.apache.doris.thrift.THttpAuthRequest;
+import org.apache.doris.thrift.THttpAuthResult;
 import org.apache.doris.thrift.TIcebergMetadataType;
 import org.apache.doris.thrift.TInitExternalCtlMetaRequest;
 import org.apache.doris.thrift.TInitExternalCtlMetaResult;
@@ -120,6 +122,7 @@ import org.apache.doris.thrift.TMetadataTableRequestParams;
 import org.apache.doris.thrift.TMySqlLoadAcquireTokenResult;
 import org.apache.doris.thrift.TNetworkAddress;
 import org.apache.doris.thrift.TPrivilegeStatus;
+import org.apache.doris.thrift.TPrivilegeType;
 import org.apache.doris.thrift.TReportExecStatusParams;
 import org.apache.doris.thrift.TReportExecStatusResult;
 import org.apache.doris.thrift.TReportRequest;
@@ -1628,6 +1631,102 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         }
 
         return result;
+    }
+
+    @Override
+    public THttpAuthResult execHttpAuth(THttpAuthRequest request) throws TException {
+        String clientAddr = getClientAddrAsString();
+        LOG.debug("receive http auth request: {}, backend: {}", request, clientAddr);
+
+        THttpAuthResult result = new THttpAuthResult();
+        TStatus status = new TStatus(TStatusCode.OK);
+        result.setStatus(status);
+        try {
+            execHttpAuthImpl(request);
+        } catch (UserException e) {
+            LOG.warn("exec http auth failed.", e);
+            status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        } catch (Throwable e) {
+            LOG.warn("catch unknown result.", e);
+            status.setStatusCode(TStatusCode.INTERNAL_ERROR);
+            status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
+            return result;
+        }
+        return result;
+    }
+
+    private void execHttpAuthImpl(THttpAuthRequest request) throws UserException {
+        String cluster = request.getCluster();
+        if (Strings.isNullOrEmpty(cluster)) {
+            cluster = SystemInfoService.DEFAULT_CLUSTER;
+        }
+
+        // check username and password
+        final String fullUserName = ClusterNamespace.getFullName(cluster, request.getUser());
+        List<UserIdentity> currentUser = Lists.newArrayList();
+        Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, request.getUserIp(), request.getPasswd(),
+                currentUser);
+
+        // check global or database or table permissions
+        Preconditions.checkState(currentUser.size() == 1);
+        PrivPredicate predicate = getPrivPredicate(request.getPrivType());
+        if (predicate == null) {
+            return;
+        }
+        String glb = request.getGlb();
+        String db = request.getDb();
+        String tbl = request.getTbl();
+        if (Strings.isNullOrEmpty(glb) && Strings.isNullOrEmpty(db) && Strings.isNullOrEmpty(tbl)) {
+            return;
+        } else if (!Strings.isNullOrEmpty(glb)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUser.get(0), predicate)) {
+                throw new AuthenticationException("Access denied for this operation");
+            }
+        } else if (!Strings.isNullOrEmpty(db) && Strings.isNullOrEmpty(tbl)) {
+            String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
+            if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(currentUser.get(0), fullDbName, predicate)) {
+                throw new AuthenticationException("Access denied for this operation");
+            }
+        } else if (!Strings.isNullOrEmpty(db) && !Strings.isNullOrEmpty(tbl)) {
+            String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser.get(0), fullDbName, request.getTbl(),
+                    predicate)) {
+                throw new AuthenticationException("Access denied for this operation");
+            }
+        } else {
+            throw new UserException("privilege level error in http auth request");
+        }
+    }
+
+    private PrivPredicate getPrivPredicate(TPrivilegeType privType) {
+        switch (privType) {
+            case SHOW:
+                return PrivPredicate.SHOW;
+            case SHOW_RESOURCES:
+                return PrivPredicate.SHOW_RESOURCES;
+            case GRANT:
+                return PrivPredicate.GRANT;
+            case ADMIN:
+                return PrivPredicate.ADMIN;
+            case LOAD:
+                return PrivPredicate.LOAD;
+            case ALTER:
+                return PrivPredicate.ALTER;
+            case USAGE:
+                return PrivPredicate.USAGE;
+            case CREATE:
+                return PrivPredicate.CREATE;
+            case ALL:
+                return PrivPredicate.ALL;
+            case OPERATOR:
+                return PrivPredicate.OPERATOR;
+            case DROP:
+                return PrivPredicate.DROP;
+            default:
+                return null;
+        }
     }
 }
 
