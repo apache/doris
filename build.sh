@@ -305,7 +305,7 @@ if [[ -z "${DISABLE_JAVA_UDF}" ]]; then
 fi
 
 if [[ -z "${DISABLE_JAVA_CHECK_STYLE}" ]]; then
-    DISABLE_JAVA_CHECK_STYLE='ON'
+    DISABLE_JAVA_CHECK_STYLE='OFF'
 fi
 
 if [[ -z "${RECORD_COMPILER_SWITCHES}" ]]; then
@@ -479,10 +479,10 @@ function build_ui() {
 }
 
 # FE UI must be built before building FE
-#if [[ "${BUILD_FE}" -eq 1 ]]; then
-#    build_ui
-#fi
-#
+if [[ "${BUILD_FE}" -eq 1 ]]; then
+    build_ui
+fi
+
 # Clean and build Frontend
 if [[ "${FE_MODULES}" != '' ]]; then
     echo "Build Frontend Modules: ${FE_MODULES}"
