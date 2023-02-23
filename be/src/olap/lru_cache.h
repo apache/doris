@@ -215,7 +215,7 @@ public:
     // Same as prune(), but the entry will only be pruned if the predicate matched.
     // NOTICE: the predicate should be simple enough, or the prune_if() function
     // may hold lock for a long time to execute predicate.
-    virtual int64_t prune_if(CacheValuePredicate pred) { return 0; }
+    virtual int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false) { return 0; }
 
     virtual int64_t mem_consumption() = 0;
 
@@ -320,7 +320,7 @@ public:
     void release(Cache::Handle* handle);
     void erase(const CacheKey& key, uint32_t hash);
     int64_t prune();
-    int64_t prune_if(CacheValuePredicate pred);
+    int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false);
 
     uint64_t get_lookup_count() const { return _lookup_count; }
     uint64_t get_hit_count() const { return _hit_count; }
@@ -374,7 +374,7 @@ public:
     Slice value_slice(Handle* handle) override;
     virtual uint64_t new_id() override;
     virtual int64_t prune() override;
-    virtual int64_t prune_if(CacheValuePredicate pred) override;
+    int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false) override;
     int64_t mem_consumption() override;
 
 private:
