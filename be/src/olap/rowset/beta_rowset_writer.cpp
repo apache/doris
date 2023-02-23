@@ -118,11 +118,12 @@ Status BetaRowsetWriter::add_block(const vectorized::Block* block) {
     return _add_block(block, &_segment_writer);
 }
 
-std::unique_ptr<vectorized::VerticalBlockReader> BetaRowsetWriter::_get_segcompaction_reader(
+Status BetaRowsetWriter::_get_segcompaction_reader(
         SegCompactionCandidatesSharedPtr segments, TabletSharedPtr tablet,
         std::shared_ptr<Schema> schema, OlapReaderStatistics* stat, uint64_t* merged_row_stat,
         vectorized::RowSourcesBuffer& row_sources_buf, bool is_key,
-        std::vector<uint32_t>& return_columns) {
+        std::vector<uint32_t>& return_columns,
+        std::unique_ptr<vectorized::VerticalBlockReader>* reader) {
     StorageReadOptions read_options;
     read_options.stats = stat;
     read_options.use_page_cache = false;
@@ -133,12 +134,12 @@ std::unique_ptr<vectorized::VerticalBlockReader> BetaRowsetWriter::_get_segcompa
         auto s = seg_ptr->new_iterator(*schema, read_options, &iter);
         if (!s.ok()) {
             LOG(WARNING) << "failed to create iterator[" << seg_ptr->id() << "]: " << s.to_string();
-            return nullptr;
+            return Status::Error<INIT_FAILED>();
         }
         seg_iterators.push_back(std::move(iter));
     }
 
-    auto reader = std::unique_ptr<vectorized::VerticalBlockReader> {
+    *reader = std::unique_ptr<vectorized::VerticalBlockReader> {
             new vectorized::VerticalBlockReader(&row_sources_buf)};
 
     TabletReader::ReaderParams reader_params;
@@ -149,9 +150,7 @@ std::unique_ptr<vectorized::VerticalBlockReader> BetaRowsetWriter::_get_segcompa
     reader_params.tablet = tablet;
     reader_params.return_columns = return_columns;
     reader_params.is_key_column_group = is_key;
-    reader->init(reader_params);
-
-    return reader;
+    return (*reader)->init(reader_params);
 }
 
 std::unique_ptr<segment_v2::SegmentWriter> BetaRowsetWriter::_create_segcompaction_writer(
@@ -309,10 +308,10 @@ Status BetaRowsetWriter::_do_compact_segments(SegCompactionCandidatesSharedPtr s
         writer->clear();
         writer->init(column_ids, is_key);
         auto schema = std::make_shared<Schema>(_context.tablet_schema->columns(), column_ids);
-        auto reader =
-                _get_segcompaction_reader(segments, tablet, schema, stat.get(), &merged_row_stat,
-                                          row_sources_buf, is_key, column_ids);
-        if (UNLIKELY(reader == nullptr)) {
+        std::unique_ptr<vectorized::VerticalBlockReader> reader;
+        auto s = _get_segcompaction_reader(segments, tablet, schema, stat.get(), &merged_row_stat,
+                                           row_sources_buf, is_key, column_ids, &reader);
+        if (UNLIKELY(reader == nullptr || !s.ok())) {
             LOG(WARNING) << "failed to get segcompaction reader";
             return Status::Error<SEGCOMPACTION_INIT_READER>();
         }
