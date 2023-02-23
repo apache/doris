@@ -45,13 +45,14 @@ public class DecimalV2Type extends FractionalType {
     private static final DecimalV2Type SMALLINT_DECIMAL = new DecimalV2Type(5, 0);
     private static final DecimalV2Type INTEGER_DECIMAL = new DecimalV2Type(10, 0);
     private static final DecimalV2Type BIGINT_DECIMAL = new DecimalV2Type(20, 0);
-    private static final DecimalV2Type LARGEINT_DECIMAL = new DecimalV2Type(MAX_PRECISION, 0);
+    private static final DecimalV2Type LARGEINT_DECIMAL = new DecimalV2Type(27, 0);
     private static final DecimalV2Type FLOAT_DECIMAL = new DecimalV2Type(14, 7);
-    private static final DecimalV2Type DOUBLE_DECIMAL = DecimalV2Type.SYSTEM_DEFAULT;
+    private static final DecimalV2Type DOUBLE_DECIMAL = new DecimalV2Type(27, 9);
 
     private static final int WIDTH = 16;
 
     private static final Map<DataType, DecimalV2Type> FOR_TYPE_MAP = ImmutableMap.<DataType, DecimalV2Type>builder()
+            .put(BooleanType.INSTANCE, BOOLEAN_DECIMAL)
             .put(TinyIntType.INSTANCE, TINYINT_DECIMAL)
             .put(SmallIntType.INSTANCE, SMALLINT_DECIMAL)
             .put(IntegerType.INSTANCE, INTEGER_DECIMAL)
@@ -89,11 +90,18 @@ public class DecimalV2Type extends FractionalType {
         return createDecimalV2Type(precision, scale);
     }
 
+    /**
+     * create DecimalV2Type with appropriate scale and precision.
+     */
     public static DecimalV2Type forType(DataType dataType) {
         if (FOR_TYPE_MAP.containsKey(dataType)) {
             return FOR_TYPE_MAP.get(dataType);
         }
-        throw new RuntimeException("Could not create decimal for type " + dataType);
+        if (dataType instanceof DecimalV3Type) {
+            return createDecimalV2Type(
+                    ((DecimalV3Type) dataType).getPrecision(), ((DecimalV3Type) dataType).getScale());
+        }
+        return SYSTEM_DEFAULT;
     }
 
     public static DecimalV2Type widerDecimalV2Type(DecimalV2Type left, DecimalV2Type right) {

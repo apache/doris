@@ -129,28 +129,31 @@ Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_reade
             std::advance(base_reader_child, base_reader_idx);
 
             std::list<LevelIterator*> cumu_children;
-            int i = 0;
-            for (const auto& child : _children) {
-                if (i != base_reader_idx) {
-                    cumu_children.push_back(child);
+            for (auto iter = _children.begin(); iter != _children.end();) {
+                if (iter != base_reader_child) {
+                    cumu_children.push_back(*iter);
+                    iter = _children.erase(iter);
+                } else {
+                    ++iter;
                 }
-                ++i;
             }
-            bool is_merge = cumu_children.size() > 1;
-            auto cumu_iter = std::make_unique<Level1Iterator>(std::move(cumu_children), _reader,
-                                                              is_merge, _is_reverse, _skip_same);
+            auto cumu_iter = std::make_unique<Level1Iterator>(
+                    cumu_children, _reader, cumu_children.size() > 1, _is_reverse, _skip_same);
             RETURN_IF_NOT_EOF_AND_OK(cumu_iter->init());
             std::list<LevelIterator*> children;
             children.push_back(*base_reader_child);
             children.push_back(cumu_iter.get());
-            auto level1_iter = new Level1Iterator(std::move(children), _reader, _merge, _is_reverse,
-                                                  _skip_same);
+            auto level1_iter =
+                    new Level1Iterator(children, _reader, _merge, _is_reverse, _skip_same);
             cumu_iter.release();
             _inner_iter.reset(level1_iter);
+            // need to clear _children here, or else if the following _inner_iter->init() return early
+            // base_reader_child will be double deleted
+            _children.clear();
         } else {
             // _children.size() == 1
-            _inner_iter.reset(new Level1Iterator(std::move(_children), _reader, _merge, _is_reverse,
-                                                 _skip_same));
+            _inner_iter.reset(
+                    new Level1Iterator(_children, _reader, _merge, _is_reverse, _skip_same));
         }
     } else {
         bool have_multiple_child = false;
@@ -169,8 +172,7 @@ Status VCollectIterator::build_heap(std::vector<RowsetReaderSharedPtr>& rs_reade
                 ++iter;
             }
         }
-        _inner_iter.reset(
-                new Level1Iterator(std::move(_children), _reader, _merge, _is_reverse, _skip_same));
+        _inner_iter.reset(new Level1Iterator(_children, _reader, _merge, _is_reverse, _skip_same));
     }
     RETURN_IF_NOT_EOF_AND_OK(_inner_iter->init());
     // Clear _children earlier to release any related references
@@ -533,10 +535,10 @@ Status VCollectIterator::Level0Iterator::current_block_row_locations(
 }
 
 VCollectIterator::Level1Iterator::Level1Iterator(
-        std::list<VCollectIterator::LevelIterator*>&& children, TabletReader* reader, bool merge,
-        bool is_reverse, bool skip_same)
+        const std::list<VCollectIterator::LevelIterator*>& children, TabletReader* reader,
+        bool merge, bool is_reverse, bool skip_same)
         : LevelIterator(reader),
-          _children(std::move(children)),
+          _children(children),
           _reader(reader),
           _merge(merge),
           _is_reverse(is_reverse),

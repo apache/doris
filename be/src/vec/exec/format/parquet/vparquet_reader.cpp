@@ -164,7 +164,7 @@ Status ParquetReader::_open_file() {
     }
     if (_file_metadata == nullptr) {
         if (_file_reader->size() == 0) {
-            return Status::EndOfFile("Empty Parquet File");
+            return Status::EndOfFile("open file failed, empty parquet file: " + _scan_range.path);
         }
         RETURN_IF_ERROR(parse_thrift_footer(_file_reader, _file_metadata));
     }
@@ -196,7 +196,7 @@ Status ParquetReader::init_reader(
     SCOPED_RAW_TIMER(&_statistics.parse_meta_time);
     _total_groups = _t_metadata->row_groups.size();
     if (_total_groups == 0) {
-        return Status::EndOfFile("Empty Parquet File");
+        return Status::EndOfFile("init reader failed, empty parquet file: " + _scan_range.path);
     }
     // all_column_names are all the columns required by user sql.
     // missing_column_names are the columns required by user sql but not in the parquet file,
@@ -269,13 +269,12 @@ Status ParquetReader::set_fill_columns(
         visit_slot(_lazy_read_ctx.vconjunct_ctx->root());
     }
 
-    bool has_complex_type = false;
     const FieldDescriptor& schema = _file_metadata->schema();
     for (auto& read_col : _read_columns) {
         _lazy_read_ctx.all_read_columns.emplace_back(read_col._file_slot_name);
         PrimitiveType column_type = schema.get_column(read_col._file_slot_name)->type.type;
         if (column_type == TYPE_ARRAY || column_type == TYPE_MAP || column_type == TYPE_STRUCT) {
-            has_complex_type = true;
+            _has_complex_type = true;
         }
         if (predicate_columns.size() > 0) {
             auto iter = predicate_columns.find(read_col._file_slot_name);
@@ -308,7 +307,7 @@ Status ParquetReader::set_fill_columns(
         }
     }
 
-    if (!has_complex_type && _lazy_read_ctx.predicate_columns.size() > 0 &&
+    if (!_has_complex_type && _lazy_read_ctx.predicate_columns.size() > 0 &&
         _lazy_read_ctx.lazy_read_columns.size() > 0) {
         _lazy_read_ctx.can_lazy_read = true;
     }
@@ -367,10 +366,6 @@ Status ParquetReader::get_parsed_schema(std::vector<std::string>* col_names,
     _t_metadata = &_file_metadata->to_thrift();
 
     _total_groups = _t_metadata->row_groups.size();
-    if (_total_groups == 0) {
-        return Status::EndOfFile("Empty Parquet File");
-    }
-
     auto schema_desc = _file_metadata->schema();
     for (int i = 0; i < schema_desc.size(); ++i) {
         // Get the Column Reader for the boolean column
@@ -544,12 +539,8 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         _statistics.read_rows += row_group.num_rows;
     };
 
-    if (_lazy_read_ctx.vconjunct_ctx == nullptr) {
-        read_whole_row_group();
-        return Status::OK();
-    }
-
-    if (_colname_to_value_range == nullptr || _colname_to_value_range->empty()) {
+    if (_has_complex_type || _lazy_read_ctx.vconjunct_ctx == nullptr ||
+        _colname_to_value_range == nullptr || _colname_to_value_range->empty()) {
         read_whole_row_group();
         return Status::OK();
     }

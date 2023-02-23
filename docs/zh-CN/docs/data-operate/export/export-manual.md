@@ -141,8 +141,8 @@ EXPORT TABLE test TO "s3://bucket/path/to/export/dir/" WITH S3  (
 ```
 
 - `AWS_ACCESS_KEY`/`AWS_SECRET_KEY`：是您访问对象存储的ACCESS_KEY/SECRET_KEY
-- `AWS_ENDPOINT`：表示对象存储数据中心所在的地域.
-- `AWS_REGION`：Endpoint表示对象存储对外服务的访问域名.
+- `AWS_ENDPOINT`：Endpoint表示对象存储对外服务的访问域名.
+- `AWS_REGION`：表示对象存储数据中心所在的地域.
 
 
 ### 查看导出状态

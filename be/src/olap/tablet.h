@@ -328,7 +328,11 @@ public:
 
     static void remove_unused_remote_files();
 
-    std::shared_mutex& get_remote_files_lock() { return _remote_files_lock; }
+    // If a rowset is to be written to remote filesystem, MUST add it to `pending_remote_rowsets` before uploading,
+    // and then erase it from `pending_remote_rowsets` after it has been insert to the Tablet.
+    // `remove_unused_remote_files` MUST NOT delete files of these pending rowsets.
+    static void add_pending_remote_rowset(std::string rowset_id);
+    static void erase_pending_remote_rowset(const std::string& rowset_id);
 
     uint32_t calc_cold_data_compaction_score() const;
 
@@ -364,7 +368,7 @@ public:
     Status update_delete_bitmap_without_lock(const RowsetSharedPtr& rowset);
     Status update_delete_bitmap(const RowsetSharedPtr& rowset, DeleteBitmapPtr delete_bitmap,
                                 const RowsetIdUnorderedSet& pre_rowset_ids);
-    void calc_compaction_output_rowset_delete_bitmap(
+    uint64_t calc_compaction_output_rowset_delete_bitmap(
             const std::vector<RowsetSharedPtr>& input_rowsets,
             const RowIdConversion& rowid_conversion, uint64_t start_version, uint64_t end_version,
             std::map<RowsetSharedPtr, std::list<std::pair<RowLocation, RowLocation>>>* location_map,
@@ -395,6 +399,14 @@ public:
         for (auto& [v, rs] : _stale_rs_version_map) {
             visitor(rs);
         }
+    }
+
+    inline void increase_io_error_times() { ++_io_error_times; }
+
+    inline int64_t get_io_error_times() const { return _io_error_times; }
+
+    inline bool is_io_error_too_times() const {
+        return config::max_tablet_io_errors > 0 && _io_error_times >= config::max_tablet_io_errors;
     }
 
     Status write_cooldown_meta(const std::shared_ptr<io::RemoteFileSystem>& fs,
@@ -524,10 +536,11 @@ private:
     // cooldown related
     int64_t _cooldown_replica_id = -1;
     int64_t _cooldown_term = -1;
-    std::shared_mutex _remote_files_lock;
     std::mutex _cold_compaction_lock;
 
     DISALLOW_COPY_AND_ASSIGN(Tablet);
+
+    int64_t _io_error_times = 0;
 
 public:
     IntCounter* flush_bytes;

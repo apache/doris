@@ -29,6 +29,10 @@ import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
+import org.apache.doris.nereids.types.coercion.CharacterType;
+import org.apache.doris.nereids.types.coercion.FractionalType;
+import org.apache.doris.nereids.types.coercion.IntegralType;
+import org.apache.doris.nereids.types.coercion.NumericType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -88,7 +92,13 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
         for (int i = 0; i < inputs.size(); i++) {
             Expression input = inputs.get(i);
             AbstractDataType inputType = inputTypes.get(i);
-            if (!inputType.acceptsType(input.getDataType())) {
+            boolean legacyCastCompatible = inputType instanceof DataType
+                    && !(inputType.getClass().equals(NumericType.class))
+                    && !(inputType.getClass().equals(IntegralType.class))
+                    && !(inputType.getClass().equals(FractionalType.class))
+                    && !(inputType.getClass().equals(CharacterType.class))
+                    && input.getDataType().toCatalogDataType().matchesType(inputType.toCatalogDataType());
+            if (!legacyCastCompatible && !inputType.acceptsType(input.getDataType())) {
                 errorMessages.add(String.format("argument %d requires %s type, however '%s' is of %s type",
                         i + 1, inputType.simpleString(), input.toSql(), input.getDataType().simpleString()));
             }
@@ -166,10 +176,6 @@ public abstract class Expression extends AbstractTreeNode<Expression> implements
 
     public boolean isSlot() {
         return this instanceof Slot;
-    }
-
-    public boolean isAlias() {
-        return this instanceof Alias;
     }
 
     @Override

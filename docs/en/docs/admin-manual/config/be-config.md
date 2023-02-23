@@ -385,6 +385,12 @@ There are two ways to configure BE configuration items:
 * Description: The number of threads in the Scanner thread pool. In Doris' scanning tasks, each Scanner will be submitted as a thread task to the thread pool to be scheduled. This parameter determines the size of the Scanner thread pool.
 * Default value: 48
 
+#### `doris_max_remote_scanner_thread_pool_thread_num`
+
+* Type: int32
+* Description: Max thread number of Remote scanner thread pool. Remote scanner thread pool is used for scan task of all external data sources.
+* Default: 512
+
 #### `enable_prefetch`
 
 * Type: bool
@@ -1414,5 +1420,10 @@ Indicates how many tablets failed to load in the data directory. At the same tim
 
 * Description: Whether parse multidimensional array, if false encountering will return ERROR
 * Default value: true
+
+#### `enable_simdjson_reader`
+
+* Description: Whether enable simdjson to parse json while stream load
+* Default value: false
 
 </version>

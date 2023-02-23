@@ -270,13 +270,7 @@ public class JdbcClient {
         // for utf8 encoding, if columnSize=10, then charOctetLength=30
         // because for utf8 encoding, a Chinese character takes up 3 bytes
         private int charOctetLength;
-        /**
-         *  Whether it is allowed to be NULL
-         *  0 (columnNoNulls)
-         *  1 (columnNullable)
-         *  2 (columnNullableUnknown)
-         */
-        private int nullAble;
+        private boolean isAllowNull;
     }
 
     /**
@@ -318,7 +312,13 @@ public class JdbcClient {
                 field.setColumnSize(rs.getInt("COLUMN_SIZE"));
                 field.setDecimalDigits(rs.getInt("DECIMAL_DIGITS"));
                 field.setNumPrecRadix(rs.getInt("NUM_PREC_RADIX"));
-                field.setNullAble(rs.getInt("NULLABLE"));
+                /**
+                 *  Whether it is allowed to be NULL
+                 *  0 (columnNoNulls)
+                 *  1 (columnNullable)
+                 *  2 (columnNullableUnknown)
+                 */
+                field.setAllowNull(rs.getInt("NULLABLE") == 0 ? false : true);
                 field.setRemarks(rs.getString("REMARKS"));
                 field.setCharOctetLength(rs.getInt("CHAR_OCTET_LENGTH"));
                 tableSchema.add(field);
@@ -690,7 +690,7 @@ public class JdbcClient {
         for (JdbcFieldSchema field : jdbcTableSchema) {
             dorisTableSchema.add(new Column(field.getColumnName(),
                     jdbcTypeToDoris(field), true, null,
-                    true, field.getRemarks(),
+                    field.isAllowNull(), field.getRemarks(),
                     true, -1));
         }
         return dorisTableSchema;

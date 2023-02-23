@@ -22,7 +22,6 @@ import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.literal.Interval.TimeUnit;
 import org.apache.doris.nereids.trees.expressions.shape.BinaryExpression;
-import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
@@ -32,8 +31,6 @@ import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Objects;
@@ -45,8 +42,7 @@ import java.util.Objects;
  * Example: '1996-01-01' + INTERVAL '3' month;
  * TODO: we need to rethink this, and maybe need to add a new type of Interval then implement IntervalLiteral as others
  */
-public class TimestampArithmetic extends Expression implements BinaryExpression, ImplicitCastInputTypes,
-        PropagateNullable {
+public class TimestampArithmetic extends Expression implements BinaryExpression, PropagateNullable {
 
     //the size and order of EXPECTED_INPUT_TYPES must follow the function signature parameters
     //For example: days_sub('2000-01-01', interval 5 days),
@@ -57,15 +53,10 @@ public class TimestampArithmetic extends Expression implements BinaryExpression,
             IntegerType.INSTANCE
     );
 
-    private static final Logger LOG = LogManager.getLogger(TimestampArithmetic.class);
     private final String funcName;
     private final boolean intervalFirst;
     private final Operator op;
     private final TimeUnit timeUnit;
-
-    public TimestampArithmetic(String funcName, Expression e1, Expression e2, TimeUnit timeUnit) {
-        this(funcName, null, e1, e2, timeUnit, false);
-    }
 
     public TimestampArithmetic(Operator op, Expression e1, Expression e2, TimeUnit timeUnit, boolean intervalFirst) {
         this(null, op, e1, e2, timeUnit, intervalFirst);
@@ -177,10 +168,5 @@ public class TimestampArithmetic extends Expression implements BinaryExpression,
         TimestampArithmetic other = (TimestampArithmetic) o;
         return Objects.equals(funcName, other.funcName) && Objects.equals(timeUnit, other.timeUnit)
                 && Objects.equals(left(), other.left()) && Objects.equals(right(), other.right());
-    }
-
-    @Override
-    public List<AbstractDataType> expectedInputTypes() {
-        return EXPECTED_INPUT_TYPES;
     }
 }

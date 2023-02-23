@@ -115,17 +115,19 @@ TEST(VGenericIteratorsTest, Union) {
     auto c1 = block.get_by_position(1).column;
     auto c2 = block.get_by_position(2).column;
 
+    size_t row_count = 0;
     for (int i = 0; i < block.rows(); ++i) {
-        size_t base_value = i;
-        if (i >= 500) {
-            base_value -= 500;
-        } else if (i >= 300) {
+        size_t base_value = row_count;
+        if (row_count >= 300) {
             base_value -= 300;
+        } else if (i >= 100) {
+            base_value -= 100;
         }
 
         EXPECT_EQ(base_value, (*c0)[i].get<int>());
         EXPECT_EQ(base_value + 1, (*c1)[i].get<int>());
         EXPECT_EQ(base_value + 2, (*c2)[i].get<int>());
+        row_count++;
     }
 }
 

@@ -534,6 +534,9 @@ Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_
     } else {
         return Status::OK();
     }
+    if (!st) {
+        return st;
+    }
     if (_is_outer_join) {
         _add_tuple_is_null_column(&temp_block);
     }
