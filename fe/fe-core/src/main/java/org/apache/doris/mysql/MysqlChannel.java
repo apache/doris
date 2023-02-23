@@ -70,7 +70,6 @@ public class MysqlChannel {
     protected MysqlChannel() {
         this.sequenceId = 0;
         this.sendBuffer = ByteBuffer.allocate(2 * 1024 * 1024);
-        // todo: change ssl packet capacity.
         this.sendSslBuffer = ByteBuffer.allocate(2 * 1024 * 1024);
         this.isSend = false;
         this.remoteHostPortString = "";
