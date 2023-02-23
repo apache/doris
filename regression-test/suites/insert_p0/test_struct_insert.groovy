@@ -65,7 +65,7 @@ suite("test_struct_insert") {
         exception "Insert has filtered data"
     }
     test {
-        // input decimal is not valid for define DECIMAL(18,6)
+        // input decimal is invalid
         sql "insert into ${testTable} values (114,null,{null,null,1234.1234},null,{null,'',null})"
         exception "Insert has filtered data"
     }

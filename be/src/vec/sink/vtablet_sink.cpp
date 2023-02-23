@@ -1243,7 +1243,7 @@ Status VOlapTableSink::close(RuntimeState* state, Status exec_status) {
     return status;
 }
 
-template<bool is_min>
+template <bool is_min>
 DecimalV2Value VOlapTableSink::_get_decimalv2_min_or_max(const TypeDescriptor& type) {
     std::map<std::pair<int, int>, DecimalV2Value>* pmap = nullptr;
     if constexpr (is_min) {

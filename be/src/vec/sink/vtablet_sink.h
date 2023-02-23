@@ -428,7 +428,7 @@ private:
     Status _validate_data(RuntimeState* state, vectorized::Block* block, Bitmap* filter_bitmap,
                           int* filtered_rows, bool* stop_processing);
 
-    template<bool is_min>
+    template <bool is_min>
     DecimalV2Value _get_decimalv2_min_or_max(const TypeDescriptor& type);
 
     Status _validate_column(RuntimeState* state, const TypeDescriptor& type, bool is_nullable,
