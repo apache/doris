@@ -85,7 +85,6 @@ public class MTMVJobManager {
         periodFutureMap = Maps.newConcurrentMap();
         reentrantLock = new ReentrantLock(true);
         taskManager = new MTMVTaskManager(this);
-        initMetrics();
     }
 
     public void start() {
@@ -121,6 +120,7 @@ public class MTMVJobManager {
             }, 0, 1, TimeUnit.MINUTES);
 
             taskManager.startTaskScheduler();
+            initMetrics();
         }
     }
 
