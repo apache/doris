@@ -1026,6 +1026,17 @@ public class ScalarType extends Type {
             return getAssignmentCompatibleDecimalV2Type(t1, t2);
         }
 
+        if (t1.isDecimalV2() || t2.isDecimalV2()) {
+            if (t1.isFloatingPointType() || t2.isFloatingPointType()) {
+                return MAX_DECIMALV2_TYPE;
+            }
+            return t1.isDecimalV2() ? t1 : t2;
+        }
+
+        if ((t1.isDecimalV3() && t2.isFixedPointType()) || (t2.isDecimalV3() && t1.isFixedPointType())) {
+            return t1.isDecimalV3() ? t1 : t2;
+        }
+
         if (t1.isDecimalV3() && t2.isDecimalV3()) {
             ScalarType finalType = ScalarType.createDecimalV3Type(Math.max(t1.decimalPrecision() - t1.decimalScale(),
                     t2.decimalPrecision() - t2.decimalScale()) + Math.max(t1.decimalScale(),
@@ -1034,20 +1045,6 @@ public class ScalarType extends Type {
                 finalType = ScalarType.createDecimalV3Type(MAX_PRECISION, finalType.getScalarScale());
             }
             return finalType;
-        }
-
-        if (t1.isDecimalV3() || t2.isDecimalV3()) {
-            if (t1.isFloatingPointType() || t2.isFloatingPointType()) {
-                return Type.DOUBLE;
-            }
-            return t1.isDecimalV3() ? t1 : t2;
-        }
-
-        if (t1.isDecimalV2() || t2.isDecimalV2()) {
-            if (t1.isFloatingPointType() || t2.isFloatingPointType()) {
-                return Type.DOUBLE;
-            }
-            return t1.isDecimalV2() ? t1 : t2;
         }
 
         PrimitiveType smallerType =
