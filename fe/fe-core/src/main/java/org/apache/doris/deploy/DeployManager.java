@@ -295,6 +295,9 @@ public class DeployManager extends MasterDaemon {
                     LOG.error("num of fe get from remote [{}] does not equal to the expected num: {}",
                             feHostInfos, numOfFe);
                     ok = false;
+                } else if (!checkIpIfNotNull(feHostInfos)) {
+                    LOG.error("some fe not ready,need wait.");
+                    ok = false;
                 } else {
                     ok = true;
                 }
@@ -325,6 +328,15 @@ public class DeployManager extends MasterDaemon {
         // 4. return the first one as helper
         return Lists.newArrayList(Pair.of(feHostInfos.get(0).getIp(), feHostInfos.get(0).getPort()));
 
+    }
+
+    private boolean checkIpIfNotNull(List<SystemInfoService.HostInfo> hostInfos) {
+        for (HostInfo hostInfo : hostInfos) {
+            if (hostInfo.getIp() == null) {
+                return false;
+            }
+        }
+        return true;
     }
 
     @Override
@@ -524,6 +536,10 @@ public class DeployManager extends MasterDaemon {
         String remoteHostName = remoteHostInfo.getHostName();
         // Can not find remote host in local hosts,
         // which means this remote host need to be added.
+        if (StringUtils.isEmpty(remoteIp)) {
+            LOG.info("remote node is not ready,need wait.");
+            return;
+        }
         try {
             switch (nodeType) {
                 case ELECTABLE:

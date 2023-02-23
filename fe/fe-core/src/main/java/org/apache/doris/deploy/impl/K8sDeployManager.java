@@ -45,6 +45,8 @@ import org.apache.commons.lang.StringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.List;
 import java.util.Map;
 
@@ -294,9 +296,19 @@ public class K8sDeployManager extends DeployManager {
             //The podName rule of k8s is $(statefulset name) - $(sequence number)
             //can see https://www.cnblogs.com/xiaokantianse/p/14267987.html#_label1_4
             String domainName = getDomainName(statefulsetName + "-" + i, serviceName);
-            hostInfos.add(new HostInfo(null, domainName, servicePort));
+            hostInfos.add(new HostInfo(getIpByDomain(domainName), domainName, servicePort));
         }
         return hostInfos;
+    }
+
+    private String getIpByDomain(String domainName) {
+        try {
+            InetAddress inetAddress = InetAddress.getByName(domainName);
+            return inetAddress.getHostAddress();
+        } catch (UnknownHostException e) {
+            LOG.info("unknown host name for domainName, {}", domainName, e);
+            return null;
+        }
     }
 
     private int getServicePort(NodeType nodeType) {
