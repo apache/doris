@@ -22,7 +22,6 @@
 #include "cctz/civil_time.h"
 #include "cctz/time_zone.h"
 #include "gutil/strings/substitute.h"
-#include "io/file_factory.h"
 #include "io/fs/file_reader.h"
 #include "olap/iterators.h"
 #include "util/slice.h"
@@ -85,6 +84,7 @@ OrcReader::OrcReader(RuntimeProfile* profile, const TFileScanRangeParams& params
           _io_ctx(io_ctx) {
     TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
     _init_profile();
+    _init_system_properties();
 }
 
 OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
@@ -97,7 +97,9 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
           _column_names(column_names),
           _is_hive(params.__isset.slot_name_to_schema_pos),
           _file_system(nullptr),
-          _io_ctx(io_ctx) {}
+          _io_ctx(io_ctx) {
+    _init_system_properties();
+}
 
 OrcReader::~OrcReader() {
     close();
@@ -144,21 +146,12 @@ Status OrcReader::init_reader(
     if (_file_reader == nullptr) {
         io::FileReaderSPtr inner_reader;
 
-        FileSystemProperties system_properties;
-        system_properties.system_type = _scan_params.file_type;
-        system_properties.properties = _scan_params.properties;
-        system_properties.hdfs_params = _scan_params.hdfs_params;
-        if (_scan_params.__isset.broker_addresses) {
-            system_properties.broker_addresses.assign(_scan_params.broker_addresses.begin(),
-                                                      _scan_params.broker_addresses.end());
-        }
-
         FileDescription file_description;
         file_description.path = _scan_range.path;
         file_description.start_offset = _scan_range.start_offset;
         file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : 0;
 
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, system_properties,
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
                                                         file_description, &_file_system,
                                                         &inner_reader, _io_ctx));
 
@@ -215,17 +208,12 @@ Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
     if (_file_reader == nullptr) {
         io::FileReaderSPtr inner_reader;
 
-        FileSystemProperties system_properties;
-        system_properties.system_type = _scan_params.file_type;
-        system_properties.properties = _scan_params.properties;
-        system_properties.hdfs_params = _scan_params.hdfs_params;
-
         FileDescription file_description;
         file_description.path = _scan_range.path;
         file_description.start_offset = _scan_range.start_offset;
         file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : 0;
 
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, system_properties,
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
                                                         file_description, &_file_system,
                                                         &inner_reader, _io_ctx));
 
@@ -568,6 +556,16 @@ void OrcReader::_init_bloom_filter(
         std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range) {
     // generate bloom filter
     // _reader->getBloomFilters()
+}
+
+void OrcReader::_init_system_properties() {
+    _system_properties.system_type = _scan_params.file_type;
+    _system_properties.properties = _scan_params.properties;
+    _system_properties.hdfs_params = _scan_params.hdfs_params;
+    if (_scan_params.__isset.broker_addresses) {
+        _system_properties.broker_addresses.assign(_scan_params.broker_addresses.begin(),
+                                                   _scan_params.broker_addresses.end());
+    }
 }
 
 TypeDescriptor OrcReader::_convert_to_doris_type(const orc::Type* orc_type) {
