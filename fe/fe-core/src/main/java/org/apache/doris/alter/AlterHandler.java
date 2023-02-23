@@ -34,8 +34,10 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.TimeUtils;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.RemoveAlterJobV2OperationLog;
 import org.apache.doris.persist.ReplicaPersistInfo;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.task.AlterReplicaTask;
 
 import com.google.common.base.Preconditions;
@@ -140,7 +142,20 @@ public abstract class AlterHandler extends MasterDaemon {
     }
 
     public Long getAlterJobV2Num(org.apache.doris.alter.AlterJobV2.JobState state) {
-        return alterJobsV2.values().stream().filter(e -> e.getJobState() == state).count();
+        Long counter = 0L;
+
+        for (AlterJobV2 job : alterJobsV2.values()) {
+            if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                    Env.getCurrentEnv().getCatalogMgr().getDbNullable(job.getDbId()).getFullName(),
+                    PrivPredicate.LOAD)) {
+                continue;
+            }
+
+            if (job.getJobState() == state) {
+                counter++;
+            }
+        }
+        return counter;
     }
 
     @Override

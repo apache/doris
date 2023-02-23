@@ -65,6 +65,7 @@ import org.apache.doris.thrift.TStorageMedium;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Sets;
@@ -1142,6 +1143,24 @@ public class MaterializedViewHandler extends AlterHandler {
         // "JobId", "TableName", "CreateTime", "FinishedTime", "BaseIndexName", "RollupIndexName"
         ListComparator<List<Comparable>> comparator = new ListComparator<List<Comparable>>(0, 1, 2, 3, 4, 5);
         Collections.sort(rollupJobInfos, comparator);
+
+        return rollupJobInfos;
+    }
+
+    public List<List<Comparable>> getAllAlterJobInfos() {
+        List<List<Comparable>> rollupJobInfos = new LinkedList<List<Comparable>>();
+
+        ConnectContext ctx = ConnectContext.get();
+        for (AlterJobV2 alterJob : ImmutableList.copyOf(alterJobsV2.values())) {
+            if (ctx != null) {
+                if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ctx,
+                        Env.getCurrentEnv().getCatalogMgr().getDbNullable(alterJob.getDbId()).getFullName(),
+                        alterJob.getTableName(), PrivPredicate.ALTER)) {
+                    continue;
+                }
+            }
+            alterJob.getInfo(rollupJobInfos);
+        }
 
         return rollupJobInfos;
     }
