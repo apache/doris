@@ -213,6 +213,8 @@ public:
     void set_delete_sign_idx(int32_t delete_sign_idx) { _delete_sign_idx = delete_sign_idx; }
     bool has_sequence_col() const { return _sequence_col_idx != -1; }
     int32_t sequence_col_idx() const { return _sequence_col_idx; }
+    void set_version_col_idx(int32_t version_col_idx) { _version_col_idx = version_col_idx; }
+    int32_t version_col_idx() const { return _version_col_idx; }
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
 
     const std::vector<TabletIndex>& indexes() const { return _indexes; }
@@ -291,6 +293,7 @@ private:
     bool _is_dynamic_schema = false;
     int32_t _delete_sign_idx = -1;
     int32_t _sequence_col_idx = -1;
+    int32_t _version_col_idx = -1;
     int32_t _schema_version = -1;
     int32_t _table_id = -1;
     bool _disable_auto_compaction = false;

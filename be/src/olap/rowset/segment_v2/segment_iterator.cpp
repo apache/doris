@@ -1394,6 +1394,33 @@ Status SegmentIterator::_read_columns_by_index(uint32_t nrows_read_limit, uint32
     return Status::OK();
 }
 
+void SegmentIterator::_replace_version_col(size_t num_rows) {
+    // Only the rowset with single version need to replace the version column.
+    // Doris can't determine the version before publish_version finished, so
+    // we can't write data to __DORIS_VERSION_COL__ in segment writer, the value
+    // is 0 by default.
+    // So we need to replace the value to real version while reading.
+    if (_opts.version.first != _opts.version.second) {
+        return;
+    }
+    auto cids = _schema.column_ids();
+    int32_t version_idx = _schema.version_col_idx();
+    auto iter = std::find(cids.begin(), cids.end(), version_idx);
+    if (iter == cids.end()) {
+        return;
+    }
+
+    auto column_desc = _schema.column(version_idx);
+    auto column = Schema::get_data_type_ptr(*column_desc)->create_column();
+    DCHECK(_schema.column(version_idx)->type() == FieldType::OLAP_FIELD_TYPE_BIGINT);
+    auto col_ptr = reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(column.get());
+    for (size_t j = 0; j < num_rows; j++) {
+        col_ptr->insert_value(_opts.version.second);
+    }
+    _current_return_columns[version_idx] = std::move(column);
+    VLOG_DEBUG << "replaced version column in segment iterator, version_col_idx:" << version_idx;
+}
+
 uint16_t SegmentIterator::_evaluate_vectorization_predicate(uint16_t* sel_rowid_idx,
                                                             uint16_t selected_size) {
     SCOPED_RAW_TIMER(&_opts.stats->vec_cond_ns);
@@ -1559,6 +1586,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
     }
 
     if (!_is_need_vec_eval && !_is_need_short_eval) {
+        _replace_version_col(_current_batch_rows_read);
         _output_non_pred_columns(block);
         _output_index_result_column(nullptr, 0, block);
     } else {
@@ -1586,6 +1614,7 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         if (!_lazy_materialization_read) {
             Status ret = Status::OK();
             if (selected_size > 0) {
+                _replace_version_col(selected_size);
                 ret = _output_column_by_sel_idx(block, _first_read_column_ids, sel_rowid_idx,
                                                 selected_size);
             }
@@ -1605,6 +1634,8 @@ Status SegmentIterator::next_batch(vectorized::Block* block) {
         RETURN_IF_ERROR(_read_columns_by_rowids(_non_predicate_columns, _block_rowids,
                                                 sel_rowid_idx, selected_size,
                                                 &_current_return_columns));
+
+        _replace_version_col(selected_size);
 
         // step4: output columns
         // 4.1 output non-predicate column

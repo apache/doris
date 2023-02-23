@@ -1411,6 +1411,12 @@ public class Config extends ConfigBase {
     public static boolean enable_batch_delete_by_default = true;
 
     /**
+     * Whether to add a version column when create unique table
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_hidden_version_column_by_default = true;
+
+    /**
      * Used to set default db data quota bytes.
      */
     @ConfField(mutable = true, masterOnly = true)
