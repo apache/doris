@@ -115,9 +115,13 @@ Query OK, 1 row affected (0.17 sec)
 Records: 1  Deleted: 0  Skipped: 0  Warnings: 0
 ```
 
-## 更多帮助
+## 注意事项
 
 1. 如果客户端出现`LOAD DATA LOCAL INFILE file request rejected due to restrictions on access`错误, 需要用`mysql  --local-infile=1`命令来打开客户端的导入功能.
 
-2. 关于 MySQL Load 使用的更多详细语法及最佳实践，请参阅 [MySQL Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD.md) 命令手册。
+2. MySQL Load的导入会受到StreamLoad的配置项限制, 例如BE支持的StreamLoad最大文件量受`streaming_load_max_mb`控制, 默认为10GB.
+
+## 更多帮助
+
+1. 关于 MySQL Load 使用的更多详细语法及最佳实践，请参阅 [MySQL Load](../../../sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD.md) 命令手册。
 

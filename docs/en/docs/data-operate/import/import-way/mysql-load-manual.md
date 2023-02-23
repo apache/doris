@@ -113,7 +113,11 @@ Query OK, 1 row affected (0.17 sec)
 Records: 1 Deleted: 0 Skipped: 0 Warnings: 0
 ```
 
-## More Help
+## Notice 
 
 1. If you see this `LOAD DATA LOCAL INFILE file request rejected due to restrictions on access` message, you should connet mysql with `mysql  --local-infile=1` command to enable client to load local file.
-2. For more detailed syntax and best practices for using MySQL Load, see the [MySQL Load](../../../sql-manual/sql-reference/Data-Management-Statements/Load/MYSQL-LOAD.md) command manual.
+2. The configuration for StreamLoad will also affect MySQL Load. Such as the configurate in be named `streaming_load_max_mb`, it's 10GB by default and it will control the max size for one load.
+
+## More Help
+
+1. For more detailed syntax and best practices for using MySQL Load, see the [MySQL Load](../../../sql-manual/sql-reference/Data-Management-Statements/Load/MYSQL-LOAD.md) command manual.
