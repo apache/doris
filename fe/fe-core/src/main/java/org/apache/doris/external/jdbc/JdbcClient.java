@@ -566,8 +566,9 @@ public class JdbcClient {
              * 3. if s>=0 && s>p, it means this is a decimal(like 0.xxxxx).
              *    p represents how many digits can be left to the left after the decimal point,
              *    the figure after the decimal point s will be rounded.
-             *    eg: we can not insert 0.0000123 into NUMBER(5,7) type, because there must be five zeros
-             *    on the right side of the decimal point.
+             *    eg: we can not insert 0.0123456 into NUMBER(5,7) type,
+             *    because there must be two zeros on the right side of the decimal point,
+             *    we can insert 0.0012345 into NUMBER(5,7) type.
              *    In this case, Doris will use DECIMAL(s,s)
              * 4. if we don't specify p and s for NUMBER(p,s), just NUMBER, the p and s of NUMBER are uncertain.
              *    In this case, doris can not determine p and s, so doris can not determine data type.
