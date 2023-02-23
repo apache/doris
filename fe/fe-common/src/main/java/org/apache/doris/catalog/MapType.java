@@ -24,6 +24,7 @@ import org.apache.doris.thrift.TTypeNodeType;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
 import java.util.Objects;
@@ -35,19 +36,30 @@ public class MapType extends Type {
 
     @SerializedName(value = "keyType")
     private final Type keyType;
+
+    @SerializedName(value = "isKeyContainsNull")
+    private final boolean isKeyContainsNull; // Now always true
+
     @SerializedName(value = "valueType")
     private final Type valueType;
 
+    @SerializedName(value = "isValueContainsNull")
+    private final boolean isValueContainsNull; // Now always true
+
     public MapType() {
         this.keyType = NULL;
+        this.isKeyContainsNull = true;
         this.valueType = NULL;
+        this.isValueContainsNull = true;
     }
 
     public MapType(Type keyType, Type valueType) {
         Preconditions.checkNotNull(keyType);
         Preconditions.checkNotNull(valueType);
         this.keyType = keyType;
+        this.isKeyContainsNull = true;
         this.valueType = valueType;
+        this.isValueContainsNull = true;
     }
 
     @Override
@@ -57,6 +69,14 @@ public class MapType extends Type {
 
     public Type getKeyType() {
         return keyType;
+    }
+
+    public Boolean getIsKeyContainsNull() {
+        return isKeyContainsNull;
+    }
+
+    public Boolean getIsValueContainsNull() {
+        return isValueContainsNull;
     }
 
     public Type getValueType() {
@@ -141,6 +161,7 @@ public class MapType extends Type {
         Preconditions.checkNotNull(keyType);
         Preconditions.checkNotNull(valueType);
         node.setType(TTypeNodeType.MAP);
+        node.setContainsNulls(Lists.newArrayList(isKeyContainsNull, isValueContainsNull));
         keyType.toThrift(container);
         valueType.toThrift(container);
     }
