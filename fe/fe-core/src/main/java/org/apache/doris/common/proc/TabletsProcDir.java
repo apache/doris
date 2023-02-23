@@ -139,7 +139,11 @@ public class TabletsProcDir implements ProcDirInterface {
                                 replica.getSchemaHash());
                         tabletInfo.add(compactionUrl);
                         tabletInfo.add(tablet.getCooldownConf().first);
-                        tabletInfo.add(replica.getCooldownMetaId().toString());
+                        if (replica.getCooldownMetaId() == null) {
+                            tabletInfo.add("");
+                        } else {
+                            tabletInfo.add(replica.getCooldownMetaId().toString());
+                        }
                         tabletInfos.add(tabletInfo);
                     }
                 }

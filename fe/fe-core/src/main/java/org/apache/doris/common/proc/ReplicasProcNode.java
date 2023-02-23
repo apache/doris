@@ -87,6 +87,10 @@ public class ReplicasProcNode implements ProcNodeInterface {
                     tabletId,
                     replica.getSchemaHash());
 
+            String cooldownMetaId = "";
+            if (replica.getCooldownMetaId() != null) {
+                cooldownMetaId = replica.getCooldownMetaId().toString();
+            }
             result.addRow(Arrays.asList(String.valueOf(replica.getId()),
                                         String.valueOf(replica.getBackendId()),
                                         String.valueOf(replica.getVersion()),
@@ -104,7 +108,7 @@ public class ReplicasProcNode implements ProcNodeInterface {
                                         metaUrl,
                                         compactionUrl,
                                         String.valueOf(tablet.getCooldownConf().first),
-                                        replica.getCooldownMetaId().toString()));
+                                        cooldownMetaId));
         }
         return result;
     }
