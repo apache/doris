@@ -85,6 +85,7 @@ OrcReader::OrcReader(RuntimeProfile* profile, const TFileScanRangeParams& params
     TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
     _init_profile();
     _init_system_properties();
+    _init_file_description();
 }
 
 OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
@@ -99,6 +100,7 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
           _file_system(nullptr),
           _io_ctx(io_ctx) {
     _init_system_properties();
+    _init_file_description();
 }
 
 OrcReader::~OrcReader() {
@@ -146,13 +148,8 @@ Status OrcReader::init_reader(
     if (_file_reader == nullptr) {
         io::FileReaderSPtr inner_reader;
 
-        FileDescription file_description;
-        file_description.path = _scan_range.path;
-        file_description.start_offset = _scan_range.start_offset;
-        file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : 0;
-
         RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
-                                                        file_description, &_file_system,
+                                                        _file_description, &_file_system,
                                                         &inner_reader, _io_ctx));
 
         _file_reader = new ORCFileInputStream(_scan_range.path, inner_reader);
@@ -208,13 +205,8 @@ Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
     if (_file_reader == nullptr) {
         io::FileReaderSPtr inner_reader;
 
-        FileDescription file_description;
-        file_description.path = _scan_range.path;
-        file_description.start_offset = _scan_range.start_offset;
-        file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : 0;
-
         RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
-                                                        file_description, &_file_system,
+                                                        _file_description, &_file_system,
                                                         &inner_reader, _io_ctx));
 
         _file_reader = new ORCFileInputStream(_scan_range.path, inner_reader);
@@ -566,6 +558,12 @@ void OrcReader::_init_system_properties() {
         _system_properties.broker_addresses.assign(_scan_params.broker_addresses.begin(),
                                                    _scan_params.broker_addresses.end());
     }
+}
+
+void OrcReader::_init_file_description() {
+    _file_description.path = _scan_range.path;
+    _file_description.start_offset = _scan_range.start_offset;
+    _file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : 0;
 }
 
 TypeDescriptor OrcReader::_convert_to_doris_type(const orc::Type* orc_type) {

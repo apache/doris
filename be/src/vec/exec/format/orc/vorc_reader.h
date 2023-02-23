@@ -118,6 +118,7 @@ private:
     void _init_bloom_filter(
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range);
     void _init_system_properties();
+    void _init_file_description();
     Status _orc_column_to_doris_column(const std::string& col_name, const ColumnPtr& doris_column,
                                        const DataTypePtr& data_type,
                                        const orc::Type* orc_column_type,
@@ -262,6 +263,7 @@ private:
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
     FileSystemProperties _system_properties;
+    FileDescription _file_description;
     size_t _batch_size;
     int64_t _range_start_offset;
     int64_t _range_size;
