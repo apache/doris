@@ -179,6 +179,7 @@ set(VEC_FILES
   functions/array/function_array_popback.cpp
   functions/array/function_array_constructor.cpp
   functions/array/function_array_with_constant.cpp
+  functions/array/function_array_apply.cpp
   exprs/table_function/vexplode_json_array.cpp
   functions/math.cpp
   functions/function_bitmap.cpp
