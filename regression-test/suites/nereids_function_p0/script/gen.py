@@ -227,48 +227,53 @@ def generateWinFnSQL(_: Dict[str, List[List[str]]]) -> List[str]:
         # generate fn without frame, with/not partition and order
         order_by = 'order by kint'
         partition_by = 'partition by kstr'
-        for i in range(0, 2):
-            for t in tables:
-                tag_app = f'{"_pb" if i == 1 else ""}{"_notnull" if t != "fn_test" else ""}'
-                run_tag = f'qt_sql_{fn[:fn.find("(")]}{tag_app}'
-                sql = f'select kint, ksint, {fn} over({partition_by + " " + order_by if i == 1 else ""}) as wf from {t} ' \
-                      f'order by kint'
-                SQLs.append(f'\t{run_tag} \'\'\'\n\t\t{sql}\'\'\'\n')
-            # generate fn with frame and order, with/not partition
-            # frame with rows and range, 'start' clause and 'between and' clause.
-            tag_cnt = 0
-            for rng in ranges:
-                for x in range(0, 3):
-                    if fn not in start_supp:
-                        break
-                    if rng == 'range' and x > 0:
-                        break
+        for t in tables:
+            for i in range(0, 2):
+                for j in range(0, 2):
+                    tmp_list = []
+                    tag_app = ""
+                    if i == 1:
+                        tmp_list.append(partition_by)
+                        tag_app += "_pb"
+                    if j == 1:
+                        tmp_list.append(order_by)
+                        tag_app += "_ob"
+                    tag_app += f'{"_notnull" if t != "fn_test" else ""}'
+                    run_tag = f'qt_sql_{fn[:fn.find("(")]}{tag_app}'
+                    sql = f'select kint, ksint, {fn} over({" ".join(tmp_list)}) as wf from {t} ' \
+                          f'order by kint'
+                    SQLs.append(f'\t{run_tag} \'\'\'\n\t\t{sql}\'\'\'\n')
+        # generate fn with frame and order, with/not partition
+        # frame with rows and range, 'start' clause and 'between and' clause.
+        tag_cnt = 0
+        for rng in ranges:
+            for x in range(0, 3):
+                if fn not in start_supp:
+                    break
+                if rng == 'range' and x > 0:
+                    break
+                tag_cnt += 1
+                # 'start' clause
+                for t in tables:
+                    tag_app = f'_f{"_notnull" if t != "fn_test" else ""}_{tag_cnt}'
+                    run_tag = f'qt_sql_{fn[:fn.find("(")]}{tag_app}'
+                    frame = f'{rng} {define.frame_range[x]}'
+                    sql = f'select kint, ksint, {fn} over({partition_by} {order_by} {frame}) as wf from {t} order by kint'
+                    SQLs.append(f'\t{run_tag} \'\'\'\n\t\t{sql}\'\'\'\n')
+            for y in range(0, 3):
+                if fn not in range_supp:
+                    break
+                for z in range(2, len(define.frame_range)):
+                    if rng == 'range' and (y % 2 != 0 or z % 2 != 0 or y == z):
+                        continue
                     tag_cnt += 1
-                    # 'start' clause
+                    # 'between and' clause
                     for t in tables:
-                        tag_app = f'_f{"_pb" if i == 1 else ""}{"_notnull" if t != "fn_test" else ""}_{tag_cnt}'
+                        tag_app = f'_f{"_notnull" if t != "fn_test" else ""}_{tag_cnt}'
                         run_tag = f'qt_sql_{fn[:fn.find("(")]}{tag_app}'
-                        frame = f'{rng} {define.frame_range[x]}'
-                        sql = f'select kint, ksint, {fn} over({partition_by if i == 1 else ""}' \
-                              f'{" " if i == 1 else ""}' \
-                              f'{order_by} {frame}) as wf from {t} order by kint'
+                        frame = f'{rng} between {define.frame_range[y]} and {define.frame_range[z]}'
+                        sql = f'select kint, ksint, {fn} over({partition_by} {order_by} {frame}) as wf from {t} order by kint'
                         SQLs.append(f'\t{run_tag} \'\'\'\n\t\t{sql}\'\'\'\n')
-                for y in range(0, 3):
-                    if fn not in range_supp:
-                        break
-                    for z in range(2, len(define.frame_range)):
-                        if rng == 'range' and (y % 2 != 0 or z % 2 != 0 or y == z):
-                            continue
-                        tag_cnt += 1
-                        # 'between and' clause
-                        for t in tables:
-                            tag_app = f'_f{"_pb" if i == 1 else ""}{"_notnull" if t != "fn_test" else ""}_{tag_cnt}'
-                            run_tag = f'qt_sql_{fn[:fn.find("(")]}{tag_app}'
-                            frame = f'{rng} between {define.frame_range[y]} and {define.frame_range[z]}'
-                            sql = f'select kint, ksint, {fn} over({partition_by if i == 1 else ""}' \
-                                  f'{" " if i == 1 else ""}' \
-                                  f'{order_by} {frame}) as wf from {t} order by kint'
-                            SQLs.append(f'\t{run_tag} \'\'\'\n\t\t{sql}\'\'\'\n')
         SQLs.append('\n')
     return SQLs
 
@@ -308,6 +313,6 @@ FUNCTION_DIR = '../../../../fe/fe-core/src/main/java/org/apache/doris/nereids/tr
 
 genHeaderAndFooter('win',
                    f'{FUNCTION_DIR}window',
-                   f'../agg_function/win1.groovy',
+                   f'../window_function/win1.groovy',
                    f'nereids_win1_fn',
                    lambda c: True)
