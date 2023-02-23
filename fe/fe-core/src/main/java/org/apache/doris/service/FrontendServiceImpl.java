@@ -996,14 +996,20 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
         List<Long> tableIdList = transactionState.getTableIdList();
-        List<Table> tableList = database.getTablesOnIdOrderOrThrowException(tableIdList);
+        String txnOperation = request.getOperation().trim();
+        List<Table> tableList = new ArrayList<>();
+        // if table was dropped, stream load must can abort.
+        if (txnOperation.equalsIgnoreCase("abort")) {
+            tableList = database.getTablesOnIdOrderIfExist(tableIdList);
+        } else {
+            tableList = database.getTablesOnIdOrderOrThrowException(tableIdList);
+        }
         for (Table table : tableList) {
             // check auth
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), table.getName(),
                     request.getUserIp(), PrivPredicate.LOAD);
         }
 
-        String txnOperation = request.getOperation().trim();
         if (txnOperation.equalsIgnoreCase("commit")) {
             Env.getCurrentGlobalTransactionMgr()
                     .commitTransaction2PC(database, tableList, request.getTxnId(), 5000);
