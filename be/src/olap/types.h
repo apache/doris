@@ -339,7 +339,18 @@ public:
         } else if (l_size > r_size) {
             return 1;
         } else {
-            return 0;
+            // now we use collection value in array to pack map k-v
+            auto l_k = reinterpret_cast<const CollectionValue*>(l_value->key_data());
+            auto l_v = reinterpret_cast<const CollectionValue*>(l_value->value_data());
+            auto r_k = reinterpret_cast<const CollectionValue*>(r_value->key_data());
+            auto r_v = reinterpret_cast<const CollectionValue*>(r_value->value_data());
+            auto key_arr = new ArrayTypeInfo(create_static_type_info_ptr(_key_type_info.get()));
+            auto val_arr = new ArrayTypeInfo(create_static_type_info_ptr(_value_type_info.get()));
+            if (int kc = key_arr->cmp(l_k, r_k) != 0) {
+                return kc;
+            } else {
+                return val_arr->cmp(l_v, r_v);
+            }
         }
     }
 
@@ -356,7 +367,27 @@ public:
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
     }
 
-    std::string to_string(const void* src) const override { return "{}"; }
+    std::string to_string(const void* src) const override {
+        auto src_ = reinterpret_cast<const MapValue*>(src);
+        auto src_key = reinterpret_cast<const CollectionValue*>(src_->key_data());
+        auto src_val = reinterpret_cast<const CollectionValue*>(src_->value_data());
+        size_t key_slot_size = _key_type_info->size();
+        size_t val_slot_size = _value_type_info->size();
+        std::string result = "{";
+
+        for (size_t i = 0; i < src_key->length(); ++i) {
+            std::string k_s =
+                    _key_type_info->to_string((uint8_t*)(src_key->data()) + key_slot_size);
+            std::string v_s =
+                    _key_type_info->to_string((uint8_t*)(src_val->data()) + val_slot_size);
+            result += k_s + ":" + v_s;
+            if (i != src_key->length() - 1) {
+                result += ", ";
+            }
+        }
+        result += "}";
+        return result;
+    }
 
     void set_to_max(void* buf) const override {
         DCHECK(false) << "set_to_max of list is not implemented.";
@@ -366,7 +397,6 @@ public:
         DCHECK(false) << "set_to_min of list is not implemented.";
     }
 
-    // todo . is here only to need return 16 for two ptr?
     size_t size() const override { return sizeof(MapValue); }
 
     FieldType type() const override { return OLAP_FIELD_TYPE_MAP; }
