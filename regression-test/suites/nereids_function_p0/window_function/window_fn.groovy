@@ -156,7 +156,6 @@ suite("nereids_win_fn") {
 //    qt_sql_count_f_pb_notnull_16 '''
 //		select kint, ksint, count(kbint) over(partition by kstr order by kint range between current row and unbounded following) as wf from fn_test_not_nullable order by kint'''
 
-
     // qt_sql_avg '''
     // 	select kint, ksint, avg(kbint) over() as wf from fn_test order by kint'''
     // qt_sql_avg_notnull '''
