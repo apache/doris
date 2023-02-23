@@ -162,6 +162,16 @@ public class ColumnDef {
                 "sequence column hidden column", false);
     }
 
+    public static ColumnDef newVersionColumnDef() {
+        return new ColumnDef(Column.VERSION_COL, TypeDef.create(PrimitiveType.BIGINT), false, null, false,
+                new ColumnDef.DefaultValue(true, "0"), "doris version hidden column", false);
+    }
+
+    public static ColumnDef newVersionColumnDef(AggregateType aggregateType) {
+        return new ColumnDef(Column.VERSION_COL, TypeDef.create(PrimitiveType.BIGINT), false, aggregateType, false,
+                new ColumnDef.DefaultValue(true, "0"), "doris version hidden column", false);
+    }
+
     public boolean isAllowNull() {
         return isAllowNull;
     }

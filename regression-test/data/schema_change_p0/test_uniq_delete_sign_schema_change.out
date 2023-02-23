@@ -30,12 +30,13 @@ value2	INT	Yes	false	\N	REPLACE
 value3	INT	Yes	false	\N	REPLACE
 value4	INT	Yes	false	\N	REPLACE
 __DORIS_DELETE_SIGN__	TINYINT	No	false	0	REPLACE
+__DORIS_VERSION_COL__	BIGINT	No	false	0	REPLACE
 
 -- !sql --
-1	1	1	1	\N	1
-2	2	2	2	\N	0
-3	3	3	3	\N	0
-4	4	4	4	\N	0
+1	1	1	1	\N	1	7
+2	2	2	2	\N	0	4
+3	3	3	3	\N	0	5
+4	4	4	4	\N	0	6
 
 -- !sql --
 1	1	1	1	\N	1
@@ -80,15 +81,16 @@ k1	INT	Yes	true	\N
 value2	INT	Yes	false	\N	REPLACE
 value4	INT	Yes	false	\N	REPLACE
 __DORIS_DELETE_SIGN__	TINYINT	No	false	0	REPLACE
+__DORIS_VERSION_COL__	BIGINT	No	false	0	REPLACE
 
 -- !sql --
-1	1	\N	1
-2	2	\N	0
-3	1	1	1
-4	4	\N	0
-5	1	1	1
-6	6	6	0
-7	7	7	0
+1	1	\N	1	7
+2	2	\N	0	4
+3	1	1	1	11
+4	4	\N	0	6
+5	1	1	1	10
+6	6	6	0	9
+7	7	7	0	12
 
 -- !sql --
 1	1	\N	1

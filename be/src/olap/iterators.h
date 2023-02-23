@@ -99,6 +99,7 @@ public:
     std::vector<uint32_t>* read_orderby_key_columns = nullptr;
 
     IOContext io_ctx;
+    Version version;
 };
 
 // Used to read data in RowBlockV2 one by one

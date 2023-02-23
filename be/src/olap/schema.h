@@ -52,6 +52,9 @@ public:
             if (column.is_key()) {
                 ++num_key_columns;
             }
+            if (column.name() == VERSION_COL) {
+                _version_col_idx = cid;
+            }
             columns.push_back(column);
         }
         _delete_sign_idx = tablet_schema->delete_sign_idx();
@@ -71,6 +74,9 @@ public:
             }
             if (columns[i].name() == DELETE_SIGN) {
                 _delete_sign_idx = i;
+            }
+            if (columns[i].name() == VERSION_COL) {
+                _version_col_idx = i;
             }
             _unique_ids[i] = columns[i].unique_id();
         }
@@ -96,6 +102,9 @@ public:
             col_ids[cid] = cid;
             if (cols.at(cid)->name() == DELETE_SIGN) {
                 _delete_sign_idx = cid;
+            }
+            if (cols.at(cid)->name() == VERSION_COL) {
+                _version_col_idx = cid;
             }
             _unique_ids[cid] = cols[cid]->unique_id();
         }
@@ -145,6 +154,7 @@ public:
     int32_t unique_id(size_t index) const { return _unique_ids[index]; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
     bool has_sequence_col() const { return _has_sequence_col; }
+    int32_t version_col_idx() const { return _version_col_idx; }
 
 private:
     void _init(const std::vector<TabletColumn>& cols, const std::vector<ColumnId>& col_ids,
@@ -169,6 +179,7 @@ private:
     size_t _schema_size;
     int32_t _delete_sign_idx = -1;
     bool _has_sequence_col = false;
+    int32_t _version_col_idx = -1;
 };
 
 } // namespace doris

@@ -423,6 +423,14 @@ public class CreateTableStmt extends DdlStmt {
                 columnDefs.add(ColumnDef.newDeleteSignColumnDef(AggregateType.REPLACE));
             }
         }
+        if (Config.enable_hidden_version_column_by_default && keysDesc != null
+                && keysDesc.getKeysType() == KeysType.UNIQUE_KEYS) {
+            if (enableUniqueKeyMergeOnWrite) {
+                columnDefs.add(ColumnDef.newVersionColumnDef(AggregateType.NONE));
+            } else {
+                columnDefs.add(ColumnDef.newVersionColumnDef(AggregateType.REPLACE));
+            }
+        }
         boolean hasObjectStored = false;
         String objectStoredColumn = "";
         Set<String> columnSet = Sets.newTreeSet(String.CASE_INSENSITIVE_ORDER);
