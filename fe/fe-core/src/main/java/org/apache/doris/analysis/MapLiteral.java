@@ -96,7 +96,7 @@ public class MapLiteral extends LiteralExpr {
 
         for (int i = 0; i < children.size() &&  i + 1 < children.size(); i += 2) {
             literal.children.set(i, children.get(i).uncheckedCastTo(keyType));
-            literal.children.set(i, children.get(i + 1).uncheckedCastTo(valueType));
+            literal.children.set(i + 1, children.get(i + 1).uncheckedCastTo(valueType));
         }
         literal.setType(targetType);
         return literal;
