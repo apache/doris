@@ -1216,11 +1216,6 @@ public class Analyzer {
         return globalState.migrateFailedConjuncts.get(inlineViewRef);
     }
 
-    public Set<Expr> getAllMigrateFailedConjuncts() {
-        return globalState.migrateFailedConjuncts.values()
-                .stream().flatMap(Collection::stream).collect(Collectors.toSet());
-    }
-
     /**
      * register expr id
      * @param expr
@@ -1855,7 +1850,8 @@ public class Analyzer {
                     // aliases and having it analyzed is needed for the following EvalPredicate() call
                     conjunct.analyze(this);
                 }
-                final Expr newConjunct = conjunct.getResultValue();
+                Expr newConjunct = conjunct.getResultValue(true);
+                newConjunct = FoldConstantsRule.INSTANCE.apply(newConjunct, this, null);
                 if (newConjunct instanceof BoolLiteral || newConjunct instanceof NullLiteral) {
                     boolean evalResult = true;
                     if (newConjunct instanceof BoolLiteral) {

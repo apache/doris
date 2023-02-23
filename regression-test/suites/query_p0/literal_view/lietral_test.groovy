@@ -86,6 +86,8 @@ suite("literal_view_test") {
     WHERE substring('2022-12',6,2)='01';
     """
 
+    sql """DROP TABLE IF EXISTS `test_insert`"""
+
     sql """
         CREATE TABLE `test_insert` (
             `id` varchar(11) NULL COMMENT '唯一标识',
