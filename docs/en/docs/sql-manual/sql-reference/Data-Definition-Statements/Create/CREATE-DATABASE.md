@@ -38,6 +38,7 @@ grammar:
 
 ```sql
 CREATE DATABASE [IF NOT EXISTS] db_name
+    [COMMENT "db comment"]
     [PROPERTIES ("key"="value", ...)];
 ````
 
@@ -76,6 +77,11 @@ CREATE DATABASE [IF NOT EXISTS] db_name
    "iceberg.hive.metastore.uris" = "thrift://127.0.0.1:9083",
    "iceberg.catalog.type" = "HIVE_CATALOG"
    );
+   ````
+
+3. Create a new database db_test with comment
+   ```sql
+   CREATE DATABASE db_test COMMENT "this is test comment";
    ````
 
 ### Keywords

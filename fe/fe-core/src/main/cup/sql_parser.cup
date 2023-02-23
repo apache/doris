@@ -1752,13 +1752,13 @@ opt_mv_partition ::=
 // Create Statement
 create_stmt ::=
     /* Database */
-    KW_CREATE KW_DATABASE opt_if_not_exists:ifNotExists ident:db opt_properties:properties
+    KW_CREATE KW_DATABASE opt_if_not_exists:ifNotExists ident:db opt_comment:dbComment opt_properties:properties
     {:
-        RESULT = new CreateDbStmt(ifNotExists, db, properties);
+        RESULT = new CreateDbStmt(ifNotExists, db, properties, dbComment);
     :}
-    | KW_CREATE KW_SCHEMA opt_if_not_exists:ifNotExists ident:db
+    | KW_CREATE KW_SCHEMA opt_if_not_exists:ifNotExists ident:db opt_comment:schemaComment
     {:
-        RESULT = new CreateDbStmt(ifNotExists, db, null);
+        RESULT = new CreateDbStmt(ifNotExists, db, null, schemaComment);
     :}
     /* Catalog */
     | KW_CREATE KW_CATALOG opt_if_not_exists:ifNotExists ident:catalogName opt_properties:properties

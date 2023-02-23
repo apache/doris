@@ -38,6 +38,7 @@ CREATE DATABASE
 
 ```sql
 CREATE DATABASE [IF NOT EXISTS] db_name
+    [COMMENT "db comment"]
     [PROPERTIES ("key"="value", ...)];
 ```
 
@@ -77,6 +78,11 @@ CREATE DATABASE [IF NOT EXISTS] db_name
    	"iceberg.catalog.type" = "HIVE_CATALOG"
    );
    ```
+
+3. 新建带注释的数据库 db_test
+   ```sql
+   CREATE DATABASE db_test COMMENT "this is test comment";
+   ````
 
 ### Keywords
 

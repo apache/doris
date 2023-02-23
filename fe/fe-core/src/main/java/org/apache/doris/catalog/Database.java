@@ -29,9 +29,11 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.DebugUtil;
+import org.apache.doris.common.util.SqlUtils;
 import org.apache.doris.persist.CreateTableInfo;
 
 import com.google.common.base.Preconditions;
+import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -105,6 +107,8 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
     private DbState dbState;
 
     private DatabaseProperty dbProperties = new DatabaseProperty();
+
+    private String dbComment = "";
 
     public Database() {
         this(0, null);
@@ -249,8 +253,26 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         return dbProperties;
     }
 
+    public String getDbComment() {
+        return getDbComment(false);
+    }
+
+    public String getDbComment(boolean escapeQuota) {
+        if (!Strings.isNullOrEmpty(dbComment)) {
+            if (!escapeQuota) {
+                return dbComment;
+            }
+            return SqlUtils.escapeQuota(dbComment);
+        }
+        return dbState.name();
+    }
+
     public void setDbProperties(DatabaseProperty dbProperties) {
         this.dbProperties = dbProperties;
+    }
+
+    public void setDbComment(String dbComment) {
+        this.dbComment = Strings.nullToEmpty(dbComment);
     }
 
     public long getUsedDataQuotaWithLock() {
@@ -565,6 +587,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         Text.writeString(out, clusterName);
         Text.writeString(out, dbState.name());
         Text.writeString(out, attachDbName);
+        Text.writeString(out, dbComment);
 
         // write functions
         out.writeInt(name2Function.size());
@@ -605,6 +628,7 @@ public class Database extends MetaObject implements Writable, DatabaseIf<Table> 
         clusterName = Text.readString(in);
         dbState = DbState.valueOf(Text.readString(in));
         attachDbName = Text.readString(in);
+        dbComment = Text.readString(in);
 
         int numEntries = in.readInt();
         for (int i = 0; i < numEntries; ++i) {

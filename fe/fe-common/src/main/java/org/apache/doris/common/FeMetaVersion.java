@@ -52,6 +52,8 @@ public final class FeMetaVersion {
     public static final int VERSION_115 = 115;
     // change Auto to rbac
     public static final int VERSION_116 = 116;
+    // support db comment
+    public static final int VERSION_117 = 117;
     // note: when increment meta version, should assign the latest version to VERSION_CURRENT
     public static final int VERSION_CURRENT = VERSION_116;
 

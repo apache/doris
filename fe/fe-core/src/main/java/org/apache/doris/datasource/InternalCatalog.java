@@ -405,6 +405,7 @@ public class InternalCatalog implements CatalogIf<Database> {
         db.setClusterName(clusterName);
         // check and analyze database properties before create database
         db.setDbProperties(new DatabaseProperty(properties).checkAndBuildProperties());
+        db.setDbComment(stmt.getComment());
 
         if (!tryLock(false)) {
             throw new DdlException("Failed to acquire catalog lock. Try again");

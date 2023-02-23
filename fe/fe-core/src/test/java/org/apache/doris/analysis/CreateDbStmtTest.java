@@ -54,6 +54,14 @@ public class CreateDbStmtTest {
         Assert.assertEquals("CREATE DATABASE `testCluster:test`", dbStmt.toString());
     }
 
+    @Test
+    public void testAnalyzeWithComment() throws UserException {
+        CreateDbStmt dbStmt = new CreateDbStmt(false, "test", null, "this is comment");
+        dbStmt.analyze(analyzer);
+        Assert.assertEquals("testCluster:test", dbStmt.getFullDbName());
+        Assert.assertEquals("CREATE DATABASE `testCluster:test` COMMENT \"this is comment\"", dbStmt.toString());
+    }
+
     @Test(expected = AnalysisException.class)
     public void testAnalyzeWithException() throws UserException {
         CreateDbStmt stmt = new CreateDbStmt(false, "", null);

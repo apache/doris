@@ -66,6 +66,10 @@ public interface DatabaseIf<T extends TableIf> {
 
     DatabaseProperty getDbProperties();
 
+    String getDbComment();
+
+    String getDbComment(boolean escapeQuota);
+
     boolean isTableExist(String tableName);
 
     List<T> getTables();

@@ -36,11 +36,17 @@ public class CreateDbStmt extends DdlStmt {
     private boolean ifNotExists;
     private String dbName;
     private Map<String, String> properties;
+    private String comment;
 
-    public CreateDbStmt(boolean ifNotExists, String dbName, Map<String, String> properties) {
+    public CreateDbStmt(boolean ifNotExists, String dbName, Map<String, String> properties, String comment) {
         this.ifNotExists = ifNotExists;
         this.dbName = dbName;
         this.properties = properties == null ? new HashMap<>() : properties;
+        this.comment = Strings.nullToEmpty(comment);
+    }
+
+    public CreateDbStmt(boolean ifNotExists, String dbName, Map<String, String> properties) {
+        this(ifNotExists, dbName, properties, null);
     }
 
     public String getFullDbName() {
@@ -53,6 +59,10 @@ public class CreateDbStmt extends DdlStmt {
 
     public Map<String, String> getProperties() {
         return properties;
+    }
+
+    public String getComment() {
+        return comment;
     }
 
     @Override
@@ -79,6 +89,11 @@ public class CreateDbStmt extends DdlStmt {
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
         stringBuilder.append("CREATE DATABASE ").append("`").append(dbName).append("`");
+
+        if (!Strings.isNullOrEmpty(comment)) {
+            stringBuilder.append("\nCOMMENT \"").append(comment).append("\"");
+        }
+
         if (properties.size() > 0) {
             stringBuilder.append("\nPROPERTIES (\n");
             stringBuilder.append(new PrintableMap<>(properties, "=", true, true, false));

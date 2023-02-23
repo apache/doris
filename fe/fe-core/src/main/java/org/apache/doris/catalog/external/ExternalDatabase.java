@@ -202,6 +202,16 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T>,
     }
 
     @Override
+    public String getDbComment() {
+        throw new NotImplementedException();
+    }
+
+    @Override
+    public String getDbComment(boolean escapeQuota) {
+        throw new NotImplementedException();
+    }
+
+    @Override
     public boolean isTableExist(String tableName) {
         return extCatalog.tableExist(ConnectContext.get().getSessionContext(), name, tableName);
     }

@@ -862,6 +862,9 @@ public class ShowExecutor {
         DatabaseIf db = ctx.getCurrentCatalog().getDbOrAnalysisException(showStmt.getDb());
         StringBuilder sb = new StringBuilder();
         sb.append("CREATE DATABASE `").append(ClusterNamespace.getNameFromFullName(showStmt.getDb())).append("`");
+        if (!Strings.isNullOrEmpty(db.getDbComment())) {
+            sb.append("\nCOMMENT \"").append(db.getDbComment()).append("\"");
+        }
         if (db.getDbProperties().getProperties().size() > 0) {
             sb.append("\nPROPERTIES (\n");
             sb.append(new PrintableMap<>(db.getDbProperties().getProperties(), "=", true, true, false));
