@@ -19,31 +19,28 @@ package org.apache.doris.datasource.iceberg;
 
 import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.datasource.CatalogProperty;
+import org.apache.doris.datasource.iceberg.dlf.DLFCatalog;
 
-import org.apache.iceberg.CatalogProperties;
-import org.apache.iceberg.hive.HiveCatalog;
-
-import java.util.HashMap;
 import java.util.Map;
 
-public class IcebergHMSExternalCatalog extends IcebergExternalCatalog {
+public class IcebergDLFExternalCatalog extends IcebergExternalCatalog {
 
-    public IcebergHMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
+    public IcebergDLFExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
         super(catalogId, name);
+        props.put(HMSResource.HIVE_METASTORE_TYPE, "dlf");
+        props = HMSResource.getPropertiesFromDLF(props);
         catalogProperty = new CatalogProperty(resource, props);
     }
 
     @Override
     protected void initLocalObjectsImpl() {
-        icebergCatalogType = ICEBERG_HMS;
-        HiveCatalog hiveCatalog = new org.apache.iceberg.hive.HiveCatalog();
-        hiveCatalog.setConf(getConfiguration());
-        // initialize hive catalog
-        Map<String, String> catalogProperties = new HashMap<>();
-        String metastoreUris = catalogProperty.getOrDefault(HMSResource.HIVE_METASTORE_URIS, "");
-
-        catalogProperties.put(CatalogProperties.URI, metastoreUris);
-        hiveCatalog.initialize(icebergCatalogType, catalogProperties);
-        catalog = hiveCatalog;
+        icebergCatalogType = ICEBERG_DLF;
+        DLFCatalog dlfCatalog = new DLFCatalog();
+        dlfCatalog.setConf(getConfiguration());
+        // initialize catalog
+        Map<String, String> catalogProperties = catalogProperty.getHadoopProperties();
+        String dlfUid = catalogProperties.get("dlf.catalog.uid");
+        dlfCatalog.initialize(dlfUid, catalogProperties);
+        catalog = dlfCatalog;
     }
 }
