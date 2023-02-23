@@ -84,6 +84,7 @@ public class FileGroupInfo {
     private long bytesPerInstance = 0;
     // used for stream load, FILE_LOCAL or FILE_STREAM
     private TFileType fileType;
+    private List<String> hiddenColumns = null;
 
     // for broker load
     public FileGroupInfo(long loadJobId, long txnId, Table targetTable, BrokerDesc brokerDesc,
@@ -104,7 +105,8 @@ public class FileGroupInfo {
 
     // for stream load
     public FileGroupInfo(TUniqueId loadId, long txnId, Table targetTable, BrokerDesc brokerDesc,
-            BrokerFileGroup fileGroup, TBrokerFileStatus fileStatus, boolean strictMode, TFileType fileType) {
+            BrokerFileGroup fileGroup, TBrokerFileStatus fileStatus, boolean strictMode,
+            TFileType fileType, List<String> hiddenColumns) {
         this.jobType = JobType.STREAM_LOAD;
         this.loadId = loadId;
         this.txnId = txnId;
@@ -116,6 +118,7 @@ public class FileGroupInfo {
         this.filesAdded = 1;
         this.strictMode = strictMode;
         this.fileType = fileType;
+        this.hiddenColumns = hiddenColumns;
     }
 
     public Table getTargetTable() {
@@ -150,6 +153,10 @@ public class FileGroupInfo {
         StringBuilder sb = new StringBuilder();
         sb.append("file scan\n");
         return sb.toString();
+    }
+
+    public List<String> getHiddenColumns() {
+        return hiddenColumns;
     }
 
     public void getFileStatusAndCalcInstance(BackendPolicy backendPolicy) throws UserException {

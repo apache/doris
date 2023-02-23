@@ -155,9 +155,10 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
     // Only for stream load/routine load job.
     public void setLoadInfo(TUniqueId loadId, long txnId, Table targetTable, BrokerDesc brokerDesc,
-            BrokerFileGroup fileGroup, TBrokerFileStatus fileStatus, boolean strictMode, TFileType fileType) {
+            BrokerFileGroup fileGroup, TBrokerFileStatus fileStatus, boolean strictMode, TFileType fileType,
+            List<String> hiddenColumns) {
         FileGroupInfo fileGroupInfo = new FileGroupInfo(loadId, txnId, targetTable, brokerDesc,
-                fileGroup, fileStatus, strictMode, fileType);
+                fileGroup, fileStatus, strictMode, fileType, hiddenColumns);
         fileGroupInfos.add(fileGroupInfo);
         this.type = Type.LOAD;
     }
