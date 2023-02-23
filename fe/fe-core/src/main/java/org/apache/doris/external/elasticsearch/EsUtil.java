@@ -118,15 +118,29 @@ public class EsUtil {
      **/
     public static List<String> getArrayFields(String indexMapping) {
         JSONObject mappings = getMapping(indexMapping);
+        JSONObject meta;
         if (!mappings.containsKey("_meta")) {
-            return new ArrayList<>();
+            // For ES 6.x and 7.x
+            String firstType = (String) mappings.keySet().iterator().next();
+            if (!"properties".equals(firstType)) {
+                // If type is not passed in takes the first type.
+                JSONObject firstData = (JSONObject) mappings.get(firstType);
+                if (!firstData.containsKey("_meta")) {
+                    return new ArrayList<>();
+                } else {
+                    meta = (JSONObject) firstData.get("_meta");
+                }
+            } else {
+                return new ArrayList<>();
+            }
+        } else {
+            meta = (JSONObject) mappings.get("_meta");
         }
-        JSONObject meta = (JSONObject) mappings.get("_meta");
         if (!meta.containsKey("doris")) {
             return new ArrayList<>();
         }
         JSONObject dorisMeta = (JSONObject) meta.get("doris");
-        return (List<String>) dorisMeta.get("array_field");
+        return (List<String>) dorisMeta.get("array_fields");
     }
 
     private static JSONObject getMapping(String indexMapping) {
@@ -145,13 +159,13 @@ public class EsUtil {
         // 3. Equal 6.8.x and before user not passed
         if (mappingType == null) {
             // remove dynamic templates, for ES 7.x and 8.x
-            checkDynamicTemplates(mappings);
+            checkNonPropertiesFields(mappings);
             String firstType = (String) mappings.keySet().iterator().next();
             if (!"properties".equals(firstType)) {
                 // If type is not passed in takes the first type.
                 JSONObject firstData = (JSONObject) mappings.get(firstType);
                 // check for ES 6.x and before
-                checkDynamicTemplates(firstData);
+                checkNonPropertiesFields(firstData);
                 return firstData;
             }
             // Equal 7.x and after
@@ -160,7 +174,7 @@ public class EsUtil {
             if (mappings.containsKey(mappingType)) {
                 JSONObject jsonData = (JSONObject) mappings.get(mappingType);
                 // check for ES 6.x and before
-                checkDynamicTemplates(jsonData);
+                checkNonPropertiesFields(jsonData);
                 return jsonData;
             }
             // Compatible type error
@@ -169,12 +183,16 @@ public class EsUtil {
     }
 
     /**
-     * Remove `dynamic_templates` and check explicit mapping
+     * Check non properties fields
      *
      * @param mappings
      */
-    private static void checkDynamicTemplates(JSONObject mappings) {
+    private static void checkNonPropertiesFields(JSONObject mappings) {
+        // remove `_meta` field
+        mappings.remove("_meta");
+        // remove `dynamic_templates` field
         mappings.remove("dynamic_templates");
+        // check explicit mapping
         if (mappings.isEmpty()) {
             throw new DorisEsException("Do not support index without explicit mapping.");
         }
