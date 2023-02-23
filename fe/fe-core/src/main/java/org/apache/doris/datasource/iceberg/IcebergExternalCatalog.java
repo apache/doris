@@ -48,6 +48,8 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     public static final String ICEBERG_CATALOG_TYPE = "iceberg.catalog.type";
     public static final String ICEBERG_REST = "rest";
     public static final String ICEBERG_HMS = "hms";
+    public static final String ICEBERG_GLUE = "glue";
+    public static final String ICEBERG_DLF = "dlf";
     protected String icebergCatalogType;
     protected Catalog catalog;
     protected SupportsNamespaces nsCatalog;

@@ -33,7 +33,6 @@ When connecting to Iceberg, Doris:
 
 1. Supports Iceberg V1/V2 table formats;
 2. Supports Position Delete but not Equality Delete for V2 format;
-3. Only supports Hive Metastore Catalogs. The usage is the same as that of Hive Catalogs.
 
 ## Create Catalog
 
@@ -77,6 +76,26 @@ CREATE CATALOG iceberg PROPERTIES (
     'dfs.client.failover.proxy.provider.your-nameservice'='org.apache.hadoop.hdfs.server.namenode.ha.ConfiguredFailoverProxyProvider'
 );
 ```
+
+- Using Iceberg Glue Catalog
+
+```sql
+CREATE CATALOG glue PROPERTIES (
+"type"="iceberg",
+"iceberg.catalog.type" = "glue",
+"glue.endpoint" = "https://glue.us-east-1.amazonaws.com",
+"warehouse" = "s3://bucket/warehouse",
+"AWS_ENDPOINT" = "s3.us-east-1.amazonaws.com",
+"AWS_REGION" = "us-east-1",
+"AWS_ACCESS_KEY" = "ak",
+"AWS_SECRET_KEY" = "sk",
+"use_path_style" = "true"
+);
+```
+
+`glue.endpoint`: Glue Endpoint. See [AWS Glue endpoints and quotas](https://docs.aws.amazon.com/general/latest/gr/glue.html).
+
+`warehouse`: Glue Warehouse Location.  To determine the root path of the data warehouse in storage.
 
 - Using Iceberg REST Catalog
 
