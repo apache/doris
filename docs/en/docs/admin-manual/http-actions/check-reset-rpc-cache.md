@@ -1,7 +1,7 @@
 ---
 {
     "title": "CHECK/RESET Stub Cache",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 
