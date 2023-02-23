@@ -77,7 +77,7 @@ Doris 系统提供了一整套对物化视图的 DDL 语法，包括创建，查
 具体的语法可查看[CREATE MATERIALIZED VIEW](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-MATERIALIZED-VIEW.md) 。
 
 
-<version since="2.0">
+<version since="2.0.0"></version>
 
 在`Doris 2.0`版本中我们对物化视图的做了一些增强(在本文的`最佳实践4`中有具体描述)。我们建议用户在正式的生产环境中使用物化视图前，先在测试环境中确认是预期中的查询能否命中想要创建的物化视图。
 
@@ -479,7 +479,7 @@ MySQL [test]> desc advertiser_view_record;
 
 ## 最佳实践4
 
-<version since="2.0">
+<version since="2.0.0"></version>
 
 在`Doris 2.0`中，我们对物化视图所支持的表达式做了一些增强，本示例将主要体现新版本物化视图对各种表达式的支持。
 
