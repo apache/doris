@@ -586,7 +586,7 @@ public class JdbcClient {
                     } else if (precision < 19) {
                         return Type.BIGINT;
                     } else if (precision < 39) {
-                        // LARGEINT most support 38 numbers.
+                        // LARGEINT supports up to 38 numbers.
                         return Type.LARGEINT;
                     } else {
                         return ScalarType.createStringType();
