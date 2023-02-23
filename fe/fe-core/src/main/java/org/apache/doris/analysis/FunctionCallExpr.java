@@ -32,7 +32,6 @@ import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.util.VectorizedUtil;
@@ -1349,15 +1348,7 @@ public class FunctionCallExpr extends Expr {
                 for (int i = 0; i < argTypes.length - orderByElements.size(); ++i) {
                     // For varargs, we must compare with the last type in callArgs.argTypes.
                     int ix = Math.min(args.length - 1, i);
-                    if (!argTypes[i].matchesType(args[ix]) && Config.enable_date_conversion
-                            && !argTypes[i].isDateType() && (args[ix].isDate() || args[ix].isDatetime())) {
-                        uncheckedCastChild(ScalarType.getDefaultDateType(args[ix]), i);
-                    } else if (!argTypes[i].matchesType(args[ix])
-                            && Config.enable_decimal_conversion
-                            && argTypes[i].isDecimalV3() && args[ix].isDecimalV2()) {
-                        uncheckedCastChild(ScalarType.createDecimalV3Type(argTypes[i].getPrecision(),
-                                ((ScalarType) argTypes[i]).getScalarScale()), i);
-                    } else if (fnName.getFunction().equalsIgnoreCase("money_format")
+                    if (fnName.getFunction().equalsIgnoreCase("money_format")
                             && children.get(0).getType().isDecimalV3() && args[ix].isDecimalV3()) {
                         continue;
                     } else if (fnName.getFunction().equalsIgnoreCase("array")
@@ -1429,38 +1420,6 @@ public class FunctionCallExpr extends Expr {
             }
         } else {
             this.type = fn.getReturnType();
-        }
-
-        Type[] childTypes = collectChildReturnTypes();
-        if ((this.type.isDate() || this.type.isDatetime()) && Config.enable_date_conversion
-                && fn.getArgs().length == childTypes.length) {
-            boolean implicitCastToDate = false;
-            for (int i = 0; i < fn.getArgs().length; i++) {
-                implicitCastToDate = Type.canCastTo(childTypes[i], fn.getArgs()[i]);
-                if (implicitCastToDate) {
-                    break;
-                }
-            }
-            if (implicitCastToDate) {
-                this.type = ScalarType.getDefaultDateType(fn.getReturnType());
-                fn.setReturnType(ScalarType.getDefaultDateType(fn.getReturnType()));
-            }
-        }
-
-        if (this.type.isDecimalV2() && Config.enable_decimal_conversion
-                && fn.getArgs().length == childTypes.length) {
-            boolean implicitCastToDecimalV3 = false;
-            for (int i = 0; i < fn.getArgs().length; i++) {
-                implicitCastToDecimalV3 = Type.canCastTo(childTypes[i], fn.getArgs()[i]);
-                if (implicitCastToDecimalV3) {
-                    break;
-                }
-            }
-            if (implicitCastToDecimalV3) {
-                this.type = ScalarType.createDecimalV3Type(fn.getReturnType().getPrecision(),
-                        ((ScalarType) fn.getReturnType()).getScalarScale());
-                fn.setReturnType(this.type);
-            }
         }
 
         if (this.type.isDecimalV2()) {
