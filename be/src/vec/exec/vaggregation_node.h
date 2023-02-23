@@ -949,6 +949,7 @@ private:
         for (size_t i = 0; i < key_size; ++i) {
             int result_column_id = -1;
             RETURN_IF_ERROR(_probe_expr_ctxs[i]->execute(block, &result_column_id));
+            block->replace_by_position_if_const(result_column_id);
             key_columns[i] = block->get_by_position(result_column_id).column.get();
         }
 
