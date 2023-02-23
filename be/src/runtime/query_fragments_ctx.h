@@ -34,6 +34,7 @@
 #include "vec/exec/scan/scanner_scheduler.h"
 #include "vec/runtime/shared_hash_table_controller.h"
 #include "vec/runtime/shared_scanner_controller.h"
+#include "resource_group/resource_group.h"
 
 namespace doris {
 
@@ -130,6 +131,10 @@ public:
 
     vectorized::RuntimePredicate& get_runtime_predicate() { return _runtime_predicate; }
 
+    void set_rs_group(resourcegroup::ResourceGroupPtr& rs_group) { _rs_group = rs_group; }
+
+    resourcegroup::ResourceGroup* get_rs_group() { return _rs_group.get(); }
+
 public:
     TUniqueId query_id;
     DescriptorTbl* desc_tbl;
@@ -175,6 +180,8 @@ private:
     std::shared_ptr<vectorized::SharedHashTableController> _shared_hash_table_controller;
     std::shared_ptr<vectorized::SharedScannerController> _shared_scanner_controller;
     vectorized::RuntimePredicate _runtime_predicate;
+
+    resourcegroup::ResourceGroupPtr _rs_group;
 };
 
 } // namespace doris

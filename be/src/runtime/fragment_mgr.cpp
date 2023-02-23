@@ -44,6 +44,7 @@
 #include "runtime/stream_load/new_load_stream_mgr.h"
 #include "runtime/stream_load/stream_load_context.h"
 #include "runtime/thread_context.h"
+#include "runtime/resource_group/resource_group_manager.h"
 #include "service/backend_options.h"
 #include "util/doris_metrics.h"
 #include "util/network_util.h"
@@ -671,6 +672,19 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
             params.query_options.is_report_success) {
             fragments_ctx->query_mem_tracker->enable_print_log_usage();
         }
+
+        // 如果设置了group就用group，如果没设置就用default group。
+        int ts = fragments_ctx->timeout_second;
+        resourcegroup::ResourceGroupPtr rg;
+        if (ts > 20) {
+            rg = resourcegroup::ResourceGroupManager::instance()
+                         ->get_or_create_resource_group(1);
+        } else {
+            rg = resourcegroup::ResourceGroupManager::instance()
+                         ->get_or_create_resource_group(0);
+        }
+        fragments_ctx->set_rs_group(rg);
+
 
         {
             // Find _fragments_ctx_map again, in case some other request has already

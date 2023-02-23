@@ -110,6 +110,8 @@ public:
         return _exec_status;
     }
 
+    resourcegroup::ResourceGroup* get_rs_group() { return _query_ctx->get_rs_group(); }
+
 private:
     Status _create_sink(const TDataSink& t_data_sink);
     Status _build_pipelines(ExecNode*, PipelinePtr);

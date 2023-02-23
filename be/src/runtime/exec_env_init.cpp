@@ -160,7 +160,10 @@ Status ExecEnv::init_pipeline_task_scheduler() {
     if (executors_size <= 0) {
         executors_size = CpuInfo::num_cores();
     }
-    auto t_queue = std::make_shared<pipeline::TaskQueue>(executors_size);
+
+    // 支持rs queue
+    auto t_queue = std::make_shared<pipeline::ResourceGroupTaskQueue>(executors_size);
+
     auto b_scheduler = std::make_shared<pipeline::BlockedTaskScheduler>(t_queue);
     _pipeline_task_scheduler = new pipeline::TaskScheduler(this, b_scheduler, t_queue);
     RETURN_IF_ERROR(_pipeline_task_scheduler->start());

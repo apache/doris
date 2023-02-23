@@ -77,6 +77,8 @@ set(RUNTIME_FILES
     cache/result_node.cpp
     cache/result_cache.cpp
     block_spill_manager.cpp
+    resource_group/resource_group.cpp
+    resource_group/resource_group_manager.cpp
 )
 
 if (USE_JEMALLOC AND USE_MEM_TRACKER)

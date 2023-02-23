@@ -179,6 +179,8 @@ public:
 
     uint32_t total_schedule_time() const { return _schedule_time; }
 
+    resourcegroup::ResourceGroup* get_rs_group();
+
     static constexpr auto THREAD_TIME_SLICE = 100'000'000L;
 
 private:

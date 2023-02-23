@@ -216,7 +216,7 @@ void TaskScheduler::_do_work(size_t index) {
     auto queue = _task_queue;
     const auto& marker = _markers[index];
     while (*marker) {
-        auto task = queue->try_take(index);
+        auto task = queue->take(index);
         if (!task) {
             continue;
         }
@@ -224,6 +224,12 @@ void TaskScheduler::_do_work(size_t index) {
         doris::signal::query_id_hi = fragment_ctx->get_query_id().hi;
         doris::signal::query_id_lo = fragment_ctx->get_query_id().lo;
         bool canceled = fragment_ctx->is_canceled();
+
+        int64_t time_spent = 0;
+        SCOPED_RAW_TIMER(&time_spent); // 析构顺序和定义的顺序一样么？
+        Defer defer {[&]() {
+            queue->update_statistics(task, time_spent);
+        }};
 
         auto check_state = task->get_state();
         if (check_state == PipelineTaskState::PENDING_FINISH) {

@@ -269,4 +269,8 @@ std::string PipelineTask::debug_string() const {
     return fmt::to_string(debug_string_buffer);
 }
 
+resourcegroup::ResourceGroup* PipelineTask::get_rs_group() {
+    return _fragment_context->get_rs_group();
+}
+
 } // namespace doris::pipeline
