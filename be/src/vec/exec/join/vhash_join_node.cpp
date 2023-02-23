@@ -559,7 +559,9 @@ Status HashJoinNode::get_next(RuntimeState* state, Block* output_block, bool* eo
     } else {
         return Status::OK();
     }
-
+    if (!st) {
+        return st;
+    }
     if (_is_outer_join) {
         _add_tuple_is_null_column(&temp_block);
     }

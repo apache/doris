@@ -145,15 +145,22 @@ public:
                                        int64_t failed_allocation_size = 0);
 
     // Start canceling from the query with the largest memory usage until the memory of min_free_mem size is freed.
-    static int64_t free_top_memory_query(int64_t min_free_mem, Type type = Type::QUERY);
-    static int64_t free_top_memory_load(int64_t min_free_mem) {
-        return free_top_memory_query(min_free_mem, Type::LOAD);
+    // vm_rss_str and mem_available_str recorded when gc is triggered, for log printing.
+    static int64_t free_top_memory_query(int64_t min_free_mem, const std::string& vm_rss_str,
+                                         const std::string& mem_available_str,
+                                         Type type = Type::QUERY);
+    static int64_t free_top_memory_load(int64_t min_free_mem, const std::string& vm_rss_str,
+                                        const std::string& mem_available_str) {
+        return free_top_memory_query(min_free_mem, vm_rss_str, mem_available_str, Type::LOAD);
     }
     // Start canceling from the query with the largest memory overcommit ratio until the memory
     // of min_free_mem size is freed.
-    static int64_t free_top_overcommit_query(int64_t min_free_mem, Type type = Type::QUERY);
-    static int64_t free_top_overcommit_load(int64_t min_free_mem) {
-        return free_top_overcommit_query(min_free_mem, Type::LOAD);
+    static int64_t free_top_overcommit_query(int64_t min_free_mem, const std::string& vm_rss_str,
+                                             const std::string& mem_available_str,
+                                             Type type = Type::QUERY);
+    static int64_t free_top_overcommit_load(int64_t min_free_mem, const std::string& vm_rss_str,
+                                            const std::string& mem_available_str) {
+        return free_top_overcommit_query(min_free_mem, vm_rss_str, mem_available_str, Type::LOAD);
     }
     // only for Type::QUERY or Type::LOAD.
     static TUniqueId label_to_queryid(const std::string& label) {

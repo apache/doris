@@ -248,7 +248,9 @@ Status MemTrackerLimiter::fragment_mem_limit_exceeded(RuntimeState* state, const
     return Status::MemoryLimitExceeded(failed_msg);
 }
 
-int64_t MemTrackerLimiter::free_top_memory_query(int64_t min_free_mem, Type type) {
+int64_t MemTrackerLimiter::free_top_memory_query(int64_t min_free_mem,
+                                                 const std::string& vm_rss_str,
+                                                 const std::string& mem_available_str, Type type) {
     std::priority_queue<std::pair<int64_t, std::string>,
                         std::vector<std::pair<int64_t, std::string>>,
                         std::greater<std::pair<int64_t, std::string>>>
@@ -274,8 +276,7 @@ int64_t MemTrackerLimiter::free_top_memory_query(int64_t min_free_mem, Type type
                                 "details see be.INFO.",
                                 TypeString[type], TypeString[type], min_pq.top().second,
                                 print_bytes(min_pq.top().first), BackendOptions::get_localhost(),
-                                PerfCounters::get_vm_rss_str(), MemInfo::mem_limit_str(),
-                                MemInfo::sys_mem_available_str(),
+                                vm_rss_str, MemInfo::mem_limit_str(), mem_available_str,
                                 print_bytes(MemInfo::sys_mem_available_low_water_mark())));
 
             freed_mem += min_pq.top().first;
@@ -319,7 +320,10 @@ int64_t MemTrackerLimiter::free_top_memory_query(int64_t min_free_mem, Type type
     return cancel_top_query(min_pq);
 }
 
-int64_t MemTrackerLimiter::free_top_overcommit_query(int64_t min_free_mem, Type type) {
+int64_t MemTrackerLimiter::free_top_overcommit_query(int64_t min_free_mem,
+                                                     const std::string& vm_rss_str,
+                                                     const std::string& mem_available_str,
+                                                     Type type) {
     std::priority_queue<std::pair<int64_t, std::string>,
                         std::vector<std::pair<int64_t, std::string>>,
                         std::greater<std::pair<int64_t, std::string>>>
@@ -370,9 +374,8 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(int64_t min_free_mem, Type 
                             "less than warning water mark {}. Execute again after enough memory, "
                             "details see be.INFO.",
                             TypeString[type], TypeString[type], max_pq.top().second,
-                            print_bytes(query_mem), BackendOptions::get_localhost(),
-                            PerfCounters::get_vm_rss_str(), MemInfo::soft_mem_limit_str(),
-                            MemInfo::sys_mem_available_str(),
+                            print_bytes(query_mem), BackendOptions::get_localhost(), vm_rss_str,
+                            MemInfo::soft_mem_limit_str(), mem_available_str,
                             print_bytes(MemInfo::sys_mem_available_warning_water_mark())));
 
         usage_strings.push_back(fmt::format("{} memory usage {} Bytes, overcommit ratio: {}",
