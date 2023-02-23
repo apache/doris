@@ -51,6 +51,9 @@ private:
     Status _process_put(HttpRequest* http_req, StreamLoadContext* ctx);
     Status _process_put_with_load_sql(HttpRequest* http_req, StreamLoadContext* ctx);
     void _save_stream_load_record(StreamLoadContext* ctx, const std::string& str);
+    void _parse_format(const std::string& format_str, const std::string& compress_type_str,
+                       TFileFormatType::type* format_type, TFileCompressType::type* compress_type);
+    bool _is_format_support_streaming(TFileFormatType::type format);
 
 private:
     static const int version {1};

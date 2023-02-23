@@ -72,11 +72,12 @@ DEFINE_COUNTER_METRIC_PROTOTYPE_2ARG(streaming_load_with_sql_duration_ms, Metric
 DEFINE_GAUGE_METRIC_PROTOTYPE_2ARG(streaming_load_with_sql_current_processing,
                                    MetricUnit::REQUESTS);
 
-static void parse_format(const std::string& format_str, const std::string& compress_type_str,
-                         TFileFormatType::type* format_type,
-                         TFileCompressType::type* compress_type) {
+void StreamLoadWithSqlAction::_parse_format(const std::string& format_str,
+                                            const std::string& compress_type_str,
+                                            TFileFormatType::type* format_type,
+                                            TFileCompressType::type* compress_type) {
     if (format_str.empty()) {
-        parse_format("CSV", compress_type_str, format_type, compress_type);
+        _parse_format("CSV", compress_type_str, format_type, compress_type);
         return;
     }
     *compress_type = TFileCompressType::PLAIN;
@@ -114,7 +115,7 @@ static void parse_format(const std::string& format_str, const std::string& compr
     }
 }
 
-static bool is_format_support_streaming(TFileFormatType::type format) {
+bool StreamLoadWithSqlAction::_is_format_support_streaming(TFileFormatType::type format) {
     switch (format) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
     case TFileFormatType::FORMAT_CSV_BZ2:
@@ -188,7 +189,7 @@ void StreamLoadWithSqlAction::handle(HttpRequest* req) {
         ThriftRpcHelper::rpc<FrontendServiceClient>(
                 master_addr.hostname, master_addr.port,
                 [&request, &result](FrontendServiceConnection& client) {
-                    client->StreamLoadWithLoadStatus(result, request);
+                    client->streamLoadWithLoadStatus(result, request);
                 });
         Status stream_load_status(result.status);
         if (stream_load_status.ok()) {
@@ -225,10 +226,10 @@ Status StreamLoadWithSqlAction::_handle(StreamLoadContext* ctx) {
     }
 
     RETURN_IF_ERROR(ctx->body_sink->finish());
-    // ctx->future.wait_for(std::chrono::seconds(config::max_fragment_start_wait_time_seconds));
-    // if (!ctx->future.valid()) {
-    //     return Status::TimedOut("data receive timeout");
-    // }
+    ctx->future.wait_for(std::chrono::seconds(1));
+    if (!ctx->future.valid()) {
+        return Status::TimedOut("stream load timeout");
+    }
     RETURN_IF_ERROR(ctx->future.get());
 
     if (ctx->two_phase_commit) {
@@ -240,8 +241,6 @@ Status StreamLoadWithSqlAction::_handle(StreamLoadContext* ctx) {
         int64_t commit_and_publish_start_time = MonotonicNanos();
         // RETURN_IF_ERROR(_exec_env->stream_load_executor()->commit_txn(ctx));
         ctx->commit_and_publish_txn_cost_nanos = MonotonicNanos() - commit_and_publish_start_time;
-    }
-    while (!ctx->is_stream_load_put_success) {
     }
     return ctx->status;
 }
@@ -305,8 +304,8 @@ Status StreamLoadWithSqlAction::_on_header(HttpRequest* http_req, StreamLoadCont
         //treat as CSV
         format_str = BeConsts::CSV;
     }
-    parse_format(format_str, http_req->header(HTTP_COMPRESS_TYPE), &ctx->format,
-                 &ctx->compress_type);
+    _parse_format(format_str, http_req->header(HTTP_COMPRESS_TYPE), &ctx->format,
+                  &ctx->compress_type);
     if (ctx->format == TFileFormatType::FORMAT_UNKNOWN) {
         return Status::InternalError("unknown data format, format={}",
                                      http_req->header(HTTP_FORMAT_KEY));
@@ -345,6 +344,14 @@ Status StreamLoadWithSqlAction::_on_header(HttpRequest* http_req, StreamLoadCont
 #endif
     }
 
+    if (!http_req->header(HTTP_TIMEOUT).empty()) {
+        try {
+            ctx->timeout_second = std::stoi(http_req->header(HTTP_TIMEOUT));
+        } catch (const std::invalid_argument& e) {
+            return Status::InvalidArgument("Invalid timeout format");
+        }
+    }
+
     // create stream load pipe
     auto pipe = std::make_shared<io::StreamLoadPipe>(
             io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
@@ -371,7 +378,7 @@ void StreamLoadWithSqlAction::on_chunk_data(HttpRequest* req) {
     // Use buffer to store the first 1MB of stream data so that the schema can be parsed later
     // It is assumed that 1MB is sufficient here,
     // but later modifications may be needed to resolve different line lengths
-    const size_t buffer_max_size = 1 * 1024 * 1024;
+    const size_t buffer_max_size = config::stream_tvf_buffer_size;
     size_t buffer_size = 0;
     char* buffer = new char[buffer_max_size];
     while (evbuffer_get_length(evbuf) > 0) {
@@ -419,7 +426,7 @@ void StreamLoadWithSqlAction::free_handler_ctx(void* param) {
 
 Status StreamLoadWithSqlAction::_process_put(HttpRequest* http_req, StreamLoadContext* ctx) {
     // Now we use stream
-    ctx->use_streaming = is_format_support_streaming(ctx->format);
+    ctx->use_streaming = _is_format_support_streaming(ctx->format);
     if (!ctx->use_streaming) {
         return Status::InvalidArgument("Not support file format in stream load with sql");
     }
@@ -437,9 +444,22 @@ Status StreamLoadWithSqlAction::_process_put(HttpRequest* http_req, StreamLoadCo
     } else {
         LOG(WARNING) << "_exec_env->master_info not set backend_id";
     }
-    request.__set_execMemLimit(2 * 1024 * 1024 * 1024L);
+    if (!http_req->header(HTTP_EXEC_MEM_LIMIT).empty()) {
+        try {
+            request.__set_execMemLimit(std::stoll(http_req->header(HTTP_EXEC_MEM_LIMIT)));
+        } catch (const std::invalid_argument& e) {
+            return Status::InvalidArgument("Invalid mem limit format");
+        }
+    } else {
+        request.__set_execMemLimit(config::stream_load_exec_mem_limit);
+    }
     request.fileType = TFileType::FILE_STREAM;
-    request.__set_thrift_rpc_timeout_ms(20000);
+    if (ctx->timeout_second != -1) {
+        request.__set_timeout(ctx->timeout_second);
+    } else {
+        request.__set_timeout(config::stream_load_timeout_second);
+    }
+    request.__set_thrift_rpc_timeout_ms(config::thrift_rpc_timeout_ms);
 
     // exec this load
     TNetworkAddress master_addr = _exec_env->master_info()->network_address;

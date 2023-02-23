@@ -32,6 +32,8 @@ import org.apache.doris.analysis.TableName;
 import org.apache.doris.analysis.TypeDef;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.backup.Snapshot;
+import org.apache.doris.backup.Status;
+import org.apache.doris.backup.Status.ErrCode;
 import org.apache.doris.catalog.AutoIncrementGenerator;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Database;
@@ -57,6 +59,7 @@ import org.apache.doris.common.MetaNotFoundException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.PatternMatcherException;
+import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.ThriftServerContext;
 import org.apache.doris.common.ThriftServerEventProcessor;
 import org.apache.doris.common.UserException;
@@ -77,6 +80,10 @@ import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.planner.StreamLoadPlanner;
+import org.apache.doris.proto.InternalService;
+import org.apache.doris.proto.InternalService.PReportStreamLoadStatusRequest;
+import org.apache.doris.proto.Types;
+import org.apache.doris.proto.Types.PUniqueId;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.Coordinator;
@@ -87,6 +94,7 @@ import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.QueryState;
 import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.qe.VariableMgr;
+import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.StatisticsCacheKey;
 import org.apache.doris.statistics.query.QueryStats;
@@ -203,6 +211,7 @@ import org.apache.doris.transaction.TxnCommitAttachment;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Strings;
+import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import org.apache.commons.collections.CollectionUtils;
@@ -222,6 +231,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.IntSupplier;
@@ -236,9 +246,12 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     // key is txn id,value is index of plan fragment instance, it's used by multi table request plan
     private ConcurrentHashMap<Long, Integer> multiTableFragmentInstanceIdIndexMap =
             new ConcurrentHashMap<>(64);
+    private ThreadPoolExecutor frontendServiceThreadPool;
 
     public FrontendServiceImpl(ExecuteEnv exeEnv) {
         masterImpl = new MasterImpl();
+        frontendServiceThreadPool = ThreadPoolManager.newDaemonCacheThreadPool(
+            10, "frontend-service-pool", true);
         this.exeEnv = exeEnv;
     }
 
@@ -1810,7 +1823,64 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
+    public class ReportStreamLoadWorker implements Runnable {
+        private long backendId;
+        private TUniqueId loadId;
+        private int execTimeout;
+
+        public ReportStreamLoadWorker(long backendId, TUniqueId loadId, int execTimeout) {
+            this.backendId = backendId;
+            this.loadId = loadId;
+            this.execTimeout = execTimeout;
+        }
+
+        @Override
+        public void run() {
+            Coordinator coord = QeProcessorImpl.INSTANCE.getCoordinator(loadId);
+            boolean notTimeout = coord.join(execTimeout);
+            // check stream load exec status
+            Status status = Status.OK;
+            if (!coord.isDone()) {
+                coord.cancel();
+                if (notTimeout) {
+                    String errMsg = coord.getExecStatus().getErrorMsg();
+                    status = new Status(ErrCode.COMMON_ERROR, "There exists unhealthy backend. " + errMsg);
+                } else {
+                    status = new Status(ErrCode.TIMEOUT, "");
+                }
+                QeProcessorImpl.INSTANCE.unregisterQuery(loadId);
+            }
+            if (!coord.getExecStatus().ok()) {
+                String errMsg = coord.getExecStatus().getErrorMsg();
+                LOG.warn("stream load failed: {}", errMsg);
+                status = new Status(ErrCode.COMMON_ERROR, errMsg);
+                QeProcessorImpl.INSTANCE.unregisterQuery(loadId);
+            }
+            PReportStreamLoadStatusRequest request = InternalService.PReportStreamLoadStatusRequest.newBuilder()
+                    .setLoadId(PUniqueId.newBuilder().setHi(loadId.hi).setLo(loadId.lo).build())
+                    .setStatus(Types.PStatus.newBuilder().addErrorMsgs(status.getErrMsg())
+                                    .setStatusCode(status.getErrCode().ordinal()).build())
+                    .build();
+
+            // get backend address
+            ImmutableMap<Long, Backend> backendMap = Env.getCurrentSystemInfo().getIdToBackend();
+            Backend be = backendMap.get(backendId);
+            TNetworkAddress address;
+            if (be == null || !be.isAlive()) {
+                LOG.warn("report stream load failed. no backend");
+                return;
+            }
+            address = new TNetworkAddress(be.getIp(), be.getBrpcPort());
+            try {
+                BackendServiceProxy.getInstance().reportStreamLoadStatus(address, request);
+            } catch (Throwable e) {
+                LOG.warn("report stream load failed.", e);
+            }
+        }
+    }
+
     private void streamLoadPutWithSqlImpl(TStreamLoadPutRequest request) throws UserException {
+        LOG.info("receive stream load put request");
         String loadSql = request.getLoadSql();
         ConnectContext ctx = new ConnectContext(null);
         ctx.setEnv(Env.getCurrentEnv());
@@ -1819,7 +1889,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         ctx.setCurrentUserIdentity(UserIdentity.ROOT);
         ctx.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
         ctx.setThreadLocalInfo();
-        }
         ctx.setBackendId(request.getBackendId());
         ctx.setLoadId(request.getLoadId());
         SqlScanner input = new SqlScanner(new StringReader(loadSql), ctx.getSessionVariable().getSqlMode());
@@ -1844,6 +1913,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             LOG.warn("exec sql error catch unknown result.", e);
             throw new UserException("exec sql error catch unknown result");
         }
+
+        // set up a thread to report stream load exec status to BE
+        ReportStreamLoadWorker worker = new ReportStreamLoadWorker(request.getBackendId(), request.getLoadId(),
+                                                                request.getTimeout());
+        frontendServiceThreadPool.submit(worker);
     }
 
     private TExecPlanFragmentParams streamLoadPutImpl(TStreamLoadPutRequest request) throws UserException {
@@ -1977,7 +2051,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         txnId = insertStmt.getTransactionId();
         result.setTxnId(txnId);
         TransactionStatus txnStatus = TransactionStatus.ABORTED;
-        if (coord.getExecStatus().ok() && coord.getIsReportExecStatus()) {
+        if (coord.getExecStatus().ok()) {
             if (coord.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL) != null) {
                 totalRows = Long.parseLong(coord.getLoadCounters().get(LoadEtlTask.DPP_NORMAL_ALL));
             }
@@ -2032,6 +2106,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             result.setFilteredRows(filteredRows);
             result.setUnselectedRows(unselectedRows);
         } else {
+            QeProcessorImpl.INSTANCE.unregisterQuery(loadId);
             result.setStatus(new TStatus(TStatusCode.CANCELLED));
         }
         return result;

@@ -767,6 +767,22 @@ void PInternalServiceImpl::_get_column_ids_by_tablet_ids(
     response->mutable_status()->set_status_code(TStatusCode::OK);
 }
 
+void PInternalServiceImpl::report_stream_load_status(google::protobuf::RpcController* controller,
+                                                     const PReportStreamLoadStatusRequest* request,
+                                                     PReportStreamLoadStatusResponse* response,
+                                                     google::protobuf::Closure* done) {
+    TUniqueId load_id;
+    load_id.__set_hi(request->load_id().hi());
+    load_id.__set_lo(request->load_id().lo());
+    Status st = Status::OK();
+    if (_exec_env->new_load_stream_mgr()->have_promise(load_id)) {
+        _exec_env->new_load_stream_mgr()->set_promise(load_id, request->status());
+    } else {
+        st = Status::InternalError("Not exist loadid");
+    }
+    st.to_protobuf(response->mutable_status());
+}
+
 void PInternalServiceImpl::get_info(google::protobuf::RpcController* controller,
                                     const PProxyRequest* request, PProxyResult* response,
                                     google::protobuf::Closure* done) {

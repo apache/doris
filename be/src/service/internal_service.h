@@ -181,6 +181,11 @@ public:
                                     PGetTabletVersionsResponse* response,
                                     google::protobuf::Closure* done) override;
 
+    void report_stream_load_status(google::protobuf::RpcController* controller,
+                                   const PReportStreamLoadStatusRequest* request,
+                                   PReportStreamLoadStatusResponse* response,
+                                   google::protobuf::Closure* done) override;
+
 private:
     void _exec_plan_fragment_in_pthread(google::protobuf::RpcController* controller,
                                         const PExecPlanFragmentRequest* request,
