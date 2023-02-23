@@ -379,8 +379,6 @@ CONF_Bool(enable_https, "false");
 CONF_String(ssl_certificate_path, "");
 // Path of private key
 CONF_String(ssl_private_key_path, "");
-// format: *.com, xxx.org
-CONF_String(ssl_sni_filters, "");
 // Number of webserver workers
 CONF_Int32(webserver_num_workers, "48");
 // Period to update rate counters and sampling counters in ms.
