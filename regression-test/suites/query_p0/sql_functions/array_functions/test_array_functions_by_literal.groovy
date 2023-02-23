@@ -216,6 +216,13 @@ suite("test_array_functions_by_literal") {
     qt_sql "select array_compact(array(cast ('2023-02-06 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3)), cast ('2023-02-07 22:07:34.999' as datetimev2(3)),cast ('2023-02-04 23:07:34.999' as datetimev2(3))))"
     qt_sql "select array_compact(array(cast ('2023-02-06' as datev2), cast ('2023-02-05' as datev2), cast ('2023-02-07' as datev2), cast ('2023-02-05' as datev2)))"
 
+    // array_apply
+    qt_sql """select array_apply([1000000, 1000001, 1000002], '=', 1000002)"""
+    qt_sql """select array_apply([1.111, 2.222, 3.333], '>=', 2)"""
+    qt_sql """select array_apply(cast(array("2020-01-02", "2022-01-03", "2021-01-01", "1996-04-17") as array<datetimev2>), ">", '2020-01-02')"""
+    qt_sql """select array_apply(array(cast (24.99 as decimal(10,3)),cast (25.99 as decimal(10,3))), ">", '25')"""
+    qt_sql """select array_apply(array(cast (24.99 as decimal(10,3)),cast (25.99 as decimal(10,3))), "!=", '25.99')"""
+
     qt_sql "select array(8, null)"
     qt_sql "select array('a', 1, 2)"
     qt_sql "select array(null, null, null)"
