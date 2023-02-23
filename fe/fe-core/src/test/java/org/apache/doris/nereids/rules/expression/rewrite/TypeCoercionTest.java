@@ -83,14 +83,14 @@ public class TypeCoercionTest extends ExpressionRewriteTestHelper {
     @Test
     public void testLikeImplicitCast() {
         String expression = "1 like 5";
-        String expected = "cast(1 as string) like cast(5 as string)";
+        String expected = "cast(1 as varchar) like cast(5 as varchar)";
         assertRewrite(expression, expected);
     }
 
     @Test
     public void testRegexImplicitCast() {
         String expression = "1 regexp 5";
-        String expected = "cast(1 as string) regexp cast(5 as string)";
+        String expected = "cast(1 as varchar) regexp cast(5 as varchar)";
         assertRewrite(expression, expected);
     }
 

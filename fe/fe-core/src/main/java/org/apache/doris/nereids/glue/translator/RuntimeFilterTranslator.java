@@ -29,8 +29,8 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.HashJoinNode.DistributionMode;
-import org.apache.doris.planner.OlapScanNode;
 import org.apache.doris.planner.RuntimeFilter.RuntimeFilterTarget;
+import org.apache.doris.planner.ScanNode;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -63,7 +63,7 @@ public class RuntimeFilterTranslator {
      * @param node olap scan node
      * @param ctx plan translator context
      */
-    public void translateRuntimeFilterTarget(Slot slot, OlapScanNode node, PlanTranslatorContext ctx) {
+    public void translateRuntimeFilterTarget(Slot slot, ScanNode node, PlanTranslatorContext ctx) {
         context.getExprIdToOlapScanNodeSlotRef().put(slot.getExprId(), ctx.findSlotRef(slot.getExprId()));
         context.getScanNodeOfLegacyRuntimeFilterTarget().put(slot, node);
     }
@@ -94,7 +94,7 @@ public class RuntimeFilterTranslator {
                 ImmutableMap.of(targetTupleId, ImmutableList.of(targetSlotId)),
                 filter.getType(), context.getLimits());
         origFilter.setIsBroadcast(node.getDistributionMode() == DistributionMode.BROADCAST);
-        OlapScanNode scanNode = context.getScanNodeOfLegacyRuntimeFilterTarget().get(filter.getTargetExpr());
+        ScanNode scanNode = context.getScanNodeOfLegacyRuntimeFilterTarget().get(filter.getTargetExpr());
         origFilter.addTarget(new RuntimeFilterTarget(
                 scanNode,
                 target,

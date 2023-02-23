@@ -27,9 +27,7 @@ namespace doris::vectorized {
 
 AggregateFunctionPtr create_aggregate_function_count(const std::string& name,
                                                      const DataTypes& argument_types,
-                                                     const Array& parameters,
                                                      const bool result_is_nullable) {
-    assert_no_parameters(name, parameters);
     assert_arity_at_most<1>(name, argument_types);
 
     return std::make_shared<AggregateFunctionCount>(argument_types);
@@ -37,7 +35,6 @@ AggregateFunctionPtr create_aggregate_function_count(const std::string& name,
 
 AggregateFunctionPtr create_aggregate_function_count_not_null_unary(const std::string& name,
                                                                     const DataTypes& argument_types,
-                                                                    const Array& parameters,
                                                                     const bool result_is_nullable) {
     assert_arity_at_most<1>(name, argument_types);
 

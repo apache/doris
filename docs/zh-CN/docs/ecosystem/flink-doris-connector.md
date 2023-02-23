@@ -471,3 +471,7 @@ Connector1.1.0版本以前，是攒批写入的，写入均是由数据驱动，
 9. **tablet writer write failed, tablet_id=190958, txn_id=3505530, err=-235**
 
 通常发生在Connector1.1.0之前，是由于写入频率过快，导致版本过多。可以通过设置sink.batch.size 和 sink.batch.interval参数来降低Streamload的频率。
+
+10. **Flink导入有脏数据，如何跳过？**
+
+Flink在数据导入时，如果有脏数据，比如字段格式、长度等问题，会导致StreamLoad报错，此时Flink会不断的重试。如果需要跳过，可以通过禁用StreamLoad的严格模式(strict_mode=false,max_filter_ratio=1)或者在Sink算子之前对数据做过滤。

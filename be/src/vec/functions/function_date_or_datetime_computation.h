@@ -120,6 +120,7 @@ extern ResultType date_time_add(const Arg& t, Int64 delta, bool& is_null) {
         }                                                                                          \
     }
 
+ADD_TIME_FUNCTION_IMPL(AddMicrosecondsImpl, microseconds_add, MICROSECOND);
 ADD_TIME_FUNCTION_IMPL(AddSecondsImpl, seconds_add, SECOND);
 ADD_TIME_FUNCTION_IMPL(AddMinutesImpl, minutes_add, MINUTE);
 ADD_TIME_FUNCTION_IMPL(AddHoursImpl, hours_add, HOUR);
@@ -986,18 +987,14 @@ struct CurrentTimeImpl {
         VecDateTimeValue dtv;
         if (dtv.from_unixtime(context->impl()->state()->timestamp_ms() / 1000,
                               context->impl()->state()->timezone_obj())) {
-            double time = dtv.hour() * 3600 + dtv.minute() * 60 + dtv.second();
-            for (int i = 0; i < input_rows_count; i++) {
-                col_to->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&time)), 0);
-            }
+            double time = dtv.hour() * 3600l + dtv.minute() * 60l + dtv.second();
+            col_to->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&time)), 0);
         } else {
             auto invalid_val = 0;
-            for (int i = 0; i < input_rows_count; i++) {
-                col_to->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&invalid_val)),
-                                    0);
-            }
+            col_to->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&invalid_val)), 0);
         }
-        block.get_by_position(result).column = std::move(col_to);
+        block.get_by_position(result).column =
+                ColumnConst::create(std::move(col_to), input_rows_count);
         return Status::OK();
     }
 };

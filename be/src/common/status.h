@@ -177,7 +177,6 @@ E(WRITER_ROW_BLOCK_ERROR, -1202);
 E(WRITER_SEGMENT_NOT_FINALIZED, -1203);
 E(ROWBLOCK_DECOMPRESS_ERROR, -1300);
 E(ROWBLOCK_FIND_ROW_EXCEPTION, -1301);
-E(ROWBLOCK_READ_INFO_ERROR, -1302);
 E(HEADER_ADD_VERSION, -1400);
 E(HEADER_DELETE_VERSION, -1401);
 E(HEADER_ADD_PENDING_DELTA, -1402);
@@ -236,9 +235,7 @@ E(ROWSET_TYPE_NOT_FOUND, -3105);
 E(ROWSET_ALREADY_EXIST, -3106);
 E(ROWSET_CREATE_READER, -3107);
 E(ROWSET_INVALID, -3108);
-E(ROWSET_LOAD_FAILED, -3109);
 E(ROWSET_READER_INIT, -3110);
-E(ROWSET_READ_FAILED, -3111);
 E(ROWSET_INVALID_STATE_TRANSITION, -3112);
 E(STRING_OVERFLOW_IN_VEC_ENGINE, -3113);
 E(ROWSET_ADD_MIGRATION_V2, -3114);
@@ -253,6 +250,7 @@ E(INVERTED_INDEX_NOT_SUPPORTED, -6001);
 E(INVERTED_INDEX_CLUCENE_ERROR, -6002);
 E(INVERTED_INDEX_FILE_NOT_FOUND, -6003);
 E(INVERTED_INDEX_FILE_HIT_LIMIT, -6004);
+E(INVERTED_INDEX_NO_TERMS, -6005);
 #undef E
 } // namespace ErrorCode
 
@@ -280,7 +278,8 @@ static constexpr bool capture_stacktrace() {
         && code != ErrorCode::INVERTED_INDEX_NOT_SUPPORTED
         && code != ErrorCode::INVERTED_INDEX_CLUCENE_ERROR
         && code != ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND
-        && code != ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT;
+        && code != ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT
+        && code != ErrorCode::INVERTED_INDEX_NO_TERMS;
 }
 // clang-format on
 
@@ -406,7 +405,7 @@ public:
     bool is_io_error() const {
         return ErrorCode::IO_ERROR == _code || ErrorCode::READ_UNENOUGH == _code ||
                ErrorCode::CHECKSUM_ERROR == _code || ErrorCode::FILE_DATA_ERROR == _code ||
-               ErrorCode::TEST_FILE_ERROR == _code || ErrorCode::ROWBLOCK_READ_INFO_ERROR == _code;
+               ErrorCode::TEST_FILE_ERROR == _code;
     }
 
     bool is_invalid_argument() const { return ErrorCode::INVALID_ARGUMENT == _code; }

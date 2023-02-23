@@ -315,6 +315,11 @@ public:
         return nullptr;
     }
 
+    size_t filter(const Filter&) override {
+        LOG(FATAL) << "should not call the method in column object";
+        return 0;
+    }
+
     ColumnPtr permute(const Permutation&, size_t) const override {
         LOG(FATAL) << "should not call the method in column object";
         return nullptr;

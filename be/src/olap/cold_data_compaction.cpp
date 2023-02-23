@@ -60,7 +60,7 @@ Status ColdDataCompaction::pick_rowsets_to_compact() {
     return check_version_continuity(_input_rowsets);
 }
 
-Status ColdDataCompaction::modify_rowsets() {
+Status ColdDataCompaction::modify_rowsets(const Merger::Statistics* stats) {
     UniqueId cooldown_meta_id = UniqueId::gen_uid();
 
     // write remote tablet meta
@@ -80,7 +80,7 @@ Status ColdDataCompaction::modify_rowsets() {
         // TODO(plat1ko): process primary key
         _tablet->tablet_meta()->set_cooldown_meta_id(cooldown_meta_id);
     }
-
+    Tablet::erase_pending_remote_rowset(_output_rowset->rowset_id().to_string());
     {
         std::shared_lock rlock(_tablet->get_header_lock());
         _tablet->save_meta();

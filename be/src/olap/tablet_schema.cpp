@@ -492,7 +492,7 @@ vectorized::AggregateFunctionPtr TabletColumn::get_aggregate_function(
                    [](unsigned char c) { return std::tolower(c); });
 
     return vectorized::AggregateFunctionSimpleFactory::instance().get(
-            agg_name, argument_types, {}, argument_types.back()->is_nullable());
+            agg_name, argument_types, argument_types.back()->is_nullable());
 }
 
 void TabletIndex::init_from_thrift(const TOlapTableIndex& index,

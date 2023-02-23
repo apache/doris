@@ -21,7 +21,10 @@
 #include <gen_cpp/parquet_types.h>
 
 #include "schema_desc.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_nullable.h"
 #include "vparquet_column_chunk_reader.h"
 
 namespace doris::vectorized {
@@ -96,6 +99,9 @@ Status ScalarColumnReader::init(io::FileReaderSPtr file, FieldSchema* field,
 }
 
 Status ScalarColumnReader::_skip_values(size_t num_values) {
+    if (num_values == 0) {
+        return Status::OK();
+    }
     if (_chunk_reader->max_def_level() > 0) {
         LevelDecoder& def_decoder = _chunk_reader->def_level_decoder();
         size_t skipped = 0;
@@ -114,8 +120,12 @@ Status ScalarColumnReader::_skip_values(size_t num_values) {
             }
             skipped += loop_skip;
         }
-        RETURN_IF_ERROR(_chunk_reader->skip_values(null_size, false));
-        RETURN_IF_ERROR(_chunk_reader->skip_values(nonnull_size, true));
+        if (null_size > 0) {
+            RETURN_IF_ERROR(_chunk_reader->skip_values(null_size, false));
+        }
+        if (nonnull_size > 0) {
+            RETURN_IF_ERROR(_chunk_reader->skip_values(nonnull_size, true));
+        }
     } else {
         RETURN_IF_ERROR(_chunk_reader->skip_values(num_values));
     }

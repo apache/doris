@@ -136,7 +136,7 @@ Status CsvReader::init_reader(bool is_load) {
     }
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
         _params.file_type != TFileType::FILE_BROKER) {
-        return Status::EndOfFile("Empty File");
+        return Status::EndOfFile("init reader failed, empty csv file: " + _range.path);
     }
 
     // get column_separator and line_delimiter
@@ -155,10 +155,15 @@ Status CsvReader::init_reader(bool is_load) {
 
     switch (_file_format_type) {
     case TFileFormatType::FORMAT_CSV_PLAIN:
+        [[fallthrough]];
     case TFileFormatType::FORMAT_CSV_GZ:
+        [[fallthrough]];
     case TFileFormatType::FORMAT_CSV_BZ2:
+        [[fallthrough]];
     case TFileFormatType::FORMAT_CSV_LZ4FRAME:
+        [[fallthrough]];
     case TFileFormatType::FORMAT_CSV_LZOP:
+        [[fallthrough]];
     case TFileFormatType::FORMAT_CSV_DEFLATE:
         _line_reader.reset(new NewPlainTextLineReader(_profile, _file_reader, _decompressor.get(),
                                                       _size, _line_delimiter,
@@ -298,6 +303,7 @@ Status CsvReader::_create_decompressor() {
     } else {
         switch (_file_format_type) {
         case TFileFormatType::FORMAT_PROTO:
+            [[fallthrough]];
         case TFileFormatType::FORMAT_CSV_PLAIN:
             compress_type = CompressType::UNCOMPRESSED;
             break;
@@ -576,7 +582,7 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
                                                     &_file_system, &_file_reader, _io_ctx));
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
         _params.file_type != TFileType::FILE_BROKER) {
-        return Status::EndOfFile("Empty File");
+        return Status::EndOfFile("get parsed schema failed, empty csv file: " + _range.path);
     }
 
     // get column_separator and line_delimiter

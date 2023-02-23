@@ -268,6 +268,8 @@ public class SessionVariable implements Serializable, Writable {
     public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
     public static final String DROP_TABLE_IF_CTAS_FAILED = "drop_table_if_ctas_failed";
 
+    public static final String MAX_TABLE_COUNT_USE_CASCADES_JOIN_REORDER = "max_table_count_use_cascades_join_reorder";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -406,7 +408,7 @@ public class SessionVariable implements Serializable, Writable {
     public int codegenLevel = 0;
 
     // 4096 minus 16 + 16 bytes padding that in padding pod array
-    @VariableMgr.VarAttr(name = BATCH_SIZE)
+    @VariableMgr.VarAttr(name = BATCH_SIZE, fuzzy = true)
     public int batchSize = 4064;
 
     @VariableMgr.VarAttr(name = DISABLE_STREAMING_PREAGGREGATIONS, fuzzy = true)
@@ -707,6 +709,12 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = DROP_TABLE_IF_CTAS_FAILED, needForward = true)
     public boolean dropTableIfCtasFailed = true;
 
+
+    @VariableMgr.VarAttr(name = MAX_TABLE_COUNT_USE_CASCADES_JOIN_REORDER)
+    public int maxTableCountUseCascadesJoinReorder = 10;
+
+    public static final int MIN_JOIN_REORDER_TABLE_COUNT = 2;
+
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
     public void initFuzzyModeVariables() {
@@ -748,6 +756,14 @@ public class SessionVariable implements Serializable, Writable {
             this.enablePipelineEngine = false;
             // this.enableFoldConstantByBe = false;
             // this.enableTwoPhaseReadOpt = true;
+        }
+
+        if (Config.fuzzy_test_type.equals("p0")) {
+            if (Config.pull_request_id % 2 == 1) {
+                this.batchSize = 4064;
+            } else {
+                this.batchSize = 50;
+            }
         }
 
         // set random 1, 10, 100, 1000, 10000
@@ -1469,6 +1485,17 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setEnableFileCache(boolean enableFileCache) {
         this.enableFileCache = enableFileCache;
+    }
+
+    public int getMaxTableCountUseCascadesJoinReorder() {
+        return this.maxTableCountUseCascadesJoinReorder;
+    }
+
+    public void setMaxTableCountUseCascadesJoinReorder(int maxTableCountUseCascadesJoinReorder) {
+        this.maxTableCountUseCascadesJoinReorder =
+                maxTableCountUseCascadesJoinReorder < MIN_JOIN_REORDER_TABLE_COUNT
+                        ? MIN_JOIN_REORDER_TABLE_COUNT
+                        : maxTableCountUseCascadesJoinReorder;
     }
 
     /**
