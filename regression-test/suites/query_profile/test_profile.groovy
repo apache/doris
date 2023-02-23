@@ -34,14 +34,15 @@ def http_get(url) {
 def SUCCESS_MSG = 'success'
 def SUCCESS_CODE = 0
 def QUERY_NUM = 5
+
 random = new Random()
 
 def getRandomNumber(int num){
     return random.nextInt(num)
 }
 
-suite('test_query_profile') {
-    def table = 'test_query_profile_table'
+suite('test_profile') {
+    def table = 'test_profile_table'
     def id_data = [1,2,3,4,5,6,7]
     def value_data = [1,2,3,4,5,6,7]
     def len = id_data.size
@@ -61,12 +62,36 @@ suite('test_query_profile') {
         )
     """
     
+    sql """ SET enable_profile = true """
+
+    //———————— test for insert stmt ——————————
     for(int i = 0; i < len; i++){
         sql """ INSERT INTO ${table} values (${id_data[i]}, "${value_data[i]}") """
     }
 
-    sql """ SET enable_profile = true """
+    //———————— test for insert stmt (SQL) ——————————
+    log.info("test HTTP API interface for insert profile")
+    def url = '/rest/v1/query_profile/'
+    def query_list_result = http_get(url)
 
+    def obj = new JsonSlurper().parseText(query_list_result)
+    assertEquals(obj.msg, SUCCESS_MSG)
+    assertEquals(obj.code, SUCCESS_CODE)
+
+    for(int i = 0 ; i < len ; i++){
+        def insert_order = len - i - 1
+        def stmt_query_info = obj.data.rows[i]
+        
+        assertNotNull(stmt_query_info["Query ID"])
+        assertNotEquals(stmt_query_info["Query ID"], "N/A")
+        assertNotNull(stmt_query_info["Detail"])
+        assertNotEquals(stmt_query_info["Detail"], "N/A")
+        
+        assertEquals(stmt_query_info['Sql Statement'].toString(), 
+            """ INSERT INTO ${table} values (${id_data[insert_order]}, "${value_data[insert_order]}") """.toString())
+    }
+
+    //———————— test for select stmt ———————————
     def op_data = ["<", ">", "=", "<=", ">="]
 
     def ops = []
@@ -82,7 +107,7 @@ suite('test_query_profile') {
     /*  test for `show query profile` stmt
         query profile header
         JobID|QueryId|User|DefaultDb|SQL|QueryType|StartTime|EndTime|TotalTime|QueryState */
-
+    //———————— test for select stmt (SQL) ———————————
     log.info("test for show query profile stmt")
     List<List<Object>> show_query_profile_obj = sql """ show query profile "/" """
     log.info("found ${show_query_profile_obj.size} profile data".toString())
@@ -96,12 +121,12 @@ suite('test_query_profile') {
         assertEquals(stmt_query_info.toString(),  """ SELECT * FROM ${table} WHERE cost ${ops[insert_order]} ${nums[insert_order]} """.toString())
     }
 
-    //test for Http API interface
+    //———————— test for select stmt (HTTP)————————
     log.info("test HTTP API interface for query profile")
-    def url = '/rest/v1/query_profile/'
-    def query_list_result = http_get(url)
+    url = '/rest/v1/query_profile/'
+    query_list_result = http_get(url)
 
-    def obj = new JsonSlurper().parseText(query_list_result)
+    obj = new JsonSlurper().parseText(query_list_result)
     assertEquals(obj.msg, SUCCESS_MSG)
     assertEquals(obj.code, SUCCESS_CODE)
 
@@ -117,7 +142,8 @@ suite('test_query_profile') {
         assertEquals(stmt_query_info['Sql Statement'].toString(), 
            """ SELECT * FROM ${table} WHERE cost ${ops[insert_order]} ${nums[insert_order]} """.toString())
     }
-
+    
+    //———————— clean table and disable profile ————————
     sql """ SET enable_profile = false """
     sql """ DROP TABLE IF EXISTS ${table} """
 }
