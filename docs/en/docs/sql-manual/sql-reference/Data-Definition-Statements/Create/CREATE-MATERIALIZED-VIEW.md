@@ -59,7 +59,7 @@ illustrate:
   The syntax is the same as the query syntax.
 
   - `select_expr`: All columns in the schema of the materialized view.
-    - Only supports single column without expression calculation, aggregate column.
+    - Contains at least one single column.
   - `base view name`: The original table name of the materialized view, required.
     - Must be a single table and not a subquery
   - `group by`: The grouping column of the materialized view, optional.
