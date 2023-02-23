@@ -57,18 +57,26 @@ public class LoadProcDir implements ProcDirInterface {
 
     @Override
     public ProcResult fetchResult() throws AnalysisException {
-        Preconditions.checkNotNull(db);
         Preconditions.checkNotNull(load);
 
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
 
         // merge load job from load and loadManager
-        LinkedList<List<Comparable>> loadJobInfos = load.getLoadJobInfosByDb(db.getId(), db.getFullName(),
+        LinkedList<List<Comparable>> loadJobInfos;
+
+        // db is null means need total result of all databases
+        if (db == null) {
+            loadJobInfos = load.getAllLoadJobInfos();
+            loadJobInfos.addAll(Env.getCurrentEnv().getLoadManager().getAllLoadJobInfos());
+        } else {
+            loadJobInfos = load.getLoadJobInfosByDb(db.getId(), db.getFullName(),
                 null, false, null);
-        loadJobInfos.addAll(Env.getCurrentEnv().getLoadManager().getLoadJobInfosByDb(db.getId(), null,
-                false,
-                null));
+            loadJobInfos.addAll(Env.getCurrentEnv().getLoadManager().getLoadJobInfosByDb(db.getId(), null,
+                    false,
+                    null));
+        }
+
         int counter = 0;
         Iterator<List<Comparable>> iterator = loadJobInfos.descendingIterator();
         while (iterator.hasNext()) {

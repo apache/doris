@@ -41,7 +41,9 @@ import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.FailMsg;
 import org.apache.doris.load.FailMsg.CancelType;
 import org.apache.doris.load.Load;
+import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.persist.CleanLabelOperationLog;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.DatabaseTransactionMgr;
 import org.apache.doris.transaction.TransactionState;
@@ -348,6 +350,12 @@ public class LoadManager implements Writable {
         try {
             Map<String, List<LoadJob>> labelToLoadJobs = new HashMap<>();
             for (Long dbId : dbIdToLabelToLoadJobs.keySet()) {
+                if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                        Env.getCurrentEnv().getCatalogMgr().getDbNullable(dbId).getFullName(),
+                        PrivPredicate.LOAD)) {
+                    continue;
+                }
+
                 labelToLoadJobs.putAll(dbIdToLabelToLoadJobs.get(dbId));
             }
 
@@ -506,6 +514,40 @@ public class LoadManager implements Writable {
                     if (!states.contains(loadJob.getState())) {
                         continue;
                     }
+                    // add load job info
+                    loadJobInfos.add(loadJob.getShowInfo());
+                } catch (DdlException e) {
+                    continue;
+                }
+            }
+            return loadJobInfos;
+        } finally {
+            readUnlock();
+        }
+    }
+
+    public List<List<Comparable>> getAllLoadJobInfos() {
+        LinkedList<List<Comparable>> loadJobInfos = new LinkedList<List<Comparable>>();
+
+        readLock();
+        try {
+            Map<String, List<LoadJob>> labelToLoadJobs = new HashMap<>();
+            for (Long dbId : dbIdToLabelToLoadJobs.keySet()) {
+                if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
+                        Env.getCurrentEnv().getCatalogMgr().getDbNullable(dbId).getFullName(),
+                        PrivPredicate.LOAD)) {
+                    continue;
+                }
+
+                labelToLoadJobs.putAll(dbIdToLabelToLoadJobs.get(dbId));
+            }
+            List<LoadJob> loadJobList = Lists.newArrayList();
+            loadJobList.addAll(
+                    labelToLoadJobs.values().stream().flatMap(Collection::stream).collect(Collectors.toList()));
+
+            // check state
+            for (LoadJob loadJob : loadJobList) {
+                try {
                     // add load job info
                     loadJobInfos.add(loadJob.getShowInfo());
                 } catch (DdlException e) {
