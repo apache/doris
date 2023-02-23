@@ -60,6 +60,7 @@ public class Column implements Writable, GsonPostProcessable {
     public static final String ROWID_COL = "__DORIS_ROWID_COL__";
     public static final String ROW_STORE_COL = "__DORIS_ROW_STORE_COL__";
     public static final String DYNAMIC_COLUMN_NAME = "__DORIS_DYNAMIC_COL__";
+    public static final String VERSION_COL = "__DORIS_VERSION_COL__";
     private static final String COLUMN_ARRAY_CHILDREN = "item";
     private static final String COLUMN_STRUCT_CHILDREN = "field";
     public static final int COLUMN_UNIQUE_ID_INIT_VALUE = -1;
@@ -314,6 +315,12 @@ public class Column implements Writable, GsonPostProcessable {
     public boolean isRowStoreColumn() {
         return !visible && (aggregationType == AggregateType.REPLACE
                 || aggregationType == AggregateType.NONE) && nameEquals(ROW_STORE_COL, true);
+    }
+
+    public boolean isVersionColumn() {
+        // aggregationType is NONE for unique table with merge on write.
+        return !visible && (aggregationType == AggregateType.REPLACE
+                || aggregationType == AggregateType.NONE) && nameEquals(VERSION_COL, true);
     }
 
     public PrimitiveType getDataType() {
