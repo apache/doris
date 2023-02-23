@@ -36,16 +36,7 @@ suite ("testProjectionMV3") {
 
     def result = "null"
 
-    sql "create materialized view emps_mv as select deptno, empid, name from emps order by deptno;"
-    while (!result.contains("FINISHED")){
-        result = sql "SHOW ALTER TABLE MATERIALIZED VIEW WHERE TableName='emps' ORDER BY CreateTime DESC LIMIT 1;"
-        result = result.toString()
-        logger.info("result: ${result}")
-        if(result.contains("CANCELLED")){
-            return 
-        }
-        Thread.sleep(1000)
-    }
+    createMV("create materialized view emps_mv as select deptno, empid, name from emps order by deptno;")
 
     sql """insert into emps values("2020-01-01",1,"a",1,1,1);"""
 
