@@ -117,12 +117,12 @@ public class CacheAnalyzer {
         scanNodes = planner.getScanNodes();
         checkCacheConfig();
         final CacheContext cacheContext = planner.getStatementContext().getCacheContext();
-        if (this.enableSqlCache && cacheContext.isSqlCacheSuccess()) {
+        if (this.enableSqlCache && cacheContext.isEnableSqlCache()) {
             cacheMode = CacheMode.Sql;
             cache = new SqlCache(this.queryId, cacheContext);
             CacheTable cacheTable = new CacheTable(cacheContext);
             ((SqlCache) cache).setCacheInfo(cacheTable, cacheContext.getCacheKey());
-        } else if (this.enablePartitionCache && cacheContext.isPartitionCacheSuccess()) {
+        } else if (this.enablePartitionCache && cacheContext.isEnablePartitionCache()) {
             cacheMode = CacheMode.Partition;
             cache = new PartitionCache(this.queryId, cacheContext);
         } else {

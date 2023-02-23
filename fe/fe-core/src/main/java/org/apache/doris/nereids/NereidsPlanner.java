@@ -249,9 +249,7 @@ public class NereidsPlanner extends Planner {
         if (isEnableSqlCache && cacheContext.isEnableSqlCache()) {
             cacheContext.setCacheKey(plan.treeString());
             SqlCache.getCacheDataForNereids(cacheContext);
-            if (cacheContext.isSqlCacheSuccess()) {
-                return;
-            }
+            return;
         }
         if (!cacheContext.checkAggs(plan.collect(LogicalAggregate.class::isInstance))) {
             return;

@@ -1152,17 +1152,11 @@ public class StmtExecutor implements ProfileWriter {
 
     private void handleCacheAdapter(CacheAnalyzer cacheAnalyzer, MysqlChannel channel) throws Exception {
         CacheContext cacheContext = ((NereidsPlanner) planner).getStatementContext().getCacheContext();
-        InternalService.PFetchCacheResult cacheResult;
-        if (cacheAnalyzer.getCacheMode() == CacheMode.Sql) {
-            cacheResult = cacheContext.getSqlCacheResult();
-        } else if (cacheAnalyzer.getCacheMode() == CacheMode.Partition) {
-            cacheResult = cacheContext.getPartitionCacheResult();
-        } else {
-            cacheResult = null;
-        }
+        InternalService.PFetchCacheResult cacheResult = null;
         Queriable queryStmt = (Queriable) parsedStmt;
         boolean isSendFields = false;
-        if (cacheResult != null) {
+        if (cacheContext.isCacheSuccess()) {
+            cacheResult = cacheContext.getCacheResult();
             isCached = true;
             if (cacheAnalyzer.getHitRange() == Cache.HitRange.Full) {
                 sendCachedValues(channel, cacheResult.getValuesList(), queryStmt, isSendFields, true);

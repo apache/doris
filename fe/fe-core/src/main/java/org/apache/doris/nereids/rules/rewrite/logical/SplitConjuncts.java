@@ -21,15 +21,19 @@ import org.apache.doris.nereids.CacheContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
-import org.apache.doris.nereids.trees.expressions.ComparisonPredicate;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.expressions.GreaterThan;
+import org.apache.doris.nereids.trees.expressions.GreaterThanEqual;
+import org.apache.doris.nereids.trees.expressions.LessThan;
+import org.apache.doris.nereids.trees.expressions.LessThanEqual;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCache;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Sets;
 
 import java.util.List;
@@ -53,20 +57,20 @@ public class SplitConjuncts implements RewriteRuleFactory {
 
                     Map<Boolean, List<Expression>> splitConjunts = filter.getConjuncts().stream().collect(
                             Collectors.partitioningBy(expr -> {
-                                if (!(expr instanceof ComparisonPredicate)) {
-                                    return false;
+                                if (expr instanceof LessThan
+                                        || expr instanceof LessThanEqual
+                                        || expr instanceof GreaterThan
+                                        || expr instanceof GreaterThanEqual) {
+
+                                    List<Slot> slots = ((ImmutableSet) expr.getInputSlots()).asList();
+                                    return slots.size() == 1 && slots.get(0).getName().equals(columnName);
                                 }
-                                ComparisonPredicate predicate = (ComparisonPredicate) expr;
-                                if (!(predicate.children().get(0) instanceof SlotReference)) {
-                                    return false;
-                                }
-                                return ((SlotReference) predicate.children().get(0)).getName().equals(columnName);
+                                return false;
                             })
                     );
                     Set<Expression> cachedConjuncts = Sets.newHashSet(splitConjunts.get(true));
                     Set<Expression> remainConjuncts = Sets.newHashSet(splitConjunts.get(false));
-                    if (cachedConjuncts.size() == 2
-                            && cachedConjuncts.stream().anyMatch(ComparisonPredicate.class::isInstance)) {
+                    if (cachedConjuncts.size() == 2) {
                         Plan child = remainConjuncts.isEmpty() ? filter.child() :
                                 new LogicalFilter(remainConjuncts, filter.child());
                         return new LogicalCache(cachedConjuncts, columnName, child);

@@ -99,7 +99,6 @@ public enum RuleType {
     INFER_PREDICATES(RuleTypeClass.REWRITE),
     INFER_FILTER_NOT_NULL(RuleTypeClass.REWRITE),
     INFER_JOIN_NOT_NULL(RuleTypeClass.REWRITE),
-    ELIMINATE_NOT_NULL(RuleTypeClass.REWRITE),
 
     // cache
     PARTITION_CACHE_REWRITE(RuleTypeClass.REWRITE),

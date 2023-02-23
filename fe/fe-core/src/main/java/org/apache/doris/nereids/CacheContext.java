@@ -49,9 +49,7 @@ public class CacheContext {
 
     private Cache.HitRange hitRange;
 
-    private InternalService.PFetchCacheResult sqlCacheResult;
-
-    private InternalService.PFetchCacheResult partitionCacheResult;
+    private InternalService.PFetchCacheResult cacheResult;
 
     private int countNewTable;
 
@@ -80,12 +78,8 @@ public class CacheContext {
         return hitRange;
     }
 
-    public InternalService.PFetchCacheResult getSqlCacheResult() {
-        return sqlCacheResult;
-    }
-
-    public InternalService.PFetchCacheResult getPartitionCacheResult() {
-        return partitionCacheResult;
+    public InternalService.PFetchCacheResult getCacheResult() {
+        return cacheResult;
     }
 
     public void setLastOlapTable(OlapTable lastOlapTable) {
@@ -108,12 +102,8 @@ public class CacheContext {
         this.hitRange = hitRange;
     }
 
-    public void setSqlCacheResult(InternalService.PFetchCacheResult cacheResult) {
-        this.sqlCacheResult = cacheResult;
-    }
-
-    public void setPartitionCacheResult(InternalService.PFetchCacheResult cacheResult) {
-        this.partitionCacheResult = cacheResult;
+    public void setCacheResult(InternalService.PFetchCacheResult cacheResult) {
+        this.cacheResult = cacheResult;
     }
 
     /**
@@ -186,13 +176,8 @@ public class CacheContext {
         return range == null ? null : range.getRangePartitionInfo();
     }
 
-    public boolean isSqlCacheSuccess() {
-        return sqlCacheResult != null
-                && sqlCacheResult.getStatus() == InternalService.PCacheStatus.CACHE_OK;
-    }
-
-    public boolean isPartitionCacheSuccess() {
-        return partitionCacheResult != null
-                && partitionCacheResult.getStatus() == InternalService.PCacheStatus.CACHE_OK;
+    public boolean isCacheSuccess() {
+        return cacheResult != null
+                && cacheResult.getStatus() == InternalService.PCacheStatus.CACHE_OK;
     }
 }
