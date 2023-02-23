@@ -207,7 +207,7 @@ public class StreamLoadPlanner {
             fileStatus.setSize(-1); // must set to -1, means stream.
         }
         fileScanNode.setLoadInfo(loadId, taskInfo.getTxnId(), destTable, BrokerDesc.createForStreamLoad(),
-                fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType());
+                fileGroup, fileStatus, taskInfo.isStrictMode(), taskInfo.getFileType(), taskInfo.getHiddenColumns());
         scanNode = fileScanNode;
 
         scanNode.init(analyzer);
