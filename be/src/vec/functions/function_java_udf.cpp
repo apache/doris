@@ -312,8 +312,8 @@ Status JavaFunctionCall::close(FunctionContext* context,
     // JNIContext own some resource and its release method depend on JavaFunctionCall
     // has to release the resource before JavaFunctionCall is deconstructed.
     if (jni_ctx) {
-         jni_ctx->close();
-     }
+        jni_ctx->close();
+    }
     return Status::OK();
 }
 } // namespace doris::vectorized
