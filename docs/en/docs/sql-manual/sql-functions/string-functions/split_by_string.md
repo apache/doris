@@ -24,6 +24,9 @@ under the License.
 
 ## split_by_string 
 
+<version since="1.2.2">
+</version>
+
 ### description
 
 #### Syntax
