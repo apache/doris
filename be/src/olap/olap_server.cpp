@@ -797,7 +797,7 @@ void StorageEngine::_cold_data_compaction_producer_callback() {
         tablet_to_follow.reserve(n + 1);
 
         for (auto& t : tablets) {
-            if (t->replica_id() == t->cooldown_replica_id()) {
+            if (t->replica_id() == t->cooldown_conf_unlocked().first) {
                 auto score = t->calc_cold_data_compaction_score();
                 if (score < 4) {
                     continue;
