@@ -75,7 +75,8 @@ public class CooldownConfHandlerTest extends TestWithFeService {
         GrantStmt grantStmt = new GrantStmt(user, null, tablePattern, privileges);
         Env.getCurrentEnv().getAuth().grant(grantStmt);
         useUser("test_cooldown");
-        Database db = Env.getCurrentEnv().getInternalCatalog().getDb("test").orElse(null);
+        Database db = Env.getCurrentInternalCatalog().getDb(SystemInfoService.DEFAULT_CLUSTER + ":" + "test")
+                .orElse(null);
         assert db != null;
         dbId = db.getId();
         Table tbl = db.getTable("table1").orElse(null);
@@ -89,6 +90,7 @@ public class CooldownConfHandlerTest extends TestWithFeService {
         List<Tablet> tablets = index.getTablets();
         assert tablets.size() > 0;
         tablet = tablets.get(0);
+        tablet.setCooldownConf(-1, 100);
         tabletId = tablet.getId();
         LOG.info("create table: db: {}, tbl: {}, partition: {}, index: {}, tablet: {}", dbId, tableId, partitionId,
                 indexId, tabletId);
@@ -101,6 +103,7 @@ public class CooldownConfHandlerTest extends TestWithFeService {
         confToUpdate.add(cooldownConf);
         CooldownConfHandler cooldownConfHandler = new CooldownConfHandler();
         cooldownConfHandler.addCooldownConfToUpdate(confToUpdate);
+        cooldownConfHandler.runAfterCatalogReady();
         Pair<Long, Long> conf = tablet.getCooldownConf();
         long cooldownReplicaId = conf.first;
         long cooldownTerm = conf.second;
