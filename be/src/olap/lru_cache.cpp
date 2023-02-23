@@ -464,7 +464,7 @@ int64_t LRUCache::prune() {
     return pruned_count;
 }
 
-int64_t LRUCache::prune_if(CacheValuePredicate pred) {
+int64_t LRUCache::prune_if(CacheValuePredicate pred, bool lazy_mode) {
     LRUHandle* to_remove_head = nullptr;
     {
         std::lock_guard l(_mutex);
@@ -475,6 +475,8 @@ int64_t LRUCache::prune_if(CacheValuePredicate pred) {
                 _evict_one_entry(p);
                 p->next = to_remove_head;
                 to_remove_head = p;
+            } else if (lazy_mode) {
+                break;
             }
             p = next;
         }
@@ -486,6 +488,8 @@ int64_t LRUCache::prune_if(CacheValuePredicate pred) {
                 _evict_one_entry(p);
                 p->next = to_remove_head;
                 to_remove_head = p;
+            } else if (lazy_mode) {
+                break;
             }
             p = next;
         }
@@ -613,10 +617,10 @@ int64_t ShardedLRUCache::prune() {
     return num_prune;
 }
 
-int64_t ShardedLRUCache::prune_if(CacheValuePredicate pred) {
+int64_t ShardedLRUCache::prune_if(CacheValuePredicate pred, bool lazy_mode) {
     int64_t num_prune = 0;
     for (int s = 0; s < _num_shards; s++) {
-        num_prune += _shards[s]->prune_if(pred);
+        num_prune += _shards[s]->prune_if(pred, lazy_mode);
     }
     return num_prune;
 }
