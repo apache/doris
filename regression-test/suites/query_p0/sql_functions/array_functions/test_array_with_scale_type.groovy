@@ -70,8 +70,10 @@ suite("test_array_with_scale_type") {
 
         qt_select """select array_apply(c_array_datetimev2, "=", '2022-12-02 22:23:24.999999') from ${tableName}"""
         qt_select """select array_apply(c_array_datetimev2, ">", '2022-12-01 22:23:24.999999') from ${tableName}"""
+        qt_select """select array_apply(c_array_datetimev2, ">", null) from ${tableName}"""
         qt_select """select array_apply(c_array_decimal, "=", 22.678) from ${tableName}"""
         qt_select """select array_apply(c_array_decimal, ">=", 22.1) from ${tableName}"""
+        qt_select """select array_apply(c_array_decimal, ">=", null) from ${tableName}"""
 
         sql "DROP TABLE IF EXISTS ${tableName}"
 }

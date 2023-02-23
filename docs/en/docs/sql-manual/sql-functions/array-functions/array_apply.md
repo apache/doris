@@ -24,7 +24,7 @@ under the License.
 
 ## array_apply
 
-<version since="1.2.0">
+<version since="1.2.3">
 
 array_apply
 
@@ -42,9 +42,9 @@ array_apply(arr, op, val)
 
 #### Arguments
 
-`arr` — The array to inspect.
-`op` — The compare operation
-`val` — The compared value 
+`arr` — The array to inspect. If it null, null will be returned.
+`op` — The compare operation, op includes `=`, `>=`, `<=`, `>`, `<`, `!=`
+`val` — The compared value.If it null, null will be returned.
 
 #### Returned value
 

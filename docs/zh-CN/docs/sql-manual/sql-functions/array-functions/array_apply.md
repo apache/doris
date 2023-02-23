@@ -24,7 +24,7 @@ under the License.
 
 ## array_apply
 
-<version since="1.2.0">
+<version since="1.2.3">
 
 array_apply
 
@@ -41,9 +41,9 @@ array_apply(arr, op, val)
 
 #### Arguments
 
-`arr` — 输入的数组
-`op` — 过滤条件 
-`val` — 过滤的条件值 
+`arr` — 输入的数组， 如果是null， 则返回null
+`op` — 过滤条件， 条件包括 `=`, `>=`, `<=`, `>`, `<`, `!=`
+`val` — 过滤的条件值， 如果是null， 则返回null
 
 #### Returned value
 

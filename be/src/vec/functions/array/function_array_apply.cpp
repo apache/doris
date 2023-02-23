@@ -132,7 +132,7 @@ private:
             src_column_data_ptr += sizeof(T);
         }
         const IColumn::Filter& filter = column_filter_data;
-        ColumnPtr filtered = src_column.filter(filter, -1);
+        ColumnPtr filtered = src_column.filter(filter, src_column.size());
         auto column_offsets = ColumnArray::ColumnOffsets::create(src_offsets.size());
         ColumnArray::Offsets64& dst_offsets = column_offsets->get_data();
         size_t in_pos = 0;
@@ -188,7 +188,6 @@ private:
         }                                                                          \
     } while (0)
 
-    //
     Status _execute(const IColumn& nested_src, DataTypePtr nested_type,
                     const ColumnArray::Offsets64& offsets, const std::string& condition,
                     const ColumnConst& rhs_value_column, ColumnPtr* dst) {
