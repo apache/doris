@@ -33,6 +33,7 @@ import java.util.Objects;
 public class DateTimeV2Type extends DateLikeType {
     public static final int MAX_SCALE = 6;
     public static final DateTimeV2Type SYSTEM_DEFAULT = new DateTimeV2Type(0);
+    public static final DateTimeV2Type MAX = new DateTimeV2Type(MAX_SCALE);
 
     private static final int WIDTH = 8;
 

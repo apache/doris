@@ -612,9 +612,17 @@ public class TypeCoercionUtils {
             if (leftType.isDateTimeV2Type() && rightType.isDateTimeV2Type()) {
                 return DateTimeV2Type.getWiderDatetimeV2Type((DateTimeV2Type) leftType, (DateTimeV2Type) rightType);
             } else if (leftType.isDateTimeV2Type()) {
-                return leftType;
+                if (rightType.isIntegerLikeType()) {
+                    return leftType;
+                } else {
+                    return DateTimeV2Type.MAX;
+                }
             } else if (rightType.isDateTimeV2Type()) {
-                return rightType;
+                if (rightType.isIntegerLikeType()) {
+                    return rightType;
+                } else {
+                    return DateTimeV2Type.MAX;
+                }
             } else if (leftType.isDateV2Type() && (rightType.isDateType() || rightType.isDateV2Type())) {
                 return leftType;
             } else if (rightType.isDateV2Type() && (leftType.isDateType() || leftType.isDateV2Type())) {
