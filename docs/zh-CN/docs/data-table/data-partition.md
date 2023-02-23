@@ -316,7 +316,7 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
    
    在以上示例中，我们指定 `id`(INT 类型) 和 `city`(VARCHAR 类型) 作为分区列。以上示例最终得到的分区如下：
    
-   ```
+   ```text
    * p1_city: [("1", "Beijing"), ("1", "Shanghai")]
    * p2_city: [("2", "Beijing"), ("2", "Shanghai")]
    * p3_city: [("3", "Beijing"), ("3", "Shanghai")]
@@ -324,7 +324,7 @@ Doris 支持两层的数据划分。第一层是 Partition，支持 Range 和 Li
    
    当用户插入数据时，分区列值会按照顺序依次比较，最终得到对应的分区。举例如下：
    
-   ```
+   ```text
    * 数据  --->  分区
    * 1, Beijing     ---> p1_city
    * 1, Shanghai    ---> p1_city
