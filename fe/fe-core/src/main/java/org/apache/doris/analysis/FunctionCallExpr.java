@@ -227,6 +227,10 @@ public class FunctionCallExpr extends Expr {
         this.aggFnParams = aggFnParams;
     }
 
+    public FunctionParams getAggFnParams() {
+        return aggFnParams;
+    }
+
     public void setIsAnalyticFnCall(boolean v) {
         isAnalyticFnCall = v;
     }

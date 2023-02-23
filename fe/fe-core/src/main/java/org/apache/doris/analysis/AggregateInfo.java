@@ -555,8 +555,10 @@ public final class AggregateInfo extends AggregateInfoBase {
             Preconditions.checkState(inputExpr.isAggregateFunction());
             Expr aggExprParam =
                     new SlotRef(inputDesc.getSlots().get(i + getGroupingExprs().size()));
-            FunctionCallExpr aggExpr = FunctionCallExpr.createMergeAggCall(
-                    inputExpr, Lists.newArrayList(aggExprParam), inputExpr.getFnParams().exprs());
+            FunctionParams fnParams = inputExpr.getAggFnParams();
+            FunctionCallExpr aggExpr =
+                    FunctionCallExpr.createMergeAggCall(inputExpr, Lists.newArrayList(aggExprParam),
+                            fnParams != null ? fnParams.exprs() : inputExpr.getFnParams().exprs());
             aggExpr.analyzeNoThrow(analyzer);
             // do not need analyze in merge stage, just do mark for BE get right function
             aggExpr.setOrderByElements(inputExpr.getOrderByElements());
@@ -688,6 +690,7 @@ public final class AggregateInfo extends AggregateInfoBase {
                     new SlotRef(inputDesc.getSlots().get(i + getGroupingExprs().size()));
             FunctionCallExpr aggExpr = FunctionCallExpr.createMergeAggCall(
                     inputExpr, Lists.newArrayList(aggExprParam), inputExpr.getFnParams().exprs());
+            aggExpr.setOrderByElements(inputExpr.getOrderByElements());
             secondPhaseAggExprs.add(aggExpr);
         }
         Preconditions.checkState(
