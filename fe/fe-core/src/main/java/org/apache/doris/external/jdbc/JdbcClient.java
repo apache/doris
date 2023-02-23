@@ -555,6 +555,23 @@ public class JdbcClient {
             return ScalarType.createDatetimeV2Type(0);
         }
         switch (oracleType) {
+            /**
+             * The data type NUMBER(p,s) of oracle has some different of doris decimal type in semantics.
+             * For Oracle Number(p,s) type:
+             * 1. if s<0 , it means this is an Interger.
+             *    This NUMBER(p,s) has (p+|s| ) significant digit, and rounding will be performed at s position.
+             *    eg: if we insert 1234567 into NUMBER(5,-2) type, then the oracle will store 1234500.
+             *    In this case, Doris will use INT type (TINYINT/SMALLINT/INT/.../LARGEINT).
+             * 2. if s>=0 && s<p , it just like doris Decimal(p,s) behavior.
+             * 3. if s>=0 && s>p, it means this is a decimal(like 0.xxxxx).
+             *    p represents how many digits can be left to the left after the decimal point,
+             *    the figure after the decimal point s will be rounded.
+             *    eg: we can not insert 0.0000123 into NUMBER(5,7) type, because there must be five zeros
+             *    on the right side of the decimal point.
+             *    In this case, Doris will use DECIMAL(s,s)
+             * 4. if we don't specify p and s for NUMBER(p,s), just NUMBER, the p and s of NUMBER are uncertain.
+             *    In this case, doris can not determine p and s, so doris can not determine data type.
+             */
             case "NUMBER":
                 int precision = fieldSchema.getColumnSize();
                 int scale = fieldSchema.getDecimalDigits();
@@ -568,8 +585,11 @@ public class JdbcClient {
                         return Type.INT;
                     } else if (precision < 19) {
                         return Type.BIGINT;
-                    } else {
+                    } else if (precision < 39) {
+                        // LARGEINT most support 38 numbers.
                         return Type.LARGEINT;
+                    } else {
+                        return ScalarType.createStringType();
                     }
                 }
                 // scale > 0
