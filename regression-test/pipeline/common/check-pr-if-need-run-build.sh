@@ -50,7 +50,7 @@ _get_pr_changed_files() {
     if [[ -z "${all_files}" ]]; then echo -e "\033[31m List pull request(${pr_url}) files FAIL... \033[0m" && return 255; fi
 
     echo -e "
-https://github.com/apache/doris/pull/${pr}/files all change files:
+https://github.com/apache/doris/pull/${PULL_NUMBER}/files all change files:
 ---------------------------------------------------------------"
     if [[ "${which_file:-all}" == "all" ]]; then
         echo -e "${all_files}\n" && export all_files
