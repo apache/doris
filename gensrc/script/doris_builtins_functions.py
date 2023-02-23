@@ -1441,7 +1441,7 @@ visible_functions = [
     [['bitmap_and_count'], 'BIGINT', ['BITMAP','BITMAP'], ''],
     [['bitmap_or_count'], 'BIGINT', ['BITMAP','BITMAP','...'], ''],
     [['bitmap_or_count'], 'BIGINT', ['BITMAP','BITMAP'], ''],
-    [['sub_bitmap'], 'BITMAP', ['BITMAP', 'BIGINT', 'BIGINT'], ''],
+    [['sub_bitmap'], 'BITMAP', ['BITMAP', 'BIGINT', 'BIGINT'], 'ALWAYS_NULLABLE'],
     [['bitmap_to_array'], 'ARRAY_BIGINT', ['BITMAP'], ''],
     # quantile_function
     [['to_quantile_state'], 'QUANTILE_STATE', ['VARCHAR', 'FLOAT'], ''],
