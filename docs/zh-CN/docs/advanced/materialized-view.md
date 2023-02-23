@@ -434,97 +434,97 @@ MySQL [test]> desc advertiser_view_record;
 
    其次对于 `user_id` 字段求 `count(distinct)` 被改写为求 `bitmap_union_count(to_bitmap)`。也就是通过 bitmap 的方式来达到精确去重的效果。
 
-   ## 最佳实践3
+## 最佳实践3
 
-   业务场景：匹配更丰富的前缀索引
+业务场景：匹配更丰富的前缀索引
 
-   用户的原始表有 （k1, k2, k3） 三列。其中 k1, k2 为前缀索引列。这时候如果用户查询条件中包含 `where k1=1 and k2=2` 就能通过索引加速查询。
+用户的原始表有 （k1, k2, k3） 三列。其中 k1, k2 为前缀索引列。这时候如果用户查询条件中包含 `where k1=1 and k2=2` 就能通过索引加速查询。
 
-   但是有些情况下，用户的过滤条件无法匹配到前缀索引，比如 `where k3=3`。则无法通过索引提升查询速度。
+但是有些情况下，用户的过滤条件无法匹配到前缀索引，比如 `where k3=3`。则无法通过索引提升查询速度。
 
-   创建以 k3 作为第一列的物化视图就可以解决这个问题。
+创建以 k3 作为第一列的物化视图就可以解决这个问题。
 
-   1. 创建物化视图
+1. 创建物化视图
 
-      ```sql
-      CREATE MATERIALIZED VIEW mv_1 as SELECT k3, k2, k1 FROM tableA ORDER BY k3;
-      ```
-
-      通过上面语法创建完成后，物化视图中既保留了完整的明细数据，且物化视图的前缀索引为 k3 列。表结构如下：
-
-      ```sql
-      MySQL [test]> desc tableA all;
-      +-----------+---------------+-------+------+------+-------+---------+-------+
-      | IndexName | IndexKeysType | Field | Type | Null | Key   | Default | Extra |
-      +-----------+---------------+-------+------+------+-------+---------+-------+
-      | tableA    | DUP_KEYS      | k1    | INT  | Yes  | true  | NULL    |       |
-      |           |               | k2    | INT  | Yes  | true  | NULL    |       |
-      |           |               | k3    | INT  | Yes  | true  | NULL    |       |
-      |           |               |       |      |      |       |         |       |
-      | mv_1      | DUP_KEYS      | k3    | INT  | Yes  | true  | NULL    |       |
-      |           |               | k2    | INT  | Yes  | false | NULL    | NONE  |
-      |           |               | k1    | INT  | Yes  | false | NULL    | NONE  |
-      +-----------+---------------+-------+------+------+-------+---------+-------+
-      ```
-
-   2. 查询匹配
-
-      这时候如果用户的查询存在 k3 列的过滤条件是，比如：
-
-      ```sql
-      select k1, k2, k3 from table A where k3=3;
-      ```
-
-      这时候查询就会直接从刚才创建的 mv_1 物化视图中读取数据。物化视图对 k3 是存在前缀索引的，查询效率也会提升。
-
-   ## 最佳实践4
-
-   <version since="2.0">
-
-   在`Doris 2.0`中，我们对物化视图所支持的表达式做了一些增强，本示例将主要体现新版本物化视图对各种表达式的支持。
-
-   1. 创建一个base表并插入一些数据。
    ```sql
-   create table d_table (
-      k1 int null,
-      k2 int not null,
-      k3 bigint null,
-      k4 varchar(100) null
-   )
-   duplicate key (k1,k2,k3)
-   distributed BY hash(k1) buckets 3
-   properties("replication_num" = "1");
-
-   insert into d_table select 1,1,1,'2020-02-20';
-   insert into d_table select 2,2,2,'2021-02-20';
-   insert into d_table select 3,-3,null,'2022-02-20';
-   ```
-   
-   2. 创建一些物化视图。
-   ```sql
-   create materialized view k1a2p2ap3ps as select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1;
-   create materialized view kymd as select year(k4),month(k4),day(k4) from d_table;
+   CREATE MATERIALIZED VIEW mv_1 as SELECT k3, k2, k1 FROM tableA ORDER BY k3;
    ```
 
-   3. 用一些查询测试是否成功命中物化视图。
+   通过上面语法创建完成后，物化视图中既保留了完整的明细数据，且物化视图的前缀索引为 k3 列。表结构如下：
+
    ```sql
-   select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1; // 命中k1a2p2ap3ps
-   select bin(abs(k1)+k2+1),sum(abs(k2+2)+k3+3) from d_table group by bin(abs(k1)+k2+1); // 命中k1a2p2ap3ps
-   select year(k4),month(k4),day(k4) from d_table; // 命中kymd
-   select year(k4)+month(k4)+day(k4) from d_table where year(k4) = 2020; // 命中kymd
+   MySQL [test]> desc tableA all;
+   +-----------+---------------+-------+------+------+-------+---------+-------+
+   | IndexName | IndexKeysType | Field | Type | Null | Key   | Default | Extra |
+   +-----------+---------------+-------+------+------+-------+---------+-------+
+   | tableA    | DUP_KEYS      | k1    | INT  | Yes  | true  | NULL    |       |
+   |           |               | k2    | INT  | Yes  | true  | NULL    |       |
+   |           |               | k3    | INT  | Yes  | true  | NULL    |       |
+   |           |               |       |      |      |       |         |       |
+   | mv_1      | DUP_KEYS      | k3    | INT  | Yes  | true  | NULL    |       |
+   |           |               | k2    | INT  | Yes  | false | NULL    | NONE  |
+   |           |               | k1    | INT  | Yes  | false | NULL    | NONE  |
+   +-----------+---------------+-------+------+------+-------+---------+-------+
    ```
 
-   ## 局限性
+2. 查询匹配
 
-   1. 物化视图的聚合函数的参数不支持表达式仅支持单列，比如： sum(a+b)不支持。(2.0后支持)
-   2. 如果删除语句的条件列，在物化视图中不存在，则不能进行删除操作。如果一定要删除数据，则需要先将物化视图删除，然后方可删除数据。
-   3. 单表上过多的物化视图会影响导入的效率：导入数据时，物化视图和 base 表数据是同步更新的，如果一张表的物化视图表超过10张，则有可能导致导入速度很慢。这就像单次导入需要同时导入10张表数据是一样的。
-   4. 相同列，不同聚合函数，不能同时出现在一张物化视图中，比如：select sum(a), min(a) from table 不支持。(2.0后支持)
-   5. 物化视图针对 Unique Key数据模型，只能改变列顺序，不能起到聚合的作用，所以在Unique Key模型上不能通过创建物化视图的方式对数据进行粗粒度聚合操作
+   这时候如果用户的查询存在 k3 列的过滤条件是，比如：
 
-   ## 异常错误
+   ```sql
+   select k1, k2, k3 from table A where k3=3;
+   ```
 
-   1. DATA_QUALITY_ERROR: "The data quality does not satisfy, please check your data" 由于数据质量问题或者Schema Change内存使用超出限制导致物化视图创建失败。如果是内存问题，调大`memory_limitation_per_thread_for_schema_change_bytes`参数即可。 注意：bitmap类型仅支持正整型, 如果原始数据中存在负数，会导致物化视图创建失败
+   这时候查询就会直接从刚才创建的 mv_1 物化视图中读取数据。物化视图对 k3 是存在前缀索引的，查询效率也会提升。
+
+## 最佳实践4
+
+<version since="2.0">
+
+在`Doris 2.0`中，我们对物化视图所支持的表达式做了一些增强，本示例将主要体现新版本物化视图对各种表达式的支持。
+
+1. 创建一个base表并插入一些数据。
+```sql
+create table d_table (
+   k1 int null,
+   k2 int not null,
+   k3 bigint null,
+   k4 varchar(100) null
+)
+duplicate key (k1,k2,k3)
+distributed BY hash(k1) buckets 3
+properties("replication_num" = "1");
+
+insert into d_table select 1,1,1,'2020-02-20';
+insert into d_table select 2,2,2,'2021-02-20';
+insert into d_table select 3,-3,null,'2022-02-20';
+```
+
+2. 创建一些物化视图。
+```sql
+create materialized view k1a2p2ap3ps as select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1;
+create materialized view kymd as select year(k4),month(k4),day(k4) from d_table;
+```
+
+3. 用一些查询测试是否成功命中物化视图。
+```sql
+select abs(k1)+k2+1,sum(abs(k2+2)+k3+3) from d_table group by abs(k1)+k2+1; // 命中k1a2p2ap3ps
+select bin(abs(k1)+k2+1),sum(abs(k2+2)+k3+3) from d_table group by bin(abs(k1)+k2+1); // 命中k1a2p2ap3ps
+select year(k4),month(k4),day(k4) from d_table; // 命中kymd
+select year(k4)+month(k4)+day(k4) from d_table where year(k4) = 2020; // 命中kymd
+```
+
+## 局限性
+
+1. 物化视图的聚合函数的参数不支持表达式仅支持单列，比如： sum(a+b)不支持。(2.0后支持)
+2. 如果删除语句的条件列，在物化视图中不存在，则不能进行删除操作。如果一定要删除数据，则需要先将物化视图删除，然后方可删除数据。
+3. 单表上过多的物化视图会影响导入的效率：导入数据时，物化视图和 base 表数据是同步更新的，如果一张表的物化视图表超过10张，则有可能导致导入速度很慢。这就像单次导入需要同时导入10张表数据是一样的。
+4. 相同列，不同聚合函数，不能同时出现在一张物化视图中，比如：select sum(a), min(a) from table 不支持。(2.0后支持)
+5. 物化视图针对 Unique Key数据模型，只能改变列顺序，不能起到聚合的作用，所以在Unique Key模型上不能通过创建物化视图的方式对数据进行粗粒度聚合操作
+
+## 异常错误
+
+1. DATA_QUALITY_ERROR: "The data quality does not satisfy, please check your data" 由于数据质量问题或者Schema Change内存使用超出限制导致物化视图创建失败。如果是内存问题，调大`memory_limitation_per_thread_for_schema_change_bytes`参数即可。 注意：bitmap类型仅支持正整型, 如果原始数据中存在负数，会导致物化视图创建失败
 
 
 
