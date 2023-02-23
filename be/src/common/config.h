@@ -924,6 +924,10 @@ CONF_Int32(max_depth_in_bkd_tree, "32");
 CONF_Int32(num_broadcast_buffer, "32");
 // semi-structure configs
 CONF_Bool(enable_parse_multi_dimession_array, "true");
+
+// Report a tablet as bad when io errors occurs more than this value.
+CONF_mInt64(max_tablet_io_errors, "-1");
+
 #ifdef BE_TEST
 // test s3
 CONF_String(test_s3_resource, "resource");
