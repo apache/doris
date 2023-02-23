@@ -679,9 +679,7 @@ void DataDir::perform_path_scan() {
                 continue;
             }
 
-            int counter = 0;
             for (const auto& schema_hash : schema_hashes) {
-                ++counter;
                 int32_t interval_ms = config::path_scan_step_interval_ms;
                 if (interval_ms > 0) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(interval_ms));
