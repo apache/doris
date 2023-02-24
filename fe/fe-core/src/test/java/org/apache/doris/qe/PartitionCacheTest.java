@@ -128,7 +128,7 @@ public class PartitionCacheTest {
         MetricRepo.init();
         try {
             FrontendOptions.init();
-            context = new ConnectContext(null);
+            context = new ConnectContext();
             Config.cache_enable_sql_mode = true;
             Config.cache_enable_partition_mode = true;
             context.getSessionVariable().setEnableSqlCache(true);

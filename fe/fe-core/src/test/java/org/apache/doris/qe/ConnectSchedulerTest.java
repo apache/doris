@@ -86,7 +86,7 @@ public class ConnectSchedulerTest {
 
         ConnectScheduler scheduler = new ConnectScheduler(10);
         for (int i = 0; i < 2; ++i) {
-            ConnectContext context = new ConnectContext(socketChannel);
+            ConnectContext context = new ConnectContext();
             if (i == 1) {
                 context.setEnv(AccessTestUtil.fetchBlockCatalog());
             } else {
@@ -109,7 +109,7 @@ public class ConnectSchedulerTest {
 
         ConnectScheduler scheduler = new ConnectScheduler(10);
 
-        ConnectContext context = new ConnectContext(socketChannel);
+        ConnectContext context = new ConnectContext();
         context.setEnv(AccessTestUtil.fetchAdminCatalog());
         context.setQualifiedUser("root");
         Assert.assertTrue(scheduler.submit(context));
@@ -128,7 +128,7 @@ public class ConnectSchedulerTest {
     @Test
     public void testSubmitTooMany() throws InterruptedException {
         ConnectScheduler scheduler = new ConnectScheduler(0);
-        ConnectContext context = new ConnectContext(socketChannel);
+        ConnectContext context = new ConnectContext();
         Assert.assertTrue(scheduler.submit(context));
     }
 }

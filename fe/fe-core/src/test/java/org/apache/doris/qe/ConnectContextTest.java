@@ -72,7 +72,7 @@ public class ConnectContextTest {
 
     @Test
     public void testNormal() {
-        ConnectContext ctx = new ConnectContext(socketChannel);
+        ConnectContext ctx = new ConnectContext();
 
         // State
         Assert.assertNotNull(ctx.getState());
@@ -154,7 +154,7 @@ public class ConnectContextTest {
 
     @Test
     public void testSleepTimeout() {
-        ConnectContext ctx = new ConnectContext(socketChannel);
+        ConnectContext ctx = new ConnectContext();
         ctx.setCommand(MysqlCommand.COM_SLEEP);
 
         // sleep no time out
@@ -191,7 +191,7 @@ public class ConnectContextTest {
 
     @Test
     public void testOtherTimeout() {
-        ConnectContext ctx = new ConnectContext(socketChannel);
+        ConnectContext ctx = new ConnectContext();
         ctx.setCommand(MysqlCommand.COM_QUERY);
 
         // sleep no time out
@@ -219,7 +219,7 @@ public class ConnectContextTest {
 
     @Test
     public void testThreadLocal() {
-        ConnectContext ctx = new ConnectContext(socketChannel);
+        ConnectContext ctx = new ConnectContext();
         Assert.assertNull(ConnectContext.get());
         ctx.setThreadLocalInfo();
         Assert.assertNotNull(ConnectContext.get());

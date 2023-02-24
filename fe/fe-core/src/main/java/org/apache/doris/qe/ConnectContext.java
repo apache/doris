@@ -47,7 +47,9 @@ import com.google.common.collect.Sets;
 import io.opentelemetry.api.trace.Tracer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.xnio.StreamConnection;
 
+import java.io.IOException;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -59,7 +61,7 @@ import java.util.Set;
 // Use `volatile` to make the reference change atomic.
 public class ConnectContext {
     private static final Logger LOG = LogManager.getLogger(ConnectContext.class);
-    protected static ThreadLocal<ConnectContext> threadLocalInfo = new ThreadLocal<ConnectContext>();
+    protected static ThreadLocal<ConnectContext> threadLocalInfo = new ThreadLocal<>();
 
     // set this id before analyze
     protected volatile long stmtId;
@@ -127,7 +129,7 @@ public class ConnectContext {
     // This is used to statistic the current query details.
     // This property will only be set when the query starts to execute.
     // So in the query planning stage, do not use any value in this attribute.
-    protected QueryDetail queryDetail;
+    protected QueryDetail queryDetail = null;
 
     // If set to true, the nondeterministic function will not be rewrote to constant.
     private boolean notEvalNondeterministicFunction = false;
@@ -209,15 +211,20 @@ public class ConnectContext {
     }
 
     public ConnectContext() {
+        this(null);
+    }
+
+    public ConnectContext(StreamConnection connection) {
         state = new QueryState();
         returnRows = 0;
         serverCapability = MysqlCapability.DEFAULT_CAPABILITY;
         isKilled = false;
-        mysqlChannel = new MysqlChannel(null);
-        serializer = MysqlSerializer.newInstance();
+        if (connection != null) {
+            mysqlChannel = new MysqlChannel(connection);
+            serializer = MysqlSerializer.newInstance();
+        }
         sessionVariable = VariableMgr.newSessionVariable();
         command = MysqlCommand.COM_SLEEP;
-        queryDetail = null;
         if (Config.use_fuzzy_session_variable) {
             sessionVariable.initFuzzyModeVariables();
         }
@@ -476,7 +483,9 @@ public class ConnectContext {
     }
 
     public void cleanup() {
-        mysqlChannel.close();
+        if (mysqlChannel != null) {
+            mysqlChannel.close();
+        }
         threadLocalInfo.remove();
         returnRows = 0;
     }
@@ -636,10 +645,6 @@ public class ConnectContext {
         return currentConnectedFEIp;
     }
 
-    public String getRemoteIp() {
-        return mysqlChannel == null ? "" : mysqlChannel.getRemoteIp();
-    }
-
     public void resetExecTimeout() {
         if (executor != null && executor.isInsertStmt()) {
             // particular timeout for insert stmt, we can make other particular timeout in the same way.
@@ -676,6 +681,23 @@ public class ConnectContext {
             }
             return row;
         }
+    }
+
+
+    public void startAcceptQuery(ConnectProcessor connectProcessor) {
+        mysqlChannel.startAcceptQuery(this, connectProcessor);
+    }
+
+    public void suspendAcceptQuery() {
+        mysqlChannel.suspendAcceptQuery();
+    }
+
+    public void resumeAcceptQuery() {
+        mysqlChannel.resumeAcceptQuery();
+    }
+
+    public void stopAcceptQuery() throws IOException {
+        mysqlChannel.stopAcceptQuery();
     }
 
     public String getQueryIdentifier() {
