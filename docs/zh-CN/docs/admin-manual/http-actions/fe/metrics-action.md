@@ -1,7 +1,7 @@
 ---
 {
-    "title": "CONNECTION",
-    "language": "en"
+    "title": "Metrics Action",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,19 +24,25 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# CONNECTION
+# Metrics Action
 
-To get current query_id from connection
+## Request
 
-```
-curl -X GET http://fe_host:fe_http_port/api/connection?connection_id=123
-```
+`GET /api/metrics`
 
-If connection_id does not exist, return 404 NOT FOUND ERROR
+## Description
 
-If connection_id exists, return last query_id belongs to connection_id
-```
-{
-    "query_id" : 9133b7efa92a44c8-8ed4b44772ec2a0c
-}
-```
+获取doris metrics信息。
+    
+## Path parameters
+
+无
+
+## Query parameters
+
+无
+
+## Request body
+
+无
+

@@ -1,7 +1,7 @@
 ---
 {
-    "title": "SHOW DATA",
-    "language": "en"
+    "title": "Help Action",
+    "language": "zh-CN"
 }
 ---
 
@@ -24,12 +24,38 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# SHOW DATA
-   
-To all size occupied by cluster
+# Help Action
+
+## Request
+
+`GET /rest/v1/help`
+
+## Description
+
+用于通过模糊查询获取帮助。
+    
+## Path parameters
+
+无
+
+## Query parameters
+
+* `query`
+
+    需要进行匹配的关键词，如array、select等。
+
+## Request body
+
+无
+
+## Response
 
 ```
-curl -X GET http://fe_host:fe_http_port/api/show_data
+{
+    "msg":"success",
+    "code":0,
+    "data":{"fuzzy":"No Fuzzy Matching Topic","matching":"No Matching Category"},
+    "count":0
+}
 ```
 
-The return value is the total size of the cluster

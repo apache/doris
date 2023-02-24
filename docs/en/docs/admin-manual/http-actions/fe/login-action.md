@@ -1,6 +1,6 @@
 ---
 {
-    "title": "GET LABEL STATE",
+    "title": "Login Action",
     "language": "en"
 }
 ---
@@ -24,36 +24,47 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# GET LABEL STATE
-## description
-    NAME:
-        get_load_state: get load's state of label
-        
-    SYNOPSIS
-        curl -u user:passwd http://host:port/api/{db}/get_load_state?label=xxx
+# Login Action
 
-    DESCRIPTION
+## Request
 
-        Check the status of a transaction
-        
-    RETURN VALUES
+`POST /rest/v1/login`
 
-        Return of JSON format string of the status of specified transaction:
-        Label: The specified label.
-        Status: Success or not of this request.
-        Message: Error messages
-        State: 
-           UNKNOWN/PREPARE/COMMITTED/VISIBLE/ABORTED
-        
-    ERRORS
+## Description
+
+Used to log in to the service.
     
-## example
+## Path parameters
 
-    1. Get status of label "testLabel" on database "testDb"
+None
 
-        curl -u root http://host:port/api/testDb/get_load_state?label=testLabel
- 
-## keyword
+## Query parameters
 
-    GET, LOAD, STATE
+None
+
+## Request body
+
+None
+
+## Response
+
+* Login success
+
+    ```
+    {
+    	"msg": "Login success!",
+    	"code": 200
+    }
+    ```
+
+* Login failure
+
+    ```
+    {
+    	"msg": "Error msg...",
+    	"code": xxx,
+    	"data": "Error data...",
+    	"count": 0
+    }
+    ```
 
