@@ -363,7 +363,8 @@ public class EsScanNode extends ScanNode {
             List<Expr> notPushDownList = new ArrayList<>();
             for (Expr expr : conjuncts) {
                 QueryBuilder queryBuilder = QueryBuilders.toEsDsl(expr, notPushDownList, fieldsContext,
-                        BuilderOptions.builder().likePushDown(table.isLikePushDown()).build());
+                        BuilderOptions.builder().likePushDown(table.isLikePushDown())
+                                .originFields(table.originFieldsContext()).build());
                 if (queryBuilder != null) {
                     hasFilter = true;
                     boolQueryBuilder.must(queryBuilder);

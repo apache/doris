@@ -38,10 +38,14 @@ import org.apache.doris.thrift.TExprOpcode;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.Builder;
 import lombok.Data;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.joda.time.format.DateTimeFormat;
+import org.joda.time.format.DateTimeFormatter;
+import org.joda.time.format.ISODateTimeFormat;
 
 import java.io.IOException;
 import java.io.StringWriter;
@@ -123,8 +127,12 @@ public final class QueryBuilders {
                         .build());
     }
 
-    private static QueryBuilder parseBinaryPredicate(Expr expr, TExprOpcode opCode, String column) {
+    private static QueryBuilder parseBinaryPredicate(Expr expr, TExprOpcode opCode, String column,
+            BuilderOptions builderOptions) {
         Object value = toDorisLiteral(expr.getChild(1));
+        if (builderOptions.isNeedCompatDate()) {
+            value = compatDefaultDate(value);
+        }
         switch (opCode) {
             case EQ:
             case EQ_FOR_NULL:
@@ -180,10 +188,14 @@ public final class QueryBuilders {
         }
     }
 
-    private static QueryBuilder parseInPredicate(Expr expr, String column) {
+    private static QueryBuilder parseInPredicate(Expr expr, String column, BuilderOptions builderOptions) {
         InPredicate inPredicate = (InPredicate) expr;
-        List<Object> values = inPredicate.getListChildren().stream().map(QueryBuilders::toDorisLiteral)
-                .collect(Collectors.toList());
+        List<Object> values = inPredicate.getListChildren().stream().map(v -> {
+            if (builderOptions.isNeedCompatDate()) {
+                return compatDefaultDate(v);
+            }
+            return toDorisLiteral(v);
+        }).collect(Collectors.toList());
         if (inPredicate.isNotIn()) {
             return QueryBuilders.boolQuery().mustNot(QueryBuilders.termsQuery(column, values));
         }
@@ -237,10 +249,11 @@ public final class QueryBuilders {
             notPushDownList.add(expr);
             return null;
         }
+        setNeedCompatDate(column, builderOptions);
         // Replace col with col.keyword if mapping exist.
         column = fieldsContext.getOrDefault(column, column);
         if (expr instanceof BinaryPredicate) {
-            return parseBinaryPredicate(expr, opCode, column);
+            return parseBinaryPredicate(expr, opCode, column, builderOptions);
         }
         if (expr instanceof IsNullPredicate) {
             return parseIsNullPredicate(expr, column);
@@ -254,12 +267,36 @@ public final class QueryBuilders {
             }
         }
         if (expr instanceof InPredicate) {
-            return parseInPredicate(expr, column);
+            return parseInPredicate(expr, column, builderOptions);
         }
         if (expr instanceof FunctionCallExpr) {
             return parseFunctionCallExpr(expr);
         }
         return null;
+    }
+
+    private static final DateTimeFormatter dorisFmt = DateTimeFormat.forPattern("yyyy-MM-dd HH:mm:ss");
+    private static final DateTimeFormatter esFmt = ISODateTimeFormat.dateTime();
+
+    private static void setNeedCompatDate(String column, BuilderOptions builderOptions) {
+        Map<String, ObjectNode> originFields = builderOptions.getOriginFields();
+        if (originFields != null && originFields.containsKey(column)) {
+            ObjectNode jsonNodes = originFields.get(column);
+            // Compat use default format date type, need transform datetime to
+            if (jsonNodes.has("type") && !jsonNodes.has("format")) {
+                String type = jsonNodes.get("type").asText();
+                if ("date".equals(type)) {
+                    builderOptions.setNeedCompatDate(true);
+                }
+            }
+        }
+    }
+
+    private static Object compatDefaultDate(Object value) {
+        if (value == null) {
+            return null;
+        }
+        return dorisFmt.parseDateTime(value.toString()).toString(esFmt);
     }
 
     /**
@@ -424,6 +461,10 @@ public final class QueryBuilders {
     public static class BuilderOptions {
 
         private boolean likePushDown;
+
+        private Map<String, ObjectNode> originFields;
+
+        private boolean needCompatDate;
     }
 
 
