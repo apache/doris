@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.loadv2;
 
+import org.apache.commons.collections.map.HashedMap;
 import org.apache.hadoop.yarn.api.records.FinalApplicationStatus;
 import org.junit.After;
 import org.junit.Assert;
@@ -57,7 +58,7 @@ public class SparkLauncherMonitorTest {
         try {
             Process process = Runtime.getRuntime().exec(cmd);
             handle = new SparkLoadAppHandle(process);
-            SparkLauncherMonitor.LogMonitor logMonitor = SparkLauncherMonitor.createLogMonitor(handle);
+            SparkLauncherMonitor.LogMonitor logMonitor = SparkLauncherMonitor.createLogMonitor(handle, new HashedMap());
             logMonitor.setRedirectLogPath(logPath);
             logMonitor.start();
             try {
