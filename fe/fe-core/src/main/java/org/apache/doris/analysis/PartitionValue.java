@@ -24,6 +24,7 @@ public class PartitionValue {
     public static final PartitionValue MAX_VALUE = new PartitionValue();
 
     private String value;
+    private boolean isHiveDefaultPartition;
 
     private PartitionValue() {
 
@@ -33,7 +34,15 @@ public class PartitionValue {
         this.value = value;
     }
 
+    public PartitionValue(String value, boolean isHiveDefaultPartition) {
+        this.value = value;
+        this.isHiveDefaultPartition = isHiveDefaultPartition;
+    }
+
     public LiteralExpr getValue(Type type) throws AnalysisException {
+        if (isHiveDefaultPartition) {
+            return new StringLiteral(value);
+        }
         if (isMax()) {
             return LiteralExpr.createInfinity(type, true);
         } else {
@@ -51,5 +60,9 @@ public class PartitionValue {
         } else {
             return value;
         }
+    }
+
+    public boolean isHiveDefaultPartition() {
+        return isHiveDefaultPartition;
     }
 }
