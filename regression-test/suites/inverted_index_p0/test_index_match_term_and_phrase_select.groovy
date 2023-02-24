@@ -178,6 +178,10 @@ suite("test_index_match_term_and_phrase_select", "inverted_index_select"){
             qt_sql """ select * from ${indexTbName1} where ${varchar_colume2}='grade 5' order by name """
             qt_sql """ select * from ${indexTbName1} where ${varchar_colume2}="grade 5" order by name """
             qt_sql """ select * from ${indexTbName1} where ${varchar_colume2}='grade none' order by name """
+            qt_sql """ select * from ${indexTbName1} where ${varchar_colume2} match 'grade 5' order by name """
+            qt_sql """ select * from ${indexTbName1} where ${varchar_colume2} match "grade 5" order by name """
+            qt_sql """ select * from ${indexTbName1} where ${varchar_colume2} match 'grade none' order by name """
+            qt_sql """ select * from ${indexTbName1} where ${varchar_colume2} match 'grade' order by name """
         }
 
         // cas2.2 test varchar standard match same term with different way and repeate 5 times
