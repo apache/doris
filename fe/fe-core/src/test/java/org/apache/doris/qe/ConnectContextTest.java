@@ -102,7 +102,7 @@ public class ConnectContextTest {
         Assert.assertEquals("testCluster:testUser", ctx.getQualifiedUser());
 
         // Serializer
-        Assert.assertNotNull(ctx.getSerializer());
+        Assert.assertNotNull(ctx.getMysqlChannel().getSerializer());
 
         // Session variable
         Assert.assertNotNull(ctx.getSessionVariable());

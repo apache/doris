@@ -96,6 +96,10 @@ public class StmtExecutorTest {
 
                 channel.reset();
                 minTimes = 0;
+
+                channel.getSerializer();
+                minTimes = 0;
+                result = serializer;
             }
         };
 
@@ -104,10 +108,6 @@ public class StmtExecutorTest {
                 ctx.getMysqlChannel();
                 minTimes = 0;
                 result = channel;
-
-                ctx.getSerializer();
-                minTimes = 0;
-                result = serializer;
 
                 ctx.getEnv();
                 minTimes = 0;

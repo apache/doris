@@ -235,6 +235,14 @@ public class PartitionCacheTest {
         QueryState state = new QueryState();
         channel.reset();
 
+        new Expectations(channel) {
+            {
+                channel.getSerializer();
+                minTimes = 0;
+                result = MysqlSerializer.newInstance();
+            }
+        };
+
         new Expectations(ctx) {
             {
                 ctx.getMysqlChannel();
@@ -244,10 +252,6 @@ public class PartitionCacheTest {
                 ctx.getClusterName();
                 minTimes = 0;
                 result = clusterName;
-
-                ctx.getSerializer();
-                minTimes = 0;
-                result = MysqlSerializer.newInstance();
 
                 ctx.getEnv();
                 minTimes = 0;

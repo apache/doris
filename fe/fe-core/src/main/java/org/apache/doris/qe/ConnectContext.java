@@ -28,10 +28,10 @@ import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.datasource.InternalCatalog;
 import org.apache.doris.datasource.SessionContext;
+import org.apache.doris.mysql.DummyMysqlChannel;
 import org.apache.doris.mysql.MysqlCapability;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlCommand;
-import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.nereids.StatementContext;
 import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
@@ -99,8 +99,6 @@ public class ConnectContext {
     // In other word, currentUserIdentity is the entry that matched in Doris auth table.
     // This account determines user's access privileges.
     protected volatile UserIdentity currentUserIdentity;
-    // Serializer used to pack MySQL packet.
-    protected volatile MysqlSerializer serializer;
     // Variables belong to this session.
     protected volatile SessionVariable sessionVariable;
     // Scheduler this connection belongs to
@@ -221,7 +219,8 @@ public class ConnectContext {
         isKilled = false;
         if (connection != null) {
             mysqlChannel = new MysqlChannel(connection);
-            serializer = MysqlSerializer.newInstance();
+        } else {
+            mysqlChannel = new DummyMysqlChannel();
         }
         sessionVariable = VariableMgr.newSessionVariable();
         command = MysqlCommand.COM_SLEEP;
@@ -400,10 +399,6 @@ public class ConnectContext {
 
     public void resetReturnRows() {
         returnRows = 0;
-    }
-
-    public MysqlSerializer getSerializer() {
-        return serializer;
     }
 
     public int getConnectionId() {

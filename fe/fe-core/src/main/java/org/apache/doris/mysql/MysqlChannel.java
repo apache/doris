@@ -36,31 +36,35 @@ import java.nio.ByteBuffer;
  * http://dev.mysql.com/doc/internals/en/sending-more-than-16mbyte.html
  */
 public class MysqlChannel {
+    // logger for this class
+    private static final Logger LOG = LogManager.getLogger(MysqlChannel.class);
     // max length which one MySQL physical can hold, if one logical packet is bigger than this,
     // one packet will split to many packets
     public static final int MAX_PHYSICAL_PACKET_LENGTH = 0xffffff;
     // MySQL packet header length
     protected static final int PACKET_HEADER_LEN = 4;
-    // logger for this class
-    protected static final Logger LOG = LogManager.getLogger(MysqlChannel.class);
     // next sequence id to receive or send
     protected int sequenceId;
     // channel connected with client
     private StreamConnection conn;
     // used to receive/send header, avoiding new this many time.
-    protected ByteBuffer headerByteBuffer = ByteBuffer.allocate(PACKET_HEADER_LEN);
+    protected ByteBuffer headerByteBuffer;
+    protected ByteBuffer defaultBuffer;
     // default packet byte buffer for most packet
-    protected ByteBuffer defaultBuffer = ByteBuffer.allocate(16 * 1024);
     protected ByteBuffer sendBuffer;
     // for log and show
     protected String remoteHostPortString;
     protected String remoteIp;
     protected boolean isSend;
+    // Serializer used to pack MySQL packet.
+    protected volatile MysqlSerializer serializer;
+
+    protected MysqlChannel() {
+    }
 
     public MysqlChannel(StreamConnection connection) {
         Preconditions.checkNotNull(connection);
         this.sequenceId = 0;
-        this.sendBuffer = ByteBuffer.allocate(2 * 1024 * 1024);
         this.isSend = false;
         this.remoteHostPortString = "";
         this.remoteIp = "";
@@ -74,6 +78,10 @@ public class MysqlChannel {
             remoteHostPortString = connection.getPeerAddress().toString();
             remoteIp = connection.getPeerAddress().toString();
         }
+        this.serializer = MysqlSerializer.newInstance();
+        this.defaultBuffer = ByteBuffer.allocate(16 * 1024);
+        this.headerByteBuffer = ByteBuffer.allocate(PACKET_HEADER_LEN);
+        this.sendBuffer = ByteBuffer.allocate(2 * 1024 * 1024);
     }
 
     public void setSequenceId(int sequenceId) {
@@ -291,5 +299,9 @@ public class MysqlChannel {
 
     public void stopAcceptQuery() throws IOException {
         conn.getSourceChannel().shutdownReads();
+    }
+
+    public MysqlSerializer getSerializer() {
+        return serializer;
     }
 }
