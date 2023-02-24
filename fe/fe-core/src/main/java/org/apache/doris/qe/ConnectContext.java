@@ -48,7 +48,6 @@ import io.opentelemetry.api.trace.Tracer;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.nio.channels.SocketChannel;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -157,7 +156,7 @@ public class ConnectContext {
      * <p>
      * when a connection is established, exec_timeout is set by query_timeout, when the statement is an insert stmt,
      * then it is set to max(query_timeout, insert_timeout) with {@link #resetExecTimeout()} in
-     * {@link ConnectProcessor#handleQuery()} after the StmtExecutor is specified.
+     * after the StmtExecutor is specified.
      */
     private int executionTimeoutS;
 
@@ -210,21 +209,14 @@ public class ConnectContext {
     }
 
     public ConnectContext() {
-        this(null);
-    }
-
-    public ConnectContext(SocketChannel channel) {
         state = new QueryState();
         returnRows = 0;
         serverCapability = MysqlCapability.DEFAULT_CAPABILITY;
         isKilled = false;
-        mysqlChannel = new MysqlChannel(channel);
+        mysqlChannel = new MysqlChannel(null);
         serializer = MysqlSerializer.newInstance();
         sessionVariable = VariableMgr.newSessionVariable();
         command = MysqlCommand.COM_SLEEP;
-        if (channel != null) {
-            remoteIP = mysqlChannel.getRemoteIp();
-        }
         queryDetail = null;
         if (Config.use_fuzzy_session_variable) {
             sessionVariable.initFuzzyModeVariables();
