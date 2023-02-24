@@ -183,7 +183,7 @@ Status FullSorter::_do_sort() {
         // to order the block in _block_priority_queue.
         // if one block totally greater the heap top of _block_priority_queue
         // we can throw the block data directly.
-        if (_state->num_rows < _limit) {
+        if (_state->num_rows < _offset + _limit) {
             _state->num_rows += desc_block.rows();
             _state->sorted_blocks.emplace_back(std::move(desc_block));
             _block_priority_queue.emplace(_pool->add(
