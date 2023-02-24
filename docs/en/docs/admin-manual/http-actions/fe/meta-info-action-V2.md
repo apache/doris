@@ -1,7 +1,7 @@
 ---
 {
-    "title": "CONNECTION",
-    "language": "zh-CN"
+    "title": "Meta Info Action",
+    "language": "en"
 }
 ---
 
@@ -24,19 +24,49 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# CONNECTION
-   
-通过connection_id, 获取当前连接的query_id
+# Meta Info Action
 
-```
-curl -X GET http://fe_host:fe_http_port/api/connection?connection_id=123
-```
+## Request
 
-如果connection_id不存在，直接返回404 NOT FOUND错误
+`GET /api/meta/namespaces/<ns>/databases`
+`GET /api/meta/namespaces/<ns>/databases/<db>/tables`
+`GET /api/meta/namespaces/<ns>/databases/<db>/tables/<tbl>/schema`
 
-如果connection_id存在，会返回当前connection_id上一个进行的query_id
+
+## Description
+
+Used to obtain metadata information about the cluster, including the database list, table list, and table schema.
+
+    
+## Path parameters
+
+* `ns`
+
+    Specify cluster name.
+
+* `db`
+
+    Specify database name.
+
+* `tbl`
+
+    Specify table name.
+
+## Query parameters
+
+None
+
+## Request body
+
+None
+
+## Response
+
 ```
 {
-    "query_id" : 9133b7efa92a44c8-8ed4b44772ec2a0c
+    "msg":"success",
+    "code":0,
+    "data":["databese list" / "table list" / "table schema"],
+    "count":0
 }
 ```

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Get Load State",
+    "title": "Colocate Meta Action",
     "language": "en"
 }
 ---
@@ -24,33 +24,25 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Get Load State
+# Colocate Meta Action
 
 ## Request
 
-`GET /api/<db>/get_load_state`
+`GET /api/colocate`
+`POST/DELETE /api/colocate/group_stable`
+`POST /api/colocate/bucketseq`
 
 ## Description
 
-Returns the status of the load transaction of the specified label
-Return of JSON format string of the status of specified transaction:
-	Label: The specified label.
-	Status: Success or not of this request.
-	Message: Error messages
-	State: 
-		UNKNOWN/PREPARE/COMMITTED/VISIBLE/ABORTED
+Used to obtain or modify colocate group information.
     
 ## Path parameters
 
-* `<db>`
-
-    Specify database
+None
 
 ## Query parameters
 
-* `label`
-
-    Specify label
+None
 
 ## Request body
 
@@ -58,37 +50,4 @@ None
 
 ## Response
 
-```
-{
-	"msg": "success",
-	"code": 0,
-	"data": "VISIBLE",
-	"count": 0
-}
-```
-
-If label does not exist, return:
-
-```
-{
-	"msg": "success",
-	"code": 0,
-	"data": "UNKNOWN",
-	"count": 0
-}
-```
-    
-## Examples
-
-1. Get the status of the load transaction of the specified label.
-
-    ```
-    GET /api/example_db/get_load_state?label=my_label
-    
-    {
-    	"msg": "success",
-    	"code": 0,
-    	"data": "VISIBLE",
-    	"count": 0
-    }
-    ```
+TO DO

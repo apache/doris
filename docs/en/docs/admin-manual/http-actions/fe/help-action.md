@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Get Load State",
+    "title": "Help Action",
     "language": "en"
 }
 ---
@@ -24,33 +24,25 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Get Load State
+# Help Action
 
 ## Request
 
-`GET /api/<db>/get_load_state`
+`GET /rest/v1/help`
 
 ## Description
 
-Returns the status of the load transaction of the specified label
-Return of JSON format string of the status of specified transaction:
-	Label: The specified label.
-	Status: Success or not of this request.
-	Message: Error messages
-	State: 
-		UNKNOWN/PREPARE/COMMITTED/VISIBLE/ABORTED
+Used to obtain help through fuzzy query.
     
 ## Path parameters
 
-* `<db>`
-
-    Specify database
+None
 
 ## Query parameters
 
-* `label`
+* `query`
 
-    Specify label
+    Keywords to be matched, such as array and select.
 
 ## Request body
 
@@ -60,35 +52,10 @@ None
 
 ```
 {
-	"msg": "success",
-	"code": 0,
-	"data": "VISIBLE",
-	"count": 0
+    "msg":"success",
+    "code":0,
+    "data":{"fuzzy":"No Fuzzy Matching Topic","matching":"No Matching Category"},
+    "count":0
 }
 ```
 
-If label does not exist, return:
-
-```
-{
-	"msg": "success",
-	"code": 0,
-	"data": "UNKNOWN",
-	"count": 0
-}
-```
-    
-## Examples
-
-1. Get the status of the load transaction of the specified label.
-
-    ```
-    GET /api/example_db/get_load_state?label=my_label
-    
-    {
-    	"msg": "success",
-    	"code": 0,
-    	"data": "VISIBLE",
-    	"count": 0
-    }
-    ```
