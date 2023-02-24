@@ -55,11 +55,14 @@ public class CustomRewriteJob implements RewriteJob {
         // COUNTER_TRACER.log(CounterEvent.of(Memo.get=-StateId(), CounterType.JOB_EXECUTION, group, logicalExpression,
         //         root));
         Plan rewrittenRoot = customRewriter.get().rewriteRoot(root, context);
-        if (!root.deepEquals(rewrittenRoot)) {
-            String traceBefore = root.treeString();
-            String traceAfter = root.treeString();
-            printTraceLog(ruleType, traceBefore, traceAfter);
-        }
+
+        // don't remove this comment, it can help us to trace some bug when developing.
+
+        // if (!root.deepEquals(rewrittenRoot)) {
+        //     String traceBefore = root.treeString();
+        //     String traceAfter = root.treeString();
+        //     printTraceLog(ruleType, traceBefore, traceAfter);
+        // }
         context.getCascadesContext().setRewritePlan(rewrittenRoot);
     }
 

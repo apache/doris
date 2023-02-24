@@ -36,7 +36,7 @@ public abstract class PlanTreeRewriteJob extends Job {
     }
 
     protected RewriteResult rewrite(Plan plan, List<Rule> rules, RewriteJobContext rewriteJobContext) {
-        boolean traceEnable = true; // isTraceEnable(context);
+        // boolean traceEnable = isTraceEnable(context);
         boolean isRewriteRoot = rewriteJobContext.isRewriteRoot();
         CascadesContext cascadesContext = context.getCascadesContext();
         cascadesContext.setIsRewriteRoot(isRewriteRoot);
@@ -49,17 +49,19 @@ public abstract class PlanTreeRewriteJob extends Job {
                         "Rewrite rule should generate one plan: " + rule.getRuleType());
                 Plan newPlan = newPlans.get(0);
                 if (!newPlan.deepEquals(plan)) {
-                    String traceBefore = null;
-                    if (traceEnable) {
-                        traceBefore = getCurrentPlanTreeString();
-                    }
+                    // don't remove this comment, it can help us to trace some bug when developing.
+
+                    // String traceBefore = null;
+                    // if (traceEnable) {
+                    //     traceBefore = getCurrentPlanTreeString();
+                    // }
                     rewriteJobContext.result = newPlan;
                     context.setRewritten(true);
                     rule.acceptPlan(newPlan);
-                    if (traceEnable) {
-                        String traceAfter = getCurrentPlanTreeString();
-                        printTraceLog(rule, traceBefore, traceAfter);
-                    }
+                    // if (traceEnable) {
+                    //     String traceAfter = getCurrentPlanTreeString();
+                    //     printTraceLog(rule, traceBefore, traceAfter);
+                    // }
                     return new RewriteResult(true, newPlan);
                 }
             }
