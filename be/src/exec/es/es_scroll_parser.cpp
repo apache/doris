@@ -138,6 +138,14 @@ static const std::string INVALID_NULL_VALUE =
         return Status::RuntimeError(ss.str());                           \
     } while (false)
 
+#define PARSE_DATE(dt_val, col, type, is_date_str)                                      \
+    if ((is_date_str &&                                                                 \
+         !dt_val.from_date_str(static_cast<const std::string>(col.GetString()).c_str(), \
+                               col.GetStringLength())) ||                               \
+        (!is_date_str && !dt_val.from_unixtime(col.GetInt64() / 1000, "+08:00"))) {     \
+        RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);                                   \
+    }
+
 template <typename T>
 static Status get_int_value(const rapidjson::Value& col, PrimitiveType type, void* slot,
                             bool pure_doc_value) {
@@ -173,16 +181,11 @@ static Status get_int_value(const rapidjson::Value& col, PrimitiveType type, voi
 
 template <typename T, typename RT>
 static RT get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool is_date_str) {
-    vectorized::DateV2Value<T> dt_slot;
-    if ((is_date_str &&
-         !dt_slot.from_date_str(static_cast<const std::string>(col.GetString()).c_str(),
-                                col.GetStringLength())) ||
-        (!is_date_str && !dt_slot.from_unixtime(col.GetInt64() / 1000, "+08:00"))) {
-        RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
-    }
+    vectorized::DateV2Value<T> dt_val;
+    PARSE_DATE(dt_val, col, type, is_date_str)
 
     return binary_cast<doris::vectorized::DateV2Value<T>, RT>(
-            *reinterpret_cast<vectorized::DateV2Value<T>*>(&dt_slot));
+            *reinterpret_cast<vectorized::DateV2Value<T>*>(&dt_val));
 }
 
 template <typename T, typename RT>
@@ -703,15 +706,9 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
 
 Status ScrollParser::fill_date_col(vectorized::IColumn* col_ptr, const rapidjson::Value& col,
                                    PrimitiveType type, bool is_date_str) {
-    const std::string& val = col.GetString();
-    size_t val_size = col.GetStringLength();
-
     if (type == TYPE_DATE || type == TYPE_DATETIME) {
         vectorized::VecDateTimeValue dt_val;
-        if ((is_date_str && !dt_val.from_date_str(val.c_str(), val_size)) ||
-            (!is_date_str && !dt_val.from_unixtime(col.GetInt64() / 1000, "+08:00"))) {
-            RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
-        }
+        PARSE_DATE(dt_val, col, type, is_date_str)
         if (type == TYPE_DATE) {
             dt_val.cast_to_date();
         } else {
@@ -724,10 +721,8 @@ Status ScrollParser::fill_date_col(vectorized::IColumn* col_ptr, const rapidjson
         return Status::OK();
     } else if (type == TYPE_DATEV2) {
         vectorized::DateV2Value<doris::vectorized::DateV2ValueType> dt_val;
-        if ((is_date_str && !dt_val.from_date_str(val.c_str(), val_size)) ||
-            (!is_date_str && !dt_val.from_unixtime(col.GetInt64() / 1000, "+08:00"))) {
-            RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
-        }
+        PARSE_DATE(dt_val, col, type, is_date_str)
+
         auto date_packed_int = binary_cast<
                 doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>, uint32_t>(
                 *reinterpret_cast<vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(
@@ -737,10 +732,8 @@ Status ScrollParser::fill_date_col(vectorized::IColumn* col_ptr, const rapidjson
 
     } else if (type == TYPE_DATETIMEV2) {
         vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> dt_val;
-        if ((is_date_str && !dt_val.from_date_str(val.c_str(), val_size)) ||
-            (!is_date_str && !dt_val.from_unixtime(col.GetInt64() / 1000, "+08:00"))) {
-            RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
-        }
+        PARSE_DATE(dt_val, col, type, is_date_str)
+
         auto date_packed_int = binary_cast<
                 vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>, uint64_t>(
                 *reinterpret_cast<vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(
