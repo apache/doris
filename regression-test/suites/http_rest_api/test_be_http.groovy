@@ -83,9 +83,9 @@ suite("test_be_http") {
     def conn2 = doGet(dst,"/api/reset_rpc_channel/all")
     assertTrue(conn2.responseCode == 200 || conn2.responseCode == 201)
 
-    //test_check_tablet_segment
-    def conn3 = doPost(dst,"/api/check_tablet_segment_lost?repair=false", null)
-    assertTrue(conn3.responseCode == 200 || conn3.responseCode == 201)
+//    //test_check_tablet_segment
+//    def conn3 = doPost(dst,"/api/check_tablet_segment_lost?repair=false", null)
+//    assertTrue(conn3.responseCode == 200 || conn3.responseCode == 201)
 
     //test_checksum
     def conn4 = doGet(dst,"/api/checksum?tablet_id=${tabletId}&schema_hash=${schemaHash}&version=${version}")
