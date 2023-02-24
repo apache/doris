@@ -1351,6 +1351,8 @@ public class Env {
                 }
             }
         }
+
+        auth.rectifyPrivs();
     }
 
     // start all daemon threads only running on Master
@@ -1822,10 +1824,10 @@ public class Env {
         return checksum;
     }
 
-    public long loadPaloAuth(DataInputStream dis, long checksum) throws IOException {
+    public long loadAuth(DataInputStream dis, long checksum) throws IOException {
         // CAN NOT use Auth.read(), cause this auth instance is already passed to DomainResolver
         auth.readFields(dis);
-        LOG.info("finished replay paloAuth from image");
+        LOG.info("finished replay auth from image");
         return checksum;
     }
 
@@ -2096,7 +2098,7 @@ public class Env {
         return checksum;
     }
 
-    public long savePaloAuth(CountingDataOutputStream dos, long checksum) throws IOException {
+    public long saveAuth(CountingDataOutputStream dos, long checksum) throws IOException {
         auth.write(dos);
         return checksum;
     }

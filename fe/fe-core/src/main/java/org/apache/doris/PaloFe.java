@@ -121,7 +121,7 @@ public class PaloFe {
             // check command line options
             checkCommandLineOptions(cmdLineOpts);
 
-            LOG.info("Palo FE starting...");
+            LOG.info("Doris FE starting...");
 
             FrontendOptions.init();
 
@@ -196,7 +196,7 @@ public class PaloFe {
 
     /*
      * -v --version
-     *      Print the version of Palo Frontend
+     *      Print the version of Doris Frontend
      * -h --helper
      *      Specify the helper node when joining a bdb je replication group
      * -i --image
@@ -222,7 +222,7 @@ public class PaloFe {
     private static CommandLineOptions parseArgs(String[] args) {
         CommandLineParser commandLineParser = new DefaultParser();
         Options options = new Options();
-        options.addOption("v", "version", false, "Print the version of Palo Frontend");
+        options.addOption("v", "version", false, "Print the version of Doris Frontend");
         options.addOption("h", "helper", true, "Specify the helper node when joining a bdb je replication group");
         options.addOption("i", "image", true, "Check if the specified image is valid");
         options.addOption("b", "bdb", false, "Run bdbje debug tools");
