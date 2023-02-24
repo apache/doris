@@ -17,6 +17,7 @@
 
 package org.apache.doris.httpv2.rest;
 
+import org.apache.doris.common.Config;
 import org.apache.doris.metric.JsonMetricVisitor;
 import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.metric.MetricVisitor;
@@ -34,12 +35,16 @@ import javax.servlet.http.HttpServletResponse;
 //fehost:port/metrics
 //fehost:port/metrics?type=core
 @RestController
-public class MetricsAction {
+public class MetricsAction extends RestBaseController {
 
     private static final String TYPE_PARAM = "type";
 
     @RequestMapping(path = "/metrics")
     public void execute(HttpServletRequest request, HttpServletResponse response) {
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
+        }
+
         String type = request.getParameter(TYPE_PARAM);
         MetricVisitor visitor = null;
         if (!Strings.isNullOrEmpty(type) && type.equalsIgnoreCase("core")) {
