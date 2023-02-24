@@ -398,8 +398,8 @@ public class CastExpr extends Expr {
     }
 
     @Override
-    public Expr getResultValue() throws AnalysisException {
-        recursiveResetChildrenResult();
+    public Expr getResultValue(boolean inView) throws AnalysisException {
+        recursiveResetChildrenResult(inView);
         final Expr value = children.get(0);
         if (!(value instanceof LiteralExpr)) {
             return this;

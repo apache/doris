@@ -109,7 +109,7 @@ public class SetVar {
             throw new AnalysisException("Set statement does't support non-constant expr.");
         }
 
-        final Expr literalExpr = value.getResultValue();
+        final Expr literalExpr = value.getResultValue(false);
         if (!(literalExpr instanceof LiteralExpr)) {
             throw new AnalysisException("Set statement does't support computing expr:" + literalExpr.toSql());
         }
