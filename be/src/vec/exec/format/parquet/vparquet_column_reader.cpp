@@ -189,7 +189,7 @@ Status ScalarColumnReader::_skip_values(size_t num_values) {
         size_t null_size = 0;
         size_t nonnull_size = 0;
         while (skipped < num_values) {
-            level_t def_level;
+            level_t def_level = -1;
             size_t loop_skip = def_decoder.get_next_run(&def_level, num_values - skipped);
             if (loop_skip == 0) {
                 continue;
@@ -333,7 +333,8 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
     }
     size_t has_read = 0;
     size_t ancestor_nulls = 0;
-    bool prev_is_null = true;
+    null_map.emplace_back(0);
+    bool prev_is_null = false;
     while (has_read < parsed_values) {
         level_t def_level = _def_levels[has_read++];
         size_t loop_read = 1;
@@ -344,21 +345,27 @@ Status ScalarColumnReader::_read_nested_column(ColumnPtr& doris_column, DataType
         if (def_level < _field_schema->repeated_parent_def_level) {
             // when def_level is less than repeated_parent_def_level, it means that level
             // will affect its ancestor.
-            ancestor_nulls++;
+            ancestor_nulls += loop_read;
             continue;
         }
         bool is_null = def_level < _field_schema->definition_level;
-        if (!(prev_is_null ^ is_null)) {
-            null_map.emplace_back(0);
+        if (prev_is_null == is_null) {
+            if (USHRT_MAX - null_map.back() >= loop_read) {
+                null_map.back() += loop_read;
+            }
+        } else {
+            if (!(prev_is_null ^ is_null)) {
+                null_map.emplace_back(0);
+            }
+            size_t remaining = loop_read;
+            while (remaining > USHRT_MAX) {
+                null_map.emplace_back(USHRT_MAX);
+                null_map.emplace_back(0);
+                remaining -= USHRT_MAX;
+            }
+            null_map.emplace_back((u_short)remaining);
+            prev_is_null = is_null;
         }
-        size_t remaining = loop_read;
-        while (remaining > USHRT_MAX) {
-            null_map.emplace_back(USHRT_MAX);
-            null_map.emplace_back(0);
-            remaining -= USHRT_MAX;
-        }
-        null_map.emplace_back((u_short)remaining);
-        prev_is_null = is_null;
     }
 
     size_t num_values = parsed_values - ancestor_nulls;

@@ -44,12 +44,9 @@ public:
     }
 
     inline level_t get_next() {
-        level_t next;
-        if (LIKELY(_rle_decoder.Get(&next))) {
-            return next;
-        } else {
-            return -1;
-        }
+        level_t next = -1;
+        _rle_decoder.Get(&next);
+        return next;
     }
 
     inline void rewind_one() { _rle_decoder.RewindOne(); }
