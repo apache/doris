@@ -165,6 +165,9 @@ not_check_result = {
     'histogram_DateTime',
     'histogram_DateV2',
     'histogram_DateTimeV2',
+    # win
+    'first_value_pb',
+    'last_value_pb',
 }
 
 win_fn = [

@@ -241,7 +241,10 @@ def generateWinFnSQL(_: Dict[str, List[List[str]]]) -> List[str]:
                         args.append('kint')
                     args.append(fn)
                     tag_app += f'{"_notnull" if t != "fn_test" else ""}'
-                    run_tag = f'qt_sql_{fn[:fn.find("(")]}{tag_app}'
+                    fn_all = f'{fn[:fn.find("(")]}{tag_app}'
+                    run_tag = f'qt_sql_{fn_all}'
+                    if fn_all.replace('_notnull', '') in define.not_check_result:
+                        run_tag = 'sql'
                     sql = f'select {", ".join(args)} over({" ".join(tmp_list)}) as wf from {t}'
                     SQLs.append(f'\t{run_tag} \'\'\'\n\t\t{sql}\'\'\'\n')
         # generate fn with frame and order, with/not partition
