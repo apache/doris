@@ -22,7 +22,8 @@
 
 namespace doris {
 
-Status DataConsumerPool::get_consumer(StreamLoadContext* ctx, std::shared_ptr<DataConsumer>* ret) {
+Status DataConsumerPool::get_consumer(std::shared_ptr<StreamLoadContext> ctx,
+                                      std::shared_ptr<DataConsumer>* ret) {
     std::unique_lock<std::mutex> l(_lock);
 
     // check if there is an available consumer.
@@ -58,7 +59,7 @@ Status DataConsumerPool::get_consumer(StreamLoadContext* ctx, std::shared_ptr<Da
     return Status::OK();
 }
 
-Status DataConsumerPool::get_consumer_grp(StreamLoadContext* ctx,
+Status DataConsumerPool::get_consumer_grp(std::shared_ptr<StreamLoadContext> ctx,
                                           std::shared_ptr<DataConsumerGroup>* ret) {
     if (ctx->load_src_type != TLoadSourceType::KAFKA) {
         return Status::InternalError(
