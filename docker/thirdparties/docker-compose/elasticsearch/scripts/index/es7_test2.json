@@ -26,6 +26,18 @@
       "test4": {
         "type": "date"
       },
+      "test5": {
+        "type": "date",
+        "format": "yyyy-MM-dd HH:mm:ss"
+      },
+      "test7": {
+        "type": "date",
+        "format": "epoch_millis"
+      },
+      "test8": {
+        "type": "date",
+        "format": "yyyy-MM-dd HH:mm:ss || epoch_millis"
+      },
       "c_bool": {
         "type": "boolean"
       },

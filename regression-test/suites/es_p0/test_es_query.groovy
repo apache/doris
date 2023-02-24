@@ -26,6 +26,9 @@ suite("test_es_query", "p0") {
         sql """drop catalog if exists es6;"""
         sql """drop catalog if exists es7;"""
         sql """drop catalog if exists es8;"""
+        sql """drop resource if exists es6_resource;"""
+        sql """drop resource if exists es7_resource;"""
+        sql """drop resource if exists es8_resource;"""
 
         // test old create-catalog syntax for compatibility
         sql """
@@ -55,10 +58,54 @@ suite("test_es_query", "p0") {
         );
         """
 
+        // test external table for datetime
+        sql """
+            CREATE TABLE `test1` (
+                `c_datetime` array<datev2> NULL,
+                `c_long` array<bigint(20)> NULL,
+                `c_unsigned_long` array<largeint(40)> NULL,
+                `c_text` array<text> NULL,
+                `c_short` array<smallint(6)> NULL,
+                `c_ip` array<text> NULL,
+                `test1` text NULL,
+                `c_half_float` array<float> NULL,
+                `test4` datev2 NULL,
+                `test5` datetimev2 NULL,
+                `test2` text NULL,
+                `c_date` array<datev2> NULL,
+                `test3` double NULL,
+                `c_scaled_float` array<double> NULL,
+                `test8` datev2 NULL,
+                `c_float` array<float> NULL,
+                `c_double` array<double> NULL,
+                `c_keyword` array<text> NULL,
+                `c_person` array<text> NULL,
+                `test6` bigint NULL,
+                `test7` datetimev2 NULL,
+                `c_byte` array<tinyint(4)> NULL,
+                `c_bool` array<boolean> NULL,
+                `c_integer` array<int(11)> NULL
+            ) ENGINE=ELASTICSEARCH
+            COMMENT 'ELASTICSEARCH'
+            PROPERTIES (
+                "hosts" = "http://127.0.0.1:$es_8_port",
+                "user"="",
+                "password"="",
+                "index" = "test1",
+                "nodes_discovery"="false",
+                "enable_keyword_sniff"="true",
+                "http_ssl_enabled"="false"
+            );
+        """
+        order_qt_sql51 """select test5,test6,test7 from test1 where test2='text#1'"""
+
+
+
         sql """create catalog if not exists es6 with resource es6_resource;"""
         sql """create catalog if not exists es7 with resource es7_resource;"""
         sql """create catalog if not exists es8 with resource es8_resource;"""
         sql """switch es6"""
+ 
         // order_qt_sql61 """show tables"""
         order_qt_sql62 """select * from test1 where test2='text#1'"""
         order_qt_sql63 """select * from test2_20220808 where test4='2022-08-08'"""

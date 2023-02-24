@@ -180,40 +180,59 @@ static Status get_int_value(const rapidjson::Value& col, PrimitiveType type, voi
 }
 
 template <typename T, typename RT>
-static RT get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool is_date_str) {
-    vectorized::DateV2Value<T> dt_val;
+static Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool is_date_str, RT* slot) {
+    constexpr bool is_datetime_v1 = std::is_same_v<T, vectorized::VecDateTimeValue>;
+    T dt_val;
     PARSE_DATE(dt_val, col, type, is_date_str)
 
-    return binary_cast<doris::vectorized::DateV2Value<T>, RT>(
-            *reinterpret_cast<vectorized::DateV2Value<T>*>(&dt_val));
+    if constexpr (is_datetime_v1) {
+        if (type == TYPE_DATE) {
+            dt_val.cast_to_date();
+        } else {
+            dt_val.to_datetime();
+        }
+    }
+
+    *reinterpret_cast<RT*>(slot) =  binary_cast<T, RT>(*reinterpret_cast<T*>(&dt_val));
+    return Status::OK();
 }
 
 template <typename T, typename RT>
-static RT get_date_int(const rapidjson::Value& sub_col, PrimitiveType sub_type,
-                       bool pure_doc_value) {
+static Status get_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value, RT* slot) {
     // this would happend just only when `enable_docvalue_scan = false`, and field has timestamp format date from _source
-    if (sub_col.IsNumber()) {
+    if (col.IsNumber()) {
         // ES process date/datetime field would use millisecond timestamp for index or docvalue
         // processing date type field, if a number is encountered, Doris On ES will force it to be processed according to ms
         // Doris On ES needs to be consistent with ES, so just divided by 1000 because the unit for from_unixtime is seconds
-        return get_date_value_int<T, RT>(sub_col, sub_type, false);
-    } else if (sub_col.IsArray() && pure_doc_value) {
+        std::cout << "AAA" << std::endl;
+        return get_date_value_int<T, RT>(col, type, false, slot);
+    } else if (col.IsArray() && pure_doc_value) {
         // this would happened just only when `enable_docvalue_scan = true`
         // ES add default format for all field after ES 6.4, if we not provided format for `date` field ES would impose
         // a standard date-format for date field as `2020-06-16T00:00:00.000Z`
         // At present, we just process this string format date. After some PR were merged into Doris, we would impose `epoch_mills` for
         // date field's docvalue
-        if (sub_col[0].IsString()) {
-            return get_date_value_int<T, RT>(sub_col, sub_type, true);
+        if (col[0].IsString()) {
+            std::cout << "ABB" << std::endl;
+            return get_date_value_int<T, RT>(col[0], type, true, slot);
         }
+        std::cout << "ABC" << std::endl;
         // ES would return millisecond timestamp for date field, divided by 1000 because the unit for from_unixtime is seconds
-        return get_date_value_int<T, RT>(sub_col, sub_type, false);
+        return get_date_value_int<T, RT>(col, type, false, slot);
     } else {
+        std::cout << "ACC" << std::endl;
         // this would happened just only when `enable_docvalue_scan = false`, and field has string format date from _source
-        RETURN_ERROR_IF_COL_IS_ARRAY(sub_col, sub_type);
-        RETURN_ERROR_IF_COL_IS_NOT_STRING(sub_col, sub_type);
-        return get_date_value_int<T, RT>(sub_col, sub_type, true);
+        RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+        RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
+        return get_date_value_int<T, RT>(col, type, true, slot);
     }
+}
+template <typename T, typename RT>
+static Status fill_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value, vectorized::IColumn* col_ptr) {
+    RT data;
+    RETURN_IF_ERROR((get_date_int<T, RT>(col, type, pure_doc_value, &data)));
+    col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&data)), 0);
+    return Status::OK();
 }
 
 template <typename T>
@@ -538,33 +557,14 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
 
         case TYPE_DATE:
         case TYPE_DATETIME:
-        case TYPE_DATEV2:
-        case TYPE_DATETIMEV2: {
-            // this would happend just only when `enable_docvalue_scan = false`, and field has timestamp format date from _source
-            if (col.IsNumber()) {
-                // ES process date/datetime field would use millisecond timestamp for index or docvalue
-                // processing date type field, if a number is encountered, Doris On ES will force it to be processed according to ms
-                // Doris On ES needs to be consistent with ES, so just divided by 1000 because the unit for from_unixtime is seconds
-                RETURN_IF_ERROR(fill_date_col(col_ptr, col, type, false));
-            } else if (col.IsArray() && pure_doc_value) {
-                // this would happened just only when `enable_docvalue_scan = true`
-                // ES add default format for all field after ES 6.4, if we not provided format for `date` field ES would impose
-                // a standard date-format for date field as `2020-06-16T00:00:00.000Z`
-                // At present, we just process this string format date. After some PR were merged into Doris, we would impose `epoch_mills` for
-                // date field's docvalue
-                if (col[0].IsString()) {
-                    RETURN_IF_ERROR(fill_date_col(col_ptr, col[0], type, true));
-                    break;
-                }
-                // ES would return millisecond timestamp for date field, divided by 1000 because the unit for from_unixtime is seconds
-                RETURN_IF_ERROR(fill_date_col(col_ptr, col, type, false));
-            } else {
-                // this would happened just only when `enable_docvalue_scan = false`, and field has string format date from _source
-                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
-                RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
-                RETURN_IF_ERROR(fill_date_col(col_ptr, col, type, true));
-            }
+            RETURN_IF_ERROR((fill_date_int<vectorized::VecDateTimeValue, int64_t>(col, type, pure_doc_value, col_ptr)));
             break;
+        case TYPE_DATEV2:
+           RETURN_IF_ERROR((fill_date_int<vectorized::DateV2Value<vectorized::DateV2ValueType>, uint32_t>(col, type, pure_doc_value, col_ptr)));
+           break;
+        case TYPE_DATETIMEV2: {
+           RETURN_IF_ERROR((fill_date_int<vectorized::DateV2Value<vectorized::DateTimeV2ValueType>, uint64_t>(col, type, pure_doc_value, col_ptr)));
+           break;
         }
         case TYPE_ARRAY: {
             vectorized::Array array;
@@ -674,13 +674,15 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                 // see https://github.com/apache/doris/pull/16304
                 // No need to support date and datetime types.
                 case TYPE_DATEV2: {
-                    array.push_back(get_date_int<vectorized::DateV2ValueType, uint32_t>(
-                            sub_col, sub_type, pure_doc_value));
+                    uint32_t data;
+                    RETURN_IF_ERROR((get_date_int<vectorized::DateV2Value<vectorized::DateV2ValueType>, uint32_t>(sub_col, sub_type, pure_doc_value, &data)));
+                    array.push_back(data);
                     break;
                 }
                 case TYPE_DATETIMEV2: {
-                    array.push_back(get_date_int<vectorized::DateTimeV2ValueType, uint64_t>(
-                            sub_col, sub_type, pure_doc_value));
+                    uint64_t data;
+                    RETURN_IF_ERROR((get_date_int<vectorized::DateV2Value<vectorized::DateTimeV2ValueType>, uint64_t>(sub_col, sub_type, pure_doc_value, &data)));
+                    array.push_back(data);
                     break;
                 }
                 default: {
