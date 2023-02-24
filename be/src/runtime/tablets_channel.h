@@ -111,6 +111,9 @@ private:
                      google::protobuf::RepeatedPtrField<PTabletError>* tablet_error,
                      PSlaveTabletNodes slave_tablet_nodes, const bool write_single_replica);
 
+    void _add_broken_tablet(int64_t tablet_id);
+    bool _is_broken_tablet(int64_t tablet_id);
+
     // id of this load channel
     TabletsChannelKey _key;
 
@@ -157,6 +160,8 @@ private:
     // if some other thread call `reduce_memory_usage` at the same time,
     // it will wait on this condition variable.
     std::condition_variable _reduce_memory_cond;
+
+    std::shared_mutex _broken_tablets_lock;
 
     std::unordered_set<int64_t> _partition_ids;
 

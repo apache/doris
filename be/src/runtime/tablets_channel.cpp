@@ -127,7 +127,7 @@ Status TabletsChannel::close(
                 // to make sure tablet writer in `_broken_tablets` won't call `close_wait` method.
                 // `close_wait` might create the rowset and commit txn directly, and the subsequent
                 // publish version task will success, which can cause the replica inconsistency.
-                if (_broken_tablets.find(it.second->tablet_id()) != _broken_tablets.end()) {
+                if (_is_broken_tablet(it.second->tablet_id())) {
                     LOG(WARNING) << "SHOULD NOT HAPPEN, tablet writer is broken but not cancelled"
                                  << ", tablet_id=" << it.first << ", transaction_id=" << _txn_id;
                     continue;
@@ -455,7 +455,7 @@ Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
     std::unordered_map<int64_t /* tablet_id */, std::vector<int> /* row index */> tablet_to_rowidxs;
     for (int i = 0; i < request.tablet_ids_size(); ++i) {
         int64_t tablet_id = request.tablet_ids(i);
-        if (_broken_tablets.find(tablet_id) != _broken_tablets.end()) {
+        if (_is_broken_tablet(tablet_id)) {
             // skip broken tablets
             VLOG_PROGRESS << "skip broken tablet tablet=" << tablet_id;
             continue;
@@ -498,7 +498,7 @@ Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
             error->set_tablet_id(tablet_to_rowidxs_it.first);
             error->set_msg(err_msg);
             tablet_writer_it->second->cancel_with_status(st);
-            _broken_tablets.insert(tablet_to_rowidxs_it.first);
+            _add_broken_tablet(tablet_to_rowidxs_it.first);
             // continue write to other tablet.
             // the error will return back to sender.
         }
@@ -509,6 +509,16 @@ Status TabletsChannel::add_batch(const TabletWriterAddRequest& request,
         _next_seqs[request.sender_id()] = cur_seq + 1;
     }
     return Status::OK();
+}
+
+void TabletsChannel::_add_broken_tablet(int64_t tablet_id) {
+    std::unique_lock<std::shared_mutex> wlock(_broken_tablets_lock);
+    _broken_tablets.insert(tablet_id);
+}
+
+bool TabletsChannel::_is_broken_tablet(int64_t tablet_id) {
+    std::shared_lock<std::shared_mutex> rlock(_broken_tablets_lock);
+    return _broken_tablets.find(tablet_id) != _broken_tablets.end();
 }
 
 template Status
