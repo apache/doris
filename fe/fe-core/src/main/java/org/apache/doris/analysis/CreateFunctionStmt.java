@@ -105,7 +105,7 @@ public class CreateFunctionStmt extends DdlStmt {
     private final Map<String, String> properties;
     private final List<String> parameters;
     private final Expr originFunction;
-    TFunctionBinaryType binaryType = TFunctionBinaryType.JAVA_UDF;
+    TFunctionBinaryType binaryType = TFunctionBinaryType.NATIVE;
 
     // needed item set after analyzed
     private String userFile;
@@ -209,14 +209,10 @@ public class CreateFunctionStmt extends DdlStmt {
             intermediateType = returnType;
         }
 
-        String type = properties.getOrDefault(BINARY_TYPE, "JAVA_UDF");
+        String type = properties.getOrDefault(BINARY_TYPE, "NATIVE");
         binaryType = getFunctionBinaryType(type);
         if (binaryType == null) {
             throw new AnalysisException("unknown function type");
-        }
-        if (type.equals("NATIVE")) {
-            throw new AnalysisException("do not support 'NATIVE' udf type after doris version 1.2.0,"
-                                    + "please use JAVA_UDF or RPC instead");
         }
 
         userFile = properties.getOrDefault(FILE_KEY, properties.get(OBJECT_FILE_KEY));
