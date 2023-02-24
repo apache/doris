@@ -230,18 +230,19 @@ def generateWinFnSQL(_: Dict[str, List[List[str]]]) -> List[str]:
         for t in tables:
             for i in range(0, 2):
                 for j in range(0, 2):
-                    tmp_list = []
-                    tag_app = ""
+                    tmp_list, tag_app, args = [], "", []
                     if i == 1:
                         tmp_list.append(partition_by)
                         tag_app += "_pb"
+                        args.append('kstr')
                     if j == 1:
                         tmp_list.append(order_by)
                         tag_app += "_ob"
+                        args.append('kint')
+                    args.append(fn)
                     tag_app += f'{"_notnull" if t != "fn_test" else ""}'
                     run_tag = f'qt_sql_{fn[:fn.find("(")]}{tag_app}'
-                    sql = f'select kint, ksint, {fn} over({" ".join(tmp_list)}) as wf from {t} ' \
-                          f'order by kint'
+                    sql = f'select {", ".join(args)} over({" ".join(tmp_list)}) as wf from {t}'
                     SQLs.append(f'\t{run_tag} \'\'\'\n\t\t{sql}\'\'\'\n')
         # generate fn with frame and order, with/not partition
         # frame with rows and range, 'start' clause and 'between and' clause.
@@ -258,7 +259,7 @@ def generateWinFnSQL(_: Dict[str, List[List[str]]]) -> List[str]:
                     tag_app = f'_f{"_notnull" if t != "fn_test" else ""}_{tag_cnt}'
                     run_tag = f'qt_sql_{fn[:fn.find("(")]}{tag_app}'
                     frame = f'{rng} {define.frame_range[x]}'
-                    sql = f'select kint, ksint, {fn} over({partition_by} {order_by} {frame}) as wf from {t} order by kint'
+                    sql = f'select kstr, kint, {fn} over({partition_by} {order_by} {frame}) as wf from {t} order by kint'
                     SQLs.append(f'\t{run_tag} \'\'\'\n\t\t{sql}\'\'\'\n')
             for y in range(0, 3):
                 if fn not in range_supp:
@@ -272,7 +273,7 @@ def generateWinFnSQL(_: Dict[str, List[List[str]]]) -> List[str]:
                         tag_app = f'_f{"_notnull" if t != "fn_test" else ""}_{tag_cnt}'
                         run_tag = f'qt_sql_{fn[:fn.find("(")]}{tag_app}'
                         frame = f'{rng} between {define.frame_range[y]} and {define.frame_range[z]}'
-                        sql = f'select kint, ksint, {fn} over({partition_by} {order_by} {frame}) as wf from {t} order by kint'
+                        sql = f'select kstr, kint, {fn} over({partition_by} {order_by} {frame}) as wf from {t} order by kint'
                         SQLs.append(f'\t{run_tag} \'\'\'\n\t\t{sql}\'\'\'\n')
         SQLs.append('\n')
     return SQLs
