@@ -633,7 +633,7 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
                                                     &_file_system, &_file_reader, _io_ctx));
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
         _params.file_type != TFileType::FILE_BROKER) {
-        return Status::EndOfFile("Empty File");
+        return Status::EndOfFile("get parsed schema failed, empty csv file: " + _range.path);
     }
 
     // get column_separator and line_delimiter
