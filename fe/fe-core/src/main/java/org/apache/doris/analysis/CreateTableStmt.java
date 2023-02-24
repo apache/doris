@@ -456,8 +456,8 @@ public class CreateTableStmt extends DdlStmt {
                         throw new AnalysisException("Aggregate table can't support array value now");
                     }
                     if (columnDef.getAggregateType() != null
-                        && columnDef.getAggregateType() != AggregateType.NONE
-                        && columnDef.getAggregateType() != AggregateType.REPLACE) {
+                            && columnDef.getAggregateType() != AggregateType.NONE
+                            && columnDef.getAggregateType() != AggregateType.REPLACE) {
                         throw new AnalysisException("Array column can't support aggregation "
                                                     + columnDef.getAggregateType());
                     }
