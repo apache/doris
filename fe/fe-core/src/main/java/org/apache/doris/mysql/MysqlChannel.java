@@ -60,6 +60,7 @@ public class MysqlChannel {
     protected volatile MysqlSerializer serializer;
 
     protected MysqlChannel() {
+        // For DummyMysqlChannel
     }
 
     public MysqlChannel(StreamConnection connection) {
@@ -78,6 +79,7 @@ public class MysqlChannel {
             remoteHostPortString = connection.getPeerAddress().toString();
             remoteIp = connection.getPeerAddress().toString();
         }
+        // The serializer and buffers should only be created if this is a real MysqlChannel
         this.serializer = MysqlSerializer.newInstance();
         this.defaultBuffer = ByteBuffer.allocate(16 * 1024);
         this.headerByteBuffer = ByteBuffer.allocate(PACKET_HEADER_LEN);

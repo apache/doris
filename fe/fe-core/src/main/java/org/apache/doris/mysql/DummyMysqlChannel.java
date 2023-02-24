@@ -24,6 +24,7 @@ import java.nio.ByteBuffer;
 /**
  * DummyMysqlChannel do nothing, just for making unit test happy.
  * So that in unit test, we don't need to check if serializer is null.
+ * And don't need to allocate a real ByteBuffer.
  */
 public class DummyMysqlChannel extends MysqlChannel {
     public DummyMysqlChannel() {
