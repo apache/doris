@@ -93,8 +93,10 @@ public class MaterializedViewHandler extends AlterHandler {
     private static final Logger LOG = LogManager.getLogger(MaterializedViewHandler.class);
     public static final String NEW_STORAGE_FORMAT_INDEX_NAME_PREFIX = "__v2_";
 
+    public static int scheduler_interval_millisecond = 333;
+
     public MaterializedViewHandler() {
-        super("materialized view");
+        super("materialized view", scheduler_interval_millisecond);
     }
 
     // for batch submit rollup job, tableId -> jobId
