@@ -30,11 +30,7 @@
 5908.20
 
 -- !q08 --
-<<<<<<< HEAD
 120001848
-=======
-1499999990
->>>>>>> 3ff01ca799 ([feature-wip](multi-catalog) support Iceberg time travel in external table (#15418))
 
 -- !q09 --
 1
@@ -42,15 +38,9 @@
 3
 
 -- !q10 --
-<<<<<<< HEAD
 150000000
 149999999
 149999996
-=======
-2
-3
-4
->>>>>>> 3ff01ca799 ([feature-wip](multi-catalog) support Iceberg time travel in external table (#15418))
 
 -- !q11 --
 1
@@ -58,13 +48,7 @@
 3
 
 -- !q12 --
-<<<<<<< HEAD
 150000000
 149999999
 149999996
 
-=======
-2
-3
-4
->>>>>>> 3ff01ca799 ([feature-wip](multi-catalog) support Iceberg time travel in external table (#15418))
