@@ -21,8 +21,8 @@ import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
-import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
+import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.shape.TernaryExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BigIntType;
@@ -37,8 +37,8 @@ import java.util.List;
 /**
  * Window function: Lead()
  */
-public class Lead extends WindowFunction implements TernaryExpression, PropagateNullable,
-        ExplicitlyCastableSignature, RequireTrivialTypes {
+public class Lead extends WindowFunction implements TernaryExpression, ExplicitlyCastableSignature,
+        RequireTrivialTypes {
 
     static {
         List<FunctionSignature> signatures = Lists.newArrayList();
@@ -78,6 +78,14 @@ public class Lead extends WindowFunction implements TernaryExpression, Propagate
             throw new AnalysisException("Not set default value of Lead(): " + this.toSql());
         }
         return child(2);
+    }
+
+    @Override
+    public boolean nullable() {
+        if (children.size() == 3 && child(2) instanceof NullLiteral) {
+            return true;
+        }
+        return child(0).nullable();
     }
 
     @Override
