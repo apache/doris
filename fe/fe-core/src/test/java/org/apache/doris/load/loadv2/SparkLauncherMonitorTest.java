@@ -62,7 +62,7 @@ public class SparkLauncherMonitorTest {
             Process process = Runtime.getRuntime().exec(cmd);
             handle = new SparkLoadAppHandle(process);
             SparkLauncherMonitor.LogMonitor logMonitor = SparkLauncherMonitor.createLogMonitor(handle, config);
-            Assert.assertEquals(logMonitor.getSubmitTimeoutMs(), "60000");;
+            Assert.assertEquals(logMonitor.getSubmitTimeoutMs(), "60000");
             logMonitor.setRedirectLogPath(logPath);
             logMonitor.start();
             try {
