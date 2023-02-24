@@ -981,29 +981,22 @@ Status DefaultValueColumnIterator::init(const ColumnIteratorOptions& opts) {
             _is_default_value_null = true;
         } else {
             _type_size = _type_info->size();
-            _mem_value = reinterpret_cast<void*>(_pool->allocate(_type_size));
+            _mem_value.resize(_type_size);
             Status s = Status::OK();
-            if (_type_info->type() == OLAP_FIELD_TYPE_CHAR) {
-                int32_t length = _schema_length;
-                char* string_buffer = reinterpret_cast<char*>(_pool->allocate(length));
-                memset(string_buffer, 0, length);
-                memory_copy(string_buffer, _default_value.c_str(), _default_value.length());
-                ((Slice*)_mem_value)->size = length;
-                ((Slice*)_mem_value)->data = string_buffer;
-            } else if (_type_info->type() == OLAP_FIELD_TYPE_VARCHAR ||
-                       _type_info->type() == OLAP_FIELD_TYPE_HLL ||
-                       _type_info->type() == OLAP_FIELD_TYPE_OBJECT ||
-                       _type_info->type() == OLAP_FIELD_TYPE_STRING) {
-                int32_t length = _default_value.length();
-                char* string_buffer = reinterpret_cast<char*>(_pool->allocate(length));
-                memory_copy(string_buffer, _default_value.c_str(), length);
-                ((Slice*)_mem_value)->size = length;
-                ((Slice*)_mem_value)->data = string_buffer;
+            // If char length is 10, but default value is 'a' , it's length is 1
+            // not fill 0 to the ending, because segment iterator will shrink the tail 0 char
+            if (_type_info->type() == OLAP_FIELD_TYPE_VARCHAR ||
+                _type_info->type() == OLAP_FIELD_TYPE_HLL ||
+                _type_info->type() == OLAP_FIELD_TYPE_OBJECT ||
+                _type_info->type() == OLAP_FIELD_TYPE_STRING ||
+                _type_info->type() == OLAP_FIELD_TYPE_CHAR) {
+                ((Slice*)_mem_value.data())->size = _default_value.length();
+                ((Slice*)_mem_value.data())->data = _default_value.data();
             } else if (_type_info->type() == OLAP_FIELD_TYPE_ARRAY) {
                 // TODO llj for Array default value
                 return Status::NotSupported("Array default type is unsupported");
             } else {
-                s = _type_info->from_string(_mem_value, _default_value, _precision, _scale);
+                s = _type_info->from_string(_mem_value.data(), _default_value, _precision, _scale);
             }
             if (!s.ok()) {
                 return s;
@@ -1030,7 +1023,7 @@ Status DefaultValueColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, b
     } else {
         *has_null = false;
         for (int i = 0; i < *n; ++i) {
-            memcpy(dst->data(), _mem_value, _type_size);
+            memcpy(dst->data(), _mem_value.data(), _type_size);
             dst->advance(1);
         }
     }
@@ -1117,7 +1110,7 @@ void DefaultValueColumnIterator::_insert_many_default(vectorized::MutableColumnP
     if (_is_default_value_null) {
         dst->insert_many_defaults(n);
     } else {
-        insert_default_data(_type_info.get(), _type_size, _mem_value, dst, n);
+        insert_default_data(_type_info.get(), _type_size, _mem_value.data(), dst, n);
     }
 }
 

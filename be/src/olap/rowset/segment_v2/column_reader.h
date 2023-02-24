@@ -432,12 +432,10 @@ public:
               _default_value(default_value),
               _is_nullable(is_nullable),
               _type_info(std::move(type_info)),
-              _schema_length(schema_length),
               _is_default_value_null(false),
               _type_size(0),
               _precision(precision),
-              _scale(scale),
-              _pool(new MemPool()) {}
+              _scale(scale) {}
 
     Status init(const ColumnIteratorOptions& opts) override;
 
@@ -479,13 +477,11 @@ private:
     std::string _default_value;
     bool _is_nullable;
     TypeInfoPtr _type_info;
-    size_t _schema_length;
     bool _is_default_value_null;
     size_t _type_size;
     int _precision;
     int _scale;
-    void* _mem_value = nullptr;
-    std::unique_ptr<MemPool> _pool;
+    std::vector<char> _mem_value;
 
     // current rowid
     ordinal_t _current_rowid = 0;
