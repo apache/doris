@@ -188,7 +188,7 @@ under the License.
         <json-simple.version>1.1.1</json-simple.version>
         <junit.version>5.8.2</junit.version>
         <hikaricp.version>3.4.5</hikaricp.version>
-        <thrift.version>0.13.0</thrift.version>
+        <thrift.version>0.18.0</thrift.version>
         <log4j2.version>2.18.0</log4j2.version>
         <metrics-core.version>4.0.2</metrics-core.version>
         <netty-all.version>4.1.42.Final</netty-all.version>
