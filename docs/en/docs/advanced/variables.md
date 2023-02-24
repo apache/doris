@@ -532,6 +532,10 @@ Translated with www.DeepL.com/Translator (free version)
 * `skip_delete_predicate`
   For debugging purpose. In vectorized execution engine, in case of problems of reading data, setting value to `true` will also read deleted data.
 
+* `skip_delete_bitmap`
+
+    For debugging purpose. In Unique Key MoW table, in case of problems of reading data, setting value to `true` will also read deleted data.
+
 * `default_password_lifetime`
 
 	Default password expiration time. The default value is 0, which means no expiration. The unit is days. This parameter is only enabled if the user's password expiration property has a value of DEFAULT. like:

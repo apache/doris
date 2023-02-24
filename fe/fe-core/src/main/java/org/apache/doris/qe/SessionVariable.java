@@ -232,6 +232,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKIP_DELETE_SIGN = "skip_delete_sign";
 
+    public static final String SKIP_DELETE_BITMAP = "skip_delete_bitmap";
+
     public static final String ENABLE_NEW_SHUFFLE_HASH_METHOD = "enable_new_shuffle_hash_method";
 
     public static final String ENABLE_PUSH_DOWN_NO_GROUP_AGG = "enable_push_down_no_group_agg";
@@ -617,6 +619,12 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = SKIP_DELETE_SIGN)
     public boolean skipDeleteSign = false;
+
+    /**
+     * For debug purpose, skip delete bitmap when reading data.
+     */
+    @VariableMgr.VarAttr(name = SKIP_DELETE_BITMAP)
+    public boolean skipDeleteBitmap = false;
 
     // This variable is used to avoid FE fallback to the original parser. When we execute SQL in regression tests
     // for nereids, fallback will cause the Doris return the correct result although the syntax is unsupported
@@ -1387,6 +1395,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSkipStorageEngineMerge(skipStorageEngineMerge);
 
         tResult.setSkipDeletePredicate(skipDeletePredicate);
+
+        tResult.setSkipDeleteBitmap(skipDeleteBitmap);
 
         tResult.setPartitionedHashJoinRowsThreshold(partitionedHashJoinRowsThreshold);
 
