@@ -1,7 +1,7 @@
 ---
 {
-"title": "Deploy Docker cluster",
-"language": "zh-CN"
+    "title": "Deploy Docker cluster",
+    "language": "en"
 }
 ---
 
