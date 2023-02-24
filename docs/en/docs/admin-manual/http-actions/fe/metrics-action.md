@@ -1,7 +1,7 @@
 ---
 {
-    "title": "SHOW DATA",
-    "language": "zh-CN"
+    "title": "Metrics Action",
+    "language": "en"
 }
 ---
 
@@ -24,12 +24,25 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# SHOW DATA
-   
-获取当前集群占用的总空间大小
+# Metrics Action
 
-```
-curl -X GET http://fe_host:fe_http_port/api/show_data
-```
+## Request
 
-返回值就是集群的总数据大小
+`GET /api/metrics`
+
+## Description
+
+Used to obtain doris metrics infomation.
+    
+## Path parameters
+
+None
+
+## Query parameters
+
+None
+
+## Request body
+
+None
+

@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Cancel Load Action",
+    "title": "Colocate Meta Action",
     "language": "zh-CN"
 }
 ---
@@ -24,32 +24,25 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Cancel Load Action
+# Colocate Meta Action
 
 ## Request
 
-`POST /api/<db>/_cancel`
+`GET /api/colocate`
+`POST/DELETE /api/colocate/group_stable`
+`POST /api/colocate/bucketseq`
 
 ## Description
 
-用于取消掉指定label的导入任务。
-执行完成后，会以Json格式返回这次导入的相关内容。当前包括以下字段
-    Status: 是否成功cancel
-        Success: 成功cancel事务
-        其他: cancel失败
-    Message: 具体的失败信息
+获取/修改colocate group信息。
     
 ## Path parameters
 
-* `<db>`
-
-    指定数据库名称
+无
 
 ## Query parameters
 
-* `<label>`
-
-    指定导入label
+无
 
 ## Request body
 
@@ -57,45 +50,4 @@ under the License.
 
 ## Response
 
-* 取消成功
-
-    ```
-    {
-    	"msg": "OK",
-    	"code": 0,
-    	"data": null,
-    	"count": 0
-    }
-    ```
-
-* 取消失败
-
-    ```
-    {
-    	"msg": "Error msg...",
-    	"code": 1,
-    	"data": null,
-    	"count": 0
-    }
-    ```
-    
-## Examples
-
-1. 取消指定label的导入事务
-
-    ```
-    POST /api/example_db/_cancel?label=my_label1
-
-    Response:
-    {
-    	"msg": "OK",
-    	"code": 0,
-    	"data": null,
-    	"count": 0
-    }
-    ```
-    
-
-
-
-
+TO DO

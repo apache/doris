@@ -1,6 +1,6 @@
 ---
 {
-    "title": "Cancel Load Action",
+    "title": "Statistic Action",
     "language": "zh-CN"
 }
 ---
@@ -24,32 +24,23 @@ specific language governing permissions and limitations
 under the License.
 -->
 
-# Cancel Load Action
+# Statistic Action
 
 ## Request
 
-`POST /api/<db>/_cancel`
+`GET /rest/v2/api/cluster_overview`
 
 ## Description
 
-用于取消掉指定label的导入任务。
-执行完成后，会以Json格式返回这次导入的相关内容。当前包括以下字段
-    Status: 是否成功cancel
-        Success: 成功cancel事务
-        其他: cancel失败
-    Message: 具体的失败信息
+获取集群统计信息、库表数量等。
     
 ## Path parameters
 
-* `<db>`
-
-    指定数据库名称
+无
 
 ## Query parameters
 
-* `<label>`
-
-    指定导入label
+无
 
 ## Request body
 
@@ -57,45 +48,11 @@ under the License.
 
 ## Response
 
-* 取消成功
-
-    ```
-    {
-    	"msg": "OK",
-    	"code": 0,
-    	"data": null,
-    	"count": 0
-    }
-    ```
-
-* 取消失败
-
-    ```
-    {
-    	"msg": "Error msg...",
-    	"code": 1,
-    	"data": null,
-    	"count": 0
-    }
-    ```
-    
-## Examples
-
-1. 取消指定label的导入事务
-
-    ```
-    POST /api/example_db/_cancel?label=my_label1
-
-    Response:
-    {
-    	"msg": "OK",
-    	"code": 0,
-    	"data": null,
-    	"count": 0
-    }
-    ```
-    
-
-
-
-
+```
+{
+    "msg":"success",
+    "code":0,
+    "data":{"diskOccupancy":0,"remainDisk":5701197971457,"feCount":1,"tblCount":27,"beCount":1,"dbCount":2},
+    "count":0
+}
+```
