@@ -1409,7 +1409,7 @@ public class FunctionCallExpr extends Expr {
          * Return type is DATETIME
          */
         if (fn.getFunctionName().getFunction().equals("str_to_date")) {
-            Expr child1Result = getChild(1).getResultValue();
+            Expr child1Result = getChild(1).getResultValue(false);
             if (child1Result instanceof StringLiteral) {
                 if (DateLiteral.hasTimePart(child1Result.getStringValue())) {
                     this.type = Type.DATETIME;
