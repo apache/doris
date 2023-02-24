@@ -168,6 +168,8 @@ public class AuthTest {
 
         try {
             auth.createUser(createUserStmt);
+            Set<UserIdentity> roleUsers = auth.getRoleUsers(userIdentity.toDefaultRoleName());
+            Assert.assertTrue(roleUsers.contains(userIdentity));
         } catch (DdlException e) {
             Assert.fail();
         }
@@ -295,6 +297,8 @@ public class AuthTest {
         }
         try {
             auth.createUser(createUserStmt);
+            Set<UserIdentity> roleUsers = auth.getRoleUsers(userIdentity.toDefaultRoleName());
+            Assert.assertTrue(roleUsers.contains(userIdentity));
         } catch (DdlException e) {
             Assert.fail();
         }
