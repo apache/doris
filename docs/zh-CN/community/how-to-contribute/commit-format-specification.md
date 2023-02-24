@@ -1,7 +1,7 @@
 ---
 {
     "title": "Commit 格式规范",
-    "language": "en"
+    "language": "zh-CN"
 }
 
 ---
