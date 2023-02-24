@@ -18,10 +18,12 @@
 package org.apache.doris.httpv2.restv2;
 
 import org.apache.doris.analysis.BrokerDesc;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.parquet.ParquetReader;
 import org.apache.doris.common.util.BrokerUtil;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
+import org.apache.doris.httpv2.rest.RestBaseController;
 import org.apache.doris.thrift.TBrokerFileStatus;
 
 import com.google.common.collect.Lists;
@@ -42,7 +44,7 @@ import javax.servlet.http.HttpServletResponse;
 
 @RestController
 @RequestMapping("/rest/v2")
-public class ImportAction {
+public class ImportAction extends RestBaseController {
 
     private static final Logger LOG = LogManager.getLogger(ImportAction.class);
 
@@ -74,6 +76,10 @@ public class ImportAction {
     @RequestMapping(path = "/api/import/file_review", method = RequestMethod.POST)
     public Object fileReview(@RequestBody FileReviewRequestVo body,
             HttpServletRequest request, HttpServletResponse response) {
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
+        }
+
         FileInfo fileInfo = body.getFileInfo();
         ConnectInfo connectInfo = body.getConnectInfo();
         BrokerDesc brokerDesc = new BrokerDesc(connectInfo.getBrokerName(), connectInfo.getBrokerProps());
