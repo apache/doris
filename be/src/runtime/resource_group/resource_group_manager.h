@@ -39,7 +39,7 @@ public:
     static constexpr int DEFAULT_CPU_SHARE = 64;
 
     static constexpr uint64_t POC_RG_ID = 1;
-    static constexpr uint64_t POC_RG_CPU_SHARE = 128;
+    static constexpr int POC_RG_CPU_SHARE = 128;
 
 private:
     void _create_default_rs_group();

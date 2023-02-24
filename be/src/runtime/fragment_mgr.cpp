@@ -683,8 +683,9 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
             rg = resourcegroup::ResourceGroupManager::instance()
                          ->get_or_create_resource_group(0);
         }
+        LOG(INFO) << "llj test query_id: " << print_id(fragments_ctx->query_id)
+                  << " rs group share: " << rg->cpu_share();
         fragments_ctx->set_rs_group(rg);
-
 
         {
             // Find _fragments_ctx_map again, in case some other request has already
