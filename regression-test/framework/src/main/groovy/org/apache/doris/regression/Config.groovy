@@ -483,6 +483,9 @@ class Config {
     }
 
     private String addSslUrl(String url) {
+        if (url.contains("TLS")) {
+            return url
+        }
         String useSsl = random() > 0.5 ? "true" : "false"
         // todo: change to random
         useSsl = "true"
