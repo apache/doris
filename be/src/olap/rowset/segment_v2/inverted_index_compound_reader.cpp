@@ -108,9 +108,9 @@ DorisCompoundReader::DorisCompoundReader(lucene::store::Directory* d, const char
         : readBufferSize(read_buffer_size),
           dir(d),
           ram_dir(new lucene::store::RAMDirectory()),
+          file_name(name),
           stream(nullptr),
           entries(_CLNEW EntriesType(true, true)) {
-    file_name = strdup(name);
     bool success = false;
     try {
         stream = dir->openInput(name, readBufferSize);
