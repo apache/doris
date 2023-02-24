@@ -17,6 +17,7 @@
 
 #include "http/action/stream_load_with_sql.h"
 
+#include <cstddef>
 #include <deque>
 #include <future>
 #include <sstream>
@@ -153,7 +154,7 @@ void StreamLoadWithSqlAction::handle(HttpRequest* req) {
 
     // status already set to fail
     if (ctx->status.ok()) {
-        ctx->status = _handle(ctx);
+        ctx->status = _handle(req, ctx);
         if (!ctx->status.ok() && !ctx->status.is<PUBLISH_TIMEOUT>()) {
             LOG(WARNING) << "handle streaming load failed, id=" << ctx->id
                          << ", errmsg=" << ctx->status;
@@ -162,10 +163,6 @@ void StreamLoadWithSqlAction::handle(HttpRequest* req) {
     ctx->load_cost_millis = UnixMillis() - ctx->start_millis;
 
     if (!ctx->status.ok() && !ctx->status.is<PUBLISH_TIMEOUT>()) {
-        if (ctx->need_rollback) {
-            _exec_env->stream_load_executor()->rollback_txn(ctx);
-            ctx->need_rollback = false;
-        }
         if (ctx->body_sink.get() != nullptr) {
             ctx->body_sink->cancel(ctx->status.to_string());
         }
@@ -218,16 +215,24 @@ void StreamLoadWithSqlAction::handle(HttpRequest* req) {
     streaming_load_with_sql_current_processing->increment(-1);
 }
 
-Status StreamLoadWithSqlAction::_handle(StreamLoadContext* ctx) {
+Status StreamLoadWithSqlAction::_handle(HttpRequest* req, StreamLoadContext* ctx) {
     if (ctx->body_bytes > 0 && ctx->receive_bytes != ctx->body_bytes) {
         LOG(WARNING) << "recevie body don't equal with body bytes, body_bytes=" << ctx->body_bytes
                      << ", receive_bytes=" << ctx->receive_bytes << ", id=" << ctx->id;
         return Status::InternalError("receive body don't equal with body bytes");
     }
-
-    RETURN_IF_ERROR(ctx->body_sink->finish());
-    ctx->future.wait_for(std::chrono::seconds(1));
-    if (!ctx->future.valid()) {
+    if (!ctx->use_streaming) {
+        // if we use non-streaming, we need to close file first,
+        // then execute_plan_fragment here
+        // this will close file
+        ctx->body_sink.reset();
+        _process_put(req, ctx);
+    } else {
+        RETURN_IF_ERROR(ctx->body_sink->finish());
+    }
+    std::future_status future_status =
+            ctx->future.wait_for(std::chrono::seconds(config::stream_load_report_timeout_second));
+    if (future_status == std::future_status::timeout) {
         return Status::TimedOut("stream load timeout");
     }
     RETURN_IF_ERROR(ctx->future.get());
@@ -268,10 +273,6 @@ int StreamLoadWithSqlAction::on_header(HttpRequest* req) {
     auto st = _on_header(req, ctx);
     if (!st.ok()) {
         ctx->status = std::move(st);
-        if (ctx->need_rollback) {
-            _exec_env->stream_load_executor()->rollback_txn(ctx);
-            ctx->need_rollback = false;
-        }
         if (ctx->body_sink != nullptr) {
             ctx->body_sink->cancel(ctx->status.to_string());
         }
@@ -352,13 +353,23 @@ Status StreamLoadWithSqlAction::_on_header(HttpRequest* http_req, StreamLoadCont
         }
     }
 
-    // create stream load pipe
-    auto pipe = std::make_shared<io::StreamLoadPipe>(
-            io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
-            ctx->body_bytes /* total_length */);
-    RETURN_IF_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, pipe));
+    ctx->use_streaming = _is_format_support_streaming(ctx->format);
+    if (ctx->use_streaming) {
+        ctx->need_schema_buffer = true;
+        // create stream load pipe
+        auto pipe = std::make_shared<io::StreamLoadPipe>(
+                io::kMaxPipeBufferedBytes /* max_buffered_bytes */, 64 * 1024 /* min_chunk_size */,
+                ctx->body_bytes /* total_length */);
+        RETURN_IF_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, pipe));
+        ctx->body_sink = pipe;
+    } else {
+        ctx->need_schema_buffer = false;
+        RETURN_IF_ERROR(_data_saved_path(http_req, &ctx->path));
+        auto file_sink = std::make_shared<MessageBodyFileSink>(ctx->path);
+        RETURN_IF_ERROR(file_sink->open());
+        ctx->body_sink = file_sink;
+    }
     ctx->future = _exec_env->new_load_stream_mgr()->get_future(ctx->id);
-    ctx->body_sink = pipe;
     ctx->txn_id = 0;
 
     return Status::OK();
@@ -374,15 +385,79 @@ void StreamLoadWithSqlAction::on_chunk_data(HttpRequest* req) {
     auto evbuf = evhttp_request_get_input_buffer(ev_req);
 
     int64_t start_read_data_time = MonotonicNanos();
+    const size_t stream_buffer_size = 128 * 1024;
 
-    // Use buffer to store the first 1MB of stream data so that the schema can be parsed later
-    // It is assumed that 1MB is sufficient here,
-    // but later modifications may be needed to resolve different line lengths
-    const size_t buffer_max_size = config::stream_tvf_buffer_size;
-    size_t buffer_size = 0;
-    char* buffer = new char[buffer_max_size];
+    if (ctx->need_schema_buffer) {
+        while (evbuffer_get_length(evbuf) > 0) {
+            if (ctx->schema_buffer_size + stream_buffer_size > config::stream_tvf_buffer_size) {
+                break;
+            }
+            auto bb = ByteBuffer::allocate(stream_buffer_size);
+            auto remove_bytes = evbuffer_remove(evbuf, bb->ptr, bb->capacity);
+            bb->pos = remove_bytes;
+            bb->flip();
+            auto st = ctx->body_sink->append(bb);
+            if (!st.ok()) {
+                LOG(WARNING) << "append body content failed. errmsg=" << st << ", " << ctx->brief();
+                ctx->status = st;
+                return;
+            }
+            memcpy(ctx->schema_buffer + ctx->schema_buffer_size, bb->ptr, remove_bytes);
+            ctx->schema_buffer_size += remove_bytes;
+        }
+        // call process and wait fetch_table_schema to consume body_sink
+        if (ctx->schema_buffer_size) {
+            auto pipe = std::make_shared<io::StreamLoadPipe>(
+                    io::kMaxPipeBufferedBytes /* max_buffered_bytes */,
+                    64 * 1024 /* min_chunk_size */, ctx->body_bytes /* total_length */);
+            ctx->status = _exec_env->new_load_stream_mgr()->put(ctx->id, pipe);
+            std::future<Status> future =
+                    _exec_env->new_load_stream_mgr()->get_buffer_future(ctx->id);
+            ctx->body_sink->finish();
+            ctx->status = _process_put(req, ctx);
+            std::future_status future_status =
+                    future.wait_for(std::chrono::seconds(config::stream_load_exec_timeout_second));
+            if (future_status == std::future_status::timeout) {
+                ctx->status = Status::TimedOut("stream load timeout");
+                return;
+            }
+            ctx->status = future.get();
+            if (!ctx->status.ok()) {
+                return;
+            }
+            // write schema buffer to streamload pipe
+
+            if (!ctx->status.ok()) {
+                return;
+            }
+            ctx->body_sink = pipe;
+            size_t remove_bytes = 0;
+            while (ctx->schema_buffer_size > 0) {
+                auto bb = ByteBuffer::allocate(stream_buffer_size);
+                size_t cur_remove_bytes = std::min(ctx->schema_buffer_size, stream_buffer_size);
+                memcpy(bb->ptr, ctx->schema_buffer + remove_bytes, cur_remove_bytes);
+                ctx->schema_buffer_size -= cur_remove_bytes;
+                remove_bytes += cur_remove_bytes;
+                bb->pos = cur_remove_bytes;
+                ctx->receive_bytes += cur_remove_bytes;
+                bb->flip();
+                auto st = ctx->body_sink->append(bb);
+                if (!st.ok()) {
+                    LOG(WARNING) << "append body content failed. errmsg=" << st << ", "
+                                 << ctx->brief();
+                    ctx->status = st;
+                    return;
+                }
+            }
+            ctx->need_schema_buffer = false;
+        }
+        ctx->read_data_cost_nanos += (MonotonicNanos() - start_read_data_time);
+        return;
+    }
+
+    // local file no need to buffer
     while (evbuffer_get_length(evbuf) > 0) {
-        auto bb = ByteBuffer::allocate(128 * 1024);
+        auto bb = ByteBuffer::allocate(stream_buffer_size);
         auto remove_bytes = evbuffer_remove(evbuf, bb->ptr, bb->capacity);
         bb->pos = remove_bytes;
         bb->flip();
@@ -393,19 +468,6 @@ void StreamLoadWithSqlAction::on_chunk_data(HttpRequest* req) {
             return;
         }
         ctx->receive_bytes += remove_bytes;
-        if (ctx->receive_bytes <= buffer_max_size) {
-            memcpy(buffer + buffer_size, bb->ptr, remove_bytes);
-            buffer_size += remove_bytes;
-        } else {
-            _exec_env->new_load_stream_mgr()->put_buffer(ctx->id, buffer);
-            ctx->is_put_buffer = true;
-            ctx->status = _process_put(req, ctx);
-        }
-    }
-    if (!ctx->is_put_buffer && buffer_size) {
-        _exec_env->new_load_stream_mgr()->put_buffer(ctx->id, buffer);
-        ctx->is_put_buffer = true;
-        ctx->status = _process_put(req, ctx);
     }
     ctx->read_data_cost_nanos += (MonotonicNanos() - start_read_data_time);
 }
@@ -425,12 +487,6 @@ void StreamLoadWithSqlAction::free_handler_ctx(void* param) {
 }
 
 Status StreamLoadWithSqlAction::_process_put(HttpRequest* http_req, StreamLoadContext* ctx) {
-    // Now we use stream
-    ctx->use_streaming = _is_format_support_streaming(ctx->format);
-    if (!ctx->use_streaming) {
-        return Status::InvalidArgument("Not support file format in stream load with sql");
-    }
-
     // put request
     TStreamLoadPutRequest request;
     set_request_auth(&request, ctx->auth);
@@ -453,11 +509,18 @@ Status StreamLoadWithSqlAction::_process_put(HttpRequest* http_req, StreamLoadCo
     } else {
         request.__set_execMemLimit(config::stream_load_exec_mem_limit);
     }
-    request.fileType = TFileType::FILE_STREAM;
+    if (ctx->use_streaming) {
+        request.fileType = TFileType::FILE_STREAM;
+    } else {
+        request.path = ctx->path;
+        request.__isset.path = true;
+        request.fileType = TFileType::FILE_LOCAL;
+        request.__set_file_size(ctx->body_bytes);
+    }
     if (ctx->timeout_second != -1) {
         request.__set_timeout(ctx->timeout_second);
     } else {
-        request.__set_timeout(config::stream_load_timeout_second);
+        request.__set_timeout(config::stream_load_exec_timeout_second);
     }
     request.__set_thrift_rpc_timeout_ms(config::thrift_rpc_timeout_ms);
 
@@ -475,7 +538,23 @@ Status StreamLoadWithSqlAction::_process_put(HttpRequest* http_req, StreamLoadCo
         LOG(WARNING) << "exec streaming load failed. errmsg=" << plan_status << ctx->brief();
         return plan_status;
     }
-    ctx->is_stream_load_put_success = true;
+    return Status::OK();
+}
+
+Status StreamLoadWithSqlAction::_data_saved_path(HttpRequest* req, std::string* file_path) {
+    std::string prefix;
+    RETURN_IF_ERROR(
+            _exec_env->load_path_mgr()->allocate_dir("stream_load_local_file", "", &prefix));
+    timeval tv;
+    gettimeofday(&tv, nullptr);
+    struct tm tm;
+    time_t cur_sec = tv.tv_sec;
+    localtime_r(&cur_sec, &tm);
+    char buf[64];
+    strftime(buf, 64, "%Y%m%d%H%M%S", &tm);
+    std::stringstream ss;
+    ss << prefix << buf << "." << tv.tv_usec;
+    *file_path = ss.str();
     return Status::OK();
 }
 

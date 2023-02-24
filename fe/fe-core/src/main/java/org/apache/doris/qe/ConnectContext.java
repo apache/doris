@@ -40,6 +40,8 @@ import org.apache.doris.plugin.AuditEvent.AuditEventBuilder;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.ColumnStatistic;
 import org.apache.doris.statistics.Histogram;
+import org.apache.doris.task.LoadTaskInfo;
+import org.apache.doris.thrift.TResourceInfo;
 import org.apache.doris.thrift.TUniqueId;
 import org.apache.doris.transaction.TransactionEntry;
 import org.apache.doris.transaction.TransactionStatus;
@@ -78,6 +80,7 @@ public class ConnectContext {
     // set for stream load with sql
     protected volatile TUniqueId loadId;
     protected volatile long backendId;
+    protected volatile LoadTaskInfo streamLoadInfo;
 
     protected volatile TUniqueId queryId;
     protected volatile String traceId;
@@ -342,6 +345,14 @@ public class ConnectContext {
 
     public void setLoadId(TUniqueId loadId) {
         this.loadId = loadId;
+    }
+
+    public void setStreamLoadInfo(LoadTaskInfo streamLoadInfo) {
+        this.streamLoadInfo = streamLoadInfo;
+    }
+
+    public LoadTaskInfo getStreamLoadInfo() {
+        return streamLoadInfo;
     }
 
     public void setStmtId(long stmtId) {

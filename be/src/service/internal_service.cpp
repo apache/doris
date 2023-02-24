@@ -49,9 +49,13 @@
 #include <vector>
 
 #include "common/config.h"
+#include "common/consts.h"
 #include "common/exception.h"
 #include "common/logging.h"
 #include "common/status.h"
+#include "gen_cpp/BackendService.h"
+#include "gen_cpp/PaloInternalService_types.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "gutil/integral_types.h"
 #include "http/http_client.h"
 #include "io/fs/stream_load_pipe.h"
@@ -541,60 +545,6 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
         }
         const TFileRangeDesc& range = file_scan_range.ranges.at(0);
         const TFileScanRangeParams& params = file_scan_range.params;
-        if (params.file_type == TFileType::FILE_STREAM) {
-            std::vector<std::string> col_names;
-            std::vector<TypeDescriptor> col_types;
-            char* buffer = nullptr;
-            while (buffer == nullptr) {
-                buffer = (char*)(ExecEnv::GetInstance()->new_load_stream_mgr()->get_bufer(
-                        params.load_id));
-            }
-            std::string cur_col_name;
-            int pos = 0;
-            bool is_csv_plain = true;
-            const size_t buffer_max_size = 1 * 1024 * 1024;
-            char columns_separator = ',';
-            int idx = 0;
-            while (pos < buffer_max_size && buffer[pos] != '\n') {
-                if (buffer[pos] == columns_separator && cur_col_name.size()) {
-                    if (is_csv_plain) {
-                        col_names.emplace_back("c" + std::to_string(++idx));
-                    } else {
-                        col_names.push_back(cur_col_name);
-                    }
-                    cur_col_name.clear();
-                } else {
-                    cur_col_name += buffer[pos];
-                }
-                ++pos;
-            }
-            if (pos == buffer_max_size) {
-                st = Status::InternalError("buffer max size is to small, can not read schema begin");
-                st.to_protobuf(result->mutable_status());
-                return;
-            }
-            if (cur_col_name.size()) {
-                if (is_csv_plain) {
-                    col_names.emplace_back("c" + std::to_string(++idx));
-                } else {
-                    col_names.push_back(cur_col_name);
-                }
-            }
-            for (size_t j = 0; j < col_names.size(); ++j) {
-                col_types.emplace_back(TypeDescriptor::create_string_type());
-            }
-            result->set_column_nums(col_names.size());
-            for (size_t idx = 0; idx < col_names.size(); ++idx) {
-                result->add_column_names(col_names[idx]);
-            }
-            for (size_t idx = 0; idx < col_types.size(); ++idx) {
-                PTypeDesc* type_desc = result->add_column_types();
-                col_types[idx].to_protobuf(type_desc);
-            }
-            st.to_protobuf(result->mutable_status());
-            delete buffer;
-            return;
-        }
 
         // make sure profile is desctructed after reader cause PrefetchBufferedReader
         // might asynchronouslly access the profile
@@ -652,6 +602,11 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
             LOG(WARNING) << "fetch table schema failed, errmsg=" << st;
             st.to_protobuf(result->mutable_status());
             return;
+        }
+        if (params.file_type == TFileType::FILE_STREAM) {
+            // notify StreamLoadAction fetch stream schema is finished
+            st = ExecEnv::GetInstance()->new_load_stream_mgr()->set_bufer_promise(params.load_id,
+                                                                                Status::OK());
         }
         result->set_column_nums(col_names.size());
         for (size_t idx = 0; idx < col_names.size(); ++idx) {

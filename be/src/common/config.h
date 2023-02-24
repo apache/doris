@@ -536,6 +536,8 @@ DECLARE_Int64(stream_load_exec_mem_limit); // 2G
 DECLARE_Int64(stream_tvf_buffer_size); // 1MB
 // The exec timeout of stream load default
 DECLARE_Int32(stream_load_timeout_second);
+// The timeout of BE wait FE report status
+DECLARE_Int32(stream_load_report_timeout_second);
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.

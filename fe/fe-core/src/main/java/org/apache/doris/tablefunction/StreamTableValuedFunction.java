@@ -50,7 +50,13 @@ public class StreamTableValuedFunction extends ExternalFileTableValuedFunction {
     // =========== implement abstract methods of ExternalFileTableValuedFunction =================
     @Override
     public TFileType getTFileType() {
-        return TFileType.FILE_STREAM;
+        switch (getTFileFormatType()) {
+            case FORMAT_PARQUET:
+            case FORMAT_ORC:
+                return TFileType.FILE_LOCAL;
+            default:
+                return TFileType.FILE_STREAM;
+        }
     }
 
     @Override

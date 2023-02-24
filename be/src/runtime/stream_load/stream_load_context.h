@@ -31,6 +31,8 @@
 #include <utility>
 #include <vector>
 
+#include "common/config.h"
+#include "common/logging.h"
 #include "common/status.h"
 #include "common/utils.h"
 #include "runtime/exec_env.h"
@@ -92,6 +94,7 @@ class StreamLoadContext {
 public:
     StreamLoadContext(ExecEnv* exec_env) : id(UniqueId::gen_uid()), _exec_env(exec_env) {
         start_millis = UnixMillis();
+        schema_buffer = new char[config::stream_tvf_buffer_size];
     }
 
     ~StreamLoadContext() {
@@ -157,9 +160,10 @@ public:
 
     int64_t txn_id = -1;
 
+    // for local file
+    std::string path;
+
     std::string txn_operation = "";
-    bool is_put_buffer = false;
-    bool is_stream_load_put_success = false;
 
     bool need_rollback = false;
     // when use_streaming is true, we use stream_pipe to send source data,
@@ -178,6 +182,14 @@ public:
 
     std::promise<Status> promise;
     std::future<Status> future = promise.get_future();
+
+    // for stream schema buffer
+    // Use buffer to store the first 1MB of stream data so that the schema can be parsed later
+    // It is assumed that 1MB is sufficient here,
+    // but later modifications may be needed to resolve different line lengths
+    char* schema_buffer;
+    size_t schema_buffer_size = 0;
+    bool need_schema_buffer;
 
     Status status;
 

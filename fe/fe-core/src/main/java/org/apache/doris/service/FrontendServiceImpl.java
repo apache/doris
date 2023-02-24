@@ -1890,6 +1890,8 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         ctx.setQualifiedUser(UserIdentity.ROOT.getQualifiedUser());
         ctx.setThreadLocalInfo();
         ctx.setBackendId(request.getBackendId());
+        StreamLoadTask streamLoadTask = StreamLoadTask.fromTStreamLoadPutRequest(request);
+        ctx.setStreamLoadInfo(streamLoadTask);
         ctx.setLoadId(request.getLoadId());
         SqlScanner input = new SqlScanner(new StringReader(loadSql), ctx.getSessionVariable().getSqlMode());
         SqlParser parser = new SqlParser(input);

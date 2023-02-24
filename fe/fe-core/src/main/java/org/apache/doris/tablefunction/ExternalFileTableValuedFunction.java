@@ -48,6 +48,7 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.rpc.BackendServiceProxy;
 import org.apache.doris.rpc.RpcException;
 import org.apache.doris.system.Backend;
+import org.apache.doris.task.LoadTaskInfo;
 import org.apache.doris.thrift.TBrokerFileStatus;
 import org.apache.doris.thrift.TFileAttributes;
 import org.apache.doris.thrift.TFileCompressType;
@@ -194,6 +195,15 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             fileStatus.setPath("");
             fileStatus.setIsDir(false);
             fileStatus.setSize(-1); // must set to -1, means stream.
+            fileStatuses.add(fileStatus);
+        } else if (getTFileType() == TFileType.FILE_LOCAL) {
+            TBrokerFileStatus fileStatus = new TBrokerFileStatus();
+            // get file path and file size
+            ConnectContext ctx = ConnectContext.get();
+            LoadTaskInfo loadInfo = ctx.getStreamLoadInfo();
+            fileStatus.setPath(loadInfo.getPath());
+            fileStatus.setIsDir(false);
+            fileStatus.setSize(loadInfo.getFileSize());
             fileStatuses.add(fileStatus);
         } else {
             try {
@@ -378,7 +388,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         columns = Lists.newArrayList();
         for (Backend be : org.apache.doris.catalog.Env.getCurrentSystemInfo().getIdToBackend().values()) {
             // for stream load
-            if (getTFileType() == TFileType.FILE_STREAM) {
+            if (getTFileType() == TFileType.FILE_STREAM || getTFileType() == TFileType.FILE_LOCAL) {
                 ConnectContext ctx = ConnectContext.get();
                 long streamLoadBackendId = ctx.getBackendId();
                 if (be.getId() == streamLoadBackendId) {

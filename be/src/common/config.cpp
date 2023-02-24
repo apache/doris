@@ -495,6 +495,8 @@ DEFINE_Int64(stream_load_exec_mem_limit, "214748364"); // 2G
 DEFINE_Int64(stream_tvf_buffer_size, "1048576"); // 1MB
 // The exec timeout of stream load default
 DEFINE_Int32(stream_load_timeout_second, "10");
+// The timeout of BE wait FE report status
+DEFINE_Int32(stream_load_report_timeout_second, "3");
 
 // OlapTableSink sender's send interval, should be less than the real response time of a tablet writer rpc.
 // You may need to lower the speed when the sink receiver bes are too busy.
