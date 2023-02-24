@@ -436,8 +436,7 @@ public:
               _is_default_value_null(false),
               _type_size(0),
               _precision(precision),
-              _scale(scale),
-              _pool(new MemPool()) {}
+              _scale(scale) {}
 
     Status init(const ColumnIteratorOptions& opts) override;
 
@@ -484,8 +483,7 @@ private:
     size_t _type_size;
     int _precision;
     int _scale;
-    void* _mem_value = nullptr;
-    std::unique_ptr<MemPool> _pool;
+    std::vector<char> _mem_value;
 
     // current rowid
     ordinal_t _current_rowid = 0;
