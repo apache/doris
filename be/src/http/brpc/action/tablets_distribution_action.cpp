@@ -105,7 +105,7 @@ void TabletsDistributionHandler::handle_sync(brpc::Controller* cntl) {
         return;
     }
     LOG(WARNING) << "invalid argument. group_by:" << *req_group_method;
-    Status status = Status::InternalError(strings::Substitute("invalid argument: group_by"));
+    Status status = Status::InternalError("invalid argument: group_by");
     std::string status_result = status.to_json();
     on_error_json(cntl, status_result);
 }
