@@ -254,7 +254,7 @@ public class NereidsPlanner extends Planner {
         if (!cacheContext.checkAggs(plan.collect(LogicalAggregate.class::isInstance))) {
             return;
         }
-        if (isEnablePartitionCache && cacheContext.isEnablePartitionCache()) {
+        if (cacheContext.isEnableRewritePredicate()) {
             new NereidsCacheJobExecutor(cascadesContext).execute();
         }
     }

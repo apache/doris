@@ -20,6 +20,7 @@ package org.apache.doris.nereids;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PartitionType;
 import org.apache.doris.common.Config;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.algebra.OlapScan;
@@ -156,14 +157,19 @@ public class CacheContext {
         return isEnableCache() && countNewTable == 0;
     }
 
+    public boolean isEnableRewritePredicate() {
+        return isEnableCache()
+                && lastOlapTable.getPartitionInfo().getPartitionColumns().size() == 1
+                && lastOlapTable.getPartitionInfo().getType() == PartitionType.RANGE
+                && countNewTable < 2;
+    }
+
     public boolean isEnablePartitionCache() {
-        return isEnableCache() && countNewTable < 2;
+        return isEnableRewritePredicate() && range != null;
     }
 
     public boolean isEnableCache() {
-        return lastOlapTable != null
-            && lastPartition != null
-            && lastOlapTable.getPartitionInfo().getPartitionColumns().size() == 1;
+        return lastOlapTable != null && lastPartition != null;
     }
 
     public Column getPartColumn() {

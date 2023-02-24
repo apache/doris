@@ -1332,7 +1332,7 @@ public class StmtExecutor implements ProfileWriter {
             if (cacheAnalyzer != null) {
                 if (cacheResult != null && cacheAnalyzer.getHitRange() == Cache.HitRange.Right) {
                     isSendFields =
-                            sendCachedValues(channel, cacheResult.getValuesList(), (SelectStmt) queryStmt, isSendFields,
+                            sendCachedValues(channel, cacheResult.getValuesList(), (Queriable) queryStmt, isSendFields,
                                     false);
                 }
 

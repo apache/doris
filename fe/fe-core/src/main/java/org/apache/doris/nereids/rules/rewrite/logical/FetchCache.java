@@ -29,6 +29,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.qe.cache.PartitionCache;
 import org.apache.doris.qe.cache.PartitionRange;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
@@ -51,6 +52,7 @@ public class FetchCache implements RewriteRuleFactory {
                             logicalCache.getConjuncts(),
                             cacheContext.getLastOlapTable(),
                             (RangePartitionInfo) cacheContext.getLastOlapTable().getPartitionInfo());
+                    Preconditions.checkArgument(cacheContext.getRange() == null, "exist partition range");
                     cacheContext.setRange(range);
                     cacheContext.setCacheKey(ctx.cascadesContext.getMemo().copyOut(false).treeString());
 
