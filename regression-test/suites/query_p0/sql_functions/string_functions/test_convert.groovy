@@ -18,7 +18,7 @@
 suite("test_convert") {
     test {
         sql "select convert('a' using utf8);"
-        exception "errCode = 2, detailMessage = [NOT_IMPLEMENTED_ERROR]"
+        exception "NOT_IMPLEMENTED_ERROR"
     }
 
     qt_convert_const_to_gbk """select convert("a" using gbk), convert("丝" using gbk);"""
