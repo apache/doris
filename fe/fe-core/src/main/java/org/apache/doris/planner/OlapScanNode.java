@@ -690,11 +690,39 @@ public class OlapScanNode extends ScanNode {
                 throw new UserException("Failed to get scan range, no queryable replica found in tablet: " + tabletId);
             }
 
-            Collections.shuffle(replicas);
+            int useFixReplica = -1;
+            if (ConnectContext.get() != null) {
+                useFixReplica = ConnectContext.get().getSessionVariable().useFixReplica;
+            }
+            if (useFixReplica == -1) {
+                Collections.shuffle(replicas);
+            } else {
+                LOG.debug("use fix replica, value: {}, replica num: {}", useFixReplica, replicas.size());
+                // sort by replica id
+                replicas.sort(Replica.ID_COMPARATOR);
+                if (useFixReplica <= 0) {
+                    useFixReplica = 1;
+                }
+                if (useFixReplica > replicas.size()) {
+                    useFixReplica = replicas.size();
+                }
+            }
+
+            int replicaIndex = 0;
             boolean tabletIsNull = true;
             boolean collectedStat = false;
             List<String> errs = Lists.newArrayList();
             for (Replica replica : replicas) {
+                // use fix replica, choose the {useFixReplica} smallest replica
+                if (useFixReplica != -1) {
+                    ++replicaIndex;
+                    if (replicaIndex < useFixReplica) {
+                        continue;
+                    }
+                    if (replicaIndex > useFixReplica) {
+                        break;
+                    }
+                }
                 Backend backend = Env.getCurrentSystemInfo().getBackend(replica.getBackendId());
                 if (backend == null || !backend.isAlive()) {
                     LOG.debug("backend {} not exists or is not alive for replica {}", replica.getBackendId(),
