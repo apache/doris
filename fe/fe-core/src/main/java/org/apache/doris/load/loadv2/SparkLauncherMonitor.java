@@ -102,6 +102,10 @@ public class SparkLauncherMonitor {
             this.submitTimeoutMs = submitTimeoutMs;
         }
 
+        public long getSubmitTimeoutMs() {
+            return submitTimeoutMs;
+        }
+
         public void setRedirectLogPath(String redirectLogPath) throws IOException {
             this.outputStream = new FileOutputStream(new File(redirectLogPath), false);
             this.handle.setLogPath(redirectLogPath);

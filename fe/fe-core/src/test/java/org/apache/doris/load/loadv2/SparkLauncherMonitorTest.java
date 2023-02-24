@@ -27,6 +27,7 @@ import org.junit.Test;
 import java.io.File;
 import java.io.IOException;
 import java.net.URL;
+import java.util.Map;
 
 public class SparkLauncherMonitorTest {
     private String appId;
@@ -52,13 +53,16 @@ public class SparkLauncherMonitorTest {
 
     @Test
     public void testLogMonitorNormal() {
+        Map<String, String> config = new HashedMap();
+        config.put("spark.submit.timeout", "600000");
         URL log = getClass().getClassLoader().getResource("spark_launcher_monitor.log");
         String cmd = "cat " + log.getPath();
         SparkLoadAppHandle handle = null;
         try {
             Process process = Runtime.getRuntime().exec(cmd);
             handle = new SparkLoadAppHandle(process);
-            SparkLauncherMonitor.LogMonitor logMonitor = SparkLauncherMonitor.createLogMonitor(handle, new HashedMap());
+            SparkLauncherMonitor.LogMonitor logMonitor = SparkLauncherMonitor.createLogMonitor(handle, config);
+            Assert.assertEquals(logMonitor.getSubmitTimeoutMs(), "60000");;
             logMonitor.setRedirectLogPath(logPath);
             logMonitor.start();
             try {
