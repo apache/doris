@@ -1634,17 +1634,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     @Override
-    public THttpAuthResult execHttpAuth(THttpAuthRequest request) throws TException {
+    public THttpAuthResult checkAuth(THttpAuthRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
-        LOG.debug("receive http auth request: {}, backend: {}", request, clientAddr);
+        LOG.debug("receive auth request: {}, backend: {}", request, clientAddr);
 
         THttpAuthResult result = new THttpAuthResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
         try {
-            execHttpAuthImpl(request);
+            checkAuthImpl(request);
         } catch (UserException e) {
-            LOG.warn("exec http auth failed.", e);
+            LOG.warn("check auth failed.", e);
             status.setStatusCode(TStatusCode.ANALYSIS_ERROR);
             status.addToErrorMsgs(Strings.nullToEmpty(e.getMessage()));
             return result;
@@ -1657,7 +1657,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    private void execHttpAuthImpl(THttpAuthRequest request) throws UserException {
+    private void checkAuthImpl(THttpAuthRequest request) throws UserException {
         String cluster = request.getCluster();
         if (Strings.isNullOrEmpty(cluster)) {
             cluster = SystemInfoService.DEFAULT_CLUSTER;
@@ -1669,7 +1669,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         Env.getCurrentEnv().getAuth().checkPlainPassword(fullUserName, request.getUserIp(), request.getPasswd(),
                 currentUser);
 
-        // check global or database or table permissions
+        // check global/database/table/column/resourse permission
         Preconditions.checkState(currentUser.size() == 1);
         PrivPredicate predicate = getPrivPredicate(request.getPrivType());
         if (predicate == null) {
@@ -1678,21 +1678,33 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         String glb = request.getGlb();
         String db = request.getDb();
         String tbl = request.getTbl();
-        if (Strings.isNullOrEmpty(glb) && Strings.isNullOrEmpty(db) && Strings.isNullOrEmpty(tbl)) {
+        String col = request.getCol();
+        String res = request.getRes();
+        if (Strings.isNullOrEmpty(glb) && Strings.isNullOrEmpty(db) && Strings.isNullOrEmpty(tbl)
+                && Strings.isNullOrEmpty(col) && Strings.isNullOrEmpty(res)) {
             return;
         } else if (!Strings.isNullOrEmpty(glb)) {
             if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(currentUser.get(0), predicate)) {
                 throw new AuthenticationException("Access denied for this operation");
             }
-        } else if (!Strings.isNullOrEmpty(db) && Strings.isNullOrEmpty(tbl)) {
+        } else if (!Strings.isNullOrEmpty(db) && Strings.isNullOrEmpty(tbl) && Strings.isNullOrEmpty(col)) {
             String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
             if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(currentUser.get(0), fullDbName, predicate)) {
                 throw new AuthenticationException("Access denied for this operation");
             }
-        } else if (!Strings.isNullOrEmpty(db) && !Strings.isNullOrEmpty(tbl)) {
+        } else if (!Strings.isNullOrEmpty(db) && !Strings.isNullOrEmpty(tbl) && Strings.isNullOrEmpty(col)) {
             String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
-            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser.get(0), fullDbName, request.getTbl(),
+            if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser.get(0), fullDbName, tbl, predicate)) {
+                throw new AuthenticationException("Access denied for this operation");
+            }
+        } else if (!Strings.isNullOrEmpty(db) && !Strings.isNullOrEmpty(tbl) && !Strings.isNullOrEmpty(col)) {
+            String fullDbName = ClusterNamespace.getFullName(cluster, request.getDb());
+            if (!Env.getCurrentEnv().getAccessManager().checkColPriv(currentUser.get(0), fullDbName, tbl, col,
                     predicate)) {
+                throw new AuthenticationException("column-level authentication is not supported currently");
+            }
+        } else if (!Strings.isNullOrEmpty(res)) {
+            if (!Env.getCurrentEnv().getAccessManager().checkResourcePriv(currentUser.get(0), res, predicate)) {
                 throw new AuthenticationException("Access denied for this operation");
             }
         } else {

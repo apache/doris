@@ -795,9 +795,11 @@ struct THttpAuthRequest {
     4: optional string user_ip
     5: optional string glb
     6: optional string db
-    7: optional string tbl 
-    8: optional TPrivilegeType priv_type
-    9: optional i64 thrift_rpc_timeout_ms
+    7: optional string tbl
+    8: optional string col
+    9: optional string res
+    10: optional TPrivilegeType priv_type
+    11: optional i64 thrift_rpc_timeout_ms
 }
 
 struct THttpAuthResult {
@@ -849,5 +851,5 @@ service FrontendService {
 
     TConfirmUnusedRemoteFilesResult confirmUnusedRemoteFiles(1: TConfirmUnusedRemoteFilesRequest request)
 
-    THttpAuthResult execHttpAuth(1: THttpAuthRequest request)
+    THttpAuthResult checkAuth(1: THttpAuthRequest request)
 }

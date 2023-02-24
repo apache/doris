@@ -159,6 +159,11 @@ public class AccessControllerManager {
         }
     }
 
+    public boolean checkColPriv(UserIdentity currentUser, String db, String tbl, String col, PrivPredicate wanted) {
+        // TO DO
+        return false;
+    }
+
     // ==== Resource ====
     public boolean checkResourcePriv(ConnectContext ctx, String resourceName, PrivPredicate wanted) {
         return checkResourcePriv(ctx.getCurrentUserIdentity(), resourceName, wanted);
