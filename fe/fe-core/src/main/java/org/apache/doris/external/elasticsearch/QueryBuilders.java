@@ -38,7 +38,6 @@ import org.apache.doris.thrift.TExprOpcode;
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.Builder;
 import lombok.Data;
 import org.apache.logging.log4j.LogManager;
@@ -128,9 +127,9 @@ public final class QueryBuilders {
     }
 
     private static QueryBuilder parseBinaryPredicate(Expr expr, TExprOpcode opCode, String column,
-            BuilderOptions builderOptions) {
+            boolean needDateCompat) {
         Object value = toDorisLiteral(expr.getChild(1));
-        if (builderOptions.isNeedCompatDate()) {
+        if (needDateCompat) {
             value = compatDefaultDate(value);
         }
         switch (opCode) {
@@ -188,10 +187,10 @@ public final class QueryBuilders {
         }
     }
 
-    private static QueryBuilder parseInPredicate(Expr expr, String column, BuilderOptions builderOptions) {
+    private static QueryBuilder parseInPredicate(Expr expr, String column, boolean needDateCompat) {
         InPredicate inPredicate = (InPredicate) expr;
         List<Object> values = inPredicate.getListChildren().stream().map(v -> {
-            if (builderOptions.isNeedCompatDate()) {
+            if (needDateCompat) {
                 return compatDefaultDate(v);
             }
             return toDorisLiteral(v);
@@ -249,11 +248,13 @@ public final class QueryBuilders {
             notPushDownList.add(expr);
             return null;
         }
-        setNeedCompatDate(column, builderOptions);
+        // Check whether the date type need compat, it must before keyword replace.
+        List<String> needCompatDateFields = builderOptions.getNeedCompatDateFields();
+        boolean needDateCompat = needCompatDateFields != null && needCompatDateFields.contains(column);
         // Replace col with col.keyword if mapping exist.
         column = fieldsContext.getOrDefault(column, column);
         if (expr instanceof BinaryPredicate) {
-            return parseBinaryPredicate(expr, opCode, column, builderOptions);
+            return parseBinaryPredicate(expr, opCode, column, needDateCompat);
         }
         if (expr instanceof IsNullPredicate) {
             return parseIsNullPredicate(expr, column);
@@ -267,7 +268,7 @@ public final class QueryBuilders {
             }
         }
         if (expr instanceof InPredicate) {
-            return parseInPredicate(expr, column, builderOptions);
+            return parseInPredicate(expr, column, needDateCompat);
         }
         if (expr instanceof FunctionCallExpr) {
             return parseFunctionCallExpr(expr);
@@ -277,20 +278,6 @@ public final class QueryBuilders {
 
     private static final DateTimeFormatter dorisFmt = DateTimeFormat.forPattern("yyyy-MM-dd HH:mm:ss");
     private static final DateTimeFormatter esFmt = ISODateTimeFormat.dateTime();
-
-    private static void setNeedCompatDate(String column, BuilderOptions builderOptions) {
-        Map<String, ObjectNode> originFields = builderOptions.getOriginFields();
-        if (originFields != null && originFields.containsKey(column)) {
-            ObjectNode jsonNodes = originFields.get(column);
-            // Compat use default format date type, need transform datetime to
-            if (jsonNodes.has("type") && !jsonNodes.has("format")) {
-                String type = jsonNodes.get("type").asText();
-                if ("date".equals(type)) {
-                    builderOptions.setNeedCompatDate(true);
-                }
-            }
-        }
-    }
 
     private static Object compatDefaultDate(Object value) {
         if (value == null) {
@@ -462,9 +449,7 @@ public final class QueryBuilders {
 
         private boolean likePushDown;
 
-        private Map<String, ObjectNode> originFields;
-
-        private boolean needCompatDate;
+        private List<String> needCompatDateFields;
     }
 
 

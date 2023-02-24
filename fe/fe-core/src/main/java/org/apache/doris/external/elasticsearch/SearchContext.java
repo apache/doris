@@ -20,7 +20,7 @@ package org.apache.doris.external.elasticsearch;
 import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.EsTable;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.clearspring.analytics.util.Lists;
 import com.google.common.collect.Maps;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -62,7 +62,7 @@ public class SearchContext {
     // fetch field value from doc_values, this is activated when `enable_docvalue_scan= true`
     private Map<String, String> docValueFieldsContext = Maps.newHashMap();
 
-    private Map<String, ObjectNode> originFieldsContext = Maps.newHashMap();
+    private List<String> needCompatDateFields = Lists.newArrayList();
 
     // sourceIndex is the name of index when creating ES external table
     private final String sourceIndex;
@@ -128,8 +128,8 @@ public class SearchContext {
         return docValueFieldsContext;
     }
 
-    public Map<String, ObjectNode> originFieldsContext() {
-        return originFieldsContext;
+    public List<String> needCompatDateFields() {
+        return needCompatDateFields;
     }
 
     public void version(EsMajorVersion version) {

@@ -27,7 +27,6 @@ import org.apache.doris.thrift.TEsTable;
 import org.apache.doris.thrift.TTableDescriptor;
 import org.apache.doris.thrift.TTableType;
 
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import lombok.Getter;
 import lombok.Setter;
 import org.apache.commons.codec.digest.DigestUtils;
@@ -146,8 +145,8 @@ public class EsTable extends Table {
         return esMetaStateTracker.searchContext().docValueFieldsContext();
     }
 
-    public Map<String, ObjectNode> originFieldsContext() {
-        return esMetaStateTracker.searchContext().originFieldsContext();
+    public List<String> needCompatDateFields() {
+        return esMetaStateTracker.searchContext().needCompatDateFields();
     }
 
     private void validate(Map<String, String> properties) throws DdlException {

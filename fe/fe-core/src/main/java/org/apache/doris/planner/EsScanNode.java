@@ -364,7 +364,7 @@ public class EsScanNode extends ScanNode {
             for (Expr expr : conjuncts) {
                 QueryBuilder queryBuilder = QueryBuilders.toEsDsl(expr, notPushDownList, fieldsContext,
                         BuilderOptions.builder().likePushDown(table.isLikePushDown())
-                                .originFields(table.originFieldsContext()).build());
+                                .needCompatDateFields(table.needCompatDateFields()).build());
                 if (queryBuilder != null) {
                     hasFilter = true;
                     boolQueryBuilder.must(queryBuilder);

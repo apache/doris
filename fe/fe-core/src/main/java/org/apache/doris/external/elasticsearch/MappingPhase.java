@@ -69,19 +69,25 @@ public class MappingPhase implements SearchPhase {
                                     + "column " + colName + " for the ES Cluster");
                 }
                 ObjectNode fieldObject = (ObjectNode) properties.get(colName);
-                resolveOriginFields(searchContext, fieldObject, colName);
                 if (!fieldObject.has("type")) {
                     continue;
                 }
                 String fieldType = fieldObject.get("type").asText();
+                resolveDateFields(searchContext, fieldObject, colName, fieldType);
                 resolveKeywordFields(searchContext, fieldObject, colName, fieldType);
                 resolveDocValuesFields(searchContext, fieldObject, colName, fieldType);
             }
         }
     }
 
-    private static void resolveOriginFields(SearchContext searchContext, ObjectNode fieldObject, String colName) {
-        searchContext.originFieldsContext().put(colName, fieldObject);
+    private static void resolveDateFields(SearchContext searchContext, ObjectNode fieldObject, String colName,
+            String fieldType) {
+        // Compat use default/strict_date_optional_time format date type, need transform datetime to
+        if ("date".equals(fieldType)) {
+            if (!fieldObject.has("format") || "strict_date_optional_time".equals(fieldObject.get("format").asText())) {
+                searchContext.needCompatDateFields().add(colName);
+            }
+        }
     }
 
 

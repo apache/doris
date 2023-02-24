@@ -68,25 +68,25 @@ CREATE CATALOG es PROPERTIES (
 
 ## 列类型映射
 
-| ES Type | Doris Type | Comment |
-|---|---|---|
+| ES Type | Doris Type | Comment                                                    |
+|---|---|------------------------------------------------------------|
 |null| null||
-| boolean | boolean | |
-| byte| tinyint| |
-| short| smallint| |
-| integer| int| |
-| long| bigint| |
-| unsigned_long| largeint | |
-| float| float| |
-| half_float| float| |
-| double | double | |
-| scaled_float| double | |
-| date | date | |
-| keyword | string | |
-| text |string | |
-| ip |string | |
-| nested |string | |
-| object |string | |
+| boolean | boolean |                                                            |
+| byte| tinyint|                                                            |
+| short| smallint|                                                            |
+| integer| int|                                                            |
+| long| bigint|                                                            |
+| unsigned_long| largeint |                                                            |
+| float| float|                                                            |
+| half_float| float|                                                            |
+| double | double |                                                            |
+| scaled_float| double |                                                            |
+| date | date | 仅支持 default/yyyy-MM-dd HH:mm:ss/yyyy-MM-dd/epoch_millis 格式 |
+| keyword | string |                                                            |
+| text |string |                                                            |
+| ip |string |                                                            |
+| nested |string |                                                            |
+| object |string |                                                            |
 |other| unsupported ||
 
 ### Array 类型

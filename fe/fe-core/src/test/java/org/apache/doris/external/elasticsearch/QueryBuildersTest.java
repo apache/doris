@@ -31,12 +31,11 @@ import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.util.JsonUtil;
 import org.apache.doris.external.elasticsearch.QueryBuilders.BuilderOptions;
 
 import com.fasterxml.jackson.core.JsonGenerator;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.collect.Lists;
 import org.junit.Assert;
 import org.junit.Test;
 import org.junit.jupiter.api.Assertions;
@@ -83,13 +82,9 @@ public class QueryBuildersTest {
         SlotRef k2 = new SlotRef(null, "k2");
         Expr dateTimeLiteral = new StringLiteral("2023-02-19 22:00:00");
         Expr dateTimeEqExpr = new BinaryPredicate(Operator.EQ, k2, dateTimeLiteral);
-        Map<String, ObjectNode> originMap = new HashMap<>();
-        Map<String, String> typeMap = new HashMap<>();
-        typeMap.put("type", "date");
-        originMap.put("k2", (ObjectNode) JsonUtil.toJsonNode(typeMap));
         Assertions.assertEquals("{\"term\":{\"k2\":\"2023-02-19T22:00:00.000+08:00\"}}",
                 QueryBuilders.toEsDsl(dateTimeEqExpr, new ArrayList<>(), new HashMap<>(),
-                        BuilderOptions.builder().originFields(originMap).build()).toJson());
+                        BuilderOptions.builder().needCompatDateFields(Lists.newArrayList("k2")).build()).toJson());
     }
 
     @Test
