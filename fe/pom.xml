@@ -226,7 +226,7 @@ under the License.
         <iceberg.version>1.1.0</iceberg.version>
         <avro.version>1.10.1</avro.version>
         <!-- hudi -->
-        <hudi.version>0.10.0</hudi.version>
+        <hudi.version>0.13.0</hudi.version>
         <parquet.version>1.10.1</parquet.version>
         <commons-collections.version>3.2.2</commons-collections.version>
         <scala.version>2.12.10</scala.version>
@@ -737,6 +737,10 @@ under the License.
                         <groupId>org.apache.hbase</groupId>
                         <artifactId>hbase-client</artifactId>
                     </exclusion>
+                    <exclusion>
+                        <groupId>log4j</groupId>
+                        <artifactId>log4j</artifactId>
+                    </exclusion>
                 </exclusions>
             </dependency>
             <dependency>
@@ -875,6 +879,12 @@ under the License.
                 <groupId>org.apache.hudi</groupId>
                 <artifactId>hudi-common</artifactId>
                 <version>${hudi.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>log4j</groupId>
+                        <artifactId>log4j</artifactId>
+                    </exclusion>
+                </exclusions>
             </dependency>
 
             <!-- https://mvnrepository.com/artifact/org.apache.hudi/hudi-hadoop-mr -->
