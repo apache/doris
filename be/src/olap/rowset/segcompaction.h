@@ -23,6 +23,7 @@
 #include <sstream>
 
 #include "common/status.h"
+#include "olap/merger.h"
 #include "olap/rowset/rowset_writer.h"
 #include "segment_v2/segment.h"
 #include "segment_v2/segment_writer.h"
@@ -49,15 +50,15 @@ private:
             std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t begin, uint64_t end);
     Status _get_segcompaction_reader(SegCompactionCandidatesSharedPtr segments,
                                      TabletSharedPtr tablet, std::shared_ptr<Schema> schema,
-                                     OlapReaderStatistics* stat, uint64_t* merged_row_stat,
+                                     OlapReaderStatistics* stat,
                                      vectorized::RowSourcesBuffer& row_sources_buf, bool is_key,
                                      std::vector<uint32_t>& return_columns,
                                      std::unique_ptr<vectorized::VerticalBlockReader>* reader);
     std::unique_ptr<segment_v2::SegmentWriter> _create_segcompaction_writer(uint64_t begin,
                                                                             uint64_t end);
     Status _delete_original_segments(uint32_t begin, uint32_t end);
-    Status _check_correctness(std::unique_ptr<OlapReaderStatistics> stat, uint64_t merged_row_stat,
-                              uint64_t row_count, uint64_t begin, uint64_t end);
+    Status _check_correctness(OlapReaderStatistics& reader_stat, Merger::Statistics& merger_stat,
+                              uint64_t begin, uint64_t end);
     Status _do_compact_segments(SegCompactionCandidatesSharedPtr segments);
 
 private:

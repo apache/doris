@@ -46,7 +46,7 @@ using namespace ErrorCode;
 
 Status SegcompactionWorker::_get_segcompaction_reader(
         SegCompactionCandidatesSharedPtr segments, TabletSharedPtr tablet,
-        std::shared_ptr<Schema> schema, OlapReaderStatistics* stat, uint64_t* merged_row_stat,
+        std::shared_ptr<Schema> schema, OlapReaderStatistics* stat,
         vectorized::RowSourcesBuffer& row_sources_buf, bool is_key,
         std::vector<uint32_t>& return_columns,
         std::unique_ptr<vectorized::VerticalBlockReader>* reader) {
@@ -111,29 +111,37 @@ Status SegcompactionWorker::_delete_original_segments(uint32_t begin, uint32_t e
     return Status::OK();
 }
 
-Status SegcompactionWorker::_check_correctness(std::unique_ptr<OlapReaderStatistics> stat,
-                                               uint64_t merged_row_stat, uint64_t row_count,
-                                               uint64_t begin, uint64_t end) {
-    uint64_t stat_read_row = stat->raw_rows_read;
-    uint64_t sum_target_row = 0;
+Status SegcompactionWorker::_check_correctness(OlapReaderStatistics& reader_stat,
+                                               Merger::Statistics& merger_stat, uint64_t begin,
+                                               uint64_t end) {
+    uint64_t raw_rows_read = reader_stat.raw_rows_read; /* total rows read before merge */
+    uint64_t sum_src_row = 0; /* sum of rows in each involved source segments */
+    uint64_t filtered_rows = merger_stat.filtered_rows; /* rows filtered by del conditions */
+    uint64_t output_rows = merger_stat.output_rows;     /* rows after merge */
+    uint64_t merged_rows = merger_stat.merged_rows;     /* dup key merged by unique/agg */
 
     {
         std::lock_guard<std::mutex> lock(_writer->_segid_statistics_map_mutex);
         for (int i = begin; i <= end; ++i) {
-            sum_target_row += _writer->_segid_statistics_map[i].row_num;
+            sum_src_row += _writer->_segid_statistics_map[i].row_num;
         }
     }
 
-    if (sum_target_row != stat_read_row) {
-        LOG(WARNING) << "read row_num does not match. expect read row:" << sum_target_row
-                     << " actual read row:" << stat_read_row;
+    if (raw_rows_read != sum_src_row) {
+        LOG(WARNING) << "segcompaction read row num does not match source. expect read row:"
+                     << sum_src_row << " actual read row:" << raw_rows_read;
         return Status::Error<CHECK_LINES_ERROR>();
     }
 
-    uint64_t total_row = row_count + merged_row_stat;
-    if (stat_read_row != total_row) {
-        LOG(WARNING) << "total row_num does not match. expect total row:" << total_row
-                     << " actual total row:" << stat_read_row;
+    if ((output_rows + merged_rows) != raw_rows_read) {
+        LOG(WARNING) << "segcompaction total row num does not match after merge. expect total row:"
+                     << raw_rows_read << " actual total row:" << output_rows + merged_rows
+                     << " (output_rows:" << output_rows << ", merged_rows:" << merged_rows << ")";
+        return Status::Error<CHECK_LINES_ERROR>();
+    }
+    if (filtered_rows != 0) {
+        LOG(WARNING) << "segcompaction should not have filtered rows but"
+                     << " actual filtered rows:" << filtered_rows;
         return Status::Error<CHECK_LINES_ERROR>();
     }
     return Status::OK();
@@ -146,7 +154,7 @@ Status SegcompactionWorker::_create_segment_writer_for_segcompaction(
 
 Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPtr segments) {
     SCOPED_CONSUME_MEM_TRACKER(StorageEngine::instance()->segcompaction_mem_tracker());
-    // throttle segcompaction task if memory depleted.
+    /* throttle segcompaction task if memory depleted */
     if (MemTrackerLimiter::sys_mem_exceed_limit_check(GB_EXCHANGE_BYTE)) {
         LOG(WARNING) << "skip segcompaction due to memory shortage";
         return Status::Error<FETCH_MEMORY_EXCEEDED>();
@@ -155,8 +163,6 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
     uint64_t begin = (*(segments->begin()))->id();
     uint64_t end = (*(segments->end() - 1))->id();
     uint64_t begin_time = GetCurrentTimeMicros();
-    std::unique_ptr<OlapReaderStatistics> stat(new OlapReaderStatistics());
-    uint64_t merged_row_stat = 0;
     uint64_t index_size = 0;
     uint64_t total_index_size = 0;
     auto ctx = _writer->_context;
@@ -176,7 +182,9 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
                                                  READER_SEGMENT_COMPACTION);
 
     KeyBoundsPB key_bounds;
-    // compact group one by one
+    Merger::Statistics key_merger_stats;
+    OlapReaderStatistics key_reader_stats;
+    /* compact group one by one */
     for (auto i = 0; i < column_groups.size(); ++i) {
         VLOG_NOTICE << "row source size: " << row_sources_buf.total_size();
         bool is_key = (i == 0);
@@ -185,27 +193,32 @@ Status SegcompactionWorker::_do_compact_segments(SegCompactionCandidatesSharedPt
         writer->clear();
         writer->init(column_ids, is_key);
         auto schema = std::make_shared<Schema>(ctx.tablet_schema->columns(), column_ids);
+        OlapReaderStatistics reader_stats;
         std::unique_ptr<vectorized::VerticalBlockReader> reader;
-        auto s = _get_segcompaction_reader(segments, tablet, schema, stat.get(), &merged_row_stat,
-                                           row_sources_buf, is_key, column_ids, &reader);
+        auto s = _get_segcompaction_reader(segments, tablet, schema, &reader_stats, row_sources_buf,
+                                           is_key, column_ids, &reader);
         if (UNLIKELY(reader == nullptr || !s.ok())) {
             LOG(WARNING) << "failed to get segcompaction reader";
             return Status::Error<SEGCOMPACTION_INIT_READER>();
         }
 
-        Merger::Statistics stats;
+        Merger::Statistics merger_stats;
         RETURN_IF_ERROR(Merger::vertical_compact_one_group(
                 tablet, READER_SEGMENT_COMPACTION, ctx.tablet_schema, is_key, column_ids,
-                &row_sources_buf, *reader, *writer, INT_MAX, &stats, &index_size, key_bounds));
+                &row_sources_buf, *reader, *writer, INT_MAX, &merger_stats, &index_size,
+                key_bounds));
         total_index_size += index_size;
         if (is_key) {
             row_sources_buf.flush();
+            key_merger_stats = merger_stats;
+            key_reader_stats = reader_stats;
         }
         row_sources_buf.seek_to_begin();
     }
 
-    // TODO(zhangzhengyu): RETURN_NOT_OK_LOG(_check_correctness(std::move(stat), merged_row_stat, row_count, begin, end),
-    //                  "check correctness failed");
+    /* check row num after merge/aggregation */
+    RETURN_NOT_OK_LOG(_check_correctness(key_reader_stats, key_merger_stats, begin, end),
+                      "check correctness failed");
     {
         std::lock_guard<std::mutex> lock(_writer->_segid_statistics_map_mutex);
         _writer->_clear_statistics_for_deleting_segments_unsafe(begin, end);
