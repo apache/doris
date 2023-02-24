@@ -114,8 +114,8 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params) 
                 std::move(*segment_iters_ptr), iterator_init_flag, rowset_ids, ori_return_col_size,
                 read_params.tablet->keys_type(), seq_col_idx, _row_sources_buffer);
     } else {
-        _vcollect_iter = new_vertical_mask_merge_iterator(std::move(*segment_iters_ptr), ori_return_col_size,
-                                                          _row_sources_buffer);
+        _vcollect_iter = new_vertical_mask_merge_iterator(std::move(*segment_iters_ptr),
+                                                          ori_return_col_size, _row_sources_buffer);
     }
     // init collect iterator
     StorageReadOptions opts;

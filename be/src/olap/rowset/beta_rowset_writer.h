@@ -18,6 +18,7 @@
 #pragma once
 
 #include "olap/rowset/rowset_writer.h"
+#include "segcompaction.h"
 #include "segment_v2/segment.h"
 #include "vec/columns/column.h"
 #include "vec/olap/vertical_block_reader.h"
@@ -39,6 +40,8 @@ class LocalSchemaChangeRecorder;
 }
 
 class BetaRowsetWriter : public RowsetWriter {
+    friend class SegcompactionWorker;
+
 public:
     BetaRowsetWriter();
 
@@ -54,8 +57,6 @@ public:
     Status add_rowset_for_linked_schema_change(RowsetSharedPtr rowset) override;
 
     Status flush() override;
-
-    Status flush_by_merger() override;
 
     // Return the file size flushed to disk in "flush_size"
     // This method is thread-safe.
@@ -83,8 +84,6 @@ public:
         return Status::OK();
     }
 
-    void compact_segments(SegCompactionCandidatesSharedPtr segments);
-
     int32_t get_atomic_num_segment() const override { return _num_segment.load(); }
 
     // Maybe modified by local schema change
@@ -94,55 +93,41 @@ public:
 
     uint64_t get_num_mow_keys() { return _num_mow_keys; }
 
+    SegcompactionWorker& get_segcompaction_worker() { return _segcompaction_worker; }
+
+    Status flush_segment_writer_for_segcompaction(
+            std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size,
+            KeyBoundsPB& key_bounds);
+
 private:
     Status _add_block(const vectorized::Block* block,
                       std::unique_ptr<segment_v2::SegmentWriter>* writer);
-    Status _add_block_for_segcompaction(const vectorized::Block* block,
-                                        std::unique_ptr<segment_v2::SegmentWriter>* writer);
 
     Status _do_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
                                      bool is_segcompaction, int64_t begin, int64_t end,
                                      const vectorized::Block* block = nullptr);
     Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
                                   const vectorized::Block* block = nullptr);
-    Status _create_segment_writer_for_segcompaction(
-            std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t begin, uint64_t end);
-
     Status _flush_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
                                  int64_t* flush_size = nullptr);
-    Status _flush_segment_writer_for_segcompaction(
-            std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t index_size,
-            KeyBoundsPB& key_bounds);
     void _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta);
     Status _segcompaction_if_necessary();
     Status _segcompaction_ramaining_if_necessary();
-    Status _get_segcompaction_reader(SegCompactionCandidatesSharedPtr segments,
-                                     TabletSharedPtr tablet, std::shared_ptr<Schema> schema,
-                                     OlapReaderStatistics* stat, uint64_t* merged_row_stat,
-                                     vectorized::RowSourcesBuffer& row_sources_buf, bool is_key,
-                                     std::vector<uint32_t>& return_columns,
-                                     std::unique_ptr<vectorized::VerticalBlockReader>* reader);
-    std::unique_ptr<segment_v2::SegmentWriter> _create_segcompaction_writer(uint64_t begin,
-                                                                            uint64_t end);
-    Status _delete_original_segments(uint32_t begin, uint32_t end);
-    Status _rename_compacted_segments(int64_t begin, int64_t end);
-    Status _rename_compacted_segment_plain(uint64_t seg_id);
     Status _load_noncompacted_segments(std::vector<segment_v2::SegmentSharedPtr>* segments,
                                        size_t num);
     Status _find_longest_consecutive_small_segment(SegCompactionCandidatesSharedPtr segments);
     Status _get_segcompaction_candidates(SegCompactionCandidatesSharedPtr& segments, bool is_last);
     Status _wait_flying_segcompaction();
     bool _is_segcompacted() { return (_num_segcompacted > 0) ? true : false; }
-    void _clear_statistics_for_deleting_segments_unsafe(uint64_t begin, uint64_t end);
-    Status _check_correctness(std::unique_ptr<OlapReaderStatistics> stat, uint64_t merged_row_stat,
-                              uint64_t row_count, uint64_t begin, uint64_t end);
-    bool _check_and_set_is_doing_segcompaction();
 
-    Status _do_compact_segments(SegCompactionCandidatesSharedPtr segments);
+    bool _check_and_set_is_doing_segcompaction();
 
     void _build_rowset_meta_with_spec_field(RowsetMetaSharedPtr rowset_meta,
                                             const RowsetMetaSharedPtr& spec_rowset_meta);
     bool _is_segment_overlapping(const std::vector<KeyBoundsPB>& segments_encoded_key_bounds);
+    void _clear_statistics_for_deleting_segments_unsafe(uint64_t begin, uint64_t end);
+    Status _rename_compacted_segments(int64_t begin, int64_t end);
+    Status _rename_compacted_segment_plain(uint64_t seg_id);
 
 protected:
     RowsetWriterContext _context;
@@ -165,8 +150,6 @@ protected:
     std::vector<io::FileWriterPtr> _file_writers;
     // for unique key table with merge-on-write
     std::vector<KeyBoundsPB> _segments_encoded_key_bounds;
-
-    io::FileWriterPtr _segcompaction_file_writer;
 
     // counters and statistics maintained during add_rowset
     std::atomic<int64_t> _num_rows_written;
@@ -192,6 +175,8 @@ protected:
 
     bool _is_pending = false;
     bool _already_built = false;
+
+    SegcompactionWorker _segcompaction_worker;
 
     // ensure only one inflight segcompaction task for each rowset
     std::atomic<bool> _is_doing_segcompaction;

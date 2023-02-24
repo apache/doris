@@ -53,7 +53,6 @@ public:
     // explicit flush all buffered rows into segment file.
     // note that `add_row` could also trigger flush when certain conditions are met
     virtual Status flush() = 0;
-    virtual Status flush_by_merger() { return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>(); }
     virtual Status flush_columns(bool is_key) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();
     }
