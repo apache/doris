@@ -65,12 +65,18 @@ public class ListPartitionInfo extends PartitionInfo {
         // get partition key
         PartitionKeyDesc partitionKeyDesc = desc.getPartitionKeyDesc();
 
+        // we might receive one whole empty values list, we should add default partition value for
+        // such occasion
         for (List<PartitionValue> values : partitionKeyDesc.getInValues()) {
+            if (values.isEmpty()) {
+                continue;
+            }
             Preconditions.checkArgument(values.size() == partitionColumns.size(),
                     "partition key desc list size[" + values.size() + "] is not equal to "
                             + "partition column size[" + partitionColumns.size() + "]");
         }
         List<PartitionKey> partitionKeys = new ArrayList<>();
+        boolean isDefaultListPartition = false;
         try {
             for (List<PartitionValue> values : partitionKeyDesc.getInValues()) {
                 PartitionKey partitionKey = PartitionKey.createListPartitionKey(values, partitionColumns);
@@ -80,11 +86,14 @@ public class ListPartitionInfo extends PartitionInfo {
                             + partitionKeyDesc.toSql() + "] has duplicate item [" + partitionKey.toSql() + "].");
                 }
                 partitionKeys.add(partitionKey);
+                isDefaultListPartition = partitionKey.isDefaultListPartitionKey();
             }
         } catch (AnalysisException e) {
             throw new DdlException("Invalid list value format: " + e.getMessage());
         }
-        return new ListPartitionItem(partitionKeys);
+        ListPartitionItem item = new ListPartitionItem(partitionKeys);
+        item.setDefaultPartition(isDefaultListPartition);
+        return item;
     }
 
     private void checkNewPartitionKey(PartitionKey newKey, PartitionKeyDesc keyDesc,
