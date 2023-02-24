@@ -679,7 +679,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return outputSmap;
     }
 
-    public void setOutputSmap(ExprSubstitutionMap smap) {
+    public void setOutputSmap(ExprSubstitutionMap smap, Analyzer analyzer) {
         outputSmap = smap;
     }
 
