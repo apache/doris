@@ -1023,7 +1023,7 @@ Status DefaultValueColumnIterator::next_batch(size_t* n, ColumnBlockView* dst, b
     } else {
         *has_null = false;
         for (int i = 0; i < *n; ++i) {
-            memcpy(dst->data(), _mem_value, _type_size);
+            memcpy(dst->data(), _mem_value.data(), _type_size);
             dst->advance(1);
         }
     }
