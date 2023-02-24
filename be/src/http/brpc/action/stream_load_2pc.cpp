@@ -55,9 +55,7 @@ void StreamLoad2PCHandler::handle_sync(brpc::Controller* cntl) {
     Status status = Status::OK();
     std::string status_result;
 
-    StreamLoadContext* ctx = new StreamLoadContext(get_exec_env());
-    //ctx doesn't need a manually unref
-    ctx->ref();
+    std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(get_exec_env());
     std::vector<std::string> path_array;
     get_path_array(cntl, path_array);
     if (path_array.size() != 3 && path_array.size() != 4) {
@@ -91,7 +89,7 @@ void StreamLoad2PCHandler::handle_sync(brpc::Controller* cntl) {
         status = Status::InternalError("no valid Basic authorization");
     }
 
-    status = get_exec_env()->stream_load_executor()->operate_txn_2pc(ctx);
+    status = get_exec_env()->stream_load_executor()->operate_txn_2pc(ctx.get());
 
     if (!status.ok()) {
         status_result = status.to_json();
