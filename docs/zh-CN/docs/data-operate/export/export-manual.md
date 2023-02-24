@@ -232,4 +232,4 @@ WHERE LABEL like "%example%";
 
 ## 更多帮助
 
-关于 Export 使用的更多详细语法及最佳实践，请参阅 [Export](../../sql-manual/sql-reference/Show-Statements/SHOW-EXPORT.md) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP EXPORT` 获取更多帮助信息。
+关于 Export 使用的更多详细语法及最佳实践，请参阅 [Export](../../sql-manual/sql-reference/Data-Manipulation-Statements/Manipulation/EXPORT.md) 命令手册，你也可以在 MySql 客户端命令行下输入 `HELP EXPORT` 获取更多帮助信息。
