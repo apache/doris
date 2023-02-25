@@ -15,11 +15,10 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.mysql.nio;
+package org.apache.doris.mysql;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.ErrorCode;
-import org.apache.doris.mysql.MysqlProto;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
 import org.apache.doris.qe.ConnectScheduler;
@@ -55,7 +54,7 @@ public class AcceptListener implements ChannelListener<AcceptingChannel<StreamCo
             LOG.debug("Connection established. remote={}", connection.getPeerAddress());
             // connection has been established, so need to call context.cleanup()
             // if exception happens.
-            NConnectContext context = new NConnectContext(connection);
+            ConnectContext context = new ConnectContext(connection);
             context.setEnv(Env.getCurrentEnv());
             connectScheduler.submit(context);
 
