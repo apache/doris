@@ -258,15 +258,15 @@ public class MysqlChannel {
                         LOG.debug("Receive ssl packet header failed, remote may close the channel.");
                         return null;
                     }
+                    tempBuffer.clear();
+                    tempBuffer.put(sslHeaderByteBuffer.array());
                     packetLen = packetLen();
                     tempBuffer = expandPacket(tempBuffer, packetLen);
-                    result = expandPacket(result, packetLen);
+                    result = expandPacket(result, tempBuffer.capacity());
                     // read one physical packet
                     // before read, set limit to make read only one packet
-                    tempBuffer.put(sslHeaderByteBuffer.array());
                     tempBuffer.limit(tempBuffer.position() + packetLen);
                     readLen = readAll(tempBuffer, false);
-                    tempBuffer.flip();
                     result.put(tempBuffer);
                 }
                 result.position(4);
