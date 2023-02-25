@@ -250,7 +250,7 @@ public class MysqlChannel {
                 int mysqlPacketLength = (header[0] & 0xFF) | ((header[1] & 0XFF) << 8) | ((header[2] & 0XFF) << 16);
                 // when encounter large sql query, one mysql packet will be packed as multiple ssl packets.
                 // we need to read all ssl packets to combine the complete mysql packet.
-                while (mysqlPacketLength != result.limit() - PACKET_HEADER_LEN) {
+                while (mysqlPacketLength > result.limit() - PACKET_HEADER_LEN) {
                     sslHeaderByteBuffer.clear();
                     readLen = readAll(sslHeaderByteBuffer, true);
                     if (readLen != SSL_PACKET_HEADER_LEN) {
@@ -271,6 +271,8 @@ public class MysqlChannel {
                 }
                 result.position(4);
                 result.compact();
+                readLen = result.limit();
+                packetLen = mysqlPacketLength;
             }
             if (readLen != packetLen) {
                 LOG.warn("Length of received packet content(" + readLen
