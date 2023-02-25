@@ -776,7 +776,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         // add this log so that we can track this stmt
         LOG.debug("receive forwarded stmt {} from FE: {}", params.getStmtId(), clientAddr.getHostname());
-        ConnectContext context = new ConnectContext(null);
+        ConnectContext context = new ConnectContext();
         // Set current connected FE to the client address, so that we can know where this request come from.
         context.setCurrentConnectedFEIp(clientAddr.getHostname());
         ConnectProcessor processor = new ConnectProcessor(context);
