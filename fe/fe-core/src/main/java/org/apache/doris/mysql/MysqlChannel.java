@@ -271,8 +271,8 @@ public class MysqlChannel {
                 }
                 result.position(4);
                 result.compact();
-                readLen = result.limit();
-                packetLen = mysqlPacketLength;
+                //readLen = result.limit();
+                //packetLen = mysqlPacketLength;
             }
             if (readLen != packetLen) {
                 LOG.warn("Length of received packet content(" + readLen
