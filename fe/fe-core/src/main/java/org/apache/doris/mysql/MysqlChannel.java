@@ -56,6 +56,7 @@ public class MysqlChannel {
     protected ByteBuffer encryptNetData;
     // default packet byte buffer for most packet
     protected ByteBuffer defaultBuffer = ByteBuffer.allocate(16 * 1024);
+    protected ByteBuffer tempBuffer = ByteBuffer.allocate(16 * 1024);
     protected ByteBuffer sendBuffer;
 
     protected ByteBuffer sendSslBuffer;
@@ -164,27 +165,26 @@ public class MysqlChannel {
     // all packet header is not encrypted, packet body is not sure.
     protected int readAll(ByteBuffer dstBuf, boolean isHeader) throws IOException {
         int readLen = 0;
-        int oldPos = dstBuf.position();
         while (dstBuf.remaining() != 0) {
             int ret = channel.read(dstBuf);
             // return -1 when remote peer close the channel
             if (ret == -1) {
-                decryptData(dstBuf, isHeader, oldPos);
+                decryptData(dstBuf, isHeader);
                 return readLen;
             }
             readLen += ret;
         }
         // if use ssl mode, wo need to decrypt received net data(ciphertext) to app data(plaintext).
-        decryptData(dstBuf, isHeader, oldPos);
+        decryptData(dstBuf, isHeader);
         return readLen;
     }
 
-    protected void decryptData(ByteBuffer dstBuf, boolean isHeader, int startPos) throws SSLException {
+    protected void decryptData(ByteBuffer dstBuf, boolean isHeader) throws SSLException {
         // after decrypt, we get a mysql packet with mysql header.
         if (!isSslMode || isHeader) {
             return;
         }
-        dstBuf.position(startPos);
+        dstBuf.flip();
         decryptAppData.clear();
         // unwrap will remove ssl header.
         while (true) {
@@ -234,7 +234,7 @@ public class MysqlChannel {
                 }
             }
             int packetLen = packetLen();
-            result = expandResultPacket(result, packetLen);
+            result = expandPacket(result, packetLen);
 
             // read one physical packet
             // before read, set limit to make read only one packet
@@ -259,12 +259,15 @@ public class MysqlChannel {
                         return null;
                     }
                     packetLen = packetLen();
-                    result.position(result.limit());
-                    result = expandResultPacket(result, packetLen);
+                    tempBuffer = expandPacket(tempBuffer, packetLen);
+                    result = expandPacket(result, packetLen);
                     // read one physical packet
                     // before read, set limit to make read only one packet
-                    result.limit(result.position() + packetLen);
-                    readLen = readAll(result, false);
+                    tempBuffer.put(sslHeaderByteBuffer.array());
+                    tempBuffer.limit(tempBuffer.position() + packetLen);
+                    readLen = readAll(tempBuffer, false);
+                    tempBuffer.flip();
+                    result.put(tempBuffer);
                 }
                 result.position(4);
                 result.compact();
@@ -286,7 +289,7 @@ public class MysqlChannel {
     }
 
     @NotNull
-    private ByteBuffer expandResultPacket(ByteBuffer result, int packetLen) {
+    private ByteBuffer expandPacket(ByteBuffer result, int packetLen) {
         if ((result.capacity() - result.position()) < packetLen) {
             // byte buffer is not enough, new one packet
             ByteBuffer tmp;

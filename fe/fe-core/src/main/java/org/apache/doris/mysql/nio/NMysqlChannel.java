@@ -60,18 +60,17 @@ public class NMysqlChannel extends MysqlChannel {
     @Override
     protected int readAll(ByteBuffer dstBuf, boolean isHeader) {
         int readLen = 0;
-        int oldPos = dstBuf.position();
         try {
             while (dstBuf.remaining() != 0) {
                 int ret = Channels.readBlocking(conn.getSourceChannel(), dstBuf);
                 // return -1 when remote peer close the channel
                 if (ret == -1) {
-                    decryptData(dstBuf, isHeader, oldPos);
+                    decryptData(dstBuf, isHeader);
                     return readLen;
                 }
                 readLen += ret;
             }
-            decryptData(dstBuf, isHeader, oldPos);
+            decryptData(dstBuf, isHeader);
         } catch (IOException e) {
             LOG.debug("Read channel exception, ignore.", e);
             return 0;
