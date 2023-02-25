@@ -19,11 +19,8 @@ package org.apache.doris.qe;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
-import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.util.DebugUtil;
-import org.apache.doris.mysql.MysqlProto;
-import org.apache.doris.mysql.nio.NConnectContext;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.thrift.TUniqueId;
 
@@ -87,13 +84,7 @@ public class ConnectScheduler {
         if (context == null) {
             return false;
         }
-
         context.setConnectionId(nextConnectionId.getAndAdd(1));
-        // no necessary for nio.
-        if (context instanceof NConnectContext) {
-            return true;
-        }
-        executor.submit(new LoopHandler(context));
         return true;
     }
 
@@ -165,49 +156,5 @@ public class ConnectScheduler {
     public String getQueryIdByTraceId(String traceId) {
         TUniqueId queryId = traceId2QueryId.get(traceId);
         return queryId == null ? "" : DebugUtil.printId(queryId);
-    }
-
-    private class LoopHandler implements Runnable {
-        ConnectContext context;
-
-        LoopHandler(ConnectContext context) {
-            this.context = context;
-        }
-
-        @Override
-        public void run() {
-            try {
-                // Set thread local info
-                context.setThreadLocalInfo();
-                context.setConnectScheduler(ConnectScheduler.this);
-                // authenticate check failed.
-                if (!MysqlProto.negotiate(context)) {
-                    return;
-                }
-
-                if (registerConnection(context)) {
-                    MysqlProto.sendResponsePacket(context);
-                } else {
-                    context.getState().setError(ErrorCode.ERR_USER_LIMIT_REACHED, "Reach limit of connections");
-                    MysqlProto.sendResponsePacket(context);
-                    return;
-                }
-
-                context.setUserQueryTimeout(context.getEnv().getAuth().getQueryTimeout(context.getQualifiedUser()));
-                context.setStartTime();
-                ConnectProcessor processor = new ConnectProcessor(context);
-                processor.loop();
-            } catch (Exception e) {
-                // for unauthorized access such lvs probe request, may cause exception, just log it in debug level
-                if (context.getCurrentUserIdentity() != null) {
-                    LOG.warn("connect processor exception because ", e);
-                } else {
-                    LOG.debug("connect processor exception because ", e);
-                }
-            } finally {
-                unregisterConnection(context);
-                context.cleanup();
-            }
-        }
     }
 }

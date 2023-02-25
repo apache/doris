@@ -24,7 +24,6 @@ import java.util.Map;
 public class MTMVTaskContext {
     ConnectContext ctx;
     String query;
-    String remoteIp;
     Map<String, String> properties;
 
     public ConnectContext getCtx() {
@@ -41,14 +40,6 @@ public class MTMVTaskContext {
 
     public void setQuery(String query) {
         this.query = query;
-    }
-
-    public String getRemoteIp() {
-        return remoteIp;
-    }
-
-    public void setRemoteIp(String remoteIp) {
-        this.remoteIp = remoteIp;
     }
 
     public Map<String, String> getProperties() {
