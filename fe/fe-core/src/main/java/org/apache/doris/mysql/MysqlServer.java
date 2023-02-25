@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.mysql.nio;
+package org.apache.doris.mysql;
 
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ThreadPoolManager;
@@ -38,8 +38,8 @@ import java.util.concurrent.ExecutorService;
 /**
  * mysql protocol implementation based on nio.
  */
-public class NMysqlServer {
-    private static final Logger LOG = LogManager.getLogger(NMysqlServer.class);
+public class MysqlServer {
+    private static final Logger LOG = LogManager.getLogger(MysqlServer.class);
 
     private int port;
     private volatile boolean running;
@@ -54,7 +54,7 @@ public class NMysqlServer {
     private ExecutorService taskService = ThreadPoolManager.newDaemonCacheThreadPool(
             Config.max_mysql_service_task_threads_num, "mysql-nio-pool", true);
 
-    public NMysqlServer(int port, ConnectScheduler connectScheduler) {
+    public MysqlServer(int port, ConnectScheduler connectScheduler) {
         this.port = port;
         this.xnioWorker = Xnio.getInstance().createWorkerBuilder()
                 .setWorkerName("doris-mysql-nio")
