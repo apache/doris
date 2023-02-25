@@ -194,7 +194,7 @@ public class CastExpr extends Expr {
         }
         if (isAnalyzed) {
             if (type.isStringType()) {
-                return "CAST(" + getChild(0).toSql() + " AS " + type.toString() + ")";
+                return "CAST(" + getChild(0).toSql() + " AS " + type.toSql() + ")";
             } else {
                 return "CAST(" + getChild(0).toSql() + " AS " + type.toString() + ")";
             }
