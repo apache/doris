@@ -24,8 +24,7 @@ namespace doris {
 template <typename TraitsType>
 KeyCoder::KeyCoder(TraitsType traits)
         : _full_encode_ascending(traits.full_encode_ascending),
-          _encode_ascending(traits.encode_ascending),
-          _decode_ascending(traits.decode_ascending) {}
+          _encode_ascending(traits.encode_ascending) {}
 
 struct EnumClassHash {
     template <typename T>

@@ -55,15 +55,9 @@ public:
         _encode_ascending(value, index_size, buf);
     }
 
-    Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
-                            MemPool* pool) const {
-        return _decode_ascending(encoded_key, index_size, cell_ptr, pool);
-    }
-
 private:
     FullEncodeAscendingFunc _full_encode_ascending;
     EncodeAscendingFunc _encode_ascending;
-    DecodeAscendingFunc _decode_ascending;
 };
 
 extern const KeyCoder* get_key_coder(FieldType type);
@@ -116,24 +110,6 @@ public:
     static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
         full_encode_ascending(value, buf);
     }
-
-    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
-                                   MemPool* pool) {
-        if (encoded_key->size < sizeof(UnsignedCppType)) {
-            return Status::InvalidArgument("Key too short, need={} vs real={}",
-                                           sizeof(UnsignedCppType), encoded_key->size);
-        }
-        UnsignedCppType unsigned_val;
-        memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
-        unsigned_val = swap_big_endian(unsigned_val);
-        if (std::is_signed<CppType>::value) {
-            unsigned_val ^=
-                    (static_cast<UnsignedCppType>(1) << (sizeof(UnsignedCppType) * CHAR_BIT - 1));
-        }
-        memcpy(cell_ptr, &unsigned_val, sizeof(UnsignedCppType));
-        encoded_key->remove_prefix(sizeof(UnsignedCppType));
-        return Status::OK();
-    }
 };
 
 template <>
@@ -153,20 +129,6 @@ public:
 
     static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
         full_encode_ascending(value, buf);
-    }
-
-    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
-                                   MemPool* pool) {
-        if (encoded_key->size < sizeof(UnsignedCppType)) {
-            return Status::InvalidArgument("Key too short, need={} vs real={}",
-                                           sizeof(UnsignedCppType), encoded_key->size);
-        }
-        UnsignedCppType unsigned_val;
-        memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
-        unsigned_val = BigEndian::FromHost24(unsigned_val);
-        memcpy(cell_ptr, &unsigned_val, sizeof(UnsignedCppType));
-        encoded_key->remove_prefix(sizeof(UnsignedCppType));
-        return Status::OK();
     }
 };
 
@@ -188,20 +150,6 @@ public:
     static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
         full_encode_ascending(value, buf);
     }
-
-    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
-                                   MemPool* pool) {
-        if (encoded_key->size < sizeof(UnsignedCppType)) {
-            return Status::InvalidArgument(Substitute("Key too short, need=$0 vs real=$1",
-                                                      sizeof(UnsignedCppType), encoded_key->size));
-        }
-        UnsignedCppType unsigned_val;
-        memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
-        unsigned_val = BigEndian::FromHost32(unsigned_val);
-        memcpy(cell_ptr, &unsigned_val, sizeof(UnsignedCppType));
-        encoded_key->remove_prefix(sizeof(UnsignedCppType));
-        return Status::OK();
-    }
 };
 
 template <>
@@ -222,20 +170,6 @@ public:
     static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
         full_encode_ascending(value, buf);
     }
-
-    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
-                                   MemPool* pool) {
-        if (encoded_key->size < sizeof(UnsignedCppType)) {
-            return Status::InvalidArgument(Substitute("Key too short, need=$0 vs real=$1",
-                                                      sizeof(UnsignedCppType), encoded_key->size));
-        }
-        UnsignedCppType unsigned_val;
-        memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
-        unsigned_val = BigEndian::FromHost64(unsigned_val);
-        memcpy(cell_ptr, &unsigned_val, sizeof(UnsignedCppType));
-        encoded_key->remove_prefix(sizeof(UnsignedCppType));
-        return Status::OK();
-    }
 };
 
 template <>
@@ -250,17 +184,6 @@ public:
 
     static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
         full_encode_ascending(value, buf);
-    }
-
-    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
-                                   MemPool* pool) {
-        decimal12_t decimal_val = {0, 0};
-        RETURN_IF_ERROR(KeyCoderTraits<OLAP_FIELD_TYPE_BIGINT>::decode_ascending(
-                encoded_key, sizeof(decimal_val.integer), (uint8_t*)&decimal_val.integer, pool));
-        RETURN_IF_ERROR(KeyCoderTraits<OLAP_FIELD_TYPE_INT>::decode_ascending(
-                encoded_key, sizeof(decimal_val.fraction), (uint8_t*)&decimal_val.fraction, pool));
-        memcpy(cell_ptr, &decimal_val, sizeof(decimal12_t));
-        return Status::OK();
     }
 };
 
@@ -279,20 +202,6 @@ public:
                 << ", char=" << slice->size;
         buf->append(slice->data, index_size);
     }
-
-    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
-                                   MemPool* pool) {
-        if (encoded_key->size < index_size) {
-            return Status::InvalidArgument("Key too short, need={} vs real={}", index_size,
-                                           encoded_key->size);
-        }
-        Slice* slice = (Slice*)cell_ptr;
-        slice->data = (char*)pool->allocate(index_size);
-        slice->size = index_size;
-        memcpy(slice->data, encoded_key->data, index_size);
-        encoded_key->remove_prefix(index_size);
-        return Status::OK();
-    }
 };
 
 template <>
@@ -308,20 +217,6 @@ public:
         size_t copy_size = std::min(index_size, slice->size);
         buf->append(slice->data, copy_size);
     }
-
-    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
-                                   MemPool* pool) {
-        CHECK(encoded_key->size <= index_size)
-                << "encoded_key size is larger than index_size, key_size=" << encoded_key->size
-                << ", index_size=" << index_size;
-        auto copy_size = encoded_key->size;
-        Slice* slice = (Slice*)cell_ptr;
-        slice->data = (char*)pool->allocate(copy_size);
-        slice->size = copy_size;
-        memcpy(slice->data, encoded_key->data, copy_size);
-        encoded_key->remove_prefix(copy_size);
-        return Status::OK();
-    }
 };
 
 template <>
@@ -336,20 +231,6 @@ public:
         const Slice* slice = (const Slice*)value;
         size_t copy_size = std::min(index_size, slice->size);
         buf->append(slice->data, copy_size);
-    }
-
-    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
-                                   MemPool* pool) {
-        CHECK(encoded_key->size <= index_size)
-                << "encoded_key size is larger than index_size, key_size=" << encoded_key->size
-                << ", index_size=" << index_size;
-        auto copy_size = encoded_key->size;
-        Slice* slice = (Slice*)cell_ptr;
-        slice->data = (char*)pool->allocate(copy_size);
-        slice->size = copy_size;
-        memcpy(slice->data, encoded_key->data, copy_size);
-        encoded_key->remove_prefix(copy_size);
-        return Status::OK();
     }
 };
 
