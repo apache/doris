@@ -700,7 +700,7 @@ public class OlapScanNode extends ScanNode {
                 LOG.debug("use fix replica, value: {}, replica num: {}", useFixReplica, replicas.size());
                 // sort by replica id
                 replicas.sort(Replica.ID_COMPARATOR);
-                Replica replica = replicas.get(useFixReplica >= replicas.size() : replicas.size() - 1 ? useFixReplica);
+                Replica replica = replicas.get(useFixReplica >= replicas.size() ? replicas.size() - 1 : useFixReplica);
                 replicas.clear();
                 replicas.add(replica);
             }
