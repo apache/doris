@@ -88,7 +88,7 @@ bool BaseHttpHandler::support_method(brpc::HttpMethod method) const {
 
 const std::string* BaseHttpHandler::get_param(brpc::Controller* cntl,
                                               const std::string& key) const {
-    return get_uri(cntl).GetQuery(key);
+    return cntl->http_request().uri().GetQuery(key);
 }
 
 const std::string* BaseHttpHandler::get_header(brpc::Controller* cntl,
