@@ -19,6 +19,7 @@ package org.apache.doris.mysql;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -232,19 +233,7 @@ public class MysqlChannel {
                 }
             }
             int packetLen = packetLen();
-            if ((result.capacity() - result.position()) < packetLen) {
-                // byte buffer is not enough, new one packet
-                ByteBuffer tmp;
-                if (packetLen < MAX_PHYSICAL_PACKET_LENGTH) {
-                    // last packet, enough to this packet is OK.
-                    tmp = ByteBuffer.allocate(packetLen + result.position());
-                } else {
-                    // already have packet, to allocate two packet.
-                    tmp = ByteBuffer.allocate(2 * packetLen + result.position());
-                }
-                tmp.put(result.array(), 0, result.position());
-                result = tmp;
-            }
+            result = expandResultPacket(result, packetLen);
 
             // read one physical packet
             // before read, set limit to make read only one packet
@@ -256,6 +245,25 @@ public class MysqlChannel {
                 if (packetId != sequenceId) {
                     LOG.warn("receive packet sequence id[" + packetId() + "] want to get[" + sequenceId + "]");
                     throw new IOException("Bad packet sequence.");
+                }
+                int mysqlPacketLength = (header[0] & 0xFF) | ((header[1] & 0XFF) << 8) | ((header[2] & 0XFF) << 16);
+                // when encounter large sql query, one mysql packet will be packed as multiple ssl packets.
+                // we need to read all ssl packets to combine the complete mysql packet.
+                while (mysqlPacketLength != result.limit() - PACKET_HEADER_LEN) {
+                    sslHeaderByteBuffer.clear();
+                    readLen = readAll(sslHeaderByteBuffer, true);
+                    if (readLen != SSL_PACKET_HEADER_LEN) {
+                        // remote has close this channel
+                        LOG.debug("Receive ssl packet header failed, remote may close the channel.");
+                        return null;
+                    }
+                    packetLen = packetLen();
+                    result.position(result.limit());
+                    result = expandResultPacket(result, packetLen);
+                    // read one physical packet
+                    // before read, set limit to make read only one packet
+                    result.limit(result.position() + packetLen);
+                    readLen = readAll(result, false);
                 }
                 result.position(4);
                 result.compact();
@@ -272,6 +280,24 @@ public class MysqlChannel {
                 result.flip();
                 break;
             }
+        }
+        return result;
+    }
+
+    @NotNull
+    private ByteBuffer expandResultPacket(ByteBuffer result, int packetLen) {
+        if ((result.capacity() - result.position()) < packetLen) {
+            // byte buffer is not enough, new one packet
+            ByteBuffer tmp;
+            if (packetLen < MAX_PHYSICAL_PACKET_LENGTH) {
+                // last packet, enough to this packet is OK.
+                tmp = ByteBuffer.allocate(packetLen + result.position());
+            } else {
+                // already have packet, to allocate two packet.
+                tmp = ByteBuffer.allocate(2 * packetLen + result.position());
+            }
+            tmp.put(result.array(), 0, result.position());
+            result = tmp;
         }
         return result;
     }
