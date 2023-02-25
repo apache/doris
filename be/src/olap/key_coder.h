@@ -110,6 +110,23 @@ public:
     static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
         full_encode_ascending(value, buf);
     }
+
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
+        if (encoded_key->size < sizeof(UnsignedCppType)) {
+            return Status::InvalidArgument("Key too short, need={} vs real={}",
+                                           sizeof(UnsignedCppType), encoded_key->size);
+        }
+        UnsignedCppType unsigned_val;
+        memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
+        unsigned_val = swap_big_endian(unsigned_val);
+        if (std::is_signed<CppType>::value) {
+            unsigned_val ^=
+                    (static_cast<UnsignedCppType>(1) << (sizeof(UnsignedCppType) * CHAR_BIT - 1));
+        }
+        memcpy(cell_ptr, &unsigned_val, sizeof(UnsignedCppType));
+        encoded_key->remove_prefix(sizeof(UnsignedCppType));
+        return Status::OK();
+    }
 };
 
 template <>
