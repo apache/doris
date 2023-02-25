@@ -164,26 +164,27 @@ public class MysqlChannel {
     // all packet header is not encrypted, packet body is not sure.
     protected int readAll(ByteBuffer dstBuf, boolean isHeader) throws IOException {
         int readLen = 0;
+        int oldPos = dstBuf.position();
         while (dstBuf.remaining() != 0) {
             int ret = channel.read(dstBuf);
             // return -1 when remote peer close the channel
             if (ret == -1) {
-                decryptData(dstBuf, isHeader);
+                decryptData(dstBuf, isHeader, oldPos);
                 return readLen;
             }
             readLen += ret;
         }
         // if use ssl mode, wo need to decrypt received net data(ciphertext) to app data(plaintext).
-        decryptData(dstBuf, isHeader);
+        decryptData(dstBuf, isHeader, oldPos);
         return readLen;
     }
 
-    protected void decryptData(ByteBuffer dstBuf, boolean isHeader) throws SSLException {
+    protected void decryptData(ByteBuffer dstBuf, boolean isHeader, int startPos) throws SSLException {
         // after decrypt, we get a mysql packet with mysql header.
         if (!isSslMode || isHeader) {
             return;
         }
-        dstBuf.flip();
+        dstBuf.position(startPos);
         decryptAppData.clear();
         // unwrap will remove ssl header.
         while (true) {
