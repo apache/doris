@@ -20,6 +20,7 @@ package org.apache.doris.analysis;
 import org.apache.doris.catalog.Catalog;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.FunctionSet;
+import org.apache.doris.catalog.MultiRowType;
 import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
@@ -194,7 +195,12 @@ public class CastExpr extends Expr {
         }
         if (isAnalyzed) {
             if (type.isStringType()) {
-                return "CAST(" + getChild(0).toSql() + " AS " + type.toSql() + ")";
+                String typeString = type.toSql();
+                ScalarType scalarType = ((ScalarType) type);
+                if (scalarType.isWildcardChar() || scalarType.isWildcardVarchar()) {
+                    typeString = typeString.replace("(-1)", "");
+                }
+                return "CAST(" + getChild(0).toSql() + " AS " + typeString + ")";
             } else {
                 return "CAST(" + getChild(0).toSql() + " AS " + type.toString() + ")";
             }
