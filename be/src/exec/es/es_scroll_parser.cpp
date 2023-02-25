@@ -629,7 +629,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                     break;
                 }
                 case TYPE_FLOAT: {
-                    float val;
+                    float val {};
                     RETURN_IF_ERROR(
                             get_float_value<float>(sub_col, sub_type, &val, pure_doc_value));
                     array.push_back(val);
