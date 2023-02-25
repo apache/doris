@@ -255,7 +255,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String GROUP_BY_AND_HAVING_USE_ALIAS_FIRST = "group_by_and_having_use_alias_first";
 
-    // fix replic to query. If num = 1, query the smallest replic, if 2 is the second smallest replic.
+    // fix replica to query. If num = 1, query the smallest replica, if 2 is the second smallest replica.
     public static final String USE_FIX_REPLICA = "use_fix_replica";
 
     // session origin value

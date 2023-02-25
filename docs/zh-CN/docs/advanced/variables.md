@@ -553,3 +553,7 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 *   `group_by_and_having_use_alias_first`
 
        指定group by和having语句是否优先使用列的别名，而非从From语句里寻找列的名字。默认为false。
+
+* `use_fix_replica`
+
+    使用固定的replica进行查询，该值表示固定使用第几小的replica，默认为-1表示不启用。
