@@ -172,7 +172,7 @@ public class BeSelectionPolicy {
 
     @Override
     public String toString() {
-        return String.format("cluster:%s | query:%s | load:%s | schedule:%s | tags:%s | medium:%s ",
+        return String.format("cluster=%s | query=%s | load=%s | schedule=%s | tags=%s | medium=%s",
                 cluster, needLoadAvailable, needLoadAvailable, needScheduleAvailable, resourceTags, storageMedium);
     }
 }
