@@ -584,3 +584,9 @@ Translated with www.DeepL.com/Translator (free version)
 * `drop_table_if_ctas_failed`
 
     Controls whether create table as select deletes created tables when a insert error occurs, the default value is true.
+
+* `show_user_default_role`
+
+    <version since="dev"></version>
+
+    Controls whether to show each user's implicit roles in the results of `show roles`. Default is false.
