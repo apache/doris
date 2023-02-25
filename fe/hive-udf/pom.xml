@@ -49,12 +49,16 @@ under the License.
                     <artifactId>velocity</artifactId>
                 </exclusion>
                 <exclusion>
-                    <artifactId>commons-httpclient</artifactId>
                     <groupId>commons-httpclient</groupId>
+                    <artifactId>commons-httpclient</artifactId>
                 </exclusion>
                 <exclusion>
-                    <artifactId>avatica</artifactId>
                     <groupId>org.apache.calcite.avatica</groupId>
+                    <artifactId>avatica</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.zookeeper:zookeeper</groupId>
+                    <artifactId>zookeeper</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
