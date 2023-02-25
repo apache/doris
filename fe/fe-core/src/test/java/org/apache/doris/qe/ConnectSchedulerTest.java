@@ -21,7 +21,6 @@ import org.apache.doris.analysis.AccessTestUtil;
 import org.apache.doris.mysql.MysqlChannel;
 import org.apache.doris.mysql.MysqlProto;
 
-import mockit.Delegate;
 import mockit.Expectations;
 import mockit.Mocked;
 import org.junit.Assert;
@@ -65,25 +64,6 @@ public class ConnectSchedulerTest {
 
     @Test
     public void testSubmit(@Mocked ConnectProcessor processor) throws Exception {
-        // mock new processor
-        new Expectations() {
-            {
-                processor.loop();
-                result = new Delegate() {
-                    void fakeLoop() {
-                        LOG.warn("starts loop");
-                        // Make cancel thread to work
-                        succSubmit.incrementAndGet();
-                        try {
-                            Thread.sleep(2000);
-                        } catch (InterruptedException e) {
-                            LOG.warn("sleep exception");
-                        }
-                    }
-                };
-            }
-        };
-
         ConnectScheduler scheduler = new ConnectScheduler(10);
         for (int i = 0; i < 2; ++i) {
             ConnectContext context = new ConnectContext();
@@ -100,13 +80,6 @@ public class ConnectSchedulerTest {
 
     @Test
     public void testProcessException(@Mocked ConnectProcessor processor) throws Exception {
-        new Expectations() {
-            {
-                processor.loop();
-                result = new RuntimeException("failed");
-            }
-        };
-
         ConnectScheduler scheduler = new ConnectScheduler(10);
 
         ConnectContext context = new ConnectContext();

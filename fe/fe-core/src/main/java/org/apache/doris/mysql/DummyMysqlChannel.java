@@ -41,6 +41,11 @@ public class DummyMysqlChannel extends MysqlChannel {
     }
 
     @Override
+    public String getRemoteHostPortString() {
+        return "";
+    }
+
+    @Override
     public void close() {
     }
 
