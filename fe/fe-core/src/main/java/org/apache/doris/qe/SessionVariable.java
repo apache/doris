@@ -275,7 +275,7 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SHOW_USER_DEFAULT_ROLE = "show_user_default_role";
 
-    // fix replic to query. If num = 1, query the smallest replic, if 2 is the second smallest replic.
+    // fix replica to query. If num = 1, query the smallest replica, if 2 is the second smallest replica.
     public static final String USE_FIX_REPLICA = "use_fix_replica";
 
     // session origin value
