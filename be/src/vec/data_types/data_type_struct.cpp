@@ -73,7 +73,7 @@ std::string DataTypeStruct::do_get_name() const {
     return s.str();
 }
 
-bool next_slot_from_string(ReadBuffer &rb, StringRef &output, bool &is_name, bool &has_quota) {
+bool next_slot_from_string(ReadBuffer& rb, StringRef& output, bool& is_name, bool& has_quota) {
     StringRef element(rb.position(), 0);
     has_quota = false;
     is_name = false;
@@ -141,17 +141,17 @@ bool next_slot_from_string(ReadBuffer &rb, StringRef &output, bool &is_name, boo
     return true;
 }
 
-Status DataTypeStruct::from_string(ReadBuffer &rb, IColumn *column) const {
+Status DataTypeStruct::from_string(ReadBuffer& rb, IColumn* column) const {
     DCHECK(!rb.eof());
-    auto *struct_column = assert_cast<ColumnStruct *>(column);
+    auto* struct_column = assert_cast<ColumnStruct *>(column);
 
     if (*rb.position() != '{') {
-        return Status::InvalidArgument("Struct does not start with '{}' character, found '{}'",
-                                       "{", *rb.position());
+        return Status::InvalidArgument("Struct does not start with '{}' character, found '{}'", "{",
+                                       *rb.position());
     }
     if (*(rb.end() - 1) != '}') {
-        return Status::InvalidArgument("Struct does not end with '{}' character, found '{}'",
-                                       "}", *(rb.end() - 1));
+        return Status::InvalidArgument("Struct does not end with '{}' character, found '{}'", "}",
+                                       *(rb.end() - 1));
     }
 
     // here need handle the empty struct '{}'
@@ -162,31 +162,25 @@ Status DataTypeStruct::from_string(ReadBuffer &rb, IColumn *column) const {
     ++rb.position();
 
     bool is_explicit_names = false;
-    std::vector <std::string> field_names;
-    std::vector <ReadBuffer> field_rbs;
-    std::vector <size_t> field_pos;
+    std::vector<std::string> field_names;
+    std::vector<ReadBuffer> field_rbs;
+    std::vector<size_t> field_pos;
 
     while (!rb.eof()) {
         StringRef slot(rb.position(), rb.count());
         bool has_quota = false;
         bool is_name = false;
         if (!next_slot_from_string(rb, slot, is_name, has_quota)) {
-            LOG(INFO) << "Cannot read struct field from text";
             return Status::InvalidArgument("Cannot read struct field from text '{}'",
                                            slot.to_string());
         }
-        LOG(INFO) << "DataTypeStruct::from_string:slot.to_string():" << slot.to_string();
-        LOG(INFO) << "DataTypeStruct::from_string:is_name:" << is_name;
         if (is_name) {
             std::string name = slot.to_string();
             if (!next_slot_from_string(rb, slot, is_name, has_quota)) {
-                LOG(INFO) << "Cannot read struct field from text";
                 return Status::InvalidArgument("Cannot read struct field from text '{}'",
                                                slot.to_string());
             }
-            LOG(INFO) << "DataTypeStruct::from_string:slot.to_string():" << slot.to_string();
-            LOG(INFO) << "DataTypeStruct::from_string:is_name:" << is_name;
-            ReadBuffer field_rb(const_cast<char *>(slot.data), slot.size);
+            ReadBuffer field_rb(const_cast<char*>(slot.data), slot.size);
             field_names.push_back(name);
             field_rbs.push_back(field_rb);
 
@@ -194,7 +188,7 @@ Status DataTypeStruct::from_string(ReadBuffer &rb, IColumn *column) const {
                 is_explicit_names = true;
             }
         } else {
-            ReadBuffer field_rb(const_cast<char *>(slot.data), slot.size);
+            ReadBuffer field_rb(const_cast<char*>(slot.data), slot.size);
             field_rbs.push_back(field_rb);
         }
     }
@@ -202,32 +196,30 @@ Status DataTypeStruct::from_string(ReadBuffer &rb, IColumn *column) const {
     // TODO: should we support insert default field value when actual field number is less than
     // schema field number?
     if (field_rbs.size() != elems.size()) {
-        std::string cmp_str =
-                field_rbs.size() > elems.size() ? "more" : "less";
-        LOG(INFO) << "Actual struct field number {} is {} than schema field number {}.";
-        return Status::InvalidArgument("Actual struct field number {} is {} than schema field number {}.",
-                                       field_rbs.size(), cmp_str, elems.size());
+        std::string cmp_str = field_rbs.size() > elems.size() ? "more" : "less";
+        return Status::InvalidArgument(
+                "Actual struct field number {} is {} than schema field number {}.",
+                field_rbs.size(), cmp_str, elems.size());
     }
 
     if (is_explicit_names) {
         if (field_names.size() != field_rbs.size()) {
-            LOG(INFO) << "Struct field name number {} is not equal to field number {}.";
             return Status::InvalidArgument("Struct field name number {} is not equal to field number {}.",
                                            field_names.size(), field_rbs.size());
         }
-        std::unordered_set <std::string> name_set;
+        std::unordered_set<std::string> name_set;
         for (size_t i = 0; i < field_names.size(); i++) {
             // check duplicate fields
             auto ret = name_set.insert(field_names[i]);
             if (!ret.second) {
-                LOG(INFO) << "Struct field name {} is duplicate with others.";
-                return Status::InvalidArgument("Struct field name {} is duplicate with others.", field_names[i]);
+                return Status::InvalidArgument("Struct field name {} is duplicate with others.",
+                                               field_names[i]);
             }
             // check name valid
             auto idx = try_get_position_by_name(field_names[i]);
             if (idx == std::nullopt) {
-                LOG(INFO) << "Cannot find struct field name {} in schema.";
-                return Status::InvalidArgument("Cannot find struct field name {} in schema.", field_names[i]);
+                return Status::InvalidArgument("Cannot find struct field name {} in schema.",
+                                               field_names[i]);
             }
             field_pos.push_back(idx.value());
         }
@@ -239,18 +231,18 @@ Status DataTypeStruct::from_string(ReadBuffer &rb, IColumn *column) const {
 
     for (size_t idx = 0; idx < elems.size(); idx++) {
         auto field_rb = field_rbs[field_pos[idx]];
-        LOG(INFO) << "DataTypeStruct::from_string:field_rb.count():" << field_rbs[field_pos[idx]].count();
-        LOG(INFO) << "DataTypeStruct::from_string:field_rb.to_string():" << field_rbs[field_pos[idx]].to_string();
         // handle empty element
         if (field_rb.count() == 0) {
-            auto &nested_null_col = reinterpret_cast<ColumnNullable &>(struct_column->get_column(idx));
+            auto &nested_null_col =
+                    reinterpret_cast<ColumnNullable &>(struct_column->get_column(idx));
             nested_null_col.get_nested_column().insert_default();
             nested_null_col.get_null_map_data().push_back(0);
             continue;
         }
         // handle null element
         if (field_rb.count() == 4 && strncmp(field_rb.position(), "null", 4) == 0) {
-            auto &nested_null_col = reinterpret_cast<ColumnNullable &>(struct_column->get_column(idx));
+            auto &nested_null_col =
+                    reinterpret_cast<ColumnNullable &>(struct_column->get_column(idx));
             nested_null_col.get_nested_column().insert_default();
             nested_null_col.get_null_map_data().push_back(1);
             continue;
