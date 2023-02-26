@@ -143,7 +143,7 @@ bool next_slot_from_string(ReadBuffer& rb, StringRef& output, bool& is_name, boo
 
 Status DataTypeStruct::from_string(ReadBuffer& rb, IColumn* column) const {
     DCHECK(!rb.eof());
-    auto* struct_column = assert_cast<ColumnStruct *>(column);
+    auto* struct_column = assert_cast<ColumnStruct*>(column);
 
     if (*rb.position() != '{') {
         return Status::InvalidArgument("Struct does not start with '{}' character, found '{}'", "{",
@@ -235,7 +235,7 @@ Status DataTypeStruct::from_string(ReadBuffer& rb, IColumn* column) const {
         // handle empty element
         if (field_rb.count() == 0) {
             auto& nested_null_col =
-                    reinterpret_cast<ColumnNullable &>(struct_column->get_column(idx));
+                    reinterpret_cast<ColumnNullable&>(struct_column->get_column(idx));
             nested_null_col.get_nested_column().insert_default();
             nested_null_col.get_null_map_data().push_back(0);
             continue;
@@ -243,7 +243,7 @@ Status DataTypeStruct::from_string(ReadBuffer& rb, IColumn* column) const {
         // handle null element
         if (field_rb.count() == 4 && strncmp(field_rb.position(), "null", 4) == 0) {
             auto& nested_null_col =
-                    reinterpret_cast<ColumnNullable &>(struct_column->get_column(idx));
+                    reinterpret_cast<ColumnNullable&>(struct_column->get_column(idx));
             nested_null_col.get_nested_column().insert_default();
             nested_null_col.get_null_map_data().push_back(1);
             continue;
