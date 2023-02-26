@@ -372,19 +372,21 @@ public class TabletInvertedIndex {
             return;
         }
 
-        // validate replica is active
+        // check cooldown replica is alive
         Map<Long, Replica> replicaMap = replicaMetaTable.row(beTabletInfo.getTabletId());
         if (replicaMap.isEmpty()) {
             return;
         }
-        boolean replicaInvalid = true;
+        boolean replicaAlive = false;
         for (Replica replica : replicaMap.values()) {
             if (replica.getId() == cooldownConf.first) {
-                replicaInvalid = false;
+                if (replica.isAlive()) {
+                    replicaAlive = true;
+                }
                 break;
             }
         }
-        if (replicaInvalid) {
+        if (!replicaAlive) {
             CooldownConf conf = new CooldownConf(tabletMeta.getDbId(), tabletMeta.getTableId(),
                     tabletMeta.getPartitionId(), tabletMeta.getIndexId(), beTabletInfo.tablet_id, cooldownConf.second);
             synchronized (cooldownConfToUpdate) {
