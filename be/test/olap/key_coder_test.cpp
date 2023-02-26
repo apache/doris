@@ -57,7 +57,7 @@ void test_integer_encode() {
         {
             Slice slice(buf);
             CppType check_val;
-            key_coder->decode_ascending(&slice, sizeof(CppType), (uint8_t*)&check_val, nullptr);
+            key_coder->decode_ascending(&slice, sizeof(CppType), (uint8_t*)&check_val);
             EXPECT_EQ(val, check_val);
         }
     }
@@ -76,7 +76,7 @@ void test_integer_encode() {
         {
             Slice slice(buf);
             CppType check_val;
-            key_coder->decode_ascending(&slice, sizeof(CppType), (uint8_t*)&check_val, nullptr);
+            key_coder->decode_ascending(&slice, sizeof(CppType), (uint8_t*)&check_val);
             EXPECT_EQ(val, check_val);
         }
     }
@@ -132,7 +132,7 @@ TEST_F(KeyCoderTest, test_date) {
         {
             Slice slice(buf);
             CppType check_val;
-            key_coder->decode_ascending(&slice, sizeof(CppType), (uint8_t*)&check_val, nullptr);
+            key_coder->decode_ascending(&slice, sizeof(CppType), (uint8_t*)&check_val);
             EXPECT_EQ(val, check_val);
         }
     }
@@ -148,7 +148,7 @@ TEST_F(KeyCoderTest, test_date) {
         {
             Slice slice(buf);
             CppType check_val;
-            key_coder->decode_ascending(&slice, sizeof(CppType), (uint8_t*)&check_val, nullptr);
+            key_coder->decode_ascending(&slice, sizeof(CppType), (uint8_t*)&check_val);
             EXPECT_EQ(val, check_val);
         }
     }
@@ -183,7 +183,7 @@ TEST_F(KeyCoderTest, test_decimal) {
 
     decimal12_t check_val;
     Slice slice1(buf1);
-    key_coder->decode_ascending(&slice1, sizeof(decimal12_t), (uint8_t*)&check_val, nullptr);
+    key_coder->decode_ascending(&slice1, sizeof(decimal12_t), (uint8_t*)&check_val);
     EXPECT_EQ(check_val, val1);
 
     {
