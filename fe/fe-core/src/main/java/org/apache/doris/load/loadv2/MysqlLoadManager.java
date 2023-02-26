@@ -145,6 +145,7 @@ public class MysqlLoadManager {
                 // MySql client will send an empty packet when eof
                 while (buffer != null && buffer.limit() != 0) {
                     inputStream.fillByteBuffer(buffer);
+                    // todo: handle this
                     buffer = context.getMysqlChannel().fetchOnePacket();
                 }
             } catch (IOException | InterruptedException e) {
