@@ -32,8 +32,6 @@ using strings::Substitute;
 
 using FullEncodeAscendingFunc = void (*)(const void* value, std::string* buf);
 using EncodeAscendingFunc = void (*)(const void* value, size_t index_size, std::string* buf);
-using DecodeAscendingFunc = Status (*)(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr,
-                                       MemPool* pool);
 
 // Order-preserving binary encoding for values of a particular type so that
 // those values can be compared by memcpy their encoded bytes.
@@ -112,6 +110,12 @@ public:
     }
 
     static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
+        // decode_ascending only used in orinal index page, maybe should remove it in the future.
+        // currently, we reduce the usage of this method.
+        if constexpr (std::is_same<field_type, OLAP_FIELD_TYPE_UNSIGNED_BIGINT>::value) {
+            LOG(FATAL) << "decode_ascending should only be used for "
+                          "OLAP_FIELD_TYPE_UNSIGNED_BIGINT in ordinal index page";
+        }
         if (encoded_key->size < sizeof(UnsignedCppType)) {
             return Status::InvalidArgument("Key too short, need={} vs real={}",
                                            sizeof(UnsignedCppType), encoded_key->size);
