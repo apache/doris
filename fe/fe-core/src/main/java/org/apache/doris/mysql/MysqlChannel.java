@@ -23,12 +23,16 @@ import org.apache.doris.qe.ConnectProcessor;
 import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.jetbrains.annotations.NotNull;
 import org.xnio.StreamConnection;
 import org.xnio.channels.Channels;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import javax.net.ssl.SSLEngine;
+import javax.net.ssl.SSLEngineResult;
+import javax.net.ssl.SSLException;
 
 /**
  * This class used to read/write MySQL logical packet.
@@ -43,6 +47,8 @@ public class MysqlChannel {
     public static final int MAX_PHYSICAL_PACKET_LENGTH = 0xffffff;
     // MySQL packet header length
     protected static final int PACKET_HEADER_LEN = 4;
+    // SSL packet header length
+    protected static final int SSL_PACKET_HEADER_LEN = 5;
     // next sequence id to receive or send
     protected int sequenceId;
     // channel connected with client
@@ -50,13 +56,23 @@ public class MysqlChannel {
     // used to receive/send header, avoiding new this many time.
     protected ByteBuffer headerByteBuffer;
     protected ByteBuffer defaultBuffer;
-    // default packet byte buffer for most packet
+    protected ByteBuffer sslHeaderByteBuffer;
+    protected ByteBuffer tempBuffer;
     protected ByteBuffer sendBuffer;
+    protected ByteBuffer sendSslBuffer;
+
+    protected ByteBuffer decryptAppData;
+    protected ByteBuffer encryptNetData;
+
     // for log and show
     protected String remoteHostPortString;
     protected String remoteIp;
     protected boolean isSend;
-    // Serializer used to pack MySQL packet.
+
+    protected boolean isSslMode;
+    protected boolean isSslHandshaking;
+    private SSLEngine sslEngine;
+
     protected volatile MysqlSerializer serializer;
 
     protected MysqlChannel() {
@@ -84,6 +100,9 @@ public class MysqlChannel {
         this.defaultBuffer = ByteBuffer.allocate(16 * 1024);
         this.headerByteBuffer = ByteBuffer.allocate(PACKET_HEADER_LEN);
         this.sendBuffer = ByteBuffer.allocate(2 * 1024 * 1024);
+        this.sendSslBuffer = ByteBuffer.allocate(2 * 1024 * 1024);
+        this.tempBuffer = ByteBuffer.allocate(16 * 1024);
+        this.sslHeaderByteBuffer = ByteBuffer.allocate(SSL_PACKET_HEADER_LEN);
     }
 
     public void setSequenceId(int sequenceId) {
@@ -94,14 +113,38 @@ public class MysqlChannel {
         return remoteIp;
     }
 
+    public void setSslEngine(SSLEngine sslEngine) {
+        this.sslEngine = sslEngine;
+        decryptAppData = ByteBuffer.allocate(sslEngine.getSession().getApplicationBufferSize() * 2);
+        encryptNetData = ByteBuffer.allocate(sslEngine.getSession().getPacketBufferSize() * 2);
+    }
+
+    public void setSslMode(boolean sslMode) {
+        isSslMode = sslMode;
+        if (isSslMode) {
+            // channel in ssl mode means handshake phase has finished.
+            isSslHandshaking = false;
+            headerByteBuffer = ByteBuffer.allocate(SSL_PACKET_HEADER_LEN);
+        }
+    }
+
+    public void setSslHandshaking(boolean sslHandshaking) {
+        isSslHandshaking = sslHandshaking;
+    }
+
     private int packetId() {
         byte[] header = headerByteBuffer.array();
         return header[3] & 0xFF;
     }
 
     private int packetLen() {
-        byte[] header = headerByteBuffer.array();
-        return (header[0] & 0xFF) | ((header[1] & 0XFF) << 8) | ((header[2] & 0XFF) << 16);
+        if (isSslMode || isSslHandshaking) {
+            byte[] header = sslHeaderByteBuffer.array();
+            return (header[4] & 0xFF) | ((header[3] & 0XFF) << 8);
+        } else {
+            byte[] header = headerByteBuffer.array();
+            return (header[0] & 0xFF) | ((header[1] & 0XFF) << 8) | ((header[2] & 0XFF) << 16);
+        }
     }
 
     private void accSequenceId() {
@@ -120,17 +163,20 @@ public class MysqlChannel {
         }
     }
 
-    protected int readAll(ByteBuffer dstBuf) throws IOException {
+    // all packet header is not encrypted, packet body is not sure.
+    protected int readAll(ByteBuffer dstBuf, boolean isHeader) throws IOException {
         int readLen = 0;
         try {
             while (dstBuf.remaining() != 0) {
                 int ret = Channels.readBlocking(conn.getSourceChannel(), dstBuf);
                 // return -1 when remote peer close the channel
                 if (ret == -1) {
+                    decryptData(dstBuf, isHeader);
                     return readLen;
                 }
                 readLen += ret;
             }
+            decryptData(dstBuf, isHeader);
         } catch (IOException e) {
             LOG.debug("Read channel exception, ignore.", e);
             return 0;
@@ -138,51 +184,110 @@ public class MysqlChannel {
         return readLen;
     }
 
+    protected void decryptData(ByteBuffer dstBuf, boolean isHeader) throws SSLException {
+        // after decrypt, we get a mysql packet with mysql header.
+        if (!isSslMode || isHeader) {
+            return;
+        }
+        dstBuf.flip();
+        decryptAppData.clear();
+        // unwrap will remove ssl header.
+        while (true) {
+            SSLEngineResult result = sslEngine.unwrap(dstBuf, decryptAppData);
+            if (handleUnwrapResult(result) && !dstBuf.hasRemaining()) {
+                break;
+            }
+            // if BUFFER_OVERFLOW or BUFFER_UNDERFLOW, need to unwrap again, so we do nothing.
+        }
+        decryptAppData.flip();
+        dstBuf.clear();
+        dstBuf.put(decryptAppData);
+        dstBuf.flip();
+    }
+
     // read one logical mysql protocol packet
     // null for channel is closed.
     // NOTE: all of the following code is assumed that the channel is in block mode.
+    // if in handshaking mode we return a packet with header otherwise without header.
     public ByteBuffer fetchOnePacket() throws IOException {
         int readLen;
         ByteBuffer result = defaultBuffer;
         result.clear();
 
         while (true) {
-            headerByteBuffer.clear();
-            readLen = readAll(headerByteBuffer);
-            if (readLen != PACKET_HEADER_LEN) {
-                // remote has close this channel
-                LOG.debug("Receive packet header failed, remote may close the channel.");
-                return null;
-            }
-            if (packetId() != sequenceId) {
-                LOG.warn("receive packet sequence id[" + packetId() + "] want to get[" + sequenceId + "]");
-                throw new IOException("Bad packet sequence.");
+            if (isSslMode || isSslHandshaking) {
+                sslHeaderByteBuffer.clear();
+                readLen = readAll(sslHeaderByteBuffer, true);
+                if (readLen != SSL_PACKET_HEADER_LEN) {
+                    // remote has close this channel
+                    LOG.debug("Receive ssl packet header failed, remote may close the channel.");
+                    return null;
+                }
+                // when handshaking and ssl mode, sslengine unwrap need a packet with header.
+                result.put(sslHeaderByteBuffer.array());
+            } else {
+                headerByteBuffer.clear();
+                readLen = readAll(headerByteBuffer, true);
+                if (readLen != PACKET_HEADER_LEN) {
+                    // remote has close this channel
+                    LOG.debug("Receive packet header failed, remote may close the channel.");
+                    return null;
+                }
+                if (packetId() != sequenceId) {
+                    LOG.warn("receive packet sequence id[" + packetId() + "] want to get[" + sequenceId + "]");
+                    throw new IOException("Bad packet sequence.");
+                }
             }
             int packetLen = packetLen();
-            if ((result.capacity() - result.position()) < packetLen) {
-                // byte buffer is not enough, new one packet
-                ByteBuffer tmp;
-                if (packetLen < MAX_PHYSICAL_PACKET_LENGTH) {
-                    // last packet, enough to this packet is OK.
-                    tmp = ByteBuffer.allocate(packetLen + result.position());
-                } else {
-                    // already have packet, to allocate two packet.
-                    tmp = ByteBuffer.allocate(2 * packetLen + result.position());
-                }
-                tmp.put(result.array(), 0, result.position());
-                result = tmp;
-            }
+            result = expandPacket(result, packetLen);
 
             // read one physical packet
             // before read, set limit to make read only one packet
             result.limit(result.position() + packetLen);
-            readLen = readAll(result);
+            readLen = readAll(result, false);
+            if (isSslMode) {
+                byte[] header = result.array();
+                int packetId = header[3] & 0xFF;
+                if (packetId != sequenceId) {
+                    LOG.warn("receive packet sequence id[" + packetId() + "] want to get[" + sequenceId + "]");
+                    throw new IOException("Bad packet sequence.");
+                }
+                int mysqlPacketLength = (header[0] & 0xFF) | ((header[1] & 0XFF) << 8) | ((header[2] & 0XFF) << 16);
+                // remove mysql packet header
+                result.position(4);
+                result.compact();
+                // when encounter large sql query, one mysql packet will be packed as multiple ssl packets.
+                // we need to read all ssl packets to combine the complete mysql packet.
+                while (mysqlPacketLength > result.limit()) {
+                    sslHeaderByteBuffer.clear();
+                    readLen = readAll(sslHeaderByteBuffer, true);
+                    if (readLen != SSL_PACKET_HEADER_LEN) {
+                        // remote has close this channel
+                        LOG.debug("Receive ssl packet header failed, remote may close the channel.");
+                        return null;
+                    }
+                    tempBuffer.clear();
+                    tempBuffer.put(sslHeaderByteBuffer.array());
+                    packetLen = packetLen();
+                    tempBuffer = expandPacket(tempBuffer, packetLen);
+                    result = expandPacket(result, tempBuffer.capacity());
+                    // read one physical packet
+                    // before read, set limit to make read only one packet
+                    tempBuffer.limit(tempBuffer.position() + packetLen);
+                    readLen = readAll(tempBuffer, false);
+                    result.put(tempBuffer);
+                }
+                //readLen = result.limit();
+                //packetLen = mysqlPacketLength;
+            }
             if (readLen != packetLen) {
                 LOG.warn("Length of received packet content(" + readLen
                         + ") is not equal with length in head.(" + packetLen + ")");
                 return null;
             }
-            accSequenceId();
+            if (!isSslHandshaking) {
+                accSequenceId();
+            }
             if (packetLen != MAX_PHYSICAL_PACKET_LENGTH) {
                 result.flip();
                 break;
@@ -191,7 +296,26 @@ public class MysqlChannel {
         return result;
     }
 
+    @NotNull
+    private ByteBuffer expandPacket(ByteBuffer result, int packetLen) {
+        if ((result.capacity() - result.position()) < packetLen) {
+            // byte buffer is not enough, new one packet
+            ByteBuffer tmp;
+            if (packetLen < MAX_PHYSICAL_PACKET_LENGTH) {
+                // last packet, enough to this packet is OK.
+                tmp = ByteBuffer.allocate(packetLen + result.position());
+            } else {
+                // already have packet, to allocate two packet.
+                tmp = ByteBuffer.allocate(2 * packetLen + result.position());
+            }
+            tmp.put(result.array(), 0, result.position());
+            result = tmp;
+        }
+        return result;
+    }
+
     protected void realNetSend(ByteBuffer buffer) throws IOException {
+        encryptData(buffer);
         long bufLen = buffer.remaining();
         long writeLen = Channels.writeBlocking(conn.getSinkChannel(), buffer);
         if (bufLen != writeLen) {
@@ -202,67 +326,98 @@ public class MysqlChannel {
         isSend = true;
     }
 
+    protected void encryptData(ByteBuffer dstBuf) throws SSLException {
+        if (!isSslMode) {
+            return;
+        }
+        encryptNetData.clear();
+        while (true) {
+            SSLEngineResult result = sslEngine.wrap(dstBuf, encryptNetData);
+            if (handleWrapResult(result) && !dstBuf.hasRemaining()) {
+                break;
+            }
+        }
+        encryptNetData.flip();
+        dstBuf.clear();
+        dstBuf.put(encryptNetData);
+        dstBuf.flip();
+    }
+
     public void flush() throws IOException {
-        if (null == sendBuffer || sendBuffer.position() == 0) {
+        ByteBuffer sendData = (isSslMode | isSslHandshaking) ? sendSslBuffer : sendBuffer;
+        if (null == sendData || sendData.position() == 0) {
             // Nothing to send
             return;
         }
-        sendBuffer.flip();
-        realNetSend(sendBuffer);
-        sendBuffer.clear();
+        sendData.flip();
+        realNetSend(sendData);
+        sendData.clear();
         isSend = true;
     }
 
-    private void writeHeader(int length) throws IOException {
-        if (null == sendBuffer) {
+    private void writeHeader(int length, boolean isSsl) throws IOException {
+        ByteBuffer sendData = isSsl ? sendSslBuffer : sendBuffer;
+        if (null == sendData) {
             return;
         }
-        long leftLength = sendBuffer.capacity() - sendBuffer.position();
+        long leftLength = sendData.capacity() - sendData.position();
         if (leftLength < 4) {
             flush();
         }
 
         long newLen = length;
         for (int i = 0; i < 3; ++i) {
-            sendBuffer.put((byte) newLen);
+            sendData.put((byte) newLen);
             newLen >>= 8;
         }
-        sendBuffer.put((byte) sequenceId);
+        sendData.put((byte) sequenceId);
     }
 
-    private void writeBuffer(ByteBuffer buffer) throws IOException {
-        if (null == sendBuffer) {
+    private void writeBuffer(ByteBuffer buffer, boolean isSsl) throws IOException {
+        ByteBuffer sendData = isSsl ? sendSslBuffer : sendBuffer;
+        if (null == sendData) {
             return;
         }
-        long leftLength = sendBuffer.capacity() - sendBuffer.position();
+        long leftLength = sendData.capacity() - sendData.position();
         // If too long for buffer, send buffered data.
         if (leftLength < buffer.remaining()) {
             // Flush data in buffer.
             flush();
         }
         // Send this buffer if large enough
-        if (buffer.remaining() > sendBuffer.capacity()) {
+        if (buffer.remaining() > sendData.capacity()) {
             realNetSend(buffer);
             return;
         }
         // Put it to
-        sendBuffer.put(buffer);
+        sendData.put(buffer);
     }
 
     public void sendOnePacket(ByteBuffer packet) throws IOException {
+        // handshake in packet with header and has encrypted, need to send in ssl format
+        // ssl mode in packet no header and no encrypted, need to encrypted and add header and send in ssl format
         int bufLen;
         int oldLimit = packet.limit();
         while (oldLimit - packet.position() >= MAX_PHYSICAL_PACKET_LENGTH) {
             bufLen = MAX_PHYSICAL_PACKET_LENGTH;
             packet.limit(packet.position() + bufLen);
-            writeHeader(bufLen);
-            writeBuffer(packet);
+            if (isSslHandshaking) {
+                writeBuffer(packet, true);
+            } else {
+                writeHeader(bufLen, isSslMode);
+                writeBuffer(packet, isSslMode);
+                accSequenceId();
+            }
+        }
+        if (isSslHandshaking) {
+            packet.limit(oldLimit);
+            writeBuffer(packet, true);
+        } else {
+            writeHeader(oldLimit - packet.position(), isSslMode);
+            packet.limit(oldLimit);
+            writeBuffer(packet, isSslMode);
             accSequenceId();
         }
-        writeHeader(oldLimit - packet.position());
-        packet.limit(oldLimit);
-        writeBuffer(packet);
-        accSequenceId();
     }
 
     public void sendAndFlush(ByteBuffer packet) throws IOException {
@@ -305,5 +460,52 @@ public class MysqlChannel {
 
     public MysqlSerializer getSerializer() {
         return serializer;
+    }
+
+    private boolean handleWrapResult(SSLEngineResult sslEngineResult) throws SSLException {
+        switch (sslEngineResult.getStatus()) {
+            // normal status.
+            case OK:
+                return true;
+            case CLOSED:
+                sslEngine.closeOutbound();
+                return true;
+            case BUFFER_OVERFLOW:
+                // Could attempt to drain the serverNetData buffer of any already obtained
+                // data, but we'll just increase it to the size needed.
+                ByteBuffer newBuffer = ByteBuffer.allocate(encryptNetData.capacity() * 2);
+                encryptNetData.flip();
+                newBuffer.put(encryptNetData);
+                encryptNetData = newBuffer;
+                // retry the operation.
+                return false;
+            // when wrap BUFFER_UNDERFLOW and other status will not appear.
+            case BUFFER_UNDERFLOW:
+            default:
+                throw new IllegalStateException("invalid wrap status: " + sslEngineResult.getStatus());
+        }
+    }
+
+    private boolean handleUnwrapResult(SSLEngineResult sslEngineResult) {
+        switch (sslEngineResult.getStatus()) {
+            // normal status.
+            case OK:
+                return true;
+            case CLOSED:
+                sslEngine.closeOutbound();
+                return true;
+            case BUFFER_OVERFLOW:
+                // Could attempt to drain the clientAppData buffer of any already obtained
+                // data, but we'll just increase it to the size needed.
+                ByteBuffer newAppBuffer = ByteBuffer.allocate(decryptAppData.capacity() * 2);
+                decryptAppData.flip();
+                newAppBuffer.put(decryptAppData);
+                decryptAppData = newAppBuffer;
+                // retry the operation.
+                return false;
+            case BUFFER_UNDERFLOW:
+            default:
+                throw new IllegalStateException("invalid wrap status: " + sslEngineResult.getStatus());
+        }
     }
 }
