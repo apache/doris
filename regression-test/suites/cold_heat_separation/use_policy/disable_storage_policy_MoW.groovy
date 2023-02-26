@@ -16,8 +16,8 @@
 // under the License.
 
 suite("disable_storage_policy_MoW"){
-    def s3_source_name = "default_s3_source"
-    def storage_policy_name = "default_storage_policy"
+    def s3_source_name = "default_s3_source_test"
+    def storage_policy_name = "default_storage_policy_test"
 
     def storage_exist = { name ->
         def show_storage_policy = sql """
