@@ -81,16 +81,16 @@ suite("test_zone_map_delete") {
 
     sql """ delete from ${tableName} where k2 is null and k3=00;"""
 
-    sql """ select k2,k3 from ${tableName};"""
+    qt_sql """ select k2,k3 from ${tableName};"""
 
-    sql """ delete from ${tableName} where k2 is null;"""
-    
+    qt_sql """ select k2,k3 from ${tableName} where k2 is null;"""
+
     sql """delete from ${tableName} where k2 is not null and k3=11;"""
 
     qt_sql """select k2,k3 from ${tableName};"""
 
     qt_sql """select k2,k3 from ${tableName} where k2 is not null;"""
-    
+
     sql """delete from ${tableName} where k2=1 and k3=22;"""
 
     qt_sql """select k2,k3 from ${tableName};"""
@@ -128,4 +128,3 @@ suite("test_zone_map_delete") {
     sql """ DROP TABLE IF EXISTS ${tableName} """
 
 }
-
