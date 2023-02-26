@@ -27,8 +27,12 @@
 #include "olap/iterators.h"
 #include "util/slice.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_map.h"
+#include "vec/columns/column_struct.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_struct.h"
 
 namespace doris::vectorized {
 
@@ -698,23 +702,23 @@ Status OrcReader::_decode_string_column(const std::string& col_name,
 }
 
 Status OrcReader::_fill_doris_array_offsets(const std::string& col_name,
-                                            const MutableColumnPtr& data_column,
-                                            orc::ListVectorBatch* lvb, size_t num_values,
-                                            size_t* element_size) {
+                                            ColumnArray::Offsets64& doris_offsets,
+                                            orc::DataBuffer<int64_t>& orc_offsets,
+                                            size_t num_values, size_t* element_size) {
     SCOPED_RAW_TIMER(&_statistics.decode_value_time);
     if (num_values > 0) {
-        auto& offsets_data = static_cast<ColumnArray&>(*data_column).get_offsets();
-        auto& orc_offsets = lvb->offsets;
         if (orc_offsets.size() < num_values + 1) {
             return Status::InternalError("Wrong array offsets in orc file for column '{}'",
                                          col_name);
         }
-        auto prev_offset = offsets_data.back();
+        auto prev_offset = doris_offsets.back();
         auto base_offset = orc_offsets[0];
         for (int i = 1; i < num_values + 1; ++i) {
-            offsets_data.emplace_back(prev_offset + orc_offsets[i] - base_offset);
+            doris_offsets.emplace_back(prev_offset + orc_offsets[i] - base_offset);
         }
         *element_size = orc_offsets[num_values] - base_offset;
+    } else {
+        *element_size = 0;
     }
     return Status::OK();
 }
@@ -792,16 +796,66 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
             return Status::InternalError("Wrong data type for colum '{}'", col_name);
         }
         auto* orc_list = down_cast<orc::ListVectorBatch*>(cvb);
-        size_t element_size;
-        RETURN_IF_ERROR(_fill_doris_array_offsets(col_name, data_column, orc_list, num_values,
+        auto& doris_offsets = static_cast<ColumnArray&>(*data_column).get_offsets();
+        auto& orc_offsets = orc_list->offsets;
+        size_t element_size = 0;
+        RETURN_IF_ERROR(_fill_doris_array_offsets(col_name, doris_offsets, orc_offsets, num_values,
                                                   &element_size));
         DataTypePtr& nested_type = const_cast<DataTypePtr&>(
-                (reinterpret_cast<const DataTypeArray*>(remove_nullable(data_type).get()))
+                reinterpret_cast<const DataTypeArray*>(remove_nullable(data_type).get())
                         ->get_nested_type());
         const orc::Type* nested_orc_type = orc_column_type->getSubtype(0);
         return _orc_column_to_doris_column(
                 col_name, static_cast<ColumnArray&>(*data_column).get_data_ptr(), nested_type,
                 nested_orc_type, orc_list->elements.get(), element_size);
+    }
+    case TypeIndex::Map: {
+        if (orc_column_type->getKind() != orc::TypeKind::MAP) {
+            return Status::InternalError("Wrong data type for colum '{}'", col_name);
+        }
+        auto* orc_map = down_cast<orc::MapVectorBatch*>(cvb);
+        auto& doris_map = static_cast<ColumnMap&>(*data_column);
+        size_t element_size = 0;
+        RETURN_IF_ERROR(_fill_doris_array_offsets(col_name, doris_map.get_offsets(),
+                                                  orc_map->offsets, num_values, &element_size));
+        DataTypePtr& doris_key_type = const_cast<DataTypePtr&>(
+                reinterpret_cast<const DataTypeMap*>(remove_nullable(data_type).get())
+                        ->get_key_type());
+        DataTypePtr& doris_value_type = const_cast<DataTypePtr&>(
+                reinterpret_cast<const DataTypeMap*>(remove_nullable(data_type).get())
+                        ->get_value_type());
+        const orc::Type* orc_key_type = orc_column_type->getSubtype(0);
+        const orc::Type* orc_value_type = orc_column_type->getSubtype(1);
+        const ColumnPtr& doris_key_column =
+                typeid_cast<const ColumnArray*>(doris_map.get_keys_ptr().get())->get_data_ptr();
+        const ColumnPtr& doris_value_column =
+                typeid_cast<const ColumnArray*>(doris_map.get_values_ptr().get())->get_data_ptr();
+        RETURN_IF_ERROR(_orc_column_to_doris_column(col_name, doris_key_column, doris_key_type,
+                                                    orc_key_type, orc_map->keys.get(),
+                                                    element_size));
+        return _orc_column_to_doris_column(col_name, doris_value_column, doris_value_type,
+                                           orc_value_type, orc_map->elements.get(), element_size);
+    }
+    case TypeIndex::Struct: {
+        if (orc_column_type->getKind() != orc::TypeKind::STRUCT) {
+            return Status::InternalError("Wrong data type for colum '{}'", col_name);
+        }
+        auto* orc_struct = down_cast<orc::StructVectorBatch*>(cvb);
+        auto& doris_struct = static_cast<ColumnStruct&>(*data_column);
+        if (orc_struct->fields.size() != doris_struct.tuple_size()) {
+            return Status::InternalError("Wrong number of struct fields for column '{}'", col_name);
+        }
+        const DataTypeStruct* doris_struct_type =
+                reinterpret_cast<const DataTypeStruct*>(remove_nullable(data_type).get());
+        for (int i = 0; i < doris_struct.tuple_size(); ++i) {
+            orc::ColumnVectorBatch* orc_field = orc_struct->fields[i];
+            const orc::Type* orc_type = orc_column_type->getSubtype(i);
+            const ColumnPtr& doris_field = doris_struct.get_column_ptr(i);
+            const DataTypePtr& doris_type = doris_struct_type->get_element(i);
+            RETURN_IF_ERROR(_orc_column_to_doris_column(col_name, doris_field, doris_type, orc_type,
+                                                        orc_field, num_values));
+        }
+        return Status::OK();
     }
     default:
         break;
