@@ -22,6 +22,7 @@
 #include "common/config.h"
 #include "exec/olap_common.h"
 #include "io/fs/file_reader.h"
+#include "vec/columns/column_array.h"
 #include "vec/core/block.h"
 #include "vec/data_types/data_type_decimal.h"
 #include "vec/exec/format/format_common.h"
@@ -251,8 +252,9 @@ private:
                                  size_t num_values);
 
     Status _fill_doris_array_offsets(const std::string& col_name,
-                                     const MutableColumnPtr& data_column, orc::ListVectorBatch* lvb,
-                                     size_t num_values, size_t* element_size);
+                                     ColumnArray::Offsets64& doris_offsets,
+                                     orc::DataBuffer<int64_t>& orc_offsets, size_t num_values,
+                                     size_t* element_size);
 
     std::string _get_field_name_lower_case(const orc::Type* orc_type, int pos);
 

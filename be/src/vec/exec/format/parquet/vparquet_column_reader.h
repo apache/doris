@@ -101,7 +101,6 @@ protected:
     FieldSchema* _field_schema;
     // When scalar column is the child of nested column, we should turn off the filtering by page index and lazy read.
     bool _nested_column = false;
-    bool _nested_first_read = true;
     const std::vector<RowRange>& _row_ranges;
     cctz::time_zone* _ctz;
     tparquet::OffsetIndex* _offset_index;
@@ -164,4 +163,72 @@ public:
 private:
     std::unique_ptr<ParquetColumnReader> _element_reader = nullptr;
 };
+
+class MapColumnReader : public ParquetColumnReader {
+public:
+    MapColumnReader(const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz)
+            : ParquetColumnReader(row_ranges, ctz) {}
+    ~MapColumnReader() override { close(); }
+
+    Status init(std::unique_ptr<ParquetColumnReader> key_reader,
+                std::unique_ptr<ParquetColumnReader> value_reader, FieldSchema* field);
+    Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
+                            ColumnSelectVector& select_vector, size_t batch_size, size_t* read_rows,
+                            bool* eof) override;
+
+    const std::vector<level_t>& get_rep_level() const override {
+        return _key_reader->get_rep_level();
+    }
+    const std::vector<level_t>& get_def_level() const override {
+        return _key_reader->get_def_level();
+    }
+
+    Statistics statistics() override {
+        Statistics kst = _key_reader->statistics();
+        Statistics vst = _value_reader->statistics();
+        kst.merge(vst);
+        return kst;
+    }
+
+    void close() override {}
+
+private:
+    std::unique_ptr<ParquetColumnReader> _key_reader = nullptr;
+    std::unique_ptr<ParquetColumnReader> _value_reader = nullptr;
+};
+
+class StructColumnReader : public ParquetColumnReader {
+public:
+    StructColumnReader(const std::vector<RowRange>& row_ranges, cctz::time_zone* ctz)
+            : ParquetColumnReader(row_ranges, ctz) {}
+    ~StructColumnReader() override { close(); }
+
+    Status init(std::vector<std::unique_ptr<ParquetColumnReader>>&& child_readers,
+                FieldSchema* field);
+    Status read_column_data(ColumnPtr& doris_column, DataTypePtr& type,
+                            ColumnSelectVector& select_vector, size_t batch_size, size_t* read_rows,
+                            bool* eof) override;
+
+    const std::vector<level_t>& get_rep_level() const override {
+        return _child_readers[0]->get_rep_level();
+    }
+    const std::vector<level_t>& get_def_level() const override {
+        return _child_readers[0]->get_def_level();
+    }
+
+    Statistics statistics() override {
+        Statistics st;
+        for (const auto& reader : _child_readers) {
+            Statistics cst = reader->statistics();
+            st.merge(cst);
+        }
+        return st;
+    }
+
+    void close() override {}
+
+private:
+    std::vector<std::unique_ptr<ParquetColumnReader>> _child_readers;
+};
+
 }; // namespace doris::vectorized
