@@ -252,9 +252,9 @@ public:
     static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
         decimal12_t decimal_val = {0, 0};
         RETURN_IF_ERROR(KeyCoderTraits<OLAP_FIELD_TYPE_BIGINT>::decode_ascending(
-                encoded_key, sizeof(decimal_val.integer), (uint8_t*)&decimal_val.integer, pool));
+                encoded_key, sizeof(decimal_val.integer), (uint8_t*)&decimal_val.integer));
         RETURN_IF_ERROR(KeyCoderTraits<OLAP_FIELD_TYPE_INT>::decode_ascending(
-                encoded_key, sizeof(decimal_val.fraction), (uint8_t*)&decimal_val.fraction, pool));
+                encoded_key, sizeof(decimal_val.fraction), (uint8_t*)&decimal_val.fraction));
         memcpy(cell_ptr, &decimal_val, sizeof(decimal12_t));
         return Status::OK();
     }
