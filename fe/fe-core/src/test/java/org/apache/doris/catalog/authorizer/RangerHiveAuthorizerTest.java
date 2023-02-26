@@ -35,6 +35,7 @@ public class RangerHiveAuthorizerTest {
     @Before
     public void testCreatePlugin() {
         Map<String, String> properties = new HashMap<>();
+        properties.put("ranger.admin.url", "http://172.16.49.60:6080");
         properties.put("ranger.service.name", "hive");
         authorizer = new RangerHiveAccessController(properties);
     }
