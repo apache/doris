@@ -32,8 +32,8 @@ public class RankTest extends TPCHTestBase {
     @Test
     void testRank() throws NoSuchFieldException, IllegalAccessException {
         for (int i = 1; i < 22; i++) {
-            Field field = TPCHUtils.class.getField("Q" + String.valueOf(i));
-            System.out.println("Q" + String.valueOf(i));
+            Field field = TPCHUtils.class.getField("Q" + i);
+            System.out.println("Q" + i);
             Memo memo = PlanChecker.from(connectContext)
                     .analyze(field.get(null).toString())
                     .rewrite()
@@ -47,8 +47,8 @@ public class RankTest extends TPCHTestBase {
     @Test
     void testUnrank() throws NoSuchFieldException, IllegalAccessException {
         for (int i = 1; i < 22; i++) {
-            Field field = TPCHUtils.class.getField("Q" + String.valueOf(i));
-            System.out.println("Q" + String.valueOf(i));
+            Field field = TPCHUtils.class.getField("Q" + i);
+            System.out.println("Q" + i);
             Memo memo = PlanChecker.from(connectContext)
                     .analyze(field.get(null).toString())
                     .rewrite()

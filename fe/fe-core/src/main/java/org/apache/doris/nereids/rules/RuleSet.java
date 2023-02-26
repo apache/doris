@@ -53,6 +53,7 @@ import org.apache.doris.nereids.rules.rewrite.logical.MergeFilters;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeGenerates;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeLimits;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
+import org.apache.doris.nereids.rules.rewrite.logical.PushdownAliasThroughJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownExpressionsInHashCondition;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughAggregation;
 import org.apache.doris.nereids.rules.rewrite.logical.PushdownFilterThroughJoin;
@@ -104,6 +105,7 @@ public class RuleSet {
             new PushdownFilterThroughRepeat(),
             new PushdownFilterThroughSetOperation(),
             new PushdownProjectThroughLimit(),
+            new PushdownAliasThroughJoin(),
             new EliminateOuterJoin(),
             new MergeProjects(),
             new MergeFilters(),
