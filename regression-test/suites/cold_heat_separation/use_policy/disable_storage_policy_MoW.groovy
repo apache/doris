@@ -81,7 +81,7 @@ suite("disable_storage_policy_MoW"){
         exception "with storage policy(${storage_policy_name})"
     }
 
-    //Test case II. Should panic when sets storage policy to MoW table
+    //Test case II. Should panic when sets storage policy to MoW table or its partitions
     sql """
         CREATE TABLE IF NOT EXISTS ${table_name_test_2} (
             id INT,
@@ -95,17 +95,21 @@ suite("disable_storage_policy_MoW"){
         );
     """
 
-    // test {
+    test {
         sql """
             ALTER TABLE ${table_name_test_2} MODIFY PARTITION(*) SET("storage_policy" = "${storage_policy_name}");
         """
+        exception "with storage policy(${storage_policy_name})"
+    }
 
-        // exception "with storage policy(${storage_policy_name})"
-    // }
-
+    test {
         sql """
             ALTER TABLE ${table_name_test_2} SET ("storage_policy" = "${storage_policy_name}");
         """
+        exception "with storage policy(${storage_policy_name})"
+    }
+
+    //Test case III. Should panic when creates MoW table(without partitions) with storage policy
     test {
         sql """
             CREATE TABLE IF NOT EXISTS ${table_name_test_3} (
