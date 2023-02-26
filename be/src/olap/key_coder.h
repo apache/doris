@@ -119,12 +119,6 @@ public:
     static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
         // decode_ascending only used in orinal index page, maybe should remove it in the future.
         // currently, we reduce the usage of this method.
-        if constexpr (std::is_same<CppType,
-                                   typename CppTypeTraits<
-                                           OLAP_FIELD_TYPE_UNSIGNED_BIGINT>::CppType>::value) {
-            LOG(FATAL) << "decode_ascending should only be used for "
-                          "OLAP_FIELD_TYPE_UNSIGNED_BIGINT in ordinal index page";
-        }
         if (encoded_key->size < sizeof(UnsignedCppType)) {
             return Status::InvalidArgument("Key too short, need={} vs real={}",
                                            sizeof(UnsignedCppType), encoded_key->size);
@@ -160,6 +154,19 @@ public:
     static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
         full_encode_ascending(value, buf);
     }
+
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
+        if (encoded_key->size < sizeof(UnsignedCppType)) {
+            return Status::InvalidArgument("Key too short, need={} vs real={}",
+                                           sizeof(UnsignedCppType), encoded_key->size);
+        }
+        UnsignedCppType unsigned_val;
+        memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
+        unsigned_val = BigEndian::FromHost24(unsigned_val);
+        memcpy(cell_ptr, &unsigned_val, sizeof(UnsignedCppType));
+        encoded_key->remove_prefix(sizeof(UnsignedCppType));
+        return Status::OK();
+    }
 };
 
 template <>
@@ -179,6 +186,19 @@ public:
 
     static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
         full_encode_ascending(value, buf);
+    }
+
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
+        if (encoded_key->size < sizeof(UnsignedCppType)) {
+            return Status::InvalidArgument(Substitute("Key too short, need=$0 vs real=$1",
+                                                      sizeof(UnsignedCppType), encoded_key->size));
+        }
+        UnsignedCppType unsigned_val;
+        memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
+        unsigned_val = BigEndian::FromHost32(unsigned_val);
+        memcpy(cell_ptr, &unsigned_val, sizeof(UnsignedCppType));
+        encoded_key->remove_prefix(sizeof(UnsignedCppType));
+        return Status::OK();
     }
 };
 
@@ -200,6 +220,19 @@ public:
     static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
         full_encode_ascending(value, buf);
     }
+
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
+        if (encoded_key->size < sizeof(UnsignedCppType)) {
+            return Status::InvalidArgument(Substitute("Key too short, need=$0 vs real=$1",
+                                                      sizeof(UnsignedCppType), encoded_key->size));
+        }
+        UnsignedCppType unsigned_val;
+        memcpy(&unsigned_val, encoded_key->data, sizeof(UnsignedCppType));
+        unsigned_val = BigEndian::FromHost64(unsigned_val);
+        memcpy(cell_ptr, &unsigned_val, sizeof(UnsignedCppType));
+        encoded_key->remove_prefix(sizeof(UnsignedCppType));
+        return Status::OK();
+    }
 };
 
 template <>
@@ -214,6 +247,16 @@ public:
 
     static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
         full_encode_ascending(value, buf);
+    }
+
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
+        decimal12_t decimal_val = {0, 0};
+        RETURN_IF_ERROR(KeyCoderTraits<OLAP_FIELD_TYPE_BIGINT>::decode_ascending(
+                encoded_key, sizeof(decimal_val.integer), (uint8_t*)&decimal_val.integer, pool));
+        RETURN_IF_ERROR(KeyCoderTraits<OLAP_FIELD_TYPE_INT>::decode_ascending(
+                encoded_key, sizeof(decimal_val.fraction), (uint8_t*)&decimal_val.fraction, pool));
+        memcpy(cell_ptr, &decimal_val, sizeof(decimal12_t));
+        return Status::OK();
     }
 };
 
