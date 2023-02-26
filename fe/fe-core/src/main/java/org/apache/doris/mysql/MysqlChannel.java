@@ -277,6 +277,11 @@ public class MysqlChannel {
                     readLen = readAll(tempBuffer, false);
                     result.put(tempBuffer);
                 }
+                if (mysqlPacketLength != result.position()) {
+                    LOG.info("maybe lose data in SSL transformation. Except mysql packet length: "
+                            + mysqlPacketLength + ". But got: " + result.position() + ".");
+                }
+                result.position(mysqlPacketLength);
                 //readLen = result.limit();
                 //packetLen = mysqlPacketLength;
             }
