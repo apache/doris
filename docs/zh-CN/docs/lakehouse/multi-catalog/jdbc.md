@@ -273,8 +273,11 @@ set enable_odbc_transcation = true;
 
 | ORACLE Type | Doris Type | Comment |
 |---|---|---|
-| number(p) / number(p,0) |  | Doris会根据p的大小来选择对应的类型：`p < 3` -> `TINYINT`; `p < 5` -> `SMALLINT`; `p < 10` -> `INT`; `p < 19` -> `BIGINT`; `p > 19` -> `LARGEINT` |
-| number(p,s) | DECIMAL | |
+| number(p) / number(p,0) | TINYINT/SMALLINT/INT/BIGINT/LARGEINT | Doris会根据p的大小来选择对应的类型：`p < 3` -> `TINYINT`; `p < 5` -> `SMALLINT`; `p < 10` -> `INT`; `p < 19` -> `BIGINT`; `p > 19` -> `LARGEINT` |
+| number(p,s), [ if(s>0 && p>s) ] | DECIMAL(p,s) | |
+| number(p,s), [ if(s>0 && p < s) ] | DECIMAL(s,s) |  |
+| number(p,s), [ if(s<0) ] | TINYINT/SMALLINT/INT/BIGINT/LARGEINT | s<0的情况下, Doris会将p设置为 p+\|s\|, 并进行和number(p) / number(p,0)一样的映射 |
+| number |  | Doris目前不支持未指定p和s的oracle类型 |
 | decimal | DECIMAL | |
 | float/real | DOUBLE | |
 | DATE | DATETIME | |
