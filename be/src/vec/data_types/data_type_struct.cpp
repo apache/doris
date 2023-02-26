@@ -204,8 +204,9 @@ Status DataTypeStruct::from_string(ReadBuffer& rb, IColumn* column) const {
 
     if (is_explicit_names) {
         if (field_names.size() != field_rbs.size()) {
-            return Status::InvalidArgument("Struct field name number {} is not equal to field number {}.",
-                                           field_names.size(), field_rbs.size());
+            return Status::InvalidArgument(
+                    "Struct field name number {} is not equal to field number {}.",
+                    field_names.size(), field_rbs.size());
         }
         std::unordered_set<std::string> name_set;
         for (size_t i = 0; i < field_names.size(); i++) {
@@ -233,7 +234,7 @@ Status DataTypeStruct::from_string(ReadBuffer& rb, IColumn* column) const {
         auto field_rb = field_rbs[field_pos[idx]];
         // handle empty element
         if (field_rb.count() == 0) {
-            auto &nested_null_col =
+            auto& nested_null_col =
                     reinterpret_cast<ColumnNullable &>(struct_column->get_column(idx));
             nested_null_col.get_nested_column().insert_default();
             nested_null_col.get_null_map_data().push_back(0);
@@ -241,7 +242,7 @@ Status DataTypeStruct::from_string(ReadBuffer& rb, IColumn* column) const {
         }
         // handle null element
         if (field_rb.count() == 4 && strncmp(field_rb.position(), "null", 4) == 0) {
-            auto &nested_null_col =
+            auto& nested_null_col =
                     reinterpret_cast<ColumnNullable &>(struct_column->get_column(idx));
             nested_null_col.get_nested_column().insert_default();
             nested_null_col.get_null_map_data().push_back(1);
