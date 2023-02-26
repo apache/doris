@@ -63,6 +63,8 @@ CsvReader::CsvReader(RuntimeState* state, RuntimeProfile* profile, ScannerCounte
 
     _text_converter.reset(new (std::nothrow) TextConverter('\\'));
     _split_values.reserve(sizeof(Slice) * _file_slot_descs.size());
+    _init_system_properties();
+    _init_file_description();
 }
 
 CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
@@ -81,9 +83,27 @@ CsvReader::CsvReader(RuntimeProfile* profile, const TFileScanRangeParams& params
     _file_format_type = _params.format_type;
     _file_compress_type = _params.compress_type;
     _size = _range.size;
+    _init_system_properties();
+    _init_file_description();
 }
 
 CsvReader::~CsvReader() = default;
+
+void CsvReader::_init_system_properties() {
+    _system_properties.system_type = _params.file_type;
+    _system_properties.properties = _params.properties;
+    _system_properties.hdfs_params = _params.hdfs_params;
+    if (_params.__isset.broker_addresses) {
+        _system_properties.broker_addresses.assign(_params.broker_addresses.begin(),
+                                                   _params.broker_addresses.end());
+    }
+}
+
+void CsvReader::_init_file_description() {
+    _file_description.path = _range.path;
+    _file_description.start_offset = _range.start_offset;
+    _file_description.file_size = _range.__isset.file_size ? _range.file_size : 0;
+}
 
 Status CsvReader::init_reader(bool is_load) {
     // set the skip lines and start offset
@@ -113,25 +133,13 @@ Status CsvReader::init_reader(bool is_load) {
         _skip_lines = 1;
     }
 
-    FileSystemProperties system_properties;
-    system_properties.system_type = _params.file_type;
-    system_properties.properties = _params.properties;
-    system_properties.hdfs_params = _params.hdfs_params;
-    if (_params.__isset.broker_addresses) {
-        system_properties.broker_addresses.assign(_params.broker_addresses.begin(),
-                                                  _params.broker_addresses.end());
-    }
-
-    FileDescription file_description;
-    file_description.path = _range.path;
-    file_description.start_offset = start_offset;
-    file_description.file_size = _range.__isset.file_size ? _range.file_size : 0;
+    _file_description.start_offset = start_offset;
 
     if (_params.file_type == TFileType::FILE_STREAM) {
         RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader));
     } else {
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, system_properties,
-                                                        file_description, &_file_system,
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
+                                                        _file_description, &_file_system,
                                                         &_file_reader, _io_ctx));
     }
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
@@ -619,17 +627,9 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
         }
     }
 
-    FileSystemProperties system_properties;
-    system_properties.system_type = _params.file_type;
-    system_properties.properties = _params.properties;
-    system_properties.hdfs_params = _params.hdfs_params;
+    _file_description.start_offset = start_offset;
 
-    FileDescription file_description;
-    file_description.path = _range.path;
-    file_description.start_offset = start_offset;
-    file_description.file_size = _range.__isset.file_size ? _range.file_size : 0;
-
-    RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, system_properties, file_description,
+    RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties, _file_description,
                                                     &_file_system, &_file_reader, _io_ctx));
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&
         _params.file_type != TFileType::FILE_BROKER) {

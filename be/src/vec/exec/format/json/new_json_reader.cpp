@@ -66,6 +66,8 @@ NewJsonReader::NewJsonReader(RuntimeState* state, RuntimeProfile* profile, Scann
     _bytes_read_counter = ADD_COUNTER(_profile, "BytesRead", TUnit::BYTES);
     _read_timer = ADD_TIMER(_profile, "ReadTime");
     _file_read_timer = ADD_TIMER(_profile, "FileReadTime");
+    _init_system_properties();
+    _init_file_description();
 }
 
 NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams& params,
@@ -85,7 +87,26 @@ NewJsonReader::NewJsonReader(RuntimeProfile* profile, const TFileScanRangeParams
           _value_allocator(_value_buffer, sizeof(_value_buffer)),
           _parse_allocator(_parse_buffer, sizeof(_parse_buffer)),
           _origin_json_doc(&_value_allocator, sizeof(_parse_buffer), &_parse_allocator),
-          _io_ctx(io_ctx) {}
+          _io_ctx(io_ctx) {
+    _init_system_properties();
+    _init_file_description();
+}
+
+void NewJsonReader::_init_system_properties() {
+    _system_properties.system_type = _params.file_type;
+    _system_properties.properties = _params.properties;
+    _system_properties.hdfs_params = _params.hdfs_params;
+    if (_params.__isset.broker_addresses) {
+        _system_properties.broker_addresses.assign(_params.broker_addresses.begin(),
+                                                   _params.broker_addresses.end());
+    }
+}
+
+void NewJsonReader::_init_file_description() {
+    _file_description.path = _range.path;
+    _file_description.start_offset = _range.start_offset;
+    _file_description.file_size = _range.__isset.file_size ? _range.file_size : 0;
+}
 
 Status NewJsonReader::init_reader() {
     if (config::enable_simdjson_reader) {
@@ -306,26 +327,13 @@ Status NewJsonReader::_open_file_reader() {
     }
 
     _current_offset = start_offset;
-
-    FileSystemProperties system_properties;
-    system_properties.system_type = _params.file_type;
-    system_properties.properties = _params.properties;
-    system_properties.hdfs_params = _params.hdfs_params;
-    if (_params.__isset.broker_addresses) {
-        system_properties.broker_addresses.assign(_params.broker_addresses.begin(),
-                                                  _params.broker_addresses.end());
-    }
-
-    FileDescription file_description;
-    file_description.path = _range.path;
-    file_description.start_offset = start_offset;
-    file_description.file_size = _range.__isset.file_size ? _range.file_size : 0;
+    _file_description.start_offset = start_offset;
 
     if (_params.file_type == TFileType::FILE_STREAM) {
         RETURN_IF_ERROR(FileFactory::create_pipe_reader(_range.load_id, &_file_reader));
     } else {
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, system_properties,
-                                                        file_description, &_file_system,
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
+                                                        _file_description, &_file_system,
                                                         &_file_reader, _io_ctx));
     }
     return Status::OK();
