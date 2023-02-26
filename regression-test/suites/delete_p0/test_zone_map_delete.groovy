@@ -54,4 +54,78 @@ suite("test_zone_map_delete") {
     qt_sql """select * from ${tableName} ORDER BY k1;"""
 
     sql """ DROP TABLE IF EXISTS ${tableName} """
+
+    // =========================
+    sql """
+    CREATE TABLE IF NOT EXISTS ${tableName} (
+        `k1` bigint(20) NULL,
+        `k2` largeint(40) NULL,
+        `k3` largeint(40) NULL
+    ) ENGINE=OLAP
+    AGGREGATE KEY(`k1`, `k2`, `k3`)
+    COMMENT 'OLAP'
+    DISTRIBUTED BY HASH(`k1`) BUCKETS 1
+    PROPERTIES (
+    "replication_allocation" = "tag.location.default: 1",
+    "in_memory" = "false",
+    "storage_format" = "V2",
+    "light_schema_change" = "true",
+    "disable_auto_compaction" = "false"
+    );
+    """
+
+
+    sql """ truncate table ${tableName}; """
+
+    sql """ insert into ${tableName} values(0,1,11),(0,1,22),(0,1,33),(0,1,44),(0,1,55),(0,1,66),(0,1,77),(0,1,88),(0,1,99),(0,1,100),(0,1,101),(0,1,102),(0,1,11),(0,1,122),(0,1,133),(0,1,144),(0,1,155),(0,1,166),(0,1,177),(0,1,188),(0,1,199),(0,1,200),(0,1,201),(0,1,202);"""
+
+    sql """ delete from ${tableName} where k2 is null and k3=00;"""
+
+    sql """ select k2,k3 from ${tableName};"""
+
+    sql """ delete from ${tableName} where k2 is null;"""
+    
+    sql """delete from ${tableName} where k2 is not null and k3=11;"""
+
+    qt_sql """select k2,k3 from ${tableName};"""
+
+    qt_sql """select k2,k3 from ${tableName} where k2 is not null;"""
+    
+    sql """delete from ${tableName} where k2=1 and k3=22;"""
+
+    qt_sql """select k2,k3 from ${tableName};"""
+
+    qt_sql """select k2,k3 from ${tableName} where k2=1;"""
+
+    sql """delete from ${tableName} where k2!=0 and k3=33;"""
+
+    qt_sql """select k2,k3 from ${tableName};"""
+
+    qt_sql """select k2,k3 from ${tableName} where k2!=0;"""
+
+    sql """delete from ${tableName} where k2 not in (0) and k3=44;"""
+
+    qt_sql """select k2,k3 from ${tableName};"""
+
+    qt_sql """select k2,k3 from ${tableName} where k2 not in (0);"""
+
+    sql """delete from ${tableName} where k2=1 and k3 >= 11 and k3 <=200;"""
+
+    qt_sql """select k2,k3 from ${tableName};"""
+
+    qt_sql """select k2,k3 from ${tableName} where k3 = 201;"""
+
+    sql """truncate table ${tableName};"""
+
+    sql """insert into ${tableName} values(0,1,11),(0,1,22),(0,1,33),(0,1,44),(0,1,55),(0,1,66),(0,1,77),(0,1,88),(0,1,99),(0,1,100),(0,1,101),(0,1,102),(0,1,11),(0,1,122),(0,1,133),(0,1,144),(0,1,155),(0,1,166),(0,1,177),(0,1,188),(0,1,199),(0,1,200),(0,1,201),(0,1,202);"""
+
+    sql """delete from ${tableName} where k2=1 and k3 <=202 and k3 >= 33;"""
+
+    qt_sql """select k2,k3 from ${tableName};"""
+
+    qt_sql """select k2,k3 from ${tableName} where k3 = 11;"""
+
+    sql """ DROP TABLE IF EXISTS ${tableName} """
+
 }
+
