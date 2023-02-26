@@ -19,6 +19,7 @@ package org.apache.doris.catalog.authorizer;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.common.AuthorizationException;
+
 import org.apache.hadoop.hive.ql.security.authorization.plugin.HiveAccessControlException;
 import org.junit.Before;
 import org.junit.Test;
@@ -66,7 +67,7 @@ public class RangerHiveAuthorizerTest {
     }
 
     @Test
-    public void testGetColumnMask() throws HiveAccessControlException {
+    public void testGetColumnMask() {
         String user = "test";
         String userIP = "172.16.18.9";
         HiveAccessType accessType = HiveAccessType.SELECT;
