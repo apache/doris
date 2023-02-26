@@ -2013,6 +2013,11 @@ public class InternalCatalog implements CatalogIf<Database> {
         // set storage policy
         String storagePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);
         Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(storagePolicy);
+        if (olapTable.getEnableUniqueKeyMergeOnWrite() && !storagePolicy.equals("")) {
+            throw new AnalysisException(
+                    "Can not create UNIQUE KEY table that enables Merge-On-write"
+                    + " with storage policy(" + storagePolicy + ")");
+        }
         olapTable.setStoragePolicy(storagePolicy);
 
         TTabletType tabletType;
@@ -2231,6 +2236,11 @@ public class InternalCatalog implements CatalogIf<Database> {
                     DistributionInfo partitionDistributionInfo = distributionDesc.toDistributionInfo(baseSchema);
                     // use partition storage policy if it exist.
                     String partionStoragePolicy = partitionInfo.getStoragePolicy(entry.getValue());
+                    if (olapTable.getEnableUniqueKeyMergeOnWrite() && !partionStoragePolicy.equals("")) {
+                        throw new AnalysisException(
+                                "Can not create UNIQUE KEY table that enables Merge-On-write"
+                                + " with storage policy(" + partionStoragePolicy + ")");
+                    }
                     if (!partionStoragePolicy.equals("")) {
                         storagePolicy = partionStoragePolicy;
                     }

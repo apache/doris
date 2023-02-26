@@ -1917,8 +1917,10 @@ public class SchemaChangeHandler extends AlterHandler {
             throws UserException {
         List<Partition> partitions = Lists.newArrayList();
         OlapTable olapTable = (OlapTable) db.getTableOrMetaException(tableName, Table.TableType.OLAP);
+        boolean enableUniqueKeyMergeOnWrite = false;
         olapTable.readLock();
         try {
+            enableUniqueKeyMergeOnWrite = olapTable.getEnableUniqueKeyMergeOnWrite();
             partitions.addAll(olapTable.getPartitions());
         } finally {
             olapTable.readUnlock();
@@ -1934,6 +1936,11 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
         String storagePolicy = properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
+        if (enableUniqueKeyMergeOnWrite && !storagePolicy.equals("")) {
+            throw new UserException(
+                "Can not set UNIQUE KEY table that enables Merge-On-write"
+                + " with storage policy(" + storagePolicy + ")");
+        }
         long storagePolicyId = storagePolicyNameToId(storagePolicy);
 
         if (isInMemory < 0 && storagePolicyId < 0) {
@@ -1969,6 +1976,12 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
         String storagePolicy = properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
+        boolean enableUniqueKeyMergeOnWrite = olapTable.getEnableUniqueKeyMergeOnWrite();
+        if (enableUniqueKeyMergeOnWrite && !storagePolicy.equals("")) {
+            throw new DdlException(
+                "Can not set UNIQUE KEY table that enables Merge-On-write"
+                + " with storage policy(" + storagePolicy + ")");
+        }
         long storagePolicyId = storagePolicyNameToId(storagePolicy);
 
         if (isInMemory < 0 && storagePolicyId < 0) {
