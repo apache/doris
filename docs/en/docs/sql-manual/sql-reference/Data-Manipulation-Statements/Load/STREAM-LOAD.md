@@ -322,6 +322,20 @@ ERRORS:
     ````
     curl --location-trusted -u root -H "columns: k1,k2,source_sequence,v1,v2" -H "function_column.sequence_col: source_sequence" -T testData http://host:port/api/testDb/testTbl/ _stream_load
     ````
+
+16. csv file line header filter import
+
+    file data:
+    
+    ```
+       id,name,age
+       1,doris,20
+       2,flink,10
+    ```
+    Filter the first line import by specifying `format=csv_with_names`
+    ```
+    curl --location-trusted -u root -T test.csv  -H "label:1" -H "format:csv_with_names" -H "column_separator:," http://host:port/api/testDb/testTbl/_stream_load
+    ```
     
 ### Keywords
 
