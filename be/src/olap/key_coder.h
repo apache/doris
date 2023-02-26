@@ -112,7 +112,9 @@ public:
     static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
         // decode_ascending only used in orinal index page, maybe should remove it in the future.
         // currently, we reduce the usage of this method.
-        if constexpr (std::is_same<field_type, OLAP_FIELD_TYPE_UNSIGNED_BIGINT>::value) {
+        if constexpr (std::is_same<CppType,
+                                   typename CppTypeTraits<
+                                           OLAP_FIELD_TYPE_UNSIGNED_BIGINT>::CppType>::value) {
             LOG(FATAL) << "decode_ascending should only be used for "
                           "OLAP_FIELD_TYPE_UNSIGNED_BIGINT in ordinal index page";
         }
