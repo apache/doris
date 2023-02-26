@@ -62,6 +62,8 @@ private:
                               std::vector<MutableColumnPtr>& columns, size_t* rows);
     Status _line_split_to_values(const Slice& line, bool* success);
     void _split_line(const Slice& line);
+    void _split_line_for_single_char_delimiter(const Slice& line);
+    void _split_line_for_proto_format(const Slice& line);
     Status _check_array_format(std::vector<Slice>& split_values, bool* is_success);
     bool _is_null(const Slice& slice);
     bool _is_array(const Slice& slice);
