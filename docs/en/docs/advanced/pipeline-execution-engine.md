@@ -65,7 +65,7 @@ This improves the efficiency of CPU execution on mixed-load SQL and enhances the
 This improves the efficiency of CPU execution on mixed-load SQL and enhances the performance of SQL queries
 
 ```
-set enable_vectorized_engine = true;
+set enable_pipeline_engine = true;
 ```
 
 #### parallel_fragment_exec_instance_num
