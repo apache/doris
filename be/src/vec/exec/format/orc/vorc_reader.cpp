@@ -664,6 +664,7 @@ Status OrcReader::_decode_string_column(const std::string& col_name,
                                         const orc::TypeKind& type_kind, orc::ColumnVectorBatch* cvb,
                                         size_t num_values) {
     SCOPED_RAW_TIMER(&_statistics.decode_value_time);
+    const static std::string empty_string;
     auto* data = down_cast<orc::StringVectorBatch*>(cvb);
     if (data == nullptr) {
         return Status::InternalError("Wrong data type for colum '{}'", col_name);
@@ -673,11 +674,23 @@ Status OrcReader::_decode_string_column(const std::string& col_name,
     if (type_kind == orc::TypeKind::CHAR) {
         // Possibly there are some zero padding characters in CHAR type, we have to strip them off.
         for (int i = 0; i < num_values; ++i) {
-            string_values.emplace_back(data->data[i], trim_right(data->data[i], data->length[i]));
+            if (cvb->notNull[0]) {
+                string_values.emplace_back(data->data[i],
+                                           trim_right(data->data[i], data->length[i]));
+            } else {
+                // Orc doesn't fill null values in new batch, but the former batch has been release.
+                // Other types like int/long/timestamp... are flat types without pointer in them,
+                // so other types do not need to be handled separately like string.
+                string_values.emplace_back(empty_string.data(), 0);
+            }
         }
     } else {
         for (int i = 0; i < num_values; ++i) {
-            string_values.emplace_back(data->data[i], data->length[i]);
+            if (cvb->notNull[0]) {
+                string_values.emplace_back(data->data[i], data->length[i]);
+            } else {
+                string_values.emplace_back(empty_string.data(), 0);
+            }
         }
     }
     data_column->insert_many_strings(&string_values[0], num_values);
