@@ -86,7 +86,8 @@ public class JoinExchange extends OneExplorationRuleFactory {
                     }
                     LogicalJoin<GroupPlan, GroupPlan> newLeftJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                             newLeftJoinHashJoinConjuncts, newLeftJoinOtherJoinConjuncts, JoinHint.NONE,
-                            a, c, leftJoin.getJoinReorderContext());
+                            a, c);
+                    newLeftJoin.getJoinReorderContext().copyFrom(leftJoin.getJoinReorderContext());
                     newLeftJoin.getJoinReorderContext().setHasCommute(false);
                     newLeftJoin.getJoinReorderContext().setHasLeftAssociate(false);
                     newLeftJoin.getJoinReorderContext().setHasRightAssociate(false);
@@ -94,7 +95,8 @@ public class JoinExchange extends OneExplorationRuleFactory {
 
                     LogicalJoin<GroupPlan, GroupPlan> newRightJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                             newRightJoinHashJoinConjuncts, newRightJoinOtherJoinConjuncts, JoinHint.NONE,
-                            b, d, rightJoin.getJoinReorderContext());
+                            b, d);
+                    newRightJoin.getJoinReorderContext().copyFrom(leftJoin.getJoinReorderContext());
                     newRightJoin.getJoinReorderContext().setHasCommute(false);
                     newRightJoin.getJoinReorderContext().setHasLeftAssociate(false);
                     newRightJoin.getJoinReorderContext().setHasRightAssociate(false);
@@ -103,7 +105,8 @@ public class JoinExchange extends OneExplorationRuleFactory {
                     LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, LogicalJoin<GroupPlan, GroupPlan>>
                             newTopJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
                             newTopJoinHashJoinConjuncts, newTopJoinOtherJoinConjuncts, JoinHint.NONE,
-                            newLeftJoin, newRightJoin, topJoin.getJoinReorderContext());
+                            newLeftJoin, newRightJoin);
+                    newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasExchange(true);
 
                     return newTopJoin;
