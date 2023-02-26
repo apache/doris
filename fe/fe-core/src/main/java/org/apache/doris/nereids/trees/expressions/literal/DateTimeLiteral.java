@@ -25,11 +25,19 @@ import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.coercion.DateLikeType;
 import org.apache.doris.nereids.util.DateUtils;
 
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.joda.time.LocalDateTime;
-import org.joda.time.format.DateTimeFormatter;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeFormatterBuilder;
+import java.time.format.DateTimeParseException;
+import java.time.format.ResolverStyle;
+import java.time.temporal.ChronoField;
+import java.time.temporal.TemporalAccessor;
+import java.util.Collections;
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -37,20 +45,24 @@ import java.util.Objects;
  */
 public class DateTimeLiteral extends DateLiteral {
 
-    protected static final int DATETIME_TO_MINUTE_STRING_LENGTH = 16;
-    protected static final int DATETIME_TO_HOUR_STRING_LENGTH = 13;
-    protected static final int DATETIME_DEFAULT_STRING_LENGTH = 10;
-    protected static DateTimeFormatter DATE_TIME_DEFAULT_FORMATTER = null;
     protected static DateTimeFormatter DATE_TIME_FORMATTER = null;
     protected static DateTimeFormatter DATE_TIME_FORMATTER_TO_HOUR = null;
     protected static DateTimeFormatter DATE_TIME_FORMATTER_TO_MINUTE = null;
     protected static DateTimeFormatter DATE_TIME_FORMATTER_TWO_DIGIT = null;
+    protected static DateTimeFormatter DATETIMEKEY_FORMATTER = null;
+    protected static DateTimeFormatter DATE_TIME_FORMATTER_TO_MICRO_SECOND = null;
+    protected static List<DateTimeFormatter> formatterList = null;
+
+    private static final DateTimeLiteral MIN_DATETIME = new DateTimeLiteral(0000, 1, 1, 0, 0, 0);
+    private static final DateTimeLiteral MAX_DATETIME = new DateTimeLiteral(9999, 12, 31, 23, 59, 59);
+    private static final int MAX_MICROSECOND = 999999;
 
     private static final Logger LOG = LogManager.getLogger(DateTimeLiteral.class);
 
     protected long hour;
     protected long minute;
     protected long second;
+    protected long microSecond;
 
     static {
         try {
@@ -58,7 +70,24 @@ public class DateTimeLiteral extends DateLiteral {
             DATE_TIME_FORMATTER_TO_HOUR = DateUtils.formatBuilder("%Y-%m-%d %H").toFormatter();
             DATE_TIME_FORMATTER_TO_MINUTE = DateUtils.formatBuilder("%Y-%m-%d %H:%i").toFormatter();
             DATE_TIME_FORMATTER_TWO_DIGIT = DateUtils.formatBuilder("%y-%m-%d %H:%i:%s").toFormatter();
-            DATE_TIME_DEFAULT_FORMATTER = DateUtils.formatBuilder("%Y-%m-%d").toFormatter();
+
+            DATETIMEKEY_FORMATTER = DateUtils.formatBuilder("%Y%m%d%H%i%s").toFormatter();
+
+            DATE_TIME_FORMATTER_TO_MICRO_SECOND = new DateTimeFormatterBuilder()
+                    .appendPattern("uuuu-MM-dd HH:mm:ss")
+                    .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true)
+                    .toFormatter();
+
+            formatterList = Lists.newArrayList(
+                    DateUtils.formatBuilder("%Y%m%d").appendLiteral('T').appendPattern("HHmmss")
+                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true).toFormatter(),
+                    DateUtils.formatBuilder("%Y%m%d").appendLiteral('T').appendPattern("HHmmss")
+                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false).toFormatter(),
+                    DateUtils.formatBuilder("%Y%m%d%H%i%s")
+                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true).toFormatter(),
+                    DateUtils.formatBuilder("%Y%m%d%H%i%s")
+                            .appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, false).toFormatter(),
+                    DATETIMEKEY_FORMATTER, DATEKEY_FORMATTER);
         } catch (AnalysisException e) {
             LOG.error("invalid date format", e);
             System.exit(-1);
@@ -86,10 +115,19 @@ public class DateTimeLiteral extends DateLiteral {
      */
     public DateTimeLiteral(DateLikeType dataType, long year, long month, long day,
             long hour, long minute, long second) {
+        this(dataType, year, month, day, hour, minute, second, 0L);
+    }
+
+    /**
+     * C'tor data time literal.
+     */
+    public DateTimeLiteral(DateLikeType dataType, long year, long month, long day,
+            long hour, long minute, long second, long microSecond) {
         super(dataType);
         this.hour = hour;
         this.minute = minute;
         this.second = second;
+        this.microSecond = microSecond;
         this.year = year;
         this.month = month;
         this.day = day;
@@ -98,29 +136,105 @@ public class DateTimeLiteral extends DateLiteral {
     @Override
     protected void init(String s) throws AnalysisException {
         try {
-            LocalDateTime dateTime;
-            if (s.split("-")[0].length() == 2) {
-                dateTime = DATE_TIME_FORMATTER_TWO_DIGIT.parseLocalDateTime(s);
-            } else {
-                if (s.length() == DATETIME_TO_MINUTE_STRING_LENGTH) {
-                    dateTime = DATE_TIME_FORMATTER_TO_MINUTE.parseLocalDateTime(s);
-                } else if (s.length() == DATETIME_TO_HOUR_STRING_LENGTH) {
-                    dateTime = DATE_TIME_FORMATTER_TO_HOUR.parseLocalDateTime(s);
-                } else if (s.length() == DATETIME_DEFAULT_STRING_LENGTH) {
-                    dateTime = DATE_TIME_DEFAULT_FORMATTER.parseLocalDateTime(s);
-                } else {
-                    dateTime = DATE_TIME_FORMATTER.parseLocalDateTime(s);
+            TemporalAccessor dateTime = null;
+            if (!s.contains("-")) {
+                // handle format like 20210106, but should not handle 2021-1-6
+                boolean parsed = false;
+                for (DateTimeFormatter formatter : formatterList) {
+                    try {
+                        dateTime = formatter.parse(s);
+                        parsed = true;
+                        break;
+                    } catch (DateTimeParseException ex) {
+                        // ignore
+                    }
                 }
+                if (!parsed) {
+                    throw new AnalysisException("datetime literal [" + s + "] is invalid");
+                }
+            } else {
+                String[] datePart = s.contains(" ") ? s.split(" ")[0].split("-") : s.split("-");
+                DateTimeFormatterBuilder builder = new DateTimeFormatterBuilder();
+                if (datePart.length != 3) {
+                    throw new AnalysisException("datetime literal [" + s + "] is invalid");
+                }
+                for (int i = 0; i < datePart.length; i++) {
+                    switch (i) {
+                        case 0:
+                            if (datePart[i].length() == 2) {
+                                // If year is represented by two digits, number bigger than 70 will be prefixed
+                                // with 19 otherwise 20. e.g. 69 -> 2069, 70 -> 1970.
+                                builder.appendValueReduced(ChronoField.YEAR, 2, 2, 1970);
+                            } else {
+                                builder.appendPattern(String.join("", Collections.nCopies(datePart[i].length(), "u")));
+                            }
+                            break;
+                        case 1:
+                            builder.appendPattern(String.join("", Collections.nCopies(datePart[i].length(), "M")));
+                            break;
+                        case 2:
+                            builder.appendPattern(String.join("", Collections.nCopies(datePart[i].length(), "d")));
+                            break;
+                        default:
+                            throw new AnalysisException("two many parts in date format " + s);
+                    }
+                    if (i < datePart.length - 1) {
+                        builder.appendLiteral("-");
+                    }
+                }
+                if (s.contains(" ")) {
+                    builder.appendLiteral(" ");
+                }
+                String[] timePart = s.contains(" ") ? s.split(" ")[1].split(":") : new String[]{};
+                for (int i = 0; i < timePart.length; i++) {
+                    switch (i) {
+                        case 0:
+                            builder.appendPattern(String.join("", Collections.nCopies(timePart[i].length(), "H")));
+                            break;
+                        case 1:
+                            builder.appendPattern(String.join("", Collections.nCopies(timePart[i].length(), "m")));
+                            break;
+                        case 2:
+                            builder.appendPattern(String.join("", Collections.nCopies(timePart[i].contains(".")
+                                    ? timePart[i].split("\\.")[0].length() : timePart[i].length(), "s")));
+                            if (timePart[i].contains(".")) {
+                                builder.appendFraction(ChronoField.MICRO_OF_SECOND, 0, 6, true);
+                            }
+                            break;
+                        default:
+                            throw new AnalysisException("too many parts in time format " + s);
+                    }
+                    if (i < timePart.length - 1) {
+                        builder.appendLiteral(":");
+                    }
+                }
+                // The default resolver style is 'SMART', which parses "2022-06-31" as "2022-06-30"
+                // and does not throw an exception. 'STRICT' is used here.
+                DateTimeFormatter formatter = builder.toFormatter().withResolverStyle(ResolverStyle.STRICT);
+                dateTime = formatter.parse(s);
             }
-            year = dateTime.getYear();
-            month = dateTime.getMonthOfYear();
-            day = dateTime.getDayOfMonth();
-            hour = dateTime.getHourOfDay();
-            minute = dateTime.getMinuteOfHour();
-            second = dateTime.getSecondOfMinute();
+
+            year = DateUtils.getOrDefault(dateTime, ChronoField.YEAR);
+            month = DateUtils.getOrDefault(dateTime, ChronoField.MONTH_OF_YEAR);
+            day = DateUtils.getOrDefault(dateTime, ChronoField.DAY_OF_MONTH);
+            hour = DateUtils.getOrDefault(dateTime, ChronoField.HOUR_OF_DAY);
+            minute = DateUtils.getOrDefault(dateTime, ChronoField.MINUTE_OF_HOUR);
+            second = DateUtils.getOrDefault(dateTime, ChronoField.SECOND_OF_MINUTE);
+            microSecond = DateUtils.getOrDefault(dateTime, ChronoField.MICRO_OF_SECOND);
+
         } catch (Exception ex) {
-            throw new AnalysisException("date time literal [" + s + "] is invalid");
+            throw new AnalysisException("datetime literal [" + s + "] is invalid");
         }
+
+        if (checkRange() || checkDate()) {
+            throw new AnalysisException("datetime literal [" + s + "] is out of range");
+        }
+    }
+
+    @Override
+    protected boolean checkRange() {
+        return super.checkRange() || hour > MAX_DATETIME.getHour() || minute > MAX_DATETIME.getMinute()
+                || second > MAX_DATETIME.getSecond() || microSecond > MAX_MICROSECOND;
     }
 
     @Override
@@ -154,39 +268,39 @@ public class DateTimeLiteral extends DateLiteral {
     }
 
     public DateTimeLiteral plusDays(int days) {
-        LocalDateTime d = LocalDateTime.parse(getStringValue(), DATE_TIME_FORMATTER).plusDays(days);
-        return new DateTimeLiteral(d.getYear(), d.getMonthOfYear(), d.getDayOfMonth(),
-                d.getHourOfDay(), d.getMinuteOfHour(), d.getSecondOfMinute());
+        LocalDateTime d = DateUtils.getTime(DATE_TIME_FORMATTER, getStringValue()).plusDays(days);
+        return new DateTimeLiteral(d.getYear(), d.getMonthValue(), d.getDayOfMonth(),
+                d.getHour(), d.getMinute(), d.getSecond());
     }
 
     public DateTimeLiteral plusYears(int years) {
-        LocalDateTime d = LocalDateTime.parse(getStringValue(), DATE_TIME_FORMATTER).plusYears(years);
-        return new DateTimeLiteral(d.getYear(), d.getMonthOfYear(), d.getDayOfMonth(),
-                d.getHourOfDay(), d.getMinuteOfHour(), d.getSecondOfMinute());
+        LocalDateTime d = DateUtils.getTime(DATE_TIME_FORMATTER, getStringValue()).plusYears(years);
+        return new DateTimeLiteral(d.getYear(), d.getMonthValue(), d.getDayOfMonth(),
+                d.getHour(), d.getMinute(), d.getSecond());
     }
 
     public DateTimeLiteral plusMonths(int months) {
-        LocalDateTime d = LocalDateTime.parse(getStringValue(), DATE_TIME_FORMATTER).plusMonths(months);
-        return new DateTimeLiteral(d.getYear(), d.getMonthOfYear(), d.getDayOfMonth(),
-                d.getHourOfDay(), d.getMinuteOfHour(), d.getSecondOfMinute());
+        LocalDateTime d = DateUtils.getTime(DATE_TIME_FORMATTER, getStringValue()).plusMonths(months);
+        return new DateTimeLiteral(d.getYear(), d.getMonthValue(), d.getDayOfMonth(),
+                d.getHour(), d.getMinute(), d.getSecond());
     }
 
     public DateTimeLiteral plusHours(int hours) {
-        LocalDateTime d = LocalDateTime.parse(getStringValue(), DATE_TIME_FORMATTER).plusHours(hours);
-        return new DateTimeLiteral(d.getYear(), d.getMonthOfYear(), d.getDayOfMonth(),
-                d.getHourOfDay(), d.getMinuteOfHour(), d.getSecondOfMinute());
+        LocalDateTime d = DateUtils.getTime(DATE_TIME_FORMATTER, getStringValue()).plusHours(hours);
+        return new DateTimeLiteral(d.getYear(), d.getMonthValue(), d.getDayOfMonth(),
+                d.getHour(), d.getMinute(), d.getSecond());
     }
 
     public DateTimeLiteral plusMinutes(int minutes) {
-        LocalDateTime d = LocalDateTime.parse(getStringValue(), DATE_TIME_FORMATTER).plusMinutes(minutes);
-        return new DateTimeLiteral(d.getYear(), d.getMonthOfYear(), d.getDayOfMonth(),
-                d.getHourOfDay(), d.getMinuteOfHour(), d.getSecondOfMinute());
+        LocalDateTime d = DateUtils.getTime(DATE_TIME_FORMATTER, getStringValue()).plusMinutes(minutes);
+        return new DateTimeLiteral(d.getYear(), d.getMonthValue(), d.getDayOfMonth(),
+                d.getHour(), d.getMinute(), d.getSecond());
     }
 
     public DateTimeLiteral plusSeconds(int seconds) {
-        LocalDateTime d = LocalDateTime.parse(getStringValue(), DATE_TIME_FORMATTER).plusSeconds(seconds);
-        return new DateTimeLiteral(d.getYear(), d.getMonthOfYear(), d.getDayOfMonth(),
-                d.getHourOfDay(), d.getMinuteOfHour(), d.getSecondOfMinute());
+        LocalDateTime d = DateUtils.getTime(DATE_TIME_FORMATTER, getStringValue()).plusSeconds(seconds);
+        return new DateTimeLiteral(d.getYear(), d.getMonthValue(), d.getDayOfMonth(),
+                d.getHour(), d.getMinute(), d.getSecond());
     }
 
     public long getHour() {
