@@ -598,7 +598,6 @@ import org.apache.doris.qe.SqlModeHelper;
 %init}
 
 LineTerminator = \r|\n|\r\n
-NonTerminator = [^\r\n]
 Whitespace = {LineTerminator} | [ \t\f]
 
 IdentifierOrKwContents = [:digit:]*[:jletter:][:jletterdigit:]* | "&&" | "||"
