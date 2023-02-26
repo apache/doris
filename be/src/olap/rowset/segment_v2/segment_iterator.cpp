@@ -380,9 +380,9 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
         RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->get_row_ranges_by_zone_map(
                 _opts.col_id_to_predicates[cid].get(),
-                _opts.col_id_to_del_predicates.size() == 1
-                    && _opts.col_id_to_del_predicates.count(cid) > 0
-                    && _opts.col_id_to_del_predicates[cid].size() == 1
+                _opts.col_id_to_del_predicates.size() == 1 &&
+                                _opts.col_id_to_del_predicates.count(cid) > 0 &&
+                                _opts.col_id_to_del_predicates[cid].size() == 1
                         ? &(_opts.col_id_to_del_predicates[cid])
                         : nullptr,
                 &column_row_ranges));
