@@ -32,6 +32,7 @@ using strings::Substitute;
 
 using FullEncodeAscendingFunc = void (*)(const void* value, std::string* buf);
 using EncodeAscendingFunc = void (*)(const void* value, size_t index_size, std::string* buf);
+using DecodeAscendingFunc = Status (*)(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr);
 
 // Order-preserving binary encoding for values of a particular type so that
 // those values can be compared by memcpy their encoded bytes.
@@ -53,9 +54,15 @@ public:
         _encode_ascending(value, index_size, buf);
     }
 
+    // Only used for test, should delete it in the future
+    Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) const {
+        return _decode_ascending(encoded_key, index_size, cell_ptr);
+    }
+
 private:
     FullEncodeAscendingFunc _full_encode_ascending;
     EncodeAscendingFunc _encode_ascending;
+    DecodeAscendingFunc _decode_ascending;
 };
 
 extern const KeyCoder* get_key_coder(FieldType type);
@@ -203,7 +210,7 @@ public:
         memcpy(&decimal_val, value, sizeof(decimal12_t));
         KeyCoderTraits<OLAP_FIELD_TYPE_BIGINT>::full_encode_ascending(&decimal_val.integer, buf);
         KeyCoderTraits<OLAP_FIELD_TYPE_INT>::full_encode_ascending(&decimal_val.fraction, buf);
-    }
+    } // namespace doris
 
     static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
         full_encode_ascending(value, buf);
