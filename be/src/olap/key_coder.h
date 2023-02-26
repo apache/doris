@@ -275,6 +275,11 @@ public:
                 << ", char=" << slice->size;
         buf->append(slice->data, index_size);
     }
+
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
+        LOG(FATAL) << "decode_ascending is not implemented";
+        return Status::OK();
+    }
 };
 
 template <>
@@ -290,6 +295,11 @@ public:
         size_t copy_size = std::min(index_size, slice->size);
         buf->append(slice->data, copy_size);
     }
+
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
+        LOG(FATAL) << "decode_ascending is not implemented";
+        return Status::OK();
+    }
 };
 
 template <>
@@ -304,6 +314,11 @@ public:
         const Slice* slice = (const Slice*)value;
         size_t copy_size = std::min(index_size, slice->size);
         buf->append(slice->data, copy_size);
+    }
+
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
+        LOG(FATAL) << "decode_ascending is not implemented";
+        return Status::OK();
     }
 };
 
