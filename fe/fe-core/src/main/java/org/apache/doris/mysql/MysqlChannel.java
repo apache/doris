@@ -58,6 +58,7 @@ public class MysqlChannel {
     protected ByteBuffer defaultBuffer;
     protected ByteBuffer sslHeaderByteBuffer;
     protected ByteBuffer tempBuffer;
+    protected ByteBuffer remainingBuffer;
     protected ByteBuffer sendBuffer;
     protected ByteBuffer sendSslBuffer;
 
@@ -101,6 +102,8 @@ public class MysqlChannel {
         this.headerByteBuffer = ByteBuffer.allocate(PACKET_HEADER_LEN);
         this.sendBuffer = ByteBuffer.allocate(2 * 1024 * 1024);
         this.sendSslBuffer = ByteBuffer.allocate(2 * 1024 * 1024);
+        this.remainingBuffer = ByteBuffer.allocate(16 * 1024);
+        this.remainingBuffer.flip();
         this.tempBuffer = ByteBuffer.allocate(16 * 1024);
         this.sslHeaderByteBuffer = ByteBuffer.allocate(SSL_PACKET_HEADER_LEN);
     }
@@ -124,7 +127,6 @@ public class MysqlChannel {
         if (isSslMode) {
             // channel in ssl mode means handshake phase has finished.
             isSslHandshaking = false;
-            headerByteBuffer = ByteBuffer.allocate(SSL_PACKET_HEADER_LEN);
         }
     }
 
@@ -166,6 +168,13 @@ public class MysqlChannel {
     // all packet header is not encrypted, packet body is not sure.
     protected int readAll(ByteBuffer dstBuf, boolean isHeader) throws IOException {
         int readLen = 0;
+        if (remainingBuffer.hasRemaining()) {
+            int oldLen = dstBuf.position();
+            while (dstBuf.hasRemaining()) {
+                dstBuf.put(remainingBuffer.get());
+            }
+            return dstBuf.position() - oldLen;
+        }
         try {
             while (dstBuf.remaining() != 0) {
                 int ret = Channels.readBlocking(conn.getSourceChannel(), dstBuf);
@@ -215,7 +224,7 @@ public class MysqlChannel {
         result.clear();
 
         while (true) {
-            if (isSslMode || isSslHandshaking) {
+            if ((isSslMode || isSslHandshaking) && !remainingBuffer.hasRemaining()) {
                 sslHeaderByteBuffer.clear();
                 readLen = readAll(sslHeaderByteBuffer, true);
                 if (readLen != SSL_PACKET_HEADER_LEN) {
@@ -278,12 +287,14 @@ public class MysqlChannel {
                     result.put(tempBuffer);
                 }
                 if (mysqlPacketLength != result.position()) {
-                    LOG.info("maybe lose data in SSL transformation. Except mysql packet length: "
-                            + mysqlPacketLength + ". But got: " + result.position() + ".");
+                    LOG.info("one SSL packet has multiple mysql packets.");
+                    result.flip();
+                    result.position(mysqlPacketLength);
+                    remainingBuffer.clear();
+                    remainingBuffer.put(result);
+                    remainingBuffer.flip();
                 }
                 result.position(mysqlPacketLength);
-                //readLen = result.limit();
-                //packetLen = mysqlPacketLength;
             }
             if (readLen != packetLen) {
                 LOG.warn("Length of received packet content(" + readLen
