@@ -161,7 +161,8 @@ public class HiveScanProvider extends HMSTableScanProvider {
                         hmsTable.getPartitionColumns(), columnNameToRange,
                         hivePartitionValues.getUidToPartitionRange(),
                         hivePartitionValues.getRangeToId(),
-                        hivePartitionValues.getSingleColumnRangeMap());
+                        hivePartitionValues.getSingleColumnRangeMap(),
+                        true);
                 Collection<Long> filteredPartitionIds = pruner.prune();
                 this.readPartitionNum = filteredPartitionIds.size();
                 LOG.debug("hive partition fetch and prune for table {}.{} cost: {} ms",
