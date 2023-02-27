@@ -29,6 +29,11 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
 import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.types.ArrayType;
+import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DecimalV3Type;
+import org.apache.doris.nereids.types.JsonType;
+import org.apache.doris.nereids.types.StructType;
 
 import com.google.common.collect.ImmutableSet;
 
@@ -39,7 +44,8 @@ import java.util.Set;
  * Judgment expression type.
  */
 public class TypeUtils {
-    private static final Set<String> UNSUPPORTED_TYPES = ImmutableSet.of("decimalv3", "jsonb", "array", "struct");
+    private static final Set<Class<? extends DataType>> UNSUPPORTED_TYPES =
+            ImmutableSet.of(DecimalV3Type.class, JsonType.class, ArrayType.class, StructType.class);
 
     public static boolean isAddOrSubtract(Expression expr) {
         return isAdd(expr) || isSubtract(expr);
@@ -79,8 +85,8 @@ public class TypeUtils {
         }
     }
 
-    public static boolean isSpportedType(String typeString) {
-        return !UNSUPPORTED_TYPES.contains(typeString);
+    public static boolean isSpportedType(Class typeClass) {
+        return !UNSUPPORTED_TYPES.contains(typeClass);
     }
 
     /**
@@ -89,7 +95,7 @@ public class TypeUtils {
     public static void checkPlanOutputTypes(Plan plan) {
         final Optional<TypeCheckResult> firstFailed = plan.getOutput().stream()
                 .map(slot -> new TypeCheckResult(
-                        TypeUtils.isSpportedType(slot.getDataType().simpleString().toLowerCase()),
+                        TypeUtils.isSpportedType(slot.getDataType().getClass()),
                         "type unsupported for nereids planner"))
                 .filter(TypeCheckResult::failed)
                 .findFirst();
