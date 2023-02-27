@@ -47,7 +47,7 @@ import java.util.stream.Stream;
 public abstract class BatchRewriteJob {
     protected CascadesContext cascadesContext;
 
-    BatchRewriteJob(CascadesContext cascadesContext) {
+    public BatchRewriteJob(CascadesContext cascadesContext) {
         this.cascadesContext = Objects.requireNonNull(cascadesContext, "cascadesContext can not null");
     }
 
