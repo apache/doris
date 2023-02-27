@@ -139,8 +139,8 @@ public class MysqlChannel {
         return header[3] & 0xFF;
     }
 
-    private int packetLen() {
-        if (isSslMode || isSslHandshaking) {
+    private int packetLen(boolean isSslHeader) {
+        if (isSslHeader) {
             byte[] header = sslHeaderByteBuffer.array();
             return (header[4] & 0xFF) | ((header[3] & 0XFF) << 8);
         } else {
@@ -168,6 +168,9 @@ public class MysqlChannel {
     // all packet header is not encrypted, packet body is not sure.
     protected int readAll(ByteBuffer dstBuf, boolean isHeader) throws IOException {
         int readLen = 0;
+        if (!dstBuf.hasRemaining()) {
+            return 0;
+        }
         if (remainingBuffer.hasRemaining()) {
             int oldLen = dstBuf.position();
             while (dstBuf.hasRemaining()) {
@@ -224,7 +227,13 @@ public class MysqlChannel {
         result.clear();
 
         while (true) {
+            int packetLen;
+            // one SSL packet may include multiple Mysql packets, we use remainingBuffer to store them.
             if ((isSslMode || isSslHandshaking) && !remainingBuffer.hasRemaining()) {
+                if(remainingBuffer.position()!=0){
+                    remainingBuffer.clear();
+                    remainingBuffer.flip();
+                }
                 sslHeaderByteBuffer.clear();
                 readLen = readAll(sslHeaderByteBuffer, true);
                 if (readLen != SSL_PACKET_HEADER_LEN) {
@@ -234,6 +243,7 @@ public class MysqlChannel {
                 }
                 // when handshaking and ssl mode, sslengine unwrap need a packet with header.
                 result.put(sslHeaderByteBuffer.array());
+                packetLen = packetLen(true);
             } else {
                 headerByteBuffer.clear();
                 readLen = readAll(headerByteBuffer, true);
@@ -246,8 +256,8 @@ public class MysqlChannel {
                     LOG.warn("receive packet sequence id[" + packetId() + "] want to get[" + sequenceId + "]");
                     throw new IOException("Bad packet sequence.");
                 }
+                packetLen = packetLen(false);
             }
-            int packetLen = packetLen();
             result = expandPacket(result, packetLen);
 
             // read one physical packet
@@ -277,7 +287,7 @@ public class MysqlChannel {
                     }
                     tempBuffer.clear();
                     tempBuffer.put(sslHeaderByteBuffer.array());
-                    packetLen = packetLen();
+                    packetLen = packetLen(true);
                     tempBuffer = expandPacket(tempBuffer, packetLen);
                     result = expandPacket(result, tempBuffer.capacity());
                     // read one physical packet
