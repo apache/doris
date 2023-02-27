@@ -37,11 +37,9 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
 
 ## Create Catalog
 
-<version since="1.2.0">
-
 1. MySQL
 
-</version>
+<version since="1.2.0"></version>
 
    ```sql
    CREATE CATALOG jdbc_mysql PROPERTIES (
@@ -54,11 +52,9 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
    )
    ```
 
-<version since="1.2.2">
-
 2. PostgreSQL
 
-</version>
+<version since="1.2.2"></version>
 
    ```sql
    CREATE CATALOG jdbc_postgresql PROPERTIES (
@@ -79,11 +75,9 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
    | Database | Schema     |
    | Table    | Table      |
 
-<version since="1.2.2">
-
 3. Oracle
 
-</version>
+<version since="1.2.2"></version>
 
    ```sql
    CREATE CATALOG jdbc_oracle PROPERTIES (
@@ -96,19 +90,17 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
    );
    ```
 
-   As for data mapping from Oracle to Doris, one Database in Doris corresponds to one User (for example, "helowin" in `jdbc_url`  above), and one Table in that Database corresponds to one table that the User has access to. In conclusion, the mapping relations are as follows:
+   As for data mapping from Oracle to Doris, one Database in Doris corresponds to one User, and one Table in that Database corresponds to one table that the User has access to. In conclusion, the mapping relations are as follows:
 
-   | Doris    | PostgreSQL |
+   | Doris    | Oracle |
    | -------- | ---------- |
    | Catalog  | Database   |
    | Database | User       |
    | Table    | Table      |
 
-<version since="1.2.2">
-
 4. Clickhouse
 
-</version>
+<version since="1.2.2"></version>
 
    ```sql
    CREATE CATALOG jdbc_clickhouse PROPERTIES (
@@ -121,11 +113,9 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
    );
    ```
 
-<version since="1.2.2">
-
 5. SQLServer
 
-</version>
+<version since="1.2.2"></version>
 
    ```sql
    CREATE CATALOG sqlserver_catalog PROPERTIES (
@@ -145,12 +135,10 @@ Once connected, Doris will ingest metadata of databases and tables from the exte
    | Catalog  | Database  |
    | Database | Schema    |
    | Table    | Table     |
-
-<version since="dev">
     
 6. Doris
 
-</version>
+<version since="dev"></version>
 
 Jdbc Catalog also support to connect another Doris database:
 
@@ -176,6 +164,7 @@ Currently, Jdbc Catalog only support to use 5.x version of JDBC jar package to c
 | `jdbc_url `     | Yes             |               | JDBC connection string                             |
 | `driver_url `   | Yes             |               | JDBC Driver Jar                                    |
 | `driver_class ` | Yes             |               | JDBC Driver Class                                  |
+| <version since="dev">`only_specified_database`</version> | No             |     "false"          | When the JDBC is connected, you can specify which database/schema to connect. For example, you can specify the DataBase in mysql `jdbc_url`; you can specify the CurrentSchema in PG `jdbc_url`, `only_specified_database` specifies whether only the database is specified simultaneously.                                  |
 
 > `driver_url` can be specified in three ways:
 >

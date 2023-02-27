@@ -79,3 +79,6 @@ doris2	19
 doris3	20
 doris3	20
 
+-- !specified_database --
+DORIS_TEST
+

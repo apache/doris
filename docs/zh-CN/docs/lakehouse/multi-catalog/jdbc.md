@@ -37,11 +37,9 @@ JDBC Catalog 通过标准 JDBC 协议，连接其他数据源。
 
 ## 创建 Catalog
 
-<version since="1.2.0">
-
 1. MySQL
 
-</version>
+<version since="1.2.0"></version>
 
 ```sql
 CREATE CATALOG jdbc_mysql PROPERTIES (
@@ -54,11 +52,9 @@ CREATE CATALOG jdbc_mysql PROPERTIES (
 )
 ```
 
-<version since="1.2.2">
-
 2. PostgreSQL
 
-</version>
+<version since="1.2.2"></version>
 
 ```sql
 CREATE CATALOG jdbc_postgresql PROPERTIES (
@@ -71,7 +67,7 @@ CREATE CATALOG jdbc_postgresql PROPERTIES (
 );
 ```
 
-映射 PostgreSQL 时，Doris 的一个 Database 对应于 PostgreSQL 中指定 Catalog（如示例中 `jdbc_url` 参数中 "demo"）下的一个 Schema。而 Doris 的 Database 下的 Table 则对应于 PostgreSQL 中，Schema 下的 Tables。即映射关系如下：
+映射 PostgreSQL 时，Doris 的一个 Database 对应于 PostgreSQL 中指定Catalog下的一个 Schema（如示例中 `jdbc_url` 参数中 "demo"下的schemas）。而 Doris 的 Database 下的 Table 则对应于 PostgreSQL 中，Schema 下的 Tables。即映射关系如下：
 
 |Doris | PostgreSQL |
 |---|---|
@@ -79,11 +75,9 @@ CREATE CATALOG jdbc_postgresql PROPERTIES (
 | Database | Schema |
 | Table | Table |
 
-<version since="1.2.2">
-
 3. Oracle
 
-</version>
+<version since="1.2.2"></version>
 
 ```sql
 CREATE CATALOG jdbc_oracle PROPERTIES (
@@ -96,19 +90,17 @@ CREATE CATALOG jdbc_oracle PROPERTIES (
 );
 ```
 
-映射 Oracle 时，Doris 的一个 Database 对应于 Oracle 中的一个 User（如示例中 `jdbc_url` 参数中 "helowin"）。而 Doris 的 Database 下的 Table 则对应于 Oracle 中，该 User 下的有权限访问的 Table。即映射关系如下：
+映射 Oracle 时，Doris 的一个 Database 对应于 Oracle 中的一个 User。而 Doris 的 Database 下的 Table 则对应于 Oracle 中，该 User 下的有权限访问的 Table。即映射关系如下：
 
-|Doris | PostgreSQL |
+|Doris | Oracle |
 |---|---|
 | Catalog | Database | 
 | Database | User |
 | Table | Table |
 
-<version since="1.2.2">
-
 4. Clickhouse
 
-</version>
+<version since="1.2.2"></version>
 
 ```sql
 CREATE CATALOG jdbc_clickhouse PROPERTIES (
@@ -121,11 +113,9 @@ CREATE CATALOG jdbc_clickhouse PROPERTIES (
 );
 ```
 
-<version since="1.2.2">
-    
 5. SQLServer
 
-</version>
+<version since="1.2.2"></version>
 
 ```sql
 CREATE CATALOG sqlserver_catalog PROPERTIES (
@@ -146,11 +136,9 @@ CREATE CATALOG sqlserver_catalog PROPERTIES (
 | Database | Schema |
 | Table | Table |
 
-<version since="dev">
-    
 6. Doris
 
-</version>
+<version since="dev"></version>
 
 Jdbc Catalog也支持连接另一个Doris数据库：
 
@@ -173,9 +161,10 @@ CREATE CATALOG doris_catalog PROPERTIES (
 --- | --- | --- | --- 
 `user` | 是 | | 对应数据库的用户名 |
 `password` | 是 |   | 对应数据库的密码 |
-`jdbc_url ` | 是 |  | JDBC 连接串 |
-`driver_url ` | 是 |  | JDBC Driver Jar 包名称* |
-`driver_class ` | 是 |  | JDBC Driver Class 名称 |
+`jdbc_url` | 是 |  | JDBC 连接串 |
+`driver_url` | 是 |  | JDBC Driver Jar 包名称* |
+`driver_class` | 是 |  | JDBC Driver Class 名称 |
+<version since="dev">`only_specified_database`</version> | 否 | "false" | 在jdbc连接时可以指定链接到哪个database/schema, 如：mysql中jdbc_url中可以指定database, pg的jdbc_url中可以指定currentSchema，`only_specified_database`指定是否只同步指定的 database.  |
 
 > `driver_url` 可以通过以下三种方式指定：
 > 

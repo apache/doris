@@ -86,6 +86,24 @@ suite("test_oracle_jdbc_catalog", "p0") {
         order_qt_test_insert3 """ select name, age from ${test_insert} where id = '${uuid2}' order by age """
 
         sql """drop catalog if exists ${catalog_name} """
-        sql """drop resource if exists jdbc_resource_catalog_pg"""
+        sql """drop resource if exists ${resource_name}"""
+
+        // test only_specified_database argument
+        sql """create resource if not exists ${resource_name} properties(
+                    "type"="jdbc",
+                    "user"="doris_test",
+                    "password"="123456",
+                    "jdbc_url" = "jdbc:oracle:thin:@172.18.0.1:${oracle_port}:${SID}",
+                    "driver_url" = "file:///mnt/disk1/ftw/tools/jar/ojdbc8.jar",
+                    "driver_class" = "oracle.jdbc.driver.OracleDriver",
+                    "only_specified_database" = "true"
+        );"""
+        sql """ CREATE CATALOG ${catalog_name} WITH RESOURCE ${resource_name} """
+        sql """ switch ${catalog_name} """
+
+        qt_specified_database   """ show databases; """
+        sql """drop catalog if exists ${catalog_name} """
+        sql """drop resource if exists ${resource_name}"""
+
     }
 }
