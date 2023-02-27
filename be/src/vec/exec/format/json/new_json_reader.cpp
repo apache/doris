@@ -1388,9 +1388,9 @@ Status NewJsonReader::_simdjson_set_column_value(simdjson::ondemand::object* val
     for (size_t i = 0; i < columns.size(); ++i) {
         DCHECK_EQ(columns[i]->size(), cur_row_count + 1);
     }
+#endif
     // There is at least one valid value here
     DCHECK(nullcount < columns.size());
-#endif
     *valid = true;
     return Status::OK();
 }
