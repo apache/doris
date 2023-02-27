@@ -75,7 +75,7 @@ public class OperationType {
     public static final short OP_MODIFY_TABLE_ENGINE = 127;
 
     //schema change for add and drop columns
-    public static final short OP_MODIFY_TABLE_ADD_OR_DROP_COLUMNS = 128;
+    public static final short OP_MODIFY_TABLE_LIGHT_SCHEMA_CHANGE = 128;
 
     //schema change for add and drop inverted indices
     public static final short OP_MODIFY_TABLE_ADD_OR_DROP_INVERTED_INDICES = 220;
