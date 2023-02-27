@@ -380,6 +380,12 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
         RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->get_row_ranges_by_zone_map(
                 _opts.col_id_to_predicates[cid].get(),
+                // 理论上，如果是两次独立的删除，比如delete from table where a=1; delete from table where a=2;其实这个地方应该可以使用的;
+                // 但是目前的代码，是把所有不同版本的delete predicates和不同列的delete predicates都放到一起了，失去了版本信息、失去了谓词间可能是and的关系，
+                // 统一弱化成了delete predicates都是独立的，有一个delete predicates满足条件，就把page都去掉。
+                // 这个pr的修改方式，就是在当前代码的基础上，当只有一个delete predicate的时候才能保证后续淘汰page的正确性，所以这里一律加了 == 1的判断才传递delete predicates。
+                // 如果要把不同版本的delete predicates和不同列的delete predicates作为完整和严谨的逻辑去判断page，需要修改的设计就有点多了，
+                // 目前的方案算是一种优先解决bug的思路，后续可以进一步把delete predicates这块加速zone判断进行page淘汰的逻辑完善，提高delete predicates使用的场景。
                 _opts.col_id_to_del_predicates.size() == 1 &&
                                 _opts.col_id_to_del_predicates.count(cid) > 0 &&
                                 _opts.col_id_to_del_predicates[cid].size() == 1

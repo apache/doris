@@ -70,7 +70,7 @@ suite("test_zone_map_delete") {
     "in_memory" = "false",
     "storage_format" = "V2",
     "light_schema_change" = "true",
-    "disable_auto_compaction" = "false"
+    "disable_auto_compaction" = "true"
     );
     """
 
