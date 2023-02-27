@@ -74,6 +74,29 @@ suite("test_zone_map_delete") {
     );
     """
 
+    sql """ truncate table ${tableName}; """
+
+    sql """ insert into ${tableName} values(0,1,11),(0,1,22),(0,1,33),(0,1,44),(0,1,55),(0,1,66),(0,1,77),(0,1,88),(0,1,99),(0,1,100),(0,1,101),(0,1,102),(0,1,111),(0,1,122),(0,1,133),(0,1,144),(0,1,155),(0,1,166),(0,1,177),(0,1,188),(0,1,199),(0,1,200),(0,1,201),(0,1,202);"""
+
+    sql """ delete from ${tableName} where k2=0;"""
+
+    sql """ delete from ${tableName} where k2=1;"""
+
+    qt_sql """ select k2,k3 from ${tableName} ORDER BY k3;"""
+
+    qt_sql """ select k2,k3 from ${tableName} where k2 = 1 ORDER BY k3;"""
+
+
+    sql """ truncate table ${tableName}; """
+
+    sql """ insert into ${tableName} values(0,1,11),(0,1,22),(0,1,33),(0,1,44),(0,1,55),(0,1,66),(0,1,77),(0,1,88),(0,1,99),(0,1,100),(0,1,101),(0,1,102),(0,1,111),(0,1,122),(0,1,133),(0,1,144),(0,1,155),(0,1,166),(0,1,177),(0,1,188),(0,1,199),(0,1,200),(0,1,201),(0,1,202);"""
+
+    sql """ delete from ${tableName} where k2=1 and k2=0;"""
+
+    qt_sql """ select k2,k3 from ${tableName} ORDER BY k3;"""
+
+    qt_sql """ select k2,k3 from ${tableName} where k2 = 1 ORDER BY k3;"""
+
 
     sql """ truncate table ${tableName}; """
 
@@ -114,6 +137,7 @@ suite("test_zone_map_delete") {
     qt_sql """select k2,k3 from ${tableName} ORDER BY k3;"""
 
     qt_sql """select k2,k3 from ${tableName} where k3 = 201 ORDER BY k3;"""
+
 
     sql """truncate table ${tableName};"""
 

@@ -380,19 +380,8 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
         RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->get_row_ranges_by_zone_map(
                 _opts.col_id_to_predicates[cid].get(),
-                // Currently, one transaction can only support one delete condition for page filtering.
-                // Following case is allowed:
-                // delete from table1 where a=1;
-                // delete from table1 where a=2;
-                // Following case is not allowed, because one transaction has more than on delete condition:
-                // delete from table1 where a=1 and b = 2;
-                // This may cause bug when you query table1 with a=1;
-                // You can refer #17145 for more details.
-                // TODO: need refactor design and code to use more version delete and more column delete.
-                _opts.col_id_to_del_predicates.size() == 1 &&
-                                _opts.col_id_to_del_predicates.count(cid) > 0 &&
-                                _opts.col_id_to_del_predicates[cid].size() == 1
-                        ? &(_opts.col_id_to_del_predicates[cid])
+                _opts.del_predicates_for_zone_map.count(cid) > 0
+                        ? &(_opts.del_predicates_for_zone_map[cid])
                         : nullptr,
                 &column_row_ranges));
         // intersect different columns's row ranges to get final row ranges by zone map
