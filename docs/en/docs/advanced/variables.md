@@ -590,3 +590,7 @@ Translated with www.DeepL.com/Translator (free version)
     <version since="dev"></version>
 
     Controls whether to show each user's implicit roles in the results of `show roles`. Default is false.
+
+* `use_fix_replica`
+
+    Use a fixed replica to query. If use_fix_replica is 1, the smallest one is used, if use_fix_replica is 2, the second smallest one is used, and so on. The default value is -1, which means it is not enabled.
