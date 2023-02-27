@@ -819,8 +819,10 @@ Status PushBrokerReader::init(const Schema* schema, const TBrokerScanRange& t_sc
     }
     _runtime_profile = _runtime_state->runtime_profile();
     _runtime_profile->set_name("PushBrokerReader");
-    _mem_pool.reset(new MemPool());
-    _tuple_buffer_pool.reset(new MemPool());
+    _mem_tracker = std::make_unique<MemTracker>(
+            fmt::format("PushBrokerReader#InstanceId={}", print_id(params.fragment_instance_id)));
+    _mem_pool.reset(new MemPool(_mem_tracker.get()));
+    _tuple_buffer_pool.reset(new MemPool(_mem_tracker.get()));
 
     _counter.reset(new ScannerCounter());
 
