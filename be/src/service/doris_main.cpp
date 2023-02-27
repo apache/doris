@@ -385,10 +385,6 @@ int main(int argc, char** argv) {
         }
     }
 
-    doris::Daemon daemon;
-    daemon.init(argc, argv, paths);
-    daemon.start();
-
     if (doris::config::enable_file_cache) {
         std::vector<doris::CachePath> cache_paths;
         olap_res = doris::parse_conf_cache_paths(doris::config::file_cache_path, cache_paths);
@@ -426,6 +422,10 @@ int main(int argc, char** argv) {
             }
         }
     }
+
+    doris::Daemon daemon;
+    daemon.init(argc, argv, paths);
+    daemon.start();
 
     doris::ResourceTls::init();
     if (!doris::BackendOptions::init()) {
