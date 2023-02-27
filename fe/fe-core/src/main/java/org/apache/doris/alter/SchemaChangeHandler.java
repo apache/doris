@@ -1936,7 +1936,7 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
         String storagePolicy = properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
-        if (enableUniqueKeyMergeOnWrite && !storagePolicy.equals("")) {
+        if (enableUniqueKeyMergeOnWrite && Strings.isNullOrEmpty(storagePolicy)) {
             throw new UserException(
                 "Can not set UNIQUE KEY table that enables Merge-On-write"
                 + " with storage policy(" + storagePolicy + ")");
@@ -1977,7 +1977,7 @@ public class SchemaChangeHandler extends AlterHandler {
         }
         String storagePolicy = properties.get(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY);
         boolean enableUniqueKeyMergeOnWrite = olapTable.getEnableUniqueKeyMergeOnWrite();
-        if (enableUniqueKeyMergeOnWrite && !storagePolicy.equals("")) {
+        if (enableUniqueKeyMergeOnWrite && !Strings.isNullOrEmpty(storagePolicy)) {
             throw new DdlException(
                 "Can not set UNIQUE KEY table that enables Merge-On-write"
                 + " with storage policy(" + storagePolicy + ")");

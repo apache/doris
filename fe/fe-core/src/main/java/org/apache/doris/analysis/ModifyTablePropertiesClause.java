@@ -25,6 +25,8 @@ import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.common.util.PropertyAnalyzer;
 
+import com.google.common.base.Strings;
+
 import java.util.Map;
 
 // clause which is used to modify table properties
@@ -102,7 +104,7 @@ public class ModifyTablePropertiesClause extends AlterTableClause {
         } else if (properties.containsKey(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY)) {
             this.needTableStable = false;
             String storagePolicy = properties.getOrDefault(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, "");
-            if (!storagePolicy.equals("")
+            if (!Strings.isNullOrEmpty(storagePolicy)
                     && properties.containsKey(PropertyAnalyzer.ENABLE_UNIQUE_KEY_MERGE_ON_WRITE)) {
                 throw new AnalysisException(
                         "Can not set UNIQUE KEY table that enables Merge-On-write"

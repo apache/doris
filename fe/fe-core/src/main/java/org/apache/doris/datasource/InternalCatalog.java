@@ -2013,7 +2013,8 @@ public class InternalCatalog implements CatalogIf<Database> {
         // set storage policy
         String storagePolicy = PropertyAnalyzer.analyzeStoragePolicy(properties);
         Env.getCurrentEnv().getPolicyMgr().checkStoragePolicyExist(storagePolicy);
-        if (olapTable.getEnableUniqueKeyMergeOnWrite() && !storagePolicy.equals("")) {
+        if (olapTable.getEnableUniqueKeyMergeOnWrite()
+                && !Strings.isNullOrEmpty(storagePolicy)) {
             throw new AnalysisException(
                     "Can not create UNIQUE KEY table that enables Merge-On-write"
                     + " with storage policy(" + storagePolicy + ")");
@@ -2236,7 +2237,8 @@ public class InternalCatalog implements CatalogIf<Database> {
                     DistributionInfo partitionDistributionInfo = distributionDesc.toDistributionInfo(baseSchema);
                     // use partition storage policy if it exist.
                     String partionStoragePolicy = partitionInfo.getStoragePolicy(entry.getValue());
-                    if (olapTable.getEnableUniqueKeyMergeOnWrite() && !partionStoragePolicy.equals("")) {
+                    if (olapTable.getEnableUniqueKeyMergeOnWrite()
+                            && !Strings.isNullOrEmpty(partionStoragePolicy)) {
                         throw new AnalysisException(
                                 "Can not create UNIQUE KEY table that enables Merge-On-write"
                                 + " with storage policy(" + partionStoragePolicy + ")");
