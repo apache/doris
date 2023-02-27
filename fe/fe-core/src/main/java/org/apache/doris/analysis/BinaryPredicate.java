@@ -411,6 +411,10 @@ public class BinaryPredicate extends Predicate implements Writable {
             return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false);
         }
 
+        if (t1 == PrimitiveType.DOUBLE && t2 == PrimitiveType.DOUBLE) {
+            return Type.getAssignmentCompatibleType(getChild(0).getType(), getChild(1).getType(), false);
+        }
+
         return Type.DOUBLE;
     }
 

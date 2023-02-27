@@ -442,7 +442,9 @@ Status VScanNode::_normalize_conjuncts() {
     M(DECIMAL64)                    \
     M(DECIMAL128I)                  \
     M(DECIMALV2)                    \
-    M(BOOLEAN)
+    M(BOOLEAN)                      \
+    M(FLOAT)                        \
+    M(DOUBLE)
             APPLY_FOR_PRIMITIVE_TYPE(M)
 #undef M
         default: {
@@ -1205,7 +1207,8 @@ Status VScanNode::_change_value_range(ColumnValueRange<PrimitiveType>& temp_rang
                          (PrimitiveType == TYPE_BIGINT) || (PrimitiveType == TYPE_LARGEINT) ||
                          (PrimitiveType == TYPE_DECIMAL32) || (PrimitiveType == TYPE_DECIMAL64) ||
                          (PrimitiveType == TYPE_DECIMAL128I) || (PrimitiveType == TYPE_STRING) ||
-                         (PrimitiveType == TYPE_BOOLEAN) || (PrimitiveType == TYPE_DATEV2)) {
+                         (PrimitiveType == TYPE_BOOLEAN) || (PrimitiveType == TYPE_DATEV2) ||
+                         (PrimitiveType == TYPE_FLOAT) || (PrimitiveType == TYPE_DOUBLE)) {
         if constexpr (IsFixed) {
             func(temp_range,
                  reinterpret_cast<typename PrimitiveTypeTraits<PrimitiveType>::CppType*>(value));

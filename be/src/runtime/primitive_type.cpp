@@ -85,6 +85,8 @@ PrimitiveType convert_type_to_primitive(FunctionContext::Type type) {
         return PrimitiveType::TYPE_TIMEV2;
     case FunctionContext::Type::TYPE_JSONB:
         return PrimitiveType::TYPE_JSONB;
+    case FunctionContext::Type::TYPE_FLOAT:
+        return PrimitiveType::TYPE_FLOAT;
     default:
         DCHECK(false);
     }

@@ -137,6 +137,78 @@ public:
 };
 
 template <>
+class KeyCoderTraits<OLAP_FIELD_TYPE_FLOAT> {
+public:
+    using CppType = typename CppTypeTraits<OLAP_FIELD_TYPE_FLOAT>::CppType;
+
+public:
+    static int floatToInt(float value) {
+        union UnionFloatInt {
+            int int_;
+            float float_;
+        };
+        UnionFloatInt float_int {};
+        float_int.float_ = value;
+        return float_int.int_;
+    }
+
+    static int sortableFloatBits(int bits) { return bits ^ ((bits >> 31) & 0x7fffffff); }
+
+    static void full_encode_ascending(const void* value, std::string* buf) {
+        auto val = sortableFloatBits(floatToInt(*reinterpret_cast<const float*>(value)));
+        // make it bigendian
+        uint32_t bval = BigEndian::FromHost32(val);
+        buf->append((char*)&bval, sizeof(bval));
+    }
+
+    static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
+        full_encode_ascending(value, buf);
+    }
+
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
+        //TODO: need to implementation
+        return Status::NotSupported("float decoding is not implemented");
+    }
+};
+
+template <>
+class KeyCoderTraits<OLAP_FIELD_TYPE_DOUBLE> {
+public:
+    using CppType = typename CppTypeTraits<OLAP_FIELD_TYPE_DOUBLE>::CppType;
+
+public:
+    static int64_t doubleToLong(double value) {
+        union UnionLongDouble {
+            int64_t long_;
+            double double_;
+        };
+        UnionLongDouble long_double {};
+        long_double.double_ = value;
+        return long_double.long_;
+    }
+
+    static int64_t sortableDoubleBits(int64_t bits) {
+        return bits ^ ((bits >> 63) & 0x7fffffffffffffffLL);
+    }
+
+    static void full_encode_ascending(const void* value, std::string* buf) {
+        auto val = sortableDoubleBits(doubleToLong(*reinterpret_cast<const double*>(value)));
+        // make it bigendian
+        uint64_t bval = BigEndian::FromHost64(val);
+        buf->append((char*)&bval, sizeof(bval));
+    }
+
+    static void encode_ascending(const void* value, size_t index_size, std::string* buf) {
+        full_encode_ascending(value, buf);
+    }
+
+    static Status decode_ascending(Slice* encoded_key, size_t index_size, uint8_t* cell_ptr) {
+        //TODO: need to implementation
+        return Status::NotSupported("double decoding is not implemented");
+    }
+};
+
+template <>
 class KeyCoderTraits<OLAP_FIELD_TYPE_DATE> {
 public:
     using CppType = typename CppTypeTraits<OLAP_FIELD_TYPE_DATE>::CppType;
