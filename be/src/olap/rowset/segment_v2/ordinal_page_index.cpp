@@ -97,7 +97,7 @@ Status OrdinalIndexReader::load(bool use_page_cache, bool kept_in_memory) {
         Slice key = reader.get_key(i);
         ordinal_t ordinal = 0;
         RETURN_IF_ERROR(KeyCoderTraits<OLAP_FIELD_TYPE_UNSIGNED_BIGINT>::decode_ascending(
-                &key, sizeof(ordinal_t), (uint8_t*)&ordinal, nullptr));
+                &key, sizeof(ordinal_t), (uint8_t*)&ordinal));
 
         _ordinals[i] = ordinal;
         _pages[i] = reader.get_value(i);
