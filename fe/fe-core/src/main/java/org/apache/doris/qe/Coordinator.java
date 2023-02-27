@@ -317,12 +317,6 @@ public class Coordinator {
             this.descTable = planner.getDescTable().toThrift();
         }
 
-        for (PlanFragment fragment : fragments) {
-            if (fragment.hasTargetNode()) {
-                LOG.info("Log for ISSUE-16517: " + this.descTable.toString());
-            }
-        }
-
         this.returnedAllResults = false;
         this.enableShareHashTableForBroadcastJoin = context.getSessionVariable().enableShareHashTableForBroadcastJoin;
         this.enablePipelineEngine = context.getSessionVariable().enablePipelineEngine;
