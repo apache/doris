@@ -230,7 +230,7 @@ public class MysqlChannel {
             int packetLen;
             // one SSL packet may include multiple Mysql packets, we use remainingBuffer to store them.
             if ((isSslMode || isSslHandshaking) && !remainingBuffer.hasRemaining()) {
-                if(remainingBuffer.position()!=0){
+                if (remainingBuffer.position() != 0) {
                     remainingBuffer.clear();
                     remainingBuffer.flip();
                 }
@@ -264,7 +264,7 @@ public class MysqlChannel {
             // before read, set limit to make read only one packet
             result.limit(result.position() + packetLen);
             readLen = readAll(result, false);
-            if (isSslMode) {
+            if (isSslMode && remainingBuffer.position() == 0) {
                 byte[] header = result.array();
                 int packetId = header[3] & 0xFF;
                 if (packetId != sequenceId) {
