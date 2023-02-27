@@ -173,6 +173,8 @@ jobs:
         run: |
           echo "trigger compile_only pipeline"
           
+          same_sign="false"
+                  
           if [ "_xx""${{ github.event.issue.pull_request.url }}" != "_xx" ]; then
             echo "Comment was made on pull request: $(echo ${{ github.event.issue.pull_request.url }} | awk -F/ '{print $NF}')"
           else
@@ -182,10 +184,50 @@ jobs:
           comment="${{ github.event.comment.body }}"
           encoded_string=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${comment}")
           echo ${encoded_string}
-          sleep 10s
-          execute_command="curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_DorisCompile_Compile\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
-          echo "{$execute_command}"
-          eval ${execute_command}
+          
+          response=$(curl  -s -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" "https://api.github.com/repos/{{ github.repository }}/pulls/${pull_request_num}")
+          echo $response > pr_details.json
+          latest_commit=$(jq -r '.head.sha' pr_details.json)
+          echo "${pr} latest_commit:  ${latest_commit}"
+          
+          # get running builds, If there is already a build with the same pr commit running, no new build is triggered
+          running_builds_source=$(curl -s -X GET -H "Accept: application/json" -u OneMoreChance:OneMoreChance  http://43.132.222.7:8111/app/rest/builds\?locator\=buildType\:Doris_DorisCompile_Compile\,branch:pull/${pull_request_num}\,running:true)
+          echo $running_builds_source > running_builds.json
+          running_builds_list=$(jq -r '.build[].id' running_builds.json)
+          echo "running builds list:  $running_builds_list"
+          for build in ${running_builds_list}; do
+            build_info=$(curl -s -X GET -H "Accept: application/json" -u OneMoreChance:OneMoreChance  http://43.132.222.7:8111/app/rest/builds/${build})
+            echo $build_info > build_info.json
+            running_commit_id=$(jq -r '.revisions.revision[0].version' build_info.json)
+            if [ "_"${latest_commit} == "_"${running_commit_id} ];then
+              same_sign="true"
+            fi
+          done
+
+          # get queue builds, If there is already a build with the same pr commit in the queue, no new build is triggered
+          queue_builds_source=$(curl -s -X GET -H "Accept: application/json" -u OneMoreChance:OneMoreChance  http://43.132.222.7:8111/app/rest/buildQueue\?locator\=buildType\:Doris_DorisCompile_Compile)
+          echo $queue_builds_source > queue_builds.json
+          queue_builds_list=$(cat queue_builds.json | jq '.build[] | select(.branchName == "pull/${pull_request_num}") | .id' )
+          echo "queue builds list: $queue_builds_list"
+          for build in ${queue_builds_list}; do
+            build_info=$(curl -s -X GET -H "Accept: application/json" -u OneMoreChance:OneMoreChance  http://43.132.222.7:8111/app/rest/builds/${build})
+            echo $build_info > build_info.json
+            queue_commit_id=$(jq -r '.revisions.revision[0].version' build_info.json)
+            if [ "_"${latest_commit} == "_"${queue_commit_id} ];then
+              same_sign="true"
+            fi
+          done
+          echo "same_sign: ${same_sign}"
+        
+          if [ "_""${same_sign}" == "_false" ];then
+            sleep 10s
+            execute_command="curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_DorisCompile_Compile\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
+            echo "{$execute_command}"
+            eval ${execute_command}
+          else 
+            echo "there is same pr commit task in queue,so skip trigger !"
+          fi
+          
 
   run_clickbench_pipeline:
     if: contains(github.event.comment.body, 'clickbench') && contains(github.event.comment.body, 'run') && !contains(github.event.comment.body, 'Thanks for your contribution')
