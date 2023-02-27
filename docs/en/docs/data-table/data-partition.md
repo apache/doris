@@ -110,7 +110,8 @@ PARTITION BY LIST(`city`)
 (
     PARTITION `p_cn` VALUES IN ("Beijing", "Shanghai", "Hong Kong"),
     PARTITION `p_usa` VALUES IN ("New York", "San Francisco"),
-    PARTITION `p_jp` VALUES IN ("Tokyo")
+    PARTITION `p_jp` VALUES IN ("Tokyo"),
+    PARTITION `default`
 )
 DISTRIBUTED BY HASH(`user_id`) BUCKETS 16
 PROPERTIES
@@ -279,6 +280,7 @@ Range partitioning also supports batch partitioning. For example, you can create
     p_jp: ("Tokyo")
     ```
 
+
   * If we add Partition p_uk VALUES IN ("London"), the results will be as follows:
 
     ```
@@ -303,21 +305,14 @@ Range partitioning also supports batch partitioning. For example, you can create
   PARTITION BY LIST(`id`, `city`)
   (
       PARTITION `p1_city` VALUES IN (("1", "Beijing"), ("1", "Shanghai")),
-      PARTITION `p2_city` VALUES IN (("2", "Beijing"), ("2", "Shanghai")),
-      PARTITION `p3_city` VALUES IN (("3", "Beijing"), ("3", "Shanghai"))
-  )
-  ```
-
-  In the above example, we specify `id` (INT type) and `city` (VARCHAR type) as the partitioning columns. The partitions are as follows:
 
   ```
-  * p1_city: [("1", "Beijing"), ("1", "Shanghai")]
+  p1_city: [("1", "Beijing"), ("1", "Shanghai")]
   * p2_city: [("2", "Beijing"), ("2", "Shanghai")]
   * p3_city: [("3", "Beijing"), ("3", "Shanghai")]
   ```
 
   When data are imported, the system will compare them with the partition values in order, and put the data in their corresponding partitions. Examples are as follows:
-
   ```
   Data ---> Partition
   1, Beijing  ---> p1_city

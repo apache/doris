@@ -58,6 +58,7 @@ static void set_child_node_level(FieldSchema* parent, size_t rep_inc = 0, size_t
     for (auto& child : parent->children) {
         child.repetition_level = parent->repetition_level + rep_inc;
         child.definition_level = parent->definition_level + def_inc;
+        child.repeated_parent_def_level = parent->definition_level;
     }
 }
 
@@ -124,6 +125,8 @@ Status FieldDescriptor::parse_node_field(const std::vector<tparquet::SchemaEleme
     if (is_repeated_node(t_schema)) {
         // repeated <primitive-type> <name> (LIST)
         // produce required list<element>
+        node_field->repetition_level++;
+        node_field->definition_level++;
         node_field->children.resize(1);
         set_child_node_level(node_field);
         auto child = &node_field->children[0];
@@ -307,6 +310,8 @@ Status FieldDescriptor::parse_group_field(const std::vector<tparquet::SchemaElem
     }
 
     if (is_repeated_node(group_schema)) {
+        group_field->repetition_level++;
+        group_field->definition_level++;
         group_field->children.resize(1);
         set_child_node_level(group_field);
         auto struct_field = &group_field->children[0];
@@ -360,6 +365,8 @@ Status FieldDescriptor::parse_list_field(const std::vector<tparquet::SchemaEleme
     if (is_optional) {
         list_field->definition_level++;
     }
+    list_field->repetition_level++;
+    list_field->definition_level++;
     list_field->children.resize(1);
     FieldSchema* list_child = &list_field->children[0];
 
@@ -368,8 +375,8 @@ Status FieldDescriptor::parse_list_field(const std::vector<tparquet::SchemaEleme
         if (num_children == 1 && !is_struct_list_node(second_level)) {
             // optional field, and the third level element is the nested structure in list
             // produce nested structure like: LIST<INT>, LIST<MAP>, LIST<LIST<...>>
-            // skip bag/list, but it's a repeated element, so increase repetition and definition level
-            set_child_node_level(list_field, 1, 1);
+            // skip bag/list, it's a repeated element.
+            set_child_node_level(list_field);
             RETURN_IF_ERROR(parse_node_field(t_schemas, curr_pos + 2, list_child));
         } else {
             // required field, produce the list of struct
@@ -436,6 +443,8 @@ Status FieldDescriptor::parse_map_field(const std::vector<tparquet::SchemaElemen
     if (is_optional) {
         map_field->definition_level++;
     }
+    map_field->repetition_level++;
+    map_field->definition_level++;
 
     map_field->children.resize(1);
     set_child_node_level(map_field);
@@ -456,9 +465,6 @@ Status FieldDescriptor::parse_struct_field(const std::vector<tparquet::SchemaEle
     auto& struct_schema = t_schemas[curr_pos];
     bool is_optional = is_optional_node(struct_schema);
     if (is_optional) {
-        struct_field->definition_level++;
-    } else if (is_repeated_node(struct_schema)) {
-        struct_field->repetition_level++;
         struct_field->definition_level++;
     }
     auto num_children = struct_schema.num_children;

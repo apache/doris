@@ -80,7 +80,7 @@ public class ModifyBackendTest {
         String createStr = "create table test.tbl1(\n" + "k1 int\n" + ") distributed by hash(k1)\n"
                 + "buckets 3 properties(\n" + "\"replication_num\" = \"1\"\n" + ");";
         CreateTableStmt createStmt = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createStr, connectContext);
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Failed to find 1 backends for policy:",
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Failed to find 1 backend(s) for policy:",
                 () -> DdlExecutor.execute(Env.getCurrentEnv(), createStmt));
 
         createStr = "create table test.tbl1(\n" + "k1 int\n" + ") distributed by hash(k1)\n" + "buckets 3 properties(\n"
@@ -100,7 +100,7 @@ public class ModifyBackendTest {
                 + ");";
         CreateTableStmt createStmt3 = (CreateTableStmt) UtFrameUtils.parseAndAnalyzeStmt(createStr, connectContext);
         //partition create failed, because there is no BE with "default" tag
-        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Failed to find 3 backends for policy",
+        ExceptionChecker.expectThrowsWithMsg(DdlException.class, "Failed to find 3 backend(s) for policy",
                 () -> DdlExecutor.execute(Env.getCurrentEnv(), createStmt3));
         Database db = Env.getCurrentInternalCatalog().getDbNullable("default_cluster:test");
 

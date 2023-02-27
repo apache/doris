@@ -118,15 +118,8 @@ struct AggregateFunction {
 
     static auto create(const DataTypePtr& data_type_ptr) -> AggregateFunctionPtr {
         DataTypes data_types = {remove_nullable(data_type_ptr)};
-        auto& data_type = *data_types.front();
         AggregateFunctionPtr nested_function;
-        if (is_decimal(data_types.front())) {
-            nested_function = AggregateFunctionPtr(
-                    create_with_decimal_type<Function>(data_type, data_type, data_types));
-        } else {
-            nested_function =
-                    AggregateFunctionPtr(create_with_numeric_type<Function>(data_type, data_types));
-        }
+        nested_function.reset(creator_with_type::create<Function>(false, data_types));
 
         AggregateFunctionPtr function;
         function.reset(new AggregateFunctionNullUnary<true>(nested_function,

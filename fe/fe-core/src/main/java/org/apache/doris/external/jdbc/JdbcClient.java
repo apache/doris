@@ -270,13 +270,7 @@ public class JdbcClient {
         // for utf8 encoding, if columnSize=10, then charOctetLength=30
         // because for utf8 encoding, a Chinese character takes up 3 bytes
         private int charOctetLength;
-        /**
-         *  Whether it is allowed to be NULL
-         *  0 (columnNoNulls)
-         *  1 (columnNullable)
-         *  2 (columnNullableUnknown)
-         */
-        private int nullAble;
+        private boolean isAllowNull;
     }
 
     /**
@@ -318,7 +312,13 @@ public class JdbcClient {
                 field.setColumnSize(rs.getInt("COLUMN_SIZE"));
                 field.setDecimalDigits(rs.getInt("DECIMAL_DIGITS"));
                 field.setNumPrecRadix(rs.getInt("NUM_PREC_RADIX"));
-                field.setNullAble(rs.getInt("NULLABLE"));
+                /**
+                 *  Whether it is allowed to be NULL
+                 *  0 (columnNoNulls)
+                 *  1 (columnNullable)
+                 *  2 (columnNullableUnknown)
+                 */
+                field.setAllowNull(rs.getInt("NULLABLE") == 0 ? false : true);
                 field.setRemarks(rs.getString("REMARKS"));
                 field.setCharOctetLength(rs.getInt("CHAR_OCTET_LENGTH"));
                 tableSchema.add(field);
@@ -370,14 +370,7 @@ public class JdbcClient {
                 case "DECIMAL":
                     int precision = fieldSchema.getColumnSize() + 1;
                     int scale = fieldSchema.getDecimalDigits();
-                    if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
-                        if (!Config.enable_decimal_conversion && precision > ScalarType.MAX_DECIMALV2_PRECISION) {
-                            return ScalarType.createStringType();
-                        }
-                        return ScalarType.createDecimalType(precision, scale);
-                    } else {
-                        return ScalarType.createStringType();
-                    }
+                    return createDecimalOrStringType(precision, scale);
                 default:
                     throw new JdbcClientException("Unknown UNSIGNED type of mysql, type: [" + mysqlType + "]");
             }
@@ -412,14 +405,7 @@ public class JdbcClient {
             case "DECIMALV3": // for jdbc catalog connecting Doris database
                 int precision = fieldSchema.getColumnSize();
                 int scale = fieldSchema.getDecimalDigits();
-                if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
-                    if (!Config.enable_decimal_conversion && precision > ScalarType.MAX_DECIMALV2_PRECISION) {
-                        return ScalarType.createStringType();
-                    }
-                    return ScalarType.createDecimalType(precision, scale);
-                } else {
-                    return ScalarType.createStringType();
-                }
+                return createDecimalOrStringType(precision, scale);
             case "CHAR":
                 ScalarType charType = ScalarType.createType(PrimitiveType.CHAR);
                 charType.setLength(fieldSchema.columnSize);
@@ -466,14 +452,7 @@ public class JdbcClient {
             case "numeric": {
                 int precision = fieldSchema.getColumnSize();
                 int scale = fieldSchema.getDecimalDigits();
-                if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
-                    if (!Config.enable_decimal_conversion && precision > ScalarType.MAX_DECIMALV2_PRECISION) {
-                        return ScalarType.createStringType();
-                    }
-                    return ScalarType.createDecimalType(precision, scale);
-                } else {
-                    return ScalarType.createStringType();
-                }
+                return createDecimalOrStringType(precision, scale);
             }
             case "float4":
                 return Type.FLOAT;
@@ -529,14 +508,7 @@ public class JdbcClient {
             String[] accuracy = ckType.substring(8, ckType.length() - 1).split(", ");
             int precision = Integer.parseInt(accuracy[0]);
             int scale = Integer.parseInt(accuracy[1]);
-            if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
-                if (!Config.enable_decimal_conversion && precision > ScalarType.MAX_DECIMALV2_PRECISION) {
-                    return ScalarType.createStringType();
-                }
-                return ScalarType.createDecimalType(precision, scale);
-            } else {
-                return ScalarType.createStringType();
-            }
+            return createDecimalOrStringType(precision, scale);
         } else if ("String".contains(ckType) || ckType.startsWith("Enum")
                 || ckType.startsWith("IPv") || "UUID".contains(ckType)
                 || ckType.startsWith("FixedString")) {
@@ -589,10 +561,29 @@ public class JdbcClient {
             return ScalarType.createDatetimeV2Type(0);
         }
         switch (oracleType) {
+            /**
+             * The data type NUMBER(p,s) of oracle has some different of doris decimal type in semantics.
+             * For Oracle Number(p,s) type:
+             * 1. if s<0 , it means this is an Interger.
+             *    This NUMBER(p,s) has (p+|s| ) significant digit, and rounding will be performed at s position.
+             *    eg: if we insert 1234567 into NUMBER(5,-2) type, then the oracle will store 1234500.
+             *    In this case, Doris will use INT type (TINYINT/SMALLINT/INT/.../LARGEINT).
+             * 2. if s>=0 && s<p , it just like doris Decimal(p,s) behavior.
+             * 3. if s>=0 && s>p, it means this is a decimal(like 0.xxxxx).
+             *    p represents how many digits can be left to the left after the decimal point,
+             *    the figure after the decimal point s will be rounded.
+             *    eg: we can not insert 0.0123456 into NUMBER(5,7) type,
+             *    because there must be two zeros on the right side of the decimal point,
+             *    we can insert 0.0012345 into NUMBER(5,7) type.
+             *    In this case, Doris will use DECIMAL(s,s)
+             * 4. if we don't specify p and s for NUMBER(p,s), just NUMBER, the p and s of NUMBER are uncertain.
+             *    In this case, doris can not determine p and s, so doris can not determine data type.
+             */
             case "NUMBER":
                 int precision = fieldSchema.getColumnSize();
                 int scale = fieldSchema.getDecimalDigits();
-                if (scale == 0) {
+                if (scale <= 0) {
+                    precision -= scale;
                     if (precision < 3) {
                         return Type.TINYINT;
                     } else if (precision < 5) {
@@ -602,18 +593,17 @@ public class JdbcClient {
                     } else if (precision < 19) {
                         return Type.BIGINT;
                     } else if (precision < 39) {
+                        // LARGEINT supports up to 38 numbers.
                         return Type.LARGEINT;
-                    }
-                    return ScalarType.createStringType();
-                }
-                if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
-                    if (!Config.enable_decimal_conversion && precision > ScalarType.MAX_DECIMALV2_PRECISION) {
+                    } else {
                         return ScalarType.createStringType();
                     }
-                    return ScalarType.createDecimalType(precision, scale);
-                } else {
-                    return ScalarType.createStringType();
                 }
+                // scale > 0
+                if (precision < scale) {
+                    precision = scale;
+                }
+                return createDecimalOrStringType(precision, scale);
             case "FLOAT":
                 return Type.DOUBLE;
             case "DATE":
@@ -684,13 +674,25 @@ public class JdbcClient {
         }
     }
 
+    private Type createDecimalOrStringType(int precision, int scale) {
+        if (precision <= ScalarType.MAX_DECIMAL128_PRECISION) {
+            if (!Config.enable_decimal_conversion && (precision > ScalarType.MAX_DECIMALV2_PRECISION
+                    || scale > ScalarType.MAX_DECIMALV2_SCALE)) {
+                return ScalarType.createStringType();
+            }
+            return ScalarType.createDecimalType(precision, scale);
+        }
+        return ScalarType.createStringType();
+    }
+
+
     public List<Column> getColumnsFromJdbc(String dbName, String tableName) {
         List<JdbcFieldSchema> jdbcTableSchema = getJdbcColumnsInfo(dbName, tableName);
         List<Column> dorisTableSchema = Lists.newArrayListWithCapacity(jdbcTableSchema.size());
         for (JdbcFieldSchema field : jdbcTableSchema) {
             dorisTableSchema.add(new Column(field.getColumnName(),
                     jdbcTypeToDoris(field), true, null,
-                    true, field.getRemarks(),
+                    field.isAllowNull(), field.getRemarks(),
                     true, -1));
         }
         return dorisTableSchema;

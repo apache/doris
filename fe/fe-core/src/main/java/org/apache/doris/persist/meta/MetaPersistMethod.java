@@ -129,9 +129,9 @@ public class MetaPersistMethod {
                 break;
             case "paloAuth":
                 metaPersistMethod.readMethod =
-                        Env.class.getDeclaredMethod("loadPaloAuth", DataInputStream.class, long.class);
+                        Env.class.getDeclaredMethod("loadAuth", DataInputStream.class, long.class);
                 metaPersistMethod.writeMethod =
-                        Env.class.getDeclaredMethod("savePaloAuth", CountingDataOutputStream.class, long.class);
+                        Env.class.getDeclaredMethod("saveAuth", CountingDataOutputStream.class, long.class);
                 break;
             case "transactionState":
                 metaPersistMethod.readMethod =

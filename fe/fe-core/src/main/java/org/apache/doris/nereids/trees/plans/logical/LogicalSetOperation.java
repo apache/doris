@@ -127,7 +127,7 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
 
     private List<List<Expression>> castCommonDataTypeOutputs(List<Slot> resetNullableForLeftOutputs) {
         List<Expression> newLeftOutputs = new ArrayList<>();
-        List<Expression> newRightOutpus = new ArrayList<>();
+        List<Expression> newRightOutputs = new ArrayList<>();
         // Ensure that the output types of the left and right children are consistent and expand upward.
         for (int i = 0; i < resetNullableForLeftOutputs.size(); ++i) {
             Slot left = resetNullableForLeftOutputs.get(i);
@@ -139,12 +139,12 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
             Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, compatibleType);
             Expression newRight = TypeCoercionUtils.castIfNotSameType(right, compatibleType);
             newLeftOutputs.add(newLeft);
-            newRightOutpus.add(newRight);
+            newRightOutputs.add(newRight);
         }
 
         List<List<Expression>> resultExpressions = new ArrayList<>();
         resultExpressions.add(newLeftOutputs);
-        resultExpressions.add(newRightOutpus);
+        resultExpressions.add(newRightOutputs);
         return ImmutableList.copyOf(resultExpressions);
     }
 

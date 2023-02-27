@@ -139,8 +139,8 @@ public:
     IntGauge* tablet_cumulative_max_compaction_score;
     IntGauge* tablet_base_max_compaction_score;
 
-    IntGauge* all_rowset_nums;
-    IntGauge* all_segment_nums;
+    IntGauge* all_rowsets_num;
+    IntGauge* all_segments_num;
 
     // permits have been used for all compaction tasks
     IntGauge* compaction_used_permits;

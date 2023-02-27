@@ -44,11 +44,16 @@ ParquetReader::ParquetReader(RuntimeProfile* profile, const TFileScanRangeParams
           _ctz(ctz),
           _io_ctx(io_ctx) {
     _init_profile();
+    _init_system_properties();
+    _init_file_description();
 }
 
 ParquetReader::ParquetReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
                              IOContext* io_ctx)
-        : _profile(nullptr), _scan_params(params), _scan_range(range), _io_ctx(io_ctx) {}
+        : _profile(nullptr), _scan_params(params), _scan_range(range), _io_ctx(io_ctx) {
+    _init_system_properties();
+    _init_file_description();
+}
 
 ParquetReader::~ParquetReader() {
     close();
@@ -143,23 +148,9 @@ void ParquetReader::close() {
 }
 
 Status ParquetReader::_open_file() {
-    FileSystemProperties system_properties;
-    system_properties.system_type = _scan_params.file_type;
-    system_properties.properties = _scan_params.properties;
-    system_properties.hdfs_params = _scan_params.hdfs_params;
-    if (_scan_params.__isset.broker_addresses) {
-        system_properties.broker_addresses.assign(_scan_params.broker_addresses.begin(),
-                                                  _scan_params.broker_addresses.end());
-    }
-
-    FileDescription file_description;
-    file_description.path = _scan_range.path;
-    file_description.start_offset = _scan_range.start_offset;
-    file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : 0;
-
     if (_file_reader == nullptr) {
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, system_properties,
-                                                        file_description, &_file_system,
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
+                                                        _file_description, &_file_system,
                                                         &_file_reader, _io_ctx));
     }
     if (_file_metadata == nullptr) {
@@ -182,6 +173,22 @@ Status ParquetReader::open() {
     RETURN_IF_ERROR(_open_file());
     _t_metadata = &_file_metadata->to_thrift();
     return Status::OK();
+}
+
+void ParquetReader::_init_system_properties() {
+    _system_properties.system_type = _scan_params.file_type;
+    _system_properties.properties = _scan_params.properties;
+    _system_properties.hdfs_params = _scan_params.hdfs_params;
+    if (_scan_params.__isset.broker_addresses) {
+        _system_properties.broker_addresses.assign(_scan_params.broker_addresses.begin(),
+                                                   _scan_params.broker_addresses.end());
+    }
+}
+
+void ParquetReader::_init_file_description() {
+    _file_description.path = _scan_range.path;
+    _file_description.start_offset = _scan_range.start_offset;
+    _file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : 0;
 }
 
 Status ParquetReader::init_reader(
@@ -269,13 +276,12 @@ Status ParquetReader::set_fill_columns(
         visit_slot(_lazy_read_ctx.vconjunct_ctx->root());
     }
 
-    bool has_complex_type = false;
     const FieldDescriptor& schema = _file_metadata->schema();
     for (auto& read_col : _read_columns) {
         _lazy_read_ctx.all_read_columns.emplace_back(read_col._file_slot_name);
         PrimitiveType column_type = schema.get_column(read_col._file_slot_name)->type.type;
         if (column_type == TYPE_ARRAY || column_type == TYPE_MAP || column_type == TYPE_STRUCT) {
-            has_complex_type = true;
+            _has_complex_type = true;
         }
         if (predicate_columns.size() > 0) {
             auto iter = predicate_columns.find(read_col._file_slot_name);
@@ -308,7 +314,7 @@ Status ParquetReader::set_fill_columns(
         }
     }
 
-    if (!has_complex_type && _lazy_read_ctx.predicate_columns.size() > 0 &&
+    if (!_has_complex_type && _lazy_read_ctx.predicate_columns.size() > 0 &&
         _lazy_read_ctx.lazy_read_columns.size() > 0) {
         _lazy_read_ctx.can_lazy_read = true;
     }
@@ -540,12 +546,8 @@ Status ParquetReader::_process_page_index(const tparquet::RowGroup& row_group,
         _statistics.read_rows += row_group.num_rows;
     };
 
-    if (_lazy_read_ctx.vconjunct_ctx == nullptr) {
-        read_whole_row_group();
-        return Status::OK();
-    }
-
-    if (_colname_to_value_range == nullptr || _colname_to_value_range->empty()) {
+    if (_has_complex_type || _lazy_read_ctx.vconjunct_ctx == nullptr ||
+        _colname_to_value_range == nullptr || _colname_to_value_range->empty()) {
         read_whole_row_group();
         return Status::OK();
     }

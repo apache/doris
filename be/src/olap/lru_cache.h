@@ -175,7 +175,7 @@ public:
     // value will be passed to "deleter".
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
                            void (*deleter)(const CacheKey& key, void* value),
-                           CachePriority priority = CachePriority::NORMAL) = 0;
+                           CachePriority priority = CachePriority::NORMAL, size_t bytes = -1) = 0;
 
     // If the cache has no mapping for "key", returns nullptr.
     //
@@ -221,7 +221,7 @@ public:
     // Same as prune(), but the entry will only be pruned if the predicate matched.
     // NOTICE: the predicate should be simple enough, or the prune_if() function
     // may hold lock for a long time to execute predicate.
-    virtual int64_t prune_if(CacheValuePredicate pred) { return 0; }
+    virtual int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false) { return 0; }
 
     virtual int64_t mem_consumption() = 0;
 
@@ -240,12 +240,14 @@ typedef struct LRUHandle {
     size_t charge;
     size_t key_length;
     size_t total_size; // including key length
+    size_t bytes;      // Used by LRUCacheType::NUMBER, LRUCacheType::SIZE equal to total_size.
     bool in_cache;     // Whether entry is in the cache.
     uint32_t refs;
     uint32_t hash; // Hash of key(); used for fast sharding and comparisons
     CachePriority priority = CachePriority::NORMAL;
     MemTrackerLimiter* mem_tracker;
     char key_data[1]; // Beginning of key
+    LRUCacheType type;
 
     CacheKey key() const {
         // For cheaper lookups, we allow a temporary Handle object
@@ -259,7 +261,7 @@ typedef struct LRUHandle {
 
     void free() {
         (*deleter)(key(), value);
-        THREAD_MEM_TRACKER_TRANSFER_FROM(total_size, mem_tracker);
+        THREAD_MEM_TRACKER_TRANSFER_FROM(bytes, mem_tracker);
         ::free(this);
     }
 
@@ -332,12 +334,12 @@ public:
     Cache::Handle* insert(const CacheKey& key, uint32_t hash, void* value, size_t charge,
                           void (*deleter)(const CacheKey& key, void* value),
                           MemTrackerLimiter* tracker,
-                          CachePriority priority = CachePriority::NORMAL);
+                          CachePriority priority = CachePriority::NORMAL, size_t bytes = -1);
     Cache::Handle* lookup(const CacheKey& key, uint32_t hash);
     void release(Cache::Handle* handle);
     void erase(const CacheKey& key, uint32_t hash);
     int64_t prune();
-    int64_t prune_if(CacheValuePredicate pred);
+    int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false);
 
     void set_cache_value_time_extractor(CacheValueTimeExtractor cache_value_time_extractor);
     void set_cache_value_check_timestamp(bool cache_value_check_timestamp);
@@ -398,7 +400,8 @@ public:
     virtual ~ShardedLRUCache();
     virtual Handle* insert(const CacheKey& key, void* value, size_t charge,
                            void (*deleter)(const CacheKey& key, void* value),
-                           CachePriority priority = CachePriority::NORMAL) override;
+                           CachePriority priority = CachePriority::NORMAL,
+                           size_t bytes = -1) override;
     virtual Handle* lookup(const CacheKey& key) override;
     virtual void release(Handle* handle) override;
     virtual void erase(const CacheKey& key) override;
@@ -406,7 +409,7 @@ public:
     Slice value_slice(Handle* handle) override;
     virtual uint64_t new_id() override;
     virtual int64_t prune() override;
-    virtual int64_t prune_if(CacheValuePredicate pred) override;
+    int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false) override;
     int64_t mem_consumption() override;
 
 private:

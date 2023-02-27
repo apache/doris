@@ -67,6 +67,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
     _read_options.push_down_agg_type_opt = _context->push_down_agg_type_opt;
     _read_options.remaining_vconjunct_root = _context->remaining_vconjunct_root;
     _read_options.rowset_id = _rowset->rowset_id();
+    _read_options.version = _rowset->version();
     _read_options.tablet_id = _rowset->rowset_meta()->tablet_id();
     if (read_context->lower_bound_keys != nullptr) {
         for (int i = 0; i < read_context->lower_bound_keys->size(); ++i) {
@@ -237,14 +238,12 @@ Status BetaRowsetReader::next_block(vectorized::Block* block) {
     do {
         auto s = _iterator->next_batch(block);
         if (!s.ok()) {
-            if (s.is<END_OF_FILE>()) {
-                return Status::Error<END_OF_FILE>();
-            } else {
+            if (!s.is<END_OF_FILE>()) {
                 LOG(WARNING) << "failed to read next block: " << s.to_string();
-                return Status::Error<ROWSET_READ_FAILED>();
             }
+            return s;
         }
-    } while (block->rows() == 0);
+    } while (block->empty());
 
     return Status::OK();
 }
@@ -255,12 +254,10 @@ Status BetaRowsetReader::next_block_view(vectorized::BlockView* block_view) {
         do {
             auto s = _iterator->next_block_view(block_view);
             if (!s.ok()) {
-                if (s.is<END_OF_FILE>()) {
-                    return Status::Error<END_OF_FILE>();
-                } else {
-                    LOG(WARNING) << "failed to read next block: " << s.to_string();
-                    return Status::Error<ROWSET_READ_FAILED>();
+                if (!s.is<END_OF_FILE>()) {
+                    LOG(WARNING) << "failed to read next block view: " << s.to_string();
                 }
+                return s;
             }
         } while (block_view->empty());
     } else {

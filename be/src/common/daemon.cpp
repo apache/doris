@@ -305,9 +305,9 @@ void Daemon::calculate_metrics_thread() {
                         &lst_net_send_bytes, &lst_net_receive_bytes);
             }
 
-            DorisMetrics::instance()->all_rowset_nums->set_value(
+            DorisMetrics::instance()->all_rowsets_num->set_value(
                     StorageEngine::instance()->tablet_manager()->get_rowset_nums());
-            DorisMetrics::instance()->all_segment_nums->set_value(
+            DorisMetrics::instance()->all_segments_num->set_value(
                     StorageEngine::instance()->tablet_manager()->get_segment_nums());
         }
     } while (!_stop_background_threads_latch.wait_for(std::chrono::seconds(15)));

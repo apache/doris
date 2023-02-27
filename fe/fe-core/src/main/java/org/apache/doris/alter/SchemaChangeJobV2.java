@@ -927,7 +927,7 @@ public class SchemaChangeJobV2 extends AlterJobV2 {
         }
         jobState = JobState.FINISHED;
         this.finishedTimeMs = replayedJob.finishedTimeMs;
-        LOG.info("replay finished schema change job: {}", jobId);
+        LOG.info("replay finished schema change job: {} table id: {}", jobId, tableId);
     }
 
     /**

@@ -38,6 +38,7 @@
 #include "olap/iterators.h"
 #include "runtime/exec_env.h"
 #include "runtime/stream_load/new_load_stream_mgr.h"
+#include "runtime/stream_load/stream_load_context.h"
 
 namespace doris {
 
@@ -190,10 +191,11 @@ Status FileFactory::create_file_reader(RuntimeProfile* /*profile*/,
 
 // file scan node/stream load pipe
 Status FileFactory::create_pipe_reader(const TUniqueId& load_id, io::FileReaderSPtr* file_reader) {
-    *file_reader = ExecEnv::GetInstance()->new_load_stream_mgr()->get(load_id);
-    if (!(*file_reader)) {
+    auto stream_load_ctx = ExecEnv::GetInstance()->new_load_stream_mgr()->get(load_id);
+    if (!stream_load_ctx) {
         return Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
+    *file_reader = stream_load_ctx->pipe;
     return Status::OK();
 }
 

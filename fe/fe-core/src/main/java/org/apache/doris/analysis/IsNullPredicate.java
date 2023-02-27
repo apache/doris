@@ -154,8 +154,8 @@ public class IsNullPredicate extends Predicate {
      * fix issue 6390
      */
     @Override
-    public Expr getResultValue() throws AnalysisException {
-        recursiveResetChildrenResult();
+    public Expr getResultValue(boolean inView) throws AnalysisException {
+        recursiveResetChildrenResult(inView);
         final Expr childValue = getChild(0);
         if (!(childValue instanceof LiteralExpr)) {
             return this;

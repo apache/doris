@@ -737,11 +737,6 @@ Status StructColumnWriter::append_data(const uint8_t** ptr, size_t num_rows) {
                                                        reinterpret_cast<const void*>(data),
                                                        num_rows));
     }
-    if (is_nullable()) {
-        std::vector<vectorized::UInt8> null_signs(num_rows, 0);
-        const uint8_t* null_sign_ptr = null_signs.data();
-        RETURN_IF_ERROR(_null_writer->append_data(&null_sign_ptr, num_rows));
-    }
     return Status::OK();
 }
 

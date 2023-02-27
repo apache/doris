@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.trees.expressions;
 
-import org.apache.doris.nereids.exceptions.UnboundException;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 
 import com.google.common.base.Preconditions;
@@ -30,12 +29,7 @@ import java.util.List;
 public class Regexp extends StringRegexPredicate {
 
     public Regexp(Expression left, Expression right) {
-        super(left, right, "regexp");
-    }
-
-    @Override
-    public boolean nullable() throws UnboundException {
-        return left().nullable();
+        super("regexp", left, right);
     }
 
     @Override

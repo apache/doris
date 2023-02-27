@@ -41,7 +41,8 @@ public class SearchSignature {
     // param1: signature type
     // param2: real argument type
     // return: is the real argument type matches the signature type?
-    private List<BiFunction<AbstractDataType, AbstractDataType, Boolean>> typePredicatePerRound = Lists.newArrayList();
+    private final List<BiFunction<AbstractDataType, AbstractDataType, Boolean>> typePredicatePerRound
+            = Lists.newArrayList();
 
     public SearchSignature(List<FunctionSignature> signatures, List<Expression> arguments) {
         this.signatures = signatures;

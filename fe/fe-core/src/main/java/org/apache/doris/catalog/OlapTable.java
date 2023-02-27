@@ -2031,4 +2031,9 @@ public class OlapTable extends Table {
         return idToPartition.keySet();
     }
 
+    public boolean isDupKeysOrMergeOnWrite() {
+        return getKeysType() == KeysType.DUP_KEYS
+                || (getKeysType() == KeysType.UNIQUE_KEYS
+                && getEnableUniqueKeyMergeOnWrite());
+    }
 }

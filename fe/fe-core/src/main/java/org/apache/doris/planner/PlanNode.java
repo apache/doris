@@ -692,7 +692,7 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         return outputSmap;
     }
 
-    public void setOutputSmap(ExprSubstitutionMap smap) {
+    public void setOutputSmap(ExprSubstitutionMap smap, Analyzer analyzer) {
         outputSmap = smap;
     }
 
@@ -965,6 +965,9 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
     }
 
     public SlotRef findSrcSlotRef(SlotRef slotRef) {
+        if (slotRef.getSrcSlotRef() != null) {
+            slotRef = slotRef.getSrcSlotRef();
+        }
         if (slotRef.getTable() instanceof OlapTable) {
             return slotRef;
         }
