@@ -234,18 +234,13 @@ Status DataTypeStruct::from_string(ReadBuffer& rb, IColumn* column) const {
         auto field_rb = field_rbs[field_pos[idx]];
         // handle empty element
         if (field_rb.count() == 0) {
-            auto& nested_null_col =
-                    reinterpret_cast<ColumnNullable&>(struct_column->get_column(idx));
-            nested_null_col.get_nested_column().insert_default();
-            nested_null_col.get_null_map_data().push_back(0);
+            struct_column->get_column(idx).insert_default();
             continue;
         }
         // handle null element
         if (field_rb.count() == 4 && strncmp(field_rb.position(), "null", 4) == 0) {
-            auto& nested_null_col =
-                    reinterpret_cast<ColumnNullable&>(struct_column->get_column(idx));
-            nested_null_col.get_nested_column().insert_default();
-            nested_null_col.get_null_map_data().push_back(1);
+            auto &nested_null_col = reinterpret_cast<ColumnNullable &>(struct_column->get_column(idx));
+            nested_null_col.insert_null_elements(1);
             continue;
         }
         auto st = elems[idx]->from_string(field_rb, &struct_column->get_column(idx));
