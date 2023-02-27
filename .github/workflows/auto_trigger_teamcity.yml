@@ -86,7 +86,7 @@ jobs:
           
 
   run_nereids_p0_external_pipeline:
-    if: (contains(github.event.comment.body, 'nereids_p0') || contains(github.event.comment.body, 'external')) && contains(github.event.comment.body, 'run') && !contains(github.event.comment.body, 'Thanks for your contribution')
+    if: contains(github.event.comment.body, 'nereids_p0') && contains(github.event.comment.body, 'run') && !contains(github.event.comment.body, 'Thanks for your contribution')
 
     runs-on: ubuntu-latest
 
