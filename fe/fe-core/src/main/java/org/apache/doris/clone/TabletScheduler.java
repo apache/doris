@@ -886,8 +886,19 @@ public class TabletScheduler extends MasterDaemon {
                 // this case should be handled in deleteBackendDropped()
                 continue;
             }
-            if (!be.isScheduleAvailable()) {
+            if (!be.isAlive()) {
                 deleteReplicaInternal(tabletCtx, replica, "backend unavailable", force);
+                return true;
+            }
+        }
+        for (Replica replica : tabletCtx.getReplicas()) {
+            Backend be = infoService.getBackend(replica.getBackendId());
+            if (be == null) {
+                // this case should be handled in deleteBackendDropped()
+                continue;
+            }
+            if (!be.isDecommissioned()) {
+                deleteReplicaInternal(tabletCtx, replica, "backend decomissioned", force);
                 return true;
             }
         }
