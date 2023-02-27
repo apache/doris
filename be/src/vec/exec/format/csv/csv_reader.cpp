@@ -538,8 +538,7 @@ void CsvReader::_split_line(const Slice& line) {
                 if (curpos == start) {
                     // start is ", mark quoted true
                     quoted = true;
-                }
-                else if (*(value + curpos - 1) != '\\' && *(value + start) == '\"') {
+                } else if (*(value + curpos - 1) != '\\' && *(value + start) == '\"') {
                     // cur is ", mark quoted finished
                     quoted = !quoted;
                 }
