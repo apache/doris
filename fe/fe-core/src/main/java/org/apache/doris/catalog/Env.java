@@ -1167,9 +1167,9 @@ public class Env {
     private void getHelperNodes(String[] args) throws Exception {
         String helpers = null;
         for (int i = 0; i < args.length; i++) {
-            if (args[i].equalsIgnoreCase("-helper")) {
+            if (args[i].equalsIgnoreCase("--helper")) {
                 if (i + 1 >= args.length) {
-                    throw new AnalysisException("-helper need parameter host:port,host:port");
+                    throw new AnalysisException("--helper need parameter host:port,host:port");
                 }
                 helpers = args[i + 1];
                 break;
