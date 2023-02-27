@@ -388,6 +388,7 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
                 // delete from table1 where a=1 and b = 2;
                 // This may cause bug when you query table1 with a=1;
                 // You can refer #17145 for more details.
+                // TODO: need refactor design and code to use more version delete and more column delete.
                 _opts.col_id_to_del_predicates.size() == 1 &&
                                 _opts.col_id_to_del_predicates.count(cid) > 0 &&
                                 _opts.col_id_to_del_predicates[cid].size() == 1
