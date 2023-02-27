@@ -312,6 +312,7 @@ set(VEC_FILES
   exec/format/file_reader/new_plain_text_line_reader.cpp
   exec/format/file_reader/new_plain_binary_line_reader.cpp
   exec/format/parquet/delta_bit_pack_decoder.cpp
+  exec/format/parquet/bool_rle_decoder.cpp
   )
 
 if (WITH_MYSQL)

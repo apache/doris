@@ -104,7 +104,7 @@ CREATE CATALOG hive PROPERTIES (
 );
 ```
 
-Or to connect to Hive data stored in JuiceFS:
+Or to connect to Hive data stored on JuiceFS:
 
 ```sql
 CREATE CATALOG hive PROPERTIES (
@@ -114,6 +114,23 @@ CREATE CATALOG hive PROPERTIES (
     'fs.jfs.impl' = 'io.juicefs.JuiceFileSystem',
     'fs.AbstractFileSystem.jfs.impl' = 'io.juicefs.JuiceFS',
     'juicefs.meta' = 'xxx'
+);
+```
+
+Or to connect to Glue and data stored on S3:
+
+```sql
+CREATE CATALOG hive PROPERTIES (
+    "type"="hms",
+    "hive.metastore.type" = "glue",
+    "aws.region" = "us-east-1",
+    "aws.glue.access-key" = "ak",
+    "aws.glue.secret-key" = "sk",
+    "AWS_ENDPOINT" = "s3.us-east-1.amazonaws.com",
+    "AWS_REGION" = "us-east-1",
+    "AWS_ACCESS_KEY" = "ak",
+    "AWS_SECRET_KEY" = "sk",
+    "use_path_style" = "true"
 );
 ```
 
