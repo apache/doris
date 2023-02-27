@@ -311,8 +311,8 @@ void DeleteHandler::finalize() {
 
 void DeleteHandler::get_delete_conditions_after_version(
         int64_t version, AndBlockColumnPredicate* and_block_column_predicate_ptr,
-        std::unordered_map<int32_t, std::vector<const ColumnPredicate*>>* del_predicates_for_zone_map)
-        const {
+        std::unordered_map<int32_t, std::vector<const ColumnPredicate*>>*
+	        del_predicates_for_zone_map) const {
     for (auto& del_cond : _del_conds) {
         if (del_cond.filter_version > version) {
             // now, only query support delete column predicate operator
@@ -338,13 +338,12 @@ void DeleteHandler::get_delete_conditions_after_version(
                     // so here do not put predicate to del_predicates_for_zone_map,
                     // refer #17145 for more details.
                     // // TODO: need refactor design and code to use more version delete and more column delete to filter zone page.
-                    std::for_each(
-                            del_cond.column_predicate_vec.cbegin(),
-                            del_cond.column_predicate_vec.cend(),
-                            [&or_column_predicate](const ColumnPredicate* predicate) {
-                                or_column_predicate->add_column_predicate(
-                                        new SingleColumnBlockPredicate(predicate));
-                            });
+                    std::for_each(del_cond.column_predicate_vec.cbegin(),
+                                  del_cond.column_predicate_vec.cend(),
+                                  [&or_column_predicate](const ColumnPredicate* predicate) {
+                                      or_column_predicate->add_column_predicate(
+                                              new SingleColumnBlockPredicate(predicate));
+                                  });
                     and_block_column_predicate_ptr->add_column_predicate(or_column_predicate);
                 }
             }
