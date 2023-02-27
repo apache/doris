@@ -62,7 +62,7 @@ Status TopNSorter::_do_sort(Block* block) {
         // to order the block in _block_priority_queue.
         // if one block totally greater the heap top of _block_priority_queue
         // we can throw the block data directly.
-        if (_state->num_rows < _limit) {
+        if (_state->num_rows < _offset + _limit) {
             _state->num_rows += sorted_block.rows();
             _state->sorted_blocks.emplace_back(std::move(sorted_block));
             _block_priority_queue.emplace(_pool->add(
