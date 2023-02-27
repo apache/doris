@@ -52,4 +52,14 @@ suite("test_exprs") {
     qt_sql_microseconds_add_datetimev2_4 " select microseconds_add(col, -100000) col1 from ${table1} order by col1; "
     // 2.1  Negative microseconds delta affects second change
     qt_sql_microseconds_add_datetimev2_5 " select microseconds_add(col, -200000) col1 from ${table1} order by col1; "
+
+    // `microseconds_sub` suites
+    // 1. Positive microseconds delta
+    qt_sql_microseconds_sub_datetimev2_1 " select microseconds_sub(col, 100000) col1 from ${table1} order by col1; "
+    // 1.1 Positive microseconds delta affects second change
+    qt_sql_microseconds_sub_datetimev2_2 " select microseconds_sub(col, 200000) col1 from ${table1} order by col1; "
+    // 2. Negative microseconds delta
+    qt_sql_microseconds_sub_datetimev2_3 " select microseconds_sub(col, -200000) col1 from ${table1} order by col1; "
+    // 2.2 Negative microseconds delta affects second change
+    qt_sql_microseconds_sub_datetimev2_4 " select microseconds_sub(col, -800000) col1 from ${table1} order by col1; "
 }
