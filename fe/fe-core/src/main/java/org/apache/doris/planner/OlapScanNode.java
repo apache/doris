@@ -1115,6 +1115,7 @@ public class OlapScanNode extends ScanNode {
 
     @Override
     protected void toThrift(TPlanNode msg) {
+        computeOutputColumnUniqueIds();
         List<String> keyColumnNames = new ArrayList<String>();
         List<TPrimitiveType> keyColumnTypes = new ArrayList<TPrimitiveType>();
         List<TColumn> columnsDesc = new ArrayList<TColumn>();
@@ -1351,6 +1352,22 @@ public class OlapScanNode extends ScanNode {
     public void finalizeForNerieds() {
         computeNumNodes();
         computeStatsForNerieds();
+    }
+
+    private void computeOutputColumnUniqueIds() {
+        // compute outputColumnUniqueIds for nereids
+        if (outputColumnUniqueIds.isEmpty()) {
+            if (projectList != null) {
+                projectList.stream().forEach(expr -> {
+                    if (expr instanceof SlotRef) {
+                        outputColumnUniqueIds.add(((SlotRef) expr).getDesc().getColumn().getUniqueId());
+                    }
+                });
+            } else {
+                desc.getSlots().stream()
+                        .forEach(slot -> outputColumnUniqueIds.add(slot.getColumn().getUniqueId()));
+            }
+        }
     }
 
     private void computeStatsForNerieds() {
