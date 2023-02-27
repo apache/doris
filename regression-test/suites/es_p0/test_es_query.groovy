@@ -77,7 +77,6 @@ suite("test_es_query", "p0") {
                 `c_date` array<datev2> NULL,
                 `test3` double NULL,
                 `c_scaled_float` array<double> NULL,
-                `test8` datev2 NULL,
                 `c_float` array<float> NULL,
                 `c_double` array<double> NULL,
                 `c_keyword` array<text> NULL,
@@ -115,7 +114,6 @@ suite("test_es_query", "p0") {
                 `c_date` array<datev2> NULL,
                 `test3` double NULL,
                 `c_scaled_float` array<double> NULL,
-                `test8` datev2 NULL,
                 `c_float` array<float> NULL,
                 `c_double` array<double> NULL,
                 `c_keyword` array<text> NULL,
@@ -142,7 +140,6 @@ suite("test_es_query", "p0") {
         sql """create catalog if not exists es7 with resource es7_resource;"""
         sql """create catalog if not exists es8 with resource es8_resource;"""
         sql """switch es6"""
- 
         // order_qt_sql61 """show tables"""
         order_qt_sql62 """select * from test1 where test2='text#1'"""
         order_qt_sql63 """select * from test2_20220808 where test4='2022-08-08'"""

@@ -30,11 +30,11 @@
         "type": "date",
         "format": "yyyy-MM-dd HH:mm:ss"
       },
-      "test7": {
+      "test6": {
         "type": "date",
         "format": "epoch_millis"
       },
-      "test8": {
+      "test7": {
         "type": "date",
         "format": "yyyy-MM-dd HH:mm:ss || epoch_millis"
       },
