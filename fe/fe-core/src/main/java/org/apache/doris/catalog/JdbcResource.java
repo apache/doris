@@ -80,6 +80,7 @@ public class JdbcResource extends Resource {
     public static final String DRIVER_CLASS = "driver_class";
     public static final String DRIVER_URL = "driver_url";
     public static final String TYPE = "type";
+    public static final String ONLY_SPECIFIED_DATABASE = "only_specified_database";
     public static final String CHECK_SUM = "checksum";
 
     // timeout for both connection and read. 10 seconds is long enough.
@@ -121,6 +122,7 @@ public class JdbcResource extends Resource {
         replaceIfEffectiveValue(this.configs, USER, properties.get(USER));
         replaceIfEffectiveValue(this.configs, PASSWORD, properties.get(PASSWORD));
         replaceIfEffectiveValue(this.configs, TYPE, properties.get(TYPE));
+        replaceIfEffectiveValue(this.configs, ONLY_SPECIFIED_DATABASE, properties.get(ONLY_SPECIFIED_DATABASE));
         this.configs.put(JDBC_URL, handleJdbcUrl(getProperty(JDBC_URL)));
         super.modifyProperties(properties);
     }
@@ -135,6 +137,7 @@ public class JdbcResource extends Resource {
         copiedProperties.remove(USER);
         copiedProperties.remove(PASSWORD);
         copiedProperties.remove(TYPE);
+        copiedProperties.remove(ONLY_SPECIFIED_DATABASE);
         if (!copiedProperties.isEmpty()) {
             throw new AnalysisException("Unknown JDBC catalog resource properties: " + copiedProperties);
         }
@@ -156,6 +159,7 @@ public class JdbcResource extends Resource {
         checkProperties(USER);
         checkProperties(PASSWORD);
         checkProperties(TYPE);
+        checkProperties(ONLY_SPECIFIED_DATABASE);
         this.configs.put(JDBC_URL, handleJdbcUrl(getProperty(JDBC_URL)));
         configs.put(CHECK_SUM, computeObjectChecksum(getProperty(DRIVER_URL)));
     }

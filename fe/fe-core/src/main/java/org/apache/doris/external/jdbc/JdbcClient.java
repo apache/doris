@@ -56,8 +56,12 @@ public class JdbcClient {
 
     private HikariDataSource dataSource = null;
 
-    public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass) {
+    private boolean isOnlySpecifiedDatabase = false;
+
+    public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass,
+            String onlySpecifiedDatabase) {
         this.jdbcUser = user;
+        this.isOnlySpecifiedDatabase = Boolean.valueOf(onlySpecifiedDatabase).booleanValue();
         try {
             this.dbType = JdbcResource.parseDbType(jdbcUrl);
         } catch (DdlException e) {
@@ -153,6 +157,9 @@ public class JdbcClient {
         Connection conn =  getConnection();
         Statement stmt = null;
         ResultSet rs = null;
+        if (isOnlySpecifiedDatabase) {
+            return getSpecifiedDatabase(conn);
+        }
         List<String> databaseNames = Lists.newArrayList();
         try {
             stmt = conn.createStatement();
@@ -182,6 +189,30 @@ public class JdbcClient {
             throw new JdbcClientException("failed to get database name list from jdbc", e);
         } finally {
             close(rs, stmt, conn);
+        }
+        return databaseNames;
+    }
+
+    public List<String> getSpecifiedDatabase(Connection conn) {
+        List<String> databaseNames = Lists.newArrayList();
+        try {
+            switch (dbType) {
+                case JdbcResource.MYSQL:
+                case JdbcResource.CLICKHOUSE:
+                    databaseNames.add(conn.getCatalog());
+                    break;
+                case JdbcResource.POSTGRESQL:
+                case JdbcResource.ORACLE:
+                case JdbcResource.SQLSERVER:
+                    databaseNames.add(conn.getSchema());
+                    break;
+                default:
+                    throw new JdbcClientException("Not supported jdbc type");
+            }
+        } catch (SQLException e) {
+            throw new JdbcClientException("failed to get specified database name from jdbc", e);
+        } finally {
+            close(conn);
         }
         return databaseNames;
     }

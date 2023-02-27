@@ -104,9 +104,14 @@ public class JdbcExternalCatalog extends ExternalCatalog {
         return catalogProperty.getOrDefault(JdbcResource.CHECK_SUM, "");
     }
 
+    public String getOnlySpecifiedDatabase() {
+        return catalogProperty.getOrDefault(JdbcResource.ONLY_SPECIFIED_DATABASE, "");
+    }
+
     @Override
     protected void initLocalObjectsImpl() {
-        jdbcClient = new JdbcClient(getJdbcUser(), getJdbcPasswd(), getJdbcUrl(), getDriverUrl(), getDriverClass());
+        jdbcClient = new JdbcClient(getJdbcUser(), getJdbcPasswd(), getJdbcUrl(), getDriverUrl(), getDriverClass(),
+                getOnlySpecifiedDatabase());
     }
 
     @Override
