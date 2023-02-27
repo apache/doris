@@ -88,13 +88,25 @@ public class TemplateType extends Type {
     }
 
     @Override
-    public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap) throws TypeException {
+    public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap,
+                                       boolean useSpecializedType) throws TypeException {
         if (specificType.hasTemplateType()) {
             throw new TypeException(specificType + " should not hasTemplateType");
         }
 
         Type specializedType = specializedTypeMap.get(name);
-        if (specializedType != null && !specializedType.equals(specificType)) {
+        if (useSpecializedType) {
+            if (specializedType == null) {
+                throw new TypeException("template type " + name + " is not specialized yet");
+            }
+            return specializedType;
+        }
+
+        if (specializedType != null
+                && !specificType.equals(specializedType)
+                && !specificType.matchesType(specializedType)
+                && !Type.isImplicitlyCastable(specificType, specializedType, true)
+                && !Type.canCastTo(specificType, specializedType)) {
             throw new TypeException(
                 String.format("can not specialize template type %s to %s since it's already specialized as %s",
                     name, specificType, specializedType));
@@ -103,17 +115,17 @@ public class TemplateType extends Type {
         if (specializedType == null) {
             specializedTypeMap.put(name, specificType);
         }
-        return specificType;
+        return specializedTypeMap.get(name);
     }
 
     @Override
     public String toSql(int depth) {
-        return String.format("TEMPLATE<%s>", name);
+        return name;
     }
 
     @Override
     public String toString() {
-        return  toSql(0).toUpperCase();
+        return toSql(0).toUpperCase();
     }
 
     @Override

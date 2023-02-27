@@ -376,7 +376,7 @@ public class Function implements Writable {
             return false;
         }
         for (int i = 0; i < this.argTypes.length; ++i) {
-            if (!o.argTypes[i].matchesType(this.argTypes[i])) {
+            if (!this.argTypes[i].matchesType(o.argTypes[i])) {
                 return false;
             }
         }

@@ -512,7 +512,8 @@ public abstract class Type {
         return false;
     }
 
-    public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap) throws TypeException {
+    public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap,
+                                       boolean useSpecializedType) throws TypeException {
         throw new TypeException("specializeTemplateType not implemented");
     }
 

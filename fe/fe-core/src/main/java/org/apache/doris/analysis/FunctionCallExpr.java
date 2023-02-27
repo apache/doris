@@ -1369,7 +1369,7 @@ public class FunctionCallExpr extends Expr {
             }
         }
 
-        if (!fn.getFunctionName().getFunction().equals(ELEMENT_EXTRACT_FN_NAME)) {
+        if (!fn.getFunctionName().getFunction().equals("TODO")) {
             Type[] args = fn.getArgs();
             if (args.length > 0) {
                 // Implicitly cast all the children to match the function if necessary

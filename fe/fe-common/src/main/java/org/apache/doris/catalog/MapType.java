@@ -128,7 +128,8 @@ public class MapType extends Type {
     }
 
     @Override
-    public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap) throws TypeException {
+    public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap,
+                                       boolean useSpecializedType) throws TypeException {
         if (!(specificType instanceof MapType)) {
             throw new TypeException(specificType + " is not MapType");
         }
@@ -136,11 +137,11 @@ public class MapType extends Type {
         MapType specificMapType = (MapType) specificType;
         Type newKeyType = keyType;
         if (keyType.hasTemplateType()) {
-            newKeyType = keyType.specializeTemplateType(specificMapType.keyType, specializedTypeMap);
+            newKeyType = keyType.specializeTemplateType(specificMapType.keyType, specializedTypeMap, useSpecializedType);
         }
         Type newValueType = valueType;
         if (valueType.hasTemplateType()) {
-            newValueType = valueType.specializeTemplateType(specificMapType.valueType, specializedTypeMap);
+            newValueType = valueType.specializeTemplateType(specificMapType.valueType, specializedTypeMap, useSpecializedType);
         }
 
         return new MapType(newKeyType, newValueType);

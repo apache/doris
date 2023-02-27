@@ -1266,7 +1266,10 @@ public class FunctionSet<T> {
     public static Function specializeTemplateFunction(Function templateFunction, Function requestFunction) {
         try {
             boolean hasTemplateType = false;
-            LOG.info("templateFunction signature: " + templateFunction.signatureString());
+            LOG.info("templateFunction signature: " + templateFunction.signatureString()
+                        + "  return: " + templateFunction.getReturnType());
+            LOG.info("requestFunction signature: " + requestFunction.signatureString()
+                        + "  return: " + requestFunction.getReturnType());
             Function specializedFunction = templateFunction;
             if (templateFunction instanceof ScalarFunction) {
                 ScalarFunction f = (ScalarFunction) templateFunction;
@@ -1281,16 +1284,17 @@ public class FunctionSet<T> {
             for (int i = 0; i < args.length; i++) {
                 if (args[i].hasTemplateType()) {
                     hasTemplateType = true;
-                    args[i].specializeTemplateType(requestFunction.getArgs()[i], specializedTypeMap);
+                    args[i] = args[i].specializeTemplateType(requestFunction.getArgs()[i], specializedTypeMap, false);
                 }
             }
             if (specializedFunction.getReturnType().hasTemplateType()) {
                 hasTemplateType = true;
                 specializedFunction.setReturnType(
                     specializedFunction.getReturnType().specializeTemplateType(
-                    requestFunction.getReturnType(), specializedTypeMap));
+                    requestFunction.getReturnType(), specializedTypeMap, true));
             }
-            LOG.info("specializedFunction signature: " + specializedFunction.signatureString());
+            LOG.info("specializedFunction signature: " + specializedFunction.signatureString()
+                        + "  return: " + specializedFunction.getReturnType());
             return hasTemplateType ? specializedFunction : templateFunction;
         } catch (TypeException e) {
             LOG.warn("specializeTemplateFunction exception", e);
