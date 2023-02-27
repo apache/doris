@@ -17,7 +17,7 @@
 
 suite("type_check") {
     sql '''
-        create table type_tb (
+        create table if not exists type_tb (
             id int, 
             json jsonb,
             dcml decimalv3(15, 2),
@@ -40,24 +40,19 @@ suite("type_check") {
     }
 
     test {
-        sql 'select json_array("a", null, "c")'
-        exception 'type unsupported for nereids planner'
-    }
-
-    test {
-        sql 'select json_object()'
+        sql 'select jsonb_parse(\'{"k1":"v31","k2":300}\')'
         exception 'type unsupported for nereids planner'
     }
 
     // array
     test {
-        sql select 'array_range(10)'
+        sql 'select array_range(10)'
         exception 'type unsupported for nereids planner'
     }
 
     // decimalv3
     test {
-        sql 'cast(0.3 as decimalv3(12, 2))'
+        sql 'select cast(0.3 as decimalv3(12, 2))'
         exception 'type unsupported for nereids planner'
     }
 }
