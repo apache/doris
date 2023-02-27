@@ -1564,6 +1564,14 @@ build_clucene() {
     else
         USE_AVX2="${USE_AVX2:-0}"
     fi
+    if [[ -z "${USE_BTHREAD_SCANNER}" ]]; then
+        USE_BTHREAD_SCANNER='OFF'
+    fi
+    if [[ ${USE_BTHREAD_SCANNER} == "ON" ]]; then
+        USE_BTHREAD=1
+    else
+        USE_BTHREAD=0
+    fi
 
     check_if_source_exist "${CLUCENE_SOURCE}"
     cd "${TP_SOURCE_DIR}/${CLUCENE_SOURCE}"
@@ -1581,6 +1589,7 @@ build_clucene() {
         -DCMAKE_CXX_FLAGS="-fno-omit-frame-pointer ${warning_narrowing}" \
         -DUSE_STAT64=0 \
         -DUSE_AVX2="${USE_AVX2}" \
+        -DUSE_BTHREAD="${USE_BTHREAD}" \
         -DCMAKE_BUILD_TYPE=RelWithDebInfo \
         -DBUILD_CONTRIBS_LIB=ON ..
     ${BUILD_SYSTEM} -j "${PARALLEL}"

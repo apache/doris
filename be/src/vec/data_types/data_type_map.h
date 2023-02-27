@@ -20,7 +20,14 @@
 
 #pragma once
 
+#include "gen_cpp/data.pb.h"
+#include "util/stack_util.h"
+#include "vec/columns/column_array.h"
+#include "vec/columns/column_map.h"
+#include "vec/columns/column_nullable.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
 /** Map data type.

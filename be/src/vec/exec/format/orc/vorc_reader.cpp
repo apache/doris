@@ -22,13 +22,16 @@
 #include "cctz/civil_time.h"
 #include "cctz/time_zone.h"
 #include "gutil/strings/substitute.h"
-#include "io/file_factory.h"
 #include "io/fs/file_reader.h"
 #include "olap/iterators.h"
 #include "util/slice.h"
 #include "vec/columns/column_array.h"
+#include "vec/columns/column_map.h"
+#include "vec/columns/column_struct.h"
 #include "vec/data_types/data_type_array.h"
+#include "vec/data_types/data_type_map.h"
 #include "vec/data_types/data_type_nullable.h"
+#include "vec/data_types/data_type_struct.h"
 
 namespace doris::vectorized {
 
@@ -85,6 +88,8 @@ OrcReader::OrcReader(RuntimeProfile* profile, const TFileScanRangeParams& params
           _io_ctx(io_ctx) {
     TimezoneUtils::find_cctz_time_zone(ctz, _time_zone);
     _init_profile();
+    _init_system_properties();
+    _init_file_description();
 }
 
 OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& range,
@@ -97,7 +102,10 @@ OrcReader::OrcReader(const TFileScanRangeParams& params, const TFileRangeDesc& r
           _column_names(column_names),
           _is_hive(params.__isset.slot_name_to_schema_pos),
           _file_system(nullptr),
-          _io_ctx(io_ctx) {}
+          _io_ctx(io_ctx) {
+    _init_system_properties();
+    _init_file_description();
+}
 
 OrcReader::~OrcReader() {
     close();
@@ -144,28 +152,14 @@ Status OrcReader::init_reader(
     if (_file_reader == nullptr) {
         io::FileReaderSPtr inner_reader;
 
-        FileSystemProperties system_properties;
-        system_properties.system_type = _scan_params.file_type;
-        system_properties.properties = _scan_params.properties;
-        system_properties.hdfs_params = _scan_params.hdfs_params;
-        if (_scan_params.__isset.broker_addresses) {
-            system_properties.broker_addresses.assign(_scan_params.broker_addresses.begin(),
-                                                      _scan_params.broker_addresses.end());
-        }
-
-        FileDescription file_description;
-        file_description.path = _scan_range.path;
-        file_description.start_offset = _scan_range.start_offset;
-        file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : 0;
-
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, system_properties,
-                                                        file_description, &_file_system,
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
+                                                        _file_description, &_file_system,
                                                         &inner_reader, _io_ctx));
 
         _file_reader = new ORCFileInputStream(_scan_range.path, inner_reader);
     }
     if (_file_reader->getLength() == 0) {
-        return Status::EndOfFile("Empty orc file");
+        return Status::EndOfFile("init reader failed, empty orc file: " + _scan_range.path);
     }
 
     // create orc reader
@@ -176,7 +170,8 @@ Status OrcReader::init_reader(
         return Status::InternalError("Init OrcReader failed. reason = {}", e.what());
     }
     if (_reader->getNumberOfRows() == 0) {
-        return Status::EndOfFile("Empty orc file");
+        return Status::EndOfFile("init reader failed, empty orc file with row num 0: " +
+                                 _scan_range.path);
     }
     // _init_bloom_filter(colname_to_value_range);
 
@@ -214,24 +209,14 @@ Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
     if (_file_reader == nullptr) {
         io::FileReaderSPtr inner_reader;
 
-        FileSystemProperties system_properties;
-        system_properties.system_type = _scan_params.file_type;
-        system_properties.properties = _scan_params.properties;
-        system_properties.hdfs_params = _scan_params.hdfs_params;
-
-        FileDescription file_description;
-        file_description.path = _scan_range.path;
-        file_description.start_offset = _scan_range.start_offset;
-        file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : 0;
-
-        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, system_properties,
-                                                        file_description, &_file_system,
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_profile, _system_properties,
+                                                        _file_description, &_file_system,
                                                         &inner_reader, _io_ctx));
 
         _file_reader = new ORCFileInputStream(_scan_range.path, inner_reader);
     }
     if (_file_reader->getLength() == 0) {
-        return Status::EndOfFile("Empty orc file");
+        return Status::EndOfFile("get parsed schema fail, empty orc file: " + _scan_range.path);
     }
 
     // create orc reader
@@ -240,10 +225,6 @@ Status OrcReader::get_parsed_schema(std::vector<std::string>* col_names,
         _reader = orc::createReader(std::unique_ptr<ORCFileInputStream>(_file_reader), options);
     } catch (std::exception& e) {
         return Status::InternalError("Init OrcReader failed. reason = {}", e.what());
-    }
-
-    if (_reader->getNumberOfRows() == 0) {
-        return Status::EndOfFile("Empty orc file");
     }
 
     auto& root_type = _reader->getType();
@@ -331,8 +312,11 @@ static std::tuple<bool, orc::Literal> convert_to_orc_literal(const orc::Type* ty
         case orc::TypeKind::DOUBLE:
             return std::make_tuple(true, orc::Literal(*((double*)value)));
         case orc::TypeKind::STRING:
+            [[fallthrough]];
         case orc::TypeKind::BINARY:
+            [[fallthrough]];
         case orc::TypeKind::CHAR:
+            [[fallthrough]];
         case orc::TypeKind::VARCHAR: {
             StringRef* string_value = (StringRef*)value;
             return std::make_tuple(true, orc::Literal(string_value->data, string_value->size));
@@ -570,6 +554,22 @@ void OrcReader::_init_bloom_filter(
     // _reader->getBloomFilters()
 }
 
+void OrcReader::_init_system_properties() {
+    _system_properties.system_type = _scan_params.file_type;
+    _system_properties.properties = _scan_params.properties;
+    _system_properties.hdfs_params = _scan_params.hdfs_params;
+    if (_scan_params.__isset.broker_addresses) {
+        _system_properties.broker_addresses.assign(_scan_params.broker_addresses.begin(),
+                                                   _scan_params.broker_addresses.end());
+    }
+}
+
+void OrcReader::_init_file_description() {
+    _file_description.path = _scan_range.path;
+    _file_description.start_offset = _scan_range.start_offset;
+    _file_description.file_size = _scan_range.__isset.file_size ? _scan_range.file_size : 0;
+}
+
 TypeDescriptor OrcReader::_convert_to_doris_type(const orc::Type* orc_type) {
     switch (orc_type->getKind()) {
     case orc::TypeKind::BOOLEAN:
@@ -605,20 +605,20 @@ TypeDescriptor OrcReader::_convert_to_doris_type(const orc::Type* orc_type) {
         return TypeDescriptor(PrimitiveType::TYPE_DATETIMEV2);
     case orc::TypeKind::LIST: {
         TypeDescriptor list_type(PrimitiveType::TYPE_ARRAY);
-        list_type.children.emplace_back(_convert_to_doris_type(orc_type->getSubtype(0)));
+        list_type.add_sub_type(_convert_to_doris_type(orc_type->getSubtype(0)));
         return list_type;
     }
     case orc::TypeKind::MAP: {
         TypeDescriptor map_type(PrimitiveType::TYPE_MAP);
-        map_type.children.emplace_back(_convert_to_doris_type(orc_type->getSubtype(0)));
-        map_type.children.emplace_back(_convert_to_doris_type(orc_type->getSubtype(1)));
+        map_type.add_sub_type(_convert_to_doris_type(orc_type->getSubtype(0)));
+        map_type.add_sub_type(_convert_to_doris_type(orc_type->getSubtype(1)));
         return map_type;
     }
     case orc::TypeKind::STRUCT: {
         TypeDescriptor struct_type(PrimitiveType::TYPE_STRUCT);
         for (int i = 0; i < orc_type->getSubtypeCount(); ++i) {
-            struct_type.children.emplace_back(_convert_to_doris_type(orc_type->getSubtype(i)));
-            struct_type.field_names.emplace_back(_get_field_name_lower_case(orc_type, i));
+            struct_type.add_sub_type(_convert_to_doris_type(orc_type->getSubtype(i)),
+                                     _get_field_name_lower_case(orc_type, i));
         }
         return struct_type;
     }
@@ -664,6 +664,7 @@ Status OrcReader::_decode_string_column(const std::string& col_name,
                                         const orc::TypeKind& type_kind, orc::ColumnVectorBatch* cvb,
                                         size_t num_values) {
     SCOPED_RAW_TIMER(&_statistics.decode_value_time);
+    const static std::string empty_string;
     auto* data = down_cast<orc::StringVectorBatch*>(cvb);
     if (data == nullptr) {
         return Status::InternalError("Wrong data type for colum '{}'", col_name);
@@ -673,11 +674,23 @@ Status OrcReader::_decode_string_column(const std::string& col_name,
     if (type_kind == orc::TypeKind::CHAR) {
         // Possibly there are some zero padding characters in CHAR type, we have to strip them off.
         for (int i = 0; i < num_values; ++i) {
-            string_values.emplace_back(data->data[i], trim_right(data->data[i], data->length[i]));
+            if (cvb->notNull[0]) {
+                string_values.emplace_back(data->data[i],
+                                           trim_right(data->data[i], data->length[i]));
+            } else {
+                // Orc doesn't fill null values in new batch, but the former batch has been release.
+                // Other types like int/long/timestamp... are flat types without pointer in them,
+                // so other types do not need to be handled separately like string.
+                string_values.emplace_back(empty_string.data(), 0);
+            }
         }
     } else {
         for (int i = 0; i < num_values; ++i) {
-            string_values.emplace_back(data->data[i], data->length[i]);
+            if (cvb->notNull[0]) {
+                string_values.emplace_back(data->data[i], data->length[i]);
+            } else {
+                string_values.emplace_back(empty_string.data(), 0);
+            }
         }
     }
     data_column->insert_many_strings(&string_values[0], num_values);
@@ -685,23 +698,23 @@ Status OrcReader::_decode_string_column(const std::string& col_name,
 }
 
 Status OrcReader::_fill_doris_array_offsets(const std::string& col_name,
-                                            const MutableColumnPtr& data_column,
-                                            orc::ListVectorBatch* lvb, size_t num_values,
-                                            size_t* element_size) {
+                                            ColumnArray::Offsets64& doris_offsets,
+                                            orc::DataBuffer<int64_t>& orc_offsets,
+                                            size_t num_values, size_t* element_size) {
     SCOPED_RAW_TIMER(&_statistics.decode_value_time);
     if (num_values > 0) {
-        auto& offsets_data = static_cast<ColumnArray&>(*data_column).get_offsets();
-        auto& orc_offsets = lvb->offsets;
         if (orc_offsets.size() < num_values + 1) {
             return Status::InternalError("Wrong array offsets in orc file for column '{}'",
                                          col_name);
         }
-        auto prev_offset = offsets_data.back();
+        auto prev_offset = doris_offsets.back();
         auto base_offset = orc_offsets[0];
         for (int i = 1; i < num_values + 1; ++i) {
-            offsets_data.emplace_back(prev_offset + orc_offsets[i] - base_offset);
+            doris_offsets.emplace_back(prev_offset + orc_offsets[i] - base_offset);
         }
         *element_size = orc_offsets[num_values] - base_offset;
+    } else {
+        *element_size = 0;
     }
     return Status::OK();
 }
@@ -779,16 +792,66 @@ Status OrcReader::_orc_column_to_doris_column(const std::string& col_name,
             return Status::InternalError("Wrong data type for colum '{}'", col_name);
         }
         auto* orc_list = down_cast<orc::ListVectorBatch*>(cvb);
-        size_t element_size;
-        RETURN_IF_ERROR(_fill_doris_array_offsets(col_name, data_column, orc_list, num_values,
+        auto& doris_offsets = static_cast<ColumnArray&>(*data_column).get_offsets();
+        auto& orc_offsets = orc_list->offsets;
+        size_t element_size = 0;
+        RETURN_IF_ERROR(_fill_doris_array_offsets(col_name, doris_offsets, orc_offsets, num_values,
                                                   &element_size));
         DataTypePtr& nested_type = const_cast<DataTypePtr&>(
-                (reinterpret_cast<const DataTypeArray*>(remove_nullable(data_type).get()))
+                reinterpret_cast<const DataTypeArray*>(remove_nullable(data_type).get())
                         ->get_nested_type());
         const orc::Type* nested_orc_type = orc_column_type->getSubtype(0);
         return _orc_column_to_doris_column(
                 col_name, static_cast<ColumnArray&>(*data_column).get_data_ptr(), nested_type,
                 nested_orc_type, orc_list->elements.get(), element_size);
+    }
+    case TypeIndex::Map: {
+        if (orc_column_type->getKind() != orc::TypeKind::MAP) {
+            return Status::InternalError("Wrong data type for colum '{}'", col_name);
+        }
+        auto* orc_map = down_cast<orc::MapVectorBatch*>(cvb);
+        auto& doris_map = static_cast<ColumnMap&>(*data_column);
+        size_t element_size = 0;
+        RETURN_IF_ERROR(_fill_doris_array_offsets(col_name, doris_map.get_offsets(),
+                                                  orc_map->offsets, num_values, &element_size));
+        DataTypePtr& doris_key_type = const_cast<DataTypePtr&>(
+                reinterpret_cast<const DataTypeMap*>(remove_nullable(data_type).get())
+                        ->get_key_type());
+        DataTypePtr& doris_value_type = const_cast<DataTypePtr&>(
+                reinterpret_cast<const DataTypeMap*>(remove_nullable(data_type).get())
+                        ->get_value_type());
+        const orc::Type* orc_key_type = orc_column_type->getSubtype(0);
+        const orc::Type* orc_value_type = orc_column_type->getSubtype(1);
+        const ColumnPtr& doris_key_column =
+                typeid_cast<const ColumnArray*>(doris_map.get_keys_ptr().get())->get_data_ptr();
+        const ColumnPtr& doris_value_column =
+                typeid_cast<const ColumnArray*>(doris_map.get_values_ptr().get())->get_data_ptr();
+        RETURN_IF_ERROR(_orc_column_to_doris_column(col_name, doris_key_column, doris_key_type,
+                                                    orc_key_type, orc_map->keys.get(),
+                                                    element_size));
+        return _orc_column_to_doris_column(col_name, doris_value_column, doris_value_type,
+                                           orc_value_type, orc_map->elements.get(), element_size);
+    }
+    case TypeIndex::Struct: {
+        if (orc_column_type->getKind() != orc::TypeKind::STRUCT) {
+            return Status::InternalError("Wrong data type for colum '{}'", col_name);
+        }
+        auto* orc_struct = down_cast<orc::StructVectorBatch*>(cvb);
+        auto& doris_struct = static_cast<ColumnStruct&>(*data_column);
+        if (orc_struct->fields.size() != doris_struct.tuple_size()) {
+            return Status::InternalError("Wrong number of struct fields for column '{}'", col_name);
+        }
+        const DataTypeStruct* doris_struct_type =
+                reinterpret_cast<const DataTypeStruct*>(remove_nullable(data_type).get());
+        for (int i = 0; i < doris_struct.tuple_size(); ++i) {
+            orc::ColumnVectorBatch* orc_field = orc_struct->fields[i];
+            const orc::Type* orc_type = orc_column_type->getSubtype(i);
+            const ColumnPtr& doris_field = doris_struct.get_column_ptr(i);
+            const DataTypePtr& doris_type = doris_struct_type->get_element(i);
+            RETURN_IF_ERROR(_orc_column_to_doris_column(col_name, doris_field, doris_type, orc_type,
+                                                        orc_field, num_values));
+        }
+        return Status::OK();
     }
     default:
         break;

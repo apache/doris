@@ -135,11 +135,11 @@ public abstract class Type {
         numericTypes = Lists.newArrayList();
         numericTypes.addAll(integerTypes);
         numericTypes.add(FLOAT);
-        numericTypes.add(DOUBLE);
         numericTypes.add(MAX_DECIMALV2_TYPE);
         numericTypes.add(DECIMAL32);
         numericTypes.add(DECIMAL64);
         numericTypes.add(DECIMAL128);
+        numericTypes.add(DOUBLE);
 
         numericDateTimeTypes = Lists.newArrayList();
         numericDateTimeTypes.add(DATE);
@@ -159,9 +159,6 @@ public abstract class Type {
         trivialTypes.add(TIME);
         trivialTypes.add(TIMEV2);
         trivialTypes.add(JSONB);
-        trivialTypes.add(DECIMAL32);
-        trivialTypes.add(DECIMAL64);
-        trivialTypes.add(DECIMAL128);
 
         supportedTypes = Lists.newArrayList();
         supportedTypes.addAll(trivialTypes);
@@ -197,6 +194,7 @@ public abstract class Type {
         mapSubTypes.add(CHAR);
         mapSubTypes.add(VARCHAR);
         mapSubTypes.add(STRING);
+        mapSubTypes.add(NULL);
 
         structSubTypes = Lists.newArrayList();
         structSubTypes.add(BOOLEAN);
@@ -238,6 +236,7 @@ public abstract class Type {
                     .put(PrimitiveType.DECIMAL32, Sets.newHashSet(BigDecimal.class))
                     .put(PrimitiveType.DECIMAL64, Sets.newHashSet(BigDecimal.class))
                     .put(PrimitiveType.DECIMAL128, Sets.newHashSet(BigDecimal.class))
+                    .put(PrimitiveType.ARRAY, Sets.newHashSet(ArrayList.class))
                     .build();
 
     public static ArrayList<ScalarType> getIntegerTypes() {
@@ -608,7 +607,7 @@ public abstract class Type {
                 && !sourceType.isNull()) {
             // TODO: current not support cast any non-array type(except for null) to nested array type.
             return false;
-        } else if (targetType.isStructType() && sourceType.isStringType()) {
+        } else if ((targetType.isStructType() || targetType.isMapType()) && sourceType.isStringType()) {
             return true;
         } else if (sourceType.isStructType() && targetType.isStructType()) {
             return StructType.canCastTo((StructType) sourceType, (StructType) targetType);
@@ -1753,13 +1752,12 @@ public abstract class Type {
             case FLOAT:
             case DOUBLE:
             case TIME:
+            case TIMEV2:
             case CHAR:
             case VARCHAR:
             case STRING:
             case HLL:
                 return Type.DOUBLE;
-            case TIMEV2:
-                return Type.DEFAULT_TIMEV2;
             case DECIMALV2:
                 return Type.DECIMALV2;
             case DECIMAL32:

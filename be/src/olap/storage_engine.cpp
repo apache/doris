@@ -285,17 +285,6 @@ Status StorageEngine::_judge_and_update_effective_cluster_id(int32_t cluster_id)
     return Status::OK();
 }
 
-void StorageEngine::set_store_used_flag(const string& path, bool is_used) {
-    std::lock_guard<std::mutex> l(_store_lock);
-    auto it = _store_map.find(path);
-    if (it == _store_map.end()) {
-        LOG(WARNING) << "store not exist, path=" << path;
-    }
-
-    it->second->set_is_used(is_used);
-    _update_storage_medium_type_count();
-}
-
 template <bool include_unused>
 std::vector<DataDir*> StorageEngine::get_stores() {
     std::vector<DataDir*> stores;

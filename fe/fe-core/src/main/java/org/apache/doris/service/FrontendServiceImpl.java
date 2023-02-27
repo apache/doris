@@ -201,11 +201,14 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 return;
             }
             Tablet tablet;
+            int replicaNum;
             try {
                 OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId())
                         .getTable(tabletMeta.getTableId())
                         .get();
                 table.readLock();
+                replicaNum = table.getPartitionInfo().getReplicaAllocation(tabletMeta.getPartitionId())
+                        .getTotalReplicaNum();
                 try {
                     tablet = table.getPartition(tabletMeta.getPartitionId()).getIndex(tabletMeta.getIndexId())
                             .getTablet(info.tablet_id);
@@ -225,7 +228,17 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             }
             // check cooldownMetaId of all replicas are the same
             List<Replica> replicas = Env.getCurrentEnv().getTabletInvertedIndex().getReplicas(info.tablet_id);
+            // FIXME(plat1ko): We only delete remote files when tablet is under a stable state: enough replicas and
+            //  all replicas are alive. Are these conditions really sufficient or necessary?
+            if (replicas.size() < replicaNum) {
+                LOG.info("num replicas are not enough, tablet={}", info.tablet_id);
+                return;
+            }
             for (Replica replica : replicas) {
+                if (!replica.isAlive()) {
+                    LOG.info("replica is not alive, tablet={}, replica={}", info.tablet_id, replica.getId());
+                    return;
+                }
                 if (!info.cooldown_meta_id.equals(replica.getCooldownMetaId())) {
                     LOG.info("cooldown meta id are not same, tablet={}", info.tablet_id);
                     return;
@@ -272,7 +285,15 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                     .getCatalogOrException(params.catalog, catalog -> new TException("Unknown catalog " + catalog)));
         }
         for (CatalogIf catalog : catalogIfs) {
-            List<String> dbNames = catalog.getDbNamesOrEmpty();
+            List<String> dbNames;
+            try {
+                dbNames = catalog.getDbNamesOrEmpty();
+            } catch (Exception e) {
+                LOG.warn("failed to get database names for catalog {}", catalog.getName(), e);
+                // Some external catalog may fail to get databases due to wrong connection info.
+                // So continue here to get databases of other catalogs.
+                continue;
+            }
             LOG.debug("get db names: {}, in catalog: {}", dbNames, catalog.getName());
 
             UserIdentity currentUser = null;
@@ -491,18 +512,22 @@ public class FrontendServiceImpl implements FrontendService.Iface {
                 .getDbNullable(params.db);
 
         if (db != null) {
-            Set<String> tableNames = db.getTableNamesOrEmptyWithLock();
-            for (String tableName : tableNames) {
-                LOG.debug("get table: {}, wait to check", tableName);
-                if (!Env.getCurrentEnv().getAccessManager()
-                        .checkTblPriv(currentUser, params.db, tableName, PrivPredicate.SHOW)) {
-                    continue;
+            Set<String> tableNames;
+            try {
+                tableNames = db.getTableNamesOrEmptyWithLock();
+                for (String tableName : tableNames) {
+                    LOG.debug("get table: {}, wait to check", tableName);
+                    if (!Env.getCurrentEnv().getAccessManager()
+                            .checkTblPriv(currentUser, params.db, tableName, PrivPredicate.SHOW)) {
+                        continue;
+                    }
+                    if (matcher != null && !matcher.match(tableName)) {
+                        continue;
+                    }
+                    tablesResult.add(tableName);
                 }
-
-                if (matcher != null && !matcher.match(tableName)) {
-                    continue;
-                }
-                tablesResult.add(tableName);
+            } catch (Exception e) {
+                LOG.warn("failed to get table names for db {} in catalog {}", params.db, catalogName, e);
             }
         }
         return result;
@@ -540,51 +565,50 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         if (catalog != null) {
             DatabaseIf db = catalog.getDbNullable(params.db);
             if (db != null) {
-                List<TableIf> tables = Lists.newArrayList();
-                if (!params.isSetType() || params.getType() == null || params.getType().isEmpty()) {
-                    tables = db.getTablesOrEmpty();
-                } else {
-                    switch (params.getType()) {
-                        case "VIEW":
-                            tables = db.getViewsOrEmpty();
-                            break;
-                        default:
-                            tables = db.getTablesOrEmpty();
+                try {
+                    List<TableIf> tables;
+                    if (!params.isSetType() || params.getType() == null || params.getType().isEmpty()) {
+                        tables = db.getTablesOrEmpty();
+                    } else {
+                        switch (params.getType()) {
+                            case "VIEW":
+                                tables = db.getViewsOrEmpty();
+                                break;
+                            default:
+                                tables = db.getTablesOrEmpty();
+                        }
                     }
-                }
-                for (TableIf table : tables) {
-                    if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser, params.db,
-                            table.getName(), PrivPredicate.SHOW)) {
-                        continue;
-                    }
-                    table.readLock();
-                    try {
+                    for (TableIf table : tables) {
                         if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(currentUser, params.db,
                                 table.getName(), PrivPredicate.SHOW)) {
                             continue;
                         }
-
-                        if (matcher != null && !matcher.match(table.getName())) {
-                            continue;
+                        table.readLock();
+                        try {
+                            if (matcher != null && !matcher.match(table.getName())) {
+                                continue;
+                            }
+                            long lastCheckTime = table.getLastCheckTime() <= 0 ? 0 : table.getLastCheckTime();
+                            TTableStatus status = new TTableStatus();
+                            status.setName(table.getName());
+                            status.setType(table.getMysqlType());
+                            status.setEngine(table.getEngine());
+                            status.setComment(table.getComment());
+                            status.setCreateTime(table.getCreateTime());
+                            status.setLastCheckTime(lastCheckTime / 1000);
+                            status.setUpdateTime(table.getUpdateTime() / 1000);
+                            status.setCheckTime(lastCheckTime / 1000);
+                            status.setCollation("utf-8");
+                            status.setRows(table.getRowCount());
+                            status.setDataLength(table.getDataLength());
+                            status.setAvgRowLength(table.getAvgRowLength());
+                            tablesResult.add(status);
+                        } finally {
+                            table.readUnlock();
                         }
-                        long lastCheckTime = table.getLastCheckTime() <= 0 ? 0 : table.getLastCheckTime();
-                        TTableStatus status = new TTableStatus();
-                        status.setName(table.getName());
-                        status.setType(table.getMysqlType());
-                        status.setEngine(table.getEngine());
-                        status.setComment(table.getComment());
-                        status.setCreateTime(table.getCreateTime());
-                        status.setLastCheckTime(lastCheckTime / 1000);
-                        status.setUpdateTime(table.getUpdateTime() / 1000);
-                        status.setCheckTime(lastCheckTime / 1000);
-                        status.setCollation("utf-8");
-                        status.setRows(table.getRowCount());
-                        status.setDataLength(table.getDataLength());
-                        status.setAvgRowLength(table.getAvgRowLength());
-                        tablesResult.add(status);
-                    } finally {
-                        table.readUnlock();
                     }
+                } catch (Exception e) {
+                    LOG.warn("failed to get tables for db {} in catalog {}", db.getFullName(), catalogName, e);
                 }
             }
         }
@@ -646,7 +670,6 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     public TFeResult updateExportTaskStatus(TUpdateExportTaskStatusRequest request) throws TException {
         TStatus status = new TStatus(TStatusCode.OK);
         TFeResult result = new TFeResult(FrontendServiceVersion.V1, status);
-
         return result;
     }
 
@@ -766,7 +789,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
 
         // add this log so that we can track this stmt
         LOG.debug("receive forwarded stmt {} from FE: {}", params.getStmtId(), clientAddr.getHostname());
-        ConnectContext context = new ConnectContext(null);
+        ConnectContext context = new ConnectContext();
         // Set current connected FE to the client address, so that we can know where this request come from.
         context.setCurrentConnectedFEIp(clientAddr.getHostname());
         ConnectProcessor processor = new ConnectProcessor(context);
@@ -986,14 +1009,20 @@ public class FrontendServiceImpl implements FrontendService.Iface {
             throw new UserException("transaction [" + request.getTxnId() + "] not found");
         }
         List<Long> tableIdList = transactionState.getTableIdList();
-        List<Table> tableList = database.getTablesOnIdOrderOrThrowException(tableIdList);
+        String txnOperation = request.getOperation().trim();
+        List<Table> tableList = new ArrayList<>();
+        // if table was dropped, stream load must can abort.
+        if (txnOperation.equalsIgnoreCase("abort")) {
+            tableList = database.getTablesOnIdOrderIfExist(tableIdList);
+        } else {
+            tableList = database.getTablesOnIdOrderOrThrowException(tableIdList);
+        }
         for (Table table : tableList) {
             // check auth
             checkPasswordAndPrivs(cluster, request.getUser(), request.getPasswd(), request.getDb(), table.getName(),
                     request.getUserIp(), PrivPredicate.LOAD);
         }
 
-        String txnOperation = request.getOperation().trim();
         if (txnOperation.equalsIgnoreCase("commit")) {
             Env.getCurrentGlobalTransactionMgr()
                     .commitTransaction2PC(database, tableList, request.getTxnId(), 5000);

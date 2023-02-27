@@ -259,6 +259,8 @@ public:
 
     bool is_empty_column() { return data.empty(); }
 
+    bool empty() const { return rows() == 0; }
+
     /** Updates SipHash of the Block, using update method of columns.
       * Returns hash for block, that could be used to differentiate blocks
       *  with same structure, but different data.

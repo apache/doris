@@ -345,6 +345,11 @@ public class Config extends ConfigBase {
     @ConfField public static int http_port = 8030;
 
     /**
+     * Whether to enable all http interface authentication
+     */
+    @ConfField public static boolean enable_all_http_auth = false;
+
+    /**
      * Jetty container default configuration
      * Jetty's thread architecture model is very simple, divided into three thread pools:
      * acceptors,selectors and workers. Acceptors are responsible for accepting new connections,
@@ -1411,6 +1416,12 @@ public class Config extends ConfigBase {
     public static boolean enable_batch_delete_by_default = true;
 
     /**
+     * Whether to add a version column when create unique table
+     */
+    @ConfField(mutable = true, masterOnly = true)
+    public static boolean enable_hidden_version_column_by_default = true;
+
+    /**
      * Used to set default db data quota bytes.
      */
     @ConfField(mutable = true, masterOnly = true)
@@ -1909,6 +1920,14 @@ public class Config extends ConfigBase {
      */
     @ConfField(mutable = false, masterOnly = false)
     public static long external_cache_expire_time_minutes_after_access = 24 * 60; // 1 day
+
+    /**
+     * Github workflow test type, for setting some session variables
+     * only for certain test type. E.g. only settting batch_size to small
+     * value for p0.
+     */
+    @ConfField(mutable = true, masterOnly = false)
+    public static String fuzzy_test_type = "";
 
     /**
      * Set session variables randomly to check more issues in github workflow

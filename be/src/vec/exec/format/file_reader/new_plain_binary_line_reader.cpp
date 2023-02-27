@@ -40,7 +40,9 @@ Status NewPlainBinaryLineReader::read_line(const uint8_t** ptr, size_t* size, bo
     size_t read_size = 0;
     switch (_file_type) {
     case TFileType::FILE_LOCAL:
+        [[fallthrough]];
     case TFileType::FILE_HDFS:
+        [[fallthrough]];
     case TFileType::FILE_S3: {
         size_t file_size = _file_reader->size();
         file_buf.reset(new uint8_t[file_size]);

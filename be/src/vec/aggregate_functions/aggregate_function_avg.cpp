@@ -38,31 +38,11 @@ using AggregateFuncAvg = typename Avg<T>::Function;
 
 AggregateFunctionPtr create_aggregate_function_avg(const std::string& name,
                                                    const DataTypes& argument_types,
-                                                   const Array& parameters,
                                                    const bool result_is_nullable) {
-    assert_no_parameters(name, parameters);
     assert_unary(name, argument_types);
 
-    AggregateFunctionPtr res;
-    DataTypePtr data_type = argument_types[0];
-    if (data_type->is_nullable()) {
-        auto no_null_argument_types = remove_nullable(argument_types);
-        if (is_decimal(no_null_argument_types[0])) {
-            res.reset(create_with_decimal_type_null<AggregateFuncAvg>(
-                    no_null_argument_types, parameters, *no_null_argument_types[0],
-                    no_null_argument_types));
-        } else {
-            res.reset(create_with_numeric_type_null<AggregateFuncAvg>(
-                    no_null_argument_types, parameters, no_null_argument_types));
-        }
-    } else {
-        if (is_decimal(data_type)) {
-            res.reset(create_with_decimal_type<AggregateFuncAvg>(*data_type, *data_type,
-                                                                 argument_types));
-        } else {
-            res.reset(create_with_numeric_type<AggregateFuncAvg>(*data_type, argument_types));
-        }
-    }
+    AggregateFunctionPtr res(
+            creator_with_type::create<AggregateFuncAvg>(result_is_nullable, argument_types));
 
     if (!res) {
         LOG(WARNING) << fmt::format("Illegal type {} of argument for aggregate function {}",

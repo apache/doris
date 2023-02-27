@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include "common/logging.h"
 #include "fmt/format.h"
 #include "runtime/datetime_value.h"
@@ -120,6 +122,7 @@ extern ResultType date_time_add(const Arg& t, Int64 delta, bool& is_null) {
         }                                                                                          \
     }
 
+ADD_TIME_FUNCTION_IMPL(AddMicrosecondsImpl, microseconds_add, MICROSECOND);
 ADD_TIME_FUNCTION_IMPL(AddSecondsImpl, seconds_add, SECOND);
 ADD_TIME_FUNCTION_IMPL(AddMinutesImpl, minutes_add, MINUTE);
 ADD_TIME_FUNCTION_IMPL(AddHoursImpl, hours_add, HOUR);
@@ -175,6 +178,11 @@ struct SubtractIntervalImpl {
     static DataTypes get_variadic_argument_types() {
         return {std::make_shared<DateType>(), std::make_shared<DataTypeInt32>()};
     }
+};
+
+template <typename DateType>
+struct SubtractMicrosecondsImpl : SubtractIntervalImpl<AddMicrosecondsImpl<DateType>, DateType> {
+    static constexpr auto name = "microseconds_sub";
 };
 
 template <typename DateType>
@@ -237,7 +245,8 @@ struct SubtractYearsImpl : SubtractIntervalImpl<AddYearsImpl<DateType>, DateType
         using ReturnType = RETURN_TYPE;                                                            \
         static constexpr auto name = #FN_NAME;                                                     \
         static constexpr auto is_nullable = false;                                                 \
-        static inline Int32 execute(const ArgType1& t0, const ArgType2& t1, bool& is_null) {       \
+        static inline ReturnType::FieldType execute(const ArgType1& t0, const ArgType2& t1,        \
+                                                    bool& is_null) {                               \
             const auto& ts0 = reinterpret_cast<const DateValueType1&>(t0);                         \
             const auto& ts1 = reinterpret_cast<const DateValueType2&>(t1);                         \
             is_null = !ts0.is_valid_date() || !ts1.is_valid_date();                                \
@@ -274,7 +283,8 @@ TIME_DIFF_FUNCTION_IMPL(SecondsDiffImpl, seconds_diff, SECOND);
         using ReturnType = DataTypeInt32;                                                         \
         static constexpr auto name = #NAME;                                                       \
         static constexpr auto is_nullable = false;                                                \
-        static inline int64_t execute(const ArgType& t0, const Int32 mode, bool& is_null) {       \
+        static inline ReturnType::FieldType execute(const ArgType& t0, const Int32 mode,          \
+                                                    bool& is_null) {                              \
             const auto& ts0 = reinterpret_cast<const DateValueType&>(t0);                         \
             is_null = !ts0.is_valid_date();                                                       \
             return ts0.FUNCTION;                                                                  \
@@ -986,18 +996,14 @@ struct CurrentTimeImpl {
         VecDateTimeValue dtv;
         if (dtv.from_unixtime(context->impl()->state()->timestamp_ms() / 1000,
                               context->impl()->state()->timezone_obj())) {
-            double time = dtv.hour() * 3600 + dtv.minute() * 60 + dtv.second();
-            for (int i = 0; i < input_rows_count; i++) {
-                col_to->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&time)), 0);
-            }
+            double time = dtv.hour() * 3600l + dtv.minute() * 60l + dtv.second();
+            col_to->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&time)), 0);
         } else {
             auto invalid_val = 0;
-            for (int i = 0; i < input_rows_count; i++) {
-                col_to->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&invalid_val)),
-                                    0);
-            }
+            col_to->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&invalid_val)), 0);
         }
-        block.get_by_position(result).column = std::move(col_to);
+        block.get_by_position(result).column =
+                ColumnConst::create(std::move(col_to), input_rows_count);
         return Status::OK();
     }
 };

@@ -37,6 +37,7 @@ suite("test_es_query", "p0") {
                 "elasticsearch.keyword_sniff"="true"
             );
         """
+
         // test new create catalog syntax
         sql """create resource if not exists es7_resource properties(
             "type"="es",
@@ -45,6 +46,7 @@ suite("test_es_query", "p0") {
             "enable_keyword_sniff"="true"
         );
         """
+
         sql """create resource if not exists es8_resource properties(
             "type"="es",
             "hosts"="http://127.0.0.1:$es_8_port",
@@ -61,15 +63,21 @@ suite("test_es_query", "p0") {
         order_qt_sql62 """select * from test1 where test2='text#1'"""
         order_qt_sql63 """select * from test2_20220808 where test4='2022-08-08'"""
         order_qt_sql64 """select * from test2_20220808 where substring(test2, 2) = 'ext2'"""
+        order_qt_sql65 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], c_person[1] from test1"""
+        order_qt_sql66 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], c_person[1] from test2_20220808"""
         sql """switch es7"""
         // order_qt_sql71 """show tables"""
         order_qt_sql72 """select * from test1 where test2='text#1'"""
         order_qt_sql73 """select * from test2_20220808 where test4='2022-08-08'"""
         order_qt_sql74 """select * from test2_20220808 where substring(test2, 2) = 'ext2'"""
-        // es8 has some problem, need fix
-        // sql """switch es8"""
-        // order_qt_sql1 """select * from test1 where test2='text'"""
-        // order_qt_sql2 """select * from test2_20220808 where test4='2022-08-08'"""
+        order_qt_sql75 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], c_person[1] from test1"""
+        order_qt_sql76 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], c_person[1] from test2"""
+        sql """switch es8"""
+        order_qt_sql81 """select * from test1 where test2='text#1'"""
+        order_qt_sql82 """select * from test2_20220808 where test4='2022-08-08'"""
+        order_qt_sql83 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], c_person[1] from test1"""
+        order_qt_sql84 """select c_bool[1], c_byte[1], c_short[1], c_integer[1], c_long[1], c_unsigned_long[1], c_float[1], c_half_float[1], c_double[1], c_scaled_float[1], c_date[1], c_datetime[1], c_keyword[1], c_text[1], c_ip[1], c_person[1] from test2"""
+
 
         sql """drop catalog if exists es6;"""
         sql """drop catalog if exists es7;"""

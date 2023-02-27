@@ -1533,7 +1533,7 @@ The Apache Software License, Version 2.0
     * libhdfs3: 2.3.8
     * opentelemetry-proto: 0.18.0
     * opentelemetry-cpp: 1.4.0
-    * clucenc: 2.4.4
+    * clucene: 2.4.6
 
 The MIT License -- licenses/LICENSE-MIT.txt
     * datatables: 1.12.1

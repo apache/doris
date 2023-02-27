@@ -1,7 +1,7 @@
 ---
 {
     "title": "replace",
-    "language": "zh-CN"
+    "language": "en"
 }
 ---
 

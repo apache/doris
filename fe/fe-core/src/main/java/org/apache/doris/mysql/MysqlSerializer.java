@@ -31,21 +31,17 @@ public class MysqlSerializer {
     private ByteArrayOutputStream out;
     private MysqlCapability capability;
 
-    public MysqlSerializer(ByteArrayOutputStream out) {
-        this(out, MysqlCapability.DEFAULT_CAPABILITY);
-    }
-
-    public MysqlSerializer(ByteArrayOutputStream out, MysqlCapability capability) {
-        this.out = out;
-        this.capability = capability;
-    }
-
     public static MysqlSerializer newInstance() {
-        return new MysqlSerializer(new ByteArrayOutputStream());
+        return new MysqlSerializer(new ByteArrayOutputStream(), MysqlCapability.DEFAULT_CAPABILITY);
     }
 
     public static MysqlSerializer newInstance(MysqlCapability capability) {
         return new MysqlSerializer(new ByteArrayOutputStream(), capability);
+    }
+
+    private MysqlSerializer(ByteArrayOutputStream out, MysqlCapability capability) {
+        this.out = out;
+        this.capability = capability;
     }
 
     // used after success handshake

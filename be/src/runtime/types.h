@@ -219,6 +219,13 @@ struct TypeDescriptor {
 
     std::string debug_string() const;
 
+    // use to array type and map type add sub type
+    void add_sub_type(TypeDescriptor&& sub_type, bool&& is_nullable = true);
+
+    // use to struct type add sub type
+    void add_sub_type(TypeDescriptor&& sub_type, std::string&& field_name,
+                      bool&& is_nullable = true);
+
 private:
     /// Used to create a possibly nested type from the flattened Thrift representation.
     ///

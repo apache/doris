@@ -31,7 +31,6 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.FunctionName;
 import org.apache.doris.analysis.FunctionParams;
 import org.apache.doris.analysis.IsNullPredicate;
-import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.OrderByElement;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
@@ -57,12 +56,10 @@ import org.apache.doris.nereids.trees.expressions.InSubquery;
 import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
-import org.apache.doris.nereids.trees.expressions.Like;
 import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
-import org.apache.doris.nereids.trees.expressions.Regexp;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
 import org.apache.doris.nereids.trees.expressions.UnaryArithmetic;
@@ -238,22 +235,6 @@ public class ExpressionTranslator extends DefaultExpressionVisitor<Expr, PlanTra
                 org.apache.doris.analysis.CompoundPredicate.Operator.OR,
                 or.child(0).accept(this, context),
                 or.child(1).accept(this, context));
-    }
-
-    @Override
-    public Expr visitLike(Like like, PlanTranslatorContext context) {
-        return new org.apache.doris.analysis.LikePredicate(
-                LikePredicate.Operator.LIKE,
-                like.left().accept(this, context),
-                like.right().accept(this, context));
-    }
-
-    @Override
-    public Expr visitRegexp(Regexp regexp, PlanTranslatorContext context) {
-        return new org.apache.doris.analysis.LikePredicate(
-                LikePredicate.Operator.REGEXP,
-                regexp.left().accept(this, context),
-                regexp.right().accept(this, context));
     }
 
     @Override

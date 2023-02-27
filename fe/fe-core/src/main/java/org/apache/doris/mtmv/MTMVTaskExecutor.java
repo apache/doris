@@ -108,7 +108,6 @@ public class MTMVTaskExecutor implements Comparable<MTMVTaskExecutor> {
         ctx.setQueryId(queryId);
 
         taskContext.setCtx(ctx);
-        taskContext.setRemoteIp(ctx.getRemoteIp());
         taskContext.setTask(task);
         taskContext.setJob(job);
 

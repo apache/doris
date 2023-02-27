@@ -145,7 +145,7 @@ under the License.
 
 # 其他
 
-添加指标以查看 BE 上的 Rowset 和 Segment 总数字 `doris_be_all_rowset_nums` 和 `doris_be_all_segment_nums`
+添加指标以查看 BE 上的 Rowset 和 Segment 总数字 `doris_be_all_rowsets_num` 和 `doris_be_all_segments_num`
 
 # 致谢
 

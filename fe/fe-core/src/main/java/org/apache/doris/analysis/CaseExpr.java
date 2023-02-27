@@ -154,11 +154,6 @@ public class CaseExpr extends Expr {
     }
 
     @Override
-    public boolean isVectorized() {
-        return false;
-    }
-
-    @Override
     protected void toThrift(TExprNode msg) {
         msg.node_type = TExprNodeType.CASE_EXPR;
         msg.case_expr = new TCaseExpr(hasCaseExpr, hasElseExpr);

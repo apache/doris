@@ -68,7 +68,7 @@ public class JoinReorderHelper {
             Slot outputSlot = expr.toSlot();
             Set<Slot> usedSlots = expr.getInputSlots();
             Preconditions.checkState(usedSlots.size() == 1);
-            Slot inputSlot = (Slot) usedSlots.toArray()[0];
+            Slot inputSlot = usedSlots.iterator().next();
             inputToOutput.put(inputSlot.getExprId(), outputSlot);
             outputToInput.put(outputSlot.getExprId(), inputSlot);
         }

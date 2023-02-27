@@ -270,6 +270,10 @@ public abstract class Table extends MetaObject implements Writable, TableIf {
         this.qualifiedDbName = qualifiedDbName;
     }
 
+    public String getQualifiedDbName() {
+        return qualifiedDbName;
+    }
+
     public String getQualifiedName() {
         if (StringUtils.isEmpty(qualifiedDbName)) {
             return name;

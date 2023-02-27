@@ -22,8 +22,10 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include "io/file_factory.h"
 #include "io/fs/file_reader.h"
 #include "olap/iterators.h"
+#include "vec/common/hash_table/hash_map.h"
 #include "vec/exec/format/generic_reader.h"
 
 namespace doris {
@@ -61,6 +63,8 @@ public:
 
 private:
     Status _get_range_params();
+    void _init_system_properties();
+    void _init_file_description();
     Status _open_file_reader();
     Status _open_line_reader();
     Status _parse_jsonpath_and_json_root();
@@ -107,6 +111,39 @@ private:
 
     Status _read_one_message(std::unique_ptr<uint8_t[]>* file_buf, size_t* read_size);
 
+    // simdjson, replace none simdjson function if it is ready
+    Status _simdjson_init_reader();
+    Status _simdjson_parse_json(bool* is_empty_row, bool* eof);
+    Status _simdjson_parse_json_doc(size_t* size, bool* eof);
+
+    Status _simdjson_handle_simple_json(std::vector<MutableColumnPtr>& columns,
+                                        const std::vector<SlotDescriptor*>& slot_descs,
+                                        bool* is_empty_row, bool* eof);
+
+    Status _simdjson_handle_flat_array_complex_json(std::vector<MutableColumnPtr>& columns,
+                                                    const std::vector<SlotDescriptor*>& slot_descs,
+                                                    bool* is_empty_row, bool* eof);
+
+    Status _simdjson_handle_nested_complex_json(std::vector<MutableColumnPtr>& columns,
+                                                const std::vector<SlotDescriptor*>& slot_descs,
+                                                bool* is_empty_row, bool* eof);
+
+    Status _simdjson_set_column_value(simdjson::ondemand::object* value,
+                                      std::vector<MutableColumnPtr>& columns,
+                                      const std::vector<SlotDescriptor*>& slot_descs, bool* valid);
+
+    Status _simdjson_write_data_to_column(simdjson::ondemand::value& value,
+                                          SlotDescriptor* slot_desc,
+                                          vectorized::IColumn* column_ptr, bool* valid);
+
+    Status _simdjson_write_columns_by_jsonpath(simdjson::ondemand::object* value,
+                                               const std::vector<SlotDescriptor*>& slot_descs,
+                                               std::vector<MutableColumnPtr>& columns, bool* valid);
+    Status _append_error_msg(simdjson::ondemand::object* obj, std::string error_msg,
+                             std::string col_name, bool* valid);
+
+    size_t _column_index(const StringRef& name, size_t key_index);
+
     Status (NewJsonReader::*_vhandle_json_callback)(
             std::vector<vectorized::MutableColumnPtr>& columns,
             const std::vector<SlotDescriptor*>& slot_descs, bool* is_empty_row, bool* eof);
@@ -115,6 +152,8 @@ private:
     ScannerCounter* _counter;
     const TFileScanRangeParams& _params;
     const TFileRangeDesc& _range;
+    FileSystemProperties _system_properties;
+    FileDescription _file_description;
     const std::vector<SlotDescriptor*>& _file_slot_descs;
 
     std::shared_ptr<io::FileSystem> _file_system;
@@ -163,7 +202,30 @@ private:
     RuntimeProfile::Counter* _file_read_timer;
 
     bool _is_dynamic_schema = false;
+
+    // ======SIMD JSON======
+    // name mapping
+    /// Hash table match `field name -> position in the block`. NOTE You can use perfect hash map.
+    using NameMap = HashMap<StringRef, size_t, StringRefHash>;
+    NameMap _slot_desc_index;
+    /// Cached search results for previous row (keyed as index in JSON object) - used as a hint.
+    std::vector<NameMap::LookupResult> _prev_positions;
+    /// Set of columns which already met in row. Exception is thrown if there are more than one column with the same name.
+    std::vector<UInt8> _seen_columns;
+    // simdjson
+    static constexpr size_t _init_buffer_size = 1024 * 1024 * 8;
+    size_t _padded_size = _init_buffer_size + simdjson::SIMDJSON_PADDING;
+    std::string _simdjson_ondemand_padding_buffer;
+    // char _simdjson_ondemand_padding_buffer[_padded_size];
+    simdjson::ondemand::document _original_json_doc;
+    simdjson::ondemand::value _json_value;
+    // for strip outer array
+    // array_iter pointed to _array
+    simdjson::ondemand::array_iterator _array_iter;
+    simdjson::ondemand::array _array;
     std::unique_ptr<JSONDataParser<SimdJSONParser>> _json_parser;
+    std::unique_ptr<simdjson::ondemand::parser> _ondemand_json_parser = nullptr;
 };
+
 } // namespace vectorized
 } // namespace doris

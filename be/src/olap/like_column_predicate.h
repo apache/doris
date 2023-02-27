@@ -143,7 +143,6 @@ private:
 
     std::string _origin;
     // lifetime controlled by scan node
-    doris_udf::FunctionContext* _fn_ctx;
     using PatternType = std::conditional_t<is_vectorized, StringRef, StringVal>;
     using StateType = vectorized::LikeState;
     PatternType pattern;

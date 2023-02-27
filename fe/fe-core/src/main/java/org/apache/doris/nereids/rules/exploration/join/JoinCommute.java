@@ -22,7 +22,6 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 import java.util.List;
@@ -52,9 +51,9 @@ public class JoinCommute extends OneExplorationRuleFactory {
                             join.getJoinType().swap(),
                             join.getHashJoinConjuncts(),
                             join.getOtherJoinConjuncts(),
-                            JoinHint.NONE,
-                            join.right(), join.left(),
-                            join.getJoinReorderContext());
+                            join.getHint(),
+                            join.right(), join.left());
+                    newJoin.getJoinReorderContext().copyFrom(join.getJoinReorderContext());
                     newJoin.getJoinReorderContext().setHasCommute(true);
                     if (swapType == SwapType.ZIG_ZAG && isNotBottomJoin(join)) {
                         newJoin.getJoinReorderContext().setHasCommuteZigZag(true);

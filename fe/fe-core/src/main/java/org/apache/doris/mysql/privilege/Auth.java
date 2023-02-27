@@ -37,6 +37,7 @@ import org.apache.doris.catalog.InfoSchemaDb;
 import org.apache.doris.cluster.ClusterNamespace;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.AuthenticationException;
+import org.apache.doris.common.AuthorizationException;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
@@ -83,7 +84,7 @@ public class Auth implements Writable {
     private static final Logger LOG = LogManager.getLogger(Auth.class);
 
     // root user's role is operator.
-    // each Palo system has only one root user.
+    // each Doris system has only one root user.
     public static final String ROOT_USER = "root";
     public static final String ADMIN_USER = "admin";
     // unknown user does not have any privilege, this is just to be compatible with old version.
@@ -182,6 +183,8 @@ public class Auth implements Writable {
         readLock();
         try {
             userManager.checkPassword(remoteUser, remoteHost, remotePasswd, randomString, currentUser);
+            Set<String> roles = userRoleManager.getRolesByUser(currentUser.get(0));
+            currentUser.get(0).setRoles(roles);
         } finally {
             readUnlock();
         }
@@ -206,13 +209,17 @@ public class Auth implements Writable {
                 throw new AuthenticationException(ErrorCode.ERR_ACCESS_DENIED_ERROR, remoteUser + "@" + remoteHost,
                         Strings.isNullOrEmpty(remotePasswd) ? "NO" : "YES");
             }
-            return;
+        } else {
+            readLock();
+            try {
+                userManager.checkPlainPassword(remoteUser, remoteHost, remotePasswd, currentUser);
+            } finally {
+                readUnlock();
+            }
         }
-        readLock();
-        try {
-            userManager.checkPlainPassword(remoteUser, remoteHost, remotePasswd, currentUser);
-        } finally {
-            readUnlock();
+        if (currentUser != null) {
+            Set<String> roles = userRoleManager.getRolesByUser(currentUser.get(0));
+            currentUser.get(0).setRoles(roles);
         }
     }
 
@@ -305,6 +312,13 @@ public class Auth implements Writable {
             readUnlock();
         }
     }
+
+    // ==== Column ====
+    public void checkColsPriv(UserIdentity currentUser, String ctl, String db, String tbl, Set<String> cols,
+            PrivPredicate wanted) throws AuthorizationException {
+        // TODO: Support column priv
+    }
+
 
     // ==== Resource ====
     public boolean checkResourcePriv(UserIdentity currentUser, String resourceName, PrivPredicate wanted) {
@@ -1208,13 +1222,13 @@ public class Auth implements Writable {
                                             .getNameFromFullName(user.getUserIdentity().getQualifiedUser()))
                                     .concat("\'@\'").concat(user.getUserIdentity().getHost()).concat("\'");
                             String isGrantable = tablePrivEntry.getPrivSet().get(2) ? "YES" : "NO"; // GRANT_PRIV
-                            for (Privilege paloPriv : tablePrivEntry.getPrivSet().toPrivilegeList()) {
-                                if (!Privilege.privInDorisToMysql.containsKey(paloPriv)) {
+                            for (Privilege priv : tablePrivEntry.getPrivSet().toPrivilegeList()) {
+                                if (!Privilege.privInDorisToMysql.containsKey(priv)) {
                                     continue;
                                 }
                                 TPrivilegeStatus status = new TPrivilegeStatus();
                                 status.setTableName(tblName);
-                                status.setPrivilegeType(Privilege.privInDorisToMysql.get(paloPriv));
+                                status.setPrivilegeType(Privilege.privInDorisToMysql.get(priv));
                                 status.setGrantee(grantee);
                                 status.setSchema(dbName);
                                 status.setIsGrantable(isGrantable);
@@ -1259,12 +1273,12 @@ public class Auth implements Writable {
                                             .getNameFromFullName(user.getUserIdentity().getQualifiedUser()))
                                     .concat("\'@\'").concat(user.getUserIdentity().getHost()).concat("\'");
                             String isGrantable = dbPrivEntry.getPrivSet().get(2) ? "YES" : "NO"; // GRANT_PRIV
-                            for (Privilege paloPriv : dbPrivEntry.getPrivSet().toPrivilegeList()) {
-                                if (!Privilege.privInDorisToMysql.containsKey(paloPriv)) {
+                            for (Privilege priv : dbPrivEntry.getPrivSet().toPrivilegeList()) {
+                                if (!Privilege.privInDorisToMysql.containsKey(priv)) {
                                     continue;
                                 }
                                 TPrivilegeStatus status = new TPrivilegeStatus();
-                                status.setPrivilegeType(Privilege.privInDorisToMysql.get(paloPriv));
+                                status.setPrivilegeType(Privilege.privInDorisToMysql.get(priv));
                                 status.setGrantee(grantee);
                                 status.setSchema(dbName);
                                 status.setIsGrantable(isGrantable);
@@ -1304,8 +1318,8 @@ public class Auth implements Writable {
                                 .concat(ClusterNamespace.getNameFromFullName(user.getUserIdentity().getQualifiedUser()))
                                 .concat("\'@\'").concat(user.getUserIdentity().getHost()).concat("\'");
                         String isGrantable = privEntry.getPrivSet().get(2) ? "YES" : "NO"; // GRANT_PRIV
-                        for (Privilege paloPriv : privEntry.getPrivSet().toPrivilegeList()) {
-                            if (paloPriv == Privilege.ADMIN_PRIV) {
+                        for (Privilege globalPriv : privEntry.getPrivSet().toPrivilegeList()) {
+                            if (globalPriv == Privilege.ADMIN_PRIV) {
                                 // ADMIN_PRIV includes all privileges of table and resource.
                                 for (String priv : Privilege.privInDorisToMysql.values()) {
                                     TPrivilegeStatus status = new TPrivilegeStatus();
@@ -1316,11 +1330,11 @@ public class Auth implements Writable {
                                 }
                                 break;
                             }
-                            if (!Privilege.privInDorisToMysql.containsKey(paloPriv)) {
+                            if (!Privilege.privInDorisToMysql.containsKey(globalPriv)) {
                                 continue;
                             }
                             TPrivilegeStatus status = new TPrivilegeStatus();
-                            status.setPrivilegeType(Privilege.privInDorisToMysql.get(paloPriv));
+                            status.setPrivilegeType(Privilege.privInDorisToMysql.get(globalPriv));
                             status.setGrantee(grantee);
                             status.setIsGrantable(isGrantable);
                             userPrivResult.add(status);
@@ -1389,7 +1403,6 @@ public class Auth implements Writable {
         }
     }
 
-
     //tmp for current user can only has one role
     private void setRoleToUser(UserIdentity userIdent, String role) throws DdlException {
         // 1. check if role exist
@@ -1402,10 +1415,18 @@ public class Auth implements Writable {
         userRoleManager.addUserRole(userIdent, roleManager.getUserDefaultRoleName(userIdent));
     }
 
-    public static Auth read(DataInput in) throws IOException {
-        Auth auth = new Auth();
-        auth.readFields(in);
-        return auth;
+
+    /**
+     * This is a bug that if created a normal user and grant it with ADMIN_PRIV/RESOURCE_PRIV/NODE_PRIV
+     * before v1.2, and then upgrade to v1.2, these privileges will be set in catalog level, but it should be
+     * in global level.
+     * This method will rectify this bug. And it's logic is same with userPrivTable.degradeToInternalCatalogPriv(),
+     * but userPrivTable.degradeToInternalCatalogPriv() only handle the info in images, not in edit log.
+     * This rectifyPrivs() will be called after image and edit log replayed.
+     * So it will rectify the bug in both images and edit log.
+     */
+    public void rectifyPrivs() {
+        roleManager.rectifyPrivs();
     }
 
     @Override
@@ -1436,7 +1457,7 @@ public class Auth implements Writable {
                 catalogPrivTable = (CatalogPrivTable) PrivTable.read(in);
             } else {
                 catalogPrivTable = userPrivTable.degradeToInternalCatalogPriv();
-                LOG.info("Load PaloAuth from meta version < {}, degrade UserPrivTable to CatalogPrivTable",
+                LOG.info("Load auth from meta version < {}, degrade UserPrivTable to CatalogPrivTable",
                         FeMetaVersion.VERSION_111);
             }
             DbPrivTable dbPrivTable = (DbPrivTable) PrivTable.read(in);

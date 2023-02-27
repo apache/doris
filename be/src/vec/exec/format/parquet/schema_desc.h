@@ -42,6 +42,7 @@ struct FieldSchema {
     int physical_column_index = -1;
     int16_t definition_level = 0;
     int16_t repetition_level = 0;
+    int16_t repeated_parent_def_level = 0;
     std::vector<FieldSchema> children;
 
     FieldSchema() = default;

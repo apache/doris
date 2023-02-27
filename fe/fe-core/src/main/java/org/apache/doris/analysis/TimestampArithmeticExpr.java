@@ -147,11 +147,6 @@ public class TimestampArithmeticExpr extends Expr {
         return new TimestampArithmeticExpr(this);
     }
 
-    @Override
-    public boolean isVectorized() {
-        return false;
-    }
-
     private Type fixType() {
         PrimitiveType t1 = getChild(0).getType().getPrimitiveType();
         if (t1 == PrimitiveType.DATETIME) {
@@ -256,7 +251,8 @@ public class TimestampArithmeticExpr extends Expr {
             }
 
             if (!getChild(1).getType().isScalarType()) {
-                throw new AnalysisException("must be a scalar type.");
+                throw new AnalysisException(
+                        "the second argument must be a scalar type. but it is " + getChild(1).toSql());
             }
 
             // The second child must be of type 'INT' or castable to it.

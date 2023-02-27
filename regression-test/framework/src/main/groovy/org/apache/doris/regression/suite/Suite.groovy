@@ -25,6 +25,7 @@ import com.google.common.collect.ImmutableList
 import org.apache.doris.regression.action.BenchmarkAction
 import org.apache.doris.regression.util.DataUtils
 import org.apache.doris.regression.util.OutputUtils
+import org.apache.doris.regression.action.CreateMVAction
 import org.apache.doris.regression.action.ExplainAction
 import org.apache.doris.regression.action.RestoreAction
 import org.apache.doris.regression.action.StreamLoadAction
@@ -269,6 +270,14 @@ class Suite implements GroovyInterceptable {
 
     void explain(Closure actionSupplier) {
         runAction(new ExplainAction(context), actionSupplier)
+    }
+
+    void createMV(String sql) {
+        (new CreateMVAction(context, sql)).run()
+    }
+
+    void createMV(String sql, String expection) {
+        (new CreateMVAction(context, sql, expection)).run()
     }
 
     void test(Closure actionSupplier) {

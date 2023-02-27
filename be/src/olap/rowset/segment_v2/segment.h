@@ -96,6 +96,8 @@ public:
 
     Status lookup_row_key(const Slice& key, RowLocation* row_location);
 
+    Status read_key_by_rowid(uint32_t row_id, std::string* key);
+
     // only used by UT
     const SegmentFooterPB& footer() const { return _footer; }
 
@@ -113,6 +115,8 @@ public:
     }
 
     io::FileReaderSPtr file_reader() { return _file_reader; }
+
+    int64_t meta_mem_usage() const { return _meta_mem_usage; }
 
 private:
     DISALLOW_COPY_AND_ASSIGN(Segment);

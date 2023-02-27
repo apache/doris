@@ -58,6 +58,17 @@ ColumnPtr ColumnConst::filter(const Filter& filt, ssize_t /*result_size_hint*/) 
     return ColumnConst::create(data, count_bytes_in_filter(filt));
 }
 
+size_t ColumnConst::filter(const Filter& filter) {
+    if (s != filter.size()) {
+        LOG(FATAL) << fmt::format("Size of filter ({}) doesn't match size of column ({})",
+                                  filter.size(), s);
+    }
+
+    const auto result_size = count_bytes_in_filter(filter);
+    resize(result_size);
+    return result_size;
+}
+
 ColumnPtr ColumnConst::replicate(const Offsets& offsets) const {
     if (s != offsets.size()) {
         LOG(FATAL) << fmt::format("Size of offsets ({}) doesn't match size of column ({})",

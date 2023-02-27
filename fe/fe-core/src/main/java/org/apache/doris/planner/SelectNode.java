@@ -40,6 +40,9 @@ import java.util.List;
 public class SelectNode extends PlanNode {
     private static final Logger LOG = LogManager.getLogger(SelectNode.class);
 
+    /**
+     * Used by nereids only.
+     */
     public SelectNode(PlanNodeId id, PlanNode child) {
         super(id, child.getTupleIds(), "SELECT", StatisticalType.SELECT_NODE);
         addChild(child);

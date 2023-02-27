@@ -43,7 +43,10 @@ public class OptimizeGroupExpressionJob extends Job {
         countJobExecutionTimesOfGroupExpressions(groupExpression);
         List<Rule> validRules = new ArrayList<>();
         List<Rule> implementationRules = getRuleSet().getImplementationRules();
-        List<Rule> explorationRules = getRuleSet().getExplorationRules();
+        boolean isDisableJoinReorder = context.getCascadesContext().getConnectContext().getSessionVariable()
+                .isDisableJoinReorder();
+        List<Rule> explorationRules = isDisableJoinReorder ? getRuleSet().getExplorationRulesWithoutReorder()
+                : getRuleSet().getExplorationRules();
 
         validRules.addAll(getValidRules(groupExpression, implementationRules));
         validRules.addAll(getValidRules(groupExpression, explorationRules));

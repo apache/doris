@@ -117,7 +117,7 @@ set(OLAP_TEST_FILES
     olap/txn_manager_test.cpp
     olap/key_coder_test.cpp
     olap/short_key_index_test.cpp
-    #olap/primary_key_index_test.cpp
+    olap/primary_key_index_test.cpp
     olap/page_cache_test.cpp
     olap/hll_test.cpp
     olap/selection_vector_test.cpp
@@ -125,7 +125,7 @@ set(OLAP_TEST_FILES
     olap/options_test.cpp
     olap/common_test.cpp
     olap/tablet_cooldown_test.cpp
-    #olap/rowid_conversion_test.cpp
+    olap/rowid_conversion_test.cpp
     olap/remote_rowset_gc_test.cpp
     #olap/segcompaction_test.cpp
     #olap/ordered_data_compaction_test.cpp

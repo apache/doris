@@ -135,9 +135,12 @@ public class ExternalFileScanNode extends ExternalScanNode {
      * External file scan node for:
      * 1. Query hms table
      * 2. Load from file
+     * needCheckColumnPriv: Some of ExternalFileScanNode do not need to check column priv
+     * eg: s3 tvf, load scan node.
+     * These scan nodes do not have corresponding catalog/database/table info, so no need to do priv check
      */
-    public ExternalFileScanNode(PlanNodeId id, TupleDescriptor desc) {
-        super(id, desc, "EXTERNAL_FILE_SCAN_NODE", StatisticalType.FILE_SCAN_NODE);
+    public ExternalFileScanNode(PlanNodeId id, TupleDescriptor desc, boolean needCheckColumnPriv) {
+        super(id, desc, "EXTERNAL_FILE_SCAN_NODE", StatisticalType.FILE_SCAN_NODE, needCheckColumnPriv);
     }
 
     // Only for broker load job.
@@ -155,9 +158,10 @@ public class ExternalFileScanNode extends ExternalScanNode {
 
     // Only for stream load/routine load job.
     public void setLoadInfo(TUniqueId loadId, long txnId, Table targetTable, BrokerDesc brokerDesc,
-            BrokerFileGroup fileGroup, TBrokerFileStatus fileStatus, boolean strictMode, TFileType fileType) {
+            BrokerFileGroup fileGroup, TBrokerFileStatus fileStatus, boolean strictMode, TFileType fileType,
+            List<String> hiddenColumns) {
         FileGroupInfo fileGroupInfo = new FileGroupInfo(loadId, txnId, targetTable, brokerDesc,
-                fileGroup, fileStatus, strictMode, fileType);
+                fileGroup, fileStatus, strictMode, fileType, hiddenColumns);
         fileGroupInfos.add(fileGroupInfo);
         this.type = Type.LOAD;
     }
@@ -304,6 +308,8 @@ public class ExternalFileScanNode extends ExternalScanNode {
         switch (catalogType) {
             case IcebergExternalCatalog.ICEBERG_HMS:
             case IcebergExternalCatalog.ICEBERG_REST:
+            case IcebergExternalCatalog.ICEBERG_DLF:
+            case IcebergExternalCatalog.ICEBERG_GLUE:
                 IcebergSource icebergSource = new IcebergApiSource(
                         icebergTable, desc, columnNameToRange);
                 scanProvider = new IcebergScanProvider(icebergSource, analyzer);
@@ -479,7 +485,12 @@ public class ExternalFileScanNode extends ExternalScanNode {
                 }
             } else {
                 if (column.isAllowNull()) {
-                    expr = NullLiteral.create(org.apache.doris.catalog.Type.VARCHAR);
+                    if (type == Type.LOAD) {
+                        // In load process, the source type is string.
+                        expr = NullLiteral.create(org.apache.doris.catalog.Type.VARCHAR);
+                    } else {
+                        expr = NullLiteral.create(column.getType());
+                    }
                 } else {
                     expr = null;
                 }

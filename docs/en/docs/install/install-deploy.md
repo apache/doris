@@ -71,7 +71,7 @@ The Linux swap partition can cause serious performance problems for Doris, so yo
 
 ##### Linux file system
 
-When installing the operating system, we recommend that you select the ext4 file system.
+Both ext4 and xfs file systems are supported.
 
 #### Development Test Environment
 

@@ -333,7 +333,7 @@ public class CastExpr extends Expr {
 
         if (fn == null) {
             //TODO(xy): check map type
-            if (type.isStructType() && childType.isStringType()) {
+            if ((type.isMapType() || type.isStructType()) && childType.isStringType()) {
                 return;
             }
             if (childType.isNull() && Type.canCastTo(childType, type)) {
@@ -412,8 +412,8 @@ public class CastExpr extends Expr {
     }
 
     @Override
-    public Expr getResultValue() throws AnalysisException {
-        recursiveResetChildrenResult();
+    public Expr getResultValue(boolean inView) throws AnalysisException {
+        recursiveResetChildrenResult(inView);
         final Expr value = children.get(0);
         if (!(value instanceof LiteralExpr)) {
             return this;
@@ -580,22 +580,6 @@ public class CastExpr extends Expr {
             LOG.warn("Implicit casts fail", ex);
             Preconditions.checkState(false,
                     "Implicit casts should never throw analysis exception.");
-        }
-        FunctionName fnName = new FunctionName(getFnName(type));
-        Function searchDesc = new Function(fnName, Arrays.asList(collectChildReturnTypes()), Type.INVALID, false);
-        if (type.isScalarType()) {
-            if (isImplicit) {
-                fn = Env.getCurrentEnv().getFunction(
-                        searchDesc, Function.CompareMode.IS_NONSTRICT_SUPERTYPE_OF);
-            } else {
-                fn = Env.getCurrentEnv().getFunction(
-                        searchDesc, Function.CompareMode.IS_IDENTICAL);
-            }
-        } else if (type.isArrayType()) {
-            fn = ScalarFunction.createBuiltin(getFnName(Type.ARRAY),
-                    type, Function.NullableMode.ALWAYS_NULLABLE,
-                    Lists.newArrayList(Type.VARCHAR), false,
-                    "doris::CastFunctions::cast_to_array_val", null, null, true);
         }
     }
 
