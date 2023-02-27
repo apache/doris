@@ -295,12 +295,6 @@ curl http://be_host:webserver_port/metrics?type=json
 |`fragment_thread_pool_queue_size`| | Num | 当前查询执行线程池等待队列的长度 | 如果大于零，则说明查询线程已耗尽，查询会出现堆积 | P0 |
 |`doris_be_all_rowsets_num`| | Num | 当前所有 rowset 的个数 | | P0 |
 |`doris_be_all_segments_num`| | Num | 当前所有 segment 的个数 | | P0 |
-|`doris_be_heavy_work_max_threads`| | Num | brpc heavy线程池线程个数| | p0 |
-|`doris_be_light_work_max_threads`| | Num | brpc light线程池线程个数| | p0 | 
-|`doris_be_heavy_work_pool_queue_size`| | Num | brpc heavy线程池队列最大长度,超过则阻塞提交work| | p0 |
-|`doris_be_light_work_pool_queue_size`| | Num | brpc light线程池队列最大长度,超过则阻塞提交work| | p0 |
-|`doris_be_heavy_work_active_threads`| | Num | brpc heavy线程池活跃线程数| | p0 |
-|`doris_be_light_work_active_threads`| | Num | brpc light线程池活跃线程数| | p0 |
 
 ### 机器监控
 
