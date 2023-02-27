@@ -26,17 +26,19 @@ import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.JsonUtil;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.annotations.VisibleForTesting;
+import com.google.common.collect.Lists;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.json.simple.JSONObject;
-import org.json.simple.JSONValue;
 
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * Util for ES, some static method.
@@ -78,28 +80,6 @@ public class EsUtil {
         }
     }
 
-
-    /**
-     * Get the json object from specified jsonObject
-     */
-    public static JSONObject getJsonObject(JSONObject jsonObject, String key, int fromIndex) {
-        int firstOccr = key.indexOf('.', fromIndex);
-        if (firstOccr == -1) {
-            String token = key.substring(key.lastIndexOf('.') + 1);
-            if (jsonObject.containsKey(token)) {
-                return (JSONObject) jsonObject.get(token);
-            } else {
-                return null;
-            }
-        }
-        String fieldName = key.substring(fromIndex, firstOccr);
-        if (jsonObject.containsKey(fieldName)) {
-            return getJsonObject((JSONObject) jsonObject.get(fieldName), key, firstOccr + 1);
-        } else {
-            return null;
-        }
-    }
-
     /**
      * Get boolean throw DdlException when parse error
      **/
@@ -113,46 +93,15 @@ public class EsUtil {
         }
     }
 
-    /**
-     * Get Array fields.
-     **/
-    public static List<String> getArrayFields(String indexMapping) {
-        JSONObject mappings = getMapping(indexMapping);
-        JSONObject meta;
-        if (!mappings.containsKey("_meta")) {
-            // For ES 6.x and 7.x
-            String firstType = (String) mappings.keySet().iterator().next();
-            if (!"properties".equals(firstType)) {
-                // If type is not passed in takes the first type.
-                JSONObject firstData = (JSONObject) mappings.get(firstType);
-                if (!firstData.containsKey("_meta")) {
-                    return new ArrayList<>();
-                } else {
-                    meta = (JSONObject) firstData.get("_meta");
-                }
-            } else {
-                return new ArrayList<>();
-            }
-        } else {
-            meta = (JSONObject) mappings.get("_meta");
-        }
-        if (!meta.containsKey("doris")) {
-            return new ArrayList<>();
-        }
-        JSONObject dorisMeta = (JSONObject) meta.get("doris");
-        return (List<String>) dorisMeta.get("array_fields");
-    }
-
-    private static JSONObject getMapping(String indexMapping) {
-        JSONObject jsonObject = (JSONObject) JSONValue.parse(indexMapping);
+    @VisibleForTesting
+    public static ObjectNode getMapping(String indexMapping) {
+        ObjectNode jsonNodes = JsonUtil.parseObject(indexMapping);
         // If the indexName use alias takes the first mapping
-        Iterator<String> keys = jsonObject.keySet().iterator();
-        String docKey = keys.next();
-        JSONObject docData = (JSONObject) jsonObject.get(docKey);
-        return (JSONObject) docData.get("mappings");
+        return (ObjectNode) jsonNodes.iterator().next().get("mappings");
     }
 
-    private static JSONObject getRootSchema(JSONObject mappings, String mappingType) {
+    @VisibleForTesting
+    public static ObjectNode getRootSchema(ObjectNode mappings, String mappingType) {
         // Type is null in the following three cases
         // 1. Equal 6.8.x and after
         // 2. Multi-catalog auto infer
@@ -160,10 +109,10 @@ public class EsUtil {
         if (mappingType == null) {
             // remove dynamic templates, for ES 7.x and 8.x
             checkNonPropertiesFields(mappings);
-            String firstType = (String) mappings.keySet().iterator().next();
+            String firstType = mappings.fieldNames().next();
             if (!"properties".equals(firstType)) {
                 // If type is not passed in takes the first type.
-                JSONObject firstData = (JSONObject) mappings.get(firstType);
+                ObjectNode firstData = (ObjectNode) mappings.get(firstType);
                 // check for ES 6.x and before
                 checkNonPropertiesFields(firstData);
                 return firstData;
@@ -171,8 +120,8 @@ public class EsUtil {
             // Equal 7.x and after
             return mappings;
         } else {
-            if (mappings.containsKey(mappingType)) {
-                JSONObject jsonData = (JSONObject) mappings.get(mappingType);
+            if (mappings.has(mappingType)) {
+                ObjectNode jsonData = (ObjectNode) mappings.get(mappingType);
                 // check for ES 6.x and before
                 checkNonPropertiesFields(jsonData);
                 return jsonData;
@@ -187,7 +136,7 @@ public class EsUtil {
      *
      * @param mappings
      */
-    private static void checkNonPropertiesFields(JSONObject mappings) {
+    private static void checkNonPropertiesFields(ObjectNode mappings) {
         // remove `_meta` field
         mappings.remove("_meta");
         // remove `dynamic_templates` field
@@ -199,19 +148,18 @@ public class EsUtil {
     }
 
     /**
-     * Get mapping properties JSONObject.
+     * Get mapping properties transform to ObjectNode.
      **/
-    public static JSONObject getMappingProps(String sourceIndex, String indexMapping, String mappingType) {
-        JSONObject mappings = getMapping(indexMapping);
-        JSONObject rootSchema = getRootSchema(mappings, mappingType);
-        JSONObject properties = (JSONObject) rootSchema.get("properties");
+    public static ObjectNode getMappingProps(String sourceIndex, String indexMapping, String mappingType) {
+        ObjectNode mappings = getMapping(indexMapping);
+        ObjectNode rootSchema = getRootSchema(mappings, mappingType);
+        ObjectNode properties = (ObjectNode) rootSchema.get("properties");
         if (properties == null) {
             throw new DorisEsException(
                     "index[" + sourceIndex + "] type[" + mappingType + "] mapping not found for the ES Cluster");
         }
         return properties;
     }
-
 
     /**
      * Generate columns from ES Cluster.
@@ -220,9 +168,14 @@ public class EsUtil {
     public static List<Column> genColumnsFromEs(EsRestClient client, String indexName, String mappingType,
             boolean mappingEsId) {
         String mapping = client.getMapping(indexName);
-        JSONObject mappingProps = getMappingProps(indexName, mapping, mappingType);
-        List<String> arrayFields = getArrayFields(mapping);
-        Set<String> keys = (Set<String>) mappingProps.keySet();
+        ObjectNode mappings = getMapping(mapping);
+        ObjectNode rootSchema = getRootSchema(mappings, mappingType);
+        return genColumnsFromEs(indexName, mappingType, rootSchema, mappingEsId);
+    }
+
+    @VisibleForTesting
+    public static List<Column> genColumnsFromEs(String indexName, String mappingType, ObjectNode rootSchema,
+            boolean mappingEsId) {
         List<Column> columns = new ArrayList<>();
         if (mappingEsId) {
             Column column = new Column();
@@ -233,68 +186,143 @@ public class EsUtil {
             column.setUniqueId(-1);
             columns.add(column);
         }
-        for (String key : keys) {
-            JSONObject field = (JSONObject) mappingProps.get(key);
-            Type type;
-            // Complex types are treating as String types for now.
-            if (field.containsKey("type")) {
-                type = toDorisType(field.get("type").toString());
-            } else {
-                type = Type.STRING;
+        ObjectNode mappingProps = (ObjectNode) rootSchema.get("properties");
+        if (mappingProps == null) {
+            throw new DorisEsException(
+                    "index[" + indexName + "] type[" + mappingType + "] mapping not found for the ES Cluster");
+        }
+        List<String> arrayFields = new ArrayList<>();
+        JsonNode meta = mappingProps.get("_meta");
+        if (meta != null) {
+            JsonNode dorisMeta = meta.get("doris");
+            if (dorisMeta != null) {
+                arrayFields = dorisMeta.findValuesAsText("array_fields");
             }
-            Column column = new Column();
-            column.setName(key);
-            column.setIsKey(true);
-            column.setIsAllowNull(true);
-            column.setUniqueId(-1);
-            if (arrayFields.contains(key)) {
-                column.setType(ArrayType.create(type, true));
-            } else {
-                column.setType(type);
-            }
+        }
+        Iterator<String> iterator = mappingProps.fieldNames();
+        while (iterator.hasNext()) {
+            String fieldName = iterator.next();
+            ObjectNode fieldValue = (ObjectNode) mappingProps.get(fieldName);
+            Column column = parseEsField(fieldName, fieldValue, arrayFields);
             columns.add(column);
         }
         return columns;
     }
 
-    /**
-     * Transfer es type to doris type.
-     **/
-    public static Type toDorisType(String esType) {
-        // reference https://www.elastic.co/guide/en/elasticsearch/reference/8.3/sql-data-types.html
-        switch (esType) {
-            case "null":
-                return Type.NULL;
-            case "boolean":
-                return Type.BOOLEAN;
-            case "byte":
-                return Type.TINYINT;
-            case "short":
-                return Type.SMALLINT;
-            case "integer":
-                return Type.INT;
-            case "long":
-                return Type.BIGINT;
-            case "unsigned_long":
-                return Type.LARGEINT;
-            case "float":
-            case "half_float":
-                return Type.FLOAT;
-            case "double":
-            case "scaled_float":
-                return Type.DOUBLE;
-            case "date":
-                return ScalarType.createDateV2Type();
-            case "keyword":
-            case "text":
-            case "ip":
-            case "nested":
-            case "object":
-                return ScalarType.createStringType();
-            default:
-                return Type.UNSUPPORTED;
+    private static Column parseEsField(String fieldName, ObjectNode fieldValue, List<String> arrayFields) {
+        Column column = new Column();
+        column.setName(fieldName);
+        column.setIsKey(true);
+        column.setIsAllowNull(true);
+        column.setUniqueId(-1);
+        Type type;
+        // Complex types are treating as String types for now.
+        if (fieldValue.has("type")) {
+            String typeStr = fieldValue.get("type").asText();
+            column.setComment("Elasticsearch type is " + typeStr);
+            // reference https://www.elastic.co/guide/en/elasticsearch/reference/8.3/sql-data-types.html
+            switch (typeStr) {
+                case "null":
+                    type = Type.NULL;
+                    break;
+                case "boolean":
+                    type = Type.BOOLEAN;
+                    break;
+                case "byte":
+                    type = Type.TINYINT;
+                    break;
+                case "short":
+                    type = Type.SMALLINT;
+                    break;
+                case "integer":
+                    type = Type.INT;
+                    break;
+                case "long":
+                    type = Type.BIGINT;
+                    break;
+                case "unsigned_long":
+                    type = Type.LARGEINT;
+                    break;
+                case "float":
+                case "half_float":
+                    type = Type.FLOAT;
+                    break;
+                case "double":
+                case "scaled_float":
+                    type = Type.DOUBLE;
+                    break;
+                case "date":
+                    type = parseEsDateType(column, fieldValue);
+                    break;
+                case "keyword":
+                case "text":
+                case "ip":
+                case "nested":
+                case "object":
+                    type = ScalarType.createStringType();
+                    break;
+                default:
+                    type = Type.UNSUPPORTED;
+            }
+        } else {
+            type = Type.STRING;
+            column.setComment("Elasticsearch no type");
         }
+        if (arrayFields.contains(fieldName)) {
+            column.setType(ArrayType.create(type, true));
+        } else {
+            column.setType(type);
+        }
+        return column;
     }
 
-}
+    private static final List<String> ALLOW_DATE_FORMATS = Lists.newArrayList("yyyy-MM-dd HH:mm:ss", "yyyy-MM-dd",
+            "epoch_millis");
 
+    /**
+     * Parse es date to doris type by format
+     **/
+    private static Type parseEsDateType(Column column, ObjectNode field) {
+        if (!field.has("format")) {
+            // default format
+            column.setComment("Elasticsearch type is date, no format");
+            return ScalarType.createDatetimeV2Type(0);
+        } else {
+            String originFormat = field.get("format").asText();
+            String[] formats = originFormat.split("\\|\\|");
+            boolean dateTimeFlag = false;
+            boolean dateFlag = false;
+            boolean bigIntFlag = false;
+            for (String format : formats) {
+                // pre-check format
+                if (!ALLOW_DATE_FORMATS.contains(format)) {
+                    column.setComment(
+                            "Elasticsearch type is date, format is " + format + " not support, use String type");
+                    return ScalarType.createStringType();
+                }
+                switch (format) {
+                    case "yyyy-MM-dd HH:mm:ss":
+                        dateTimeFlag = true;
+                        break;
+                    case "yyyy-MM-dd":
+                        dateFlag = true;
+                        break;
+                    case "epoch_millis":
+                    default:
+                        bigIntFlag = true;
+                }
+            }
+            column.setComment("Elasticsearch type is date, format is " + originFormat);
+            if (dateTimeFlag) {
+                return ScalarType.createDatetimeV2Type(0);
+            }
+            if (dateFlag) {
+                return ScalarType.createDateV2Type();
+            }
+            if (bigIntFlag) {
+                return Type.BIGINT;
+            }
+            return ScalarType.createStringType();
+        }
+    }
+}
