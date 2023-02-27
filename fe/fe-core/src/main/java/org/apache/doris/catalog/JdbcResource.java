@@ -154,13 +154,14 @@ public class JdbcResource extends Resource {
                 case PASSWORD:
                 case TYPE:
                 case DRIVER_CLASS:
-                case ONLY_SPECIFIED_DATABASE:
+                case ONLY_SPECIFIED_DATABASE: // optional argument
                     break;
                 default:
                     throw new DdlException("JDBC resource Property of " + key + " is unknown");
             }
         }
         configs = properties;
+        handleOptionalArguments();
         checkProperties(DRIVER_URL);
         checkProperties(DRIVER_CLASS);
         checkProperties(JDBC_URL);
@@ -170,6 +171,16 @@ public class JdbcResource extends Resource {
         checkProperties(ONLY_SPECIFIED_DATABASE);
         this.configs.put(JDBC_URL, handleJdbcUrl(getProperty(JDBC_URL)));
         configs.put(CHECK_SUM, computeObjectChecksum(getProperty(DRIVER_URL)));
+    }
+
+    /**
+     * This function used to handle optional arguments
+     * eg: only_specified_database
+     */
+    private void handleOptionalArguments() {
+        if (!configs.containsKey(ONLY_SPECIFIED_DATABASE)) {
+            configs.put(ONLY_SPECIFIED_DATABASE, "false");
+        }
     }
 
     @Override
