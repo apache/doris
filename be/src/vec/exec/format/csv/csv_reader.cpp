@@ -678,7 +678,7 @@ Status CsvReader::_prepare_parse(size_t* read_line, bool* is_parse_name) {
     if (_params.file_type == TFileType::FILE_STREAM) {
         RETURN_IF_ERROR(FileFactory::create_pipe_reader(_params.load_id, &_file_reader, _state));
     } else {
-    RETURN_IF_ERROR(FileFactory::create_file_reader(_system_properties, _file_description,
+        RETURN_IF_ERROR(FileFactory::create_file_reader(_system_properties, _file_description,
                                                     reader_options, &_file_system, &_file_reader));
     }
     if (_file_reader->size() == 0 && _params.file_type != TFileType::FILE_STREAM &&

@@ -174,7 +174,6 @@ public:
 
     std::shared_ptr<MessageBodySink> body_sink;
     std::shared_ptr<io::StreamLoadPipe> pipe;
-
     TStreamLoadPutResult put_result;
     TStreamLoadMultiTablePutResult multi_table_put_result;
 
@@ -182,6 +181,8 @@ public:
 
     std::promise<Status> promise;
     std::future<Status> future = promise.get_future();
+    std::promise<Status> restore_pipe_promise;
+    std::future<Status> restore_pipe_future = restore_pipe_promise.get_future();
 
     // for stream schema buffer
     // Use buffer to store the first 1MB of stream data so that the schema can be parsed later
@@ -190,6 +191,7 @@ public:
     char* schema_buffer;
     size_t schema_buffer_size = 0;
     bool need_schema_buffer;
+    bool need_wait_restore_pipe = false;
 
     Status status;
 

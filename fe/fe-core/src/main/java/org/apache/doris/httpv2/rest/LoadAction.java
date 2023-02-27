@@ -89,9 +89,9 @@ public class LoadAction extends RestBaseController {
                         method = RequestMethod.PUT)
     public Object streamLoadWithSql(HttpServletRequest request,
                              HttpServletResponse response) {
-        executeCheckPassword(request, response);
         String sql = request.getHeader("sql");
         LOG.info("streaming load sql={}", sql);
+        executeCheckPassword(request, response);
         try {
             // A 'Load' request must have 100-continue header
             if (request.getHeader(HttpHeaderNames.EXPECT.toString()) == null) {

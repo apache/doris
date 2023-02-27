@@ -604,9 +604,13 @@ void PInternalServiceImpl::fetch_table_schema(google::protobuf::RpcController* c
             return;
         }
         if (params.file_type == TFileType::FILE_STREAM) {
-            // notify StreamLoadAction fetch stream schema is finished
-            st = ExecEnv::GetInstance()->new_load_stream_mgr()->set_bufer_promise(params.load_id,
-                                                                                Status::OK());
+            auto stream_load_ctx =
+                    ExecEnv::GetInstance()->new_load_stream_mgr()->get(params.load_id);
+            if (!stream_load_ctx) {
+                st = Status::InternalError("unknown stream load id: {}",
+                                           UniqueId(params.load_id).to_string());
+            }
+            stream_load_ctx->need_wait_restore_pipe = true;
         }
         result->set_column_nums(col_names.size());
         for (size_t idx = 0; idx < col_names.size(); ++idx) {
@@ -730,11 +734,11 @@ void PInternalServiceImpl::report_stream_load_status(google::protobuf::RpcContro
     load_id.__set_hi(request->load_id().hi());
     load_id.__set_lo(request->load_id().lo());
     Status st = Status::OK();
-    if (_exec_env->new_load_stream_mgr()->have_promise(load_id)) {
-        _exec_env->new_load_stream_mgr()->set_promise(load_id, request->status());
-    } else {
-        st = Status::InternalError("Not exist loadid");
+    auto stream_load_ctx = _exec_env->new_load_stream_mgr()->get(load_id);
+    if (!stream_load_ctx) {
+        st = Status::InternalError("unknown stream load id: {}", UniqueId(load_id).to_string());
     }
+    stream_load_ctx->promise.set_value(st);
     st.to_protobuf(response->mutable_status());
 }
 
