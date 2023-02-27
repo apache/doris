@@ -27,6 +27,7 @@ import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.Auth;
+import org.apache.doris.mysql.privilege.RoleManager;
 import org.apache.doris.persist.gson.GsonPostProcessable;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TUserIdentity;
@@ -208,6 +209,20 @@ public class UserIdentity implements Writable, GsonPostProcessable {
         tUserIdent.setUsername(user);
         tUserIdent.setIsDomain(isDomain);
         return tUserIdent;
+    }
+
+    // return default_role_rbac_username@host or default_role_rbac_username@[domain]
+    public String toDefaultRoleName() {
+        StringBuilder sb = new StringBuilder(
+                RoleManager.DEFAULT_ROLE_PREFIX + ClusterNamespace.getNameFromFullName(user) + "@");
+        if (isDomain) {
+            sb.append("[");
+        }
+        sb.append(host);
+        if (isDomain) {
+            sb.append("]");
+        }
+        return sb.toString();
     }
 
     public static UserIdentity read(DataInput in) throws IOException {

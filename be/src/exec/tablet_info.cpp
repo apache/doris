@@ -246,6 +246,9 @@ Status VOlapTablePartitionParam::init() {
                 RETURN_IF_ERROR(_create_partition_keys(
                         keys, &part->in_keys.emplace_back(&_partition_block, -1)));
             }
+            if (t_part.__isset.is_default_partition && t_part.is_default_partition) {
+                _default_partition = part;
+            }
         }
 
         part->num_buckets = t_part.num_buckets;
@@ -293,14 +296,15 @@ bool VOlapTablePartitionParam::find_partition(BlockRow* block_row,
                                               const VOlapTablePartition** partition) const {
     auto it = _is_in_partition ? _partitions_map->find(block_row)
                                : _partitions_map->upper_bound(block_row);
-    if (it == _partitions_map->end()) {
-        return false;
+    // for list partition it might result in default partition
+    if (_is_in_partition) {
+        *partition = (it != _partitions_map->end()) ? it->second : _default_partition;
+        it = _partitions_map->end();
     }
-    if (_is_in_partition || _part_contains(it->second, block_row)) {
+    if (it != _partitions_map->end() && _part_contains(it->second, block_row)) {
         *partition = it->second;
-        return true;
     }
-    return false;
+    return (*partition != nullptr);
 }
 
 uint32_t VOlapTablePartitionParam::find_tablet(BlockRow* block_row,

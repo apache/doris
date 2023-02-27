@@ -571,3 +571,13 @@ SELECT /*+ SET_VAR(query_timeout = 1, enable_partition_cache=true) */ sleep(3);
 * `drop_table_if_ctas_failed`
 
     控制create table as select在写入发生错误时是否删除已创建的表，默认为true。
+
+* `show_user_default_role`
+
+    <version since="dev"></version>
+
+    控制是否在 `show roles` 的结果里显示每个用户隐式对应的角色。默认为 false。
+
+* `use_fix_replica`
+
+    使用固定的replica进行查询，该值表示固定使用第几小的replica，默认为-1表示不启用。

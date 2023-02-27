@@ -30,6 +30,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.Auth.PrivLevel;
 import org.apache.doris.persist.gson.GsonUtils;
+import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
 
 import com.google.common.base.Joiner;
@@ -122,11 +123,12 @@ public class RoleManager implements Writable {
         return existingRole;
     }
 
-
     public void getRoleInfo(List<List<String>> results) {
         for (Role role : roles.values()) {
             if (role.getRoleName().startsWith(DEFAULT_ROLE_PREFIX)) {
-                continue;
+                if (ConnectContext.get() == null || !ConnectContext.get().getSessionVariable().showUserDefaultRole) {
+                    continue;
+                }
             }
             List<String> info = Lists.newArrayList();
             info.add(role.getRoleName());
@@ -185,11 +187,17 @@ public class RoleManager implements Writable {
     }
 
     public String getUserDefaultRoleName(UserIdentity userIdentity) {
-        return DEFAULT_ROLE_PREFIX + userIdentity.toString();
+        return userIdentity.toDefaultRoleName();
     }
 
     public Map<String, Role> getRoles() {
         return roles;
+    }
+
+    public void rectifyPrivs() {
+        for (Map.Entry<String, Role> entry : roles.entrySet()) {
+            entry.getValue().rectifyPrivs();
+        }
     }
 
     @Override

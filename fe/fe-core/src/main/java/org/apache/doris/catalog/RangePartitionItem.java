@@ -41,6 +41,11 @@ public class RangePartitionItem extends PartitionItem {
     }
 
     @Override
+    public boolean isDefaultPartition() {
+        return false;
+    }
+
+    @Override
     public void write(DataOutput out) throws IOException {
         RangeUtils.writeRange(out, partitionKeyRange);
     }

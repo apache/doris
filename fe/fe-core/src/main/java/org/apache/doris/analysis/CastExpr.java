@@ -333,7 +333,7 @@ public class CastExpr extends Expr {
 
         if (fn == null) {
             //TODO(xy): check map type
-            if (type.isStructType() && childType.isStringType()) {
+            if ((type.isMapType() || type.isStructType()) && childType.isStringType()) {
                 return;
             }
             if (childType.isNull() && Type.canCastTo(childType, type)) {
@@ -412,8 +412,8 @@ public class CastExpr extends Expr {
     }
 
     @Override
-    public Expr getResultValue() throws AnalysisException {
-        recursiveResetChildrenResult();
+    public Expr getResultValue(boolean inView) throws AnalysisException {
+        recursiveResetChildrenResult(inView);
         final Expr value = children.get(0);
         if (!(value instanceof LiteralExpr)) {
             return this;

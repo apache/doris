@@ -92,7 +92,6 @@ import java.io.StringReader;
 import java.net.DatagramSocket;
 import java.net.ServerSocket;
 import java.net.SocketException;
-import java.nio.channels.SocketChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -190,8 +189,7 @@ public abstract class TestWithFeService {
     }
 
     protected ConnectContext createCtx(UserIdentity user, String host) throws IOException {
-        SocketChannel channel = SocketChannel.open();
-        ConnectContext ctx = new ConnectContext(channel);
+        ConnectContext ctx = new ConnectContext();
         ctx.setCluster(SystemInfoService.DEFAULT_CLUSTER);
         ctx.setCurrentUserIdentity(user);
         ctx.setQualifiedUser(user.getQualifiedUser());

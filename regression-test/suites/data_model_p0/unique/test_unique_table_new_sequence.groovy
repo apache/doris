@@ -119,6 +119,8 @@ suite("test_unique_table_new_sequence") {
 
     order_qt_all "SELECT * from ${tableName}"
 
+    qt_desc "desc ${tableName}"
+
     sql "DROP TABLE ${tableName}"
 }
 

@@ -528,6 +528,10 @@ public class PlanChecker {
         return chooseBestPlan(cascadesContext.getMemo().getRoot(), PhysicalProperties.ANY);
     }
 
+    public PhysicalPlan getBestPlanTree(PhysicalProperties properties) {
+        return chooseBestPlan(cascadesContext.getMemo().getRoot(), properties);
+    }
+
     public PlanChecker printlnBestPlanTree() {
         System.out.println(chooseBestPlan(cascadesContext.getMemo().getRoot(), PhysicalProperties.ANY).treeString());
         System.out.println("-----------------------------");

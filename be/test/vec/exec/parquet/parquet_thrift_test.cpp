@@ -375,13 +375,14 @@ TEST_F(ParquetThriftReaderTest, group_reader) {
         {
             TTypeNode node;
             node.__set_type(TTypeNodeType::ARRAY);
-            node.contains_null = true;
+            std::vector<bool> contains_nulls {true};
+            node.__set_contains_nulls(contains_nulls);
             TTypeNode inner;
             inner.__set_type(TTypeNodeType::SCALAR);
             TScalarType scalar_type;
             scalar_type.__set_type(TPrimitiveType::STRING);
             inner.__set_scalar_type(scalar_type);
-            inner.contains_null = true;
+            inner.__set_contains_nulls(contains_nulls);
             type.types.push_back(node);
             type.types.push_back(inner);
         }

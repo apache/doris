@@ -1299,6 +1299,11 @@ public class FunctionCallExpr extends Expr {
             fn.setReturnType(new ArrayType(getChild(0).type));
         }
 
+        if (fnName.getFunction().equalsIgnoreCase("group_uniq_array")
+                || fnName.getFunction().equalsIgnoreCase("group_array")) {
+            fn.setReturnType(new ArrayType(getChild(0).type));
+        }
+
         if (fnName.getFunction().equalsIgnoreCase("from_unixtime")
                 || fnName.getFunction().equalsIgnoreCase("date_format")) {
             // if has only one child, it has default time format: yyyy-MM-dd HH:mm:ss.SSSSSS
@@ -1409,7 +1414,7 @@ public class FunctionCallExpr extends Expr {
          * Return type is DATETIME
          */
         if (fn.getFunctionName().getFunction().equals("str_to_date")) {
-            Expr child1Result = getChild(1).getResultValue();
+            Expr child1Result = getChild(1).getResultValue(false);
             if (child1Result instanceof StringLiteral) {
                 if (DateLiteral.hasTimePart(child1Result.getStringValue())) {
                     this.type = Type.DATETIME;

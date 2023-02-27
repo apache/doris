@@ -19,11 +19,10 @@
 // and modified by Doris
 #pragma once
 
-#include <string_view>
-
 #include "vec/columns/column.h"
 #include "vec/columns/column_array.h"
 #include "vec/columns/column_string.h"
+#include "vec/common/string_ref.h"
 #include "vec/data_types/data_type_array.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/functions/function.h"
@@ -125,8 +124,8 @@ private:
                 size_t str_len = str_offs[pos + off] - str_pos;
                 const char* left_raw_v = reinterpret_cast<const char*>(&str_chars[str_pos]);
                 const char* right_raw_v = reinterpret_cast<const char*>(&right_chars[right_off]);
-                if (std::string_view(left_raw_v, str_len) ==
-                    std::string_view(right_raw_v, right_len)) {
+                // StringRef operator == using vec impl
+                if (StringRef(left_raw_v, str_len) == StringRef(right_raw_v, right_len)) {
                     ConcreteAction::apply(res, pos);
                     break;
                 }

@@ -47,7 +47,7 @@ public class ColumnDefTest {
         floatCol = new TypeDef(ScalarType.createType(PrimitiveType.FLOAT));
         booleanCol = new TypeDef(ScalarType.createType(PrimitiveType.BOOLEAN));
 
-        ctx = new ConnectContext(null);
+        ctx = new ConnectContext();
         new MockUp<ConnectContext>() {
             @Mock
             public ConnectContext get() {

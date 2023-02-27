@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <cstdint>
+
 #include "common/logging.h"
 #include "fmt/format.h"
 #include "runtime/datetime_value.h"
@@ -179,6 +181,11 @@ struct SubtractIntervalImpl {
 };
 
 template <typename DateType>
+struct SubtractMicrosecondsImpl : SubtractIntervalImpl<AddMicrosecondsImpl<DateType>, DateType> {
+    static constexpr auto name = "microseconds_sub";
+};
+
+template <typename DateType>
 struct SubtractSecondsImpl : SubtractIntervalImpl<AddSecondsImpl<DateType>, DateType> {
     static constexpr auto name = "seconds_sub";
 };
@@ -238,7 +245,8 @@ struct SubtractYearsImpl : SubtractIntervalImpl<AddYearsImpl<DateType>, DateType
         using ReturnType = RETURN_TYPE;                                                            \
         static constexpr auto name = #FN_NAME;                                                     \
         static constexpr auto is_nullable = false;                                                 \
-        static inline Int32 execute(const ArgType1& t0, const ArgType2& t1, bool& is_null) {       \
+        static inline ReturnType::FieldType execute(const ArgType1& t0, const ArgType2& t1,        \
+                                                    bool& is_null) {                               \
             const auto& ts0 = reinterpret_cast<const DateValueType1&>(t0);                         \
             const auto& ts1 = reinterpret_cast<const DateValueType2&>(t1);                         \
             is_null = !ts0.is_valid_date() || !ts1.is_valid_date();                                \
@@ -275,7 +283,8 @@ TIME_DIFF_FUNCTION_IMPL(SecondsDiffImpl, seconds_diff, SECOND);
         using ReturnType = DataTypeInt32;                                                         \
         static constexpr auto name = #NAME;                                                       \
         static constexpr auto is_nullable = false;                                                \
-        static inline int64_t execute(const ArgType& t0, const Int32 mode, bool& is_null) {       \
+        static inline ReturnType::FieldType execute(const ArgType& t0, const Int32 mode,          \
+                                                    bool& is_null) {                              \
             const auto& ts0 = reinterpret_cast<const DateValueType&>(t0);                         \
             is_null = !ts0.is_valid_date();                                                       \
             return ts0.FUNCTION;                                                                  \
