@@ -266,7 +266,7 @@ TEST_F(SegCompactionTest, SegCompactionThenRead) {
             }
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
-            sleep(3);
+            sleep(1);
         }
 
         rowset = rowset_writer->build();
@@ -463,7 +463,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_ooooOOoOooooooooO) {
             }
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
-            sleep(3);
+            sleep(1);
         }
 
         rowset = rowset_writer->build();
@@ -590,7 +590,7 @@ TEST_F(SegCompactionTest, SegCompactionInterleaveWithBig_OoOoO) {
             }
             s = rowset_writer->flush();
             EXPECT_EQ(Status::OK(), s);
-            sleep(3);
+            sleep(1);
         }
 
         rowset = rowset_writer->build();
@@ -659,7 +659,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
 
         s = rowset_writer->flush();
         EXPECT_EQ(Status::OK(), s);
-        sleep(3);
+        sleep(1);
         // segment#1
         k1 = k2 = 2;
         k3 = 1;
@@ -687,7 +687,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
 
         s = rowset_writer->flush();
         EXPECT_EQ(Status::OK(), s);
-        sleep(3);
+        sleep(1);
 
         // segment#2
         k1 = k2 = 3;
@@ -716,7 +716,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
 
         s = rowset_writer->flush();
         EXPECT_EQ(Status::OK(), s);
-        sleep(3);
+        sleep(1);
 
         // segment#3
         k1 = k2 = 4;
@@ -745,7 +745,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
 
         s = rowset_writer->flush();
         EXPECT_EQ(Status::OK(), s);
-        sleep(3);
+        sleep(1);
 
         // segment#4
         k1 = k2 = 25;
@@ -758,7 +758,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
 
         s = rowset_writer->flush();
         EXPECT_EQ(Status::OK(), s);
-        sleep(3);
+        sleep(1);
 
         // segment#5
         k1 = k2 = 26;
@@ -771,7 +771,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadUniqueTableSmall) {
 
         s = rowset_writer->flush();
         EXPECT_EQ(Status::OK(), s);
-        sleep(3);
+        sleep(1);
 
         rowset = rowset_writer->build();
         std::vector<std::string> ls;
@@ -894,7 +894,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
 
         s = rowset_writer->flush();
         EXPECT_EQ(Status::OK(), s);
-        sleep(3);
+        sleep(1);
         // segment#1
         k1 = k2 = 2;
         k3 = 1;
@@ -922,7 +922,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
 
         s = rowset_writer->flush();
         EXPECT_EQ(Status::OK(), s);
-        sleep(3);
+        sleep(1);
 
         // segment#2
         k1 = k2 = 3;
@@ -951,7 +951,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
 
         s = rowset_writer->flush();
         EXPECT_EQ(Status::OK(), s);
-        sleep(3);
+        sleep(1);
 
         // segment#3
         k1 = k2 = 4;
@@ -980,7 +980,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
 
         s = rowset_writer->flush();
         EXPECT_EQ(Status::OK(), s);
-        sleep(3);
+        sleep(1);
 
         // segment#4
         k1 = k2 = 25;
@@ -993,7 +993,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
 
         s = rowset_writer->flush();
         EXPECT_EQ(Status::OK(), s);
-        sleep(3);
+        sleep(1);
 
         // segment#5
         k1 = k2 = 26;
@@ -1006,7 +1006,7 @@ TEST_F(SegCompactionTest, SegCompactionThenReadAggTableSmall) {
 
         s = rowset_writer->flush();
         EXPECT_EQ(Status::OK(), s);
-        sleep(3);
+        sleep(1);
 
         rowset = rowset_writer->build();
         std::vector<std::string> ls;
