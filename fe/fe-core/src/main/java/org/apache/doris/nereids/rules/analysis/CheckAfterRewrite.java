@@ -30,6 +30,7 @@ import org.apache.doris.nereids.trees.expressions.functions.ExpressionTrait;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
+import org.apache.doris.nereids.util.TypeUtils;
 
 import org.apache.commons.lang.StringUtils;
 
@@ -47,6 +48,7 @@ public class CheckAfterRewrite extends OneAnalysisRuleFactory {
         return any().then(plan -> {
             checkAllSlotReferenceFromChildren(plan);
             checkMetricTypeIsUsedCorrectly(plan);
+            TypeUtils.checkPlanOutputTypes(plan);
             return null;
         }).toRule(RuleType.CHECK_ANALYSIS);
     }
