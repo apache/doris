@@ -42,7 +42,8 @@ The configuration of the auditloader plugin is located in `$ {DORIS}/fe_plugins/
 
 Open `plugin.conf` for configuration. See the comments of the configuration items.
 
-Currently, audit-plugin supports importing slow query logs into a separate slow table, `doris_slow_log_tbl__`,  which is closed by default. In the plugin configuration file, add `enable_slow_log = true` to enable the function. And you could modify 'qe_slow_log_ms' item in FE configuration file to change slow query threshold.
+<version since="1.2.0"></version>
+Audit log plugin supports importing slow query logs into a separate slow table since version 1.2, `doris_slow_log_tbl__`,  which is closed by default. In the plugin configuration file, add `enable_slow_log = true` to enable the function. And you could modify 'qe_slow_log_ms' item in FE configuration file to change slow query threshold.
 
 ### Compile
 

@@ -42,7 +42,8 @@ auditloader plugin的配置位于`${DORIS}/fe_plugins/auditloader/src/main/assem
 
 打开 `plugin.conf` 进行配置。配置项说明参见注释。
 
-当前，审计日志插件支持将慢查询日志导入到单独的慢表 `doris_slow_log_tbl__` 中，Doris 中默认关闭，在审计日志的配置文件中，增加 `enable_slow_log = true`，开启该功能。并且可以在 FE 配置文件中修改 `qe_slow_log_ms` 项来修改慢查询阈值。
+<version since="1.2.0"></version>
+从 1.2 版本开始，审计日志插件支持将慢查询日志导入到单独的慢表 `doris_slow_log_tbl__` 中，Doris 中默认关闭，在审计日志的配置文件中，增加 `enable_slow_log = true`，开启该功能。并且可以在 FE 配置文件中修改 `qe_slow_log_ms` 项来修改慢查询阈值。
 
 ### 编译
 
