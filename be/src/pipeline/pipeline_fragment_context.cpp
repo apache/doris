@@ -780,6 +780,9 @@ Status PipelineFragmentContext::submit() {
 }
 
 void PipelineFragmentContext::close_if_prepare_failed() {
+    if (_tasks.empty()) {
+        _root_plan->close(_runtime_state.get());
+    }
     for (auto& task : _tasks) {
         DCHECK(!task->is_pending_finish());
         WARN_IF_ERROR(task->close(), "close_if_prepare_failed failed: ");
