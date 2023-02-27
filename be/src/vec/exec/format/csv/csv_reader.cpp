@@ -542,10 +542,10 @@ void CsvReader::_split_line(const Slice& line) {
                     // cur is ", mark quoted finished
                     quoted = !quoted;
                 }
-                curpos ++;
+                curpos++;
             } else if (_trim_double_quotes && quoted) {
                 // when use _trim_double_quotes option, prevent content from being splitted by delimiter
-                curpos ++;
+                curpos++;
             } else if (curpos + p1 == line.size || *(value + curpos + p1) != _value_separator[p1]) {
                 // Not match, move forward:
                 curpos += (p1 == 0 ? 1 : p1);
