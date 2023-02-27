@@ -507,7 +507,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
                         expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, olapScanNode, context)
                 )
         );
-        olapScanNode.finalizeForNerieds();
+        olapScanNode.finalizeForNereids();
         // Create PlanFragment
         DataPartition dataPartition = DataPartition.RANDOM;
         if (olapScan.getDistributionSpec() instanceof DistributionSpecHash) {
@@ -1244,17 +1244,17 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
             return inputFragment;
         }
         List<Expr> predicateList = inputPlanNode.getConjuncts();
-        Set<SlotId> requiredSlotIdList = new HashSet<>();
-        for (Expr expr : predicateList) {
-            extractExecSlot(expr, requiredSlotIdList);
-        }
-
+        Set<SlotId> requiredSlotIdSet = Sets.newHashSet();
         for (Expr expr : execExprList) {
-            extractExecSlot(expr, requiredSlotIdList);
+            extractExecSlot(expr, requiredSlotIdSet);
+        }
+        Set<SlotId> requiredByProjectSlotIdSet = Sets.newHashSet(requiredSlotIdSet);
+        for (Expr expr : predicateList) {
+            extractExecSlot(expr, requiredSlotIdSet);
         }
         if (inputPlanNode instanceof TableFunctionNode) {
             TableFunctionNode tableFunctionNode = (TableFunctionNode) inputPlanNode;
-            tableFunctionNode.setOutputSlotIds(Lists.newArrayList(requiredSlotIdList));
+            tableFunctionNode.setOutputSlotIds(Lists.newArrayList(requiredSlotIdSet));
         }
 
         TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, null, context);
@@ -1262,14 +1262,14 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         inputPlanNode.setOutputTupleDesc(tupleDescriptor);
 
         if (inputPlanNode instanceof ScanNode) {
-            updateChildSlotsMaterialization(inputPlanNode, requiredSlotIdList, context);
+            updateChildSlotsMaterialization(inputPlanNode, requiredSlotIdSet, requiredByProjectSlotIdSet, context);
             return inputFragment;
         }
         return inputFragment;
     }
 
     private void updateChildSlotsMaterialization(PlanNode execPlan,
-            Set<SlotId> requiredSlotIdList,
+            Set<SlotId> requiredSlotIdSet, Set<SlotId> requiredByProjectSlotIdSet,
             PlanTranslatorContext context) {
         Set<SlotRef> slotRefSet = new HashSet<>();
         for (Expr expr : execPlan.getConjuncts()) {
@@ -1277,7 +1277,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         Set<SlotId> slotIdSet = slotRefSet.stream()
                 .map(SlotRef::getSlotId).collect(Collectors.toSet());
-        slotIdSet.addAll(requiredSlotIdList);
+        slotIdSet.addAll(requiredSlotIdSet);
         boolean noneMaterialized = execPlan.getTupleIds().stream()
                 .map(context::getTupleDesc)
                 .map(TupleDescriptor::getSlots)
@@ -1291,7 +1291,7 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
         if (execPlan instanceof ScanNode) {
             try {
-                ((ScanNode) execPlan).updateRequiredSlots();
+                ((ScanNode) execPlan).updateRequiredSlots(context, requiredByProjectSlotIdSet);
             } catch (UserException e) {
                 Util.logAndThrowRuntimeException(LOG,
                         "User Exception while reset external file scan node contexts.", e);
