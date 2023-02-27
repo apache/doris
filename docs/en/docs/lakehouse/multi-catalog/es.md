@@ -68,27 +68,28 @@ After switching to the ES Catalog, you will be in the `dafault_db`  so you don't
 
 ## Column Type Mapping
 
-| ES Type       | Doris Type  | Comment |
-| ------------- | ----------- | ------- |
-| null          | null        |         |
-| boolean       | boolean     |         |
-| byte          | tinyint     |         |
-| short         | smallint    |         |
-| integer       | int         |         |
-| long          | bigint      |         |
-| unsigned_long | largeint    |         |
-| float         | float       |         |
-| half_float    | float       |         |
-| double        | double      |         |
-| scaled_float  | double      |         |
-| date          | date        |         |
-| keyword       | string      |         |
-| text          | string      |         |
-| ip            | string      |         |
-| nested        | string      |         |
-| object        | string      |         |
-| other         | unsupported |         |
+| ES Type       | Doris Type  | Comment                                                                 |
+| ------------- | ----------- |-------------------------------------------------------------------------|
+| null          | null        |                                                                         |
+| boolean       | boolean     |                                                                         |
+| byte          | tinyint     |                                                                         |
+| short         | smallint    |                                                                         |
+| integer       | int         |                                                                         |
+| long          | bigint      |                                                                         |
+| unsigned_long | largeint    |                                                                         |
+| float         | float       |                                                                         |
+| half_float    | float       |                                                                         |
+| double        | double      |                                                                         |
+| scaled_float  | double      |                                                                         |
+| date          | date        | Only support default/yyyy-MM-dd HH:mm:ss/yyyy-MM-dd/epoch_millis format |
+| keyword       | string      |                                                                         |
+| text          | string      |                                                                         |
+| ip            | string      |                                                                         |
+| nested        | string      |                                                                         |
+| object        | string      |                                                                         |
+| other         | unsupported |                                                                         |
 
+<version since="dev">
 ### Array Type
 
 Elasticsearch does not have an explicit array type, but one of its fields can contain 
@@ -153,6 +154,7 @@ curl -X PUT "localhost:9200/doc/_mapping?pretty" -H 'Content-Type: application/j
 
 `array_fields`：Used to indicate a field that is an array type.
 
+</version>
 ## Best Practice
 
 ### Predicate Pushdown
