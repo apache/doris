@@ -192,10 +192,6 @@ public:
     void full_encode_ascending(const void* value, std::string* buf) const {
         _key_coder->full_encode_ascending(value, buf);
     }
-
-    Status decode_ascending(Slice* encoded_key, uint8_t* cell_ptr, MemPool* pool) const {
-        return _key_coder->decode_ascending(encoded_key, _index_size, cell_ptr, pool);
-    }
     void add_sub_field(std::unique_ptr<Field> sub_field) {
         _sub_fields.emplace_back(std::move(sub_field));
     }
