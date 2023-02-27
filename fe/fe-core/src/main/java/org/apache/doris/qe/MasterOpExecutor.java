@@ -129,7 +129,7 @@ public class MasterOpExecutor {
 
         boolean isReturnToPool = false;
         try {
-            client.forward(params);
+            result = client.forward(params);
             isReturnToPool = true;
         } catch (TTransportException e) {
             // wrap the raw exception.
@@ -146,7 +146,7 @@ public class MasterOpExecutor {
             } else {
                 LOG.warn("Forward statement " + ctx.getStmtId() + " to Master " + thriftAddress + " twice", e);
                 try {
-                    client.forward(params);
+                    result = client.forward(params);
                     isReturnToPool = true;
                 } catch (TException ex) {
                     throw exception;
