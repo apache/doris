@@ -17,7 +17,9 @@
 
 package org.apache.doris.nereids.trees.expressions.literal;
 
+import org.apache.doris.analysis.LiteralExpr;
 import org.apache.doris.nereids.exceptions.UnboundException;
+import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.util.DateUtils;
 
@@ -29,7 +31,11 @@ import java.time.LocalDateTime;
 public class DateTimeV2Literal extends DateTimeLiteral {
 
     public DateTimeV2Literal(String s) {
-        super(DateTimeV2Type.MAX, s);
+        this(DateTimeV2Type.MAX, s);
+    }
+
+    public DateTimeV2Literal(DateTimeV2Type dateType, String s) {
+        super(dateType, s);
     }
 
     public DateTimeV2Literal(long year, long month, long day, long hour, long minute, long second, long microSecond) {
@@ -47,13 +53,27 @@ public class DateTimeV2Literal extends DateTimeLiteral {
     }
 
     @Override
+    public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
+        return visitor.visitDateTimeV2Literal(this, context);
+    }
+
+    @Override
+    public LiteralExpr toLegacyLiteral() {
+        return new org.apache.doris.analysis.DateLiteral(year, month, day, hour, minute, second, microSecond,
+                getDataType().toCatalogDataType());
+    }
+
+    @Override
     public String toString() {
-        return String.format("%04d-%02d-%02d %02d:%02d:%02d.%06d", year, month, day, hour, minute, second, microSecond);
+        return getStringValue();
     }
 
     @Override
     public String getStringValue() {
-        return String.format("%04d-%02d-%02d %02d:%02d:%02d.%06d", year, month, day, hour, minute, second, microSecond);
+        return String.format("%04d-%02d-%02d %02d:%02d:%02d"
+                + (getDataType().getScale() > 0 ? ".%0" + getDataType().getScale() + "d" : ""),
+                year, month, day, hour, minute, second,
+                (int) (microSecond / Math.pow(10, DateTimeV2Type.MAX_SCALE - getDataType().getScale())));
     }
 
     @Override

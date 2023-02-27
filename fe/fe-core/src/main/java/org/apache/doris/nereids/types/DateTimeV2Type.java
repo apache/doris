@@ -65,6 +65,11 @@ public class DateTimeV2Type extends DateLikeType {
     }
 
     @Override
+    public String toSql() {
+        return super.toSql() + "(" + scale + ")";
+    }
+
+    @Override
     public Type toCatalogDataType() {
         return ScalarType.createDatetimeV2Type(scale);
     }
