@@ -239,7 +239,8 @@ Status DataTypeStruct::from_string(ReadBuffer& rb, IColumn* column) const {
         }
         // handle null element
         if (field_rb.count() == 4 && strncmp(field_rb.position(), "null", 4) == 0) {
-            auto &nested_null_col = reinterpret_cast<ColumnNullable &>(struct_column->get_column(idx));
+            auto &nested_null_col =
+                    reinterpret_cast<ColumnNullable&>(struct_column->get_column(idx));
             nested_null_col.insert_null_elements(1);
             continue;
         }
