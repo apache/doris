@@ -463,7 +463,7 @@ void CsvReader::_split_line_for_single_char_delimiter(const Slice& line) {
         size_t start_field = 0;
         const size_t size = line.size;
         bool quoted = false;
-        
+
         for (; cur_pos < size; ++cur_pos) {
             if (_trim_double_quotes && *(value + cur_pos) == '\"') {
                 if (cur_pos == start_field) {
