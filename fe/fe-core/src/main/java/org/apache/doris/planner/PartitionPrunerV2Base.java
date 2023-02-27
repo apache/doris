@@ -43,6 +43,8 @@ public abstract class PartitionPrunerV2Base implements PartitionPruner {
     protected final Map<String, ColumnRange> columnNameToRange;
     // used for single column partition
     protected RangeMap<ColumnBound, UniqueId> singleColumnRangeMap = null;
+    // Flag to indicate if this pruner is for hive partition or not.
+    protected boolean isHive = false;
 
     public PartitionPrunerV2Base(Map<Long, PartitionItem> idToPartitionItem,
             List<Column> partitionColumns,
@@ -61,6 +63,18 @@ public abstract class PartitionPrunerV2Base implements PartitionPruner {
         this.partitionColumns = partitionColumns;
         this.columnNameToRange = columnNameToRange;
         this.singleColumnRangeMap = singleColumnRangeMap;
+    }
+
+    public PartitionPrunerV2Base(Map<Long, PartitionItem> idToPartitionItem,
+                                 List<Column> partitionColumns,
+                                 Map<String, ColumnRange> columnNameToRange,
+                                 RangeMap<ColumnBound, UniqueId> singleColumnRangeMap,
+                                 boolean isHive) {
+        this.idToPartitionItem = idToPartitionItem;
+        this.partitionColumns = partitionColumns;
+        this.columnNameToRange = columnNameToRange;
+        this.singleColumnRangeMap = singleColumnRangeMap;
+        this.isHive = isHive;
     }
 
     @Override
