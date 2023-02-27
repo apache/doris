@@ -181,6 +181,11 @@ struct SubtractIntervalImpl {
 };
 
 template <typename DateType>
+struct SubtractMicrosecondsImpl : SubtractIntervalImpl<AddMicrosecondsImpl<DateType>, DateType> {
+    static constexpr auto name = "microseconds_sub";
+};
+
+template <typename DateType>
 struct SubtractSecondsImpl : SubtractIntervalImpl<AddSecondsImpl<DateType>, DateType> {
     static constexpr auto name = "seconds_sub";
 };

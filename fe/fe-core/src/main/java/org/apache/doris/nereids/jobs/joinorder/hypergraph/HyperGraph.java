@@ -24,17 +24,18 @@ import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 import com.google.common.base.Preconditions;
-import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -131,13 +132,31 @@ public class HyperGraph {
     public void addEdge(Group group) {
         Preconditions.checkArgument(group.isJoinGroup());
         LogicalJoin<? extends Plan, ? extends Plan> join = (LogicalJoin) group.getLogicalExpression().getPlan();
-        for (Expression expression : join.getExpressions()) {
-            LogicalJoin singleJoin = new LogicalJoin<>(join.getJoinType(), ImmutableList.of(expression), join.left(),
-                    join.right());
-            Edge edge = new Edge(singleJoin, edges.size());
+        HashMap<Pair<Long, Long>, Pair<List<Expression>, List<Expression>>> conjuncts = new HashMap<>();
+        for (Expression expression : join.getHashJoinConjuncts()) {
             Pair<Long, Long> ends = findEnds(expression);
+            if (!conjuncts.containsKey(ends)) {
+                conjuncts.put(ends, Pair.of(new ArrayList<>(), new ArrayList<>()));
+            }
+            conjuncts.get(ends).first.add(expression);
+        }
+        for (Expression expression : join.getOtherJoinConjuncts()) {
+            Pair<Long, Long> ends = findEnds(expression);
+            if (!conjuncts.containsKey(ends)) {
+                conjuncts.put(ends, Pair.of(new ArrayList<>(), new ArrayList<>()));
+            }
+            conjuncts.get(ends).second.add(expression);
+        }
+        for (Map.Entry<Pair<Long, Long>, Pair<List<Expression>, List<Expression>>> entry : conjuncts
+                .entrySet()) {
+            LogicalJoin singleJoin = new LogicalJoin<>(join.getJoinType(), entry.getValue().first,
+                    entry.getValue().second, JoinHint.NONE, join.left(), join.right());
+            Edge edge = new Edge(singleJoin, edges.size());
+            Pair<Long, Long> ends = entry.getKey();
             edge.setLeft(ends.first);
+            edge.setOriginalLeft(ends.first);
             edge.setRight(ends.second);
+            edge.setOriginalRight(ends.second);
             for (int nodeIndex : LongBitmap.getIterator(edge.getReferenceNodes())) {
                 nodes.get(nodeIndex).attachEdge(edge);
             }

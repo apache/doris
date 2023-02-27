@@ -276,9 +276,11 @@ The transaction mechanism ensures the atomicity of data writing to JDBC External
 
 | ORACLE Type                   | Doris Type  | Comment                                                      |
 | ----------------------------- | ----------- | ------------------------------------------------------------ |
-| number(p) / number(p,0)       |             | Doris will determine the type to map to based on the value of p: `p < 3` -> `TINYINT`; `p < 5` -> `SMALLINT`; `p < 10` -> `INT`; `p < 19` -> `BIGINT`; `p > 19` -> `LARGEINT` |
-| number(p,s)                   | DECIMAL     |                                                              |
-| decimal                       | DECIMAL     |                                                              |
+| number(p) / number(p,0)       | TINYINT/SMALLINT/INT/BIGINT/LARGEINT | Doris will determine the type to map to based on the value of p: `p < 3` -> `TINYINT`; `p < 5` -> `SMALLINT`; `p < 10` -> `INT`; `p < 19` -> `BIGINT`; `p > 19` -> `LARGEINT` |
+| number(p,s), [ if(s>0 && p>s) ] | DECIMAL(p,s) | |
+| number(p,s), [ if(s>0 && p < s) ] | DECIMAL(s,s) |  |
+| number(p,s), [ if(s<0) ] | TINYINT/SMALLINT/INT/BIGINT/LARGEINT | if s<0, Doris will set `p` to `p+|s|`, and perform the same mapping as `number(p) / number(p,0)`. |
+| number |  | Doris does not support Oracle `NUMBER` type that does not specified p and s |
 | float/real                    | DOUBLE      |                                                              |
 | DATE                          | DATETIME    |                                                              |
 | TIMESTAMP                     | DATETIME    |                                                              |
