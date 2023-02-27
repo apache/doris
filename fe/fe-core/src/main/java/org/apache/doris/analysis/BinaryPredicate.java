@@ -647,8 +647,8 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     @Override
-    public Expr getResultValue() throws AnalysisException {
-        recursiveResetChildrenResult();
+    public Expr getResultValue(boolean inView) throws AnalysisException {
+        recursiveResetChildrenResult(inView);
         final Expr leftChildValue = getChild(0);
         final Expr rightChildValue = getChild(1);
         if (!(leftChildValue instanceof LiteralExpr)

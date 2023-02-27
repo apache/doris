@@ -122,7 +122,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
                 return expr;
             }
         }
-        return expr.getResultValue();
+        return expr.getResultValue(false);
     }
 
     /**
