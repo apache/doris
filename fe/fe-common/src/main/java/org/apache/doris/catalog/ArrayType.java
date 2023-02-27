@@ -27,6 +27,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -90,6 +91,26 @@ public class ArrayType extends Type {
 
         return itemType.matchesType(((ArrayType) t).itemType)
                 && (((ArrayType) t).containsNull || !containsNull);
+    }
+
+    @Override
+    public boolean hasTemplateType() {
+        return itemType.hasTemplateType();
+    }
+
+    @Override
+    public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap) throws TypeException {
+        if (!(specificType instanceof ArrayType)) {
+            throw new TypeException(specificType + " is not ArrayType");
+        }
+
+        ArrayType o = (ArrayType) specificType;
+        Type newItemType = itemType;
+        if (itemType.hasTemplateType()) {
+            itemType = itemType.specializeTemplateType(o.itemType, specializedTypeMap);
+        }
+
+        return new ArrayType(newItemType);
     }
 
     public static ArrayType create() {

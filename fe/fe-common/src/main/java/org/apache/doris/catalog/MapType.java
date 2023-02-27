@@ -27,6 +27,7 @@ import com.google.common.base.Strings;
 import com.google.common.collect.Lists;
 import com.google.gson.annotations.SerializedName;
 
+import java.util.Map;
 import java.util.Objects;
 
 /**
@@ -35,16 +36,16 @@ import java.util.Objects;
 public class MapType extends Type {
 
     @SerializedName(value = "keyType")
-    private final Type keyType;
+    private Type keyType;
 
     @SerializedName(value = "isKeyContainsNull")
-    private final boolean isKeyContainsNull; // Now always true
+    private boolean isKeyContainsNull; // Now always true
 
     @SerializedName(value = "valueType")
-    private final Type valueType;
+    private Type valueType;
 
     @SerializedName(value = "isValueContainsNull")
-    private final boolean isValueContainsNull; // Now always true
+    private boolean isValueContainsNull; // Now always true
 
     public MapType() {
         this.keyType = NULL;
@@ -119,6 +120,30 @@ public class MapType extends Type {
 
         return keyType.matchesType(((MapType) t).keyType)
             && (valueType.matchesType(((MapType) t).valueType));
+    }
+
+    @Override
+    public boolean hasTemplateType() {
+        return keyType.hasTemplateType() || valueType.hasTemplateType();
+    }
+
+    @Override
+    public Type specializeTemplateType(Type specificType, Map<String, Type> specializedTypeMap) throws TypeException {
+        if (!(specificType instanceof MapType)) {
+            throw new TypeException(specificType + " is not MapType");
+        }
+
+        MapType specificMapType = (MapType) specificType;
+        Type newKeyType = keyType;
+        if (keyType.hasTemplateType()) {
+            newKeyType = keyType.specializeTemplateType(specificMapType.keyType, specializedTypeMap);
+        }
+        Type newValueType = valueType;
+        if (valueType.hasTemplateType()) {
+            newValueType = valueType.specializeTemplateType(specificMapType.valueType, specializedTypeMap);
+        }
+
+        return new MapType(newKeyType, newValueType);
     }
 
     @Override

@@ -74,6 +74,7 @@ public enum PrimitiveType {
     VARIANT("VARIANT", 24, TPrimitiveType.VARIANT),
     // Unsupported scalar types.
     BINARY("BINARY", -1, TPrimitiveType.BINARY),
+    TEMPLATE("TEMPLATE", -1, TPrimitiveType.INVALID_TYPE),
     ALL("ALL", -1, TPrimitiveType.INVALID_TYPE);
 
 

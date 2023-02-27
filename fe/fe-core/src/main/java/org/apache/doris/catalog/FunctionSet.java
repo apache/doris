@@ -27,6 +27,7 @@ import org.apache.doris.analysis.LikePredicate;
 import org.apache.doris.analysis.MatchPredicate;
 import org.apache.doris.builtins.ScalarBuiltins;
 import org.apache.doris.catalog.Function.NullableMode;
+import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableMap;
@@ -1226,7 +1227,7 @@ public class FunctionSet<T> {
         // First check for identical
         for (Function f : fns) {
             if (f.compare(desc, Function.CompareMode.IS_IDENTICAL)) {
-                return f;
+                return FunctionSet.specializeTemplateFunction(f, desc);
             }
         }
         if (mode == Function.CompareMode.IS_IDENTICAL) {
@@ -1260,6 +1261,41 @@ public class FunctionSet<T> {
             }
         }
         return null;
+    }
+
+    public static Function specializeTemplateFunction(Function templateFunction, Function requestFunction) {
+        try {
+            boolean hasTemplateType = false;
+            LOG.info("templateFunction signature: " + templateFunction.signatureString());
+            Function specializedFunction = templateFunction;
+            if (templateFunction instanceof ScalarFunction) {
+                ScalarFunction f = (ScalarFunction) templateFunction;
+                specializedFunction = new ScalarFunction(f.getFunctionName(), Lists.newArrayList(f.getArgs()),
+                                            f.getReturnType(), f.hasVarArgs(), f.getSymbolName(),f.getBinaryType(),
+                                            f.isUserVisible(), f.isVectorized(), f.getNullableMode());
+            } else {
+                // TODO
+            }
+            Type[] args = specializedFunction.getArgs();
+            Map<String, Type> specializedTypeMap = Maps.newHashMap();
+            for (int i = 0; i < args.length; i++) {
+                if (args[i].hasTemplateType()) {
+                    hasTemplateType = true;
+                    args[i].specializeTemplateType(requestFunction.getArgs()[i], specializedTypeMap);
+                }
+            }
+            if (specializedFunction.getReturnType().hasTemplateType()) {
+                hasTemplateType = true;
+                specializedFunction.setReturnType(
+                    specializedFunction.getReturnType().specializeTemplateType(
+                    requestFunction.getReturnType(), specializedTypeMap));
+            }
+            LOG.info("specializedFunction signature: " + specializedFunction.signatureString());
+            return hasTemplateType ? specializedFunction : templateFunction;
+        } catch (TypeException e) {
+            LOG.warn("specializeTemplateFunction exception", e);
+            return null;
+        } 
     }
 
     /**
