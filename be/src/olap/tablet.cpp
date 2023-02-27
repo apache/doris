@@ -2410,15 +2410,14 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
                 RowLocation loc;
                 // first check if exist in pre segment
                 if (check_pre_segments) {
-                    auto st = _check_pk_in_pre_segments(rowset_id, pre_segments, key, dummy_version,
-                                                        delete_bitmap, &loc);
+                    auto st = _check_pk_in_pre_segments(rowset_id, pre_segments, key, delete_bitmap,
+                                                        &loc);
                     if (st.ok()) {
-                        delete_bitmap->add({rowset_id, loc.segment_id, dummy_version.first},
-                                           loc.row_id);
+                        delete_bitmap->add({rowset_id, loc.segment_id, 0}, loc.row_id);
                         ++row_id;
                         continue;
                     } else if (st.is<ALREADY_EXIST>()) {
-                        delete_bitmap->add({rowset_id, seg->id(), dummy_version.first}, row_id);
+                        delete_bitmap->add({rowset_id, seg->id(), 0}, row_id);
                         ++row_id;
                         continue;
                     }
@@ -2467,15 +2466,14 @@ Status Tablet::calc_delete_bitmap(RowsetId rowset_id,
 
 Status Tablet::_check_pk_in_pre_segments(
         RowsetId rowset_id, const std::vector<segment_v2::SegmentSharedPtr>& pre_segments,
-        const Slice& key, const Version& version, DeleteBitmapPtr delete_bitmap, RowLocation* loc) {
+        const Slice& key, DeleteBitmapPtr delete_bitmap, RowLocation* loc) {
     for (auto it = pre_segments.rbegin(); it != pre_segments.rend(); ++it) {
         auto st = (*it)->lookup_row_key(key, loc);
         CHECK(st.ok() || st.is<NOT_FOUND>() || st.is<ALREADY_EXIST>());
         if (st.is<NOT_FOUND>()) {
             continue;
         } else if (st.ok() && _schema->has_sequence_col() &&
-                   delete_bitmap->contains({rowset_id, loc->segment_id, version.first},
-                                           loc->row_id)) {
+                   delete_bitmap->contains({rowset_id, loc->segment_id, 0}, loc->row_id)) {
             // if has sequence col, we continue to compare the sequence_id of
             // all segments, util we find an existing key.
             continue;
