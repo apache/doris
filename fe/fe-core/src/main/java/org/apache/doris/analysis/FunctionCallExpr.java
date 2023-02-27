@@ -1307,6 +1307,11 @@ public class FunctionCallExpr extends Expr {
             fn.setReturnType(new ArrayType(getChild(0).type));
         }
 
+        if (fnName.getFunction().equalsIgnoreCase("group_uniq_array")
+                || fnName.getFunction().equalsIgnoreCase("group_array")) {
+            fn.setReturnType(new ArrayType(getChild(0).type));
+        }
+
         if (fnName.getFunction().equalsIgnoreCase("from_unixtime")
                 || fnName.getFunction().equalsIgnoreCase("date_format")) {
             // if has only one child, it has default time format: yyyy-MM-dd HH:mm:ss.SSSSSS
