@@ -275,6 +275,9 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SHOW_USER_DEFAULT_ROLE = "show_user_default_role";
 
+    // fix replica to query. If num = 1, query the smallest replica, if 2 is the second smallest replica.
+    public static final String USE_FIX_REPLICA = "use_fix_replica";
+
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
     // check stmt is or not [select /*+ SET_VAR(...)*/ ...]
@@ -729,6 +732,10 @@ public class SessionVariable implements Serializable, Writable {
     // If this is true, the result of `show roles` will return all user default role
     @VariableMgr.VarAttr(name = SHOW_USER_DEFAULT_ROLE, needForward = true)
     public boolean showUserDefaultRole = false;
+
+    // Default value is -1, which means not fix replica
+    @VariableMgr.VarAttr(name = USE_FIX_REPLICA)
+    public int useFixReplica = -1;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
