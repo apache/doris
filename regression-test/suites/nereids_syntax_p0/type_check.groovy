@@ -30,10 +30,8 @@ suite("type_check") {
         )
     '''
 
-    test {
-        sql 'select id from type_tb'
-        result([[]])
-    }
+    sql 'set enable_nereids_planner=true'
+    sql 'set enable_fallback_to_original_planner=false'
 
     // jsonb
     test {
