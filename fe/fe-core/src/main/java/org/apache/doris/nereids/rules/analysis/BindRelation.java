@@ -41,6 +41,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.PreAggStatus;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -179,6 +180,10 @@ public class BindRelation extends OneAnalysisRuleFactory {
             }
             Preconditions.checkArgument(deleteSlot != null);
             Expression conjunct = new EqualTo(new TinyIntLiteral((byte) 0), deleteSlot);
+            if (!((OlapTable) table).getEnableUniqueKeyMergeOnWrite()) {
+                scan = scan.withPreAggStatus(PreAggStatus.off(
+                        Column.DELETE_SIGN + " is used as conjuncts."));
+            }
             return new LogicalFilter(Sets.newHashSet(conjunct), scan);
         }
         return scan;
