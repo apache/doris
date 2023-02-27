@@ -24,6 +24,7 @@
 #include "common/consts.h"
 #include "common/status.h"
 #include "olap/column_predicate.h"
+#include "olap/like_column_predicate.h"
 #include "olap/olap_common.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 #include "olap/rowset/segment_v2/segment.h"
@@ -565,6 +566,12 @@ bool SegmentIterator::_check_apply_by_inverted_index(ColumnPredicate* pred, bool
     if ((pred->type() == PredicateType::IN_LIST || pred->type() == PredicateType::NOT_IN_LIST) &&
         pred->predicate_params()->marked_by_runtime_filter) {
         // in_list or not_in_list predicate produced by runtime filter
+        return false;
+    }
+
+    // Function filter no apply inverted index
+    if (dynamic_cast<LikeColumnPredicate<false>*>(pred) ||
+        dynamic_cast<LikeColumnPredicate<true>*>(pred)) {
         return false;
     }
 
