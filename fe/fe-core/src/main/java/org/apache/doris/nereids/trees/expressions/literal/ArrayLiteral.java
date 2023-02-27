@@ -40,8 +40,8 @@ public class ArrayLiteral extends Literal {
     }
 
     @Override
-    public Expression[] getValue() {
-        return items.stream().toArray(Expression[]::new);
+    public List<Literal> getValue() {
+        return items;
     }
 
     @Override
@@ -69,6 +69,15 @@ public class ArrayLiteral extends Literal {
     }
 
     @Override
+    public Expression checkedCastTo(DataType targetType) {
+        if (targetType instanceof ArrayType) {
+            return new Array(
+                    items.stream().toArray(Expression[]::new)).checkedCastTo(targetType);
+        }
+        return super.checkedCastTo(targetType);
+    }
+
+    @Override
     public String toString() {
         String items = this.items.stream()
                 .map(item -> item.toString())
@@ -79,7 +88,7 @@ public class ArrayLiteral extends Literal {
     @Override
     public String toSql() {
         String items = this.items.stream()
-                .map(item -> item.toSql())
+                .map(Literal::toSql)
                 .collect(Collectors.joining(", "));
         return "array(" + items + ")";
     }
@@ -93,6 +102,6 @@ public class ArrayLiteral extends Literal {
         if (items.isEmpty()) {
             return ArrayType.SYSTEM_DEFAULT;
         }
-        return new Array(items.stream().toArray(Expression[]::new)).getDataType();
+        return new Array(items.toArray(new Expression[0])).getDataType();
     }
 }

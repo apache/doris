@@ -17,12 +17,10 @@
 
 package org.apache.doris.datasource;
 
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.EsResource;
 import org.apache.doris.catalog.external.EsExternalDatabase;
 import org.apache.doris.external.elasticsearch.EsRestClient;
-import org.apache.doris.external.elasticsearch.EsUtil;
 
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -67,12 +65,6 @@ public class EsExternalCatalog extends ExternalCatalog {
         if (properties.containsKey("username")) {
             properties.put(EsResource.USER, properties.remove("username"));
         }
-        if (properties.containsKey("doc_value_scan")) {
-            properties.put(EsResource.DOC_VALUE_SCAN, properties.remove("doc_value_scan"));
-        }
-        if (properties.containsKey("keyword_sniff")) {
-            properties.put(EsResource.KEYWORD_SNIFF, properties.remove("keyword_sniff"));
-        }
         return properties;
     }
 
@@ -107,6 +99,16 @@ public class EsExternalCatalog extends ExternalCatalog {
     public boolean enableNodesDiscovery() {
         return Boolean.parseBoolean(catalogProperty.getOrDefault(EsResource.NODES_DISCOVERY,
                 EsResource.NODES_DISCOVERY_DEFAULT_VALUE));
+    }
+
+    public boolean enableMappingEsId() {
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(EsResource.MAPPING_ES_ID,
+                EsResource.MAPPING_ES_ID_DEFAULT_VALUE));
+    }
+
+    public boolean enableLikePushDown() {
+        return Boolean.parseBoolean(catalogProperty.getOrDefault(EsResource.LIKE_PUSH_DOWN,
+                EsResource.LIKE_PUSH_DOWN_DEFAULT_VALUE));
     }
 
     @Override
@@ -156,11 +158,5 @@ public class EsExternalCatalog extends ExternalCatalog {
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         return esRestClient.existIndex(this.esRestClient.getClient(), tblName);
-    }
-
-    @Override
-    public List<Column> getSchema(String dbName, String tblName) {
-        makeSureInitialized();
-        return EsUtil.genColumnsFromEs(getEsRestClient(), tblName, null);
     }
 }

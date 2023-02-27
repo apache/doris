@@ -67,9 +67,9 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
          * t1      t2               t1      t3
          */
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
                 .project(ImmutableList.of(0, 1, 2))
-                .hashJoinUsing(scan3, JoinType.INNER_JOIN, Pair.of(1, 1))
+                .join(scan3, JoinType.INNER_JOIN, Pair.of(1, 1))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
@@ -91,9 +91,9 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
     @Test
     void testAlias() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0))
                 .alias(ImmutableList.of(0, 2), ImmutableList.of("t1.id", "t2.id"))
-                .hashJoinUsing(scan3, JoinType.INNER_JOIN, Pair.of(0, 0))
+                .join(scan3, JoinType.INNER_JOIN, Pair.of(0, 0))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
@@ -116,10 +116,10 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
     @Test
     void testAliasTopMultiHashJoin() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, Pair.of(0, 0)) // t1.id=t2.id
+                .join(scan2, JoinType.INNER_JOIN, Pair.of(0, 0)) // t1.id=t2.id
                 .alias(ImmutableList.of(0, 2), ImmutableList.of("t1.id", "t2.id"))
                 // t1.id=t3.id t2.id = t3.id
-                .hashJoinUsing(scan3, JoinType.INNER_JOIN, ImmutableList.of(Pair.of(0, 0), Pair.of(1, 0)))
+                .join(scan3, JoinType.INNER_JOIN, ImmutableList.of(Pair.of(0, 0), Pair.of(1, 0)))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
@@ -148,7 +148,7 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
         List<Expression> bottomOtherJoinConjunct = ImmutableList.of(
                 new GreaterThan(scan1.getOutput().get(1), scan2.getOutput().get(1)));
         LogicalPlan bottomJoin = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
+                .join(scan2, JoinType.INNER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
                 .alias(ImmutableList.of(0, 1, 2, 3), ImmutableList.of("t1.id", "t1.name", "t2.id", "t2.name"))
                 .build();
 
@@ -159,12 +159,13 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
                 new GreaterThan(bottomJoin.getOutput().get(1), scan3.getOutput().get(1)),
                 new GreaterThan(bottomJoin.getOutput().get(3), scan3.getOutput().get(1)));
         LogicalPlan topJoin = new LogicalPlanBuilder(bottomJoin)
-                .hashJoinUsing(scan3, JoinType.INNER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
+                .join(scan3, JoinType.INNER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
                 .printlnTree()
                 .applyExploration(InnerJoinLAsscomProject.INSTANCE.build())
+                .printlnExploration()
                 .matchesExploration(
                         innerLogicalJoin(
                                 logicalProject(
@@ -178,8 +179,7 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
                                 "[(t2.id#6 = id#8), (t1.id#4 = t2.id#6)]")
                                 && Objects.equals(join.getOtherJoinConjuncts().toString(),
                                 "[(t2.name#7 > name#9), (t1.name#5 > t2.name#7)]"))
-                )
-                .printlnExploration();
+                );
     }
 
     /**
@@ -208,7 +208,7 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
         List<Expression> bottomOtherJoinConjunct = ImmutableList.of(
                 new GreaterThan(scan1.getOutput().get(1), scan2.getOutput().get(1)));
         LogicalPlan bottomJoin = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
+                .join(scan2, JoinType.INNER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
                 .alias(ImmutableList.of(0, 1, 2, 3), ImmutableList.of("t1.id", "t1.name", "t2.id", "t2.name"))
                 .build();
 
@@ -221,7 +221,7 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
                 new GreaterThan(bottomJoin.getOutput().get(2),
                         new Add(bottomJoin.getOutput().get(0), scan3.getOutput().get(0))));
         LogicalPlan topJoin = new LogicalPlanBuilder(bottomJoin)
-                .hashJoinUsing(scan3, JoinType.INNER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
+                .join(scan3, JoinType.INNER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
                 .build();
 
         // test for no exception
@@ -269,7 +269,7 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
         List<Expression> bottomOtherJoinConjunct = ImmutableList.of(
                 new GreaterThan(scan1.getOutput().get(1), scan2.getOutput().get(1)));
         LogicalPlan bottomJoin = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
+                .join(scan2, JoinType.INNER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
                 .alias(ImmutableList.of(0, 1, 2, 3), ImmutableList.of("t1.id", "t1.name", "t2.id", "t2.name"))
                 .build();
 
@@ -285,7 +285,7 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
                         new Cast(new StringLiteral("3"), IntegerType.INSTANCE)),
                         Literal.of("abc"))));
         LogicalPlan topJoin = new LogicalPlanBuilder(bottomJoin)
-                .hashJoinUsing(scan3, JoinType.INNER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
+                .join(scan3, JoinType.INNER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)
@@ -331,7 +331,7 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
         List<Expression> bottomOtherJoinConjunct = ImmutableList.of(
                 new GreaterThan(scan1.getOutput().get(1), scan2.getOutput().get(1)));
         LogicalPlan bottomJoin = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.INNER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
+                .join(scan2, JoinType.INNER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
                 .alias(ImmutableList.of(0, 1, 2, 3), ImmutableList.of("t1.id", "t1.name", "t2.id", "t2.name"))
                 .build();
 
@@ -343,7 +343,7 @@ class InnerJoinLAsscomProjectTest implements PatternMatchSupported {
                 new GreaterThan(new Add(bottomJoin.getOutput().get(0), bottomJoin.getOutput().get(1)),
                         scan3.getOutput().get(1)));
         LogicalPlan topJoin = new LogicalPlanBuilder(bottomJoin)
-                .hashJoinUsing(scan3, JoinType.INNER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
+                .join(scan3, JoinType.INNER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), topJoin)

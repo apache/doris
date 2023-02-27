@@ -28,11 +28,11 @@ class VExprContext {
 public:
     VExprContext(VExpr* expr);
     ~VExprContext();
-    Status prepare(RuntimeState* state, const RowDescriptor& row_desc);
-    Status open(RuntimeState* state);
+    [[nodiscard]] Status prepare(RuntimeState* state, const RowDescriptor& row_desc);
+    [[nodiscard]] Status open(RuntimeState* state);
     void close(RuntimeState* state);
-    Status clone(RuntimeState* state, VExprContext** new_ctx);
-    Status execute(Block* block, int* result_column_id);
+    [[nodiscard]] Status clone(RuntimeState* state, VExprContext** new_ctx);
+    [[nodiscard]] Status execute(Block* block, int* result_column_id);
 
     VExpr* root() { return _root; }
     void set_root(VExpr* expr) { _root = expr; }
@@ -53,9 +53,10 @@ public:
         return _fn_contexts[i];
     }
 
-    static Status filter_block(VExprContext* vexpr_ctx, Block* block, int column_to_keep);
-    static Status filter_block(const std::unique_ptr<VExprContext*>& vexpr_ctx_ptr, Block* block,
-                               int column_to_keep);
+    [[nodiscard]] static Status filter_block(VExprContext* vexpr_ctx, Block* block,
+                                             int column_to_keep);
+    [[nodiscard]] static Status filter_block(const std::unique_ptr<VExprContext*>& vexpr_ctx_ptr,
+                                             Block* block, int column_to_keep);
 
     static Block get_output_block_after_execute_exprs(const std::vector<vectorized::VExprContext*>&,
                                                       const Block&, Status&);

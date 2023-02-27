@@ -43,8 +43,7 @@ static int64_t calc_process_max_load_memory(int64_t process_mem_limit) {
         return -1;
     }
     int32_t max_load_memory_percent = config::load_process_max_memory_limit_percent;
-    int64_t max_load_memory_bytes = process_mem_limit * max_load_memory_percent / 100;
-    return std::min<int64_t>(max_load_memory_bytes, config::load_process_max_memory_limit_bytes);
+    return process_mem_limit * max_load_memory_percent / 100;
 }
 
 static int64_t calc_channel_timeout_s(int64_t timeout_in_req_s) {
@@ -75,9 +74,8 @@ LoadChannelMgr::~LoadChannelMgr() {
 Status LoadChannelMgr::init(int64_t process_mem_limit) {
     _load_hard_mem_limit = calc_process_max_load_memory(process_mem_limit);
     _load_soft_mem_limit = _load_hard_mem_limit * config::load_process_soft_mem_limit_percent / 100;
-    _mem_tracker = std::make_unique<MemTracker>("LoadChannelMgr");
-    _mem_tracker_set = std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::LOAD,
-                                                           "LoadChannelMgrTrackerSet");
+    _mem_tracker =
+            std::make_unique<MemTrackerLimiter>(MemTrackerLimiter::Type::LOAD, "LoadChannelMgr");
     REGISTER_HOOK_METRIC(load_channel_mem_consumption,
                          [this]() { return _mem_tracker->consumption(); });
     _last_success_channel = new_lru_cache("LastestSuccessChannelCache", 1024);
@@ -105,7 +103,7 @@ Status LoadChannelMgr::open(const PTabletWriterOpenRequest& params) {
             auto channel_mem_tracker = std::make_unique<MemTracker>(
                     fmt::format("LoadChannel#senderIp={}#loadID={}", params.sender_ip(),
                                 load_id.to_string()),
-                    nullptr, ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker_set());
+                    ExecEnv::GetInstance()->load_channel_mgr()->mem_tracker());
 #else
             auto channel_mem_tracker = std::make_unique<MemTracker>(fmt::format(
                     "LoadChannel#senderIp={}#loadID={}", params.sender_ip(), load_id.to_string()));
@@ -220,8 +218,11 @@ void LoadChannelMgr::_handle_mem_exceed_limit() {
     DCHECK(_load_soft_mem_limit > 0);
     int64_t process_mem_limit = MemInfo::soft_mem_limit();
     int64_t proc_mem_no_allocator_cache = MemInfo::proc_mem_no_allocator_cache();
-    if (_mem_tracker->consumption() < _load_soft_mem_limit &&
-        proc_mem_no_allocator_cache < process_mem_limit) {
+    // If process memory is almost full but data load don't consume more than 5% (50% * 10%) of
+    // total memory, we don't need to reduce memory of load jobs.
+    bool reduce_on_process_mem_limit = proc_mem_no_allocator_cache >= process_mem_limit &&
+                                       _mem_tracker->consumption() >= _load_hard_mem_limit / 10;
+    if (_mem_tracker->consumption() < _load_soft_mem_limit && !reduce_on_process_mem_limit) {
         return;
     }
     // Indicate whether current thread is reducing mem on hard limit.

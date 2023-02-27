@@ -32,6 +32,9 @@ class FileWriter;
 
 using SegCompactionCandidates = std::vector<segment_v2::SegmentSharedPtr>;
 using SegCompactionCandidatesSharedPtr = std::shared_ptr<SegCompactionCandidates>;
+namespace vectorized::schema_util {
+class LocalSchemaChangeRecorder;
+}
 
 class BetaRowsetWriter : public RowsetWriter {
 public:
@@ -40,10 +43,6 @@ public:
     ~BetaRowsetWriter() override;
 
     Status init(const RowsetWriterContext& rowset_writer_context) override;
-
-    Status add_row(const RowCursor& row) override { return _add_row(row); }
-    // For Memtable::flush()
-    Status add_row(const ContiguousRow& row) override { return _add_row(row); }
 
     Status add_block(const vectorized::Block* block) override;
 
@@ -84,17 +83,22 @@ public:
 
     int32_t get_atomic_num_segment() const override { return _num_segment.load(); }
 
+    // Maybe modified by local schema change
+    vectorized::schema_util::LocalSchemaChangeRecorder* mutable_schema_change_recorder() {
+        return _context.schema_change_recorder.get();
+    }
+
 private:
-    template <typename RowType>
-    Status _add_row(const RowType& row);
     Status _add_block(const vectorized::Block* block,
                       std::unique_ptr<segment_v2::SegmentWriter>* writer);
     Status _add_block_for_segcompaction(const vectorized::Block* block,
                                         std::unique_ptr<segment_v2::SegmentWriter>* writer);
 
     Status _do_create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
-                                     bool is_segcompaction, int64_t begin, int64_t end);
-    Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer);
+                                     bool is_segcompaction, int64_t begin, int64_t end,
+                                     const vectorized::Block* block = nullptr);
+    Status _create_segment_writer(std::unique_ptr<segment_v2::SegmentWriter>* writer,
+                                  const vectorized::Block* block = nullptr);
     Status _create_segment_writer_for_segcompaction(
             std::unique_ptr<segment_v2::SegmentWriter>* writer, uint64_t begin, uint64_t end);
 
@@ -103,10 +107,10 @@ private:
     void _build_rowset_meta(std::shared_ptr<RowsetMeta> rowset_meta);
     Status _segcompaction_if_necessary();
     Status _segcompaction_ramaining_if_necessary();
-    vectorized::VMergeIterator* _get_segcompaction_reader(SegCompactionCandidatesSharedPtr segments,
-                                                          std::shared_ptr<Schema> schema,
-                                                          OlapReaderStatistics* stat,
-                                                          uint64_t* merged_row_stat);
+    RowwiseIteratorUPtr _get_segcompaction_reader(SegCompactionCandidatesSharedPtr segments,
+                                                  std::shared_ptr<Schema> schema,
+                                                  OlapReaderStatistics* stat,
+                                                  uint64_t* merged_row_stat);
     std::unique_ptr<segment_v2::SegmentWriter> _create_segcompaction_writer(uint64_t begin,
                                                                             uint64_t end);
     Status _delete_original_segments(uint32_t begin, uint32_t end);
@@ -143,7 +147,8 @@ protected:
     std::unique_ptr<segment_v2::SegmentWriter> _segment_writer;
 
     mutable SpinLock _lock; // protect following vectors.
-    // record rows number of every segment
+    // record rows number of every segment already written, using for rowid
+    // conversion when compaction in unique key with MoW model
     std::vector<uint32_t> _segment_num_rows;
     std::vector<io::FileWriterPtr> _file_writers;
     // for unique key table with merge-on-write

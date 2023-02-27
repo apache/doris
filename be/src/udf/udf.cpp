@@ -134,10 +134,6 @@ void FunctionContextImpl::free_local_allocations() {
     _local_allocations.clear();
 }
 
-void FunctionContextImpl::set_constant_args(const std::vector<doris_udf::AnyVal*>& constant_args) {
-    _constant_args = constant_args;
-}
-
 void FunctionContextImpl::set_constant_cols(
         const std::vector<doris::ColumnPtrWrapper*>& constant_cols) {
     _constant_cols = constant_cols;
@@ -208,14 +204,6 @@ FunctionContext* FunctionContextImpl::clone(MemPool* pool) {
 
 namespace doris_udf {
 static const int MAX_WARNINGS = 1000;
-
-FunctionContext* FunctionContext::create_test_context(doris::MemPool* mem_pool = nullptr) {
-    FunctionContext* context = new FunctionContext();
-    context->impl()->_debug = true;
-    context->impl()->_state = nullptr;
-    context->impl()->_pool = new doris::FreePool(mem_pool);
-    return context;
-}
 
 FunctionContext::FunctionContext() : _impl(new doris::FunctionContextImpl(this)) {}
 
@@ -322,14 +310,14 @@ void FunctionContext::free(int64_t bytes) {
     _impl->_external_bytes_tracked -= bytes;
 }
 
-void FunctionContext::set_function_state(FunctionStateScope scope, void* ptr) {
+void FunctionContext::set_function_state(FunctionStateScope scope, std::shared_ptr<void> ptr) {
     assert(!_impl->_closed);
     switch (scope) {
     case THREAD_LOCAL:
-        _impl->_thread_local_fn_state = ptr;
+        _impl->_thread_local_fn_state = std::move(ptr);
         break;
     case FRAGMENT_LOCAL:
-        _impl->_fragment_local_fn_state = ptr;
+        _impl->_fragment_local_fn_state = std::move(ptr);
         break;
     default:
         std::stringstream ss;
@@ -447,70 +435,6 @@ const FunctionContext::TypeDesc* FunctionContext::get_arg_type(int arg_idx) cons
     return &_impl->_arg_types[arg_idx];
 }
 
-void HllVal::init(FunctionContext* ctx) {
-    len = doris::HLL_COLUMN_DEFAULT_LEN;
-    ptr = ctx->allocate(len);
-    memset(ptr, 0, len);
-    // the HLL type is HLL_DATA_FULL in UDF or UDAF
-    ptr[0] = doris::HllDataType::HLL_DATA_FULL;
-
-    is_null = false;
-}
-
-void HllVal::agg_parse_and_cal(FunctionContext* ctx, const HllVal& other) {
-    doris::HllSetResolver resolver;
-
-    // zero size means the src input is a HyperLogLog object
-    if (other.len == 0) {
-        auto* hll = reinterpret_cast<doris::HyperLogLog*>(other.ptr);
-        uint8_t* other_ptr = ctx->allocate(doris::HLL_COLUMN_DEFAULT_LEN);
-        int other_len = hll->serialize(ptr);
-        resolver.init((char*)other_ptr, other_len);
-    } else {
-        resolver.init((char*)other.ptr, other.len);
-    }
-
-    resolver.parse();
-
-    if (resolver.get_hll_data_type() == doris::HLL_DATA_EMPTY) {
-        return;
-    }
-
-    uint8_t* pdata = ptr + 1;
-    int data_len = doris::HLL_REGISTERS_COUNT;
-
-    if (resolver.get_hll_data_type() == doris::HLL_DATA_EXPLICIT) {
-        for (int i = 0; i < resolver.get_explicit_count(); i++) {
-            uint64_t hash_value = resolver.get_explicit_value(i);
-            int idx = hash_value % data_len;
-            uint8_t first_one_bit = __builtin_ctzl(hash_value >> doris::HLL_COLUMN_PRECISION) + 1;
-            pdata[idx] = std::max(pdata[idx], first_one_bit);
-        }
-    } else if (resolver.get_hll_data_type() == doris::HLL_DATA_SPARSE) {
-        std::map<doris::HllSetResolver::SparseIndexType, doris::HllSetResolver::SparseValueType>&
-                sparse_map = resolver.get_sparse_map();
-        for (std::map<doris::HllSetResolver::SparseIndexType,
-                      doris::HllSetResolver::SparseValueType>::iterator iter = sparse_map.begin();
-             iter != sparse_map.end(); ++iter) {
-            pdata[iter->first] = std::max(pdata[iter->first], (uint8_t)iter->second);
-        }
-    } else if (resolver.get_hll_data_type() == doris::HLL_DATA_FULL) {
-        char* full_value = resolver.get_full_value();
-        for (int i = 0; i < doris::HLL_REGISTERS_COUNT; i++) {
-            pdata[i] = std::max(pdata[i], (uint8_t)full_value[i]);
-        }
-    }
-}
-
-void HllVal::agg_merge(const HllVal& other) {
-    uint8_t* pdata = ptr + 1;
-    uint8_t* pdata_other = other.ptr + 1;
-
-    for (int i = 0; i < doris::HLL_REGISTERS_COUNT; ++i) {
-        pdata[i] = std::max(pdata[i], pdata_other[i]);
-    }
-}
-
 bool FunctionContext::is_arg_constant(int i) const {
     if (i < 0 || i >= _impl->_constant_args.size()) {
         return false;
@@ -543,10 +467,6 @@ int FunctionContext::get_num_args() const {
     return _impl->_arg_types.size();
 }
 
-int FunctionContext::get_num_constant_args() const {
-    return _impl->_constant_args.size();
-}
-
 const FunctionContext::TypeDesc& FunctionContext::get_return_type() const {
     return _impl->_return_type;
 }
@@ -555,9 +475,9 @@ void* FunctionContext::get_function_state(FunctionStateScope scope) const {
     // assert(!_impl->_closed);
     switch (scope) {
     case THREAD_LOCAL:
-        return _impl->_thread_local_fn_state;
+        return _impl->_thread_local_fn_state.get();
     case FRAGMENT_LOCAL:
-        return _impl->_fragment_local_fn_state;
+        return _impl->_fragment_local_fn_state.get();
     default:
         // TODO: signal error somehow
         return nullptr;

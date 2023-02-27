@@ -31,7 +31,7 @@ namespace vectorized {
 class Block;
 }
 
-class POlapTableIndexSchema;
+struct OlapTableIndexSchema;
 
 class TabletColumn {
 public:
@@ -47,13 +47,17 @@ public:
     void to_schema_pb(ColumnPB* column) const;
 
     int32_t unique_id() const { return _unique_id; }
+    void set_unique_id(int32_t id) { _unique_id = id; }
     std::string name() const { return _col_name; }
     void set_name(std::string col_name) { _col_name = col_name; }
     FieldType type() const { return _type; }
+    void set_type(FieldType type) { _type = type; }
     bool is_key() const { return _is_key; }
     bool is_nullable() const { return _is_nullable; }
+    bool is_variant_type() const { return _type == OLAP_FIELD_TYPE_VARIANT; }
     bool is_bf_column() const { return _is_bf_column; }
     bool has_bitmap_index() const { return _has_bitmap_index; }
+    bool is_array_type() const { return _type == OLAP_FIELD_TYPE_ARRAY; }
     bool is_length_variable_type() const {
         return _type == OLAP_FIELD_TYPE_CHAR || _type == OLAP_FIELD_TYPE_VARCHAR ||
                _type == OLAP_FIELD_TYPE_STRING || _type == OLAP_FIELD_TYPE_HLL ||
@@ -64,12 +68,17 @@ public:
     size_t length() const { return _length; }
     size_t index_length() const { return _index_length; }
     void set_index_length(size_t index_length) { _index_length = index_length; }
+    void set_is_key(bool is_key) { _is_key = is_key; }
+    void set_is_nullable(bool is_nullable) { _is_nullable = is_nullable; }
+    void set_has_default_value(bool has) { _has_default_value = has; }
     FieldAggregationMethod aggregation() const { return _aggregation; }
     vectorized::AggregateFunctionPtr get_aggregate_function(vectorized::DataTypes argument_types,
                                                             std::string suffix) const;
     int precision() const { return _precision; }
     int frac() const { return _frac; }
     inline bool visible() const { return _visible; }
+
+    void set_aggregation_method(FieldAggregationMethod agg) { _aggregation = agg; }
 
     /**
      * Add a sub column.
@@ -87,6 +96,7 @@ public:
     static FieldType get_field_type_by_string(const std::string& str);
     static FieldAggregationMethod get_aggregation_type_by_string(const std::string& str);
     static uint32_t get_field_length_by_type(TPrimitiveType::type type, uint32_t string_length);
+    bool is_row_store_column() const;
 
 private:
     int32_t _unique_id;
@@ -124,12 +134,13 @@ class TabletSchema;
 class TabletIndex {
 public:
     void init_from_thrift(const TOlapTableIndex& index, const TabletSchema& tablet_schema);
+    void init_from_thrift(const TOlapTableIndex& index, const std::vector<int32_t>& column_uids);
     void init_from_pb(const TabletIndexPB& index);
     void to_schema_pb(TabletIndexPB* index) const;
 
-    const int64_t index_id() const { return _index_id; }
+    int64_t index_id() const { return _index_id; }
     const std::string& index_name() const { return _index_name; }
-    const IndexType index_type() const { return _index_type; }
+    IndexType index_type() const { return _index_type; }
     const vector<int32_t>& col_unique_ids() const { return _col_unique_ids; }
     const std::map<string, string>& properties() const { return _properties; }
     int32_t get_gram_size() const {
@@ -164,9 +175,11 @@ public:
     void init_from_pb(const TabletSchemaPB& schema);
     void to_schema_pb(TabletSchemaPB* tablet_meta_pb) const;
     void append_column(TabletColumn column, bool is_dropped_column = false);
+    // Must make sure the row column is always the last column
+    void add_row_column();
     void copy_from(const TabletSchema& tablet_schema);
     std::string to_key() const;
-    int64_t mem_size() const { return _mem_size; };
+    int64_t mem_size() const { return _mem_size; }
 
     size_t row_size() const;
     int32_t field_index(const std::string& field_name) const;
@@ -193,10 +206,15 @@ public:
         _disable_auto_compaction = disable_auto_compaction;
     }
     bool disable_auto_compaction() const { return _disable_auto_compaction; }
+    void set_store_row_column(bool store_row_column) { _store_row_column = store_row_column; }
+    bool store_row_column() const { return _store_row_column; }
+    bool is_dynamic_schema() const { return _is_dynamic_schema; }
     int32_t delete_sign_idx() const { return _delete_sign_idx; }
     void set_delete_sign_idx(int32_t delete_sign_idx) { _delete_sign_idx = delete_sign_idx; }
     bool has_sequence_col() const { return _sequence_col_idx != -1; }
     int32_t sequence_col_idx() const { return _sequence_col_idx; }
+    void set_version_col_idx(int32_t version_col_idx) { _version_col_idx = version_col_idx; }
+    int32_t version_col_idx() const { return _version_col_idx; }
     segment_v2::CompressionTypePB compression_type() const { return _compression_type; }
 
     const std::vector<TabletIndex>& indexes() const { return _indexes; }
@@ -213,9 +231,12 @@ public:
             const std::vector<uint32_t>& return_columns,
             const std::unordered_set<uint32_t>* tablet_columns_need_convert_null = nullptr) const;
     vectorized::Block create_block(bool ignore_dropped_col = true) const;
+    void set_schema_version(int32_t version) { _schema_version = version; }
 
+    void set_table_id(int32_t table_id) { _table_id = table_id; }
+    int32_t table_id() const { return _table_id; }
     void build_current_tablet_schema(int64_t index_id, int32_t version,
-                                     const POlapTableIndexSchema& index,
+                                     const OlapTableIndexSchema* index,
                                      const TabletSchema& out_tablet_schema);
 
     // Merge columns that not exit in current schema, these column is dropped in current schema
@@ -232,6 +253,18 @@ public:
     void merge_dropped_columns(std::shared_ptr<TabletSchema> src_schema);
 
     bool is_dropped_column(const TabletColumn& col) const;
+
+    string get_all_field_names() const {
+        string str = "[";
+        for (auto p : _field_name_to_index) {
+            if (str.size() > 1) {
+                str += ", ";
+            }
+            str += p.first;
+        }
+        str += "]";
+        return str;
+    }
 
 private:
     friend bool operator==(const TabletSchema& a, const TabletSchema& b);
@@ -257,11 +290,15 @@ private:
     bool _has_bf_fpp = false;
     double _bf_fpp = 0;
     bool _is_in_memory = false;
+    bool _is_dynamic_schema = false;
     int32_t _delete_sign_idx = -1;
     int32_t _sequence_col_idx = -1;
+    int32_t _version_col_idx = -1;
     int32_t _schema_version = -1;
+    int32_t _table_id = -1;
     bool _disable_auto_compaction = false;
     int64_t _mem_size = 0;
+    bool _store_row_column = false;
 };
 
 bool operator==(const TabletSchema& a, const TabletSchema& b);

@@ -27,8 +27,8 @@ import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Join;
 import org.apache.doris.nereids.trees.plans.physical.AbstractPhysicalJoin;
@@ -181,6 +181,10 @@ public class JoinUtils {
         return join.getHashJoinConjuncts().isEmpty();
     }
 
+    public static boolean shouldNestedLoopJoin(JoinType joinType, List<Expression> hashConjuncts) {
+        return hashConjuncts.isEmpty();
+    }
+
     /**
      * The left and right child of origin predicates need to be swap sometimes.
      * Case A:
@@ -289,44 +293,55 @@ public class JoinUtils {
         return false;
     }
 
-    /**
-     * replace JoinConjuncts by using slots map.
-     */
-    public static List<Expression> replaceJoinConjuncts(List<Expression> joinConjuncts,
-            Map<Slot, Slot> replaceMaps) {
-        return joinConjuncts.stream()
-                .map(expr ->
-                        expr.rewriteUp(e -> {
-                            if (e instanceof Slot && replaceMaps.containsKey(e)) {
-                                return replaceMaps.get(e);
-                            } else {
-                                return e;
-                            }
-                        })
-                ).collect(Collectors.toList());
+    public static Set<ExprId> getJoinOutputExprIdSet(Plan left, Plan right) {
+        Set<ExprId> joinOutputExprIdSet = new HashSet<>();
+        joinOutputExprIdSet.addAll(left.getOutputExprIdSet());
+        joinOutputExprIdSet.addAll(right.getOutputExprIdSet());
+        return joinOutputExprIdSet;
+    }
+
+    private static List<Slot> applyNullable(List<Slot> slots, boolean nullable) {
+        return slots.stream().map(o -> o.withNullable(nullable))
+                .collect(ImmutableList.toImmutableList());
     }
 
     /**
-     * When project not empty, we add all slots used by hashOnCondition into projects.
+     * calculate the output slot of a join operator according join type and its children
+     *
+     * @param joinType the type of join operator
+     * @param left left child
+     * @param right right child
+     * @return return the output slots
      */
-    public static void addSlotsUsedByOn(Set<Slot> usedSlots, List<NamedExpression> projects) {
-        if (projects.isEmpty()) {
-            return;
+    public static List<Slot> getJoinOutput(JoinType joinType, Plan left, Plan right) {
+        switch (joinType) {
+            case LEFT_SEMI_JOIN:
+            case LEFT_ANTI_JOIN:
+            case NULL_AWARE_LEFT_ANTI_JOIN:
+                return ImmutableList.copyOf(left.getOutput());
+            case RIGHT_SEMI_JOIN:
+            case RIGHT_ANTI_JOIN:
+                return ImmutableList.copyOf(right.getOutput());
+            case LEFT_OUTER_JOIN:
+                return ImmutableList.<Slot>builder()
+                        .addAll(left.getOutput())
+                        .addAll(applyNullable(right.getOutput(), true))
+                        .build();
+            case RIGHT_OUTER_JOIN:
+                return ImmutableList.<Slot>builder()
+                        .addAll(applyNullable(left.getOutput(), true))
+                        .addAll(right.getOutput())
+                        .build();
+            case FULL_OUTER_JOIN:
+                return ImmutableList.<Slot>builder()
+                        .addAll(applyNullable(left.getOutput(), true))
+                        .addAll(applyNullable(right.getOutput(), true))
+                        .build();
+            default:
+                return ImmutableList.<Slot>builder()
+                        .addAll(left.getOutput())
+                        .addAll(right.getOutput())
+                        .build();
         }
-        Set<ExprId> projectExprIdSet = projects.stream()
-                .map(NamedExpression::getExprId)
-                .collect(Collectors.toSet());
-        usedSlots.forEach(slot -> {
-            if (!projectExprIdSet.contains(slot.getExprId())) {
-                projects.add(slot);
-            }
-        });
-    }
-
-    public static Set<Slot> getJoinOutputSet(Plan left, Plan right) {
-        HashSet<Slot> joinOutput = new HashSet<>();
-        joinOutput.addAll(left.getOutput());
-        joinOutput.addAll(right.getOutput());
-        return joinOutput;
     }
 }

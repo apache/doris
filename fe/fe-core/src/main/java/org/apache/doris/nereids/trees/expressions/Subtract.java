@@ -20,8 +20,6 @@ package org.apache.doris.nereids.trees.expressions;
 import org.apache.doris.analysis.ArithmeticExpr.Operator;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.coercion.AbstractDataType;
-import org.apache.doris.nereids.types.coercion.NumericType;
 
 import com.google.common.base.Preconditions;
 
@@ -44,16 +42,11 @@ public class Subtract extends BinaryArithmetic {
 
     @Override
     public DataType getDataType() {
-        return left().getDataType().promotion();
+        return super.getDataType().promotion();
     }
 
     @Override
     public <R, C> R accept(ExpressionVisitor<R, C> visitor, C context) {
         return visitor.visitSubtract(this, context);
-    }
-
-    @Override
-    public AbstractDataType inputType() {
-        return NumericType.INSTANCE;
     }
 }

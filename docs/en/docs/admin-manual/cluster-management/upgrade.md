@@ -78,10 +78,13 @@ Doris can upgrade smoothly by rolling upgrades. The following steps are recommen
 9. If the startup is successful, run sh bin/stop_fe.sh to stop the FE process of the test environment.
 10. **The purpose of the above 2-6 steps is to prevent the FE of the test environment from being misconnected to the online environment after it starts.**
 
+**Note:**
+1.1.x Before upgrading 1.2.x, you need to delete existing Native UDF ; otherwise, FE startup fails ; And since version 1.2 no longer supports Native UDF, please use [Java UDF](../../ecosystem/udf/java-user-defined-function.md).
+
 ## Upgrade preparation
 
 1. After data validation, the new version of BE and FE binary files are distributed to their respective directories.
-2. Usually small version upgrade, BE only needs to upgrade doris_be; FE only needs to upgrade palo-fe.jar. If it is a large version upgrade, you may need to upgrade other files (including but not limited to bin / lib / etc.) If you are not sure whether you need to replace other files, it is recommended to replace all of them.
+2. In principle, the version upgrade needs to replace the lib directory and bin directory of FE and BE, and other directories except conf directory, data directory (doris-meta of FE, storage of BE), and log directory.
 
 ## rolling upgrade
 

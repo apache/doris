@@ -150,8 +150,8 @@ public:
                                  true);
             } else {
                 return _operator(
-                        *reinterpret_cast<const T*>(statistic.first->cell_ptr()) <= _value &&
-                                *reinterpret_cast<const T*>(statistic.second->cell_ptr()) >= _value,
+                        _get_zone_map_value<T>(statistic.first->cell_ptr()) <= _value &&
+                                _get_zone_map_value<T>(statistic.second->cell_ptr()) >= _value,
                         true);
             }
         } else if constexpr (PT == PredicateType::NE) {
@@ -166,8 +166,8 @@ public:
                                  true);
             } else {
                 return _operator(
-                        *reinterpret_cast<const T*>(statistic.first->cell_ptr()) == _value &&
-                                *reinterpret_cast<const T*>(statistic.second->cell_ptr()) == _value,
+                        _get_zone_map_value<T>(statistic.first->cell_ptr()) == _value &&
+                                _get_zone_map_value<T>(statistic.second->cell_ptr()) == _value,
                         true);
             }
         } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
@@ -193,8 +193,8 @@ public:
                 return _operator(tmp_min_uint32_value == _value && tmp_max_uint32_value == _value,
                                  true);
             } else {
-                return *reinterpret_cast<const T*>(statistic.first->cell_ptr()) == _value &&
-                       *reinterpret_cast<const T*>(statistic.second->cell_ptr()) == _value;
+                return _get_zone_map_value<T>(statistic.first->cell_ptr()) == _value &&
+                       _get_zone_map_value<T>(statistic.second->cell_ptr()) == _value;
             }
         } else if constexpr (PT == PredicateType::NE) {
             if constexpr (Type == TYPE_DATE) {
@@ -206,8 +206,8 @@ public:
                        sizeof(uint24_t));
                 return tmp_min_uint32_value > _value || tmp_max_uint32_value < _value;
             } else {
-                return *reinterpret_cast<const T*>(statistic.first->cell_ptr()) > _value ||
-                       *reinterpret_cast<const T*>(statistic.second->cell_ptr()) < _value;
+                return _get_zone_map_value<T>(statistic.first->cell_ptr()) > _value ||
+                       _get_zone_map_value<T>(statistic.second->cell_ptr()) < _value;
             }
         } else if constexpr (PT == PredicateType::LT || PT == PredicateType::LE) {
             COMPARE_TO_MIN_OR_MAX(second)
@@ -220,8 +220,8 @@ public:
 
     bool evaluate_and(const segment_v2::BloomFilter* bf) const override {
         if constexpr (PT == PredicateType::EQ) {
-            if constexpr (std::is_same_v<T, StringValue>) {
-                return bf->test_bytes(_value.ptr, _value.len);
+            if constexpr (std::is_same_v<T, StringRef>) {
+                return bf->test_bytes(_value.data, _value.size);
             } else if constexpr (Type == TYPE_DATE) {
                 return bf->test_bytes(const_cast<char*>(reinterpret_cast<const char*>(&_value)),
                                       sizeof(uint24_t));
@@ -254,7 +254,7 @@ public:
                                      .get_data();
 
             if (nested_column.is_column_dictionary()) {
-                if constexpr (std::is_same_v<T, StringValue>) {
+                if constexpr (std::is_same_v<T, StringRef>) {
                     auto* dict_column_ptr =
                             vectorized::check_and_get_column<vectorized::ColumnDictI32>(
                                     nested_column);
@@ -266,7 +266,7 @@ public:
                     _base_loop_vec<true, is_and>(size, flags, null_map.data(), data_array,
                                                  dict_code);
                 } else {
-                    LOG(FATAL) << "column_dictionary must use StringValue predicate.";
+                    LOG(FATAL) << "column_dictionary must use StringRef predicate.";
                 }
             } else {
                 auto* data_array = reinterpret_cast<const vectorized::PredicateColumnType<
@@ -278,7 +278,7 @@ public:
             }
         } else {
             if (column.is_column_dictionary()) {
-                if constexpr (std::is_same_v<T, StringValue>) {
+                if constexpr (std::is_same_v<T, StringRef>) {
                     auto* dict_column_ptr =
                             vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
                     auto dict_code = _is_range() ? dict_column_ptr->find_code_by_bound(
@@ -288,7 +288,7 @@ public:
 
                     _base_loop_vec<false, is_and>(size, flags, nullptr, data_array, dict_code);
                 } else {
-                    LOG(FATAL) << "column_dictionary must use StringValue predicate.";
+                    LOG(FATAL) << "column_dictionary must use StringRef predicate.";
                 }
             } else {
                 auto* data_array =
@@ -457,7 +457,7 @@ private:
     void _base_evaluate_bit(const vectorized::IColumn* column, const uint8_t* null_map,
                             const uint16_t* sel, uint16_t size, bool* flags) const {
         if (column->is_column_dictionary()) {
-            if constexpr (std::is_same_v<T, StringValue>) {
+            if constexpr (std::is_same_v<T, StringRef>) {
                 auto* dict_column_ptr =
                         vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
                 auto* data_array = dict_column_ptr->get_data().data();
@@ -467,7 +467,7 @@ private:
                 _base_loop_bit<is_nullable, is_and>(sel, size, flags, null_map, data_array,
                                                     dict_code);
             } else {
-                LOG(FATAL) << "column_dictionary must use StringValue predicate.";
+                LOG(FATAL) << "column_dictionary must use StringRef predicate.";
             }
         } else {
             auto* data_array =
@@ -503,7 +503,7 @@ private:
     uint16_t _base_evaluate(const vectorized::IColumn* column, const uint8_t* null_map,
                             uint16_t* sel, uint16_t size) const {
         if (column->is_column_dictionary()) {
-            if constexpr (std::is_same_v<T, StringValue>) {
+            if constexpr (std::is_same_v<T, StringRef>) {
                 auto* dict_column_ptr =
                         vectorized::check_and_get_column<vectorized::ColumnDictI32>(column);
                 auto* data_array = dict_column_ptr->get_data().data();
@@ -513,7 +513,7 @@ private:
 
                 return _base_loop<is_nullable>(sel, size, null_map, data_array, dict_code);
             } else {
-                LOG(FATAL) << "column_dictionary must use StringValue predicate.";
+                LOG(FATAL) << "column_dictionary must use StringRef predicate.";
                 return 0;
             }
         } else {

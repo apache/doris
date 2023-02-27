@@ -51,6 +51,10 @@ struct TSlotDescriptor {
   9: required i32 slotIdx
   10: required bool isMaterialized
   11: optional i32 col_unique_id = -1
+  12: optional bool is_key = false
+  // If set to false, then such slots will be ignored during
+  // materialize them.Used to optmize to read less data and less memory usage
+  13: optional bool need_materialize = true
 }
 
 struct TTupleDescriptor {
@@ -158,6 +162,9 @@ struct TOlapTablePartition {
     6: optional list<Exprs.TExprNode> start_keys
     7: optional list<Exprs.TExprNode> end_keys
     8: optional list<list<Exprs.TExprNode>> in_keys
+    9: optional bool is_mutable = true
+    // only used in List Partition
+    10: optional bool is_default_partition;
 }
 
 struct TOlapTablePartitionParam {
@@ -183,6 +190,7 @@ struct TOlapTableIndexSchema {
     2: required list<string> columns
     3: required i32 schema_hash
     4: optional list<TColumn> columns_desc
+    5: optional list<TOlapTableIndex> indexes_desc
 }
 
 struct TOlapTableSchemaParam {
@@ -194,6 +202,7 @@ struct TOlapTableSchemaParam {
     4: required list<TSlotDescriptor> slot_descs
     5: required TTupleDescriptor tuple_desc
     6: required list<TOlapTableIndexSchema> indexes
+    7: optional bool is_dynamic_schema
 }
 
 struct TOlapTableIndex {

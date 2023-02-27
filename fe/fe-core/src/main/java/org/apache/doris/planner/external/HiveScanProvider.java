@@ -52,8 +52,6 @@ import org.apache.doris.thrift.TFileType;
 import com.google.common.base.Joiner;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
-import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.hdfs.HdfsConfiguration;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.Table;
 import org.apache.hadoop.mapred.FileSplit;
@@ -126,7 +124,9 @@ public class HiveScanProvider extends HMSTableScanProvider {
                 return TFileType.FILE_HDFS;
             } else if (location.startsWith(FeConstants.FS_PREFIX_FILE)) {
                 return TFileType.FILE_LOCAL;
-            }  else if (location.startsWith(FeConstants.FS_PREFIX_OFS)) {
+            } else if (location.startsWith(FeConstants.FS_PREFIX_OFS)) {
+                return TFileType.FILE_BROKER;
+            } else if (location.startsWith(FeConstants.FS_PREFIX_JFS)) {
                 return TFileType.FILE_BROKER;
             }
         }
@@ -201,20 +201,12 @@ public class HiveScanProvider extends HMSTableScanProvider {
             List<InputSplit> allFiles) {
         List<InputSplit> files = cache.getFilesByPartitions(partitions);
         if (LOG.isDebugEnabled()) {
-            LOG.debug("get #{} files from #{} partitions: {}: {}", files.size(), partitions.size(),
+            LOG.debug("get #{} files from #{} partitions: {}", files.size(), partitions.size(),
                     Joiner.on(",")
                             .join(files.stream().limit(10).map(f -> ((FileSplit) f).getPath())
                                     .collect(Collectors.toList())));
         }
         allFiles.addAll(files);
-    }
-
-    protected Configuration getConfiguration() {
-        Configuration conf = new HdfsConfiguration();
-        for (Map.Entry<String, String> entry : hmsTable.getHadoopProperties().entrySet()) {
-            conf.set(entry.getKey(), entry.getValue());
-        }
-        return conf;
     }
 
     public int getTotalPartitionNum() {

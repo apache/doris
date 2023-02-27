@@ -25,8 +25,6 @@ import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
 import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.apache.hadoop.hive.metastore.messaging.json.JSONDropTableMessage;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 
@@ -34,25 +32,21 @@ import java.util.List;
  * MetastoreEvent for DROP_TABLE event type
  */
 public class DropTableEvent extends MetastoreTableEvent {
-    private static final Logger LOG = LogManager.getLogger(DropTableEvent.class);
-    private final String dbName;
     private final String tableName;
 
     private DropTableEvent(NotificationEvent event,
             String catalogName) {
         super(event, catalogName);
         Preconditions.checkArgument(MetastoreEventType.DROP_TABLE.equals(getEventType()));
-        JSONDropTableMessage dropTableMessage =
-                (JSONDropTableMessage) MetastoreEventsProcessor.getMessageDeserializer()
-                        .getDropTableMessage(event.getMessage());
+        Preconditions
+                .checkNotNull(event.getMessage(), debugString("Event message is null"));
         try {
-            dbName = dropTableMessage.getDB();
+            JSONDropTableMessage dropTableMessage =
+                    (JSONDropTableMessage) MetastoreEventsProcessor.getMessageDeserializer()
+                            .getDropTableMessage(event.getMessage());
             tableName = dropTableMessage.getTable();
         } catch (Exception e) {
-            throw new MetastoreNotificationException(debugString(
-                    "Could not parse event message. "
-                            + "Check if %s is set to true in metastore configuration",
-                    MetastoreEventsProcessor.HMS_ADD_THRIFT_OBJECTS_IN_EVENTS_CONFIG_KEY), e);
+            throw new MetastoreNotificationException(e);
         }
     }
 
@@ -62,28 +56,13 @@ public class DropTableEvent extends MetastoreTableEvent {
     }
 
     @Override
-    protected boolean existInCache() {
-        return true;
-    }
-
-    @Override
-    protected boolean canBeSkipped() {
-        return false;
-    }
-
-    protected boolean isSupported() {
-        return true;
-    }
-
-    @Override
     protected void process() throws MetastoreNotificationException {
         try {
-            LOG.info("DropTable event process,catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName,
-                    tableName);
+            infoLog("catalogName:[{}],dbName:[{}],tableName:[{}]", catalogName, dbName, tableName);
             Env.getCurrentEnv().getCatalogMgr().dropExternalTable(dbName, tableName, catalogName);
         } catch (DdlException e) {
-            LOG.warn("DropExternalTable failed,dbName:[{}],tableName:[{}],catalogName:[{}].", dbName, tableName,
-                    catalogName, e);
+            throw new MetastoreNotificationException(
+                    debugString("Failed to process event"));
         }
     }
 }

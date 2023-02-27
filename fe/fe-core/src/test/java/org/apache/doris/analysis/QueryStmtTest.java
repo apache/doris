@@ -210,7 +210,7 @@ public class QueryStmtTest {
         Assert.assertEquals(5, exprsMap.size());
         constMap.clear();
         constMap = getConstantExprMap(exprsMap, analyzer);
-        Assert.assertEquals(1, constMap.size());
+        Assert.assertEquals(2, constMap.size());
 
         // expr in subquery associate with column in grandparent level
         sql = "WITH aa AS\n"

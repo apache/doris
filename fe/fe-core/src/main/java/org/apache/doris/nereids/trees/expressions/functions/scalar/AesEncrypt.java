@@ -54,24 +54,15 @@ public class AesEncrypt extends AesCryptoFunction {
                     .args(StringType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE, StringType.INSTANCE)
     );
 
-    /**
-     * constructor with 2 arguments.
-     */
     public AesEncrypt(Expression arg0, Expression arg1) {
         super("aes_encrypt", arg0, arg1);
     }
 
-    /**
-     * constructor with 3 arguments.
-     */
     public AesEncrypt(Expression arg0, Expression arg1, Expression arg2) {
         super("aes_encrypt", arg0, arg1, arg2, getDefaultBlockEncryptionMode());
     }
 
-    /**
-     * constructor with 4 arguments.
-     */
-    public AesEncrypt(Expression arg0, Expression arg1, Expression arg2, StringLiteral arg3) {
+    public AesEncrypt(Expression arg0, Expression arg1, Expression arg2, Expression arg3) {
         super("aes_encrypt", arg0, arg1, arg2, arg3);
     }
 

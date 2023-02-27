@@ -27,7 +27,7 @@ namespace pipeline {
 class AssertNumRowsOperatorBuilder final : public OperatorBuilder<vectorized::VAssertNumRowsNode> {
 public:
     AssertNumRowsOperatorBuilder(int32_t id, ExecNode* node)
-            : OperatorBuilder(id, "AssertNumRowsOperator", node) {};
+            : OperatorBuilder(id, "AssertNumRowsOperator", node) {}
 
     OperatorPtr build_operator() override;
 };
@@ -35,7 +35,7 @@ public:
 class AssertNumRowsOperator final : public StreamingOperator<AssertNumRowsOperatorBuilder> {
 public:
     AssertNumRowsOperator(OperatorBuilderBase* operator_builder, ExecNode* node)
-            : StreamingOperator(operator_builder, node) {};
+            : StreamingOperator(operator_builder, node) {}
 };
 
 OperatorPtr AssertNumRowsOperatorBuilder::build_operator() {

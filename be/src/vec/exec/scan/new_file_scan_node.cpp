@@ -101,8 +101,6 @@ VScanner* NewFileScanNode::_create_scanner(const TFileScanRange& scan_range) {
                                          runtime_profile(), _kv_cache);
     ((VFileScanner*)scanner)->prepare(_vconjunct_ctx_ptr.get(), &_colname_to_value_range);
     _scanner_pool.add(scanner);
-    // TODO: Can we remove _conjunct_ctxs and use _vconjunct_ctx_ptr instead?
-    scanner->reg_conjunct_ctxs(_conjunct_ctxs);
     return scanner;
 }
 

@@ -301,7 +301,7 @@ protected:
         TabletMetaSharedPtr tablet_meta(
                 new TabletMeta(2, 2, 2, 2, 2, 2, t_tablet_schema, 2, col_ordinal_to_unique_id,
                                UniqueId(1, 2), TTabletType::TABLET_TYPE_DISK,
-                               TCompressionType::LZ4F, "", enable_unique_key_merge_on_write));
+                               TCompressionType::LZ4F, 0, enable_unique_key_merge_on_write));
 
         TabletSharedPtr tablet(new Tablet(tablet_meta, nullptr));
         tablet->init();

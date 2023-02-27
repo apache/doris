@@ -19,7 +19,7 @@ package org.apache.doris.ldap;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.LdapConfig;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.persist.LdapInfo;
 
 import com.google.common.collect.Lists;
@@ -45,7 +45,7 @@ public class LdapClientTest {
     private Env env;
 
     @Mocked
-    private PaloAuth auth;
+    private Auth auth;
 
     private LdapInfo ldapInfo = new LdapInfo(ADMIN_PASSWORD);
 

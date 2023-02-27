@@ -154,6 +154,11 @@ public abstract class AggregateInfoBase {
             Expr expr = exprs.get(i);
             SlotDescriptor slotDesc = analyzer.addSlotDescriptor(result);
             slotDesc.initFromExpr(expr);
+            if (expr instanceof SlotRef) {
+                if (((SlotRef) expr).getColumn() != null) {
+                    slotDesc.setColumn(((SlotRef) expr).getColumn());
+                }
+            }
             // Not change the nullable of slot desc when is not grouping set id
             if (isGroupingSet && i < aggregateExprStartIndex - 1 && !(expr instanceof VirtualSlotRef)) {
                 slotDesc.setIsNullable(true);

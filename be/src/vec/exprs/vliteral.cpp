@@ -93,28 +93,36 @@ void VLiteral::init(const TExprNode& node) {
         }
         case TYPE_DATE: {
             VecDateTimeValue value;
-            value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size());
-            value.cast_to_date();
-            field = Int64(*reinterpret_cast<__int64_t*>(&value));
+            if (value.from_date_str(node.date_literal.value.c_str(),
+                                    node.date_literal.value.size())) {
+                value.cast_to_date();
+                field = Int64(*reinterpret_cast<__int64_t*>(&value));
+            }
             break;
         }
         case TYPE_DATEV2: {
             DateV2Value<DateV2ValueType> value;
-            value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size());
-            field = value.to_date_int_val();
+            if (value.from_date_str(node.date_literal.value.c_str(),
+                                    node.date_literal.value.size())) {
+                field = value.to_date_int_val();
+            }
             break;
         }
         case TYPE_DATETIMEV2: {
             DateV2Value<DateTimeV2ValueType> value;
-            value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size());
-            field = value.to_date_int_val();
+            if (value.from_date_str(node.date_literal.value.c_str(),
+                                    node.date_literal.value.size())) {
+                field = value.to_date_int_val();
+            }
             break;
         }
         case TYPE_DATETIME: {
             VecDateTimeValue value;
-            value.from_date_str(node.date_literal.value.c_str(), node.date_literal.value.size());
-            value.to_datetime();
-            field = Int64(*reinterpret_cast<__int64_t*>(&value));
+            if (value.from_date_str(node.date_literal.value.c_str(),
+                                    node.date_literal.value.size())) {
+                value.to_datetime();
+                field = Int64(*reinterpret_cast<__int64_t*>(&value));
+            }
             break;
         }
         case TYPE_STRING:
@@ -205,8 +213,10 @@ std::string VLiteral::value() const {
             case TYPE_BOOLEAN:
             case TYPE_TINYINT:
                 out << *(reinterpret_cast<const int8_t*>(ref.data));
+                break;
             case TYPE_SMALLINT:
                 out << *(reinterpret_cast<const int16_t*>(ref.data));
+                break;
             case TYPE_INT: {
                 out << *(reinterpret_cast<const int32_t*>(ref.data));
                 break;
@@ -259,18 +269,21 @@ std::string VLiteral::value() const {
                 break;
             }
             case TYPE_DECIMAL32: {
-                write_text<int32_t>(*(reinterpret_cast<const int32_t*>(ref.data)), _type.scale,
-                                    out);
+                auto str =
+                        reinterpret_cast<const Decimal<int32_t>*>(ref.data)->to_string(_type.scale);
+                out << str;
                 break;
             }
             case TYPE_DECIMAL64: {
-                write_text<int64_t>(*(reinterpret_cast<const int64_t*>(ref.data)), _type.scale,
-                                    out);
+                auto str =
+                        reinterpret_cast<const Decimal<int64_t>*>(ref.data)->to_string(_type.scale);
+                out << str;
                 break;
             }
             case TYPE_DECIMAL128I: {
-                write_text<int128_t>(*(reinterpret_cast<const int128_t*>(ref.data)), _type.scale,
-                                     out);
+                auto str = reinterpret_cast<const Decimal<int128_t>*>(ref.data)->to_string(
+                        _type.scale);
+                out << str;
                 break;
             }
             default: {

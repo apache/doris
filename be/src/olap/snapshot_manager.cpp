@@ -261,7 +261,6 @@ Status SnapshotManager::_rename_rowset_id(const RowsetMetaPB& rs_meta_pb,
             org_rowset_meta->tablet_schema() ? org_rowset_meta->tablet_schema() : tablet_schema;
     context.rowset_state = org_rowset_meta->rowset_state();
     context.version = org_rowset_meta->version();
-    context.oldest_write_timestamp = org_rowset_meta->oldest_write_timestamp();
     context.newest_write_timestamp = org_rowset_meta->newest_write_timestamp();
     // keep segments_overlap same as origin rowset
     context.segments_overlap = rowset_meta->segments_overlap();
@@ -412,6 +411,14 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                     // find rowset in both rs_meta and stale_rs_meta
                     const RowsetSharedPtr rowset = ref_tablet->get_rowset_by_version(version, true);
                     if (rowset != nullptr) {
+                        if (!rowset->is_local()) {
+                            // MUST make full snapshot to ensure `cooldown_meta_id` is consistent with the cooldowned rowsets after clone.
+                            LOG(INFO) << "missed version is a cooldowned rowset, must make full "
+                                         "snapshot. missed_version="
+                                      << missed_version << " tablet_id=" << ref_tablet->tablet_id();
+                            res = Status::Error<ErrorCode::INTERNAL_ERROR>();
+                            break;
+                        }
                         consistent_rowsets.push_back(rowset);
                     } else {
                         res = Status::InternalError(
@@ -481,13 +488,6 @@ Status SnapshotManager::_create_snapshot_files(const TabletSharedPtr& ref_tablet
                 delete_bitmap_snapshot =
                         ref_tablet->tablet_meta()->delete_bitmap().snapshot(version);
             }
-        }
-        {
-            std::unique_lock wlock(ref_tablet->get_header_lock());
-            if (ref_tablet->tablet_state() == TABLET_SHUTDOWN) {
-                return Status::Aborted("tablet has shutdown");
-            }
-            ref_tablet->update_self_owned_remote_rowsets(consistent_rowsets);
         }
 
         std::vector<RowsetMetaSharedPtr> rs_metas;

@@ -71,7 +71,7 @@ The Linux swap partition can cause serious performance problems for Doris, so yo
 
 ##### Linux file system
 
-When installing the operating system, we recommend that you select the ext4 file system.
+Both ext4 and xfs file systems are supported.
 
 #### Development Test Environment
 
@@ -216,17 +216,17 @@ See the `lower_case_table_names` section in [Variables](../../advanced/variables
 
   Note: You do not need to add the `.SSD` or `.HDD` suffix, but to specify the medium in the `storage_root_path` parameter
 
-    `storage_root_path=/home/disk1/doris,medium:hdd;/home/disk2/doris,medium:ssd`
+    `storage_root_path=/home/disk1/doris,medium:HDD;/home/disk2/doris,medium:SSD`
       
   **Description**
       
 
-    * 1./home/disk1/doris,medium:hdd  :  The storage medium is HDD;
-    * 2./home/disk2/doris,medium:ssd  :  The storage medium is SSD.
+    * 1./home/disk1/doris,medium:HDD  :  The storage medium is HDD;
+    * 2./home/disk2/doris,medium:SSD  :  The storage medium is SSD.
 
 * BE webserver_port configuration
 
-	If the BE componet is installed in hadoop cluster, you need to change the configuration `webserver_port=8040`  in be.conf to avoid port conflicts.
+	If the BE component is installed in hadoop cluster, you need to change configuration `webserver_port=8040` to avoid port used.
 
 * Set JAVA_HOME environment variable
 

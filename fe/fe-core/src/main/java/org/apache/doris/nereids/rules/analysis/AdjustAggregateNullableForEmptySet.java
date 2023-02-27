@@ -27,10 +27,10 @@ import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewri
 import org.apache.doris.nereids.trees.plans.logical.LogicalHaving;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 
 import java.util.List;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * adjust aggregate nullable when: group expr list is empty and function is NullableAggregateFunction,
@@ -46,7 +46,7 @@ public class AdjustAggregateNullableForEmptySet implements RewriteRuleFactory {
                                     List<NamedExpression> output = agg.getOutputExpressions().stream()
                                             .map(ne -> ((NamedExpression) FunctionReplacer.INSTANCE.replace(ne,
                                                     agg.getGroupByExpressions().isEmpty())))
-                                            .collect(Collectors.toList());
+                                            .collect(ImmutableList.toImmutableList());
                                     return agg.withAggOutput(output);
                                 })
                 ),
@@ -56,7 +56,7 @@ public class AdjustAggregateNullableForEmptySet implements RewriteRuleFactory {
                                     Set<Expression> newConjuncts = having.getConjuncts().stream()
                                             .map(ne -> FunctionReplacer.INSTANCE.replace(ne,
                                                     having.child().getGroupByExpressions().isEmpty()))
-                                            .collect(Collectors.toSet());
+                                            .collect(ImmutableSet.toImmutableSet());
                                     return new LogicalHaving<>(newConjuncts, having.child());
                                 })
                 )

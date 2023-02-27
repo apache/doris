@@ -12,6 +12,12 @@ doris
 \N
 
 -- !sql --
+1	varchar	varchar
+2	varchar	\N
+3	varchar	\N
+4	varchar	\N
+
+-- !sql --
 ac
 
 -- !sql --
@@ -177,6 +183,9 @@ ab d
 1,123.40
 
 -- !sql --
+1,000.00
+
+-- !sql --
 true
 
 -- !sql --
@@ -225,7 +234,7 @@ hello
 world
 
 -- !sql --
-\\N
+\N
 
 -- !sql --
 world
@@ -234,10 +243,10 @@ world
 hello
 
 -- !sql --
-\\N
+\N
 
 -- !sql --
-\\N
+\N
 
 -- !sql --
 abc
@@ -246,7 +255,7 @@ abc
 #xyz
 
 -- !sql --
-\\N
+\N
 
 -- !sql --
 xyz
@@ -255,7 +264,7 @@ xyz
 123#
 
 -- !sql --
-\\N
+\N
 
 -- !sql --
 true
@@ -367,3 +376,4 @@ tNEW-STRorigin str
 
 -- !sql --
 d***is
+

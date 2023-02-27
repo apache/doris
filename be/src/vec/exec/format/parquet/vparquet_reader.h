@@ -26,6 +26,7 @@
 #include "common/status.h"
 #include "exec/olap_common.h"
 #include "gen_cpp/parquet_types.h"
+#include "io/file_factory.h"
 #include "io/fs/file_reader.h"
 #include "io/fs/file_system.h"
 #include "vec/core/block.h"
@@ -66,13 +67,11 @@ public:
     // for test
     void set_file_reader(io::FileReaderSPtr file_reader) { _file_reader = file_reader; }
 
-    Status init_reader(const std::vector<std::string>& column_names, bool filter_groups = true) {
-        // without predicate
-        return init_reader(column_names, nullptr, nullptr, filter_groups);
-    }
+    Status open();
 
     Status init_reader(
-            const std::vector<std::string>& column_names,
+            const std::vector<std::string>& all_column_names,
+            const std::vector<std::string>& missing_column_names,
             std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
             VExprContext* vconjunct_ctx, bool filter_groups = true);
 
@@ -103,6 +102,11 @@ public:
                     partition_columns,
             const std::unordered_map<std::string, VExprContext*>& missing_columns) override;
 
+    std::vector<tparquet::KeyValue> get_metadata_key_values();
+    void set_table_to_file_col_map(std::unordered_map<std::string, std::string>& map) {
+        _table_col_to_file_col = map;
+    }
+
 private:
     struct ParquetProfile {
         RuntimeProfile::Counter* filtered_row_groups;
@@ -111,6 +115,7 @@ private:
         RuntimeProfile::Counter* filtered_page_rows;
         RuntimeProfile::Counter* lazy_read_filtered_rows;
         RuntimeProfile::Counter* filtered_bytes;
+        RuntimeProfile::Counter* raw_rows_read;
         RuntimeProfile::Counter* to_read_bytes;
         RuntimeProfile::Counter* column_read_time;
         RuntimeProfile::Counter* parse_meta_time;
@@ -137,6 +142,8 @@ private:
             const RowGroupReader::RowGroupIndex& row_group_index);
     Status _init_read_columns();
     Status _init_row_groups(const bool& is_filter_groups);
+    void _init_system_properties();
+    void _init_file_description();
     // Page Index Filter
     bool _has_page_index(const std::vector<tparquet::ColumnChunk>& columns, PageIndex& page_index);
     Status _process_page_index(const tparquet::RowGroup& row_group,
@@ -156,6 +163,8 @@ private:
     RuntimeProfile* _profile;
     const TFileScanRangeParams& _scan_params;
     const TFileRangeDesc& _scan_range;
+    FileSystemProperties _system_properties;
+    FileDescription _file_description;
     std::shared_ptr<io::FileSystem> _file_system = nullptr;
     io::FileReaderSPtr _file_reader = nullptr;
     std::shared_ptr<FileMetaData> _file_metadata;
@@ -165,11 +174,16 @@ private:
     bool _row_group_eof = true;
     int32_t _total_groups;                  // num of groups(stripes) of a parquet(orc) file
     std::map<std::string, int> _map_column; // column-name <---> column-index
+    // table column name to file column name map. For iceberg schema evolution.
+    std::unordered_map<std::string, std::string> _table_col_to_file_col;
     std::unordered_map<std::string, ColumnValueRangeType>* _colname_to_value_range;
     std::vector<ParquetReadColumn> _read_columns;
     RowRange _whole_range = RowRange(0, 0);
     const std::vector<int64_t>* _delete_rows = nullptr;
     int64_t _delete_rows_index = 0;
+
+    // should turn off filtering by page index and lazy read if having complex type
+    bool _has_complex_type = false;
 
     // Used for column lazy read.
     RowGroupReader::LazyReadContext _lazy_read_ctx;
@@ -189,7 +203,6 @@ private:
     ParquetColumnReader::Statistics _column_statistics;
     ParquetProfile _parquet_profile;
     bool _closed = false;
-
     IOContext* _io_ctx;
 };
 } // namespace doris::vectorized

@@ -29,20 +29,20 @@ suite("test_external_pg", "p2") {
         String pgTableNameCustomer = "jdbc_pg_14_customer"
         String pgTableNameSupplier = "jdbc_pg_14_supplier"
 
-
+        sql """drop database if exists ${jdbcPg14Database1};"""
+        sql """drop resource if exists ${jdbcResourcePg14};"""
 
         sql """drop database if exists ${jdbcPg14Database1};"""
         sql """create database ${jdbcPg14Database1};"""
         sql """use ${jdbcPg14Database1};"""
-        sql """drop resource if exists ${jdbcResourcePg14};"""
         sql """
             create external resource ${jdbcResourcePg14}
             properties (
                 "type"="jdbc",
                 "user"="${extPgUser}",
                 "password"="${extPgPassword}",
-                "jdbc_url"="jdbc:postgresql://${extPgHost}:${extPgPort}/ssb?currentSchema=ssb",
-                "driver_url"="https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/postgresql-42.5.0.jar",
+                "jdbc_url"="jdbc:postgresql://${extPgHost}:${extPgPort}/ssb?currentSchema=ssb&useCursorFetch=true",
+                "driver_url"="https://doris-community-bj-1308700295.cos.ap-beijing.myqcloud.com/jdbc_drivers/postgresql-42.5.0.jar",
                 "driver_class"="org.postgresql.Driver"
             );
             """
@@ -89,7 +89,7 @@ suite("test_external_pg", "p2") {
             PROPERTIES (
             "resource" = "${jdbcResourcePg14}",
             "table" = "customer",
-            "table_type"="mysql"
+            "table_type"="postgresql"
             );
             """
 
@@ -106,8 +106,8 @@ suite("test_external_pg", "p2") {
             ) ENGINE=JDBC
             PROPERTIES (
             "resource" = "${jdbcResourcePg14}",
-            "table" = "customer",
-            "table_type"="mysql"
+            "table" = "supplier",
+            "table_type"="postgresql"
             );
             """
 
@@ -125,13 +125,6 @@ suite("test_external_pg", "p2") {
 
         def res4 = sql """select * from ${pgTableNameCustomer} a  join ${pgTableNameSupplier} b on a.c_nation =b.s_nation limit 5;"""
         logger.info("recoding select: " + res4.toString())
-
-        sql """drop table if exists ${pgTableNameLineOrder}"""
-        sql """drop table if exists ${pgTableNameCustomer}"""
-        sql """drop table if exists ${pgTableNameSupplier}"""
-
-        sql """drop database if exists ${jdbcPg14Database1};"""
-        sql """drop resource if exists ${jdbcResourcePg14};"""
 
     }
 }

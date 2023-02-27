@@ -58,6 +58,7 @@ static void set_child_node_level(FieldSchema* parent, size_t rep_inc = 0, size_t
     for (auto& child : parent->children) {
         child.repetition_level = parent->repetition_level + rep_inc;
         child.definition_level = parent->definition_level + def_inc;
+        child.repeated_parent_def_level = parent->definition_level;
     }
 }
 
@@ -124,12 +125,16 @@ Status FieldDescriptor::parse_node_field(const std::vector<tparquet::SchemaEleme
     if (is_repeated_node(t_schema)) {
         // repeated <primitive-type> <name> (LIST)
         // produce required list<element>
+        node_field->repetition_level++;
+        node_field->definition_level++;
         node_field->children.resize(1);
         set_child_node_level(node_field);
         auto child = &node_field->children[0];
         parse_physical_field(t_schema, false, child);
 
-        node_field->name = t_schema.name;
+        std::string lower_case_name;
+        transform(t_schema.name.begin(), t_schema.name.end(), lower_case_name.begin(), ::tolower);
+        node_field->name = lower_case_name;
         node_field->type.type = TYPE_ARRAY;
         node_field->is_nullable = false;
         _next_schema_pos = curr_pos + 1;
@@ -146,7 +151,9 @@ Status FieldDescriptor::parse_node_field(const std::vector<tparquet::SchemaEleme
 
 void FieldDescriptor::parse_physical_field(const tparquet::SchemaElement& physical_schema,
                                            bool is_nullable, FieldSchema* physical_field) {
-    physical_field->name = physical_schema.name;
+    std::string lower_case_name = physical_schema.name;
+    transform(lower_case_name.begin(), lower_case_name.end(), lower_case_name.begin(), ::tolower);
+    physical_field->name = lower_case_name;
     physical_field->parquet_schema = physical_schema;
     physical_field->is_nullable = is_nullable;
     physical_field->physical_type = physical_schema.type;
@@ -167,24 +174,28 @@ TypeDescriptor FieldDescriptor::get_doris_type(const tparquet::SchemaElement& ph
     if (type.type == INVALID_TYPE) {
         switch (physical_schema.type) {
         case tparquet::Type::BOOLEAN:
-            type.type = TYPE_BOOLEAN;
+            type = TypeDescriptor(TYPE_BOOLEAN);
             break;
         case tparquet::Type::INT32:
-            type.type = TYPE_INT;
+            type = TypeDescriptor(TYPE_INT);
             break;
         case tparquet::Type::INT64:
+            type = TypeDescriptor(TYPE_BIGINT);
+            break;
         case tparquet::Type::INT96:
-            type.type = TYPE_BIGINT;
+            // in most cases, it's a nano timestamp
+            type = TypeDescriptor(TYPE_DATETIMEV2);
             break;
         case tparquet::Type::FLOAT:
-            type.type = TYPE_FLOAT;
+            type = TypeDescriptor(TYPE_FLOAT);
             break;
         case tparquet::Type::DOUBLE:
-            type.type = TYPE_DOUBLE;
+            type = TypeDescriptor(TYPE_DOUBLE);
             break;
         case tparquet::Type::BYTE_ARRAY:
+            [[fallthrough]];
         case tparquet::Type::FIXED_LEN_BYTE_ARRAY:
-            type.type = TYPE_STRING;
+            type = TypeDescriptor(TYPE_STRING);
             break;
         default:
             break;
@@ -196,33 +207,31 @@ TypeDescriptor FieldDescriptor::get_doris_type(const tparquet::SchemaElement& ph
 TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::LogicalType logicalType) {
     TypeDescriptor type;
     if (logicalType.__isset.STRING) {
-        type.type = TYPE_STRING;
+        type = TypeDescriptor(TYPE_STRING);
     } else if (logicalType.__isset.DECIMAL) {
-        type.type = TYPE_DECIMALV2;
-        type.precision = 27;
-        type.scale = 9;
+        type = TypeDescriptor(TYPE_DECIMALV2);
     } else if (logicalType.__isset.DATE) {
-        type.type = TYPE_DATEV2;
+        type = TypeDescriptor(TYPE_DATEV2);
     } else if (logicalType.__isset.INTEGER) {
         if (logicalType.INTEGER.isSigned) {
             if (logicalType.INTEGER.bitWidth <= 32) {
-                type.type = TYPE_INT;
+                type = TypeDescriptor(TYPE_INT);
             } else {
-                type.type = TYPE_BIGINT;
+                type = TypeDescriptor(TYPE_BIGINT);
             }
         } else {
             if (logicalType.INTEGER.bitWidth <= 16) {
-                type.type = TYPE_INT;
+                type = TypeDescriptor(TYPE_INT);
             } else {
-                type.type = TYPE_BIGINT;
+                type = TypeDescriptor(TYPE_BIGINT);
             }
         }
     } else if (logicalType.__isset.TIME) {
-        type.type = TYPE_TIMEV2;
+        type = TypeDescriptor(TYPE_TIMEV2);
     } else if (logicalType.__isset.TIMESTAMP) {
-        type.type = TYPE_DATETIMEV2;
+        type = TypeDescriptor(TYPE_DATETIMEV2);
     } else {
-        type.type = INVALID_TYPE;
+        type = TypeDescriptor(INVALID_TYPE);
     }
     return type;
 }
@@ -231,39 +240,47 @@ TypeDescriptor FieldDescriptor::convert_to_doris_type(tparquet::ConvertedType::t
     TypeDescriptor type;
     switch (convertedType) {
     case tparquet::ConvertedType::type::UTF8:
-        type.type = TYPE_STRING;
+        type = TypeDescriptor(TYPE_STRING);
         break;
     case tparquet::ConvertedType::type::DECIMAL:
-        type.type = TYPE_DECIMALV2;
-        type.precision = 27;
-        type.scale = 9;
+        type = TypeDescriptor(TYPE_DECIMALV2);
         break;
     case tparquet::ConvertedType::type::DATE:
-        type.type = TYPE_DATEV2;
+        type = TypeDescriptor(TYPE_DATEV2);
         break;
     case tparquet::ConvertedType::type::TIME_MILLIS:
+        [[fallthrough]];
     case tparquet::ConvertedType::type::TIME_MICROS:
-        type.type = TYPE_TIMEV2;
+        type = TypeDescriptor(TYPE_TIMEV2);
         break;
     case tparquet::ConvertedType::type::TIMESTAMP_MILLIS:
+        [[fallthrough]];
     case tparquet::ConvertedType::type::TIMESTAMP_MICROS:
-        type.type = TYPE_DATETIMEV2;
+        type = TypeDescriptor(TYPE_DATETIMEV2);
+        break;
+    case tparquet::ConvertedType::type::INT_8:
+        type = TypeDescriptor(TYPE_TINYINT);
         break;
     case tparquet::ConvertedType::type::UINT_8:
-    case tparquet::ConvertedType::type::UINT_16:
-    case tparquet::ConvertedType::type::INT_8:
+        [[fallthrough]];
     case tparquet::ConvertedType::type::INT_16:
+        type = TypeDescriptor(TYPE_SMALLINT);
+        break;
+    case tparquet::ConvertedType::type::UINT_16:
+        [[fallthrough]];
     case tparquet::ConvertedType::type::INT_32:
-        type.type = TYPE_INT;
+        type = TypeDescriptor(TYPE_INT);
         break;
     case tparquet::ConvertedType::type::UINT_32:
+        [[fallthrough]];
     case tparquet::ConvertedType::type::UINT_64:
+        [[fallthrough]];
     case tparquet::ConvertedType::type::INT_64:
-        type.type = TYPE_BIGINT;
+        type = TypeDescriptor(TYPE_BIGINT);
         break;
     default:
         LOG(WARNING) << "Not supported parquet ConvertedType: " << convertedType;
-        type = INVALID_TYPE;
+        type = TypeDescriptor(INVALID_TYPE);
         break;
     }
     return type;
@@ -293,6 +310,8 @@ Status FieldDescriptor::parse_group_field(const std::vector<tparquet::SchemaElem
     }
 
     if (is_repeated_node(group_schema)) {
+        group_field->repetition_level++;
+        group_field->definition_level++;
         group_field->children.resize(1);
         set_child_node_level(group_field);
         auto struct_field = &group_field->children[0];
@@ -346,6 +365,8 @@ Status FieldDescriptor::parse_list_field(const std::vector<tparquet::SchemaEleme
     if (is_optional) {
         list_field->definition_level++;
     }
+    list_field->repetition_level++;
+    list_field->definition_level++;
     list_field->children.resize(1);
     FieldSchema* list_child = &list_field->children[0];
 
@@ -354,8 +375,8 @@ Status FieldDescriptor::parse_list_field(const std::vector<tparquet::SchemaEleme
         if (num_children == 1 && !is_struct_list_node(second_level)) {
             // optional field, and the third level element is the nested structure in list
             // produce nested structure like: LIST<INT>, LIST<MAP>, LIST<LIST<...>>
-            // skip bag/list, but it's a repeated element, so increase repetition and definition level
-            set_child_node_level(list_field, 1, 1);
+            // skip bag/list, it's a repeated element.
+            set_child_node_level(list_field);
             RETURN_IF_ERROR(parse_node_field(t_schemas, curr_pos + 2, list_child));
         } else {
             // required field, produce the list of struct
@@ -422,6 +443,8 @@ Status FieldDescriptor::parse_map_field(const std::vector<tparquet::SchemaElemen
     if (is_optional) {
         map_field->definition_level++;
     }
+    map_field->repetition_level++;
+    map_field->definition_level++;
 
     map_field->children.resize(1);
     set_child_node_level(map_field);
@@ -442,9 +465,6 @@ Status FieldDescriptor::parse_struct_field(const std::vector<tparquet::SchemaEle
     auto& struct_schema = t_schemas[curr_pos];
     bool is_optional = is_optional_node(struct_schema);
     if (is_optional) {
-        struct_field->definition_level++;
-    } else if (is_repeated_node(struct_schema)) {
-        struct_field->repetition_level++;
         struct_field->definition_level++;
     }
     auto num_children = struct_schema.num_children;

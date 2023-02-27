@@ -19,8 +19,6 @@ import java.text.SimpleDateFormat;
 import java.util.Date;
 
 suite("add_table_policy_by_modify_partition") {
-    sql """ADMIN SET FRONTEND CONFIG ("enable_storage_policy" = "true");"""
-
     SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss")
     Date date = new Date(System.currentTimeMillis() + 3600000)
     def cooldownTime = format.format(date)

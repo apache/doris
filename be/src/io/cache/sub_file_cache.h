@@ -39,6 +39,8 @@ public:
     Status read_at(size_t offset, Slice result, const IOContext& io_ctx,
                    size_t* bytes_read) override;
 
+    Status read_at_impl(size_t offset, Slice result, const IOContext& io_ctx, size_t* bytes_read);
+
     const Path& path() const override { return _remote_file_reader->path(); }
 
     size_t size() const override { return _remote_file_reader->size(); }
@@ -57,7 +59,7 @@ public:
 
     int64_t get_oldest_match_time() const override {
         return _gc_lru_queue.empty() ? 0 : _gc_lru_queue.top().last_match_time;
-    };
+    }
 
     bool is_gc_finish() const override { return _gc_lru_queue.empty(); }
 

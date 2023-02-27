@@ -25,8 +25,6 @@
 #include "runtime/decimalv2_value.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
-#include "runtime/string_value.h"
-#include "runtime/tuple.h"
 #include "text_converter.h"
 #include "util/binary_cast.hpp"
 #include "util/string_parser.hpp"
@@ -36,135 +34,6 @@
 #include "vec/runtime/vdatetime_value.h"
 
 namespace doris {
-
-// Note: this function has a codegen'd version.  Changing this function requires
-// corresponding changes to CodegenWriteSlot.
-inline bool TextConverter::write_slot(const SlotDescriptor* slot_desc, Tuple* tuple,
-                                      const char* data, int len, bool copy_string, bool need_escape,
-                                      MemPool* pool) {
-    //Small batch import only \N is considered to be NULL, there is no replace_value function for batch import
-    if (true == slot_desc->is_nullable()) {
-        if (len == 2 && data[0] == '\\' && data[1] == 'N') {
-            tuple->set_null(slot_desc->null_indicator_offset());
-            return true;
-        } else {
-            tuple->set_not_null(slot_desc->null_indicator_offset());
-        }
-    }
-
-    StringParser::ParseResult parse_result = StringParser::PARSE_SUCCESS;
-    void* slot = tuple->get_slot(slot_desc->tuple_offset());
-
-    // Parse the raw-text data. Translate the text string to internal format.
-    switch (slot_desc->type().type) {
-    case TYPE_HLL:
-    case TYPE_VARCHAR:
-    case TYPE_CHAR:
-    case TYPE_STRING: {
-        StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-        str_slot->ptr = const_cast<char*>(data);
-        str_slot->len = len;
-        if (len != 0 && (copy_string || need_escape)) {
-            DCHECK(pool != NULL);
-            char* slot_data = reinterpret_cast<char*>(pool->allocate(len));
-
-            if (need_escape) {
-                unescape_string(data, slot_data, &str_slot->len);
-            } else {
-                memcpy(slot_data, data, str_slot->len);
-            }
-
-            str_slot->ptr = slot_data;
-        }
-
-        break;
-    }
-
-    case TYPE_BOOLEAN:
-        *reinterpret_cast<bool*>(slot) = StringParser::string_to_bool(data, len, &parse_result);
-        break;
-
-    case TYPE_TINYINT:
-        *reinterpret_cast<int8_t*>(slot) =
-                StringParser::string_to_int<int8_t>(data, len, &parse_result);
-        break;
-
-    case TYPE_SMALLINT:
-        *reinterpret_cast<int16_t*>(slot) =
-                StringParser::string_to_int<int16_t>(data, len, &parse_result);
-        break;
-
-    case TYPE_INT:
-        *reinterpret_cast<int32_t*>(slot) =
-                StringParser::string_to_int<int32_t>(data, len, &parse_result);
-        break;
-
-    case TYPE_BIGINT:
-        *reinterpret_cast<int64_t*>(slot) =
-                StringParser::string_to_int<int64_t>(data, len, &parse_result);
-        break;
-
-    case TYPE_LARGEINT: {
-        __int128 tmp = StringParser::string_to_int<__int128>(data, len, &parse_result);
-        memcpy(slot, &tmp, sizeof(tmp));
-        break;
-    }
-
-    case TYPE_FLOAT:
-        *reinterpret_cast<float*>(slot) =
-                StringParser::string_to_float<float>(data, len, &parse_result);
-        break;
-
-    case TYPE_DOUBLE:
-        *reinterpret_cast<double*>(slot) =
-                StringParser::string_to_float<double>(data, len, &parse_result);
-        break;
-
-    case TYPE_DATE: {
-        DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(slot);
-        if (!ts_slot->from_date_str(data, len)) {
-            parse_result = StringParser::PARSE_FAILURE;
-            break;
-        }
-
-        ts_slot->cast_to_date();
-        break;
-    }
-
-    case TYPE_DATETIME: {
-        DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(slot);
-        if (!ts_slot->from_date_str(data, len)) {
-            parse_result = StringParser::PARSE_FAILURE;
-        }
-
-        ts_slot->to_datetime();
-        break;
-    }
-
-    case TYPE_DECIMALV2: {
-        DecimalV2Value decimal_slot;
-
-        if (decimal_slot.parse_from_str(data, len)) {
-            parse_result = StringParser::PARSE_FAILURE;
-        }
-
-        *reinterpret_cast<PackedInt128*>(slot) = decimal_slot.value();
-        break;
-    }
-
-    default:
-        DCHECK(false) << "bad slot type: " << slot_desc->type();
-        break;
-    }
-
-    // TODO: add warning for overflow case
-    if (parse_result != StringParser::PARSE_SUCCESS) {
-        tuple->set_null(slot_desc->null_indicator_offset());
-        return false;
-    }
-
-    return true;
-}
 
 inline void TextConverter::write_string_column(const SlotDescriptor* slot_desc,
                                                vectorized::MutableColumnPtr* column_ptr,
@@ -280,7 +149,18 @@ inline bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
                 reinterpret_cast<char*>(&ts_slot), 0);
         break;
     }
-
+    case TYPE_DATEV2: {
+        vectorized::VecDateTimeValue ts_slot;
+        if (!ts_slot.from_date_str(data, len)) {
+            parse_result = StringParser::PARSE_FAILURE;
+            insert_after_parse_failure = false;
+            break;
+        }
+        ts_slot.cast_to_date();
+        uint32_t num = ts_slot.to_date_v2();
+        reinterpret_cast<vectorized::ColumnVector<vectorized::UInt32>*>(col_ptr)->insert_value(num);
+        break;
+    }
     case TYPE_DATETIME: {
         vectorized::VecDateTimeValue ts_slot;
         if (!ts_slot.from_date_str(data, len)) {
@@ -291,6 +171,18 @@ inline bool TextConverter::write_vec_column(const SlotDescriptor* slot_desc,
         ts_slot.to_datetime();
         reinterpret_cast<vectorized::ColumnVector<vectorized::Int64>*>(col_ptr)->insert_data(
                 reinterpret_cast<char*>(&ts_slot), 0);
+        break;
+    }
+    case TYPE_DATETIMEV2: {
+        vectorized::VecDateTimeValue ts_slot;
+        if (!ts_slot.from_date_str(data, len)) {
+            parse_result = StringParser::PARSE_FAILURE;
+            insert_after_parse_failure = false;
+            break;
+        }
+        ts_slot.to_datetime();
+        uint64_t num = ts_slot.to_datetime_v2();
+        reinterpret_cast<vectorized::ColumnVector<vectorized::UInt64>*>(col_ptr)->insert_value(num);
         break;
     }
 

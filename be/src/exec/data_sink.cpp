@@ -177,6 +177,147 @@ Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink
     return Status::OK();
 }
 
+Status DataSink::create_data_sink(ObjectPool* pool, const TDataSink& thrift_sink,
+                                  const std::vector<TExpr>& output_exprs,
+                                  const TPipelineFragmentParams& params,
+                                  const size_t& local_param_idx, const RowDescriptor& row_desc,
+                                  RuntimeState* state, std::unique_ptr<DataSink>* sink,
+                                  DescriptorTbl& desc_tbl) {
+    DataSink* tmp_sink = nullptr;
+    const auto& local_params = params.local_params[local_param_idx];
+    switch (thrift_sink.type) {
+    case TDataSinkType::DATA_STREAM_SINK: {
+        if (!thrift_sink.__isset.stream_sink) {
+            return Status::InternalError("Missing data stream sink.");
+        }
+        bool send_query_statistics_with_every_batch =
+                params.__isset.send_query_statistics_with_every_batch
+                        ? params.send_query_statistics_with_every_batch
+                        : false;
+        // TODO: figure out good buffer size based on size of output row
+        tmp_sink = new vectorized::VDataStreamSender(
+                state, pool, local_params.sender_id, row_desc, thrift_sink.stream_sink,
+                params.destinations, 16 * 1024, send_query_statistics_with_every_batch);
+        // RETURN_IF_ERROR(sender->prepare(state->obj_pool(), thrift_sink.stream_sink));
+        sink->reset(tmp_sink);
+        break;
+    }
+    case TDataSinkType::RESULT_SINK: {
+        if (!thrift_sink.__isset.result_sink) {
+            return Status::InternalError("Missing data buffer sink.");
+        }
+
+        // TODO: figure out good buffer size based on size of output row
+        tmp_sink = new doris::vectorized::VResultSink(row_desc, output_exprs,
+                                                      thrift_sink.result_sink, 4096);
+        sink->reset(tmp_sink);
+        break;
+    }
+    case TDataSinkType::RESULT_FILE_SINK: {
+        if (!thrift_sink.__isset.result_file_sink) {
+            return Status::InternalError("Missing result file sink.");
+        }
+
+        // TODO: figure out good buffer size based on size of output row
+        bool send_query_statistics_with_every_batch =
+                params.__isset.send_query_statistics_with_every_batch
+                        ? params.send_query_statistics_with_every_batch
+                        : false;
+        // Result file sink is not the top sink
+        if (params.__isset.destinations && params.destinations.size() > 0) {
+            tmp_sink = new doris::vectorized::VResultFileSink(
+                    pool, local_params.sender_id, row_desc, thrift_sink.result_file_sink,
+                    params.destinations, 16 * 1024, send_query_statistics_with_every_batch,
+                    output_exprs, desc_tbl);
+        } else {
+            tmp_sink = new doris::vectorized::VResultFileSink(
+                    pool, row_desc, thrift_sink.result_file_sink, 16 * 1024,
+                    send_query_statistics_with_every_batch, output_exprs);
+        }
+
+        sink->reset(tmp_sink);
+        break;
+    }
+    case TDataSinkType::MEMORY_SCRATCH_SINK: {
+        if (!thrift_sink.__isset.memory_scratch_sink) {
+            return Status::InternalError("Missing data buffer sink.");
+        }
+
+        tmp_sink = new vectorized::MemoryScratchSink(row_desc, output_exprs,
+                                                     thrift_sink.memory_scratch_sink, pool);
+        sink->reset(tmp_sink);
+        break;
+    }
+    case TDataSinkType::MYSQL_TABLE_SINK: {
+#ifdef DORIS_WITH_MYSQL
+        if (!thrift_sink.__isset.mysql_table_sink) {
+            return Status::InternalError("Missing data buffer sink.");
+        }
+        doris::vectorized::VMysqlTableSink* vmysql_tbl_sink =
+                new doris::vectorized::VMysqlTableSink(pool, row_desc, output_exprs);
+        sink->reset(vmysql_tbl_sink);
+        break;
+#else
+        return Status::InternalError(
+                "Don't support MySQL table, you should rebuild Doris with WITH_MYSQL option ON");
+#endif
+    }
+    case TDataSinkType::ODBC_TABLE_SINK: {
+        if (!thrift_sink.__isset.odbc_table_sink) {
+            return Status::InternalError("Missing data odbc sink.");
+        }
+        sink->reset(new vectorized::VOdbcTableSink(pool, row_desc, output_exprs));
+        break;
+    }
+
+    case TDataSinkType::JDBC_TABLE_SINK: {
+        if (!thrift_sink.__isset.jdbc_table_sink) {
+            return Status::InternalError("Missing data jdbc sink.");
+        }
+        if (config::enable_java_support) {
+            sink->reset(new vectorized::VJdbcTableSink(pool, row_desc, output_exprs));
+        } else {
+            return Status::InternalError(
+                    "Jdbc table sink is not enabled, you can change be config "
+                    "enable_java_support to true and restart be.");
+        }
+        break;
+    }
+
+    case TDataSinkType::EXPORT_SINK: {
+        RETURN_ERROR_IF_NON_VEC;
+        break;
+    }
+    case TDataSinkType::OLAP_TABLE_SINK: {
+        Status status;
+        DCHECK(thrift_sink.__isset.olap_table_sink);
+        sink->reset(new stream_load::VOlapTableSink(pool, row_desc, output_exprs, &status));
+        RETURN_IF_ERROR(status);
+        break;
+    }
+
+    default: {
+        std::stringstream error_msg;
+        std::map<int, const char*>::const_iterator i =
+                _TDataSinkType_VALUES_TO_NAMES.find(thrift_sink.type);
+        const char* str = "Unknown data sink type ";
+
+        if (i != _TDataSinkType_VALUES_TO_NAMES.end()) {
+            str = i->second;
+        }
+
+        error_msg << str << " not implemented.";
+        return Status::InternalError(error_msg.str());
+    }
+    }
+
+    if (*sink != nullptr) {
+        RETURN_IF_ERROR((*sink)->init(thrift_sink));
+    }
+
+    return Status::OK();
+}
+
 Status DataSink::init(const TDataSink& thrift_sink) {
     return Status::OK();
 }

@@ -65,6 +65,10 @@ public class OrderKey {
         return nullFirst;
     }
 
+    public OrderKey withExpression(Expression expr) {
+        return new OrderKey(expr, isAsc, nullFirst);
+    }
+
     public String toSql() {
         return expr.toSql() + (isAsc ? " asc" : " desc") + (nullFirst ? " null first" : "");
     }

@@ -258,6 +258,8 @@ public class EsRestClient {
             try (Response response = executeResponse(httpClient, path)) {
                 if (response.isSuccessful()) {
                     return response.body().string();
+                } else {
+                    LOG.warn("request response code: {}, body: {}", response.code(), response.body().string());
                 }
             } catch (IOException e) {
                 LOG.warn("request node [{}] [{}] failures {}, try next nodes", currentNode, path, e);

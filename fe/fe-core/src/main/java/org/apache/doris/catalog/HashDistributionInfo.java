@@ -37,8 +37,6 @@ import java.util.Objects;
 public class HashDistributionInfo extends DistributionInfo {
     @SerializedName(value = "distributionColumns")
     private List<Column> distributionColumns;
-    @SerializedName(value = "bucketNum")
-    private int bucketNum;
 
     public HashDistributionInfo() {
         super();
@@ -46,9 +44,13 @@ public class HashDistributionInfo extends DistributionInfo {
     }
 
     public HashDistributionInfo(int bucketNum, List<Column> distributionColumns) {
-        super(DistributionInfoType.HASH);
+        super(DistributionInfoType.HASH, bucketNum);
         this.distributionColumns = distributionColumns;
-        this.bucketNum = bucketNum;
+    }
+
+    public HashDistributionInfo(int bucketNum, boolean autoBucket, List<Column> distributionColumns) {
+        super(DistributionInfoType.HASH, bucketNum, autoBucket);
+        this.distributionColumns = distributionColumns;
     }
 
     public List<Column> getDistributionColumns() {
@@ -65,6 +67,7 @@ public class HashDistributionInfo extends DistributionInfo {
         this.bucketNum = bucketNum;
     }
 
+    @Override
     public void write(DataOutput out) throws IOException {
         super.write(out);
         int columnCount = distributionColumns.size();
@@ -75,6 +78,7 @@ public class HashDistributionInfo extends DistributionInfo {
         out.writeInt(bucketNum);
     }
 
+    @Override
     public void readFields(DataInput in) throws IOException {
         super.readFields(in);
         int columnCount = in.readInt();
@@ -117,7 +121,7 @@ public class HashDistributionInfo extends DistributionInfo {
         for (Column col : distributionColumns) {
             distriColNames.add(col.getName());
         }
-        DistributionDesc distributionDesc = new HashDistributionDesc(bucketNum, distriColNames);
+        DistributionDesc distributionDesc = new HashDistributionDesc(bucketNum, autoBucket, distriColNames);
         return distributionDesc;
     }
 
@@ -133,7 +137,11 @@ public class HashDistributionInfo extends DistributionInfo {
         String colList = Joiner.on(", ").join(colNames);
         builder.append(colList);
 
-        builder.append(") BUCKETS ").append(bucketNum);
+        if (autoBucket) {
+            builder.append(") BUCKETS AUTO");
+        } else {
+            builder.append(") BUCKETS ").append(bucketNum);
+        }
         return builder.toString();
     }
 
@@ -148,7 +156,11 @@ public class HashDistributionInfo extends DistributionInfo {
         }
         builder.append("]; ");
 
-        builder.append("bucket num: ").append(bucketNum).append("; ");
+        if (autoBucket) {
+            builder.append("bucket num: auto;");
+        } else {
+            builder.append("bucket num: ").append(bucketNum).append(";");
+        }
 
         return builder.toString();
     }

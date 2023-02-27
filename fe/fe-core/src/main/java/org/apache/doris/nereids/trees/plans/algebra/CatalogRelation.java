@@ -19,7 +19,6 @@ package org.apache.doris.nereids.trees.plans.algebra;
 
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Table;
-import org.apache.doris.nereids.analyzer.Relation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 
 /** CatalogRelation */

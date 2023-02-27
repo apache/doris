@@ -18,7 +18,6 @@
 #ifndef DORIS_BE_TEST_QUERY_RUNTIME_TEST_ENV_H
 #define DORIS_BE_TEST_QUERY_RUNTIME_TEST_ENV_H
 
-#include "runtime/disk_io_mgr.h"
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "runtime/tmp_file_mgr.h"
@@ -36,8 +35,6 @@ public:
     // Reinitialize tmp_file_mgr with custom configuration. Only valid to call before
     // query states have been created.
     void init_tmp_file_mgr(const std::vector<std::string>& tmp_dirs, bool one_dir_per_device);
-
-    void init_buffer_pool(int64_t min_page_len, int64_t capacity, int64_t clean_pages_limit);
 
     // If don't need to open, paths can be empty.
     void init_storage_engine(bool need_open, const std::vector<std::string>& paths = {});

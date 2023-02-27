@@ -17,8 +17,11 @@
 
 package org.apache.doris.qe;
 
+import org.apache.doris.analysis.ExecuteStmt;
 import org.apache.doris.analysis.InsertStmt;
 import org.apache.doris.analysis.KillStmt;
+import org.apache.doris.analysis.LiteralExpr;
+import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.Queriable;
 import org.apache.doris.analysis.QueryStmt;
 import org.apache.doris.analysis.SelectStmt;
@@ -74,8 +77,10 @@ import org.apache.logging.log4j.Logger;
 import java.io.IOException;
 import java.io.StringReader;
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.channels.AsynchronousCloseException;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -169,6 +174,84 @@ public class ConnectProcessor {
         ctx.getState().setOk();
     }
 
+    private void handleStmtReset() {
+        ctx.getState().setOk();
+    }
+
+    private void debugPacket() {
+        byte[] bytes = packetBuf.array();
+        StringBuilder printB = new StringBuilder();
+        for (byte b : bytes) {
+            if (Character.isLetterOrDigit((char) b & 0xFF)) {
+                char x = (char) b;
+                printB.append(x);
+            } else {
+                printB.append("0x" + Integer.toHexString(b & 0xFF));
+            }
+            printB.append(" ");
+        }
+        LOG.debug("debug packet {}", printB.toString().substring(0, 200));
+    }
+
+    private static boolean isNull(byte[] bitmap, int position) {
+        return (bitmap[position / 8] & (1 << (position & 7))) != 0;
+    }
+
+    // process COM_EXECUTE, parse binary row data
+    // https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_com_stmt_execute.html
+    private void handleExecute() {
+        // debugPacket();
+        packetBuf = packetBuf.order(ByteOrder.LITTLE_ENDIAN);
+        // parse stmt_id, flags, params
+        int stmtId = packetBuf.getInt();
+        // flag
+        packetBuf.get();
+        // iteration_count always 1,
+        packetBuf.getInt();
+        LOG.debug("execute prepared statement {}", stmtId);
+        PrepareStmtContext prepareCtx = ctx.getPreparedStmt(String.valueOf(stmtId));
+        int paramCount = prepareCtx.stmt.getParmCount();
+        // null bitmap
+        byte[] nullbitmapData = new byte[(paramCount + 7) / 8];
+        packetBuf.get(nullbitmapData);
+        try {
+            // new_params_bind_flag
+            if ((int) packetBuf.get() != 0) {
+                // parse params's types
+                for (int i = 0; i < paramCount; ++i) {
+                    int typeCode = packetBuf.getChar();
+                    LOG.debug("code {}", typeCode);
+                    prepareCtx.stmt.placeholders().get(i).setTypeCode(typeCode);
+                }
+            }
+            List<LiteralExpr> realValueExprs = new ArrayList<>();
+            // parse param data
+            for (int i = 0; i < paramCount; ++i) {
+                if (isNull(nullbitmapData, i)) {
+                    realValueExprs.add(new NullLiteral());
+                    continue;
+                }
+                LiteralExpr l = prepareCtx.stmt.placeholders().get(i).createLiteralFromType();
+                l.setupParamFromBinary(packetBuf);
+                realValueExprs.add(l);
+            }
+            ExecuteStmt executeStmt = new ExecuteStmt(String.valueOf(stmtId), realValueExprs);
+            // TODO set real origin statement
+            executeStmt.setOrigStmt(new OriginStatement("null", 0));
+            executeStmt.setUserInfo(ctx.getCurrentUserIdentity());
+            LOG.debug("executeStmt {}", executeStmt);
+            executor = new StmtExecutor(ctx, executeStmt);
+            ctx.setExecutor(executor);
+            executor.execute();
+        } catch (Throwable e)  {
+            // Catch all throwable.
+            // If reach here, maybe palo bug.
+            LOG.warn("Process one query failed because unknown reason: ", e);
+            ctx.getState().setError(ErrorCode.ERR_UNKNOWN_ERROR,
+                    e.getClass().getSimpleName() + ", msg: " + e.getMessage());
+        }
+    }
+
     private void auditAfterExec(String origStmt, StatementBase parsedStmt, Data.PQueryStatistics statistics) {
         origStmt = origStmt.replace("\n", " ");
         // slow query
@@ -190,7 +273,8 @@ public class ConnectProcessor {
                 .setReturnRows(ctx.getReturnRows())
                 .setStmtId(ctx.getStmtId())
                 .setQueryId(ctx.queryId() == null ? "NaN" : DebugUtil.printId(ctx.queryId()))
-                .setTraceId(spanContext.isValid() ? spanContext.getTraceId() : "");
+                .setTraceId(spanContext.isValid() ? spanContext.getTraceId() : "")
+                .setFuzzyVariables(ctx.getSessionVariable().printFuzzyVariables());
 
         if (ctx.getState().isQuery()) {
             MetricRepo.COUNTER_QUERY_ALL.increase(1L);
@@ -273,8 +357,8 @@ public class ConnectProcessor {
             } catch (Exception e) {
                 // TODO: We should catch all exception here until we support all query syntax.
                 nereidsParseException = e;
-                LOG.info(" Fallback to stale planner."
-                        + " Nereids cannot process this statement: \"{}\".", originStmt);
+                LOG.info("Nereids parse sql failed. Reason: {}. Statement: \"{}\".",
+                        e.getMessage(), originStmt);
             }
         }
 
@@ -313,8 +397,8 @@ public class ConnectProcessor {
                     && ctx.getSessionVariable().isEnableNereidsPlanner()
                     && !ctx.getSessionVariable().enableFallbackToOriginalPlanner) {
                 Exception exception = new Exception(
-                        String.format("nereids cannot anaylze sql, and fall-back disabled: %s",
-                        parsedStmt.toSql()), nereidsParseException);
+                        String.format("Nereids cannot parse the SQL, and fallback disabled. caused by: \n\n%s",
+                                nereidsParseException.getMessage()), nereidsParseException);
                 // audit it and break
                 handleQueryException(exception, auditStmt, null, null);
                 break;
@@ -324,6 +408,8 @@ public class ConnectProcessor {
             parsedStmt.setUserInfo(ctx.getCurrentUserIdentity());
             executor = new StmtExecutor(ctx, parsedStmt);
             ctx.setExecutor(executor);
+            // reset the executionTimeout corresponding with the StmtExecutor
+            ctx.resetExecTimeout();
 
             try {
                 executor.execute();
@@ -424,8 +510,8 @@ public class ConnectProcessor {
 
         table.readLock();
         try {
-            MysqlSerializer serializer = ctx.getSerializer();
             MysqlChannel channel = ctx.getMysqlChannel();
+            MysqlSerializer serializer = channel.getSerializer();
 
             // Send fields
             // NOTE: Field list doesn't send number of fields
@@ -464,6 +550,7 @@ public class ConnectProcessor {
                 handleQuit();
                 break;
             case COM_QUERY:
+            case COM_STMT_PREPARE:
                 ctx.initTracer("trace");
                 Span rootSpan = ctx.getTracer().spanBuilder("handleQuery").startSpan();
                 try (Scope scope = rootSpan.makeCurrent()) {
@@ -475,11 +562,21 @@ public class ConnectProcessor {
                     rootSpan.end();
                 }
                 break;
+            case COM_STMT_EXECUTE:
+                handleExecute();
+                break;
             case COM_FIELD_LIST:
                 handleFieldList();
                 break;
             case COM_PING:
                 handlePing();
+                break;
+            case COM_STMT_RESET:
+                handleStmtReset();
+                break;
+            case COM_STMT_CLOSE:
+                // TODO
+                handleStmtReset();
                 break;
             default:
                 ctx.getState().setError(ErrorCode.ERR_UNKNOWN_COM_ERROR, "Unsupported command(" + command + ")");
@@ -497,7 +594,7 @@ public class ConnectProcessor {
             return null;
         }
 
-        MysqlSerializer serializer = ctx.getSerializer();
+        MysqlSerializer serializer = ctx.getMysqlChannel().getSerializer();
         serializer.reset();
         packet.writeTo(serializer);
         return serializer.toByteBuffer();

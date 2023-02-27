@@ -192,6 +192,7 @@ message PTabletWriterCancelResult {
 enum PFragmentRequestVersion {
     VERSION_1 = 1;  // only one TExecPlanFragmentParams in request
     VERSION_2 = 2;  // multi TExecPlanFragmentParams in request
+    VERSION_3 = 3;  // multi TPipelineFragmentParams in request
 };
 
 message PExecPlanFragmentRequest {
@@ -232,6 +233,38 @@ message PFetchDataResult {
     optional bool empty_batch = 6;
 };
 
+message KeyTuple {
+    repeated string key_column_rep = 1;
+}
+
+message UUID {
+    required int64 uuid_high = 1;
+    required int64 uuid_low = 2;
+}
+
+// We use thrift definition for some structure, since TExpr,
+// list<Exprs.TExpr>, Descriptors.TDescriptorTable are all thrift format.
+// Modify them to protobuf is a redundant work.
+message PTabletKeyLookupRequest {
+    required int64 tablet_id = 1;
+    repeated KeyTuple key_tuples = 2;
+
+    // reusable structures
+    // serilized from Descriptors.TDescriptorTable
+    optional UUID uuid = 3;
+    optional bytes desc_tbl = 4;
+    // serilized from TExprList 
+    optional bytes output_expr = 5;
+    // return binary mysql row format if true
+    optional bool is_binary_row = 6;
+}
+
+message PTabletKeyLookupResponse {
+    required PStatus status = 1;
+    optional bytes row_batch = 2;
+    optional bool empty_batch = 3;
+}
+
 //Add message definition to fetch and update cache
 enum PCacheStatus {    
     DEFAULT = 0;
@@ -243,6 +276,7 @@ enum PCacheStatus {
     INVALID_KEY_RANGE = 6;
     DATA_OVERDUE = 7;
     EMPTY_DATA = 8;
+    CANCELED = 9;
 };
 
 enum CacheType {
@@ -538,6 +572,25 @@ message PFetchTableSchemaResult {
   optional int32 column_nums = 2;
   repeated string column_names = 3;
   repeated PTypeDesc column_types = 4;
+}
+
+message PMultiGetRequest {
+    message RowId {
+        optional int64 tablet_id = 1;
+        optional string rowset_id = 2;
+        optional uint64 segment_id = 3;
+        optional uint64 ordinal_id = 4;
+    };
+    repeated RowId rowids = 1;
+    optional PTupleDescriptor desc = 2;
+    repeated PSlotDescriptor slots = 3;
+    // for compability
+    optional int32 be_exec_version = 4;
+};
+
+message PMultiGetResponse {
+    optional PBlock block = 1;
+    optional PStatus status = 2;
 };
 
 service PBackendService {
@@ -572,5 +625,7 @@ service PBackendService {
     rpc request_slave_tablet_pull_rowset(PTabletWriteSlaveRequest) returns (PTabletWriteSlaveResult);
     rpc response_slave_tablet_pull_rowset(PTabletWriteSlaveDoneRequest) returns (PTabletWriteSlaveDoneResult);
     rpc fetch_table_schema(PFetchTableSchemaRequest) returns (PFetchTableSchemaResult);
+    rpc multiget_data(PMultiGetRequest) returns (PMultiGetResponse);
+    rpc tablet_fetch_data(PTabletKeyLookupRequest) returns (PTabletKeyLookupResponse);
 };
 

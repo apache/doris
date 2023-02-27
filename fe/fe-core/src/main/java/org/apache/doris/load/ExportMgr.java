@@ -30,6 +30,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.LabelAlreadyUsedException;
 import org.apache.doris.common.PatternMatcher;
+import org.apache.doris.common.PatternMatcherWrapper;
 import org.apache.doris.common.util.ListComparator;
 import org.apache.doris.common.util.OrderByPair;
 import org.apache.doris.common.util.TimeUtils;
@@ -140,7 +141,8 @@ public class ExportMgr {
     public static Predicate<ExportJob> buildCancelJobFilter(CancelExportStmt stmt) throws AnalysisException {
         String label = stmt.getLabel();
         String state = stmt.getState();
-        PatternMatcher matcher = PatternMatcher.createMysqlPattern(label, CaseSensibility.LABEL.getCaseSensibility());
+        PatternMatcher matcher = PatternMatcherWrapper.createMysqlPattern(label,
+                CaseSensibility.LABEL.getCaseSensibility());
 
         return job -> {
             boolean labelFilter = true;
@@ -192,7 +194,7 @@ public class ExportMgr {
         LinkedList<List<Comparable>> exportJobInfos = new LinkedList<List<Comparable>>();
         PatternMatcher matcher = null;
         if (isLabelUseLike) {
-            matcher = PatternMatcher.createMysqlPattern(label, CaseSensibility.LABEL.getCaseSensibility());
+            matcher = PatternMatcherWrapper.createMysqlPattern(label, CaseSensibility.LABEL.getCaseSensibility());
         }
 
         readLock();
@@ -229,12 +231,12 @@ public class ExportMgr {
                     if (db == null) {
                         continue;
                     }
-                    if (!Env.getCurrentEnv().getAuth().checkDbPriv(ConnectContext.get(),
+                    if (!Env.getCurrentEnv().getAccessManager().checkDbPriv(ConnectContext.get(),
                                                                            db.getFullName(), PrivPredicate.SHOW)) {
                         continue;
                     }
                 } else {
-                    if (!Env.getCurrentEnv().getAuth().checkTblPriv(ConnectContext.get(),
+                    if (!Env.getCurrentEnv().getAccessManager().checkTblPriv(ConnectContext.get(),
                                                                             tableName.getDb(), tableName.getTbl(),
                                                                             PrivPredicate.SHOW)) {
                         continue;

@@ -9,7 +9,7 @@
   },
   "sidebar.docs.category.Doris Introduction": {
     "message": "Doris 介绍",
-    "description": "The label for category Doris Architecture in sidebar docs"
+    "description": "The label for category Doris Introduction in sidebar docs"
   },
   "sidebar.docs.category.Install And Deploy": {
     "message": "安装部署",
@@ -73,7 +73,7 @@
   },
   "sidebar.docs.category.Data Cache": {
     "message": "数据缓存",
-    "description": "The label for category Date Cache in sidebar docs"
+    "description": "The label for category Data Cache in sidebar docs"
   },
   "sidebar.docs.category.Best Practice": {
     "message": "最佳实践",
@@ -82,10 +82,6 @@
   "sidebar.docs.category.Ecosystem": {
     "message": "生态扩展",
     "description": "The label for category Ecosystem in sidebar docs"
-  },
-  "sidebar.docs.category.Expansion table": {
-    "message": "扩展表",
-    "description": "The label for category Expansion table in sidebar docs"
   },
   "sidebar.docs.category.Doris Manager": {
     "message": "Doris Manager",
@@ -271,6 +267,10 @@
     "message": "用户权限及认证",
     "description": "The label for category User Privilege and Ldap in sidebar docs"
   },
+  "sidebar.docs.category.System Table": {
+    "message": "System Table",
+    "description": "The label for category System Table in sidebar docs"
+  },
   "sidebar.docs.category.HTTP API": {
     "message": "HTTP API",
     "description": "The label for category HTTP API in sidebar docs"
@@ -279,9 +279,9 @@
     "message": "FE",
     "description": "The label for category FE in sidebar docs"
   },
-  "sidebar.docs.category.MANAGER": {
-    "message": "MANAGER",
-    "description": "The label for category MANAGER in sidebar docs"
+  "sidebar.docs.category.BE": {
+    "message": "BE",
+    "description": "The label for category BE in sidebar docs"
   },
   "sidebar.docs.category.FAQ": {
     "message": "常见问题",
@@ -290,5 +290,17 @@
   "sidebar.docs.category.Benchmark": {
     "message": "性能测试",
     "description": "The label for category Benchmark in sidebar docs"
+  },
+  "sidebar.docs.category.Lakehouse": {
+    "message": "数据湖分析",
+    "description": "The label for category Lakehouse in sidebar docs"
+  },
+  "sidebar.docs.category.Multi Catalog": {
+    "message": "多源数据目录",
+    "description": "The label for category Lakehouse.Multi Catalog in sidebar docs"
+  },
+  "sidebar.docs.category.External Table": {
+    "message": "外部表",
+    "description": "The label for category Lakehouse.External Table in sidebar docs"
   }
 }

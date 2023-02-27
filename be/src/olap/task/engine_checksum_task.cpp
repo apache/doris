@@ -26,7 +26,7 @@ EngineChecksumTask::EngineChecksumTask(TTabletId tablet_id, TSchemaHash schema_h
                                        TVersion version, uint32_t* checksum)
         : _tablet_id(tablet_id), _schema_hash(schema_hash), _version(version), _checksum(checksum) {
     _mem_tracker = std::make_shared<MemTrackerLimiter>(
-            MemTrackerLimiter::Type::CONSISTENCY,
+            MemTrackerLimiter::Type::LOAD,
             "EngineChecksumTask#tabletId=" + std::to_string(tablet_id));
 }
 
@@ -78,7 +78,7 @@ Status EngineChecksumTask::_compute_checksum() {
     SipHash block_hash;
     uint64_t rows = 0;
     while (!eof) {
-        RETURN_IF_ERROR(reader.next_block_with_aggregation(&block, nullptr, nullptr, &eof));
+        RETURN_IF_ERROR(reader.next_block_with_aggregation(&block, &eof));
         rows += block.rows();
 
         block.update_hash(block_hash);

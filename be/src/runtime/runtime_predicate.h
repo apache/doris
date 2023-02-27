@@ -49,7 +49,7 @@ public:
     bool inited() {
         std::unique_lock<std::shared_mutex> wlock(_rwlock);
         return _inited;
-    };
+    }
 
     void set_tablet_schema(TabletSchemaSPtr tablet_schema) {
         std::unique_lock<std::shared_mutex> wlock(_rwlock);
@@ -147,30 +147,31 @@ private:
     }
 
     static std::string get_decimalv2_value(const Field& field) {
-        using ValueType = typename PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType;
-        ValueType value;
+        // can NOT use PrimitiveTypeTraits<TYPE_DECIMALV2>::CppType since
+        //   it is DecimalV2Value and Decimal128 can not convert to it implicitly
+        using ValueType = Decimal128::NativeType;
         auto v = field.get<DecimalField<Decimal128>>();
-        value.from_olap_decimal(v.get_value(), v.get_scale());
-        int scale = v.get_scale();
-        return cast_to_string<TYPE_DECIMALV2, ValueType>(value, scale);
+        // use TYPE_DECIMAL128I instead of TYPE_DECIMALV2 since v.get_scale()
+        //   is always 9 for DECIMALV2
+        return cast_to_string<TYPE_DECIMAL128I, ValueType>(v.get_value(), v.get_scale());
     }
 
     static std::string get_decimal32_value(const Field& field) {
         using ValueType = typename PrimitiveTypeTraits<TYPE_DECIMAL32>::CppType;
-        ValueType value = field.get<ValueType>();
-        return cast_to_string<TYPE_DECIMAL32, ValueType>(value, 0);
+        auto v = field.get<DecimalField<Decimal32>>();
+        return cast_to_string<TYPE_DECIMAL32, ValueType>(v.get_value(), v.get_scale());
     }
 
     static std::string get_decimal64_value(const Field& field) {
         using ValueType = typename PrimitiveTypeTraits<TYPE_DECIMAL64>::CppType;
-        ValueType value = field.get<ValueType>();
-        return cast_to_string<TYPE_DECIMAL64, ValueType>(value, 0);
+        auto v = field.get<DecimalField<Decimal64>>();
+        return cast_to_string<TYPE_DECIMAL64, ValueType>(v.get_value(), v.get_scale());
     }
 
     static std::string get_decimal128_value(const Field& field) {
         using ValueType = typename PrimitiveTypeTraits<TYPE_DECIMAL128I>::CppType;
-        ValueType value = field.get<ValueType>();
-        return cast_to_string<TYPE_DECIMAL128I, ValueType>(value, 0);
+        auto v = field.get<DecimalField<Decimal128I>>();
+        return cast_to_string<TYPE_DECIMAL128I, ValueType>(v.get_value(), v.get_scale());
     }
 };
 

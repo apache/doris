@@ -127,8 +127,13 @@ joinRelation
 
 // Just like `opt_plan_hints` in legacy CUP parser.
 joinHint
-    : LEFT_BRACKET identifier RIGHT_BRACKET                           #bracketStyleHint
-    | HINT_START identifier HINT_END                                  #commentStyleHint
+    : LEFT_BRACKET identifier RIGHT_BRACKET                           #bracketJoinHint
+    | HINT_START identifier HINT_END                                  #commentJoinHint
+    ;
+
+relationHint
+    : LEFT_BRACKET identifier (COMMA identifier)* RIGHT_BRACKET       #bracketRelationHint
+    | HINT_START identifier (COMMA identifier)* HINT_END              #commentRelationHint
     ;
 
 aggClause
@@ -182,6 +187,10 @@ limitClause
     | (LIMIT offset=INTEGER_VALUE COMMA limit=INTEGER_VALUE)
     ;
 
+partitionClause
+    : PARTITION BY expression (COMMA expression)*
+    ;
+
 joinType
     : INNER?
     | CROSS
@@ -208,11 +217,11 @@ identifierSeq
     ;
 
 relationPrimary
-    : multipartIdentifier specifiedPartition? tableAlias lateralView*           #tableName
-    | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                      #aliasedQuery
+    : multipartIdentifier specifiedPartition? tableAlias relationHint? lateralView*           #tableName
+    | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                                    #aliasedQuery
     | tvfName=identifier LEFT_PAREN
       (properties+=tvfProperty (COMMA properties+=tvfProperty)*)?
-      RIGHT_PAREN tableAlias                                                    #tableValuedFunction
+      RIGHT_PAREN tableAlias                                                                  #tableValuedFunction
     ;
 
 tvfProperty
@@ -232,8 +241,7 @@ multipartIdentifier
 
 // -----------------Expression-----------------
 namedExpression
-    : expression (AS? name=errorCapturingIdentifier)?
-    | expression (AS? strName=STRING+)?
+    : expression (AS? (errorCapturingIdentifier | STRING))?
     ;
 
 namedExpressionSeq
@@ -245,13 +253,14 @@ expression
     ;
 
 booleanExpression
-    : NOT booleanExpression                                         #logicalNot
-    | EXISTS LEFT_PAREN query RIGHT_PAREN                           #exist
-    | (ISNULL | IS_NULL_PRED) LEFT_PAREN valueExpression RIGHT_PAREN        #isnull
-    | IS_NOT_NULL_PRED LEFT_PAREN valueExpression RIGHT_PAREN        #is_not_null_pred
-    | valueExpression predicate?                                    #predicated
+    : NOT booleanExpression                                                         #logicalNot
+    | EXISTS LEFT_PAREN query RIGHT_PAREN                                           #exist
+    | (ISNULL | IS_NULL_PRED) LEFT_PAREN valueExpression RIGHT_PAREN                #isnull
+    | IS_NOT_NULL_PRED LEFT_PAREN valueExpression RIGHT_PAREN                       #is_not_null_pred
+    | valueExpression predicate?                                                    #predicated
     | left=booleanExpression operator=(AND | LOGICALAND) right=booleanExpression    #logicalBinary
-    | left=booleanExpression operator=(OR | CONCAT_PIPE) right=booleanExpression    #logicalBinary
+    | left=booleanExpression operator=OR right=booleanExpression                    #logicalBinary
+    | left=booleanExpression operator=DOUBLEPIPES right=booleanExpression           #doublePipes
     ;
 
 predicate
@@ -286,7 +295,13 @@ primaryExpression
                 startTimestamp=valueExpression COMMA
                 endTimestamp=valueExpression
             RIGHT_PAREN                                                                        #timestampdiff
-    | name=(TIMESTAMPADD | ADDDATE | DAYS_ADD | DATE_ADD)
+    | name=(TIMESTAMPADD | DATEADD)
+                  LEFT_PAREN
+                      unit=datetimeUnit COMMA
+                      startTimestamp=valueExpression COMMA
+                      endTimestamp=valueExpression
+                  RIGHT_PAREN                                                                  #timestampadd
+    | name =(ADDDATE | DAYS_ADD | DATE_ADD)
             LEFT_PAREN
                 timestamp=valueExpression COMMA
                 (INTERVAL unitsAmount=valueExpression unit=datetimeUnit
@@ -304,8 +319,9 @@ primaryExpression
     | constant                                                                                 #constantDefault
     | ASTERISK                                                                                 #star
     | qualifiedName DOT ASTERISK                                                               #star
-    | identifier LEFT_PAREN ((DISTINCT|ALL)? arguments+=expression
-      (COMMA arguments+=expression)* (ORDER BY sortItem (COMMA sortItem)*)?)? RIGHT_PAREN      #functionCall
+    | functionIdentifier LEFT_PAREN ((DISTINCT|ALL)? arguments+=expression
+      (COMMA arguments+=expression)* (ORDER BY sortItem (COMMA sortItem)*)?)? RIGHT_PAREN
+      (OVER windowSpec)?                                                                        #functionCall
     | LEFT_PAREN query RIGHT_PAREN                                                             #subqueryExpression
     | ATSIGN identifier                                                                        #userVariable
     | DOUBLEATSIGN (kind=(GLOBAL | SESSION) DOT)? identifier                                     #systemVariable
@@ -314,6 +330,38 @@ primaryExpression
     | LEFT_PAREN expression RIGHT_PAREN                                                        #parenthesizedExpression
     | EXTRACT LEFT_PAREN field=identifier FROM (DATE | TIMESTAMP)?
       source=valueExpression RIGHT_PAREN                                                       #extract
+    ;
+
+functionIdentifier
+    : identifier
+    | LEFT | RIGHT
+    ;
+
+windowSpec
+    // todo: name for windowRef; we haven't support it
+    // : name=identifier
+    // | LEFT_PAREN name=identifier RIGHT_PAREN
+    : LEFT_PAREN
+        partitionClause?
+        sortClause?
+        windowFrame?
+        RIGHT_PAREN
+    ;
+
+windowFrame
+    : frameUnits start=frameBoundary
+    | frameUnits BETWEEN start=frameBoundary AND end=frameBoundary
+    ;
+
+frameUnits
+    : ROWS
+    | RANGE
+    ;
+
+frameBoundary
+    : UNBOUNDED boundType=(PRECEDING | FOLLOWING)
+    | boundType=CURRENT ROW
+    | expression boundType=(PRECEDING | FOLLOWING)
     ;
 
 qualifiedName
@@ -328,10 +376,10 @@ specifiedPartition
 constant
     : NULL                                                                                     #nullLiteral
     | interval                                                                                 #intervalLiteral
-    | identifier STRING                                                                        #typeConstructor
+    | type=(DATE | DATEV2 | TIMESTAMP) STRING                                                  #typeConstructor
     | number                                                                                   #numericLiteral
     | booleanValue                                                                             #booleanLiteral
-    | STRING+                                                                                  #stringLiteral
+    | STRING                                                                                   #stringLiteral
     ;
 
 comparisonOperator
@@ -408,7 +456,6 @@ nonReserved
     | ANY
     | ARCHIVE
     | ARRAY
-    | AS
     | ASC
     | AT
     | AUTHORIZATION
@@ -453,6 +500,7 @@ nonReserved
     | DATABASE
     | DATABASES
     | DATE
+    | DATEV2
     | DATE_ADD
     | DATEDIFF
     | DATE_DIFF
@@ -553,7 +601,6 @@ nonReserved
     | OUT
     | OUTER
     | OUTPUTFORMAT
-    | OVER
     | OVERLAPS
     | OVERLAY
     | OVERWRITE
@@ -618,9 +665,6 @@ nonReserved
     | STORED
     | STRATIFY
     | STRUCT
-    | SUBSTR
-    | SUBSTRING
-    | SUM
     | SYNC
     | SYSTEM_TIME
     | SYSTEM_VERSION

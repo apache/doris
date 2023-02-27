@@ -341,7 +341,7 @@ CREATE TABLE IF NOT EXISTS example_db.example_tbl
 UNIQUE KEY(`user_id`, `username`)
 DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
 PROPERTIES (
-"replication_allocation" = "tag.location.default: 1"
+"replication_allocation" = "tag.location.default: 1",
 "enable_unique_key_merge_on_write" = "true"
 );
 ```

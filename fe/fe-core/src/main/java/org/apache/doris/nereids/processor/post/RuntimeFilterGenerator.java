@@ -25,16 +25,16 @@ import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
-import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalProject;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalRelation;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalStorageLayerAggregate;
 import org.apache.doris.nereids.trees.plans.physical.RuntimeFilter;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.JoinUtils;
 import org.apache.doris.planner.RuntimeFilterId;
 import org.apache.doris.thrift.TRuntimeFilterType;
@@ -45,7 +45,6 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 
 /**
@@ -78,7 +77,7 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
     public PhysicalPlan visitPhysicalHashJoin(PhysicalHashJoin<? extends Plan, ? extends Plan> join,
             CascadesContext context) {
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
-        Map<NamedExpression, Pair<RelationId, NamedExpression>> aliasTransferMap = ctx.getAliasTransferMap();
+        Map<NamedExpression, Pair<RelationId, Slot>> aliasTransferMap = ctx.getAliasTransferMap();
         join.right().accept(this, context);
         join.left().accept(this, context);
         if (deniedJoinType.contains(join.getJoinType())) {
@@ -89,55 +88,55 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
             List<TRuntimeFilterType> legalTypes = Arrays.stream(TRuntimeFilterType.values())
                     .filter(type -> (type.getValue() & ctx.getSessionVariable().getRuntimeFilterType()) > 0)
                     .collect(Collectors.toList());
-            AtomicInteger cnt = new AtomicInteger();
-            join.getHashJoinConjuncts().stream()
-                    .map(EqualTo.class::cast)
-                    // TODO: some complex situation cannot be handled now, see testPushDownThroughJoin.
-                    // TODO: we will support it in later version.
-                    .forEach(expr -> legalTypes.forEach(type -> {
-                        Pair<Expression, Expression> normalizedChildren = checkAndMaybeSwapChild(expr, join);
-                        // aliasTransMap doesn't contain the key, means that the path from the olap scan to the join
-                        // contains join with denied join type. for example: a left join b on a.id = b.id
-                        if (normalizedChildren == null
-                                || !aliasTransferMap.containsKey((Slot) normalizedChildren.first)) {
-                            return;
-                        }
-                        Pair<Slot, Slot> slots = Pair.of(
-                                aliasTransferMap.get((Slot) normalizedChildren.first).second.toSlot(),
-                                ((Slot) normalizedChildren.second));
-                        RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
-                                slots.second, slots.first, type,
-                                cnt.getAndIncrement(), join);
-                        ctx.addJoinToTargetMap(join, slots.first.getExprId());
-                        ctx.setTargetExprIdToFilter(slots.first.getExprId(), filter);
-                        ctx.setTargetsOnScanNode(
-                                aliasTransferMap.get((Slot) normalizedChildren.first).first,
-                                slots.first);
-                    }));
+            // TODO: some complex situation cannot be handled now, see testPushDownThroughJoin.
+            // TODO: we will support it in later version.
+            for (int i = 0; i < join.getHashJoinConjuncts().size(); i++) {
+                EqualTo equalTo = ((EqualTo) JoinUtils.swapEqualToForChildrenOrder(
+                        (EqualTo) join.getHashJoinConjuncts().get(i), join.left().getOutputSet()));
+                for (TRuntimeFilterType type : legalTypes) {
+                    // currently, we can ensure children in the two side are corresponding to the equal_to's.
+                    // so right maybe an expression and left is a slot or cast(slot)
+                    Slot unwrappedSlot = checkTargetChild(equalTo.left());
+                    // aliasTransMap doesn't contain the key, means that the path from the olap scan to the join
+                    // contains join with denied join type. for example: a left join b on a.id = b.id
+                    if (unwrappedSlot == null || !aliasTransferMap.containsKey(unwrappedSlot)) {
+                        continue;
+                    }
+                    Slot olapScanSlot = aliasTransferMap.get(unwrappedSlot).second;
+                    RuntimeFilter filter = new RuntimeFilter(generator.getNextId(),
+                            equalTo.right(), olapScanSlot, type, i, join);
+                    ctx.addJoinToTargetMap(join, olapScanSlot.getExprId());
+                    ctx.setTargetExprIdToFilter(olapScanSlot.getExprId(), filter);
+                    ctx.setTargetsOnScanNode(aliasTransferMap.get(unwrappedSlot).first, olapScanSlot);
+                }
+            }
         }
         return join;
     }
 
-    // TODO: support src key is agg slot.
     @Override
     public PhysicalPlan visitPhysicalProject(PhysicalProject<? extends Plan> project, CascadesContext context) {
         project.child().accept(this, context);
-        Map<NamedExpression, Pair<RelationId, NamedExpression>> aliasTransferMap
+        Map<NamedExpression, Pair<RelationId, Slot>> aliasTransferMap
                 = context.getRuntimeFilterContext().getAliasTransferMap();
         // change key when encounter alias.
-        project.getProjects().stream().filter(Alias.class::isInstance)
-                .map(Alias.class::cast)
-                .filter(alias -> alias.child() instanceof NamedExpression
-                        && aliasTransferMap.containsKey((NamedExpression) alias.child()))
-                .forEach(alias -> {
-                    NamedExpression child = ((NamedExpression) alias.child());
-                    aliasTransferMap.put(alias.toSlot(), aliasTransferMap.remove(child));
-                });
+        for (Expression expression : project.getProjects()) {
+            if (expression.children().isEmpty()) {
+                continue;
+            }
+            Expression expr = ExpressionUtils.getExpressionCoveredByCast(expression.child(0));
+            if (expr instanceof NamedExpression && aliasTransferMap.containsKey((NamedExpression) expr)) {
+                if (expression instanceof Alias) {
+                    Alias alias = ((Alias) expression);
+                    aliasTransferMap.put(alias.toSlot(), aliasTransferMap.remove(expr));
+                }
+            }
+        }
         return project;
     }
 
     @Override
-    public PhysicalOlapScan visitPhysicalOlapScan(PhysicalOlapScan scan, CascadesContext context) {
+    public PhysicalRelation visitPhysicalScan(PhysicalRelation scan, CascadesContext context) {
         // add all the slots in map.
         RuntimeFilterContext ctx = context.getRuntimeFilterContext();
         scan.getOutput().forEach(slot -> ctx.getAliasTransferMap().put(slot, Pair.of(scan.getId(), slot)));
@@ -151,15 +150,8 @@ public class RuntimeFilterGenerator extends PlanPostProcessor {
         return storageLayerAggregate;
     }
 
-    private static Pair<Expression, Expression> checkAndMaybeSwapChild(EqualTo expr,
-            PhysicalHashJoin<? extends Plan, ? extends Plan> join) {
-        if (expr.child(0).equals(expr.child(1))
-                || !expr.children().stream().allMatch(SlotReference.class::isInstance)) {
-            return null;
-        }
-        // current we assume that there are certainly different slot reference in equal to.
-        // they are not from the same relation.
-        List<Expression> children = JoinUtils.swapEqualToForChildrenOrder(expr, join.left().getOutputSet()).children();
-        return Pair.of(children.get(0), children.get(1));
+    private static Slot checkTargetChild(Expression leftChild) {
+        Expression expression = ExpressionUtils.getExpressionCoveredByCast(leftChild);
+        return expression instanceof Slot ? ((Slot) expression) : null;
     }
 }

@@ -48,17 +48,17 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
     @Override
     public Rule build() {
         return logicalOlapScan().then(olapScan ->
-            new PhysicalOlapScan(
-                    olapScan.getId(),
-                    olapScan.getTable(),
-                    olapScan.getQualifier(),
-                    olapScan.getSelectedIndexId(),
-                    olapScan.getSelectedTabletIds(),
-                    olapScan.getSelectedPartitionIds(),
-                    convertDistribution(olapScan),
-                    olapScan.getPreAggStatus(),
-                    Optional.empty(),
-                    olapScan.getLogicalProperties())
+                new PhysicalOlapScan(
+                        olapScan.getId(),
+                        olapScan.getTable(),
+                        olapScan.getQualifier(),
+                        olapScan.getSelectedIndexId(),
+                        olapScan.getSelectedTabletIds(),
+                        olapScan.getSelectedPartitionIds(),
+                        convertDistribution(olapScan),
+                        olapScan.getPreAggStatus(),
+                        Optional.empty(),
+                        olapScan.getLogicalProperties())
         ).toRule(RuleType.LOGICAL_OLAP_SCAN_TO_PHYSICAL_OLAP_SCAN_RULE);
     }
 
@@ -66,10 +66,14 @@ public class LogicalOlapScanToPhysicalOlapScan extends OneImplementationRuleFact
         OlapTable olapTable = olapScan.getTable();
         DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
         ColocateTableIndex colocateTableIndex = Env.getCurrentColocateIndex();
-        if ((colocateTableIndex.isColocateTable(olapTable.getId())
-                && !colocateTableIndex.isGroupUnstable(colocateTableIndex.getGroup(olapTable.getId())))
-                || olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED
-                || olapTable.getPartitions().size() == 1) {
+        // When there are multiple partitions, olapScan tasks of different buckets are dispatched in
+        // rounded robin algorithm. Therefore, the hashDistributedSpec can be broken except they are in
+        // the same stable colocateGroup(CG)
+        boolean isBelongStableCG = colocateTableIndex.isColocateTable(olapTable.getId())
+                && !colocateTableIndex.isGroupUnstable(colocateTableIndex.getGroup(olapTable.getId()));
+        boolean isSelectUnpartition = olapTable.getPartitionInfo().getType() == PartitionType.UNPARTITIONED
+                || olapScan.getSelectedPartitionIds().size() == 1;
+        if (isBelongStableCG || isSelectUnpartition) {
             if (!(distributionInfo instanceof HashDistributionInfo)) {
                 return DistributionSpecAny.INSTANCE;
             }

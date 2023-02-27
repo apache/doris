@@ -108,7 +108,6 @@ StorageEngine::StorageEngine(const EngineOptions& options)
           _effective_cluster_id(-1),
           _is_all_cluster_id_exist(true),
           _stopped(false),
-          _mem_tracker(std::make_shared<MemTracker>("StorageEngine")),
           _segcompaction_mem_tracker(std::make_shared<MemTracker>("SegCompaction")),
           _segment_meta_mem_tracker(std::make_shared<MemTracker>("SegmentMeta")),
           _stop_background_threads_latch(1),
@@ -149,8 +148,7 @@ StorageEngine::~StorageEngine() {
 void StorageEngine::load_data_dirs(const std::vector<DataDir*>& data_dirs) {
     std::vector<std::thread> threads;
     for (auto data_dir : data_dirs) {
-        threads.emplace_back([this, data_dir] {
-            SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
+        threads.emplace_back([data_dir] {
             auto res = data_dir->load();
             if (!res.ok()) {
                 LOG(WARNING) << "io error when init load tables. res=" << res
@@ -195,8 +193,7 @@ Status StorageEngine::_init_store_map() {
         DataDir* store = new DataDir(path.path, path.capacity_bytes, path.storage_medium,
                                      _tablet_manager.get(), _txn_manager.get());
         tmp_stores.emplace_back(store);
-        threads.emplace_back([this, store, &error_msg_lock, &error_msg]() {
-            SCOPED_CONSUME_MEM_TRACKER(_mem_tracker);
+        threads.emplace_back([store, &error_msg_lock, &error_msg]() {
             auto st = store->init();
             if (!st.ok()) {
                 {
@@ -286,17 +283,6 @@ Status StorageEngine::_judge_and_update_effective_cluster_id(int32_t cluster_id)
     }
 
     return Status::OK();
-}
-
-void StorageEngine::set_store_used_flag(const string& path, bool is_used) {
-    std::lock_guard<std::mutex> l(_store_lock);
-    auto it = _store_map.find(path);
-    if (it == _store_map.end()) {
-        LOG(WARNING) << "store not exist, path=" << path;
-    }
-
-    it->second->set_is_used(is_used);
-    _update_storage_medium_type_count();
 }
 
 template <bool include_unused>

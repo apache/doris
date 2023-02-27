@@ -19,7 +19,6 @@
 
 #include <roaring/roaring.hh>
 
-#include "olap/column_block.h"
 #include "olap/rowset/segment_v2/bitmap_index_reader.h"
 #include "olap/rowset/segment_v2/bloom_filter.h"
 #include "olap/rowset/segment_v2/inverted_index_reader.h"
@@ -35,6 +34,7 @@ class Schema;
 
 struct PredicateParams {
     std::string value;
+    bool marked_by_runtime_filter = false;
 };
 
 enum class PredicateType {
@@ -110,6 +110,10 @@ struct PredicateTypeTraits {
         return (type == PredicateType::IN_LIST || type == PredicateType::NOT_IN_LIST);
     }
 
+    static constexpr bool is_equal_or_list(PredicateType type) {
+        return (type == PredicateType::EQ || type == PredicateType::IN_LIST);
+    }
+
     static constexpr bool is_comparison(PredicateType type) {
         return (type == PredicateType::EQ || type == PredicateType::NE ||
                 type == PredicateType::LT || type == PredicateType::LE ||
@@ -144,11 +148,11 @@ public:
     virtual uint16_t evaluate(const vectorized::IColumn& column, uint16_t* sel,
                               uint16_t size) const {
         return size;
-    };
+    }
     virtual void evaluate_and(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
-                              bool* flags) const {};
+                              bool* flags) const {}
     virtual void evaluate_or(const vectorized::IColumn& column, const uint16_t* sel, uint16_t size,
-                             bool* flags) const {};
+                             bool* flags) const {}
 
     virtual bool evaluate_and(const std::pair<WrapperField*, WrapperField*>& statistic) const {
         return true;
@@ -222,6 +226,14 @@ public:
     }
 
 protected:
+    // Just prevent access not align memory address coredump
+    template <class T>
+    T _get_zone_map_value(void* data_ptr) const {
+        T res;
+        memcpy(&res, data_ptr, sizeof(T));
+        return res;
+    }
+
     virtual std::string _debug_string() const = 0;
 
     uint32_t _column_id;

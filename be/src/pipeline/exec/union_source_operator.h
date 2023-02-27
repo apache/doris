@@ -47,6 +47,8 @@ public:
                      SourceState& source_state) override;
     bool can_read() override;
 
+    Status pull_data(RuntimeState* state, vectorized::Block* output_block, bool* eos);
+
 private:
     std::shared_ptr<DataQueue> _data_queue;
     bool _need_read_for_const_expr;

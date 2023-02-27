@@ -113,13 +113,14 @@ Parameter introduction:
 
 14. strip_outer_array: Boolean type, true indicates that the json data starts with an array object and flattens the array object, the default value is false. E.g:
 
-       ````
-        [
-         {"k1" : 1, "v1" : 2},
-         {"k1" : 3, "v1" : 4}
-        ]
-        When strip_outer_array is true, the final import into doris will generate two rows of data.
-       ````
+     ````
+      [
+       {"k1" : 1, "v1" : 2},
+       {"k1" : 3, "v1" : 4}
+      ]
+    ````
+    When strip_outer_array is true, the final import into doris will generate two rows of data.
+
 
 15. json_root: json_root is a valid jsonpath string, used to specify the root node of the json document, the default value is "".
 
@@ -170,18 +171,18 @@ separated by commas.
 
 ERRORS:
         Import error details can be viewed with the following statement:
-
-       ```sql
-        SHOW LOAD WARNINGS ON 'url
-       ````
-
-    where url is the url given by ErrorURL.
+        ````
+        SHOW LOAD WARNINGS ON 'url'
+        ````
+        where url is the url given by ErrorURL.
 
 24. compress_type
 
     Specify compress type file. Only support compressed csv file now. Support gz, lzo, bz2, lz4, lzop, deflate.
 
 25. trim_double_quotes: Boolean type, The default value is false. True means that the outermost double quotes of each field in the csv file are trimmed.
+
+26. skip_lines: <version since="dev" type="inline"> Integer type, the default value is 0. It will skip some lines in the head of csv file. It will be disabled when format is `csv_with_names` or `csv_with_names_and_types`. </version>
 
 ### Example
 
@@ -192,145 +193,150 @@ ERRORS:
    ````
 
 2. Import the data in the local file 'testData' into the table 'testTbl' in the database 'testDb', use Label for deduplication, and only import data whose k1 is equal to 20180601
-        
 
-       ````
-       curl --location-trusted -u root -H "label:123" -H "where: k1=20180601" -T testData http://host:port/api/testDb/testTbl/_stream_load
-       ````
+   ````
+   curl --location-trusted -u root -H "label:123" -H "where: k1=20180601" -T testData http://host:port/api/testDb/testTbl/_stream_load
+   ````
 
 3. Import the data in the local file 'testData' into the table 'testTbl' in the database 'testDb', allowing a 20% error rate (the user is in the defalut_cluster)
-        
 
-       ````
-       curl --location-trusted -u root -H "label:123" -H "max_filter_ratio:0.2" -T testData http://host:port/api/testDb/testTbl/_stream_load
-       ````
+   ````
+   curl --location-trusted -u root -H "label:123" -H "max_filter_ratio:0.2" -T testData http://host:port/api/testDb/testTbl/_stream_load
+   ````
 
 4. Import the data in the local file 'testData' into the table 'testTbl' in the database 'testDb', allow a 20% error rate, and specify the column name of the file (the user is in the defalut_cluster)
-        
 
-       ````
-       curl --location-trusted -u root -H "label:123" -H "max_filter_ratio:0.2" -H "columns: k2, k1, v1" -T testData http://host:port/api/testDb/testTbl /_stream_load
-       ````
+   ````
+   curl --location-trusted -u root -H "label:123" -H "max_filter_ratio:0.2" -H "columns: k2, k1, v1" -T testData http://host:port/api/testDb/testTbl /_stream_load
+   ````
 
 5. Import the data in the local file 'testData' into the p1, p2 partitions of the table 'testTbl' in the database 'testDb', allowing a 20% error rate.
-        
 
-       ````
-       curl --location-trusted -u root -H "label:123" -H "max_filter_ratio:0.2" -H "partitions: p1, p2" -T testData http://host:port/api/testDb/testTbl/_stream_load
-       ````
+   ````
+   curl --location-trusted -u root -H "label:123" -H "max_filter_ratio:0.2" -H "partitions: p1, p2" -T testData http://host:port/api/testDb/testTbl/_stream_load
+   ````
 
 6. Import using streaming (user is in defalut_cluster)
-        
 
-       ````
-       seq 1 10 | awk '{OFS="\t"}{print $1, $1 * 10}' | curl --location-trusted -u root -T - http://host:port/api/testDb/testTbl/ _stream_load
-       ````
+    ````
+    seq 1 10 | awk '{OFS="\t"}{print $1, $1 * 10}' | curl --location-trusted -u root -T - http://host:port/api/testDb/testTbl/ _stream_load
+    ````
 
 7. Import a table containing HLL columns, which can be columns in the table or columns in the data to generate HLL columns, or use hll_empty to supplement columns that are not in the data
-        
 
-       ````
-       curl --location-trusted -u root -H "columns: k1, k2, v1=hll_hash(k1), v2=hll_empty()" -T testData http://host:port/api/testDb/testTbl/_stream_load
-       ````
+   ````
+   curl --location-trusted -u root -H "columns: k1, k2, v1=hll_hash(k1), v2=hll_empty()" -T testData http://host:port/api/testDb/testTbl/_stream_load
+   ````
 
 8. Import data for strict mode filtering and set the time zone to Africa/Abidjan
-        
 
-       ````
-       curl --location-trusted -u root -H "strict_mode: true" -H "timezone: Africa/Abidjan" -T testData http://host:port/api/testDb/testTbl/_stream_load
-       ````
+   ````
+   curl --location-trusted -u root -H "strict_mode: true" -H "timezone: Africa/Abidjan" -T testData http://host:port/api/testDb/testTbl/_stream_load
+   ````
 
 9. Import a table with a BITMAP column, which can be a column in the table or a column in the data to generate a BITMAP column, or use bitmap_empty to fill an empty Bitmap
-       ````
-        curl --location-trusted -u root -H "columns: k1, k2, v1=to_bitmap(k1), v2=bitmap_empty()" -T testData http://host:port/api/testDb/testTbl/_stream_load
-        ````
+   ````
+    curl --location-trusted -u root -H "columns: k1, k2, v1=to_bitmap(k1), v2=bitmap_empty()" -T testData http://host:port/api/testDb/testTbl/_stream_load
+   ````
 
 10. Simple mode, import json data
     Table Structure:
 
-`category` varchar(512) NULL COMMENT "",
-`author` varchar(512) NULL COMMENT "",
-`title` varchar(512) NULL COMMENT "",
-`price` double NULL COMMENT ""
+    `category` varchar(512) NULL COMMENT "",
+    `author` varchar(512) NULL COMMENT "",
+    `title` varchar(512) NULL COMMENT "",
+    `price` double NULL COMMENT ""
 
-json data format:
+    json data format:
+    ````
+    {"category":"C++","author":"avc","title":"C++ primer","price":895}
+    ````
+    
+    Import command:
+    
+    ````
+    curl --location-trusted -u root -H "label:123" -H "format: json" -T testData http://host:port/api/testDb/testTbl/_stream_load
+    ````
+    
+    In order to improve throughput, it supports importing multiple pieces of json data at one time, each line is a json object, and \n is used as a newline by default. You need to set read_json_by_line to true. The json data format is as follows:
 
-````
-{"category":"C++","author":"avc","title":"C++ primer","price":895}
-````
-
-Import command:
-
-````
-curl --location-trusted -u root -H "label:123" -H "format: json" -T testData http://host:port/api/testDb/testTbl/_stream_load
-````
-
-In order to improve throughput, it supports importing multiple pieces of json data at one time, each line is a json object, and \n is used as a newline by default. You need to set read_json_by_line to true. The json data format is as follows:
-        
-
-````
-{"category":"C++","author":"avc","title":"C++ primer","price":89.5}
-{"category":"Java","author":"avc","title":"Effective Java","price":95}
-{"category":"Linux","author":"avc","title":"Linux kernel","price":195}
-````
-
+    ````
+    {"category":"C++","author":"avc","title":"C++ primer","price":89.5}
+    {"category":"Java","author":"avc","title":"Effective Java","price":95}
+    {"category":"Linux","author":"avc","title":"Linux kernel","price":195}
+    ````
+    
 11. Match pattern, import json data
     json data format:
 
-````
-[
-{"category":"xuxb111","author":"1avc","title":"SayingsoftheCentury","price":895},{"category":"xuxb222","author":"2avc"," title":"SayingsoftheCentury","price":895},
-{"category":"xuxb333","author":"3avc","title":"SayingsoftheCentury","price":895}
-]
-````
+    ````
+    [
+    {"category":"xuxb111","author":"1avc","title":"SayingsoftheCentury","price":895},{"category":"xuxb222","author":"2avc"," title":"SayingsoftheCentury","price":895},
+    {"category":"xuxb333","author":"3avc","title":"SayingsoftheCentury","price":895}
+    ]
+    ````
 
-Precise import by specifying jsonpath, such as importing only three attributes of category, author, and price
+    Precise import by specifying jsonpath, such as importing only three attributes of category, author, and price
 
-````
-curl --location-trusted -u root -H "columns: category, price, author" -H "label:123" -H "format: json" -H "jsonpaths: [\"$.category\",\" $.price\",\"$.author\"]" -H "strip_outer_array: true" -T testData http://host:port/api/testDb/testTbl/_stream_load
-````
+    ````
+    curl --location-trusted -u root -H "columns: category, price, author" -H "label:123" -H "format: json" -H "jsonpaths: [\"$.category\",\" $.price\",\"$.author\"]" -H "strip_outer_array: true" -T testData http://host:port/api/testDb/testTbl/_stream_load
+    ````
 
-illustrate:
-    1) If the json data starts with an array, and each object in the array is a record, you need to set strip_outer_array to true, which means flatten the array.
-    2) If the json data starts with an array, and each object in the array is a record, when setting jsonpath, our ROOT node is actually an object in the array.
+    illustrate:
+        1) If the json data starts with an array, and each object in the array is a record, you need to set strip_outer_array to true, which means flatten the array.
+        2) If the json data starts with an array, and each object in the array is a record, when setting jsonpath, our ROOT node is actually an object in the array.
 
 12. User specified json root node
     json data format:
 
-````
-{
- "RECORDS":[
-{"category":"11","title":"SayingsoftheCentury","price":895,"timestamp":1589191587},
-{"category":"22","author":"2avc","price":895,"timestamp":1589191487},
-{"category":"33","author":"3avc","title":"SayingsoftheCentury","timestamp":1589191387}
-]
-}
-````
+    ````
+    {
+     "RECORDS":[
+    {"category":"11","title":"SayingsoftheCentury","price":895,"timestamp":1589191587},
+    {"category":"22","author":"2avc","price":895,"timestamp":1589191487},
+    {"category":"33","author":"3avc","title":"SayingsoftheCentury","timestamp":1589191387}
+    ]
+    }
+    ````
 
-Precise import by specifying jsonpath, such as importing only three attributes of category, author, and price
-
-````
-curl --location-trusted -u root -H "columns: category, price, author" -H "label:123" -H "format: json" -H "jsonpaths: [\"$.category\",\" $.price\",\"$.author\"]" -H "strip_outer_array: true" -H "json_root: $.RECORDS" -T testData http://host:port/api/testDb/testTbl/_stream_load
-````
-
+    Precise import by specifying jsonpath, such as importing only three attributes of category, author, and price
+    
+    ````
+    curl --location-trusted -u root -H "columns: category, price, author" -H "label:123" -H "format: json" -H "jsonpaths: [\"$.category\",\" $.price\",\"$.author\"]" -H "strip_outer_array: true" -H "json_root: $.RECORDS" -T testData http://host:port/api/testDb/testTbl/_stream_load
+    ````
+    
 13. Delete the data with the same import key as this batch
 
-````
-curl --location-trusted -u root -H "merge_type: DELETE" -T testData http://host:port/api/testDb/testTbl/_stream_load
-````
+    ````
+    curl --location-trusted -u root -H "merge_type: DELETE" -T testData http://host:port/api/testDb/testTbl/_stream_load
+    ````
 
 14. Delete the columns in this batch of data that match the data whose flag is listed as true, and append other rows normally
-
-````
-curl --location-trusted -u root: -H "column_separator:," -H "columns: siteid, citycode, username, pv, flag" -H "merge_type: MERGE" -H "delete: flag=1" -T testData http://host:port/api/testDb/testTbl/_stream_load
-````
-
+    
+    ````
+    curl --location-trusted -u root: -H "column_separator:," -H "columns: siteid, citycode, username, pv, flag" -H "merge_type: MERGE" -H "delete: flag=1" -T testData http://host:port/api/testDb/testTbl/_stream_load
+    ````
+    
 15. Import data into UNIQUE_KEYS table with sequence column
+    
+    ````
+    curl --location-trusted -u root -H "columns: k1,k2,source_sequence,v1,v2" -H "function_column.sequence_col: source_sequence" -T testData http://host:port/api/testDb/testTbl/ _stream_load
+    ````
 
-````
-curl --location-trusted -u root -H "columns: k1,k2,source_sequence,v1,v2" -H "function_column.sequence_col: source_sequence" -T testData http://host:port/api/testDb/testTbl/ _stream_load
-````
+16. csv file line header filter import
 
+    file data:
+    
+    ```
+       id,name,age
+       1,doris,20
+       2,flink,10
+    ```
+    Filter the first line import by specifying `format=csv_with_names`
+    ```
+    curl --location-trusted -u root -T test.csv  -H "label:1" -H "format:csv_with_names" -H "column_separator:," http://host:port/api/testDb/testTbl/_stream_load
+    ```
+    
 ### Keywords
 
     STREAM, LOAD

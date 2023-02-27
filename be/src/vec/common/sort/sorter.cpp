@@ -43,14 +43,14 @@ Status MergeSorterState::add_sorted_block(Block& block) {
         return Status::OK();
     }
     if (0 == avg_row_bytes_) {
-        avg_row_bytes_ = block.bytes() / rows;
+        avg_row_bytes_ = std::max((std::size_t)1, block.bytes() / rows);
         spill_block_batch_size_ = (BLOCK_SPILL_BATCH_BYTES + avg_row_bytes_ - 1) / avg_row_bytes_;
     }
 
     auto bytes_used = data_size();
+    auto total_bytes_used = bytes_used + block.bytes();
     if (is_spilled_ || (external_sort_bytes_threshold_ > 0 &&
-                        (bytes_used + block.allocated_bytes()) >=
-                                (external_sort_bytes_threshold_ - BLOCK_SPILL_BATCH_BYTES))) {
+                        total_bytes_used >= external_sort_bytes_threshold_)) {
         is_spilled_ = true;
         BlockSpillWriterUPtr spill_block_writer;
         RETURN_IF_ERROR(ExecEnv::GetInstance()->block_spill_mgr()->get_writer(
@@ -178,7 +178,8 @@ Status MergeSorterState::_merge_sort_read_not_spilled(int batch_size,
 }
 
 int MergeSorterState::_calc_spill_blocks_to_merge() const {
-    return external_sort_bytes_threshold_ / BLOCK_SPILL_BATCH_BYTES;
+    int count = external_sort_bytes_threshold_ / BLOCK_SPILL_BATCH_BYTES;
+    return std::max(2, count);
 }
 
 // merge all the intermediate spilled blocks
@@ -224,7 +225,7 @@ Status MergeSorterState::_create_intermediate_merger(int num_blocks,
                 stream_id, spilled_block_reader, block_spill_profile_));
         child_block_suppliers.emplace_back(std::bind(std::mem_fn(&BlockSpillReader::read),
                                                      spilled_block_reader.get(),
-                                                     std::placeholders::_1));
+                                                     std::placeholders::_1, std::placeholders::_2));
         spilled_block_readers_.emplace_back(std::move(spilled_block_reader));
 
         spilled_sorted_block_streams_.pop_front();
@@ -246,7 +247,10 @@ Status Sorter::partial_sort(Block& src_block, Block& dest_block) {
         int i = 0;
         const auto& convert_nullable_flags = _vsort_exec_exprs.get_convert_nullable_flags();
         for (auto column_id : valid_column_ids) {
-            if (convert_nullable_flags[i]) {
+            if (column_id < 0) {
+                continue;
+            }
+            if (i < convert_nullable_flags.size() && convert_nullable_flags[i]) {
                 auto column_ptr = make_nullable(src_block.get_by_position(column_id).column);
                 new_block.insert(
                         {column_ptr, make_nullable(src_block.get_by_position(column_id).type), ""});
@@ -334,25 +338,37 @@ Status FullSorter::_do_sort() {
         // to order the block in _block_priority_queue.
         // if one block totally greater the heap top of _block_priority_queue
         // we can throw the block data directly.
-        if (_state->num_rows() < _limit) {
-            _block_priority_queue.emplace(
-                    _pool->add(new MergeSortCursorImpl(desc_block, _sort_description)));
+        if (_state->num_rows() < _offset + _limit) {
             _state->add_sorted_block(desc_block);
+            // if it's spilled, sorted_block is not added into sorted block vector,
+            // so it's should not be added to _block_priority_queue, since
+            // sorted_block will be destroyed when _do_sort is finished
+            if (!_state->is_spilled()) {
+                _block_priority_queue.emplace(_pool->add(
+                        new MergeSortCursorImpl(_state->last_sorted_block(), _sort_description)));
+            }
         } else {
-            MergeSortBlockCursor block_cursor(
-                    _pool->add(new MergeSortCursorImpl(desc_block, _sort_description)));
+            auto tmp_cursor_impl =
+                    std::make_unique<MergeSortCursorImpl>(desc_block, _sort_description);
+            MergeSortBlockCursor block_cursor(tmp_cursor_impl.get());
             if (!block_cursor.totally_greater(_block_priority_queue.top())) {
                 _state->add_sorted_block(desc_block);
-                _block_priority_queue.push(block_cursor);
+                if (!_state->is_spilled()) {
+                    _block_priority_queue.emplace(_pool->add(new MergeSortCursorImpl(
+                            _state->last_sorted_block(), _sort_description)));
+                }
             }
         }
     } else {
         // dispose normal sort logic
         _state->add_sorted_block(desc_block);
-        if (_state->is_spilled()) {
-            std::priority_queue<MergeSortBlockCursor> tmp;
-            _block_priority_queue.swap(tmp);
-        }
+    }
+    if (_state->is_spilled()) {
+        std::priority_queue<MergeSortBlockCursor> tmp;
+        _block_priority_queue.swap(tmp);
+
+        buffered_block_size_ = SPILL_BUFFERED_BLOCK_SIZE;
+        buffered_block_bytes_ = SPILL_BUFFERED_BLOCK_BYTES;
     }
     return Status::OK();
 }

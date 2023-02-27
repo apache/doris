@@ -495,6 +495,10 @@ public class AggregateFunction extends Function {
         return isAnalyticFn;
     }
 
+    public void setIsAnalyticFn(boolean isAnalyticFn) {
+        this.isAnalyticFn = isAnalyticFn;
+    }
+
     public boolean isAggregateFn() {
         return isAggregateFn;
     }

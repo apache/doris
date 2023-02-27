@@ -26,6 +26,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
+import org.apache.doris.catalog.TypeUtils;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.Reference;
@@ -218,6 +219,13 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     @Override
+    public String toString() {
+        StringBuilder builder = new StringBuilder();
+        builder.append(children.get(0)).append(" ").append(op).append(" ").append(children.get(1));
+        return builder.toString();
+    }
+
+    @Override
     public Expr negate() {
         Operator newOp = null;
         switch (op) {
@@ -341,14 +349,23 @@ public class BinaryPredicate extends Predicate implements Writable {
         }
 
         if (canCompareDate(getChild(0).getType().getPrimitiveType(), getChild(1).getType().getPrimitiveType())) {
-            if (!(getChild(0).getType().isDateV2() || getChild(0).getType().isDatetimeV2()
-                    || getChild(1).getType().isDateV2() || getChild(1).getType().isDatetimeV2())) {
-                return Type.DATETIME;
-            } else {
+            if (getChild(0).getType().isDatetimeV2() && getChild(1).getType().isDatetimeV2()) {
                 Preconditions.checkArgument(getChild(0).getType() instanceof ScalarType
                         && getChild(1).getType() instanceof ScalarType);
                 return dateV2ComparisonResultType((ScalarType) getChild(0).getType(),
                         (ScalarType) getChild(1).getType());
+            } else if (getChild(0).getType().isDatetimeV2()) {
+                return getChild(0).getType();
+            } else if (getChild(1).getType().isDatetimeV2()) {
+                return getChild(1).getType();
+            } else if (getChild(0).getType().isDateV2()
+                    && (getChild(1).getType().isDate() || getChild(1).getType().isDateV2())) {
+                return getChild(0).getType();
+            } else if (getChild(1).getType().isDateV2()
+                    && (getChild(0).getType().isDate() || getChild(0).getType().isDateV2())) {
+                return getChild(1).getType();
+            } else {
+                return Type.DATETIME;
             }
         }
 
@@ -381,10 +398,10 @@ public class BinaryPredicate extends Predicate implements Writable {
         // So it is also compatible with Mysql.
 
         if (t1.isStringType() || t2.isStringType()) {
-            if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.LARGEINT) && Type.canParseTo(getChild(1), t1)) {
+            if ((t1 == PrimitiveType.BIGINT || t1 == PrimitiveType.LARGEINT) && TypeUtils.canParseTo(getChild(1), t1)) {
                 return Type.fromPrimitiveType(t1);
             }
-            if ((t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.LARGEINT) && Type.canParseTo(getChild(0), t2)) {
+            if ((t2 == PrimitiveType.BIGINT || t2 == PrimitiveType.LARGEINT) && TypeUtils.canParseTo(getChild(0), t2)) {
                 return Type.fromPrimitiveType(t2);
             }
         }
@@ -397,9 +414,28 @@ public class BinaryPredicate extends Predicate implements Writable {
         return Type.DOUBLE;
     }
 
+    // Expr only support Literal
+    public Pair<SlotRef, Expr> extract() {
+        Expr lexpr = getChild(0);
+        Expr rexpr = getChild(1);
+        if (lexpr instanceof SlotRef && (rexpr instanceof LiteralExpr)) {
+            SlotRef slot = (SlotRef) lexpr;
+            return Pair.of(slot, rexpr);
+        } else if (rexpr instanceof SlotRef && (lexpr instanceof LiteralExpr)) {
+            SlotRef slot = (SlotRef) rexpr;
+            return Pair.of(slot, lexpr);
+        }
+        return null;
+    }
+
     @Override
     public void analyzeImpl(Analyzer analyzer) throws AnalysisException {
         super.analyzeImpl(analyzer);
+
+        // Ignore placeholder
+        if (getChild(0) instanceof PlaceHolderExpr || getChild(1) instanceof PlaceHolderExpr) {
+            return;
+        }
 
         for (Expr expr : children) {
             if (expr instanceof Subquery) {
@@ -639,8 +675,8 @@ public class BinaryPredicate extends Predicate implements Writable {
     }
 
     @Override
-    public Expr getResultValue() throws AnalysisException {
-        recursiveResetChildrenResult();
+    public Expr getResultValue(boolean inView) throws AnalysisException {
+        recursiveResetChildrenResult(inView);
         final Expr leftChildValue = getChild(0);
         final Expr rightChildValue = getChild(1);
         if (!(leftChildValue instanceof LiteralExpr)

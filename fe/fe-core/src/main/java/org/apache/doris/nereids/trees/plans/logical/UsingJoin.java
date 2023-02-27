@@ -35,7 +35,6 @@ import org.apache.commons.collections.CollectionUtils;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * select col1 from t1 join t2 using(col1);
@@ -70,10 +69,10 @@ public class UsingJoin<LEFT_CHILD_TYPE extends Plan, RIGHT_CHILD_TYPE extends Pl
     public List<Slot> computeOutput() {
 
         List<Slot> newLeftOutput = left().getOutput().stream().map(o -> o.withNullable(true))
-                .collect(Collectors.toList());
+                .collect(ImmutableList.toImmutableList());
 
         List<Slot> newRightOutput = right().getOutput().stream().map(o -> o.withNullable(true))
-                .collect(Collectors.toList());
+                .collect(ImmutableList.toImmutableList());
 
         switch (joinType) {
             case LEFT_SEMI_JOIN:

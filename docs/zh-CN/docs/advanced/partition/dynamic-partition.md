@@ -131,6 +131,8 @@ under the License.
 - `dynamic_partition.hot_partition_num`
 
   指定最新的多少个分区为热分区。对于热分区，系统会自动设置其 `storage_medium` 参数为SSD，并且设置 `storage_cooldown_time`。
+  
+  **注意：若存储路径下没有 SSD 磁盘路径，配置该参数会导致动态分区创建失败。**
 
   `hot_partition_num` 是往前 n 天和未来所有分区
 
@@ -172,6 +174,14 @@ under the License.
   ```
 
   这两个时间段的分区。其中，`reserved_history_periods` 的每一个 `[...,...]` 是一对设置项，两者需要同时被设置，且第一个时间不能大于第二个时间。
+
+- `dynamic_partition.storage_medium`
+
+  <version since="dev"></version>
+
+  指定创建的动态分区的默认存储介质。默认是 HDD，可选择 SSD。
+
+  注意，当设置为SSD时，`hot_partition_num` 属性将不再生效，所有分区将默认为 SSD 存储介质并且冷却时间为 9999-12-31 23:59:59。
 
 #### 创建历史分区规则
 

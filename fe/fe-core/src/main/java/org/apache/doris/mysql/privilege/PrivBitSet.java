@@ -47,17 +47,17 @@ public class PrivBitSet implements Writable {
     }
 
     public void set(int index) {
-        Preconditions.checkState(index < PaloPrivilege.privileges.length, index);
+        Preconditions.checkState(index < Privilege.privileges.length, index);
         set |= 1 << index;
     }
 
     public void unset(int index) {
-        Preconditions.checkState(index < PaloPrivilege.privileges.length, index);
+        Preconditions.checkState(index < Privilege.privileges.length, index);
         set &= ~(1 << index);
     }
 
     public boolean get(int index) {
-        Preconditions.checkState(index < PaloPrivilege.privileges.length, index);
+        Preconditions.checkState(index < Privilege.privileges.length, index);
         return (set & (1 << index)) > 0;
     }
 
@@ -96,20 +96,20 @@ public class PrivBitSet implements Writable {
     }
 
     public boolean containsNodePriv() {
-        return containsPrivs(PaloPrivilege.NODE_PRIV);
+        return containsPrivs(Privilege.NODE_PRIV);
     }
 
     public boolean containsResourcePriv() {
-        return containsPrivs(PaloPrivilege.USAGE_PRIV);
+        return containsPrivs(Privilege.USAGE_PRIV);
     }
 
     public boolean containsDbTablePriv() {
-        return containsPrivs(PaloPrivilege.SELECT_PRIV, PaloPrivilege.LOAD_PRIV, PaloPrivilege.ALTER_PRIV,
-                PaloPrivilege.CREATE_PRIV, PaloPrivilege.DROP_PRIV);
+        return containsPrivs(Privilege.SELECT_PRIV, Privilege.LOAD_PRIV, Privilege.ALTER_PRIV,
+                Privilege.CREATE_PRIV, Privilege.DROP_PRIV);
     }
 
-    public boolean containsPrivs(PaloPrivilege... privs) {
-        for (PaloPrivilege priv : privs) {
+    public boolean containsPrivs(Privilege... privs) {
+        for (Privilege priv : privs) {
             if (get(priv.getIdx())) {
                 return true;
             }
@@ -117,27 +117,27 @@ public class PrivBitSet implements Writable {
         return false;
     }
 
-    public List<PaloPrivilege> toPrivilegeList() {
-        List<PaloPrivilege> privs = Lists.newArrayList();
-        for (int i = 0; i < PaloPrivilege.privileges.length; i++) {
+    public List<Privilege> toPrivilegeList() {
+        List<Privilege> privs = Lists.newArrayList();
+        for (int i = 0; i < Privilege.privileges.length; i++) {
             if (get(i)) {
-                privs.add(PaloPrivilege.getPriv(i));
+                privs.add(Privilege.getPriv(i));
             }
         }
         return privs;
     }
 
-    public static PrivBitSet of(PaloPrivilege... privs) {
+    public static PrivBitSet of(Privilege... privs) {
         PrivBitSet bitSet = new PrivBitSet();
-        for (PaloPrivilege priv : privs) {
+        for (Privilege priv : privs) {
             bitSet.set(priv.getIdx());
         }
         return bitSet;
     }
 
-    public static PrivBitSet of(List<PaloPrivilege> privs) {
+    public static PrivBitSet of(List<Privilege> privs) {
         PrivBitSet bitSet = new PrivBitSet();
-        for (PaloPrivilege priv : privs) {
+        for (Privilege priv : privs) {
             bitSet.set(priv.getIdx());
         }
         return bitSet;
@@ -152,9 +152,9 @@ public class PrivBitSet implements Writable {
     @Override
     public String toString() {
         StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < PaloPrivilege.privileges.length; i++) {
+        for (int i = 0; i < Privilege.privileges.length; i++) {
             if (get(i)) {
-                sb.append(PaloPrivilege.getPriv(i)).append(" ");
+                sb.append(Privilege.getPriv(i)).append(" ");
             }
         }
         return sb.toString();

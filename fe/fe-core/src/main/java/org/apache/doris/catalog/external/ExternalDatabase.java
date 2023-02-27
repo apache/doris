@@ -263,4 +263,8 @@ public class ExternalDatabase<T extends ExternalTable> implements DatabaseIf<T>,
     public void dropTable(String tableName) {
         throw new NotImplementedException();
     }
+
+    public void createTable(String tableName, long tableId) {
+        throw new NotImplementedException();
+    }
 }

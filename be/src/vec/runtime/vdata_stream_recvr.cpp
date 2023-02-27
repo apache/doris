@@ -36,7 +36,15 @@ VDataStreamRecvr::SenderQueue::SenderQueue(VDataStreamRecvr* parent_recvr, int n
           _num_remaining_senders(num_senders),
           _received_first_batch(false) {}
 
-VDataStreamRecvr::SenderQueue::~SenderQueue() = default;
+VDataStreamRecvr::SenderQueue::~SenderQueue() {
+    // Check pending closures, if it is not empty, should clear it here. but it should not happen.
+    // closure will delete itself during run method. If it is not called, brpc will memory leak.
+    DCHECK(_pending_closures.empty());
+    for (auto closure_pair : _pending_closures) {
+        closure_pair.first->Run();
+    }
+    _pending_closures.clear();
+}
 
 bool VDataStreamRecvr::SenderQueue::should_wait() {
     DCHECK(false) << "VDataStreamRecvr::SenderQueue::should_wait execute";
@@ -44,7 +52,7 @@ bool VDataStreamRecvr::SenderQueue::should_wait() {
     return !_is_cancelled && _block_queue.empty() && _num_remaining_senders > 0;
 }
 
-Status VDataStreamRecvr::SenderQueue::get_batch(Block** next_block) {
+Status VDataStreamRecvr::SenderQueue::get_batch(Block* block, bool* eos) {
     std::unique_lock<std::mutex> l(_lock);
     // wait until something shows up or we know we're done
     while (!_is_cancelled && _block_queue.empty() && _num_remaining_senders > 0) {
@@ -57,34 +65,27 @@ Status VDataStreamRecvr::SenderQueue::get_batch(Block** next_block) {
                 &_is_cancelled);
         _data_arrival_cv.wait(l);
     }
-    return _inner_get_batch(next_block);
+    return _inner_get_batch(block, eos);
 }
 
-Status VDataStreamRecvr::SenderQueue::_inner_get_batch(Block** next_block) {
-    // _cur_batch must be replaced with the returned batch.
-    _current_block.reset();
-    *next_block = nullptr;
+Status VDataStreamRecvr::SenderQueue::_inner_get_batch(Block* block, bool* eos) {
     if (_is_cancelled) {
         return Status::Cancelled("Cancelled");
     }
 
     if (_block_queue.empty()) {
         DCHECK_EQ(_num_remaining_senders, 0);
+        *eos = true;
         return Status::OK();
     }
 
     _received_first_batch = true;
 
     DCHECK(!_block_queue.empty());
-    Block* result = _block_queue.front().second;
-    _recvr->_num_buffered_bytes -= _block_queue.front().first;
-    _recvr->_blocks_memory_usage->add(-_block_queue.front().first);
-    VLOG_ROW << "fetched #rows=" << result->rows();
+    auto [next_block, block_byte_size] = std::move(_block_queue.front());
+    _recvr->_blocks_memory_usage->add(-block_byte_size);
     _block_queue.pop_front();
     _update_block_queue_empty();
-
-    _current_block.reset(result);
-    *next_block = _current_block.get();
 
     if (!_pending_closures.empty()) {
         auto closure_pair = _pending_closures.front();
@@ -94,7 +95,8 @@ Status VDataStreamRecvr::SenderQueue::_inner_get_batch(Block** next_block) {
         closure_pair.second.stop();
         _recvr->_buffer_full_total_timer->update(closure_pair.second.elapsed_time());
     }
-
+    block->swap(*next_block);
+    *eos = false;
     return Status::OK();
 }
 
@@ -134,11 +136,11 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
         }
     }
 
-    Block* block = nullptr;
+    BlockUPtr block = nullptr;
     int64_t deserialize_time = 0;
     {
         SCOPED_RAW_TIMER(&deserialize_time);
-        block = new Block(pblock);
+        block.reset(new Block(pblock));
     }
 
     auto block_byte_size = block->allocated_bytes();
@@ -152,9 +154,8 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
     COUNTER_UPDATE(_recvr->_deserialize_row_batch_timer, deserialize_time);
     COUNTER_UPDATE(_recvr->_decompress_timer, block->get_decompress_time());
     COUNTER_UPDATE(_recvr->_decompress_bytes, block->get_decompressed_bytes());
-    _recvr->_blocks_memory_usage->add(block_byte_size);
 
-    _block_queue.emplace_back(block_byte_size, block);
+    _block_queue.emplace_back(std::move(block), block_byte_size);
     _update_block_queue_empty();
     // if done is nullptr, this function can't delay this response
     if (done != nullptr && _recvr->exceeds_limit(block_byte_size)) {
@@ -164,7 +165,7 @@ void VDataStreamRecvr::SenderQueue::add_block(const PBlock& pblock, int be_numbe
         _pending_closures.emplace_back(*done, monotonicStopWatch);
         *done = nullptr;
     }
-    _recvr->_num_buffered_bytes += block_byte_size;
+    _recvr->_blocks_memory_usage->add(block_byte_size);
     _data_arrival_cv.notify_one();
 }
 
@@ -180,7 +181,8 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
     }
 
     auto block_bytes_received = block->bytes();
-    Block* nblock = new Block(block->get_columns_with_type_and_name());
+    // Has to use unique ptr here, because clone column may failed if allocate memory failed.
+    BlockUPtr nblock = std::make_unique<Block>(block->get_columns_with_type_and_name());
 
     // local exchange should copy the block contented if use move == false
     if (use_move) {
@@ -194,20 +196,18 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
     }
     materialize_block_inplace(*nblock);
 
-    size_t block_size = nblock->bytes();
-
+    size_t block_mem_size = nblock->allocated_bytes();
     std::unique_lock<std::mutex> l(_lock);
     if (_is_cancelled) {
         return;
     }
     COUNTER_UPDATE(_recvr->_local_bytes_received_counter, block_bytes_received);
-    _recvr->_blocks_memory_usage->add(nblock->allocated_bytes());
 
-    _block_queue.emplace_back(block_size, nblock);
+    _block_queue.emplace_back(std::move(nblock), block_mem_size);
     _update_block_queue_empty();
     _data_arrival_cv.notify_one();
 
-    if (_recvr->exceeds_limit(block_size)) {
+    if (_recvr->exceeds_limit(block_mem_size)) {
         // yiguolei
         // It is too tricky here, if the running thread is bthread then the tid may be wrong.
         std::thread::id tid = std::this_thread::get_id();
@@ -222,7 +222,7 @@ void VDataStreamRecvr::SenderQueue::add_block(Block* block, bool use_move) {
         iter->second->wait(l);
     }
 
-    _recvr->_num_buffered_bytes += block_size;
+    _recvr->_blocks_memory_usage->add(block_mem_size);
 }
 
 void VDataStreamRecvr::SenderQueue::decrement_senders(int be_number) {
@@ -281,11 +281,7 @@ void VDataStreamRecvr::SenderQueue::close() {
     }
 
     // Delete any batches queued in _block_queue
-    for (auto it = _block_queue.begin(); it != _block_queue.end(); ++it) {
-        delete it->second;
-    }
-
-    _current_block.reset();
+    _block_queue.clear();
 }
 
 VDataStreamRecvr::VDataStreamRecvr(
@@ -303,13 +299,13 @@ VDataStreamRecvr::VDataStreamRecvr(
           _row_desc(row_desc),
           _is_merging(is_merging),
           _is_closed(false),
-          _num_buffered_bytes(0),
           _profile(profile),
           _sub_plan_query_statistics_recvr(sub_plan_query_statistics_recvr),
           _enable_pipeline(state->enable_pipeline_exec()) {
     // DataStreamRecvr may be destructed after the instance execution thread ends.
-    _mem_tracker = std::make_unique<MemTracker>(
-            "VDataStreamRecvr:" + print_id(_fragment_instance_id), _profile);
+    _mem_tracker =
+            std::make_unique<MemTracker>("VDataStreamRecvr:" + print_id(_fragment_instance_id),
+                                         _profile, nullptr, "PeakMemoryUsage");
     SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
 
     // Create one queue per sender if is_merging is true.
@@ -358,7 +354,8 @@ Status VDataStreamRecvr::create_merger(const std::vector<VExprContext*>& orderin
 
     for (int i = 0; i < _sender_queues.size(); ++i) {
         child_block_suppliers.emplace_back(std::bind(std::mem_fn(&SenderQueue::get_batch),
-                                                     _sender_queues[i], std::placeholders::_1));
+                                                     _sender_queues[i], std::placeholders::_1,
+                                                     std::placeholders::_2));
     }
     RETURN_IF_ERROR(_merger->prepare(child_block_suppliers));
     return Status::OK();
@@ -387,19 +384,11 @@ bool VDataStreamRecvr::ready_to_read() {
 
 Status VDataStreamRecvr::get_next(Block* block, bool* eos) {
     if (!_is_merging) {
-        Block* res = nullptr;
-        RETURN_IF_ERROR(_sender_queues[0]->get_batch(&res));
-        if (res != nullptr) {
-            block->swap(*res);
-        } else {
-            *eos = true;
-            return Status::OK();
-        }
+        block->clear();
+        return _sender_queues[0]->get_batch(block, eos);
     } else {
-        RETURN_IF_ERROR(_merger->get_next(block, eos));
+        return _merger->get_next(block, eos);
     }
-
-    return Status::OK();
 }
 
 void VDataStreamRecvr::remove_sender(int sender_id, int be_number) {

@@ -26,7 +26,6 @@ set(UTIL_FILES
   arrow/row_block.cpp
   arrow/utils.cpp
   arrow/block_convertor.cpp
-  array_parser.cpp
   bfd_parser.cpp
   bitmap.cpp
   block_compression.cpp
@@ -58,7 +57,6 @@ set(UTIL_FILES
   thrift_client.cpp
   thrift_server.cpp
   stack_util.cpp
-  symbols_util.cpp
   system_metrics.cpp
   url_parser.cpp
   url_coding.cpp
@@ -66,10 +64,7 @@ set(UTIL_FILES
   mysql_row_buffer.cpp
   error_util.cc
   filesystem_util.cc
-  load_error_hub.cpp
-  broker_load_error_hub.cpp
   broker_storage_backend.cpp
-  null_load_error_hub.cpp
   time.cpp
   os_info.cpp
   os_util.cpp
@@ -85,7 +80,6 @@ set(UTIL_FILES
   faststring.cc
   slice.cpp
   frame_of_reference_coding.cpp
-  zip_util.cpp
   utf8_check.cpp
   cgroup_util.cpp
   path_util.cpp
@@ -106,9 +100,7 @@ set(UTIL_FILES
   hdfs_storage_backend.cpp
   hdfs_util.cpp
   time_lut.cpp
-  topn_counter.cpp
   cityhash102/city.cc
-  tuple_row_zorder_compare.cpp
   telemetry/telemetry.cpp
   telemetry/brpc_carrier.cpp
   telemetry/open_telemetry_scop_wrapper.hpp
@@ -116,13 +108,8 @@ set(UTIL_FILES
   jni-util.cpp
   exception.cpp
   libjvm_loader.cpp
+  jni_native_method.cpp
 )
-
-if (WITH_MYSQL)
-    set(UTIL_FILES ${UTIL_FILES}
-        mysql_load_error_hub.cpp
-        )
-endif()
 
 if (OS_MACOSX)
     list(REMOVE_ITEM UTIL_FILES perf_counters.cpp disk_info.cpp)

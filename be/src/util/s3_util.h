@@ -56,18 +56,14 @@ struct S3Conf {
     int connect_timeout_ms = -1;
     bool use_virtual_addressing = true;
 
-    std::string to_string() const;
+    std::string to_string() const {
+        return fmt::format(
+                "(ak={}, sk=*, endpoint={}, region={}, bucket={}, prefix={}, max_connections={}, "
+                "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={})",
+                ak, endpoint, region, bucket, prefix, max_connections, request_timeout_ms,
+                connect_timeout_ms, use_virtual_addressing);
+    }
 };
-
-inline std::string S3Conf::to_string() const {
-    std::stringstream ss;
-    ss << "ak: " << ak << ", sk: " << sk << ", endpoint: " << endpoint << ", region: " << region
-       << ", bucket: " << bucket << ", prefix: " << prefix
-       << ", max_connections: " << max_connections << ", request_timeout_ms: " << request_timeout_ms
-       << ", connect_timeout_ms: " << connect_timeout_ms
-       << ", use_virtual_addressing: " << use_virtual_addressing;
-    return ss.str();
-}
 
 class ClientFactory {
 public:

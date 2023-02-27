@@ -17,7 +17,6 @@
 
 #include "vec/exec/scan/new_es_scan_node.h"
 
-#include "exec/es/es_query_builder.h"
 #include "exec/es/es_scroll_query.h"
 #include "vec/exec/scan/new_es_scanner.h"
 #include "vec/utils/util.hpp"
@@ -76,7 +75,6 @@ Status NewEsScanNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status NewEsScanNode::prepare(RuntimeState* state) {
     VLOG_CRITICAL << NEW_SCAN_NODE_TYPE << "::prepare";
     RETURN_IF_ERROR(VScanNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
     if (_tuple_desc == nullptr) {
@@ -140,7 +138,7 @@ Status NewEsScanNode::_init_scanners(std::list<VScanner*>* scanners) {
         properties[ESScanReader::KEY_HOST_PORT] = get_host_port(es_scan_range->es_hosts);
         // push down limit to Elasticsearch
         // if predicate in _conjunct_ctxs can not be processed by Elasticsearch, we can not push down limit operator to Elasticsearch
-        if (limit() != -1 && limit() <= _state->batch_size() && _conjunct_ctxs.empty()) {
+        if (limit() != -1 && limit() <= _state->batch_size()) {
             properties[ESScanReader::KEY_TERMINATE_AFTER] = std::to_string(limit());
         }
 

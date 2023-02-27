@@ -93,7 +93,7 @@ struct StringUtf8LengthImpl {
         for (int i = 0; i < size; ++i) {
             const char* raw_str = reinterpret_cast<const char*>(&data[offsets[i - 1]]);
             int str_size = offsets[i] - offsets[i - 1];
-            res[i] = get_char_len(StringValue(raw_str, str_size), str_size);
+            res[i] = get_char_len(StringRef(raw_str, str_size), str_size);
         }
         return Status::OK();
     }
@@ -186,8 +186,8 @@ struct InStrOP {
             return;
         }
 
-        StringValue str_sv(strl.data(), strl.length());
-        StringValue substr_sv(strr.data(), strr.length());
+        StringRef str_sv(strl.data(), strl.length());
+        StringRef substr_sv(strr.data(), strr.length());
         StringSearch search(&substr_sv);
         // Hive returns positions starting from 1.
         int loc = search.search(&str_sv);

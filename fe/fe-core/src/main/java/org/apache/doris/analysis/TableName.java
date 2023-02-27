@@ -162,6 +162,11 @@ public class TableName implements Writable {
         return false;
     }
 
+    @Override
+    public int hashCode() {
+        return Objects.hash(ctl, tbl, db);
+    }
+
     public String toSql() {
         StringBuilder stringBuilder = new StringBuilder();
         if (ctl != null && !ctl.equals(InternalCatalog.INTERNAL_CATALOG_NAME)) {

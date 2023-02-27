@@ -26,12 +26,14 @@ import org.apache.doris.analysis.PartitionValue;
 import org.apache.doris.analysis.RandomDistributionDesc;
 import org.apache.doris.analysis.SinglePartitionDesc;
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.DataProperty;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.DistributionInfo;
 import org.apache.doris.catalog.DynamicPartitionProperty;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HashDistributionInfo;
 import org.apache.doris.catalog.OlapTable;
+import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.PartitionItem;
 import org.apache.doris.catalog.PartitionKey;
 import org.apache.doris.catalog.RangePartitionInfo;
@@ -42,6 +44,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.AutoBucketUtils;
 import org.apache.doris.common.util.DynamicPartitionUtil;
 import org.apache.doris.common.util.MasterDaemon;
 import org.apache.doris.common.util.PropertyAnalyzer;
@@ -140,6 +143,82 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         return defaultRuntimeInfo;
     }
 
+    // exponential moving average
+    private static long ema(ArrayList<Long> history, int period) {
+        double alpha = 2.0 / (period + 1);
+        double ema = history.get(0);
+        for (int i = 1; i < history.size(); i++) {
+            ema = alpha * history.get(i) + (1 - alpha) * ema;
+        }
+        return (long) ema;
+    }
+
+    private static long getNextPartitionSize(ArrayList<Long> historyPartitionsSize) {
+        if (historyPartitionsSize.size() < 2) {
+            return historyPartitionsSize.get(0);
+        }
+
+        int size = historyPartitionsSize.size() > 7 ? 7 : historyPartitionsSize.size();
+
+        boolean isAscending = true;
+        for (int i = 1; i < size; i++) {
+            if (historyPartitionsSize.get(i) < historyPartitionsSize.get(i - 1)) {
+                isAscending = false;
+                break;
+            }
+        }
+
+        if (isAscending) {
+            ArrayList<Long> historyDeltaSize = Lists.newArrayList();
+            for (int i = 1; i < size; i++) {
+                historyDeltaSize.add(historyPartitionsSize.get(i) - historyPartitionsSize.get(i - 1));
+            }
+            return historyPartitionsSize.get(size - 1) + ema(historyDeltaSize, 7);
+        } else {
+            return ema(historyPartitionsSize, 7);
+        }
+    }
+
+    private static int getBucketsNum(DynamicPartitionProperty property, OlapTable table) {
+        if (!table.isAutoBucket()) {
+            return property.getBuckets();
+        }
+
+        // auto bucket
+        // get all history partitions
+        List<Partition> partitions = Lists.newArrayList();
+        RangePartitionInfo info = (RangePartitionInfo) (table.getPartitionInfo());
+        List<Map.Entry<Long, PartitionItem>> idToItems = new ArrayList<>(info.getIdToItem(false).entrySet());
+        idToItems.sort(Comparator.comparing(o -> ((RangePartitionItem) o.getValue()).getItems().upperEndpoint()));
+        for (Map.Entry<Long, PartitionItem> idToItem : idToItems) {
+            Partition partition = table.getPartition(idToItem.getKey());
+            if (partition != null) {
+                partitions.add(partition);
+            }
+        }
+
+        // no exist history partition
+        if (partitions.size() == 0) {
+            return property.getBuckets();
+        }
+
+        ArrayList<Long> partitionSizeArray = Lists.newArrayList();
+        for (Partition partition : partitions) {
+            if (partition.getVisibleVersion() >= 2) {
+                partitionSizeArray.add(partition.getDataSize());
+            }
+        }
+
+        // no exist history partition data
+        if (partitionSizeArray.size() == 0) {
+            return property.getBuckets();
+        }
+
+        // plus 5 for uncompressed data
+        long uncompressedPartitionSize = getNextPartitionSize(partitionSizeArray) * 5;
+        return AutoBucketUtils.getBucketsNum(uncompressedPartitionSize);
+    }
+
     private ArrayList<AddPartitionClause> getAddPartitionClause(Database db, OlapTable olapTable,
             Column partitionColumn, String partitionFormat) {
         ArrayList<AddPartitionClause> addPartitionClauses = new ArrayList<>();
@@ -220,10 +299,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                         dynamicPartitionProperty.getReplicaAllocation().toCreateStmt());
             }
 
-            if (hotPartitionNum > 0) {
-                // set storage_medium and storage_cooldown_time based on dynamic_partition.hot_partition_num
-                setStorageMediumProperty(partitionProperties, dynamicPartitionProperty, now, hotPartitionNum, idx);
-            }
+            // set storage_medium and storage_cooldown_time based on dynamic_partition.hot_partition_num
+            setStorageMediumProperty(partitionProperties, dynamicPartitionProperty, now, hotPartitionNum, idx);
 
             if (StringUtils.isNotEmpty(storagePolicyName)) {
                 setStoragePolicyProperty(partitionProperties, dynamicPartitionProperty, now, idx, storagePolicyName);
@@ -237,15 +314,16 @@ public class DynamicPartitionScheduler extends MasterDaemon {
 
             DistributionDesc distributionDesc = null;
             DistributionInfo distributionInfo = olapTable.getDefaultDistributionInfo();
+            int bucketsNum = getBucketsNum(dynamicPartitionProperty, olapTable);
             if (distributionInfo.getType() == DistributionInfo.DistributionInfoType.HASH) {
                 HashDistributionInfo hashDistributionInfo = (HashDistributionInfo) distributionInfo;
                 List<String> distColumnNames = new ArrayList<>();
                 for (Column distributionColumn : hashDistributionInfo.getDistributionColumns()) {
                     distColumnNames.add(distributionColumn.getName());
                 }
-                distributionDesc = new HashDistributionDesc(dynamicPartitionProperty.getBuckets(), distColumnNames);
+                distributionDesc = new HashDistributionDesc(bucketsNum, distColumnNames);
             } else {
-                distributionDesc = new RandomDistributionDesc(dynamicPartitionProperty.getBuckets());
+                distributionDesc = new RandomDistributionDesc(bucketsNum);
             }
             // add partition according to partition desc and distribution desc
             addPartitionClauses.add(new AddPartitionClause(rangePartitionDesc, distributionDesc, null, false));
@@ -253,20 +331,37 @@ public class DynamicPartitionScheduler extends MasterDaemon {
         return addPartitionClauses;
     }
 
+    /**
+     * If dynamic_partition.storage_medium is set to SSD,
+     * ignore hot_partition_num property and set to (SSD, 9999-12-31 23:59:59)
+     * Else, if hot partition num is set, set storage medium to SSD due to time.
+     *
+     * @param partitionProperties
+     * @param property
+     * @param now
+     * @param hotPartitionNum
+     * @param offset
+     */
     private void setStorageMediumProperty(HashMap<String, String> partitionProperties,
             DynamicPartitionProperty property, ZonedDateTime now, int hotPartitionNum, int offset) {
-        if (offset + hotPartitionNum <= 0) {
+        if ((hotPartitionNum <= 0 || offset + hotPartitionNum <= 0) && !property.getStorageMedium()
+                .equalsIgnoreCase("ssd")) {
             return;
         }
+        String cooldownTime;
+        if (property.getStorageMedium().equalsIgnoreCase("ssd")) {
+            cooldownTime = TimeUtils.longToTimeString(DataProperty.MAX_COOLDOWN_TIME_MS);
+        } else {
+            cooldownTime = DynamicPartitionUtil.getPartitionRangeString(
+                    property, now, offset + hotPartitionNum, DynamicPartitionUtil.DATETIME_FORMAT);
+        }
         partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_MEDIUM, TStorageMedium.SSD.name());
-        String cooldownTime = DynamicPartitionUtil.getPartitionRangeString(
-                property, now, offset + hotPartitionNum, DynamicPartitionUtil.DATETIME_FORMAT);
         partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_COOLDOWN_TIME, cooldownTime);
     }
 
     private void setStoragePolicyProperty(HashMap<String, String> partitionProperties,
-                                          DynamicPartitionProperty property, ZonedDateTime now, int offset,
-                                          String storagePolicyName) {
+            DynamicPartitionProperty property, ZonedDateTime now, int offset,
+            String storagePolicyName) {
         partitionProperties.put(PropertyAnalyzer.PROPERTIES_STORAGE_POLICY, storagePolicyName);
         String baseTime = DynamicPartitionUtil.getPartitionRangeString(
                 property, now, offset, DynamicPartitionUtil.DATETIME_FORMAT);
@@ -341,8 +436,8 @@ public class DynamicPartitionScheduler extends MasterDaemon {
                             dynamicPartitionProperty, range.lowerEndpoint().toString(), partitionFormat);
                     String upperBorderOfReservedHistory = DynamicPartitionUtil.getHistoryPartitionRangeString(
                             dynamicPartitionProperty, range.upperEndpoint().toString(), partitionFormat);
-                    Range<PartitionKey> reservedHistoryPartitionKeyRange
-                            = getClosedRange(db, olapTable, partitionColumn, partitionFormat,
+                    Range<PartitionKey> reservedHistoryPartitionKeyRange = getClosedRange(db, olapTable,
+                            partitionColumn, partitionFormat,
                             lowerBorderOfReservedHistory, upperBorderOfReservedHistory);
                     reservedHistoryPartitionKeyRangeList.add(reservedHistoryPartitionKeyRange);
                 } catch (IllegalArgumentException e) {

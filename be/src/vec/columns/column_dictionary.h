@@ -21,10 +21,11 @@
 
 #include <algorithm>
 
-#include "runtime/string_value.h"
 #include "vec/columns/column.h"
 #include "vec/columns/column_string.h"
 #include "vec/columns/predicate_column.h"
+#include "vec/common/pod_array.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 
 namespace doris::vectorized {
@@ -57,7 +58,7 @@ public:
     using Self = ColumnDictionary;
     using value_type = T;
     using Container = PaddedPODArray<value_type>;
-    using DictContainer = PaddedPODArray<StringValue>;
+    using DictContainer = PaddedPODArray<StringRef>;
     using HashValueContainer = PaddedPODArray<uint32_t>; // used for bloom filter
 
     bool is_column_dictionary() const override { return true; }
@@ -113,6 +114,10 @@ public:
 
     void reserve(size_t n) override { _codes.reserve(n); }
 
+    [[noreturn]] TypeIndex get_data_type() const override {
+        LOG(FATAL) << "ColumnDictionary get_data_type not implemeted";
+    }
+
     const char* get_family_name() const override { return "ColumnDictionary"; }
 
     [[noreturn]] MutableColumnPtr clone_resized(size_t size) const override {
@@ -154,6 +159,11 @@ public:
 
     bool is_fixed_and_contiguous() const override { return true; }
 
+    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
+                                         size_t limit) const override {
+        LOG(FATAL) << "get_indices_of_non_default_rows not supported in ColumnDictionary";
+    }
+
     size_t size_of_value_if_fixed() const override { return sizeof(T); }
 
     [[noreturn]] StringRef get_raw_data() const override {
@@ -167,15 +177,19 @@ public:
     [[noreturn]] ColumnPtr filter(const IColumn::Filter& filt,
                                   ssize_t result_size_hint) const override {
         LOG(FATAL) << "filter not supported in ColumnDictionary";
-    };
+    }
+
+    [[noreturn]] size_t filter(const IColumn::Filter&) override {
+        LOG(FATAL) << "filter not supported in ColumnDictionary";
+    }
 
     [[noreturn]] ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
         LOG(FATAL) << "permute not supported in ColumnDictionary";
-    };
+    }
 
     [[noreturn]] ColumnPtr replicate(const IColumn::Offsets& replicate_offsets) const override {
         LOG(FATAL) << "replicate not supported in ColumnDictionary";
-    };
+    }
 
     [[noreturn]] MutableColumns scatter(IColumn::ColumnIndex num_columns,
                                         const IColumn::Selector& selector) const override {
@@ -187,15 +201,19 @@ public:
         LOG(FATAL) << "append_data_by_selector is not supported in ColumnDictionary!";
     }
 
+    [[noreturn]] ColumnPtr index(const IColumn& indexes, size_t limit) const override {
+        LOG(FATAL) << "index not implemented";
+    }
+
     Status filter_by_selector(const uint16_t* sel, size_t sel_size, IColumn* col_ptr) override {
         auto* res_col = reinterpret_cast<vectorized::ColumnString*>(col_ptr);
         StringRef strings[sel_size];
         size_t length = 0;
         for (size_t i = 0; i != sel_size; ++i) {
             auto& value = _dict.get_value(_codes[sel[i]]);
-            strings[i].data = value.ptr;
-            strings[i].size = value.len;
-            length += value.len;
+            strings[i].data = value.data;
+            strings[i].size = value.size;
+            length += value.size;
         }
         res_col->get_offsets().reserve(sel_size + res_col->get_offsets().size());
         res_col->get_chars().reserve(length + res_col->get_chars().size());
@@ -217,7 +235,7 @@ public:
     void insert_many_dict_data(const StringRef* dict_array, uint32_t dict_num) {
         _dict.reserve(_dict.size() + dict_num);
         for (uint32_t i = 0; i < dict_num; ++i) {
-            auto value = StringValue(dict_array[i].data, dict_array[i].size);
+            auto value = StringRef(dict_array[i].data, dict_array[i].size);
             _dict.insert_value(value);
         }
     }
@@ -228,7 +246,7 @@ public:
         if (_dict.empty()) {
             _dict.reserve(dict_num);
             for (uint32_t i = 0; i < dict_num; ++i) {
-                auto value = StringValue(dict_array[i].data, dict_array[i].size);
+                auto value = StringRef(dict_array[i].data, dict_array[i].size);
                 _dict.insert_value(value);
             }
         }
@@ -240,6 +258,12 @@ public:
     }
 
     void convert_dict_codes_if_necessary() override {
+        // Avoid setting `_dict_sorted` to true when `_dict` is empty.
+        // Because `_dict` maybe keep empty after inserting some null rows.
+        if (_dict.empty()) {
+            return;
+        }
+
         if (!is_dict_sorted()) {
             _dict.sort();
             _dict_sorted = true;
@@ -253,9 +277,9 @@ public:
         }
     }
 
-    int32_t find_code(const StringValue& value) const { return _dict.find_code(value); }
+    int32_t find_code(const StringRef& value) const { return _dict.find_code(value); }
 
-    int32_t find_code_by_bound(const StringValue& value, bool greater, bool eq) const {
+    int32_t find_code_by_bound(const StringRef& value, bool greater, bool eq) const {
         return _dict.find_code_by_bound(value, greater, eq);
     }
 
@@ -265,7 +289,7 @@ public:
 
     uint32_t get_hash_value(uint32_t idx) const { return _dict.get_hash_value(_codes[idx]); }
 
-    void find_codes(const phmap::flat_hash_set<StringValue>& values,
+    void find_codes(const phmap::flat_hash_set<StringRef>& values,
                     std::vector<vectorized::UInt8>& selected) const {
         return _dict.find_codes(values, selected);
     }
@@ -287,23 +311,23 @@ public:
             convert_dict_codes_if_necessary();
         }
         auto res = vectorized::PredicateColumnType<TYPE_STRING>::create();
-        res->reserve(_codes.size());
+        res->reserve(_codes.capacity());
         for (size_t i = 0; i < _codes.size(); ++i) {
             auto& code = reinterpret_cast<T&>(_codes[i]);
             auto value = _dict.get_value(code);
-            res->insert_data(value.ptr, value.len);
+            res->insert_data(value.data, value.size);
         }
         clear();
         _dict.clear();
         return res;
     }
 
-    inline const StringValue& get_value(value_type code) const { return _dict.get_value(code); }
+    inline const StringRef& get_value(value_type code) const { return _dict.get_value(code); }
 
-    inline StringValue get_shrink_value(value_type code) const {
-        StringValue result = _dict.get_value(code);
+    inline StringRef get_shrink_value(value_type code) const {
+        StringRef result = _dict.get_value(code);
         if (_type == OLAP_FIELD_TYPE_CHAR) {
-            result.len = strnlen(result.ptr, result.len);
+            result.size = strnlen(result.data, result.size);
         }
         return result;
     }
@@ -314,16 +338,16 @@ public:
 
     class Dictionary {
     public:
-        Dictionary() : _dict_data(new DictContainer()), _total_str_len(0) {};
+        Dictionary() : _dict_data(new DictContainer()), _total_str_len(0) {}
 
         void reserve(size_t n) { _dict_data->reserve(n); }
 
-        void insert_value(StringValue& value) {
+        void insert_value(StringRef& value) {
             _dict_data->push_back_without_reserve(value);
-            _total_str_len += value.len;
+            _total_str_len += value.size;
         }
 
-        int32_t find_code(const StringValue& value) const {
+        int32_t find_code(const StringRef& value) const {
             for (size_t i = 0; i < _dict_data->size(); i++) {
                 if ((*_dict_data)[i] == value) {
                     return i;
@@ -334,9 +358,9 @@ public:
 
         T get_null_code() const { return -1; }
 
-        inline StringValue& get_value(T code) { return (*_dict_data)[code]; }
+        inline StringRef& get_value(T code) { return (*_dict_data)[code]; }
 
-        inline const StringValue& get_value(T code) const { return (*_dict_data)[code]; }
+        inline const StringRef& get_value(T code) const { return (*_dict_data)[code]; }
 
         // The function is only used in the runtime filter feature
         inline void generate_hash_values_for_runtime_filter(FieldType type) {
@@ -351,13 +375,13 @@ public:
                     // Remove the suffix 0
                     // When writing data, use the CharField::consume function to fill in the trailing 0.
 
-                    // For dictionary data of char type, sv.len is the schema length,
+                    // For dictionary data of char type, sv.size is the schema length,
                     // so use strnlen to remove the 0 at the end to get the actual length.
-                    int32_t len = sv.len;
+                    int32_t len = sv.size;
                     if (type == OLAP_FIELD_TYPE_CHAR) {
-                        len = strnlen(sv.ptr, sv.len);
+                        len = strnlen(sv.data, sv.size);
                     }
-                    uint32_t hash_val = HashUtil::murmur_hash3_32(sv.ptr, len, 0);
+                    uint32_t hash_val = HashUtil::murmur_hash3_32(sv.data, len, 0);
                     _hash_values[i] = hash_val;
                 }
             }
@@ -382,7 +406,7 @@ public:
         //  so upper_bound is the code 0 of b, then evaluate code < 0 and returns empty
         // If the predicate is col <= 'a' and upper_bound-1 is -1,
         //  then evaluate code <= -1 and returns empty
-        int32_t find_code_by_bound(const StringValue& value, bool greater, bool eq) const {
+        int32_t find_code_by_bound(const StringRef& value, bool greater, bool eq) const {
             auto code = find_code(value);
             if (code >= 0) {
                 return code;
@@ -392,7 +416,7 @@ public:
             return greater ? bound - greater + eq : bound - eq;
         }
 
-        void find_codes(const phmap::flat_hash_set<StringValue>& values,
+        void find_codes(const phmap::flat_hash_set<StringRef>& values,
                         std::vector<vectorized::UInt8>& selected) const {
             size_t dict_word_num = _dict_data->size();
             selected.resize(dict_word_num);
@@ -470,8 +494,8 @@ public:
         }
 
     private:
-        StringValue _null_value = StringValue();
-        StringValue::Comparator _comparator;
+        StringRef _null_value = StringRef();
+        StringRef::Comparator _comparator;
         // dict code -> dict value
         std::unique_ptr<DictContainer> _dict_data;
         std::vector<T> _code_convert_table;

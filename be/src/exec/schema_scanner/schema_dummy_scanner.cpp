@@ -18,12 +18,12 @@
 #include "schema_dummy_scanner.h"
 
 namespace {
-doris::SchemaScanner::ColumnDesc DUMMY_COLUMN;
+std::vector<doris::SchemaScanner::ColumnDesc> DUMMY_COLUMN;
 }
 
 namespace doris {
 
-SchemaDummyScanner::SchemaDummyScanner() : SchemaScanner(&DUMMY_COLUMN, 0) {}
+SchemaDummyScanner::SchemaDummyScanner() : SchemaScanner(DUMMY_COLUMN) {}
 
 SchemaDummyScanner::~SchemaDummyScanner() {}
 
@@ -31,7 +31,7 @@ Status SchemaDummyScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaDummyScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
+Status SchemaDummyScanner::get_next_block(vectorized::Block* block, bool* eos) {
     *eos = true;
     return Status::OK();
 }

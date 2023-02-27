@@ -50,7 +50,7 @@ using namespace ErrorCode;
 EngineBatchLoadTask::EngineBatchLoadTask(TPushReq& push_req, std::vector<TTabletInfo>* tablet_infos)
         : _push_req(push_req), _tablet_infos(tablet_infos) {
     _mem_tracker = std::make_shared<MemTrackerLimiter>(
-            MemTrackerLimiter::Type::BATCHLOAD,
+            MemTrackerLimiter::Type::LOAD,
             fmt::format("EngineBatchLoadTask#pushType={}:tabletId={}", _push_req.push_type,
                         std::to_string(_push_req.tablet_id)));
 }
@@ -60,7 +60,7 @@ EngineBatchLoadTask::~EngineBatchLoadTask() {}
 Status EngineBatchLoadTask::execute() {
     SCOPED_ATTACH_TASK(_mem_tracker);
     Status status;
-    if (_push_req.push_type == TPushType::LOAD || _push_req.push_type == TPushType::LOAD_V2) {
+    if (_push_req.push_type == TPushType::LOAD_V2) {
         RETURN_IF_ERROR(_init());
         uint32_t retry_time = 0;
         while (retry_time < PUSH_MAX_RETRY) {
@@ -95,7 +95,7 @@ Status EngineBatchLoadTask::_init() {
     }
 
     // check disk capacity
-    if (_push_req.push_type == TPushType::LOAD || _push_req.push_type == TPushType::LOAD_V2) {
+    if (_push_req.push_type == TPushType::LOAD_V2) {
         if (tablet->data_dir()->reach_capacity_limit(_push_req.__isset.http_file_size)) {
             return Status::IOError("Disk does not have enough capacity");
         }
@@ -267,11 +267,7 @@ Status EngineBatchLoadTask::_push(const TPushReq& request,
         return Status::InternalError("could not find tablet {}", request.tablet_id);
     }
 
-    PushType type = PUSH_NORMAL;
-    if (request.push_type == TPushType::LOAD_V2) {
-        type = PUSH_NORMAL_V2;
-    }
-
+    PushType type = PUSH_NORMAL_V2;
     int64_t duration_ns = 0;
     PushHandler push_handler;
     if (!request.__isset.transaction_id) {

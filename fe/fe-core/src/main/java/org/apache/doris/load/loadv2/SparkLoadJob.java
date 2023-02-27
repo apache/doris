@@ -61,10 +61,10 @@ import org.apache.doris.common.util.MetaLockUtils;
 import org.apache.doris.load.EtlJobType;
 import org.apache.doris.load.EtlStatus;
 import org.apache.doris.load.FailMsg;
-import org.apache.doris.load.loadv2.dpp.DppResult;
-import org.apache.doris.load.loadv2.etl.EtlJobConfig;
 import org.apache.doris.qe.OriginStatement;
 import org.apache.doris.service.FrontendOptions;
+import org.apache.doris.sparkdpp.DppResult;
+import org.apache.doris.sparkdpp.EtlJobConfig;
 import org.apache.doris.system.Backend;
 import org.apache.doris.task.AgentBatchTask;
 import org.apache.doris.task.AgentTaskExecutor;
@@ -503,7 +503,7 @@ public class SparkLoadJob extends BulkLoadJob {
                                         Backend backend = Env.getCurrentEnv().getCurrentSystemInfo()
                                                 .getBackend(backendId);
                                         FsBroker fsBroker = Env.getCurrentEnv().getBrokerMgr().getBroker(
-                                                brokerDesc.getName(), backend.getHost());
+                                                brokerDesc.getName(), backend.getIp());
                                         tBrokerScanRange.getBrokerAddresses().add(
                                                 new TNetworkAddress(fsBroker.ip, fsBroker.port));
 

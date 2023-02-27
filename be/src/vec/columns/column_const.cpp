@@ -58,6 +58,17 @@ ColumnPtr ColumnConst::filter(const Filter& filt, ssize_t /*result_size_hint*/) 
     return ColumnConst::create(data, count_bytes_in_filter(filt));
 }
 
+size_t ColumnConst::filter(const Filter& filter) {
+    if (s != filter.size()) {
+        LOG(FATAL) << fmt::format("Size of filter ({}) doesn't match size of column ({})",
+                                  filter.size(), s);
+    }
+
+    const auto result_size = count_bytes_in_filter(filter);
+    resize(result_size);
+    return result_size;
+}
+
 ColumnPtr ColumnConst::replicate(const Offsets& offsets) const {
     if (s != offsets.size()) {
         LOG(FATAL) << fmt::format("Size of offsets ({}) doesn't match size of column ({})",
@@ -161,6 +172,27 @@ void ColumnConst::get_permutation(bool /*reverse*/, size_t /*limit*/, int /*nan_
     for (size_t i = 0; i < s; ++i) {
         res[i] = i;
     }
+}
+
+void ColumnConst::get_indices_of_non_default_rows(Offsets64& indices, size_t from,
+                                                  size_t limit) const {
+    if (!data->is_default_at(0)) {
+        size_t to = limit && from + limit < size() ? from + limit : size();
+        indices.reserve(indices.size() + to - from);
+        for (size_t i = from; i < to; ++i) {
+            indices.push_back(i);
+        }
+    }
+}
+
+ColumnPtr ColumnConst::index(const IColumn& indexes, size_t limit) const {
+    if (limit == 0) {
+        limit = indexes.size();
+    }
+    if (indexes.size() < limit) {
+        LOG(FATAL) << "Size of indexes  is less than required " << std::to_string(limit);
+    }
+    return ColumnConst::create(data, limit);
 }
 
 } // namespace doris::vectorized

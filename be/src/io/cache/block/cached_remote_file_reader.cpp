@@ -22,6 +22,7 @@
 #include "io/fs/file_reader.h"
 #include "olap/iterators.h"
 #include "olap/olap_common.h"
+#include "util/async_io.h"
 
 namespace doris {
 namespace io {
@@ -44,12 +45,13 @@ Status CachedRemoteFileReader::close() {
 
 std::pair<size_t, size_t> CachedRemoteFileReader::_align_size(size_t offset,
                                                               size_t read_size) const {
+    size_t segment_size = std::min(std::max(read_size, (size_t)4096), // 4k
+                                   (size_t)config::file_cache_max_file_segment_size);
+    segment_size = BitUtil::next_power_of_two(segment_size);
     size_t left = offset;
     size_t right = offset + read_size - 1;
-    size_t align_left = (left / config::file_cache_max_file_segment_size) *
-                        config::file_cache_max_file_segment_size;
-    size_t align_right = (right / config::file_cache_max_file_segment_size + 1) *
-                         config::file_cache_max_file_segment_size;
+    size_t align_left = (left / segment_size) * segment_size;
+    size_t align_right = (right / segment_size + 1) * segment_size;
     align_right = align_right < size() ? align_right : size();
     size_t align_size = align_right - align_left;
     return std::make_pair(align_left, align_size);
@@ -60,7 +62,10 @@ Status CachedRemoteFileReader::read_at(size_t offset, Slice result, const IOCont
     if (bthread_self() == 0) {
         return read_at_impl(offset, result, io_ctx, bytes_read);
     }
-    return Status::NotSupported("Not Support bthread");
+    Status s;
+    auto task = [&] { s = read_at_impl(offset, result, io_ctx, bytes_read); };
+    AsyncIO::run_task(task, io::FileSystemType::S3);
+    return s;
 }
 
 Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result,
@@ -92,7 +97,6 @@ Status CachedRemoteFileReader::read_at_impl(size_t offset, Slice result,
         auto pair = _align_size(offset, bytes_req);
         align_left = pair.first;
         align_size = pair.second;
-        DCHECK((align_left % config::file_cache_max_file_segment_size) == 0);
     }
     bool is_persistent = _io_ctx->is_persistent;
     TUniqueId query_id = _io_ctx->query_id ? *(_io_ctx->query_id) : TUniqueId();

@@ -36,6 +36,7 @@ import java.util.Optional;
 
 /** PhysicalTableValuedFunctionRelation */
 public class PhysicalTVFRelation extends PhysicalRelation implements TVFRelation {
+
     private final TableValuedFunction function;
 
     public PhysicalTVFRelation(RelationId id, TableValuedFunction function, LogicalProperties logicalProperties) {

@@ -44,17 +44,19 @@ public:
 class NoCachePathPolicy : public CachePathPolicy {
 public:
     NoCachePathPolicy() = default;
-    std::string get_cache_path(const std::string& path) const override { return path; }
+    std::string get_cache_path(const std::string& path) const override { return ""; }
 };
 
 class SegmentCachePathPolicy : public CachePathPolicy {
 public:
     SegmentCachePathPolicy() = default;
-    std::string get_cache_path(const std::string& path) const override {
-        // the segment file path is {rowset_dir}/{schema_hash}/{rowset_id}_{seg_num}.dat
-        // cache path is: {rowset_dir}/{schema_hash}/{rowset_id}_{seg_num}/
-        return path.substr(0, path.size() - 4) + "/";
-    }
+
+    void set_cache_path(const std::string& cache_path) { _cache_path = cache_path; }
+
+    std::string get_cache_path(const std::string& path) const override { return _cache_path; }
+
+private:
+    std::string _cache_path;
 };
 
 class FileBlockCachePathPolicy : public CachePathPolicy {

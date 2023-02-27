@@ -87,8 +87,6 @@ void BackendService::exec_plan_fragment(TExecPlanFragmentResult& return_val,
                                         const TExecPlanFragmentParams& params) {
     LOG(INFO) << "exec_plan_fragment() instance_id=" << params.params.fragment_instance_id
               << " coord=" << params.coord << " backend#=" << params.backend_num;
-    VLOG_ROW << "exec_plan_fragment params is "
-             << apache::thrift::ThriftDebugString(params).c_str();
     start_plan_fragment_execution(params).set_t_status(&return_val);
 }
 
@@ -144,12 +142,6 @@ void BackendService::transmit_data(TTransmitDataResult& return_val,
         //        << " close_sender status: " << status;
         //status.set_t_status(&return_val);
     }
-}
-
-void BackendService::fetch_data(TFetchDataResult& return_val, const TFetchDataParams& params) {
-    // maybe hang in this function
-    Status status = _exec_env->result_mgr()->fetch_data(params.fragment_instance_id, &return_val);
-    status.set_t_status(&return_val);
 }
 
 void BackendService::submit_export_task(TStatus& t_status, const TExportTaskRequest& request) {

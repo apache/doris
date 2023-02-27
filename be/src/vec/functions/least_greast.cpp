@@ -19,6 +19,7 @@
 #include "vec/columns/columns_number.h"
 #include "vec/core/accurate_comparison.h"
 #include "vec/data_types/data_type.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/functions/function_helpers.h"
 #include "vec/functions/function_multi_same_args.h"
 #include "vec/functions/simple_function_factory.h"

@@ -57,6 +57,7 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
         this.partitionDesc = partitionDesc;
         this.distributionDesc = distributionDesc;
         this.properties = properties;
+        engineName = DEFAULT_ENGINE_NAME;
     }
 
     @Override
@@ -83,12 +84,13 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
             }
             OlapTable table = (OlapTable) database.getTableOrAnalysisException(tableRef.getName().getTbl());
             olapTables.put(table.getName(), table);
+            olapTables.put(tableRef.getAlias(), table);
         }
         columnDefs = generateColumnDefinitions(selectStmt.getSelectList());
     }
 
     private List<ColumnDef> generateColumnDefinitions(SelectList selectList) throws AnalysisException, DdlException {
-        List<MVColumnItem> mvColumnItems = generateMVColumnItems(olapTables, selectList);
+        List<MVColumnItem> mvColumnItems = generateMVColumnItems(selectList);
         List<Column> schema = generateSchema(mvColumnItems);
         return schema.stream()
                 .map(column -> new ColumnDef(
@@ -111,7 +113,7 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
         return columns;
     }
 
-    private List<MVColumnItem> generateMVColumnItems(Map<String, OlapTable> olapTables, SelectList selectList)
+    private List<MVColumnItem> generateMVColumnItems(SelectList selectList)
             throws AnalysisException {
         Map<String, MVColumnItem> uniqueMVColumnItems = Maps.newLinkedHashMap();
         for (SelectListItem item : selectList.getItems()) {
@@ -148,13 +150,13 @@ public class CreateMultiTableMaterializedViewStmt extends CreateTableStmt {
         StringBuilder sb = new StringBuilder();
         sb.append("CREATE MATERIALIZED VIEW ").append(mvName).append(" BUILD ").append(buildMode.toString());
         if (refreshInfo != null) {
-            sb.append(" ").append(refreshInfo.toString());
+            sb.append(" ").append(refreshInfo);
         }
         if (partitionDesc != null) {
-            sb.append(" ").append(partitionDesc.toString());
+            sb.append(" ").append(partitionDesc);
         }
         if (distributionDesc != null) {
-            sb.append(" ").append(distributionDesc.toString());
+            sb.append(" ").append(distributionDesc);
         }
         if (properties != null && !properties.isEmpty()) {
             sb.append("\nPROPERTIES (");

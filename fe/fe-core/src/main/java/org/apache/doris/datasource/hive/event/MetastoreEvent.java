@@ -22,6 +22,9 @@ import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.util.List;
+import java.util.Map;
+
 /**
  * Abstract base class for all MetastoreEvents. A MetastoreEvent is an object used to
  * process a NotificationEvent received from metastore.
@@ -105,11 +108,6 @@ public abstract class MetastoreEvent {
         return null;
     }
 
-
-    protected boolean existInCache() throws MetastoreNotificationException {
-        return false;
-    }
-
     /**
      * Returns the number of events represented by this event. For most events this is 1.
      * In case of batch events this could be more than 1.
@@ -125,14 +123,6 @@ public abstract class MetastoreEvent {
      * @return true if this event can be skipped.
      */
     protected boolean canBeSkipped() {
-        return false;
-    }
-
-    /**
-     * Whether the current version of FE supports processing of some events, some events are reserved,
-     * and may be processed later version.
-     */
-    protected boolean isSupported() {
         return false;
     }
 
@@ -194,6 +184,26 @@ public abstract class MetastoreEvent {
         String formatString = LOG_FORMAT_EVENT_ID_TYPE + logFormattedStr;
         Object[] formatArgs = getLogFormatArgs(args);
         LOG.debug(formatString, formatArgs);
+    }
+
+    protected String getPartitionName(Map<String, String> part, List<String> partitionColNames) {
+        if (part.size() == 0) {
+            return "";
+        }
+        if (partitionColNames.size() != part.size()) {
+            return "";
+        }
+        StringBuilder name = new StringBuilder();
+        int i = 0;
+        for (String colName : partitionColNames) {
+            if (i++ > 0) {
+                name.append("/");
+            }
+            name.append(colName);
+            name.append("=");
+            name.append(part.get(colName));
+        }
+        return name.toString();
     }
 
     @Override

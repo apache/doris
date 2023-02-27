@@ -32,8 +32,8 @@ import org.apache.commons.lang3.tuple.Triple;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Deque;
 import java.util.Iterator;
 import java.util.LinkedList;
@@ -58,6 +58,8 @@ public class ProfileManager {
     private static volatile ProfileManager INSTANCE = null;
     // private static final int ARRAY_SIZE = 100;
     // private static final int TOTAL_LEN = 1000 * ARRAY_SIZE ;
+    // just use for load profile and export profile
+    public static final String JOB_ID = "Job ID";
     public static final String QUERY_ID = "Query ID";
     public static final String START_TIME = "Start Time";
     public static final String END_TIME = "End Time";
@@ -83,15 +85,31 @@ public class ProfileManager {
         LOAD,
     }
 
-    public static final ArrayList<String> PROFILE_HEADERS = new ArrayList(
-            Arrays.asList(QUERY_ID, USER, DEFAULT_DB, SQL_STATEMENT, QUERY_TYPE,
+    public static final List<String> PROFILE_HEADERS = Collections.unmodifiableList(
+            Arrays.asList(JOB_ID, QUERY_ID, USER, DEFAULT_DB, SQL_STATEMENT, QUERY_TYPE,
                     START_TIME, END_TIME, TOTAL_TIME, QUERY_STATE, TRACE_ID));
 
     private class ProfileElement {
+        public ProfileElement(RuntimeProfile profile) {
+            this.profile = profile;
+        }
+
+        private final RuntimeProfile profile;
+        // cache the result of getProfileContent method
+        private volatile String profileContent;
         public Map<String, String> infoStrings = Maps.newHashMap();
-        public String profileContent = "";
         public MultiProfileTreeBuilder builder = null;
         public String errMsg = "";
+
+        // lazy load profileContent because sometimes profileContent is very large
+        public String getProfileContent() {
+            if (profileContent != null) {
+                return profileContent;
+            }
+            // no need to lock because the possibility of concurrent read is very low
+            profileContent = profile.toString();
+            return profileContent;
+        }
     }
 
     // only protect queryIdDeque; queryIdToProfileMap is concurrent, no need to protect
@@ -123,12 +141,11 @@ public class ProfileManager {
     }
 
     public ProfileElement createElement(RuntimeProfile profile) {
-        ProfileElement element = new ProfileElement();
+        ProfileElement element = new ProfileElement(profile);
         RuntimeProfile summaryProfile = profile.getChildList().get(0).first;
         for (String header : PROFILE_HEADERS) {
             element.infoStrings.put(header, summaryProfile.getInfoString(header));
         }
-        element.profileContent = profile.toString();
 
         MultiProfileTreeBuilder builder = new MultiProfileTreeBuilder(profile);
         try {
@@ -148,25 +165,26 @@ public class ProfileManager {
         }
 
         ProfileElement element = createElement(profile);
-        String queryId = element.infoStrings.get(ProfileManager.QUERY_ID);
+        String key = isQueryProfile(profile) ? element.infoStrings.get(ProfileManager.QUERY_ID)
+                : element.infoStrings.get(ProfileManager.JOB_ID);
         // check when push in, which can ensure every element in the list has QUERY_ID column,
         // so there is no need to check when remove element from list.
-        if (Strings.isNullOrEmpty(queryId)) {
+        if (Strings.isNullOrEmpty(key)) {
             LOG.warn("the key or value of Map is null, "
-                    + "may be forget to insert 'QUERY_ID' column into infoStrings");
+                    + "may be forget to insert 'QUERY_ID' or 'JOB_ID' column into infoStrings");
         }
 
         // a profile may be updated multiple times in queryIdToProfileMap,
         // and only needs to be inserted into the queryIdDeque for the first time.
-        queryIdToProfileMap.put(queryId, element);
+        queryIdToProfileMap.put(key, element);
         writeLock.lock();
         try {
-            if (!queryIdDeque.contains(queryId)) {
+            if (!queryIdDeque.contains(key)) {
                 if (queryIdDeque.size() >= Config.max_query_profile_num) {
                     queryIdToProfileMap.remove(queryIdDeque.getFirst());
                     queryIdDeque.removeFirst();
                 }
-                queryIdDeque.addLast(queryId);
+                queryIdDeque.addLast(key);
             }
         } finally {
             writeLock.unlock();
@@ -212,7 +230,7 @@ public class ProfileManager {
             if (element == null) {
                 return null;
             }
-            return element.profileContent;
+            return element.getProfileContent();
         } finally {
             readLock.unlock();
         }
@@ -332,5 +350,9 @@ public class ProfileManager {
         } finally {
             readLock.unlock();
         }
+    }
+
+    public boolean isQueryProfile(RuntimeProfile profile) {
+        return "Query".equals(profile.getName());
     }
 }

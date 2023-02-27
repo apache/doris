@@ -32,9 +32,6 @@ namespace io {
 class FileWriter;
 class FileReader;
 
-// Currently, FE use resource name to identify a Resource.
-using ResourceId = std::string;
-
 enum class FileSystemType : uint8_t {
     LOCAL,
     S3,
@@ -44,9 +41,6 @@ enum class FileSystemType : uint8_t {
 
 class FileSystem : public std::enable_shared_from_this<FileSystem> {
 public:
-    FileSystem(Path&& root_path, ResourceId&& resource_id, FileSystemType type)
-            : _root_path(std::move(root_path)), _resource_id(std::move(resource_id)), _type(type) {}
-
     virtual ~FileSystem() = default;
 
     DISALLOW_COPY_AND_ASSIGN(FileSystem);
@@ -77,12 +71,15 @@ public:
     virtual Status list(const Path& path, std::vector<Path>* files) = 0;
 
     const Path& root_path() const { return _root_path; }
-    const ResourceId& resource_id() const { return _resource_id; }
-    const FileSystemType type() const { return _type; }
+    const std::string& id() const { return _id; }
+    FileSystemType type() const { return _type; }
 
 protected:
+    FileSystem(Path&& root_path, std::string&& id, FileSystemType type)
+            : _root_path(std::move(root_path)), _id(std::move(id)), _type(type) {}
+
     Path _root_path;
-    ResourceId _resource_id;
+    std::string _id;
     FileSystemType _type;
 };
 

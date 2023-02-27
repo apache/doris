@@ -46,9 +46,8 @@ using io::FileCacheManager;
 
 Status Segment::open(io::FileSystemSPtr fs, const std::string& path, uint32_t segment_id,
                      RowsetId rowset_id, TabletSchemaSPtr tablet_schema,
+                     const io::FileReaderOptions& reader_options,
                      std::shared_ptr<Segment>* output) {
-    io::FileReaderOptions reader_options(io::cache_type_from_string(config::file_cache_type),
-                                         io::SegmentCachePathPolicy());
     io::FileReaderSPtr file_reader;
 #ifndef BE_TEST
     RETURN_IF_ERROR(fs->open_file(path, reader_options, &file_reader, nullptr));
@@ -136,8 +135,7 @@ Status Segment::new_iterator(const Schema& schema, const StorageReadOptions& rea
     } else {
         iter->reset(new SegmentIterator(this->shared_from_this(), schema));
     }
-    iter->get()->init(read_options);
-    return Status::OK();
+    return iter->get()->init(read_options);
 }
 
 Status Segment::_parse_footer() {
@@ -200,6 +198,7 @@ Status Segment::_load_pk_bloom_filter() {
     return _load_pk_bf_once.call([this] {
         RETURN_IF_ERROR(_pk_index_reader->parse_bf(_file_reader, _footer.primary_key_index_meta()));
         _meta_mem_usage += _pk_index_reader->get_bf_memory_size();
+        _segment_meta_mem_tracker->consume(_pk_index_reader->get_bf_memory_size());
         return Status::OK();
     });
 }
@@ -216,6 +215,7 @@ Status Segment::load_index() {
             RETURN_IF_ERROR(
                     _pk_index_reader->parse_index(_file_reader, _footer.primary_key_index_meta()));
             _meta_mem_usage += _pk_index_reader->get_memory_size();
+            _segment_meta_mem_tracker->consume(_pk_index_reader->get_memory_size());
             return Status::OK();
         } else {
             // read and parse short key index page
@@ -278,10 +278,10 @@ Status Segment::new_column_iterator(const TabletColumn& tablet_column, ColumnIte
         }
         auto type_info = get_type_info(&tablet_column);
         std::unique_ptr<DefaultValueColumnIterator> default_value_iter(
-                new DefaultValueColumnIterator(
-                        tablet_column.has_default_value(), tablet_column.default_value(),
-                        tablet_column.is_nullable(), std::move(type_info), tablet_column.length(),
-                        tablet_column.precision(), tablet_column.frac()));
+                new DefaultValueColumnIterator(tablet_column.has_default_value(),
+                                               tablet_column.default_value(),
+                                               tablet_column.is_nullable(), std::move(type_info),
+                                               tablet_column.precision(), tablet_column.frac()));
         ColumnIteratorOptions iter_opts;
 
         RETURN_IF_ERROR(default_value_iter->init(iter_opts));
@@ -303,10 +303,12 @@ Status Segment::new_bitmap_index_iterator(const TabletColumn& tablet_column,
 
 Status Segment::new_inverted_index_iterator(const TabletColumn& tablet_column,
                                             const TabletIndex* index_meta,
+                                            OlapReaderStatistics* stats,
                                             InvertedIndexIterator** iter) {
     auto col_unique_id = tablet_column.unique_id();
     if (_column_readers.count(col_unique_id) > 0 && index_meta) {
-        return _column_readers.at(col_unique_id)->new_inverted_index_iterator(index_meta, iter);
+        return _column_readers.at(col_unique_id)
+                ->new_inverted_index_iterator(index_meta, stats, iter);
     }
     return Status::OK();
 }
@@ -363,6 +365,22 @@ Status Segment::lookup_row_key(const Slice& key, RowLocation* row_location) {
         }
     }
 
+    return Status::OK();
+}
+
+Status Segment::read_key_by_rowid(uint32_t row_id, std::string* key) {
+    RETURN_IF_ERROR(load_pk_index_and_bf());
+    std::unique_ptr<segment_v2::IndexedColumnIterator> iter;
+    RETURN_IF_ERROR(_pk_index_reader->new_iterator(&iter));
+
+    auto index_type = vectorized::DataTypeFactory::instance().create_data_type(
+            _pk_index_reader->type_info()->type(), 1, 0);
+    auto index_column = index_type->create_column();
+    RETURN_IF_ERROR(iter->seek_to_ordinal(row_id));
+    size_t num_read = 1;
+    RETURN_IF_ERROR(iter->next_batch(&num_read, index_column));
+    CHECK(num_read == 1);
+    *key = index_column->get_data_at(0).to_string();
     return Status::OK();
 }
 

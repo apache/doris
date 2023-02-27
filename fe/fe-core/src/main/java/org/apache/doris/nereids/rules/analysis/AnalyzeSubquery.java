@@ -20,6 +20,8 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.Alias;
+import org.apache.doris.nereids.trees.expressions.CaseWhen;
 import org.apache.doris.nereids.trees.expressions.Exists;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.InSubquery;
@@ -38,6 +40,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -67,7 +70,30 @@ public class AnalyzeSubquery implements AnalysisRuleFactory {
                             subqueryExprs, filter.child(), ctx.cascadesContext
                     ));
                 })
-            )
+            ),
+           RuleType.ANALYZE_PROJECT_SUBQUERY.build(
+               logicalProject().thenApply(ctx -> {
+                   LogicalProject<GroupPlan> project = ctx.root;
+                   Set<SubqueryExpr> subqueryExprs = new HashSet<>();
+                   project.getProjects().stream()
+                           .filter(Alias.class::isInstance)
+                           .map(Alias.class::cast)
+                           .filter(alias -> alias.child() instanceof CaseWhen)
+                           .forEach(alias -> alias.child().children().stream()
+                                   .forEach(e ->
+                                       subqueryExprs.addAll(e.collect(SubqueryExpr.class::isInstance))));
+                   if (subqueryExprs.isEmpty()) {
+                       return project;
+                   }
+
+                   return new LogicalProject(project.getProjects().stream()
+                           .map(p -> p.withChildren(new ReplaceSubquery().replace(p)))
+                           .collect(ImmutableList.toImmutableList()),
+                           analyzedSubquery(
+                                   subqueryExprs, project.child(), ctx.cascadesContext
+                           ));
+               })
+           )
         );
     }
 
@@ -115,6 +141,10 @@ public class AnalyzeSubquery implements AnalysisRuleFactory {
         public Set<Expression> replace(Set<Expression> expressions) {
             return expressions.stream().map(expr -> expr.accept(this, null))
                     .collect(ImmutableSet.toImmutableSet());
+        }
+
+        public Expression replace(Expression expressions) {
+            return expressions.accept(this, null);
         }
 
         @Override

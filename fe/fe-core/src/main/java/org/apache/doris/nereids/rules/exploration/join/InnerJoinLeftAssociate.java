@@ -20,11 +20,9 @@ package org.apache.doris.nereids.rules.exploration.join;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.JoinHint;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.util.JoinUtils;
@@ -62,21 +60,21 @@ public class InnerJoinLeftAssociate extends OneExplorationRuleFactory {
                     GroupPlan c = bottomJoin.right();
 
                     // Split condition
-                    Set<Slot> abOutputSet = JoinUtils.getJoinOutputSet(a, b);
+                    Set<ExprId> abOutputExprIdSet = JoinUtils.getJoinOutputExprIdSet(a, b);
                     Map<Boolean, List<Expression>> hashConjunctsSplit = Stream.concat(
                                     topJoin.getHashJoinConjuncts().stream(),
                                     bottomJoin.getHashJoinConjuncts().stream())
                             .collect(Collectors.partitioningBy(condition -> {
-                                Set<Slot> usedSlot = condition.getInputSlots();
-                                return abOutputSet.containsAll(usedSlot);
+                                Set<ExprId> usedSlotExprIds = condition.getInputSlotExprIds();
+                                return abOutputExprIdSet.containsAll(usedSlotExprIds);
                             }));
 
                     Map<Boolean, List<Expression>> otherConjunctsSplit = Stream.concat(
                                     topJoin.getOtherJoinConjuncts().stream(),
                                     bottomJoin.getOtherJoinConjuncts().stream())
                             .collect(Collectors.partitioningBy(condition -> {
-                                Set<Slot> usedSlot = condition.getInputSlots();
-                                return abOutputSet.containsAll(usedSlot);
+                                Set<ExprId> usedSlotExprIds = condition.getInputSlotExprIds();
+                                return abOutputExprIdSet.containsAll(usedSlotExprIds);
                             }));
 
                     List<Expression> newBottomHashJoinConjuncts = hashConjunctsSplit.get(true);
@@ -90,17 +88,17 @@ public class InnerJoinLeftAssociate extends OneExplorationRuleFactory {
                     List<Expression> newTopOtherJoinConjuncts = otherConjunctsSplit.get(false);
 
                     // new join.
-                    LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                            newBottomHashJoinConjuncts, newBottomOtherJoinConjuncts, JoinHint.NONE,
-                            a, b, bottomJoin.getJoinReorderContext());
+                    LogicalJoin<Plan, Plan> newBottomJoin = topJoin.withConjunctsChildren(
+                            newBottomHashJoinConjuncts, newBottomOtherJoinConjuncts, a, b);
+                    newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
                     newBottomJoin.getJoinReorderContext().setHasCommute(false);
                     newBottomJoin.getJoinReorderContext().setHasRightAssociate(false);
                     newBottomJoin.getJoinReorderContext().setHasLeftAssociate(false);
                     newBottomJoin.getJoinReorderContext().setHasExchange(false);
 
-                    LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, GroupPlan> newTopJoin = new LogicalJoin<>(
-                            JoinType.INNER_JOIN, newTopHashJoinConjuncts, newTopOtherJoinConjuncts, JoinHint.NONE,
-                            newBottomJoin, c, topJoin.getJoinReorderContext());
+                    LogicalJoin<Plan, Plan> newTopJoin = bottomJoin.withConjunctsChildren(
+                            newTopHashJoinConjuncts, newTopOtherJoinConjuncts, newBottomJoin, c);
+                    newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLeftAssociate(true);
                     newTopJoin.getJoinReorderContext().setHasCommute(false);
 

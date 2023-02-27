@@ -143,6 +143,10 @@ public:
         LOG(FATAL) << "filter not supported";
     }
 
+    [[noreturn]] size_t filter(const IColumn::Filter&) override {
+        LOG(FATAL) << "filter not supported";
+    }
+
     [[noreturn]] ColumnPtr permute(const IColumn::Permutation& perm, size_t limit) const override {
         LOG(FATAL) << "permute not supported";
     }
@@ -155,6 +159,17 @@ public:
     void get_permutation(bool reverse, size_t limit, int nan_direction_hint,
                          IColumn::Permutation& res) const override {
         LOG(FATAL) << "get_permutation not supported";
+    }
+
+    TypeIndex get_data_type() const override { LOG(FATAL) << "get_data_type not supported"; }
+
+    ColumnPtr index(const IColumn& indexes, size_t limit) const override {
+        LOG(FATAL) << "index not supported";
+    }
+
+    void get_indices_of_non_default_rows(IColumn::Offsets64& indices, size_t from,
+                                         size_t limit) const override {
+        LOG(FATAL) << "get_indices_of_non_default_rows not supported in ColumnDictionary";
     }
 
     [[noreturn]] ColumnPtr replicate(const IColumn::Offsets& offsets) const override {

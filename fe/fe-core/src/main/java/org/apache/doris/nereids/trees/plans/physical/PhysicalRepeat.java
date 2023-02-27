@@ -58,7 +58,7 @@ public class PhysicalRepeat<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
         super(PlanType.PHYSICAL_REPEAT, logicalProperties, child);
         this.groupingSets = Objects.requireNonNull(groupingSets, "groupingSets can not be null")
                 .stream()
-                .map(groupingSet -> ImmutableList.copyOf(groupingSet))
+                .map(ImmutableList::copyOf)
                 .collect(ImmutableList.toImmutableList());
         this.outputExpressions = ImmutableList.copyOf(
                 Objects.requireNonNull(outputExpressions, "outputExpressions can not be null"));
@@ -74,7 +74,7 @@ public class PhysicalRepeat<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD
                 physicalProperties, statsDeriveResult, child);
         this.groupingSets = Objects.requireNonNull(groupingSets, "groupingSets can not be null")
                 .stream()
-                .map(groupingSet -> ImmutableList.copyOf(groupingSet))
+                .map(ImmutableList::copyOf)
                 .collect(ImmutableList.toImmutableList());
         this.outputExpressions = ImmutableList.copyOf(
                 Objects.requireNonNull(outputExpressions, "outputExpressions can not be null"));

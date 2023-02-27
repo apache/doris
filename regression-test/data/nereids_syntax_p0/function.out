@@ -53,3 +53,12 @@
 
 -- !ceil --
 3
+
+-- !window_funnel --
+1
+
+-- !window_funnel --
+2
+
+-- !regexp_extract_all --
+['b']

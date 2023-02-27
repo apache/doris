@@ -22,7 +22,6 @@
 #include <sstream>
 
 #include "common/status.h"
-#include "exprs/expr.h"
 #include "exprs/runtime_filter_slots_cross.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_state.h"
@@ -30,6 +29,7 @@
 #include "util/simd/bits.h"
 #include "vec/columns/column_const.h"
 #include "vec/common/typeid_cast.h"
+#include "vec/data_types/data_type_number.h"
 #include "vec/utils/template_helpers.hpp"
 #include "vec/utils/util.hpp"
 
@@ -103,7 +103,6 @@ Status VNestedLoopJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 Status VNestedLoopJoinNode::prepare(RuntimeState* state) {
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(VJoinNodeBase::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     _build_timer = ADD_TIMER(runtime_profile(), "BuildTime");
     _build_rows_counter = ADD_COUNTER(runtime_profile(), "BuildRows", TUnit::UNIT);
@@ -237,7 +236,6 @@ Status VNestedLoopJoinNode::get_next(RuntimeState* state, Block* block, bool* eo
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     SCOPED_TIMER(_probe_timer);
     RETURN_IF_CANCELLED(state);
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     while (need_more_input_data()) {
         RETURN_IF_ERROR(_fresh_left_block(state));
@@ -605,7 +603,6 @@ Status VNestedLoopJoinNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VNestedLoopJoinNode::open")
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(VJoinNodeBase::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_CANCELLED(state);
     // We can close the right child to release its resources because its input has been
     // fully consumed.
@@ -642,7 +639,7 @@ Status VNestedLoopJoinNode::pull(RuntimeState* state, vectorized::Block* block, 
         *eos = _left_side_eos;
         _need_more_input_data = !_left_side_eos;
     } else {
-        *eos = _match_all_build
+        *eos = (_match_all_build || _is_right_semi_anti)
                        ? _output_null_idx_build_side == _build_blocks.size() && _matched_rows_done
                        : _matched_rows_done;
 

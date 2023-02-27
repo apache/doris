@@ -20,13 +20,19 @@ package org.apache.doris.catalog;
 import org.apache.doris.analysis.MVRefreshInfo;
 import org.apache.doris.analysis.MVRefreshInfo.BuildMode;
 import org.apache.doris.catalog.OlapTableFactory.MaterializedViewParams;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.meta.MetaContext;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
 
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.DataInput;
+import java.io.DataInputStream;
 import java.io.DataOutput;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.locks.ReentrantLock;
@@ -42,7 +48,7 @@ public class MaterializedView extends OlapTable {
 
     private final ReentrantLock mvTaskLock = new ReentrantLock(true);
 
-    public boolean tryMvTaskLock() {
+    public boolean tryLockMVTask() {
         try {
             return mvTaskLock.tryLock(5, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
@@ -50,7 +56,7 @@ public class MaterializedView extends OlapTable {
         }
     }
 
-    public void mvTaskUnLock() {
+    public void unLockMVTask() {
         this.mvTaskLock.unlock();
     }
 
@@ -71,7 +77,7 @@ public class MaterializedView extends OlapTable {
         type = TableType.MATERIALIZED_VIEW;
         buildMode = params.buildMode;
         refreshInfo = params.mvRefreshInfo;
-        query = params.queryStmt.toSql();
+        query = params.queryStmt.toSqlWithHint();
     }
 
     public BuildMode getBuildMode() {
@@ -80,6 +86,10 @@ public class MaterializedView extends OlapTable {
 
     public MVRefreshInfo getRefreshInfo() {
         return refreshInfo;
+    }
+
+    public  void setRefreshInfo(MVRefreshInfo info) {
+        refreshInfo = info;
     }
 
     public String getQuery() {
@@ -99,5 +109,21 @@ public class MaterializedView extends OlapTable {
         refreshInfo = materializedView.refreshInfo;
         query = materializedView.query;
         buildMode = materializedView.buildMode;
+    }
+
+    public MaterializedView clone(String mvName) throws IOException {
+        MetaContext metaContext = new MetaContext();
+        metaContext.setMetaVersion(FeConstants.meta_version);
+        metaContext.setThreadLocalInfo();
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream(256);
+            MaterializedView cloned = new MaterializedView();
+            this.write(new DataOutputStream(out));
+            cloned.readFields(new DataInputStream(new ByteArrayInputStream(out.toByteArray())));
+            cloned.setName(mvName);
+            return cloned;
+        } finally {
+            MetaContext.remove();
+        }
     }
 }

@@ -29,13 +29,14 @@ public interface SequenceFunction extends FunctionTrait {
     default void checkLegalityBeforeTypeCoercion() {
         String functionName = getName();
         Expression firstArg = getArgument(0);
-        if (firstArg instanceof StringLikeLiteral) {
-            throw new AnalysisException("The pattern params of " + functionName
-                    + " function must be string literal: " + toSql());
+        if (!(firstArg instanceof StringLikeLiteral)) {
+            throw new AnalysisException("The pattern param `" + firstArg.toSql() + "` of " + functionName
+                    + " function must be string literal, but it is "
+                    + firstArg.getClass().getSimpleName());
         }
-        if (!getArgumentType(1).isDateType()) {
+        if (!getArgumentType(1).isDateLikeType()) {
             throw new AnalysisException("The timestamp params of " + functionName
-                    + " function must be DATE or DATETIME");
+                    + " function must be DATE or DATETIME, but it is " + getArgumentType(1));
         }
         String pattern = ((StringLikeLiteral) firstArg).getStringValue();
         if (!FunctionCallExpr.parsePattern(pattern)) {
@@ -44,8 +45,9 @@ public interface SequenceFunction extends FunctionTrait {
 
         for (int i = 2; i < arity(); i++) {
             if (!getArgumentType(i).isBooleanType()) {
-                throw new AnalysisException("The 3th and subsequent params of "
-                        + functionName + " function must be boolean");
+                throw new AnalysisException("The param `" + child(i).toSql() + "` of "
+                        + functionName + " function must be boolean, but it is "
+                        + getArgumentType(i).getClass().getSimpleName());
             }
         }
     }

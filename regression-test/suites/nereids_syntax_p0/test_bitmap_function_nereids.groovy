@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_bitmap_function_nereids") {
-    sql 'set enable_vectorized_engine=true;'
     sql 'set enable_fallback_to_original_planner=false;'
     sql 'set enable_nereids_planner=true;'
     // BITMAP_AND

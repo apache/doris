@@ -68,6 +68,7 @@ public class Field extends ScalarFunction
      */
     public Field(Expression arg, Expression... varArgs) {
         super("field", ExpressionUtils.mergeArguments(arg, varArgs));
+        Preconditions.checkArgument(varArgs.length >= 1, "field function parameter size is less than 2");
     }
 
     @Override

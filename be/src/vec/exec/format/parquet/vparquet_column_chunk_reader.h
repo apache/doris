@@ -23,10 +23,10 @@
 #include <vector>
 
 #include "common/status.h"
+#include "decoder.h"
 #include "gen_cpp/parquet_types.h"
 #include "io/buffered_reader.h"
 #include "level_decoder.h"
-#include "parquet_common.h"
 #include "schema_desc.h"
 #include "util/block_compression.h"
 #include "vparquet_page_reader.h"
@@ -110,7 +110,7 @@ public:
         return load_page_data();
     }
     // The remaining number of values in current page(including null values). Decreased when reading or skipping.
-    uint32_t remaining_num_values() const { return _remaining_num_values; };
+    uint32_t remaining_num_values() const { return _remaining_num_values; }
     // null values are generated from definition levels
     // the caller should maintain the consistency after analyzing null values from definition levels.
     void insert_null_values(MutableColumnPtr& doris_column, size_t num_values);

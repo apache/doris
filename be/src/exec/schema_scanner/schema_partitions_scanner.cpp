@@ -20,24 +20,24 @@
 #include "exec/schema_scanner/schema_helper.h"
 #include "runtime/datetime_value.h"
 #include "runtime/primitive_type.h"
-#include "runtime/string_value.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
-SchemaScanner::ColumnDesc SchemaPartitionsScanner::_s_tbls_columns[] = {
+std::vector<SchemaScanner::ColumnDesc> SchemaPartitionsScanner::_s_tbls_columns = {
         //   name,       type,          size,     is_null
-        {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"TABLE_SCHEMA", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"TABLE_NAME", TYPE_VARCHAR, sizeof(StringValue), false},
-        {"PARTITION_NAME", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"SUBPARTITION_NAME", TYPE_VARCHAR, sizeof(StringValue), true},
+        {"TABLE_CATALOG", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"TABLE_SCHEMA", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"TABLE_NAME", TYPE_VARCHAR, sizeof(StringRef), false},
+        {"PARTITION_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"SUBPARTITION_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
         {"PARTITION_ORDINAL_POSITION", TYPE_INT, sizeof(int32_t), true},
         {"SUBPARTITION_ORDINAL_POSITION", TYPE_INT, sizeof(int32_t), true},
-        {"PARTITION_METHOD", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"SUBPARTITION_METHOD", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"PARTITION_EXPRESSION", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"SUBPARTITION_EXPRESSION", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"PARTITION_DESCRIPTION", TYPE_STRING, sizeof(StringValue), true},
+        {"PARTITION_METHOD", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"SUBPARTITION_METHOD", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"PARTITION_EXPRESSION", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"SUBPARTITION_EXPRESSION", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"PARTITION_DESCRIPTION", TYPE_STRING, sizeof(StringRef), true},
         {"TABLE_ROWS", TYPE_BIGINT, sizeof(int64_t), true},
         {"AVG_ROW_LENGTH", TYPE_BIGINT, sizeof(int64_t), true},
         {"DATA_LENGTH", TYPE_BIGINT, sizeof(int64_t), true},
@@ -48,14 +48,13 @@ SchemaScanner::ColumnDesc SchemaPartitionsScanner::_s_tbls_columns[] = {
         {"UPDATE_TIME", TYPE_DATETIME, sizeof(DateTimeValue), true},
         {"CHECK_TIME", TYPE_DATETIME, sizeof(DateTimeValue), true},
         {"CHECKSUM", TYPE_BIGINT, sizeof(int64_t), true},
-        {"PARTITION_COMMENT", TYPE_STRING, sizeof(StringValue), false},
-        {"NODEGROUP", TYPE_VARCHAR, sizeof(StringValue), true},
-        {"TABLESPACE_NAME", TYPE_VARCHAR, sizeof(StringValue), true},
+        {"PARTITION_COMMENT", TYPE_STRING, sizeof(StringRef), false},
+        {"NODEGROUP", TYPE_VARCHAR, sizeof(StringRef), true},
+        {"TABLESPACE_NAME", TYPE_VARCHAR, sizeof(StringRef), true},
 };
 
 SchemaPartitionsScanner::SchemaPartitionsScanner()
-        : SchemaScanner(_s_tbls_columns,
-                        sizeof(_s_tbls_columns) / sizeof(SchemaScanner::ColumnDesc)),
+        : SchemaScanner(_s_tbls_columns, TSchemaTableType::SCH_PARTITIONS),
           _db_index(0),
           _table_index(0) {}
 
@@ -66,24 +65,24 @@ Status SchemaPartitionsScanner::start(RuntimeState* state) {
         return Status::InternalError("used before initialized.");
     }
     TGetDbsParams db_params;
-    if (NULL != _param->db) {
+    if (nullptr != _param->db) {
         db_params.__set_pattern(*(_param->db));
     }
     if (nullptr != _param->catalog) {
         db_params.__set_catalog(*(_param->catalog));
     }
-    if (NULL != _param->current_user_ident) {
+    if (nullptr != _param->current_user_ident) {
         db_params.__set_current_user_ident(*(_param->current_user_ident));
     } else {
-        if (NULL != _param->user) {
+        if (nullptr != _param->user) {
             db_params.__set_user(*(_param->user));
         }
-        if (NULL != _param->user_ip) {
+        if (nullptr != _param->user_ip) {
             db_params.__set_user_ip(*(_param->user_ip));
         }
     }
 
-    if (NULL != _param->ip && 0 != _param->port) {
+    if (nullptr != _param->ip && 0 != _param->port) {
         RETURN_IF_ERROR(
                 SchemaHelper::get_db_names(*(_param->ip), _param->port, db_params, &_db_result));
     } else {
@@ -92,11 +91,11 @@ Status SchemaPartitionsScanner::start(RuntimeState* state) {
     return Status::OK();
 }
 
-Status SchemaPartitionsScanner::get_next_row(Tuple* tuple, MemPool* pool, bool* eos) {
+Status SchemaPartitionsScanner::get_next_block(vectorized::Block* block, bool* eos) {
     if (!_is_init) {
         return Status::InternalError("Used before initialized.");
     }
-    if (nullptr == tuple || nullptr == pool || nullptr == eos) {
+    if (nullptr == block || nullptr == eos) {
         return Status::InternalError("input pointer is nullptr.");
     }
     *eos = true;

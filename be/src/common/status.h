@@ -105,6 +105,7 @@ E(TOO_MANY_VERSION, -235);
 E(NOT_INITIALIZED, -236);
 E(ALREADY_CANCELLED, -237);
 E(TOO_MANY_SEGMENTS, -238);
+E(ALREADY_CLOSED, -239);
 E(CE_CMD_PARAMS_ERROR, -300);
 E(CE_BUFFER_TOO_SMALL, -301);
 E(CE_CMD_NOT_VALID, -302);
@@ -176,7 +177,6 @@ E(WRITER_ROW_BLOCK_ERROR, -1202);
 E(WRITER_SEGMENT_NOT_FINALIZED, -1203);
 E(ROWBLOCK_DECOMPRESS_ERROR, -1300);
 E(ROWBLOCK_FIND_ROW_EXCEPTION, -1301);
-E(ROWBLOCK_READ_INFO_ERROR, -1302);
 E(HEADER_ADD_VERSION, -1400);
 E(HEADER_DELETE_VERSION, -1401);
 E(HEADER_ADD_PENDING_DELTA, -1402);
@@ -235,9 +235,7 @@ E(ROWSET_TYPE_NOT_FOUND, -3105);
 E(ROWSET_ALREADY_EXIST, -3106);
 E(ROWSET_CREATE_READER, -3107);
 E(ROWSET_INVALID, -3108);
-E(ROWSET_LOAD_FAILED, -3109);
 E(ROWSET_READER_INIT, -3110);
-E(ROWSET_READ_FAILED, -3111);
 E(ROWSET_INVALID_STATE_TRANSITION, -3112);
 E(STRING_OVERFLOW_IN_VEC_ENGINE, -3113);
 E(ROWSET_ADD_MIGRATION_V2, -3114);
@@ -247,10 +245,14 @@ E(SEGCOMPACTION_INIT_READER, -3117);
 E(SEGCOMPACTION_INIT_WRITER, -3118);
 E(SEGCOMPACTION_FAILED, -3119);
 E(PIP_WAIT_FOR_RF, -3120);
-E(INVERTED_INDEX_INVALID_PARAMETERS, -4000);
-E(INVERTED_INDEX_NOT_SUPPORTED, -4001);
+E(INVERTED_INDEX_INVALID_PARAMETERS, -6000);
+E(INVERTED_INDEX_NOT_SUPPORTED, -6001);
+E(INVERTED_INDEX_CLUCENE_ERROR, -6002);
+E(INVERTED_INDEX_FILE_NOT_FOUND, -6003);
+E(INVERTED_INDEX_FILE_HIT_LIMIT, -6004);
+E(INVERTED_INDEX_NO_TERMS, -6005);
 #undef E
-}; // namespace ErrorCode
+} // namespace ErrorCode
 
 // clang-format off
 // whether to capture stacktrace
@@ -263,6 +265,7 @@ static constexpr bool capture_stacktrace() {
         && code != ErrorCode::TOO_MANY_SEGMENTS
         && code != ErrorCode::TOO_MANY_VERSION
         && code != ErrorCode::ALREADY_CANCELLED
+        && code != ErrorCode::ALREADY_CLOSED
         && code != ErrorCode::PUSH_TRANSACTION_ALREADY_EXIST
         && code != ErrorCode::BE_NO_SUITABLE_VERSION
         && code != ErrorCode::CUMULATIVE_NO_SUITABLE_VERSION
@@ -270,7 +273,13 @@ static constexpr bool capture_stacktrace() {
         && code != ErrorCode::ROWSET_RENAME_FILE_FAILED
         && code != ErrorCode::SEGCOMPACTION_INIT_READER
         && code != ErrorCode::SEGCOMPACTION_INIT_WRITER
-        && code != ErrorCode::SEGCOMPACTION_FAILED;
+        && code != ErrorCode::SEGCOMPACTION_FAILED
+        && code != ErrorCode::INVERTED_INDEX_INVALID_PARAMETERS
+        && code != ErrorCode::INVERTED_INDEX_NOT_SUPPORTED
+        && code != ErrorCode::INVERTED_INDEX_CLUCENE_ERROR
+        && code != ErrorCode::INVERTED_INDEX_FILE_NOT_FOUND
+        && code != ErrorCode::INVERTED_INDEX_FILE_HIT_LIMIT
+        && code != ErrorCode::INVERTED_INDEX_NO_TERMS;
 }
 // clang-format on
 
@@ -396,8 +405,12 @@ public:
     bool is_io_error() const {
         return ErrorCode::IO_ERROR == _code || ErrorCode::READ_UNENOUGH == _code ||
                ErrorCode::CHECKSUM_ERROR == _code || ErrorCode::FILE_DATA_ERROR == _code ||
-               ErrorCode::TEST_FILE_ERROR == _code || ErrorCode::ROWBLOCK_READ_INFO_ERROR == _code;
+               ErrorCode::TEST_FILE_ERROR == _code;
     }
+
+    bool is_invalid_argument() const { return ErrorCode::INVALID_ARGUMENT == _code; }
+
+    bool is_not_found() const { return _code == ErrorCode::NOT_FOUND; }
 
     // Convert into TStatus. Call this if 'status_container' contains an optional
     // TStatus field named 'status'. This also sets __isset.status.

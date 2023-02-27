@@ -26,7 +26,7 @@ namespace doris {
 
 class CumulativeCompaction : public Compaction {
 public:
-    CumulativeCompaction(TabletSharedPtr tablet);
+    CumulativeCompaction(const TabletSharedPtr& tablet);
     ~CumulativeCompaction() override;
 
     Status prepare_compact() override;

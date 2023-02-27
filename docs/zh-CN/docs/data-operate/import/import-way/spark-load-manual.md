@@ -107,7 +107,7 @@ Spark load 任务的执行主要分为以下5个阶段。
 
 ## Hive Bitmap UDF
 
-Spark 支持将 hive 生成的 bitmap 数据直接导入到 Doris。详见 [hive-bitmap-udf 文档](../../../ecosystem/external-table/hive-bitmap-udf)
+Spark 支持将 hive 生成的 bitmap 数据直接导入到 Doris。详见 [hive-bitmap-udf 文档](../../../ecosystem/hive-bitmap-udf)
 
 ## 基本操作
 
@@ -215,7 +215,7 @@ PROPERTIES
 - `broker.kerberos_keytab`：指定 kerberos 的 keytab 文件路径。该文件必须为 Broker 进程所在服务器上的文件的绝对路径。并且可以被 Broker 进程访问。
 - `broker.kerberos_keytab_content`：指定 kerberos 中 keytab 文件内容经过 base64 编码之后的内容。这个跟 `kerberos_keytab` 配置二选一即可。
 
-实例：
+示例：
 
 ```sql
 CREATE EXTERNAL RESOURCE "spark_on_kerberos"
@@ -559,7 +559,7 @@ WITH RESOURCE 'spark0'
 
 **hive binary（bitmap）类型列的导入**
 
-适用于 doris 表聚合列的数据类型为 bitmap 类型，且数据源 hive 表中对应列的数据类型为 binary（通过 FE 中 spark-dpp 中的 `org.apache.doris.load.loadv2.dpp.BitmapValue` 类序列化）类型。 无需构建全局字典，在 load 命令中指定相应字段即可，格式为：`doris 字段名称= binary_bitmap( hive 表字段名称)` 同样，目前只有在上游数据源为hive表时才支持 binary（ bitmap ）类型的数据导入hive bitmap使用可参考 [hive-bitmap-udf](../../../ecosystem/external-table/hive-bitmap-udf) 。
+适用于 doris 表聚合列的数据类型为 bitmap 类型，且数据源 hive 表中对应列的数据类型为 binary（通过 FE 中 spark-dpp 中的 `org.apache.doris.load.loadv2.dpp.BitmapValue` 类序列化）类型。 无需构建全局字典，在 load 命令中指定相应字段即可，格式为：`doris 字段名称= binary_bitmap( hive 表字段名称)` 同样，目前只有在上游数据源为hive表时才支持 binary（ bitmap ）类型的数据导入hive bitmap使用可参考 [hive-bitmap-udf](../../../ecosystem/hive-bitmap-udf) 。
 
 ### 查看导入
 

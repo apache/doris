@@ -20,14 +20,12 @@ package org.apache.doris.nereids.rules.exploration.join;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.JoinHint;
-import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 
@@ -61,10 +59,10 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
                     GroupPlan c = topJoin.right();
 
                     // split HashJoinConjuncts.
-                    Map<Boolean, List<Expression>> splitHashConjunts = splitConjuncts(topJoin.getHashJoinConjuncts(),
+                    Map<Boolean, List<Expression>> splitHashConjuncts = splitConjuncts(topJoin.getHashJoinConjuncts(),
                             bottomJoin, bottomJoin.getHashJoinConjuncts());
-                    List<Expression> newTopHashConjuncts = splitHashConjunts.get(true);
-                    List<Expression> newBottomHashConjuncts = splitHashConjunts.get(false);
+                    List<Expression> newTopHashConjuncts = splitHashConjuncts.get(true);
+                    List<Expression> newBottomHashConjuncts = splitHashConjuncts.get(false);
                     Preconditions.checkState(!newTopHashConjuncts.isEmpty(),
                             "LAsscom newTopHashJoinConjuncts join can't empty");
                     if (newBottomHashConjuncts.size() == 0) {
@@ -77,15 +75,15 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
                     List<Expression> newTopOtherConjuncts = splitOtherConjunts.get(true);
                     List<Expression> newBottomOtherConjuncts = splitOtherConjunts.get(false);
 
-                    LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(JoinType.INNER_JOIN,
-                            newBottomHashConjuncts, newBottomOtherConjuncts, JoinHint.NONE,
-                            a, c, bottomJoin.getJoinReorderContext());
+                    LogicalJoin<Plan, Plan> newBottomJoin = topJoin.withConjunctsChildren(newBottomHashConjuncts,
+                            newBottomOtherConjuncts, a, c);
+                    newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
                     newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
                     newBottomJoin.getJoinReorderContext().setHasCommute(false);
 
-                    LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, GroupPlan> newTopJoin = new LogicalJoin<>(
-                            JoinType.INNER_JOIN, newTopHashConjuncts, newTopOtherConjuncts, JoinHint.NONE,
-                            newBottomJoin, b, topJoin.getJoinReorderContext());
+                    LogicalJoin<Plan, Plan> newTopJoin = bottomJoin.withConjunctsChildren(newTopHashConjuncts,
+                            newTopOtherConjuncts, newBottomJoin, b);
+                    newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 
                     return newTopJoin;
@@ -109,9 +107,9 @@ public class InnerJoinLAsscom extends OneExplorationRuleFactory {
         // Split topJoin hashCondition to two part according to include B.
         Map<Boolean, List<Expression>> splitOn = topConjuncts.stream()
                 .collect(Collectors.partitioningBy(topHashOn -> {
-                    Set<Slot> usedSlot = topHashOn.getInputSlots();
-                    Set<Slot> bOutputSet = bottomJoin.right().getOutputSet();
-                    return ExpressionUtils.isIntersecting(bOutputSet, usedSlot);
+                    Set<ExprId> usedExprIdSet = topHashOn.getInputSlotExprIds();
+                    Set<ExprId> bOutputExprIdSet = bottomJoin.right().getOutputExprIdSet();
+                    return Utils.isIntersecting(bOutputExprIdSet, usedExprIdSet);
                 }));
         // * don't include B, just include (A C)
         // we add it into newBottomJoin HashJoinConjuncts.

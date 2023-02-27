@@ -21,7 +21,6 @@
 package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.PrimitiveType;
-import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.DdlException;
@@ -42,6 +41,7 @@ import java.io.DataOutput;
 import java.io.IOException;
 import java.io.UnsupportedEncodingException;
 import java.math.BigDecimal;
+import java.nio.ByteBuffer;
 import java.util.Objects;
 
 public class StringLiteral extends LiteralExpr {
@@ -182,17 +182,22 @@ public class StringLiteral extends LiteralExpr {
     public LiteralExpr convertToDate(Type targetType) throws AnalysisException {
         LiteralExpr newLiteral = null;
         try {
-            newLiteral = new DateLiteral(value, ScalarType.getDefaultDateType(targetType));
+            newLiteral = new DateLiteral(value, targetType);
         } catch (AnalysisException e) {
             if (targetType.isScalarType(PrimitiveType.DATETIME)) {
-                newLiteral = new DateLiteral(value, ScalarType.getDefaultDateType(Type.DATE));
-                newLiteral.setType(ScalarType.getDefaultDateType(Type.DATETIME));
+                newLiteral = new DateLiteral(value, Type.DATE);
+                newLiteral.setType(Type.DATETIME);
             } else if (targetType.isScalarType(PrimitiveType.DATETIMEV2)) {
                 newLiteral = new DateLiteral(value, Type.DATEV2);
                 newLiteral.setType(targetType);
             } else {
                 throw e;
             }
+        }
+        try {
+            newLiteral.checkValueValid();
+        } catch (AnalysisException e) {
+            return NullLiteral.create(newLiteral.getType());
         }
         return newLiteral;
     }
@@ -292,5 +297,19 @@ public class StringLiteral extends LiteralExpr {
     @Override
     public int hashCode() {
         return 31 * super.hashCode() + Objects.hashCode(value);
+    }
+
+    @Override
+    public void setupParamFromBinary(ByteBuffer data) {
+        int strLen = getParmLen(data);
+        if (strLen > data.remaining()) {
+            strLen = data.remaining();
+        }
+        byte[] bytes = new byte[strLen];
+        data.get(bytes);
+        value = new String(bytes);
+        if (LOG.isDebugEnabled()) {
+            LOG.debug("parsed value '{}'", value);
+        }
     }
 }

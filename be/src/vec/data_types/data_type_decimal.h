@@ -128,7 +128,7 @@ public:
             LOG(FATAL) << fmt::format("Precision {} is out of bounds", precision);
         }
 
-        if (UNLIKELY(scale < 0 || static_cast<UInt32>(scale) > max_precision())) {
+        if (UNLIKELY(static_cast<UInt32>(scale) > max_precision())) {
             LOG(FATAL) << fmt::format("Scale {} is out of bounds", scale);
         }
     }
@@ -255,8 +255,7 @@ inline const DataTypeDecimal<T>* check_decimal(const IDataType& data_type) {
     return typeid_cast<const DataTypeDecimal<T>*>(&data_type);
 }
 
-inline UInt32 get_decimal_scale(const IDataType& data_type,
-                                UInt32 default_value = std::numeric_limits<UInt32>::max()) {
+inline UInt32 get_decimal_scale(const IDataType& data_type, UInt32 default_value = 0) {
     if (auto* decimal_type = check_decimal<Decimal32>(data_type)) return decimal_type->get_scale();
     if (auto* decimal_type = check_decimal<Decimal64>(data_type)) return decimal_type->get_scale();
     if (auto* decimal_type = check_decimal<Decimal128>(data_type)) return decimal_type->get_scale();

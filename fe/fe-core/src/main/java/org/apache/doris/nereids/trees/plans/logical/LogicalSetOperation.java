@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.trees.plans.logical;
 
+import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.memo.GroupExpression;
 import org.apache.doris.nereids.properties.LogicalProperties;
 import org.apache.doris.nereids.trees.expressions.Cast;
@@ -126,33 +127,24 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
 
     private List<List<Expression>> castCommonDataTypeOutputs(List<Slot> resetNullableForLeftOutputs) {
         List<Expression> newLeftOutputs = new ArrayList<>();
-        List<Expression> newRightOutpus = new ArrayList<>();
+        List<Expression> newRightOutputs = new ArrayList<>();
         // Ensure that the output types of the left and right children are consistent and expand upward.
         for (int i = 0; i < resetNullableForLeftOutputs.size(); ++i) {
-            boolean hasPushed = false;
             Slot left = resetNullableForLeftOutputs.get(i);
             Slot right = child(1).getOutput().get(i);
-            if (TypeCoercionUtils.canHandleTypeCoercion(left.getDataType(), right.getDataType())) {
-                Optional<DataType> tightestCommonType =
-                        TypeCoercionUtils.findTightestCommonType(null, left.getDataType(), right.getDataType());
-                if (tightestCommonType.isPresent()) {
-                    Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, tightestCommonType.get());
-                    Expression newRight = TypeCoercionUtils.castIfNotSameType(right, tightestCommonType.get());
-                    newLeftOutputs.add(newLeft);
-                    newRightOutpus.add(newRight);
-                    hasPushed = true;
-                }
-            }
-
-            if (!hasPushed) {
-                newLeftOutputs.add(left);
-                newRightOutpus.add(right);
-            }
+            DataType compatibleType = DataType.convertFromCatalogDataType(Type.getAssignmentCompatibleType(
+                    left.getDataType().toCatalogDataType(),
+                    right.getDataType().toCatalogDataType(),
+                    false));
+            Expression newLeft = TypeCoercionUtils.castIfNotSameType(left, compatibleType);
+            Expression newRight = TypeCoercionUtils.castIfNotSameType(right, compatibleType);
+            newLeftOutputs.add(newLeft);
+            newRightOutputs.add(newRight);
         }
 
         List<List<Expression>> resultExpressions = new ArrayList<>();
         resultExpressions.add(newLeftOutputs);
-        resultExpressions.add(newRightOutpus);
+        resultExpressions.add(newRightOutputs);
         return ImmutableList.copyOf(resultExpressions);
     }
 
@@ -211,12 +203,12 @@ public abstract class LogicalSetOperation extends AbstractLogicalPlan implements
         return outputs;
     }
 
-    public abstract Plan withNewOutputs(List<NamedExpression> newOutputs);
+    public abstract LogicalSetOperation withNewOutputs(List<NamedExpression> newOutputs);
 
     @Override
     public int getArity() {
         return children.size();
     }
 
-    public abstract Plan withNewChildren(List<Plan> children);
+    public abstract LogicalSetOperation withNewChildren(List<Plan> children);
 }

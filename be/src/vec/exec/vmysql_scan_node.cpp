@@ -21,10 +21,9 @@
 #include "exec/text_converter.hpp"
 #include "gen_cpp/PlanNodes_types.h"
 #include "runtime/runtime_state.h"
-#include "runtime/string_value.h"
-#include "runtime/tuple_row.h"
 #include "util/runtime_profile.h"
 #include "util/types.h"
+#include "vec/common/string_ref.h"
 namespace doris::vectorized {
 
 VMysqlScanNode::VMysqlScanNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl& descs)
@@ -49,7 +48,6 @@ Status VMysqlScanNode::prepare(RuntimeState* state) {
     }
 
     RETURN_IF_ERROR(ScanNode::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     // get tuple desc
     _tuple_desc = state->desc_tbl().get_tuple_descriptor(_tuple_id);
 
@@ -79,12 +77,6 @@ Status VMysqlScanNode::prepare(RuntimeState* state) {
         return Status::InternalError("new a mysql scanner failed.");
     }
 
-    _tuple_pool.reset(new (std::nothrow) MemPool());
-
-    if (_tuple_pool.get() == nullptr) {
-        return Status::InternalError("new a mem pool failed.");
-    }
-
     _text_converter.reset(new (std::nothrow) TextConverter('\\'));
 
     if (_text_converter.get() == nullptr) {
@@ -103,7 +95,6 @@ Status VMysqlScanNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VMysqlScanNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     VLOG_CRITICAL << "MysqlScanNode::Open";
 
     if (!_is_init) {
@@ -125,19 +116,6 @@ Status VMysqlScanNode::open(RuntimeState* state) {
 
     if (_mysql_scanner->field_num() != materialize_num) {
         return Status::InternalError("input and output not equal.");
-    }
-
-    return Status::OK();
-}
-
-Status VMysqlScanNode::write_text_slot(char* value, int value_length, SlotDescriptor* slot,
-                                       RuntimeState* state) {
-    if (!_text_converter->write_slot(slot, _tuple, value, value_length, true, false,
-                                     _tuple_pool.get())) {
-        std::stringstream ss;
-        ss << "Fail to convert mysql value:'" << value << "' to " << slot->type() << " on column:`"
-           << slot->col_name() + "`";
-        return Status::InternalError(ss.str());
     }
 
     return Status::OK();
@@ -242,8 +220,6 @@ Status VMysqlScanNode::close(RuntimeState* state) {
     }
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "VMysqlScanNode::close");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
-
-    _tuple_pool.reset();
 
     return ExecNode::close(state);
 }

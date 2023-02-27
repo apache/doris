@@ -17,9 +17,8 @@
 
 #include "vec/functions/like.h"
 
-#include "runtime/string_value.h"
-#include "runtime/string_value.hpp"
 #include "vec/columns/columns_number.h"
+#include "vec/common/string_ref.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {
@@ -64,7 +63,7 @@ Status LikeSearchState::clone(LikeSearchState& cloned) {
 }
 
 Status FunctionLikeBase::constant_starts_with_fn(LikeSearchState* state, const ColumnString& val,
-                                                 const StringValue& pattern,
+                                                 const StringRef& pattern,
                                                  ColumnUInt8::Container& result) {
     auto sz = val.size();
     for (size_t i = 0; i < sz; i++) {
@@ -76,7 +75,7 @@ Status FunctionLikeBase::constant_starts_with_fn(LikeSearchState* state, const C
 }
 
 Status FunctionLikeBase::constant_ends_with_fn(LikeSearchState* state, const ColumnString& val,
-                                               const StringValue& pattern,
+                                               const StringRef& pattern,
                                                ColumnUInt8::Container& result) {
     auto sz = val.size();
     for (size_t i = 0; i < sz; i++) {
@@ -88,7 +87,7 @@ Status FunctionLikeBase::constant_ends_with_fn(LikeSearchState* state, const Col
 }
 
 Status FunctionLikeBase::constant_equals_fn(LikeSearchState* state, const ColumnString& val,
-                                            const StringValue& pattern,
+                                            const StringRef& pattern,
                                             ColumnUInt8::Container& result) {
     auto sz = val.size();
     for (size_t i = 0; i < sz; i++) {
@@ -98,7 +97,7 @@ Status FunctionLikeBase::constant_equals_fn(LikeSearchState* state, const Column
 }
 
 Status FunctionLikeBase::constant_substring_fn(LikeSearchState* state, const ColumnString& val,
-                                               const StringValue& pattern,
+                                               const StringRef& pattern,
                                                ColumnUInt8::Container& result) {
     auto sz = val.size();
     for (size_t i = 0; i < sz; i++) {
@@ -112,7 +111,7 @@ Status FunctionLikeBase::constant_substring_fn(LikeSearchState* state, const Col
 
 Status FunctionLikeBase::constant_starts_with_fn_predicate(
         LikeSearchState* state, const PredicateColumnType<TYPE_STRING>& val,
-        const StringValue& pattern, ColumnUInt8::Container& result, uint16_t* sel, size_t sz) {
+        const StringRef& pattern, ColumnUInt8::Container& result, const uint16_t* sel, size_t sz) {
     auto data_ptr = reinterpret_cast<const StringRef*>(val.get_data().data());
     for (size_t i = 0; i < sz; i++) {
         result[i] = (data_ptr[sel[i]].size >= state->search_string_sv.size) &&
@@ -124,7 +123,7 @@ Status FunctionLikeBase::constant_starts_with_fn_predicate(
 
 Status FunctionLikeBase::constant_ends_with_fn_predicate(
         LikeSearchState* state, const PredicateColumnType<TYPE_STRING>& val,
-        const StringValue& pattern, ColumnUInt8::Container& result, uint16_t* sel, size_t sz) {
+        const StringRef& pattern, ColumnUInt8::Container& result, const uint16_t* sel, size_t sz) {
     auto data_ptr = reinterpret_cast<const StringRef*>(val.get_data().data());
     for (size_t i = 0; i < sz; i++) {
         result[i] =
@@ -138,9 +137,9 @@ Status FunctionLikeBase::constant_ends_with_fn_predicate(
 
 Status FunctionLikeBase::constant_equals_fn_predicate(LikeSearchState* state,
                                                       const PredicateColumnType<TYPE_STRING>& val,
-                                                      const StringValue& pattern,
-                                                      ColumnUInt8::Container& result, uint16_t* sel,
-                                                      size_t sz) {
+                                                      const StringRef& pattern,
+                                                      ColumnUInt8::Container& result,
+                                                      const uint16_t* sel, size_t sz) {
     auto data_ptr = reinterpret_cast<const StringRef*>(val.get_data().data());
     for (size_t i = 0; i < sz; i++) {
         result[i] = (data_ptr[sel[i]] == state->search_string_sv);
@@ -150,7 +149,7 @@ Status FunctionLikeBase::constant_equals_fn_predicate(LikeSearchState* state,
 
 Status FunctionLikeBase::constant_substring_fn_predicate(
         LikeSearchState* state, const PredicateColumnType<TYPE_STRING>& val,
-        const StringValue& pattern, ColumnUInt8::Container& result, uint16_t* sel, size_t sz) {
+        const StringRef& pattern, ColumnUInt8::Container& result, const uint16_t* sel, size_t sz) {
     auto data_ptr = reinterpret_cast<const StringRef*>(val.get_data().data());
     for (size_t i = 0; i < sz; i++) {
         if (state->search_string_sv.size == 0) {
@@ -163,7 +162,7 @@ Status FunctionLikeBase::constant_substring_fn_predicate(
 
 Status FunctionLikeBase::constant_starts_with_fn_scalar(LikeSearchState* state,
                                                         const StringRef& val,
-                                                        const StringValue& pattern,
+                                                        const StringRef& pattern,
                                                         unsigned char* result) {
     *result = (val.size >= state->search_string_sv.size) &&
               (state->search_string_sv == val.substring(0, state->search_string_sv.size));
@@ -171,7 +170,7 @@ Status FunctionLikeBase::constant_starts_with_fn_scalar(LikeSearchState* state,
 }
 
 Status FunctionLikeBase::constant_ends_with_fn_scalar(LikeSearchState* state, const StringRef& val,
-                                                      const StringValue& pattern,
+                                                      const StringRef& pattern,
                                                       unsigned char* result) {
     *result = (val.size >= state->search_string_sv.size) &&
               (state->search_string_sv == val.substring(val.size - state->search_string_sv.size,
@@ -180,14 +179,14 @@ Status FunctionLikeBase::constant_ends_with_fn_scalar(LikeSearchState* state, co
 }
 
 Status FunctionLikeBase::constant_equals_fn_scalar(LikeSearchState* state, const StringRef& val,
-                                                   const StringValue& pattern,
+                                                   const StringRef& pattern,
                                                    unsigned char* result) {
     *result = (val == state->search_string_sv);
     return Status::OK();
 }
 
 Status FunctionLikeBase::constant_substring_fn_scalar(LikeSearchState* state, const StringRef& val,
-                                                      const StringValue& pattern,
+                                                      const StringRef& pattern,
                                                       unsigned char* result) {
     if (state->search_string_sv.size == 0) {
         *result = true;
@@ -198,10 +197,9 @@ Status FunctionLikeBase::constant_substring_fn_scalar(LikeSearchState* state, co
 }
 
 Status FunctionLikeBase::constant_regex_fn_scalar(LikeSearchState* state, const StringRef& val,
-                                                  const StringValue& pattern,
-                                                  unsigned char* result) {
+                                                  const StringRef& pattern, unsigned char* result) {
     auto ret = hs_scan(state->hs_database.get(), val.data, val.size, 0, state->hs_scratch.get(),
-                       state->hs_match_handler, (void*)result);
+                       doris::vectorized::LikeSearchState::hs_match_handler, (void*)result);
     if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
         return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
     }
@@ -210,15 +208,15 @@ Status FunctionLikeBase::constant_regex_fn_scalar(LikeSearchState* state, const 
 }
 
 Status FunctionLikeBase::regexp_fn_scalar(LikeSearchState* state, const StringRef& val,
-                                          const StringValue& pattern, unsigned char* result) {
-    std::string_view re_pattern(pattern.ptr, pattern.len);
+                                          const StringRef& pattern, unsigned char* result) {
+    std::string_view re_pattern(pattern.data, pattern.size);
 
     hs_database_t* database = nullptr;
     hs_scratch_t* scratch = nullptr;
     RETURN_IF_ERROR(hs_prepare(nullptr, re_pattern.data(), &database, &scratch));
 
-    auto ret = hs_scan(database, val.data, val.size, 0, scratch, state->hs_match_handler,
-                       (void*)result);
+    auto ret = hs_scan(database, val.data, val.size, 0, scratch,
+                       doris::vectorized::LikeSearchState::hs_match_handler, (void*)result);
     if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
         return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
     }
@@ -230,14 +228,14 @@ Status FunctionLikeBase::regexp_fn_scalar(LikeSearchState* state, const StringRe
 }
 
 Status FunctionLikeBase::constant_regex_fn(LikeSearchState* state, const ColumnString& val,
-                                           const StringValue& pattern,
+                                           const StringRef& pattern,
                                            ColumnUInt8::Container& result) {
     auto sz = val.size();
     for (size_t i = 0; i < sz; i++) {
         const auto& str_ref = val.get_data_at(i);
-        auto ret = hs_scan(state->hs_database.get(), str_ref.data, str_ref.size, 0,
-                           state->hs_scratch.get(), state->hs_match_handler,
-                           (void*)(result.data() + i));
+        auto ret = hs_scan(
+                state->hs_database.get(), str_ref.data, str_ref.size, 0, state->hs_scratch.get(),
+                doris::vectorized::LikeSearchState::hs_match_handler, (void*)(result.data() + i));
         if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
             return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
         }
@@ -247,8 +245,8 @@ Status FunctionLikeBase::constant_regex_fn(LikeSearchState* state, const ColumnS
 }
 
 Status FunctionLikeBase::regexp_fn(LikeSearchState* state, const ColumnString& val,
-                                   const StringValue& pattern, ColumnUInt8::Container& result) {
-    std::string_view re_pattern(pattern.ptr, pattern.len);
+                                   const StringRef& pattern, ColumnUInt8::Container& result) {
+    std::string_view re_pattern(pattern.data, pattern.size);
 
     hs_database_t* database = nullptr;
     hs_scratch_t* scratch = nullptr;
@@ -258,7 +256,8 @@ Status FunctionLikeBase::regexp_fn(LikeSearchState* state, const ColumnString& v
     for (size_t i = 0; i < sz; i++) {
         const auto& str_ref = val.get_data_at(i);
         auto ret = hs_scan(database, str_ref.data, str_ref.size, 0, scratch,
-                           state->hs_match_handler, (void*)(result.data() + i));
+                           doris::vectorized::LikeSearchState::hs_match_handler,
+                           (void*)(result.data() + i));
         if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
             return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
         }
@@ -272,13 +271,14 @@ Status FunctionLikeBase::regexp_fn(LikeSearchState* state, const ColumnString& v
 
 Status FunctionLikeBase::constant_regex_fn_predicate(LikeSearchState* state,
                                                      const PredicateColumnType<TYPE_STRING>& val,
-                                                     const StringValue& pattern,
-                                                     ColumnUInt8::Container& result, uint16_t* sel,
-                                                     size_t sz) {
+                                                     const StringRef& pattern,
+                                                     ColumnUInt8::Container& result,
+                                                     const uint16_t* sel, size_t sz) {
     auto data_ptr = reinterpret_cast<const StringRef*>(val.get_data().data());
     for (size_t i = 0; i < sz; i++) {
         auto ret = hs_scan(state->hs_database.get(), data_ptr[sel[i]].data, data_ptr[sel[i]].size,
-                           0, state->hs_scratch.get(), state->hs_match_handler,
+                           0, state->hs_scratch.get(),
+                           doris::vectorized::LikeSearchState::hs_match_handler,
                            (void*)(result.data() + i));
         if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
             return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
@@ -290,10 +290,10 @@ Status FunctionLikeBase::constant_regex_fn_predicate(LikeSearchState* state,
 
 Status FunctionLikeBase::regexp_fn_predicate(LikeSearchState* state,
                                              const PredicateColumnType<TYPE_STRING>& val,
-                                             const StringValue& pattern,
-                                             ColumnUInt8::Container& result, uint16_t* sel,
+                                             const StringRef& pattern,
+                                             ColumnUInt8::Container& result, const uint16_t* sel,
                                              size_t sz) {
-    std::string_view re_pattern(pattern.ptr, pattern.len);
+    std::string_view re_pattern(pattern.data, pattern.size);
 
     hs_database_t* database = nullptr;
     hs_scratch_t* scratch = nullptr;
@@ -302,7 +302,8 @@ Status FunctionLikeBase::regexp_fn_predicate(LikeSearchState* state,
     auto data_ptr = reinterpret_cast<const StringRef*>(val.get_data().data());
     for (size_t i = 0; i < sz; i++) {
         auto ret = hs_scan(database, data_ptr[sel[i]].data, data_ptr[sel[i]].size, 0, scratch,
-                           state->hs_match_handler, (void*)(result.data() + i));
+                           doris::vectorized::LikeSearchState::hs_match_handler,
+                           (void*)(result.data() + i));
         if (ret != HS_SUCCESS && ret != HS_SCAN_TERMINATED) {
             return Status::RuntimeError(fmt::format("hyperscan error: {}", ret));
         }
@@ -318,11 +319,13 @@ Status FunctionLikeBase::regexp_fn_predicate(LikeSearchState* state,
 Status FunctionLikeBase::hs_prepare(FunctionContext* context, const char* expression,
                                     hs_database_t** database, hs_scratch_t** scratch) {
     hs_compile_error_t* compile_err;
-    auto res = hs_compile(expression, HS_FLAG_DOTALL | HS_FLAG_ALLOWEMPTY, HS_MODE_BLOCK, NULL,
+    auto res = hs_compile(expression, HS_FLAG_DOTALL | HS_FLAG_ALLOWEMPTY, HS_MODE_BLOCK, nullptr,
                           database, &compile_err);
     if (res != HS_SUCCESS) {
         *database = nullptr;
-        if (context) context->set_error("hs_compile regex pattern error");
+        if (context) {
+            context->set_error("hs_compile regex pattern error");
+        }
         return Status::RuntimeError("hs_compile regex pattern error:" +
                                     std::string(compile_err->message));
         hs_free_compile_error(compile_err);
@@ -333,7 +336,9 @@ Status FunctionLikeBase::hs_prepare(FunctionContext* context, const char* expres
         hs_free_database(*database);
         *database = nullptr;
         *scratch = nullptr;
-        if (context) context->set_error("hs_alloc_scratch allocate scratch space error");
+        if (context) {
+            context->set_error("hs_alloc_scratch allocate scratch space error");
+        }
         return Status::RuntimeError("hs_alloc_scratch allocate scratch space error");
     }
 
@@ -359,9 +364,8 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
             context->get_function_state(FunctionContext::THREAD_LOCAL));
     // for constant_substring_fn, use long run length search for performance
     if (constant_substring_fn ==
-        *(state->function
-                  .target<doris::Status (*)(LikeSearchState * state, const ColumnString&,
-                                            const StringValue&, ColumnUInt8::Container&)>())) {
+        *(state->function.target<doris::Status (*)(LikeSearchState * state, const ColumnString&,
+                                                   const StringRef&, ColumnUInt8::Container&)>())) {
         RETURN_IF_ERROR(execute_substring(values->get_chars(), values->get_offsets(), vec_res,
                                           &state->search_state));
     } else {
@@ -387,11 +391,6 @@ Status FunctionLikeBase::execute_impl(FunctionContext* context, Block& block,
 
 Status FunctionLikeBase::close(FunctionContext* context,
                                FunctionContext::FunctionStateScope scope) {
-    if (scope == FunctionContext::THREAD_LOCAL) {
-        auto* state = reinterpret_cast<LikeState*>(
-                context->get_function_state(FunctionContext::THREAD_LOCAL));
-        delete state;
-    }
     return Status::OK();
 }
 
@@ -412,11 +411,15 @@ Status FunctionLikeBase::execute_substring(const ColumnString::Chars& values,
     while (pos < end) {
         // search return matched substring start offset
         pos = (UInt8*)search_state->substring_pattern.search((char*)pos, end - pos);
-        if (pos >= end) break;
+        if (pos >= end) {
+            break;
+        }
 
         /// Determine which index it refers to.
         /// begin + value_offsets[i] is the start offset of string at i+1
-        while (begin + value_offsets[i] < pos) ++i;
+        while (begin + value_offsets[i] < pos) {
+            ++i;
+        }
 
         /// We check that the entry does not pass through the boundaries of strings.
         if (pos + needle_size <= begin + value_offsets[i]) {
@@ -435,36 +438,36 @@ Status FunctionLikeBase::vector_const(const ColumnString& values, const StringRe
                                       ColumnUInt8::Container& result, const LikeFn& function,
                                       LikeSearchState* search_state) {
     RETURN_IF_ERROR((function)(search_state, values,
-                               *reinterpret_cast<const StringValue*>(pattern_val), result));
+                               *reinterpret_cast<const StringRef*>(pattern_val), result));
     return Status::OK();
 }
 
 Status FunctionLike::like_fn(LikeSearchState* state, const ColumnString& val,
-                             const StringValue& pattern, ColumnUInt8::Container& result) {
+                             const StringRef& pattern, ColumnUInt8::Container& result) {
     std::string re_pattern;
-    convert_like_pattern(state, std::string(pattern.ptr, pattern.len), &re_pattern);
+    convert_like_pattern(state, std::string(pattern.data, pattern.size), &re_pattern);
 
-    return regexp_fn(state, val, {re_pattern.c_str(), (int)re_pattern.size()}, result);
+    return regexp_fn(state, val, {re_pattern.c_str(), re_pattern.size()}, result);
 }
 
 Status FunctionLike::like_fn_predicate(LikeSearchState* state,
                                        const PredicateColumnType<TYPE_STRING>& val,
-                                       const StringValue& pattern, ColumnUInt8::Container& result,
+                                       const StringRef& pattern, ColumnUInt8::Container& result,
                                        uint16_t* sel, size_t sz) {
     std::string re_pattern;
-    convert_like_pattern(state, std::string(pattern.ptr, pattern.len), &re_pattern);
+    convert_like_pattern(state, std::string(pattern.data, pattern.size), &re_pattern);
 
-    return regexp_fn_predicate(state, val, {re_pattern.c_str(), (int)re_pattern.size()}, result,
-                               sel, sz);
+    return regexp_fn_predicate(state, val, {re_pattern.c_str(), re_pattern.size()}, result, sel,
+                               sz);
 }
 
-Status FunctionLike::like_fn_scalar(LikeSearchState* state, const StringValue& val,
-                                    const StringValue& pattern, unsigned char* result) {
+Status FunctionLike::like_fn_scalar(LikeSearchState* state, const StringRef& val,
+                                    const StringRef& pattern, unsigned char* result) {
     std::string re_pattern;
-    convert_like_pattern(state, std::string(pattern.ptr, pattern.len), &re_pattern);
+    convert_like_pattern(state, std::string(pattern.data, pattern.size), &re_pattern);
 
-    return regexp_fn_scalar(state, StringRef(val.ptr, val.len),
-                            {re_pattern.c_str(), (int)re_pattern.size()}, result);
+    return regexp_fn_scalar(state, StringRef(val.data, val.size),
+                            {re_pattern.c_str(), re_pattern.size()}, result);
 }
 
 void FunctionLike::convert_like_pattern(LikeSearchState* state, const std::string& pattern,
@@ -532,7 +535,7 @@ Status FunctionLike::prepare(FunctionContext* context, FunctionContext::Function
     if (scope != FunctionContext::THREAD_LOCAL) {
         return Status::OK();
     }
-    auto* state = new LikeState();
+    std::shared_ptr<LikeState> state = std::make_shared<LikeState>();
     context->set_function_state(scope, state);
     state->function = like_fn;
     state->predicate_like_function = like_fn_predicate;
@@ -592,7 +595,7 @@ Status FunctionRegexp::prepare(FunctionContext* context,
     if (scope != FunctionContext::THREAD_LOCAL) {
         return Status::OK();
     }
-    auto* state = new LikeState();
+    std::shared_ptr<LikeState> state = std::make_shared<LikeState>();
     context->set_function_state(scope, state);
     state->function = regexp_fn;
     state->predicate_like_function = regexp_fn_predicate;

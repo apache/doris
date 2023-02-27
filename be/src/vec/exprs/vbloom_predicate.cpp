@@ -18,6 +18,7 @@
 #include "vec/exprs/vbloom_predicate.h"
 
 #include "common/status.h"
+#include "exprs/bloom_filter_func.h"
 #include "vec/data_types/data_type_nullable.h"
 
 namespace doris::vectorized {
@@ -68,7 +69,7 @@ Status VBloomPredicate::execute(VExprContext* context, Block* block, int* result
     if (type.is_string_or_fixed_string()) {
         for (size_t i = 0; i < sz; i++) {
             auto ele = argument_column->get_data_at(i);
-            const StringValue v(ele.data, ele.size);
+            const StringRef v(ele.data, ele.size);
             ptr[i] = _filter->find(reinterpret_cast<const void*>(&v));
         }
     } else if (_be_exec_version > 0 && (type.is_int_or_uint() || type.is_float())) {

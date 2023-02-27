@@ -124,7 +124,8 @@ public class CanalSyncChannel extends SyncChannel {
             String targetColumn = Joiner.on(",").join(columns) + "," + DELETE_COLUMN;
             GlobalTransactionMgr globalTransactionMgr = Env.getCurrentGlobalTransactionMgr();
             DatabaseTransactionMgr databaseTransactionMgr = globalTransactionMgr.getDatabaseTransactionMgr(db.getId());
-            if (databaseTransactionMgr.getRunningTxnNums() < Config.max_running_txn_num_per_db) {
+            long txnLimit = db.getTransactionQuotaSize();
+            if (databaseTransactionMgr.getRunningTxnNums() < txnLimit) {
                 TransactionEntry txnEntry = txnExecutor.getTxnEntry();
                 TTxnParams txnConf = txnEntry.getTxnConf();
                 TransactionState.LoadJobSourceType sourceType = TransactionState.LoadJobSourceType.INSERT_STREAMING;
@@ -134,15 +135,14 @@ public class CanalSyncChannel extends SyncChannel {
                             Lists.newArrayList(tbl.getId()), label,
                         new TransactionState.TxnCoordinator(TransactionState.TxnSourceType.FE,
                             FrontendOptions.getLocalHostAddress()), sourceType, timeoutSecond);
-                    String authCodeUuid = Env.getCurrentGlobalTransactionMgr().getTransactionState(
-                            db.getId(), txnId).getAuthCode();
+                    String token = Env.getCurrentEnv().getLoadManager().getTokenManager().acquireToken();
                     request = new TStreamLoadPutRequest()
                         .setTxnId(txnId).setDb(txnConf.getDb()).setTbl(txnConf.getTbl())
                         .setFileType(TFileType.FILE_STREAM).setFormatType(TFileFormatType.FORMAT_CSV_PLAIN)
                         .setThriftRpcTimeoutMs(5000).setLoadId(txnExecutor.getLoadId())
                         .setMergeType(TMergeType.MERGE).setDeleteCondition(DELETE_CONDITION)
                         .setColumns(targetColumn);
-                    txnConf.setTxnId(txnId).setAuthCodeUuid(authCodeUuid);
+                    txnConf.setTxnId(txnId).setToken(token);
                     txnEntry.setLabel(label);
                     txnExecutor.setTxnId(txnId);
                 } catch (DuplicatedRequestException e) {
@@ -185,7 +185,7 @@ public class CanalSyncChannel extends SyncChannel {
             } else {
                 String failMsg = "current running txns on db " + db.getId() + " is "
                         + databaseTransactionMgr.getRunningTxnNums()
-                        + ", larger than limit " + Config.max_running_txn_num_per_db;
+                        + ", larger than limit " + txnLimit;
                 LOG.warn(failMsg);
                 throw new BeginTransactionException(failMsg);
             }

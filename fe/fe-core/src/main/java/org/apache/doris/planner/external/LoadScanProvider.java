@@ -132,6 +132,7 @@ public class LoadScanProvider implements FileScanProviderIf {
         fileAttributes.setReadByColumnDef(true);
         fileAttributes.setHeaderType(getHeaderType(fileGroup.getFileFormat()));
         fileAttributes.setTrimDoubleQuotes(fileGroup.getTrimDoubleQuotes());
+        fileAttributes.setSkipLines(fileGroup.getSkipLines());
     }
 
     private String getHeaderType(String formatType) {
@@ -205,7 +206,8 @@ public class LoadScanProvider implements FileScanProviderIf {
         List<Integer> srcSlotIds = Lists.newArrayList();
         Load.initColumns(fileGroupInfo.getTargetTable(), columnDescs, context.fileGroup.getColumnToHadoopFunction(),
                 context.exprMap, analyzer, context.srcTupleDescriptor, context.srcSlotDescByName, srcSlotIds,
-                formatType(context.fileGroup.getFileFormat(), ""), null, VectorizedUtil.isVectorized());
+                formatType(context.fileGroup.getFileFormat(), ""), fileGroupInfo.getHiddenColumns(),
+                VectorizedUtil.isVectorized());
 
         int columnCountFromPath = 0;
         if (context.fileGroup.getColumnNamesFromPath() != null) {

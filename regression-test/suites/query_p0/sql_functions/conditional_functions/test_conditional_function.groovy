@@ -92,7 +92,6 @@ suite("test_conditional_function") {
     qt_if_false_then_nullable """select IF(false, DAYOFWEEK("2022-12-06 17:48:46"), 1) + 1;"""
     qt_if_false_else_nullable """select IF(false, 1, DAYOFWEEK("2022-12-06 17:48:46")) + 1;"""
 
-    sql 'set enable_vectorized_engine=true;'
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set enable_nereids_planner=true'
 

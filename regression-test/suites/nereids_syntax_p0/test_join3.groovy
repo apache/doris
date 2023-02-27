@@ -17,7 +17,6 @@
 
 suite("nereids_test_join3", "query,p0") {
 
-    sql "SET enable_vectorized_engine=true"
     sql "SET enable_nereids_planner=true"
     sql "SET enable_fallback_to_original_planner=false"
 
@@ -26,9 +25,9 @@ suite("nereids_test_join3", "query,p0") {
     sql "CREATE DATABASE IF NOT EXISTS ${DBname}"
     sql "use ${DBname}"
 
-    def tbName1 = "t1"
-    def tbName2 = "t2"
-    def tbName3 = "t3"
+    def tbName1 = "nereids_test_join3t1"
+    def tbName2 = "nereids_test_join3t2"
+    def tbName3 = "nereids_test_join3t3"
 
     sql """CREATE TABLE IF NOT EXISTS ${tbName1} (name varchar(255), n INTEGER) DISTRIBUTED BY HASH(name) properties("replication_num" = "1");"""
     sql """CREATE TABLE IF NOT EXISTS ${tbName2} (name varchar(255), n INTEGER) DISTRIBUTED BY HASH(name) properties("replication_num" = "1");"""

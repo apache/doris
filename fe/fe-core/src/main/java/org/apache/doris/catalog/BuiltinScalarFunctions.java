@@ -78,7 +78,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.BitmapXorCoun
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cardinality;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Cbrt;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceil;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Ceiling;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CharacterLength;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Coalesce;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Concat;
@@ -91,23 +90,22 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Cos;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CountEqual;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentDate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTime;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Curtime;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Database;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateDiff;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateTrunc;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DateV2;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.Day;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayName;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfMonth;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfWeek;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DayOfYear;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysDiff;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.DaysSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dceil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Degrees;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Dexp;
@@ -150,7 +148,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.HllHash;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Hour;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HourFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursDiff;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.HoursSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.If;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Initcap;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Instr;
@@ -182,8 +182,6 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Least;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Left;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Length;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Ln;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.LocalTime;
-import org.apache.doris.nereids.trees.expressions.functions.scalar.LocalTimestamp;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Locate;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Log10;
@@ -200,13 +198,17 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.Md5Sum;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Minute;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinuteFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesDiff;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MinutesSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MoneyFormat;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Month;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthName;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsDiff;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.MonthsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiMatchAny;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MultiSearchAllPositions;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.MurmurHash332;
@@ -244,7 +246,9 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.RunningDiffer
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Second;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondFloor;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsDiff;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.SecondsSub;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sign;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Sin;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Size;
@@ -306,12 +310,17 @@ import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeekOfYear;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Weekday;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksDiff;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.WeeksSub;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.WidthBucket;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Year;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearCeil;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearFloor;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearWeek;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsAdd;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsDiff;
+import org.apache.doris.nereids.trees.expressions.functions.scalar.YearsSub;
 
 import com.google.common.collect.ImmutableList;
 
@@ -385,8 +394,7 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(BitmapXorCount.class, "bitmap_xor_count"),
             scalar(Cardinality.class, "cardinality"),
             scalar(Cbrt.class, "cbrt"),
-            scalar(Ceil.class, "ceil"),
-            scalar(Ceiling.class, "ceiling"),
+            scalar(Ceil.class, "ceil", "ceiling"),
             scalar(CharacterLength.class, "char_length", "character_length"),
             scalar(Coalesce.class, "coalesce"),
             scalar(Concat.class, "concat"),
@@ -398,24 +406,23 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Cos.class, "cos"),
             scalar(CountEqual.class, "countequal"),
             scalar(CurrentDate.class, "curdate", "current_date"),
-            scalar(CurrentTime.class, "current_time"),
-            scalar(CurrentTimestamp.class, "current_timestamp"),
+            scalar(CurrentTime.class, "curtime", "current_time"),
             scalar(CurrentUser.class, "current_user"),
-            scalar(Curtime.class, "curtime"),
             scalar(Database.class, "database"),
             scalar(Date.class, "date"),
             scalar(DateDiff.class, "datediff"),
             scalar(DateFormat.class, "date_format"),
             scalar(DateTrunc.class, "date_trunc"),
             scalar(DateV2.class, "datev2"),
-            scalar(Day.class, "day"),
             scalar(DayCeil.class, "day_ceil"),
             scalar(DayFloor.class, "day_floor"),
             scalar(DayName.class, "dayname"),
-            scalar(DayOfMonth.class, "dayofmonth"),
+            scalar(DayOfMonth.class, "day", "dayofmonth"),
             scalar(DayOfWeek.class, "dayofweek"),
             scalar(DayOfYear.class, "dayofyear"),
+            scalar(DaysAdd.class, "days_add", "date_add", "adddate"),
             scalar(DaysDiff.class, "days_diff"),
+            scalar(DaysSub.class, "days_sub", "date_sub", "subdate"),
             scalar(Dceil.class, "dceil"),
             scalar(Degrees.class, "degrees"),
             scalar(Dexp.class, "dexp"),
@@ -458,7 +465,9 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Hour.class, "hour"),
             scalar(HourCeil.class, "hour_ceil"),
             scalar(HourFloor.class, "hour_floor"),
+            scalar(HoursAdd.class, "hours_add"),
             scalar(HoursDiff.class, "hours_diff"),
+            scalar(HoursSub.class, "hours_sub"),
             scalar(If.class, "if"),
             scalar(Initcap.class, "initcap"),
             scalar(Instr.class, "instr"),
@@ -490,8 +499,6 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Left.class, "left"),
             scalar(Length.class, "length"),
             scalar(Ln.class, "ln"),
-            scalar(LocalTime.class, "localtime"),
-            scalar(LocalTimestamp.class, "localtimestamp"),
             scalar(Locate.class, "locate"),
             scalar(Log.class, "log"),
             scalar(Log10.class, "log10"),
@@ -508,20 +515,24 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Minute.class, "minute"),
             scalar(MinuteCeil.class, "minute_ceil"),
             scalar(MinuteFloor.class, "minute_floor"),
+            scalar(MinutesAdd.class, "minutes_add"),
             scalar(MinutesDiff.class, "minutes_diff"),
+            scalar(MinutesSub.class, "minutes_sub"),
             scalar(MoneyFormat.class, "money_format"),
             scalar(Month.class, "month"),
             scalar(MonthCeil.class, "month_ceil"),
             scalar(MonthFloor.class, "month_floor"),
             scalar(MonthName.class, "monthname"),
+            scalar(MonthsAdd.class, "months_add"),
             scalar(MonthsDiff.class, "months_diff"),
+            scalar(MonthsSub.class, "months_sub"),
             scalar(MultiMatchAny.class, "multi_match_any"),
             scalar(MultiSearchAllPositions.class, "multi_search_all_positions"),
             scalar(MurmurHash332.class, "murmur_hash3_32"),
             scalar(MurmurHash364.class, "murmur_hash3_64"),
             scalar(Negative.class, "negative"),
             scalar(NotNullOrEmpty.class, "not_null_or_empty"),
-            scalar(Now.class, "now"),
+            scalar(Now.class, "now", "current_timestamp", "localtime", "localtimestamp"),
             scalar(NullIf.class, "nullif"),
             scalar(NullOrEmpty.class, "null_or_empty"),
             scalar(Nvl.class, "ifnull", "nvl"),
@@ -552,7 +563,9 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(Second.class, "second"),
             scalar(SecondCeil.class, "second_ceil"),
             scalar(SecondFloor.class, "second_floor"),
+            scalar(SecondsAdd.class, "seconds_add"),
             scalar(SecondsDiff.class, "seconds_diff"),
+            scalar(SecondsSub.class, "seconds_sub"),
             scalar(Sign.class, "sign"),
             scalar(Sin.class, "sin"),
             scalar(Size.class, "size"),
@@ -614,12 +627,17 @@ public class BuiltinScalarFunctions implements FunctionHelper {
             scalar(WeekFloor.class, "week_floor"),
             scalar(WeekOfYear.class, "weekofyear"),
             scalar(Weekday.class, "weekday"),
+            scalar(WeeksAdd.class, "weeks_add"),
             scalar(WeeksDiff.class, "weeks_diff"),
+            scalar(WeeksSub.class, "weeks_sub"),
+            scalar(WidthBucket.class, "width_bucket"),
             scalar(Year.class, "year"),
             scalar(YearCeil.class, "year_ceil"),
             scalar(YearFloor.class, "year_floor"),
             scalar(YearWeek.class, "yearweek"),
-            scalar(YearsDiff.class, "years_diff")
+            scalar(YearsAdd.class, "years_add"),
+            scalar(YearsDiff.class, "years_diff"),
+            scalar(YearsSub.class, "years_sub")
     );
 
     public static final BuiltinScalarFunctions INSTANCE = new BuiltinScalarFunctions();

@@ -59,12 +59,18 @@ public class EsResource extends Resource {
     public static final String MAX_DOCVALUE_FIELDS = "max_docvalue_fields";
     public static final String NODES_DISCOVERY = "nodes_discovery";
     public static final String HTTP_SSL_ENABLED = "http_ssl_enabled";
+    public static final String MAPPING_ES_ID = "mapping_es_id";
+
+    public static final String LIKE_PUSH_DOWN = "like_push_down";
     public static final String QUERY_DSL = "query_dsl";
 
     public static final String DOC_VALUE_SCAN_DEFAULT_VALUE = "true";
     public static final String KEYWORD_SNIFF_DEFAULT_VALUE = "true";
     public static final String HTTP_SSL_ENABLED_DEFAULT_VALUE = "false";
     public static final String NODES_DISCOVERY_DEFAULT_VALUE = "true";
+    public static final String MAPPING_ES_ID_DEFAULT_VALUE = "false";
+
+    public static final String LIKE_PUSH_DOWN_DEFAULT_VALUE = "true";
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
@@ -85,7 +91,7 @@ public class EsResource extends Resource {
     @Override
     protected void setProperties(Map<String, String> properties) throws DdlException {
         valid(properties, false);
-        this.properties = properties;
+        this.properties = processCompatibleProperties(properties);
     }
 
     public static void valid(Map<String, String> properties, boolean isAlter) throws DdlException {
@@ -122,17 +128,32 @@ public class EsResource extends Resource {
         if (properties.containsKey(EsResource.NODES_DISCOVERY)) {
             EsUtil.getBoolean(properties, EsResource.NODES_DISCOVERY);
         }
+        if (properties.containsKey(EsResource.MAPPING_ES_ID)) {
+            EsUtil.getBoolean(properties, EsResource.MAPPING_ES_ID);
+        }
+        if (properties.containsKey(EsResource.LIKE_PUSH_DOWN)) {
+            EsUtil.getBoolean(properties, EsResource.LIKE_PUSH_DOWN);
+        }
+    }
+
+    private Map<String, String> processCompatibleProperties(Map<String, String> props) {
+        // Compatible with ES catalog properties
+        Map<String, String> properties = Maps.newHashMap(props);
+        if (properties.containsKey("username")) {
+            properties.put(EsResource.USER, properties.remove("username"));
+        }
+        return properties;
     }
 
     @Override
     public Map<String, String> getCopiedProperties() {
-        return Maps.newHashMap(properties);
+        return Maps.newHashMap(processCompatibleProperties(properties));
     }
 
     @Override
     protected void getProcNodeData(BaseProcResult result) {
         String lowerCaseType = type.name().toLowerCase();
-        for (Map.Entry<String, String> entry : properties.entrySet()) {
+        for (Map.Entry<String, String> entry : processCompatibleProperties(properties).entrySet()) {
             result.addRow(Lists.newArrayList(name, lowerCaseType, entry.getKey(), entry.getValue()));
         }
     }

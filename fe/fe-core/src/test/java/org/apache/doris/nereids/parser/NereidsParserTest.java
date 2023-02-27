@@ -31,6 +31,7 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand;
 import org.apache.doris.nereids.trees.plans.commands.ExplainCommand.ExplainLevel;
+import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalCTE;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
@@ -85,7 +86,6 @@ public class NereidsParserTest extends ParserTestBase {
 
     @Test
     public void testParseCTE() {
-        // Just for debug; will be completed before merged;
         NereidsParser nereidsParser = new NereidsParser();
         LogicalPlan logicalPlan;
         String cteSql1 = "with t1 as (select s_suppkey from supplier where s_suppkey < 10) select * from t1";
@@ -104,6 +104,25 @@ public class NereidsParserTest extends ParserTestBase {
         Assertions.assertEquals(((LogicalCTE<?>) logicalPlan).getAliasQueries().size(), 1);
         Optional<List<String>> columnAliases = ((LogicalCTE<?>) logicalPlan).getAliasQueries().get(0).getColumnAliases();
         Assertions.assertEquals(columnAliases.get().size(), 2);
+    }
+
+    @Test
+    public void testParseWindowFunctions() {
+        NereidsParser nereidsParser = new NereidsParser();
+        LogicalPlan logicalPlan;
+        String windowSql1 = "select k1, rank() over(partition by k1 order by k1) as ranking from t1";
+        logicalPlan = nereidsParser.parseSingle(windowSql1);
+        Assertions.assertEquals(PlanType.LOGICAL_PROJECT, logicalPlan.getType());
+        Assertions.assertEquals(((LogicalProject<?>) logicalPlan).getProjects().size(), 2);
+
+        String windowSql2 = "select k1, sum(k2), rank() over(partition by k1 order by k1) as ranking from t1 group by k1";
+        logicalPlan = nereidsParser.parseSingle(windowSql2);
+        Assertions.assertEquals(PlanType.LOGICAL_AGGREGATE, logicalPlan.getType());
+        Assertions.assertEquals(((LogicalAggregate<?>) logicalPlan).getOutputExpressions().size(), 3);
+
+        String windowSql3 = "select rank() over from t1";
+        parsePlan(windowSql3).assertThrowsExactly(ParseException.class)
+                    .assertMessageContains("mismatched input 'from' expecting '('");
     }
 
     @Test
@@ -173,7 +192,7 @@ public class NereidsParserTest extends ParserTestBase {
         String innerJoin2 = "SELECT t1.a FROM t1 JOIN t2 ON t1.id = t2.id;";
         logicalPlan = nereidsParser.parseSingle(innerJoin2);
         logicalJoin = (LogicalJoin) logicalPlan.child(0);
-        Assertions.assertEquals(JoinType.CROSS_JOIN, logicalJoin.getJoinType());
+        Assertions.assertEquals(JoinType.INNER_JOIN, logicalJoin.getJoinType());
 
         String leftJoin1 = "SELECT t1.a FROM t1 LEFT JOIN t2 ON t1.id = t2.id;";
         logicalPlan = nereidsParser.parseSingle(leftJoin1);

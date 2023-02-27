@@ -16,7 +16,6 @@
 // under the License.
 
 #include "olap/iterators.h"
-#include "olap/row.h"
 #include "olap/rowset/segment_v2/column_reader.h"
 
 namespace doris {
@@ -66,14 +65,14 @@ private:
 //      }
 class VMergeIteratorContext {
 public:
-    VMergeIteratorContext(RowwiseIterator* iter, int sequence_id_idx, bool is_unique,
+    VMergeIteratorContext(RowwiseIteratorUPtr&& iter, int sequence_id_idx, bool is_unique,
                           bool is_reverse, std::vector<uint32_t>* read_orderby_key_columns)
-            : _iter(iter),
+            : _iter(std::move(iter)),
               _sequence_id_idx(sequence_id_idx),
               _is_unique(is_unique),
               _is_reverse(is_reverse),
-              _num_columns(iter->schema().num_column_ids()),
-              _num_key_columns(iter->schema().num_key_columns()),
+              _num_columns(_iter->schema().num_column_ids()),
+              _num_key_columns(_iter->schema().num_key_columns()),
               _compare_columns(read_orderby_key_columns) {}
 
     VMergeIteratorContext(const VMergeIteratorContext&) = delete;
@@ -81,10 +80,7 @@ public:
     VMergeIteratorContext& operator=(const VMergeIteratorContext&) = delete;
     VMergeIteratorContext& operator=(VMergeIteratorContext&&) = delete;
 
-    ~VMergeIteratorContext() {
-        delete _iter;
-        _iter = nullptr;
-    }
+    ~VMergeIteratorContext() {}
 
     Status block_reset(const std::shared_ptr<Block>& block);
 
@@ -144,7 +140,7 @@ private:
     // Load next block into _block
     Status _load_next_block();
 
-    RowwiseIterator* _iter;
+    RowwiseIteratorUPtr _iter;
 
     int _sequence_id_idx = -1;
     bool _is_unique = false;
@@ -172,9 +168,9 @@ private:
 class VMergeIterator : public RowwiseIterator {
 public:
     // VMergeIterator takes the ownership of input iterators
-    VMergeIterator(std::vector<RowwiseIterator*>& iters, int sequence_id_idx, bool is_unique,
+    VMergeIterator(std::vector<RowwiseIteratorUPtr>&& iters, int sequence_id_idx, bool is_unique,
                    bool is_reverse, uint64_t* merged_rows)
-            : _origin_iters(iters),
+            : _origin_iters(std::move(iters)),
               _sequence_id_idx(sequence_id_idx),
               _is_unique(is_unique),
               _is_reverse(is_reverse),
@@ -205,7 +201,7 @@ public:
 
     bool update_profile(RuntimeProfile* profile) override {
         if (!_origin_iters.empty()) {
-            return (*_origin_iters.begin())->update_profile(profile);
+            return _origin_iters[0]->update_profile(profile);
         }
         return false;
     }
@@ -278,7 +274,7 @@ private:
     }
 
     // It will be released after '_merge_heap' has been built.
-    std::vector<RowwiseIterator*> _origin_iters;
+    std::vector<RowwiseIteratorUPtr> _origin_iters;
 
     const Schema* _schema = nullptr;
 
@@ -309,21 +305,21 @@ private:
 //
 // Inputs iterators' ownership is taken by created merge iterator. And client
 // should delete returned iterator after usage.
-RowwiseIterator* new_merge_iterator(std::vector<RowwiseIterator*>& inputs, int sequence_id_idx,
-                                    bool is_unique, bool is_reverse, uint64_t* merged_rows);
+RowwiseIteratorUPtr new_merge_iterator(std::vector<RowwiseIteratorUPtr>&& inputs,
+                                       int sequence_id_idx, bool is_unique, bool is_reverse,
+                                       uint64_t* merged_rows);
 
 // Create a union iterator for input iterators. Union iterator will read
 // input iterators one by one.
 //
-// Inputs iterators' ownership is taken by created union iterator. And client
-// should delete returned iterator after usage.
-RowwiseIterator* new_union_iterator(std::vector<RowwiseIterator*>& inputs);
+// Inputs iterators' ownership is taken by created union iterator.
+RowwiseIteratorUPtr new_union_iterator(std::vector<RowwiseIteratorUPtr>&& inputs);
 
 // Create an auto increment iterator which returns num_rows data in format of schema.
 // This class aims to be used in unit test.
 //
 // Client should delete returned iterator.
-RowwiseIterator* new_auto_increment_iterator(const Schema& schema, size_t num_rows);
+RowwiseIteratorUPtr new_auto_increment_iterator(const Schema& schema, size_t num_rows);
 
 RowwiseIterator* new_vstatistics_iterator(std::shared_ptr<Segment> segment, const Schema& schema);
 

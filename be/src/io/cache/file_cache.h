@@ -77,7 +77,7 @@ protected:
     struct SubFileLRUComparator {
         bool operator()(const T& lhs, const T& rhs) const {
             return lhs.last_match_time > rhs.last_match_time;
-        };
+        }
     };
 
     size_t _cache_file_size;

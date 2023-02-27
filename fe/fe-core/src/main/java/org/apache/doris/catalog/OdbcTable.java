@@ -88,7 +88,17 @@ public class OdbcTable extends Table {
     }
 
     private static String mssqlProperName(String name) {
-        return "[" + name + "]";
+        // In JdbcExternalTable, the name contains databaseName, like: db.table
+        // So, we should split db and table, then switch to [db].[table].
+        String[] fields = name.split("\\.");
+        String result = "";
+        for (int i = 0; i < fields.length; ++i) {
+            if (i != 0) {
+                result += ".";
+            }
+            result += ("[" + fields[i] + "]");
+        }
+        return result;
     }
 
     private static String psqlProperName(String name) {
@@ -155,7 +165,7 @@ public class OdbcTable extends Table {
             }
 
             // 2. check resource usage privilege
-            if (!Env.getCurrentEnv().getAuth().checkResourcePriv(ConnectContext.get(),
+            if (!Env.getCurrentEnv().getAccessManager().checkResourcePriv(ConnectContext.get(),
                     odbcCatalogResourceName,
                     PrivPredicate.USAGE)) {
                 throw new DdlException("USAGE denied to user '" + ConnectContext.get().getQualifiedUser()

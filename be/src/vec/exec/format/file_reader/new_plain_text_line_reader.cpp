@@ -88,7 +88,7 @@ void NewPlainTextLineReader::close() {
 inline bool NewPlainTextLineReader::update_eof() {
     if (done()) {
         _eof = true;
-    } else if (_decompressor == nullptr && (_min_length >= 0 && _total_read_bytes >= _min_length)) {
+    } else if (_decompressor == nullptr && (_total_read_bytes >= _min_length)) {
         _eof = true;
     }
     return _eof;

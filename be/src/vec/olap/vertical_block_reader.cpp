@@ -20,7 +20,6 @@
 #include "common/status.h"
 #include "olap/like_column_predicate.h"
 #include "olap/olap_common.h"
-#include "runtime/mem_pool.h"
 #include "vec/aggregate_functions/aggregate_function_reader.h"
 #include "vec/olap/block_reader.h"
 #include "vec/olap/vcollect_iterator.h"
@@ -37,11 +36,10 @@ VerticalBlockReader::~VerticalBlockReader() {
 }
 
 Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_params,
-                                                   std::vector<RowwiseIterator*>* segment_iters,
+                                                   std::vector<RowwiseIteratorUPtr>* segment_iters,
                                                    std::vector<bool>* iterator_init_flag,
                                                    std::vector<RowsetId>* rowset_ids) {
-    std::vector<RowsetReaderSharedPtr> rs_readers;
-    auto res = _capture_rs_readers(read_params, &rs_readers);
+    auto res = _capture_rs_readers(read_params);
     if (!res.ok()) {
         LOG(WARNING) << "fail to init reader when _capture_rs_readers. res:" << res
                      << ", tablet_id:" << read_params.tablet->tablet_id()
@@ -50,12 +48,13 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
                      << ", version:" << read_params.version;
         return res;
     }
-    _reader_context.batch_size = _batch_size;
     _reader_context.is_vec = true;
     _reader_context.is_vertical_compaction = true;
-    for (auto& rs_reader : rs_readers) {
+    for (auto& rs_reader : read_params.rs_readers) {
         // segment iterator will be inited here
-        RETURN_NOT_OK(rs_reader->get_segment_iterators(&_reader_context, segment_iters));
+        // In vertical compaction, every group will load segment so we should cache
+        // segment to avoid tot many s3 head request
+        RETURN_NOT_OK(rs_reader->get_segment_iterators(&_reader_context, segment_iters, true));
         // if segments overlapping, all segment iterator should be inited in
         // heap merge iterator. If segments are none overlapping, only first segment of this
         // rowset will be inited and push to heap, other segment will be inited later when current
@@ -84,7 +83,7 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
 
 Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params) {
     // get segment iterators
-    std::vector<RowwiseIterator*> segment_iters;
+    std::vector<RowwiseIteratorUPtr> segment_iters;
     std::vector<bool> iterator_init_flag;
     std::vector<RowsetId> rowset_ids;
     RETURN_IF_ERROR(
@@ -99,11 +98,11 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params) 
             seq_col_idx = read_params.tablet->tablet_schema()->sequence_col_idx();
         }
         _vcollect_iter = new_vertical_heap_merge_iterator(
-                segment_iters, iterator_init_flag, rowset_ids, ori_return_col_size,
+                std::move(segment_iters), iterator_init_flag, rowset_ids, ori_return_col_size,
                 read_params.tablet->keys_type(), seq_col_idx, _row_sources_buffer);
     } else {
-        _vcollect_iter = new_vertical_mask_merge_iterator(segment_iters, ori_return_col_size,
-                                                          _row_sources_buffer);
+        _vcollect_iter = new_vertical_mask_merge_iterator(std::move(segment_iters),
+                                                          ori_return_col_size, _row_sources_buffer);
     }
     // init collect iterator
     StorageReadOptions opts;
@@ -124,7 +123,8 @@ void VerticalBlockReader::_init_agg_state(const ReaderParams& read_params) {
         return;
     }
     DCHECK(_return_columns.size() == _next_row.block->columns());
-    _stored_data_columns = _next_row.block->create_same_struct_block(_batch_size)->mutate_columns();
+    _stored_data_columns =
+            _next_row.block->create_same_struct_block(_reader_context.batch_size)->mutate_columns();
 
     _stored_has_null_tag.resize(_stored_data_columns.size());
     _stored_has_string_tag.resize(_stored_data_columns.size());
@@ -154,11 +154,14 @@ void VerticalBlockReader::_init_agg_state(const ReaderParams& read_params) {
 
 Status VerticalBlockReader::init(const ReaderParams& read_params) {
     StorageReadOptions opts;
-    _batch_size = opts.block_row_max;
+    _reader_context.batch_size = opts.block_row_max;
     RETURN_NOT_OK(TabletReader::init(read_params));
 
     auto status = _init_collect_iter(read_params);
     if (!status.ok()) {
+        if (status.is_io_error()) {
+            _tablet->increase_io_error_times();
+        }
         return status;
     }
 
@@ -185,8 +188,7 @@ Status VerticalBlockReader::init(const ReaderParams& read_params) {
     return Status::OK();
 }
 
-Status VerticalBlockReader::_direct_next_block(Block* block, MemPool* mem_pool,
-                                               ObjectPool* agg_pool, bool* eof) {
+Status VerticalBlockReader::_direct_next_block(Block* block, bool* eof) {
     auto res = _vcollect_iter->next_batch(block);
     if (UNLIKELY(!res.ok() && !res.is<END_OF_FILE>())) {
         return res;
@@ -209,7 +211,7 @@ void VerticalBlockReader::_append_agg_data(MutableColumns& columns) {
 
     // execute aggregate when have `batch_size` column or some ref invalid soon
     bool is_last = (_next_row.block->rows() == _next_row.row_pos + 1);
-    if (is_last || _stored_row_ref.size() == _batch_size) {
+    if (is_last || _stored_row_ref.size() == _reader_context.batch_size) {
         _update_agg_data(columns);
     }
 }
@@ -296,8 +298,7 @@ size_t VerticalBlockReader::_copy_agg_data() {
     return copy_size;
 }
 
-Status VerticalBlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool,
-                                                ObjectPool* agg_pool, bool* eof) {
+Status VerticalBlockReader::_agg_key_next_block(Block* block, bool* eof) {
     if (_reader_context.is_key_column_group) {
         // collect_iter will filter agg keys
         auto res = _vcollect_iter->next_batch(block);
@@ -333,7 +334,7 @@ Status VerticalBlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool,
         }
         DCHECK(_next_row.block->columns() == block->columns());
         if (!_next_row.is_same) {
-            if (target_block_row == _batch_size) {
+            if (target_block_row == _reader_context.batch_size) {
                 break;
             }
             _agg_data_counters.push_back(_last_agg_data_counter);
@@ -350,8 +351,7 @@ Status VerticalBlockReader::_agg_key_next_block(Block* block, MemPool* mem_pool,
     return Status::OK();
 }
 
-Status VerticalBlockReader::_unique_key_next_block(Block* block, MemPool* mem_pool,
-                                                   ObjectPool* agg_pool, bool* eof) {
+Status VerticalBlockReader::_unique_key_next_block(Block* block, bool* eof) {
     if (_reader_context.is_key_column_group) {
         // Record row_source_buffer current size for key column agg flag
         // _vcollect_iter->next_batch(block) will fill row_source_buffer but delete sign is ignored
@@ -395,8 +395,10 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, MemPool* mem_po
                 bool sign = (delete_data[i] == 0);
                 filter_data[i] = sign;
                 if (UNLIKELY(!sign)) {
-                    _row_sources_buffer->set_agg_flag(row_source_idx + i, true);
+                    _row_sources_buffer->set_agg_flag(row_source_idx, true);
                 }
+                // skip same rows filtered in vertical_merge_iterator
+                row_source_idx += _row_sources_buffer->continuous_agg_count(row_source_idx);
             }
 
             ColumnWithTypeAndName column_with_type_and_name {_delete_filter_column,
@@ -432,7 +434,7 @@ Status VerticalBlockReader::_unique_key_next_block(Block* block, MemPool* mem_po
                                            _next_row.row_pos);
         }
         ++target_block_row;
-    } while (target_block_row < _batch_size);
+    } while (target_block_row < _reader_context.batch_size);
     return Status::OK();
 }
 

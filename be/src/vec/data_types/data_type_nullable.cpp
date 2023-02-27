@@ -158,4 +158,21 @@ DataTypePtr remove_nullable(const DataTypePtr& type) {
     return type;
 }
 
+DataTypes remove_nullable(const DataTypes& types) {
+    DataTypes no_null_types;
+    for (auto& type : types) {
+        no_null_types.push_back(remove_nullable(type));
+    }
+    return no_null_types;
+}
+
+bool have_nullable(const DataTypes& types) {
+    for (auto& type : types) {
+        if (type->is_nullable()) {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace doris::vectorized

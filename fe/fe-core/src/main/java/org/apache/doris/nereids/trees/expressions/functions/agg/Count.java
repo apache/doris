@@ -50,9 +50,11 @@ public class Count extends AggregateFunction
         this.isStar = true;
     }
 
-    public Count(Expression child) {
-        super("count", child);
-        this.isStar = false;
+    /**
+     * this constructor use for COUNT(c1, c2) to get correct error msg.
+     */
+    public Count(Expression child, Expression... varArgs) {
+        this(false, child, varArgs);
     }
 
     public Count(boolean distinct, Expression arg0, Expression... varArgs) {

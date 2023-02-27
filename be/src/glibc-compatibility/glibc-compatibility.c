@@ -138,7 +138,7 @@ int __open_2(const char *path, int oflag)
 
 /// No-ops.
 int pthread_setname_np(pthread_t thread, const char *name) { return 0; }
-int pthread_getname_np(pthread_t thread, char *name, size_t len) { name[0] = '\0'; return 0; };
+int pthread_getname_np(pthread_t thread, char *name, size_t len) { name[0] = '\0'; return 0; }
 
 
 #define SHMDIR "/dev/shm/"
@@ -172,7 +172,7 @@ void __attribute__((__weak__)) explicit_bzero(void * buf, size_t len)
 
 void __explicit_bzero_chk(void * buf, size_t len, size_t unused)
 {
-    return explicit_bzero(buf, len);
+    explicit_bzero(buf, len);
 }
 
 

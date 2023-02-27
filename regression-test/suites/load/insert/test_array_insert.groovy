@@ -133,7 +133,6 @@ suite("test_array_insert", "load") {
         assertTrue(result2[0][0] == 1, "Insert should update 1 rows")
     }
     
-    // case2: enable_vectorized_flag = true
     try {
         sql "DROP TABLE IF EXISTS ${testTable}"
         

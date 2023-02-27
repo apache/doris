@@ -47,6 +47,7 @@ public class JoinTest extends SqlTestBase {
                 .optimize()
                 .getBestPlanTree();
         // generate colocate join plan without physicalDistribute
+        System.out.println(plan.treeString());
         Assertions.assertFalse(plan.anyMatch(PhysicalDistribute.class::isInstance));
         sql = "select * from T1 join T0 on T1.score = T0.score and T1.id = T0.id;";
         plan = PlanChecker.from(connectContext)
@@ -57,5 +58,24 @@ public class JoinTest extends SqlTestBase {
                 .getBestPlanTree();
         // generate colocate join plan without physicalDistribute
         Assertions.assertFalse(plan.anyMatch(PhysicalDistribute.class::isInstance));
+    }
+
+    @Test
+    void testDedupConjuncts() {
+        String sql = "select * from T1 join T2 on T1.id = T2.id and T1.id = T2.id;";
+        PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .matches(
+                        innerLogicalJoin().when(j -> j.getHashJoinConjuncts().size() == 1)
+                );
+
+        String sql1 = "select * from T1 left join T2 on T1.id = T2.id and T1.id = T2.id;";
+        PlanChecker.from(connectContext)
+                .analyze(sql1)
+                .rewrite()
+                .matches(
+                        leftOuterLogicalJoin().when(j -> j.getHashJoinConjuncts().size() == 1)
+                );
     }
 }

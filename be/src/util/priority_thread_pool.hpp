@@ -21,6 +21,7 @@
 #include <thread>
 
 #include "util/blocking_priority_queue.hpp"
+#include "util/lock.h"
 #include "util/thread.h"
 #include "util/thread_group.h"
 
@@ -54,7 +55,7 @@ public:
     //     queue exceeds this size, subsequent calls to Offer will block until there is
     //     capacity available.
     PriorityThreadPool(uint32_t num_threads, uint32_t queue_size, const std::string& name)
-            : _work_queue(queue_size), _shutdown(false), _name(name) {
+            : _work_queue(queue_size), _shutdown(false), _name(name), _active_threads(0) {
         for (int i = 0; i < num_threads; ++i) {
             _threads.create_thread(
                     std::bind<void>(std::mem_fn(&PriorityThreadPool::work_thread), this, i));
@@ -100,13 +101,14 @@ public:
     virtual void join() { _threads.join_all(); }
 
     virtual uint32_t get_queue_size() const { return _work_queue.get_size(); }
+    virtual uint32_t get_active_threads() const { return _active_threads; }
 
     // Blocks until the work queue is empty, and then calls shutdown to stop the worker
     // threads and Join to wait until they are finished.
     // Any work Offer()'ed during DrainAndshutdown may or may not be processed.
     virtual void drain_and_shutdown() {
         {
-            std::unique_lock<std::mutex> l(_lock);
+            std::unique_lock l(_lock);
             while (_work_queue.get_size() != 0) {
                 _empty_cv.wait(l);
             }
@@ -122,10 +124,10 @@ protected:
     ThreadGroup _threads;
 
     // Guards _empty_cv
-    std::mutex _lock;
+    doris::Mutex _lock;
 
     // Signalled when the queue becomes empty
-    std::condition_variable _empty_cv;
+    doris::ConditionVariable _empty_cv;
 
 private:
     // Driver method for each thread in the pool. Continues to read work from the queue
@@ -135,7 +137,9 @@ private:
         while (!is_shutdown()) {
             Task task;
             if (_work_queue.blocking_get(&task)) {
+                _active_threads++;
                 task.work_function();
+                _active_threads--;
             }
             if (_work_queue.get_size() == 0) {
                 _empty_cv.notify_all();
@@ -150,6 +154,7 @@ private:
     // Set to true when threads should stop doing work and terminate.
     std::atomic<bool> _shutdown;
     std::string _name;
+    std::atomic<int> _active_threads;
 };
 
 } // namespace doris

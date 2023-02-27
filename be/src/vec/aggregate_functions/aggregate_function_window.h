@@ -41,7 +41,7 @@ class WindowFunctionRowNumber final
         : public IAggregateFunctionDataHelper<RowNumberData, WindowFunctionRowNumber> {
 public:
     WindowFunctionRowNumber(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper(argument_types_, {}) {}
+            : IAggregateFunctionDataHelper(argument_types_) {}
 
     String get_name() const override { return "row_number"; }
 
@@ -79,7 +79,7 @@ struct RankData {
 class WindowFunctionRank final : public IAggregateFunctionDataHelper<RankData, WindowFunctionRank> {
 public:
     WindowFunctionRank(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper(argument_types_, {}) {}
+            : IAggregateFunctionDataHelper(argument_types_) {}
 
     String get_name() const override { return "rank"; }
 
@@ -123,7 +123,7 @@ class WindowFunctionDenseRank final
         : public IAggregateFunctionDataHelper<DenseRankData, WindowFunctionDenseRank> {
 public:
     WindowFunctionDenseRank(const DataTypes& argument_types_)
-            : IAggregateFunctionDataHelper(argument_types_, {}) {}
+            : IAggregateFunctionDataHelper(argument_types_) {}
 
     String get_name() const override { return "dense_rank"; }
 
@@ -164,8 +164,8 @@ struct NTileData {
 class WindowFunctionNTile final
         : public IAggregateFunctionDataHelper<NTileData, WindowFunctionNTile> {
 public:
-    WindowFunctionNTile(const DataTypes& argument_types_, const Array& parameters)
-            : IAggregateFunctionDataHelper(argument_types_, parameters) {}
+    WindowFunctionNTile(const DataTypes& argument_types_)
+            : IAggregateFunctionDataHelper(argument_types_) {}
 
     String get_name() const override { return "ntile"; }
 
@@ -370,7 +370,7 @@ class WindowFunctionData final
         : public IAggregateFunctionDataHelper<Data, WindowFunctionData<Data>> {
 public:
     WindowFunctionData(const DataTypes& argument_types)
-            : IAggregateFunctionDataHelper<Data, WindowFunctionData<Data>>(argument_types, {}),
+            : IAggregateFunctionDataHelper<Data, WindowFunctionData<Data>>(argument_types),
               _argument_type(argument_types[0]) {}
 
     String get_name() const override { return Data::name(); }

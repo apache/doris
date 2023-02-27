@@ -45,12 +45,13 @@ class OuterJoinLAsscomProjectTest implements PatternMatchSupported {
     @Test
     void testJoinLAsscomProject() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
                 .project(ImmutableList.of(0, 1, 2))
-                .hashJoinUsing(scan3, JoinType.LEFT_OUTER_JOIN, Pair.of(1, 1))
+                .join(scan3, JoinType.LEFT_OUTER_JOIN, Pair.of(1, 1))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
+                .printlnTree()
                 .applyExploration(OuterJoinLAsscomProject.INSTANCE.build())
                 .printlnExploration()
                 .matchesExploration(
@@ -69,9 +70,9 @@ class OuterJoinLAsscomProjectTest implements PatternMatchSupported {
     @Test
     void testAlias() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
                 .alias(ImmutableList.of(0, 2), ImmutableList.of("t1.id", "t2.id"))
-                .hashJoinUsing(scan3, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
+                .join(scan3, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
@@ -96,35 +97,31 @@ class OuterJoinLAsscomProjectTest implements PatternMatchSupported {
     @Test
     void testAliasTopMultiHashJoin() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0)) // t1.id=t2.id
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0)) // t1.id=t2.id
                 .alias(ImmutableList.of(0, 2), ImmutableList.of("t1.id", "t2.id"))
                 // t1.id=t3.id t2.id = t3.id
-                .hashJoinUsing(scan3, JoinType.LEFT_OUTER_JOIN, ImmutableList.of(Pair.of(0, 0), Pair.of(1, 0)))
+                .join(scan3, JoinType.LEFT_OUTER_JOIN, ImmutableList.of(Pair.of(0, 0), Pair.of(1, 0)))
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyExploration(OuterJoinLAsscomProject.INSTANCE.build())
                 .printlnOrigin()
-                .checkMemo(memo -> {
-                    Assertions.assertEquals(1, memo.getRoot().getLogicalExpressions().size());
-                });
+                .checkMemo(memo -> Assertions.assertEquals(1, memo.getRoot().getLogicalExpressions().size()));
     }
 
     @Test
     void testAliasTopMultiHashJoinLeftOuterInner() {
         LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0)) // t1.id=t2.id
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, Pair.of(0, 0)) // t1.id=t2.id
                 .alias(ImmutableList.of(0, 2), ImmutableList.of("t1.id", "t2.id"))
-                // t1.id=t3.id t2.id = t3.id
-                .hashJoinUsing(scan3, JoinType.INNER_JOIN, ImmutableList.of(Pair.of(0, 0), Pair.of(1, 0)))
+                // t1.id=t3.id t2.id=t3.id
+                .join(scan3, JoinType.INNER_JOIN, ImmutableList.of(Pair.of(0, 0), Pair.of(1, 0)))
                 .build();
 
         // transform failed.
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)
                 .applyExploration(OuterJoinLAsscomProject.INSTANCE.build())
-                .checkMemo(memo -> {
-                    Assertions.assertEquals(1, memo.getRoot().getLogicalExpressions().size());
-                });
+                .checkMemo(memo -> Assertions.assertEquals(1, memo.getRoot().getLogicalExpressions().size()));
     }
 
     @Test
@@ -133,17 +130,19 @@ class OuterJoinLAsscomProjectTest implements PatternMatchSupported {
                 new EqualTo(scan1.getOutput().get(0), scan2.getOutput().get(0)));
         List<Expression> bottomOtherJoinConjunct = ImmutableList.of(
                 new GreaterThan(scan1.getOutput().get(1), scan2.getOutput().get(1)));
-        List<Expression> topHashJoinConjunct = ImmutableList.of(
-                new EqualTo(scan1.getOutput().get(0), scan3.getOutput().get(0)),
-                new EqualTo(scan2.getOutput().get(0), scan3.getOutput().get(0)));
-        List<Expression> topOtherJoinConjunct = ImmutableList.of(
-                new GreaterThan(scan1.getOutput().get(1), scan3.getOutput().get(1)),
-                new GreaterThan(scan2.getOutput().get(1), scan3.getOutput().get(1)));
-
-        LogicalPlan plan = new LogicalPlanBuilder(scan1)
-                .hashJoinUsing(scan2, JoinType.LEFT_OUTER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
+        LogicalPlan project = new LogicalPlanBuilder(scan1)
+                .join(scan2, JoinType.LEFT_OUTER_JOIN, bottomHashJoinConjunct, bottomOtherJoinConjunct)
                 .alias(ImmutableList.of(0, 1, 2, 3), ImmutableList.of("t1.id", "t1.name", "t2.id", "t2.name"))
-                .hashJoinUsing(scan3, JoinType.LEFT_OUTER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
+                .build();
+
+        List<Expression> topHashJoinConjunct = ImmutableList.of(
+                new EqualTo(project.getOutput().get(0), scan3.getOutput().get(0)),
+                new EqualTo(project.getOutput().get(2), scan3.getOutput().get(0)));
+        List<Expression> topOtherJoinConjunct = ImmutableList.of(
+                new GreaterThan(project.getOutput().get(1), scan3.getOutput().get(1)),
+                new GreaterThan(project.getOutput().get(3), scan3.getOutput().get(1)));
+        LogicalPlan plan = new LogicalPlanBuilder(project)
+                .join(scan3, JoinType.LEFT_OUTER_JOIN, topHashJoinConjunct, topOtherJoinConjunct)
                 .build();
 
         PlanChecker.from(MemoTestUtils.createConnectContext(), plan)

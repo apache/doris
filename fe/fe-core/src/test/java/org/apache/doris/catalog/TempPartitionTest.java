@@ -433,7 +433,7 @@ public class TempPartitionTest {
         checkShowPartitionsResultNum("db2.tbl2", false, 3);
         checkShowPartitionsResultNum("db2.tbl2", true, 0);
 
-        stmtStr = "alter table db2.tbl2 add rollup r1(k1);";
+        stmtStr = "alter table db2.tbl2 add rollup r1(k2, k1);";
         alterTable(stmtStr, false);
 
         stmtStr = "alter table db2.tbl2 add temporary partition p2 values less than('20');";
@@ -806,7 +806,7 @@ public class TempPartitionTest {
         checkShowPartitionsResultNum("db4.tbl4", false, 3);
         checkShowPartitionsResultNum("db4.tbl4", true, 0);
 
-        stmtStr = "alter table db4.tbl4 add rollup r1(k1);";
+        stmtStr = "alter table db4.tbl4 add rollup r1(k2,k1);";
         alterTable(stmtStr, false);
 
         stmtStr = "alter table db4.tbl4 add temporary partition p2 values in ('1', '2', '3', '4', '5', '6');";
@@ -1170,7 +1170,7 @@ public class TempPartitionTest {
         checkShowPartitionsResultNum("db5.tbl5", false, 3);
         checkShowPartitionsResultNum("db5.tbl5", true, 0);
 
-        stmtStr = "alter table db5.tbl5 add rollup r1(k1);";
+        stmtStr = "alter table db5.tbl5 add rollup r1(k2, k1);";
         alterTable(stmtStr, false);
 
         stmtStr = "alter table db5.tbl5 add temporary partition p2 values in"

@@ -53,7 +53,6 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.Map;
 import java.util.Objects;
 
@@ -68,33 +67,63 @@ class MemoTest implements PatternMatchSupported {
     private final LogicalJoin<LogicalJoin<LogicalOlapScan, LogicalOlapScan>, LogicalOlapScan> logicalJoinABC = new LogicalJoin<>(
             JoinType.INNER_JOIN, logicalJoinAB, PlanConstructor.newLogicalOlapScan(2, "C", 0));
 
+    /*
+     * ┌─────────────────────────┐     ┌───────────┐
+     * │  ┌─────┐       ┌─────┐  │     │  ┌─────┐  │
+     * │  │0┌─┐ │       │1┌─┐ │  │     │  │1┌─┐ │  │
+     * │  │ └┼┘ │       │ └┼┘ │  │     │  │ └┼┘ │  │
+     * │  └──┼──┘       └──┼──┘  │     │  └──┼──┘  │
+     * │Memo │             │     ├────►│Memo │     │
+     * │  ┌──▼──┐       ┌──▼──┐  │     │  ┌──▼──┐  │
+     * │  │ src │       │ dst │  │     │  │ dst │  │
+     * │  │2    │       │3    │  │     │  │3    │  │
+     * │  └─────┘       └─────┘  │     │  └─────┘  │
+     * └─────────────────────────┘     └───────────┘
+     */
     @Test
-    void mergeGroup() {
+    void testMergeGroup() {
+        Group srcGroup = new Group(new GroupId(2), new GroupExpression(new FakePlan()),
+                new LogicalProperties(ArrayList::new));
+        Group dstGroup = new Group(new GroupId(3), new GroupExpression(new FakePlan()),
+                new LogicalProperties(ArrayList::new));
+
+        FakePlan fakePlan = new FakePlan();
+        GroupExpression srcParentExpression = new GroupExpression(fakePlan, Lists.newArrayList(srcGroup));
+        Group srcParentGroup = new Group(new GroupId(0), srcParentExpression, new LogicalProperties(ArrayList::new));
+        srcParentGroup.setBestPlan(srcParentExpression, Double.MIN_VALUE, PhysicalProperties.ANY);
+        GroupExpression dstParentExpression = new GroupExpression(fakePlan, Lists.newArrayList(dstGroup));
+        Group dstParentGroup = new Group(new GroupId(1), dstParentExpression, new LogicalProperties(ArrayList::new));
+
         Memo memo = new Memo();
-        GroupId gid2 = new GroupId(2);
-        Group srcGroup = new Group(gid2, new GroupExpression(new FakePlan()), new LogicalProperties(ArrayList::new));
-        GroupId gid3 = new GroupId(3);
-        Group dstGroup = new Group(gid3, new GroupExpression(new FakePlan()), new LogicalProperties(ArrayList::new));
-        FakePlan d = new FakePlan();
-        GroupExpression ge1 = new GroupExpression(d, Arrays.asList(srcGroup));
-        GroupId gid0 = new GroupId(0);
-        Group g1 = new Group(gid0, ge1, new LogicalProperties(ArrayList::new));
-        g1.setBestPlan(ge1, Double.MIN_VALUE, PhysicalProperties.ANY);
-        GroupExpression ge2 = new GroupExpression(d, Arrays.asList(dstGroup));
-        GroupId gid1 = new GroupId(1);
-        Group g2 = new Group(gid1, ge2, new LogicalProperties(ArrayList::new));
         Map<GroupId, Group> groups = Deencapsulation.getField(memo, "groups");
-        groups.put(gid2, srcGroup);
-        groups.put(gid3, dstGroup);
-        groups.put(gid0, g1);
-        groups.put(gid1, g2);
+        groups.put(srcGroup.getGroupId(), srcGroup);
+        groups.put(dstGroup.getGroupId(), dstGroup);
+        groups.put(srcParentGroup.getGroupId(), srcParentGroup);
+        groups.put(dstParentGroup.getGroupId(), dstParentGroup);
         Map<GroupExpression, GroupExpression> groupExpressions =
                 Deencapsulation.getField(memo, "groupExpressions");
-        groupExpressions.put(ge1, ge1);
-        groupExpressions.put(ge2, ge2);
+        groupExpressions.put(srcParentExpression, srcParentExpression);
+        groupExpressions.put(dstParentExpression, dstParentExpression);
+
         memo.mergeGroup(srcGroup, dstGroup);
-        Assertions.assertNull(g1.getBestPlan(PhysicalProperties.ANY));
-        Assertions.assertEquals(ge1.getOwnerGroup(), g2);
+
+        // check
+        Assertions.assertEquals(0, srcGroup.getParentGroupExpressions().size());
+        Assertions.assertEquals(0, srcGroup.getPhysicalExpressions().size());
+        Assertions.assertEquals(0, srcGroup.getLogicalExpressions().size());
+
+        Assertions.assertEquals(0, srcParentGroup.getParentGroupExpressions().size());
+        Assertions.assertEquals(0, srcParentGroup.getPhysicalExpressions().size());
+        Assertions.assertEquals(0, srcParentGroup.getLogicalExpressions().size());
+
+        // TODO: add root test.
+        // Assertions.assertEquals(memo.getRoot(), dstParentGroup);
+
+        Assertions.assertEquals(2, dstGroup.getPhysicalExpressions().size());
+        Assertions.assertEquals(1, dstParentGroup.getPhysicalExpressions().size());
+
+        Assertions.assertNull(srcParentExpression.getOwnerGroup());
+        Assertions.assertEquals(0, srcParentExpression.arity());
     }
 
     /**

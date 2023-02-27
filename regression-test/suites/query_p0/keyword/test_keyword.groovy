@@ -110,7 +110,6 @@ suite("test_keyword", "query,p0") {
             order by k7;"
     try_sql "select k1 as k7, k2 as k8, k3 as k9 from baseall t where k8 > 0 group by k7, k8, k9 having k7 > 5 order by k7;"
 
-    sql 'set enable_vectorized_engine=true'
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
 

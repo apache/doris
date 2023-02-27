@@ -26,22 +26,21 @@ under the License.
 
 # Data Model
 
-This document describes Doris's data model at the logical level to help users better use Doris to cope with different business scenarios.
+This topic introduces the data models in Doris from a logical perspective so you can make better use of Doris in different business scenarios.
 
 ## Basic concepts
 
-In Doris, data is logically described in the form of tables.
-A table consists of rows and columns. Row is a row of user data. Column is used to describe different fields in a row of data.
+In Doris, data is logically described in the form of tables. A table consists of rows and columns. Row is a row of user data. Column is used to describe different fields in a row of data.
 
-Columns can be divided into two categories: Key and Value. From a business perspective, Key and Value can correspond to dimension columns and indicator columns, respectively.
+Columns can be divided into two categories: Key and Value. From a business perspective, Key and Value correspond to dimension columns and indicator columns, respectively.
 
-Doris's data model is divided into three main categories:
+Data models in Doris fall into three types:
 
 * Aggregate
-* Uniq
+* Unique
 * Duplicate
 
-Let's introduce them separately.
+The following is the detailed introduction to each of them.
 
 ## Aggregate Model
 
@@ -63,7 +62,7 @@ Assume that the business has the following data table schema:
 | max dwell time | INT | MAX | Maximum user residence time|
 | min dwell time | INT | MIN | User minimum residence time|
 
-If converted into a table-building statement, the following is done (omitting the Partition and Distribution information in the table-building statement)
+The corresponding CREATE TABLE statement would be as follows (omitting the Partition and Distribution information):
 
 ```
 CREATE TABLE IF NOT EXISTS example_db.example_tbl
@@ -85,19 +84,18 @@ PROPERTIES (
 );
 ```
 
-As you can see, this is a typical fact table of user information and access behavior.
-In general star model, user information and access behavior are stored in dimension table and fact table respectively. Here, in order to explain Doris's data model more conveniently, we store the two parts of information in a single table.
+As you can see, this is a typical fact table of user information and visit behaviors. In star models, user information and visit behaviors are usually stored in dimension tables and fact tables, respectively. Here, for the convenience of explanation, we store the two types of information in one single table.
 
-The columns in the table are divided into Key (dimension column) and Value (indicator column) according to whether `AggregationType`is set or not. No `AggregationType`, such as `user_id`, `date`, `age`, etc., is set as **Key**, while Aggregation Type is set as **Value**.
+The columns in the table are divided into Key (dimension) columns and Value (indicator columns) based on whether they are set with an `AggregationType`. **Key** columns are not set with an  `AggregationType`, such as `user_id`, `date`, and  `age`, while **Value** columns are.
 
-When we import data, the same rows and aggregates into one row for the Key column, while the Value column aggregates according to the set `AggregationType`. `AggregationType`currently has the following four ways of aggregation:
+When data are imported, rows with the same contents in the Key columns will be aggregated into one row, and their values in the Value columns will be aggregated as their `AggregationType` specify. Currently, their are four aggregation types:
 
-1. SUM: Sum, multi-line Value accumulation.
-2. REPLACE: Instead, Values in the next batch of data will replace Values in rows previously imported.
-3. MAX: Keep the maximum.
-4. MIN: Keep the minimum.
+1. SUM: Accumulate the values in multiple rows.
+2. REPLACE: The newly imported value will replace the previous value.
+3. MAX: Keep the maximum value.
+4. MIN: Keep the minimum value.
 
-Suppose we have the following imported data (raw data):
+Suppose that you have the following import data (raw data):
 
 |user\_id|date|city|age|sex|last\_visit\_date|cost|max\_dwell\_time|min\_dwell\_time|
 |---|---|---|---|---|---|---|---|---|
@@ -109,7 +107,7 @@ Suppose we have the following imported data (raw data):
 | 10004 | 2017-10-01 | Shenzhen | 35 | 0 | 2017-10-01 10:00:15 | 100 | 3 | 3|
 | 10004 | 2017-10-03 | Shenzhen | 35 | 0 | 2017-10-03 10:20:22 | 11 | 6 | 6|
 
-Let's assume that this is a table that records the user's behavior in accessing a commodity page. Let's take the first row of data as an example and explain it as follows:
+Assume that this is a table recording the user behaviors when visiting a certain commodity page. The first row of data, for example, is explained as follows:
 
 | Data | Description|
 |---|---|
@@ -123,7 +121,7 @@ Let's assume that this is a table that records the user's behavior in accessing 
 | 10 | User's visit, time to stay on the page|
 | 10 | User's current visit, time spent on the page (redundancy)|
 
-Then when this batch of data is imported into Doris correctly, the final storage in Doris is as follows:
+After this batch of data is imported into Doris correctly, it will be stored in Doris as follows:
 
 |user\_id|date|city|age|sex|last\_visit\_date|cost|max\_dwell\_time|min\_dwell\_time|
 |---|---|---|---|---|---|---|---|---|
@@ -134,169 +132,168 @@ Then when this batch of data is imported into Doris correctly, the final storage
 | 10004 | 2017-10-01 | Shenzhen | 35 | 0 | 2017-10-01 10:00:15 | 100 | 3 | 3|
 | 10004 | 2017-10-03 | Shenzhen | 35 | 0 | 2017-10-03 10:20:22 | 11 | 6 | 6|
 
-As you can see, there is only one line of aggregated data left for 10,000 users. The data of other users are consistent with the original data. Here we first explain the aggregated data of user 10000:
+As you can see, the data of User 10000 have been aggregated to one row, while those of other users remain the same. The explanation for the aggregated data of User 10000 is as follows (the first 5 columns remain unchanged, so it starts with Column 6 `last_visit_date`):
 
-The first five columns remain unchanged, starting with column 6 `last_visit_date`:
+*`2017-10-01 07:00`: The `last_visit_date` column is aggregated by REPLACE, so `2017-10-01 07:00` has replaced  `2017-10-01 06:00`.
 
-*`2017-10-01 07:00`: Because the `last_visit_date`column is aggregated by REPLACE, the `2017-10-01 07:00` column has been replaced by `2017-10-01 06:00`.
-> Note: For data in the same import batch, the order of replacement is not guaranteed for the aggregation of REPLACE. For example, in this case, it may be `2017-10-01 06:00`. For data from different imported batches, it can be guaranteed that the data from the latter batch will replace the former batch.
+> Note: When using REPLACE to aggregate data from the same import batch, the order of replacement is uncertain. That means, in this case, the data eventually saved in Doris could be `2017-10-01 06:00`. However, for different import batches, it is certain that data from the new batch will replace those from the old batch.
 
-*`35`: Because the aggregation type of the `cost`column is SUM, 35 is accumulated from 20 + 15.
-*`10`: Because the aggregation type of the`max_dwell_time`column is MAX, 10 and 2 take the maximum and get 10.
-*`2`: Because the aggregation type of `min_dwell_time`column is MIN, 10 and 2 take the minimum value and get 2.
+*`35`: The `cost`column is aggregated by SUM, so the update value `35` is the result of `20` + `15`.
 
-After aggregation, Doris ultimately only stores aggregated data. In other words, detailed data will be lost and users can no longer query the detailed data before aggregation.
+*`10`: The `max_dwell_time` column is aggregated by MAX, so `10` is saved as it is the maximum between `10` and `2`.
 
-### Example 2: Keep detailed data
+*`2`: The  `min_dwell_time` column is aggregated by MIN, so `2` is saved as it is the minimum between `10` and `2`.
 
-Following example 1, we modify the table structure as follows:
+After aggregation, Doris only stores the aggregated data. In other words, the detailed raw data will no longer be available.
 
-|ColumnName|Type|AggregationType|Comment|
-|---|---|---|---|
-| userid | LARGEINT | | user id|
-| date | DATE | | date of data filling|
-| Time stamp | DATETIME | | Data filling time, accurate to seconds|
-| City | VARCHAR (20) | | User City|
-| age | SMALLINT | | User age|
-| sex | TINYINT | | User gender|
-| Last visit date | DATETIME | REPLACE | Last user access time|
-| Cost | BIGINT | SUM | Total User Consumption|
-| max dwell time | INT | MAX | Maximum user residence time|
-| min dwell time | INT | MIN | User minimum residence time|
+### Example 2: keep detailed data
 
-That is to say, a column of `timestamp` has been added to record the data filling time accurate to seconds.
+Here is a modified version of the table schema in Example 1:
 
-The imported data are as follows:
+| ColumnName      | Type         | AggregationType | Comment                                                      |
+| --------------- | ------------ | --------------- | ------------------------------------------------------------ |
+| user_id         | LARGEINT     |                 | User ID                                                      |
+| date            | DATE         |                 | Date when the data are imported                              |
+| time stamp      | DATETIME     |                 | Date and time when the data are imported (with second-level accuracy) |
+| city            | VARCHAR (20) |                 | User location city                                           |
+| age             | SMALLINT     |                 | User age                                                     |
+| sex             | TINYINT      |                 | User gender                                                  |
+| last visit date | DATETIME     | REPLACE         | Last visit time of the user                                  |
+| cost            | BIGINT       | SUM             | Total consumption of the user                                |
+| max_dwell_time  | INT          | MAX             | Maximum user dwell time                                      |
+| min_dwell_time  | INT          | MIN             | Minimum user dwell time                                      |
 
-|user_id|date|timestamp|city|age|sex|last\_visit\_date|cost|max\_dwell\_time|min\_dwell\_time|
-|---|---|---|---|---|---|---|---|---|---|
-| 10000 | 2017-10-01 | 2017-10-01 08:00:05 | Beijing | 20 | 0 | 2017-10-01 06:00 | 20 | 10 | 10|
-| 10000 | 2017-10-01 | 2017-10-01 09:00:05 | Beijing | 20 | 0 | 2017-10-01 07:00 | 15 | 2 | 2|
-| 10001 | 2017-10-01 | 2017-10-01 18:12:10 | Beijing | 30 | 1 | 2017-10-01 17:05:45 | 2 | 22 | 22|
-| 10002 | 2017-10-02 | 2017-10-02 13:10:00 | Shanghai | 20 | 1 | 2017-10-02 12:59:12 | 200 | 5 | 5|
-| 10003 | 2017-10-02 | 2017-10-02 13:15:00 | Guangzhou | 32 | 0 | 2017-10-02 11:20:00 | 30 | 11 | 11|
-| 10004 | 2017-10-01 | 2017-10-01 12:12:48 | Shenzhen | 35 | 0 | 2017-10-01 10:00:15 | 100 | 3 | 3|
-| 10004 | 2017-10-03 | 2017-10-03 12:38:20 | Shenzhen | 35 | 0 | 2017-10-03 10:20:22 | 11 | 6 | 6|
+A new column  `timestamp` has been added to record the date and time when the data are imported (with second-level accuracy).
 
-Then when this batch of data is imported into Doris correctly, the final storage in Doris is as follows:
+Suppose that the import data are as follows:
 
-|user_id|date|timestamp|city|age|sex|last\_visit\_date|cost|max\_dwell\_time|min\_dwell\_time|
-|---|---|---|---|---|---|---|---|---|---|
-| 10000 | 2017-10-01 | 2017-10-01 08:00:05 | Beijing | 20 | 0 | 2017-10-01 06:00 | 20 | 10 | 10|
-| 10000 | 2017-10-01 | 2017-10-01 09:00:05 | Beijing | 20 | 0 | 2017-10-01 07:00 | 15 | 2 | 2|
-| 10001 | 2017-10-01 | 2017-10-01 18:12:10 | Beijing | 30 | 1 | 2017-10-01 17:05:45 | 2 | 22 | 22|
-| 10002 | 2017-10-02 | 2017-10-02 13:10:00 | Shanghai | 20 | 1 | 2017-10-02 12:59:12 | 200 | 5 | 5|
-| 10003 | 2017-10-02 | 2017-10-02 13:15:00 | Guangzhou | 32 | 0 | 2017-10-02 11:20:00 | 30 | 11 | 11|
-| 10004 | 2017-10-01 | 2017-10-01 12:12:48 | Shenzhen | 35 | 0 | 2017-10-01 10:00:15 | 100 | 3 | 3|
-| 10004 | 2017-10-03 | 2017-10-03 12:38:20 | Shenzhen | 35 | 0 | 2017-10-03 10:20:22 | 11 | 6 | 6|
+| user_id | date       | timestamp           | city      | age  | sex  | last\_visit\_date   | cost | max\_dwell\_time | min\_dwell\_time |
+| ------- | ---------- | ------------------- | --------- | ---- | ---- | ------------------- | ---- | ---------------- | ---------------- |
+| 10000   | 2017-10-01 | 2017-10-01 08:00:05 | Beijing   | 20   | 0    | 2017-10-01 06:00    | 20   | 10               | 10               |
+| 10000   | 2017-10-01 | 2017-10-01 09:00:05 | Beijing   | 20   | 0    | 2017-10-01 07:00    | 15   | 2                | 2                |
+| 10001   | 2017-10-01 | 2017-10-01 18:12:10 | Beijing   | 30   | 1    | 2017-10-01 17:05:45 | 2    | 22               | 22               |
+| 10002   | 2017-10-02 | 2017-10-02 13:10:00 | Shanghai  | 20   | 1    | 2017-10-02 12:59:12 | 200  | 5                | 5                |
+| 10003   | 2017-10-02 | 2017-10-02 13:15:00 | Guangzhou | 32   | 0    | 2017-10-02 11:20:00 | 30   | 11               | 11               |
+| 10004   | 2017-10-01 | 2017-10-01 12:12:48 | Shenzhen  | 35   | 0    | 2017-10-01 10:00:15 | 100  | 3                | 3                |
+| 10004   | 2017-10-03 | 2017-10-03 12:38:20 | Shenzhen  | 35   | 0    | 2017-10-03 10:20:22 | 11   | 6                | 6                |
 
-We can see that the stored data, just like the imported data, does not aggregate at all. This is because, in this batch of data, because the `timestamp` column is added, the Keys of all rows are **not exactly the same**. That is, as long as the keys of each row are not identical in the imported data, Doris can save the complete detailed data even in the aggregation model.
+After importing, this batch of data will be stored in Doris as follows:
 
-### Example 3: Importing data and aggregating existing data
+| user_id | date       | timestamp           | city      | age  | sex  | last\_visit\_date   | cost | max\_dwell\_time | min\_dwell\_time |
+| ------- | ---------- | ------------------- | --------- | ---- | ---- | ------------------- | ---- | ---------------- | ---------------- |
+| 10000   | 2017-10-01 | 2017-10-01 08:00:05 | Beijing   | 20   | 0    | 2017-10-01 06:00    | 20   | 10               | 10               |
+| 10000   | 2017-10-01 | 2017-10-01 09:00:05 | Beijing   | 20   | 0    | 2017-10-01 07:00    | 15   | 2                | 2                |
+| 10001   | 2017-10-01 | 2017-10-01 18:12:10 | Beijing   | 30   | 1    | 2017-10-01 17:05:45 | 2    | 22               | 22               |
+| 10002   | 2017-10-02 | 2017-10-02 13:10:00 | Shanghai  | 20   | 1    | 2017-10-02 12:59:12 | 200  | 5                | 5                |
+| 10003   | 2017-10-02 | 2017-10-02 13:15:00 | Guangzhou | 32   | 0    | 2017-10-02 11:20:00 | 30   | 11               | 11               |
+| 10004   | 2017-10-01 | 2017-10-01 12:12:48 | Shenzhen  | 35   | 0    | 2017-10-01 10:00:15 | 100  | 3                | 3                |
+| 10004   | 2017-10-03 | 2017-10-03 12:38:20 | Shenzhen  | 35   | 0    | 2017-10-03 10:20:22 | 11   | 6                | 6                |
 
-Take Example 1. Suppose that the data in the table are as follows:
+As you can see, the stored data are exactly the same as the import data. No aggregation has ever happened. This is because, the newly added `timestamp` column results in **difference of Keys** among the rows. That is to say, as long as the Keys of the rows are not identical in the import data, Doris can save the complete detailed data even in the Aggregate Model.
 
-|user_id|date|city|age|sex|last\_visit\_date|cost|max\_dwell\_time|min\_dwell\_time|
-|---|---|---|---|---|---|---|---|---|
-| 10000 | 2017-10-01 | Beijing | 20 | 0 | 2017-10-01 07:00 | 35 | 10 | 2|
-| 10001 | 2017-10-01 | Beijing | 30 | 1 | 2017-10-01 17:05:45 | 2 | 22 | 22|
-| 10002 | 2017-10-02 | Shanghai | 20 | 1 | 2017-10-02 12:59:12 | 200 | 5 | 5|
-| 10003 | 2017-10-02 | Guangzhou | 32 | 0 | 2017-10-02 11:20:00 | 30 | 11 | 11|
-| 10004 | 2017-10-01 | Shenzhen | 35 | 0 | 2017-10-01 10:00:15 | 100 | 3 | 3|
-| 10004 | 2017-10-03 | Shenzhen | 35 | 0 | 2017-10-03 10:20:22 | 11 | 6 | 6|
+### Example 3: aggregate import data and existing data
 
-We imported a new batch of data:
+Based on Example 1, suppose that you have the following data stored in Doris:
 
-|user_id|date|city|age|sex|last\_visit\_date|cost|max\_dwell\_time|min\_dwell\_time|
-|---|---|---|---|---|---|---|---|---|
-| 10004 | 2017-10-03 | Shenzhen | 35 | 0 | 2017-10-03 11:22:00 | 44 | 19 | 19|
-| 10005 | 2017-10-03 | Changsha | 29 | 1 | 2017-10-03 18:11:02 | 3 | 1 | 1|
+| user_id | date       | city      | age  | sex  | last\_visit\_date   | cost | max\_dwell\_time | min\_dwell\_time |
+| ------- | ---------- | --------- | ---- | ---- | ------------------- | ---- | ---------------- | ---------------- |
+| 10000   | 2017-10-01 | Beijing   | 20   | 0    | 2017-10-01 07:00    | 35   | 10               | 2                |
+| 10001   | 2017-10-01 | Beijing   | 30   | 1    | 2017-10-01 17:05:45 | 2    | 22               | 22               |
+| 10002   | 2017-10-02 | Shanghai  | 20   | 1    | 2017-10-02 12:59:12 | 200  | 5                | 5                |
+| 10003   | 2017-10-02 | Guangzhou | 32   | 0    | 2017-10-02 11:20:00 | 30   | 11               | 11               |
+| 10004   | 2017-10-01 | Shenzhen  | 35   | 0    | 2017-10-01 10:00:15 | 100  | 3                | 3                |
+| 10004   | 2017-10-03 | Shenzhen  | 35   | 0    | 2017-10-03 10:20:22 | 11   | 6                | 6                |
 
-Then when this batch of data is imported into Doris correctly, the final storage in Doris is as follows:
+Now you need to import a new batch of data:
 
-|user_id|date|city|age|sex|last\_visit\_date|cost|max\_dwell\_time|min\_dwell\_time|
-|---|---|---|---|---|---|---|---|---|
-| 10000 | 2017-10-01 | Beijing | 20 | 0 | 2017-10-01 07:00 | 35 | 10 | 2|
-| 10001 | 2017-10-01 | Beijing | 30 | 1 | 2017-10-01 17:05:45 | 2 | 22 | 22|
-| 10002 | 2017-10-02 | Shanghai | 20 | 1 | 2017-10-02 12:59:12 | 200 | 5 | 5|
-| 10003 | 2017-10-02 | Guangzhou | 32 | 0 | 2017-10-02 11:20:00 | 30 | 11 | 11|
-| 10004 | 2017-10-01 | Shenzhen | 35 | 0 | 2017-10-01 10:00:15 | 100 | 3 | 3|
-| 10004 | 2017-10-03 | Shenzhen | 35 | 0 | 2017-10-03 11:22:00 | 55 | 19 | 6|
-| 10005 | 2017-10-03 | Changsha | 29 | 1 | 2017-10-03 18:11:02 | 3 | 1 | 1|
+| user_id | date       | city     | age  | sex  | last\_visit\_date   | cost | max\_dwell\_time | min\_dwell\_time |
+| ------- | ---------- | -------- | ---- | ---- | ------------------- | ---- | ---------------- | ---------------- |
+| 10004   | 2017-10-03 | Shenzhen | 35   | 0    | 2017-10-03 11:22:00 | 44   | 19               | 19               |
+| 10005   | 2017-10-03 | Changsha | 29   | 1    | 2017-10-03 18:11:02 | 3    | 1                | 1                |
 
-As you can see, the existing data and the newly imported data of user 10004 have been aggregated. At the same time, 10005 new user's data were added.
+After importing, the data stored in Doris will be updated as follows:
 
-Data aggregation occurs in Doris in the following three stages:
+| user_id | date       | city      | age  | sex  | last\_visit\_date   | cost | max\_dwell\_time | min\_dwell\_time |
+| ------- | ---------- | --------- | ---- | ---- | ------------------- | ---- | ---------------- | ---------------- |
+| 10000   | 2017-10-01 | Beijing   | 20   | 0    | 2017-10-01 07:00    | 35   | 10               | 2                |
+| 10001   | 2017-10-01 | Beijing   | 30   | 1    | 2017-10-01 17:05:45 | 2    | 22               | 22               |
+| 10002   | 2017-10-02 | Shanghai  | 20   | 1    | 2017-10-02 12:59:12 | 200  | 5                | 5                |
+| 10003   | 2017-10-02 | Guangzhou | 32   | 0    | 2017-10-02 11:20:00 | 30   | 11               | 11               |
+| 10004   | 2017-10-01 | Shenzhen  | 35   | 0    | 2017-10-01 10:00:15 | 100  | 3                | 3                |
+| 10004   | 2017-10-03 | Shenzhen  | 35   | 0    | 2017-10-03 11:22:00 | 55   | 19               | 6                |
+| 10005   | 2017-10-03 | Changsha  | 29   | 1    | 2017-10-03 18:11:02 | 3    | 1                | 1                |
 
-1. The ETL stage of data import for each batch. This phase aggregates data within each batch of imported data.
-2. The stage in which the underlying BE performs data Compaction. At this stage, BE aggregates data from different batches that have been imported.
-3. Data query stage. In data query, the data involved in the query will be aggregated accordingly.
+As you can see, the existing data and the newly imported data of User 10004 have been aggregated. Meanwhile, the new data of User 10005 have been added.
 
-Data may be aggregated to varying degrees at different times. For example, when a batch of data is just imported, it may not be aggregated with the existing data. But for users, user**can only query aggregated data**. That is, different degrees of aggregation are transparent to user queries. Users should always assume that data exists in terms of the degree of aggregation that **ultimately completes**, and **should not assume that some aggregation has not yet occurred**. (See the section **Limitations of the aggregation model** for more details.)
+In Doris, data aggregation happens in the following 3 stages:
 
-## Uniq Model
+1. The ETL stage of each batch of import data. At this stage, the batch of import data will be aggregated internally.
+2. The data compaction stage of the underlying BE. At this stage, BE will aggregate data from different batches that have been imported.
+3. The data query stage. The data involved in the query will be aggregated accordingly.
 
-In some multi-dimensional analysis scenarios, users are more concerned about how to ensure the uniqueness of the Key, that is, how to obtain the uniqueness constraint of the Primary Key. Therefore, we introduced the Unique data model. Prior to version 1.2, the model was essentially a special case of the Aggregate Model and a simplified representation of the table structure. The implementation of the aggregation model is merge on read, it has poor performance on some aggregation queries (refer to the description in the subsequent chapter [Limitations of aggregation models] (#Limitations of aggregation models)), In version 1.2, we have introduced a new implementation of the Unique model, merge on write, which achieves optimal query performance by doing some extra work when loading. Merge-on-write will replace merge-on-read as the default implementation of the Unique model in the future, they will coexist for a short period of time. The following will illustrate the two implementation manners with examples.
+At different stages, data will be aggregated to varying degrees. For example, when a batch of data is just imported, it may not be aggregated with the existing data. But for users, they **can only query aggregated data**. That is, what users see are the aggregated data, and they **should not assume that what they have seen are not or partly aggregated**. (See the [Limitations of Aggregate Model](#Limitations of Aggregate Model) section for more details.)
 
-### Merge on read (same implementation as aggregate model)
+## Unique Model
 
-|ColumnName|Type|IsKey|Comment|
-|---|---|---|---|
-| user_id | BIGINT | Yes | user id|
-| username | VARCHAR (50) | Yes | User nickname|
-| city | VARCHAR (20) | No | User City|
-| age | SMALLINT | No | User Age|
-| sex | TINYINT | No | User Gender|
-| phone | LARGEINT | No | User Phone|
-| address | VARCHAR (500) | No | User Address|
-| register_time | DATETIME | No | user registration time|
+In some multi-dimensional analysis scenarios, users are highly concerned about how to ensure the uniqueness of the Key, that is, how to create uniqueness constraints for the Primary Key. Therefore, we introduce the Unique Model. Prior to Doris 1.2, the Unique Model was essentially a special case of the Aggregate Model and a simplified representation of table schema. The Aggregate Model is implemented by Merge on Read, so it might not deliver high performance in some aggregation queries (see the [Limitations of Aggregate Model] (#Limitations of Aggregate Model) section). In Doris 1.2, we have introduced a new implementation for the Unique Model--Merge on Write, which can help achieve optimal query performance. For now, Merge on Read and Merge on Write will coexist in the Unique Model for a while, but in the future, we plan to make Merge on Write the default implementation of the Unique Model. The following will illustrate the two implementations with examples.
 
-This is a typical user base information table. There is no aggregation requirement for this type of data, just the uniqueness of the primary key is guaranteed. (The primary key here is user_id + username). Then our statement is as follows:
+### Merge on Read ( Same Implementation as Aggregate Model)
+
+| ColumnName    | Type          | IsKey | Comment                |
+| ------------- | ------------- | ----- | ---------------------- |
+| user_id       | BIGINT        | Yes   | User ID                |
+| username      | VARCHAR (50)  | Yes   | Username               |
+| city          | VARCHAR (20)  | No    | User location city     |
+| age           | SMALLINT      | No    | User age               |
+| sex           | TINYINT       | No    | User gender            |
+| phone         | LARGEINT      | No    | User phone number      |
+| address       | VARCHAR (500) | No    | User address           |
+| register_time | DATETIME      | No    | User registration time |
+
+This is a typical user basic information table. There is no aggregation requirement for such data. The only concern is to ensure the uniqueness of the primary key. (The primary key here is user_id + username). The CREATE TABLE statement for the above table is as follows:
 
 ```
 CREATE TABLE IF NOT EXISTS example_db.example_tbl
 (
-`user_id` LARGEINT NOT NULL COMMENT "user id",
-`username` VARCHAR (50) NOT NULL COMMENT "username",
-`city` VARCHAR (20) COMMENT "user city",
-`age` SMALLINT COMMENT "age",
-`sex` TINYINT COMMENT "sex",
-`phone` LARGEINT COMMENT "phone",
-`address` VARCHAR (500) COMMENT "address",
-`register_time` DATETIME COMMENT "register time"
+`user_id` LARGEINT NOT NULL COMMENT "User ID",
+`username` VARCHAR (50) NOT NULL COMMENT "Username",
+`city` VARCHAR (20) COMMENT "User location city",
+`age` SMALLINT COMMENT "User age",
+`sex` TINYINT COMMENT "User sex",
+`phone` LARGEINT COMMENT "User phone number",
+`address` VARCHAR (500) COMMENT "User address",
+`register_time` DATETIME COMMENT "User registration time"
 )
-Unique Key (`user_id`, `username`)
+UNIQUE KEY (`user_id`, `username`)
 DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
 PROPERTIES (
 "replication_allocation" = "tag.location.default: 1"
 );
 ```
 
-This table structure is exactly the same as the following table structure described by the aggregation model:
+This is the same table schema and the CREATE TABLE statement as those of the Aggregate Model:
 
-|ColumnName|Type|AggregationType|Comment|
-|---|---|---|---|
-| user_id | BIGINT | | user id|
-| username | VARCHAR (50) | | User nickname|
-| city | VARCHAR (20) | REPLACE | User City|
-| age | SMALLINT | REPLACE | User Age|
-| sex | TINYINT | REPLACE | User Gender|
-| phone | LARGEINT | REPLACE | User Phone|
-| address | VARCHAR (500) | REPLACE | User Address|
-| register_time | DATETIME | REPLACE | User registration time|
-
-And table-building statements:
+| ColumnName    | Type          | AggregationType | Comment                |
+| ------------- | ------------- | --------------- | ---------------------- |
+| user_id       | BIGINT        |                 | User ID                |
+| username      | VARCHAR (50)  |                 | Username               |
+| city          | VARCHAR (20)  | REPLACE         | User location city     |
+| age           | SMALLINT      | REPLACE         | User age               |
+| sex           | TINYINT       | REPLACE         | User gender            |
+| phone         | LARGEINT      | REPLACE         | User phone number      |
+| address       | VARCHAR (500) | REPLACE         | User address           |
+| register_time | DATETIME      | REPLACE         | User registration time |
 
 ```
 CREATE TABLE IF NOT EXISTS example_db.example_tbl
 (
-`user_id` LARGEINT NOT NULL COMMENT "user id",
-`username` VARCHAR (50) NOT NULL COMMENT "username",
-`city` VARCHAR (20) REPLACE COMMENT "user city",
-`sex` TINYINT REPLACE COMMENT "sex",
-`phone` LARGEINT REPLACE COMMENT "phone",
-`address` VARCHAR(500) REPLACE COMMENT "address",
-`register_time` DATETIME REPLACE COMMENT "register time"
+`user_id` LARGEINT NOT NULL COMMENT "User ID",
+`username` VARCHAR (50) NOT NULL COMMENT "Username",
+`city` VARCHAR (20) REPLACE COMMENT "User location city",
+`sex` TINYINT REPLACE COMMENT "User gender",
+`phone` LARGEINT REPLACE COMMENT "User phone number",
+`address` VARCHAR(500) REPLACE COMMENT "User address",
+`register_time` DATETIME REPLACE COMMENT "User registration time"
 )
 AGGREGATE KEY(`user_id`, `username`)
 DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
@@ -305,33 +302,33 @@ PROPERTIES (
 );
 ```
 
-That is to say, the merge-on-read implementation of the Unique model can be completely replaced by REPLACE in aggregation model. Its internal implementation and data storage are exactly the same. No further examples will be given here.
+That is to say, the Merge on Read implementation of the Unique Model is equivalent to the REPLACE aggregation type in the Aggregate Model. The internal implementation and data storage are exactly the same.
 
-### Merge on write (introduced from version 1.2)
+### Merge on Write (Since Doris 1.2)
 
-The merge-on-write implementation of the Unique model is completely different from the aggregation model. The query performance is closer to the duplicate model. Compared with the aggregation model, it has a better query performance.
+The Merge on Write implementation of the Unique Model is completely different from that of the Aggregate Model. It can deliver better performance in aggregation queries with primary key limitations.
 
-In version 1.2.0, as a new feature, merge-on-write is disabled by default, and users can enable it by adding the following property
+In Doris 1.2.0, as a new feature, Merge on Write is disabled by default, and users can enable it by adding the following property:
 
 ```
 "enable_unique_key_merge_on_write" = "true"
 ```
 
-Let's continue to use the previous table as an example, the create table statement:
+Take the previous table as an example, the corresponding CREATE TABLE statement should be:
 
 ```
 CREATE TABLE IF NOT EXISTS example_db.example_tbl
 (
-`user_id` LARGEINT NOT NULL COMMENT "user id",
-`username` VARCHAR (50) NOT NULL COMMENT "username",
-`city` VARCHAR (20) COMMENT "user city",
-`age` SMALLINT COMMENT "age",
-`sex` TINYINT COMMENT "sex",
-`phone` LARGEINT COMMENT "phone",
-`address` VARCHAR (500) COMMENT "address",
-`register_time` DATETIME COMMENT "register time"
+`user_id` LARGEINT NOT NULL COMMENT "User ID",
+`username` VARCHAR (50) NOT NULL COMMENT "Username",
+`city` VARCHAR (20) COMMENT "User location city",
+`age` SMALLINT COMMENT "Userage",
+`sex` TINYINT COMMENT "User gender",
+`phone` LARGEINT COMMENT "User phone number",
+`address` VARCHAR (500) COMMENT "User address",
+`register_time` DATETIME COMMENT "User registration time"
 )
-Unique Key (`user_id`, `username`)
+UNIQUE KEY (`user_id`, `username`)
 DISTRIBUTED BY HASH(`user_id`) BUCKETS 1
 PROPERTIES (
 "replication_allocation" = "tag.location.default: 1"
@@ -339,50 +336,52 @@ PROPERTIES (
 );
 ```
 
-In this implementation, the table structure is completely different with aggregate model:
+The table schema produced by the above statement will be different from that of the Aggregate Model.
 
 
-|ColumnName|Type|AggregationType|Comment|
-|---|---|---|---|
-| user_id | BIGINT | | user id|
-| username | VARCHAR (50) | | User nickname|
-| city | VARCHAR (20) | NONE | User City|
-| age | SMALLINT | NONE | User Age|
-| sex | TINYINT | NONE | User Gender|
-| phone | LARGEINT | NONE | User Phone|
-| address | VARCHAR (500) | NONE | User Address|
-| register_time | DATETIME | NONE | User registration time|
+| ColumnName    | Type          | AggregationType | Comment                |
+| ------------- | ------------- | --------------- | ---------------------- |
+| user_id       | BIGINT        |                 | User ID                |
+| username      | VARCHAR (50)  |                 | Username               |
+| city          | VARCHAR (20)  | NONE            | User location city     |
+| age           | SMALLINT      | NONE            | User age               |
+| sex           | TINYINT       | NONE            | User gender            |
+| phone         | LARGEINT      | NONE            | User phone number      |
+| address       | VARCHAR (500) | NONE            | User address           |
+| register_time | DATETIME      | NONE            | User registration time |
 
-On a Unique table with the merge-on-write option enabled, the data that is overwritten and updated will be marked for deletion during the load job, and new data will be written to a new file at the same time. When querying, all data marked for deletion will be filtered out at the file level, only the latest data would be readed, which eliminates the data aggregation cost while reading, and can support many predicates pushdown now. Therefore, it can bring a relatively large performance improvement in many scenarios, especially in the case of aggregation queries.
+On a Unique table with the Merge on Write option enabled, during the import stage, the data that are to be overwritten and updated will be marked for deletion, and new data will be written in. When querying, all data marked for deletion will be filtered out at the file level, and only the latest data would be readed. This eliminates the data aggregation cost while reading, and supports many types of predicate pushdown now. Therefore, it can largely improve performance in many scenarios, especially in aggregation queries.
 
 [NOTE]
-1. The new Merge-on-write implementation is disabled by default, and can only be enabled by specifying a property when creating a new table.
-2. The old Merge-on-read implementation cannot be seamlessly upgraded to the new version (the data organization is completely different). If you need to use the merge-on-write implementation version, you need to manually execute `insert into unique-mow- table select * from source table` to load data to new table.
-3. The feature delete sign and sequence col on the Unique model can still be used normally in the new implementation, and the usage has not changed.
+
+1. The new Merge on Write implementation is disabled by default, and can only be enabled by specifying a property when creating a new table.
+2. The old Merge on Read cannot be seamlessly upgraded to the new implementation (since they have completely different data organization). If you want to switch to the Merge on Write implementation, you need to manually execute `insert into unique-mow- table select * from source table` to load data to new table.
+3. The two unique features `delete sign` and `sequence col` of the Unique Model can be used as normal in the new implementation, and their usage remains unchanged.
 
 ## Duplicate Model
 
-In some multidimensional analysis scenarios, data has neither primary keys nor aggregation requirements. Therefore, we introduce Duplicate data model to meet this kind of demand. Examples are given.
+In some multi-dimensional analysis scenarios, there is no need for primary keys or data aggregation. For these cases, we introduce the Duplicate Model to. Here is an example:
 
-|ColumnName|Type|SortKey|Comment|
-|---|---|---|---|
-| timstamp | DATETIME | Yes | Logging Time|
-| type | INT | Yes | Log Type|
-| error_code|INT|Yes|error code|
-| Error_msg | VARCHAR (1024) | No | Error Details|
-| op_id|BIGINT|No|operator id|
-| op_time|DATETIME|No|operation time|
+| ColumnName | Type           | SortKey | Comment        |
+| ---------- | -------------- | ------- | -------------- |
+| timstamp   | DATETIME       | Yes     | Log time       |
+| type       | INT            | Yes     | Log type       |
+| error_code | INT            | Yes     | Error code     |
+| Error_msg  | VARCHAR (1024) | No      | Error details  |
+| op_id      | BIGINT         | No      | Operator ID    |
+| op_time    | DATETIME       | No      | Operation time |
 
-The TABLE statement is as follows:
+The corresponding CREATE TABLE statement is as follows:
+
 ```
 CREATE TABLE IF NOT EXISTS example_db.example_tbl
 (
-    `timestamp` DATETIME NOT NULL COMMENT "log time",
-    `type` INT NOT NULL COMMENT "log type",
-    `error_code` INT COMMENT "error code",
-    `error_msg` VARCHAR(1024) COMMENT "error detail",
-    `op_id` BIGINT COMMENT "operater id",
-    `op_time` DATETIME COMMENT "operate time"
+    `timestamp` DATETIME NOT NULL COMMENT "Log time",
+    `type` INT NOT NULL COMMENT "Log type",
+    `error_code` INT COMMENT "Error code",
+    `error_msg` VARCHAR(1024) COMMENT "Error details",
+    `op_id` BIGINT COMMENT "Operator ID",
+    `op_time` DATETIME COMMENT "Operation time"
 )
 DUPLICATE KEY(`timestamp`, `type`, `error_code`)
 DISTRIBUTED BY HASH(`type`) BUCKETS 1
@@ -391,113 +390,112 @@ PROPERTIES (
 );
 ```
 
-This data model is different from Aggregate and Uniq models. Data is stored entirely in accordance with the data in the imported file, without any aggregation. Even if the two rows of data are identical, they will be retained.
-The DUPLICATE KEY specified in the table building statement is only used to specify which columns the underlying data is sorted according to. (The more appropriate name should be "Sorted Column", where the name "DUPLICATE KEY" is used to specify the data model used. For more explanations of "Sorted Column", see the section **Prefix Index**.) On the choice of DUPLICATE KEY, we recommend that the first 2-4 columns be selected appropriately.
+Different from the Aggregate and Unique Models, the Duplicate Model stores the data as they are and executes no aggregation. Even if there are two identical rows of data, they will both be retained. The DUPLICATE KEY in the CREATE TABLE statement is only used to specify based on which columns the data are sorted. (A more appropriate name than DUPLICATE KEY would be SORTING COLUMN, but it is named as such to specify the data model used. For more information, see [Prefix Index](https://doris.apache.org/docs/dev/data-table/index/prefix-index/).) For the choice of DUPLICATE KEY, we recommend the first 2-4 columns.
 
-This data model is suitable for storing raw data without aggregation requirements and primary key uniqueness constraints. For more usage scenarios, see the **Limitations of the Aggregation Model** section.
+The Duplicate Mode l is suitable for storing raw data without aggregation requirements or primary key uniqueness constraints. For more usage scenarios, see the [Limitations of Aggregate Model](#Limitations of Aggregate Model) section.
 
-## Limitations of aggregation model
+## Limitations of Aggregate Model
 
-Here we introduce the limitations of Aggregate model.
+This section is about the limitations of the Aggregate Model.
 
-In the aggregation model, what the model presents is the aggregated data. That is to say, any data that has not yet been aggregated (for example, two different imported batches) must be presented in some way to ensure consistency. Let's give an example.
+The Aggregate Model only presents the aggregated data. That means we have to ensure the presentation consistency of data that has not yet been aggregated (for example, two different import batches). The following provides further explanation with examples.
 
-The hypothesis table is structured as follows:
+Suppose that you have the following table schema:
 
-|ColumnName|Type|AggregationType|Comment|
-|---|---|---|---|
-| user\_id | LARGEINT | | user id|
-| date | DATE | | date of data filling|
-| cost | BIGINT | SUM | Total User Consumption|
+| ColumnName | Type     | AggregationType | Comment                         |
+| ---------- | -------- | --------------- | ------------------------------- |
+| user\_id   | LARGEINT |                 | User ID                         |
+| date       | DATE     |                 | Date when the data are imported |
+| cost       | BIGINT   | SUM             | Total user consumption          |
 
 Assume that there are two batches of data that have been imported into the storage engine as follows:
 
 **batch 1**
 
-|user\_id|date|cost|
-|---|---|---|
-|10001|2017-11-20|50|
-|10002|2017-11-21|39|
+| user\_id | date       | cost |
+| -------- | ---------- | ---- |
+| 10001    | 2017-11-20 | 50   |
+| 10002    | 2017-11-21 | 39   |
 
 **batch 2**
 
-|user\_id|date|cost|
-|---|---|---|
-|10001|2017-11-20|1|
-|10001|2017-11-21|5|
-|10003|2017-11-22|22|
+| user\_id | date       | cost |
+| -------- | ---------- | ---- |
+| 10001    | 2017-11-20 | 1    |
+| 10001    | 2017-11-21 | 5    |
+| 10003    | 2017-11-22 | 22   |
 
-As you can see, data belonging to user 10001 in two import batches has not yet been aggregated. However, in order to ensure that users can only query the aggregated data as follows:
+As you can see, data about User 10001 in these two import batches have not yet been aggregated. However, in order to ensure that users can only query the aggregated data as follows:
 
-|user\_id|date|cost|
-|---|---|---|
-|10001|2017-11-20|51|
-|10001|2017-11-21|5|
-|10002|2017-11-21|39|
-|10003|2017-11-22|22|
+| user\_id | date       | cost |
+| -------- | ---------- | ---- |
+| 10001    | 2017-11-20 | 51   |
+| 10001    | 2017-11-21 | 5    |
+| 10002    | 2017-11-21 | 39   |
+| 10003    | 2017-11-22 | 22   |
 
-We add aggregation operator to query engine to ensure data consistency.
+We have added an aggregation operator to the  query engine to ensure the presentation consistency of data.
 
-In addition, on the aggregate column (Value), when executing aggregate class queries that are inconsistent with aggregate types, attention should be paid to semantics. For example, in the example above, we execute the following queries:
+In addition, on the aggregate column (Value), when executing aggregate class queries that are inconsistent with the aggregate type, please pay attention to the semantics. For example, in the example above, if you execute the following query:
 
 `SELECT MIN(cost) FROM table;`
 
-The result is 5, not 1.
+The result will be 5, not 1.
 
-At the same time, this consistency guarantee will greatly reduce the query efficiency in some queries.
+Meanwhile, this consistency guarantee could considerably reduce efficiency in some queries.
 
-Let's take the most basic count (*) query as an example:
+Take the basic count (*) query as an example:
 
 `SELECT COUNT(*) FROM table;`
 
-In other databases, such queries return results quickly. Because in the implementation, we can get the query result by counting rows at the time of import and saving count statistics information, or by scanning only a column of data to get count value at the time of query, with very little overhead. But in Doris's aggregation model, the overhead of this query is **very large**.
+In other databases, such queries return results quickly. Because in actual implementation, the models can get the query result by counting rows and saving the statistics upon import, or by scanning only one certain column of data to get count value upon query, with very little overhead. But in Doris's Aggregation Model, the overhead of such queries is **large**.
 
-Let's take the data as an example.
+For the previous example:
 
 **batch 1**
 
-|user\_id|date|cost|
-|---|---|---|
-|10001|2017-11-20|50|
-|10002|2017-11-21|39|
+| user\_id | date       | cost |
+| -------- | ---------- | ---- |
+| 10001    | 2017-11-20 | 50   |
+| 10002    | 2017-11-21 | 39   |
 
 **batch 2**
 
-|user\_id|date|cost|
-|---|---|---|
-|10001|2017-11-20|1|
-|10001|2017-11-21|5|
-|10003|2017-11-22|22|
+| user\_id | date       | cost |
+| -------- | ---------- | ---- |
+| 10001    | 2017-11-20 | 1    |
+| 10001    | 2017-11-21 | 5    |
+| 10003    | 2017-11-22 | 22   |
 
-Because the final aggregation result is:
+Since the final aggregation result is:
 
-|user\_id|date|cost|
-|---|---|---|
-|10001|2017-11-20|51|
-|10001|2017-11-21|5|
-|10002|2017-11-21|39|
-|10003|2017-11-22|22|
+| user\_id | date       | cost |
+| -------- | ---------- | ---- |
+| 10001    | 2017-11-20 | 51   |
+| 10001    | 2017-11-21 | 5    |
+| 10002    | 2017-11-21 | 39   |
+| 10003    | 2017-11-22 | 22   |
 
-So `select count (*) from table;` The correct result should be **4**. But if we only scan the `user_id`column and add query aggregation, the final result is **3** (10001, 10002, 10003). If aggregated without queries, the result is **5** (a total of five rows in two batches). It can be seen that both results are wrong.
+The correct result of  `select count (*) from table;`  should be **4**. But if the model only scans the `user_id` column and operates aggregation upon query, the final result will be **3** (10001, 10002, 10003). And if it does not operate aggregation, the final result will be **5** (a total of five rows in two batches). Apparently, both results are wrong.
 
-In order to get the correct result, we must read the data of `user_id` and `date`, and **together with aggregate** when querying, to return the correct result of **4**. That is to say, in the count (*) query, Doris must scan all AGGREGATE KEY columns (here are `user_id` and `date`) and aggregate them to get the semantically correct results. When aggregated columns are large, count (*) queries need to scan a large amount of data.
+In order to get the correct result, we must read both the  `user_id` and `date` column, and **performs aggregation** when querying. That is to say, in the `count (*)` query, Doris must scan all AGGREGATE KEY columns (in this case, `user_id` and `date`) and aggregate them to get the semantically correct results. That means if there are many aggregated columns, `count (*)` queries could involve scanning large amounts of data.
 
-Therefore, when there are frequent count (*) queries in the business, we recommend that users simulate count (*) by adding a column with a value of 1 and aggregation type of SUM. As the table structure in the previous example, we modify it as follows:
+Therefore, if you need to perform frequent `count (*)` queries, we recommend that you simulate `count (*)` by adding a column of value 1 and aggregation type SUM. In this way, the table schema in the previous example will be modified as follows:
 
-|ColumnName|Type|AggregationType|Comment|
-|---|---|---|---|
-| user ID | BIGINT | | user id|
-| date | DATE | | date of data filling|
-| Cost | BIGINT | SUM | Total User Consumption|
-| count | BIGINT | SUM | for counting|
+| ColumnName | Type   | AggregationType | Comment                         |
+| ---------- | ------ | --------------- | ------------------------------- |
+| user ID    | BIGINT |                 | User ID                         |
+| date       | DATE   |                 | Date when the data are imported |
+| Cost       | BIGINT | SUM             | Total user consumption          |
+| count      | BIGINT | SUM             | For count queries               |
 
-Add a count column and import the data with the column value **equal to 1**. The result of `select count (*) from table;`is equivalent to `select sum (count) from table;` The query efficiency of the latter is much higher than that of the former. However, this method also has limitations, that is, users need to guarantee that they will not import rows with the same AGGREGATE KEY column repeatedly. Otherwise, `select sum (count) from table;`can only express the number of rows originally imported, not the semantics of `select count (*) from table;`
+The above adds a count column, the value of which will always be **1**, so the result of `select count (*) from table;`is equivalent to that of `select sum (count) from table;` The latter is much more efficient than the former. However, this method has its shortcomings, too. That is, it  requires that users will not import rows with the same values in the AGGREGATE KEY columns. Otherwise, `select sum (count) from table;` can only express the number of rows of the originally imported data, instead of the semantics of `select count (*) from table;`
 
-Another way is to **change the aggregation type of the count column above to REPLACE, and still weigh 1**. Then`select sum (count) from table;` and `select count (*) from table;` the results will be consistent. And in this way, there is no restriction on importing duplicate rows.
+Another method is to add a `cound` column of value 1 but aggregation type of REPLACE. Then `select sum (count) from table;` and `select count (*) from table;`  could produce the same results. Moreover, this method does not require the absence of same AGGREGATE KEY columns in the import data.
 
-### Merge-on-write implementation of Unique model
+### Merge on Write of Unique model
 
-In Merge-on-write implementation, there is no limitation of aggregation model. A new structure delete-bitmap is added to each rowset during loading, to mark some data as overwritten or deleted. With the previous example, after the first batch of data is loaded, the status is as follows:
+The Merge on Write implementation in the Unique Model does not impose the same limitation as the Aggregate Model. In Merge on Write, the model adds a  `delete bitmap` for each imported rowset to mark the data being overwritten or deleted. With the previous example, after Batch 1 is imported, the data status will be as follows:
 
 **batch 1**
 
@@ -506,7 +504,7 @@ In Merge-on-write implementation, there is no limitation of aggregation model. A
 | 10001   | 2017-11-20 | 50   | false      |
 | 10002   | 2017-11-21 | 39   | false      |
 
-After the batch2 is loaded, the duplicate rows in the first batch will be marked as deleted, and the status of the two batches of data is as follows
+After Batch 2 is imported, the duplicate rows in the first batch will be marked as deleted, and the status of the two batches of data is as follows
 
 **batch 1**
 
@@ -523,25 +521,24 @@ After the batch2 is loaded, the duplicate rows in the first batch will be marked
 | 10001    | 2017-11-21 | 5    | false      |
 | 10003    | 2017-11-22 | 22   | false      |
 
-When querying, all data marked for deletion in the delete-bitmap will not be read out, so there is no need to do any data aggregation. The number of valid rows in the above data is 4 rows, and the query result should also be 4 rows. 
+In queries, all data marked `true` in the `delete bitmap` will not be read, so there is no need for data aggregation. Since there are 4 valid rows in the above data, the query result should also be 4.  This also enables minimum overhead since it only scans one column of data.
 
-It is also possible to obtain the result in the least expensive way, that is, the way of "scanning only a certain column of data to obtain the count value" mentioned above.
-
-In the test environment, the performance of the count(*) query in the merge-on-write implementation of the Unique model is more than 10 times faster than that of the aggregation model.
+In the test environment, `count(*)` queries in Merge on Write of the Unique Model deliver 10 times higher performance than that of the Aggregate Model.
 
 ### Duplicate Model
 
-Duplicate model has no limitation of aggregation model. Because the model does not involve aggregate semantics, when doing count (*) query, we can get the correct semantics by choosing a column of queries arbitrarily.
+The Duplicate Model does not impose the same limitation as the Aggregate Model because it does not involve aggregation semantics. For any columns, it can return the semantically correct results in  `count (*)` queries.
 
 ## Key Columns
-For the Duplicate,Aggregate and Unique models,The key columns will be given when the table created, but it is actually different: For the Duplicate model, the key columns of the table can be regarded as just "sort columns", not an unique identifier. In aggregate type tables such as Aggregate and Unique models, the key columns are both "sort columns" and "unique identification columns", which were the real "key columns".
+
+For the Duplicate, Aggregate, and Unique Models, the Key columns will be specified when the table is created, but there exist some differences: In the Duplicate Model, the Key columns of the table can be regarded as just "sorting columns", but not unique identifiers. In Aggregate and Unique Models, the Key columns are both "sorting columns" and "unique identifier columns".
 
 ## Suggestions for Choosing Data Model
 
-Because the data model was established when the table was built, and **could not be modified. Therefore, it is very important to select an appropriate data model**.
+Since the data model was established when the table was built, and **irrevocable thereafter, it is very important to select the appropriate data model**.
 
-1. Aggregate model can greatly reduce the amount of data scanned and the amount of query computation by pre-aggregation. It is very suitable for report query scenarios with fixed patterns. But this model is not very friendly for count (*) queries. At the same time, because the aggregation method on the Value column is fixed, semantic correctness should be considered in other types of aggregation queries.
-2. Uniq model guarantees the uniqueness of primary key for scenarios requiring unique primary key constraints. However, the query advantage brought by pre-aggregation such as ROLLUP cannot be exploited.
-   1. For users who have high performance requirements for aggregate queries, it is recommended to use the merge-on-write implementation added since version 1.2.
-   2. The Unique model only supports the entire row update. If the user needs unique key with partial update (such as loading multiple source tables into one doris table), you can consider using the Aggregate model, setting the aggregate type of the non-primary key columns to REPLACE_IF_NOT_NULL. For detail, please refer to [CREATE TABLE Manual](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md)
-3. Duplicate is suitable for ad-hoc queries of any dimension. Although it is also impossible to take advantage of the pre-aggregation feature, it is not constrained by the aggregation model and can take advantage of the queue-store model (only reading related columns, but not all Key columns).
+1. The Aggregate Model can greatly reduce the amount of data scanned and query computation by pre-aggregation. Thus, it is very suitable for report query scenarios with fixed patterns. But this model is unfriendly to `count (*)` queries. Meanwhile, since the aggregation method on the Value column is fixed, semantic correctness should be considered in other types of aggregation queries.
+2. The Unique Model guarantees the uniqueness of primary key for scenarios requiring unique primary key. The downside is that it cannot exploit the advantage brought by pre-aggregation such as ROLLUP in queries.
+   1. Users who have high performance requirements for aggregate queries are recommended to use the newly added Merge on Write implementation since version 1.2.
+   2. The Unique Model only supports entire-row updates. If you require primary key uniqueness as well as partial updates of certain columns (such as loading multiple source tables into one Doris table), you can consider using the Aggregate Model, while setting the aggregate type of the non-primary key columns to REPLACE_IF_NOT_NULL. See [CREATE TABLE Manual](../sql-manual/sql-reference/Data-Definition-Statements/Create/CREATE-TABLE.md) for more details.
+3. The Duplicate Model is suitable for ad-hoc queries of any dimensions. Although it may not be able to take advantage of the pre-aggregation feature, it is not limited by what constrains the Aggregate Model and can give full play to the advantage of columnar storage (reading only the relevant columns, but not all Key columns).

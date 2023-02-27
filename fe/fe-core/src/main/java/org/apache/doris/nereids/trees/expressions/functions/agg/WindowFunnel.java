@@ -74,7 +74,7 @@ public class WindowFunnel extends AggregateFunction
     @Override
     public void checkLegalityBeforeTypeCoercion() {
         String functionName = getName();
-        if (!getArgumentType(0).isIntegerType()) {
+        if (!getArgumentType(0).isIntegerLikeType()) {
             throw new AnalysisException("The window params of " + functionName + " function must be integer");
         }
         if (!getArgumentType(1).isStringLikeType()) {

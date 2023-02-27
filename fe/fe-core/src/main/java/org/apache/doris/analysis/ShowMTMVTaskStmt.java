@@ -28,8 +28,10 @@ import com.google.common.base.Strings;
 
 public class ShowMTMVTaskStmt extends ShowStmt {
     private final String taskId; // optional
-    private String dbName; // optional
+    private final String dbName; // optional
     private final TableName mvName; // optional
+
+    private String analyzedDbName;
 
     public ShowMTMVTaskStmt() {
         this.taskId = null;
@@ -50,11 +52,11 @@ public class ShowMTMVTaskStmt extends ShowStmt {
     }
 
     public boolean isShowAllTasks() {
-        return dbName == null && mvName == null && taskId == null;
+        return analyzedDbName == null && mvName == null && taskId == null;
     }
 
     public boolean isShowAllTasksFromDb() {
-        return dbName != null && mvName == null;
+        return analyzedDbName != null && mvName == null;
     }
 
     public boolean isShowAllTasksOnMv() {
@@ -66,13 +68,7 @@ public class ShowMTMVTaskStmt extends ShowStmt {
     }
 
     public String getDbName() {
-        if (dbName != null) {
-            return dbName;
-        } else if (mvName != null) {
-            return mvName.getDb();
-        } else {
-            return null;
-        }
+        return analyzedDbName;
     }
 
     public String getMVName() {
@@ -86,11 +82,20 @@ public class ShowMTMVTaskStmt extends ShowStmt {
     @Override
     public void analyze(Analyzer analyzer) throws UserException {
         super.analyze(analyzer);
-        if (dbName != null && mvName != null && !dbName.equals(mvName.getDb())) {
+        if (dbName != null && mvName != null && mvName.getDb() != null && !dbName.equals(mvName.getDb())) {
             throw new UserException("Database name should be same when they both been set.");
         }
-        if (!Strings.isNullOrEmpty(dbName)) {
-            dbName = ClusterNamespace.getFullName(getClusterName(), dbName);
+        analyzedDbName = dbName;
+        if (Strings.isNullOrEmpty(analyzedDbName)) {
+            if (mvName != null) {
+                analyzedDbName = mvName.getDb();
+            }
+            if (Strings.isNullOrEmpty(analyzedDbName)) {
+                analyzedDbName = analyzer.getDefaultDb();
+            }
+        }
+        if (!Strings.isNullOrEmpty(analyzedDbName)) {
+            analyzedDbName = ClusterNamespace.getFullName(getClusterName(), analyzedDbName);
         }
     }
 

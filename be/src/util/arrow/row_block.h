@@ -35,7 +35,4 @@ class Schema;
 // Convert Doris Schema to Arrow Schema.
 Status convert_to_arrow_schema(const Schema& row_desc, std::shared_ptr<arrow::Schema>* result);
 
-// Convert Arrow Schema to Doris Schema.
-Status convert_to_doris_schema(const arrow::Schema& schema, std::shared_ptr<Schema>* result);
-
 } // namespace doris

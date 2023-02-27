@@ -27,9 +27,7 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "exprs/expr_context.h"
 #include "runtime/descriptors.h"
-#include "runtime/exec_env.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "util/debug_util.h"
@@ -46,7 +44,6 @@
 #include "vec/exec/vaggregation_node.h"
 #include "vec/exec/vanalytic_eval_node.h"
 #include "vec/exec/vassert_num_rows_node.h"
-#include "vec/exec/vbroker_scan_node.h"
 #include "vec/exec/vdata_gen_scan_node.h"
 #include "vec/exec/vempty_set_node.h"
 #include "vec/exec/vexchange_node.h"
@@ -85,31 +82,6 @@ ExecNode::ExecNode(ObjectPool* pool, const TPlanNode& tnode, const DescriptorTbl
 
 ExecNode::~ExecNode() = default;
 
-void ExecNode::push_down_predicate(RuntimeState* state, std::list<ExprContext*>* expr_ctxs) {
-    if (_type != TPlanNodeType::AGGREGATION_NODE) {
-        for (int i = 0; i < _children.size(); ++i) {
-            _children[i]->push_down_predicate(state, expr_ctxs);
-            if (expr_ctxs->size() == 0) {
-                return;
-            }
-        }
-    }
-
-    std::list<ExprContext*>::iterator iter = expr_ctxs->begin();
-    while (iter != expr_ctxs->end()) {
-        if ((*iter)->root()->is_bound(&_tuple_ids)) {
-            // LOG(INFO) << "push down success expr is " << (*iter)->debug_string()
-            //          << " and node is " << debug_string();
-            (*iter)->prepare(state, row_desc());
-            (*iter)->open(state);
-            _conjunct_ctxs.push_back(*iter);
-            iter = expr_ctxs->erase(iter);
-        } else {
-            ++iter;
-        }
-    }
-}
-
 Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
     init_runtime_profile(get_name());
 
@@ -117,10 +89,6 @@ Status ExecNode::init(const TPlanNode& tnode, RuntimeState* state) {
         _vconjunct_ctx_ptr.reset(new doris::vectorized::VExprContext*);
         RETURN_IF_ERROR(doris::vectorized::VExpr::create_expr_tree(_pool, tnode.vconjunct,
                                                                    _vconjunct_ctx_ptr.get()));
-    }
-    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode) &&
-        typeid(*this) != typeid(doris::vectorized::NewFileScanNode)) {
-        RETURN_IF_ERROR(Expr::create_expr_trees(_pool, tnode.conjuncts, &_conjunct_ctxs));
     }
 
     // create the projections expr
@@ -142,30 +110,13 @@ Status ExecNode::prepare(RuntimeState* state) {
             std::bind<int64_t>(&RuntimeProfile::units_per_second, _rows_returned_counter,
                                runtime_profile()->total_time_counter()),
             "");
-    _mem_tracker_held =
-            std::make_unique<MemTracker>("ExecNode:" + _runtime_profile->name(),
-                                         _runtime_profile.get(), nullptr, "PeakMemoryUsage");
-    // Only when the query profile is enabled, the node allocated memory will be track through the mem hook,
-    // otherwise _mem_tracker_growh is nullptr, and SCOPED_CONSUME_MEM_TRACKER will do nothing.
-    if (state->query_options().__isset.is_report_success &&
-        state->query_options().is_report_success) {
-        _mem_tracker_growh = std::make_shared<MemTracker>(
-                "ExecNode:MemoryOnlyTrackAlloc:" + _runtime_profile->name(), _runtime_profile.get(),
-                nullptr, "MemoryOnlyTrackAllocNoConsiderFree", true);
-    }
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
+    _mem_tracker = std::make_unique<MemTracker>("ExecNode:" + _runtime_profile->name(),
+                                                _runtime_profile.get(), nullptr, "PeakMemoryUsage");
 
     if (_vconjunct_ctx_ptr) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->prepare(state, intermediate_row_desc()));
     }
 
-    // For vectorized olap scan node, the conjuncts is prepared in _vconjunct_ctx_ptr.
-    // And _conjunct_ctxs is useless.
-    // TODO: Should be removed when non-vec engine is removed.
-    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode) &&
-        typeid(*this) != typeid(doris::vectorized::NewFileScanNode)) {
-        RETURN_IF_ERROR(Expr::prepare(_conjunct_ctxs, state, _row_descriptor));
-    }
     RETURN_IF_ERROR(vectorized::VExpr::prepare(_projections, state, intermediate_row_desc()));
 
     for (int i = 0; i < _children.size(); ++i) {
@@ -176,17 +127,11 @@ Status ExecNode::prepare(RuntimeState* state) {
 }
 
 Status ExecNode::alloc_resource(doris::RuntimeState* state) {
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     if (_vconjunct_ctx_ptr) {
         RETURN_IF_ERROR((*_vconjunct_ctx_ptr)->open(state));
     }
     RETURN_IF_ERROR(vectorized::VExpr::open(_projections, state));
-    if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode) &&
-        typeid(*this) != typeid(doris::vectorized::NewFileScanNode)) {
-        return Expr::open(_conjunct_ctxs, state);
-    } else {
-        return Status::OK();
-    }
+    return Status::OK();
 }
 
 Status ExecNode::open(RuntimeState* state) {
@@ -218,15 +163,7 @@ void ExecNode::release_resource(doris::RuntimeState* state) {
         if (_vconjunct_ctx_ptr) {
             (*_vconjunct_ctx_ptr)->close(state);
         }
-        if (typeid(*this) != typeid(doris::vectorized::NewOlapScanNode) &&
-            typeid(*this) != typeid(doris::vectorized::NewFileScanNode)) {
-            Expr::close(_conjunct_ctxs, state);
-        }
         vectorized::VExpr::close(_projections, state);
-
-        if (_buffer_pool_client.is_registered()) {
-            state->exec_env()->buffer_pool()->DeregisterClient(&_buffer_pool_client);
-        }
 
         runtime_profile()->add_to_span();
         _is_resource_released = true;
@@ -355,7 +292,6 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
     case TPlanNodeType::SELECT_NODE:
     case TPlanNodeType::REPEAT_NODE:
     case TPlanNodeType::TABLE_FUNCTION_NODE:
-    case TPlanNodeType::BROKER_SCAN_NODE:
     case TPlanNodeType::DATA_GEN_SCAN_NODE:
     case TPlanNodeType::FILE_SCAN_NODE:
     case TPlanNodeType::JDBC_SCAN_NODE:
@@ -418,13 +354,6 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
         return Status::OK();
 
     case TPlanNodeType::HASH_JOIN_NODE:
-        if (!tnode.hash_join_node.__isset.vintermediate_tuple_id_list) {
-            // in progress of upgrading from 1.1-lts to 1.2-lts
-            error_msg << "In progress of upgrading from 1.1-lts to 1.2-lts, vectorized hash "
-                         "join cannot be executed, you can switch to non-vectorized engine by "
-                         "'set global enable_vectorized_engine = false'";
-            return Status::InternalError(error_msg.str());
-        }
         *node = pool->add(new vectorized::HashJoinNode(pool, tnode, descs));
         return Status::OK();
 
@@ -465,10 +394,6 @@ Status ExecNode::create_node(RuntimeState* state, ObjectPool* pool, const TPlanN
 
     case TPlanNodeType::EXCEPT_NODE:
         *node = pool->add(new vectorized::VExceptNode(pool, tnode, descs));
-        return Status::OK();
-
-    case TPlanNodeType::BROKER_SCAN_NODE:
-        *node = pool->add(new vectorized::VBrokerScanNode(pool, tnode, descs));
         return Status::OK();
 
     case TPlanNodeType::FILE_SCAN_NODE:
@@ -514,7 +439,6 @@ std::string ExecNode::debug_string() const {
 }
 
 void ExecNode::debug_string(int indentation_level, std::stringstream* out) const {
-    *out << " conjuncts=" << Expr::debug_string(_conjuncts);
     *out << " id=" << _id;
     *out << " type=" << print_plan_node_type(_type);
     *out << " tuple_ids=[";
@@ -529,16 +453,6 @@ void ExecNode::debug_string(int indentation_level, std::stringstream* out) const
     }
 }
 
-bool ExecNode::eval_conjuncts(ExprContext* const* ctxs, int num_ctxs, TupleRow* row) {
-    for (int i = 0; i < num_ctxs; ++i) {
-        BooleanVal v = ctxs[i]->get_boolean_val(row);
-        if (v.is_null || !v.val) {
-            return false;
-        }
-    }
-    return true;
-}
-
 void ExecNode::collect_nodes(TPlanNodeType::type node_type, std::vector<ExecNode*>* nodes) {
     if (_type == node_type) {
         nodes->push_back(this);
@@ -551,7 +465,6 @@ void ExecNode::collect_nodes(TPlanNodeType::type node_type, std::vector<ExecNode
 
 void ExecNode::collect_scan_nodes(vector<ExecNode*>* nodes) {
     collect_nodes(TPlanNodeType::OLAP_SCAN_NODE, nodes);
-    collect_nodes(TPlanNodeType::BROKER_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::ES_HTTP_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::DATA_GEN_SCAN_NODE, nodes);
     collect_nodes(TPlanNodeType::FILE_SCAN_NODE, nodes);
@@ -597,36 +510,6 @@ void ExecNode::init_runtime_profile(const std::string& name) {
     _runtime_profile->set_metadata(_id);
 }
 
-Status ExecNode::claim_buffer_reservation(RuntimeState* state) {
-    DCHECK(!_buffer_pool_client.is_registered());
-    BufferPool* buffer_pool = ExecEnv::GetInstance()->buffer_pool();
-    // Check the minimum buffer size in case the minimum buffer size used by the planner
-    // doesn't match this backend's.
-    std::stringstream ss;
-    if (_resource_profile.__isset.spillable_buffer_size &&
-        _resource_profile.spillable_buffer_size < buffer_pool->min_buffer_len()) {
-        ss << "Spillable buffer size for node " << _id << " of "
-           << _resource_profile.spillable_buffer_size
-           << "bytes is less than the minimum buffer pool buffer size of "
-           << buffer_pool->min_buffer_len() << "bytes";
-        return Status::InternalError(ss.str());
-    }
-
-    ss << print_plan_node_type(_type) << " id=" << _id << " ptr=" << this;
-    RETURN_IF_ERROR(buffer_pool->RegisterClient(ss.str(), runtime_profile(), &_buffer_pool_client));
-
-    /*
-    if (debug_action_ == TDebugAction::SET_DENY_RESERVATION_PROBABILITY &&
-        (debug_phase_ == TExecNodePhase::PREPARE || debug_phase_ == TExecNodePhase::OPEN)) {
-       // We may not have been able to enable the debug action at the start of Prepare() or
-       // Open() because the client is not registered then. Do it now to be sure that it is
-       // effective.
-               RETURN_IF_ERROR(EnableDenyReservationDebugAction());
-    } 
-*/
-    return Status::OK();
-}
-
 void ExecNode::release_block_memory(vectorized::Block& block, uint16_t child_idx) {
     DCHECK(child_idx < _children.size());
     block.clear_column_data(child(child_idx)->row_desc().num_materialized_slots());
@@ -640,12 +523,6 @@ void ExecNode::reached_limit(vectorized::Block* block, bool* eos) {
 
     _num_rows_returned += block->rows();
     COUNTER_SET(_rows_returned_counter, _num_rows_returned);
-}
-
-Status ExecNode::QueryMaintenance(RuntimeState* state, const std::string& msg) {
-    // TODO chenhao , when introduce latest AnalyticEvalNode open it
-    // ScalarExprEvaluator::FreeLocalAllocations(evals_to_free_);
-    return state->check_query_state(msg);
 }
 
 Status ExecNode::get_next(RuntimeState* state, vectorized::Block* block, bool* eos) {
@@ -693,9 +570,12 @@ Status ExecNode::do_projections(vectorized::Block* origin_block, vectorized::Blo
 
 Status ExecNode::get_next_after_projects(
         RuntimeState* state, vectorized::Block* block, bool* eos,
-        const std::function<Status(RuntimeState*, vectorized::Block*, bool*)>& func) {
+        const std::function<Status(RuntimeState*, vectorized::Block*, bool*)>& func,
+        bool clear_data) {
     if (_output_row_descriptor) {
-        _origin_block.clear_column_data(_row_descriptor.num_materialized_slots());
+        if (clear_data) {
+            clear_origin_block();
+        }
         auto status = func(state, &_origin_block, eos);
         if (UNLIKELY(!status.ok())) return status;
         return do_projections(&_origin_block, block);

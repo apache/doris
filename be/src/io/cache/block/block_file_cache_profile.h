@@ -29,6 +29,7 @@
 #include "olap/olap_common.h"
 #include "util/doris_metrics.h"
 #include "util/metrics.h"
+#include "util/runtime_profile.h"
 
 namespace doris {
 namespace io {
@@ -109,6 +110,50 @@ struct FileCacheProfile {
             _partition_metrics;
     FileCacheStatistics report(int64_t table_id);
     FileCacheStatistics report(int64_t table_id, int64_t partition_id);
+};
+
+struct FileCacheProfileReporter {
+    RuntimeProfile::Counter* num_io_total;
+    RuntimeProfile::Counter* num_io_hit_cache;
+    RuntimeProfile::Counter* num_io_bytes_read_total;
+    RuntimeProfile::Counter* num_io_bytes_read_from_file_cache;
+    RuntimeProfile::Counter* num_io_bytes_read_from_write_cache;
+    RuntimeProfile::Counter* num_io_written_in_file_cache;
+    RuntimeProfile::Counter* num_io_bytes_written_in_file_cache;
+    RuntimeProfile::Counter* num_io_bytes_skip_cache;
+
+    FileCacheProfileReporter(RuntimeProfile* profile) {
+        static const char* cache_profile = "FileCache";
+        ADD_TIMER(profile, cache_profile);
+        num_io_total = ADD_CHILD_COUNTER(profile, "IOTotalNum", TUnit::UNIT, cache_profile);
+        num_io_hit_cache = ADD_CHILD_COUNTER(profile, "IOHitCacheNum", TUnit::UNIT, cache_profile);
+        num_io_bytes_read_total =
+                ADD_CHILD_COUNTER(profile, "ReadTotalBytes", TUnit::BYTES, cache_profile);
+        num_io_bytes_read_from_file_cache =
+                ADD_CHILD_COUNTER(profile, "ReadFromFileCacheBytes", TUnit::BYTES, cache_profile);
+        num_io_bytes_read_from_write_cache =
+                ADD_CHILD_COUNTER(profile, "ReadFromWriteCacheBytes", TUnit::BYTES, cache_profile);
+        num_io_written_in_file_cache =
+                ADD_CHILD_COUNTER(profile, "WriteInFileCacheNum", TUnit::UNIT, cache_profile);
+        num_io_bytes_written_in_file_cache =
+                ADD_CHILD_COUNTER(profile, "WriteInFileCacheBytes", TUnit::BYTES, cache_profile);
+        num_io_bytes_skip_cache =
+                ADD_CHILD_COUNTER(profile, "SkipCacheBytes", TUnit::BYTES, cache_profile);
+    }
+
+    void update(FileCacheStatistics* statistics) {
+        COUNTER_UPDATE(num_io_total, statistics->num_io_total);
+        COUNTER_UPDATE(num_io_hit_cache, statistics->num_io_hit_cache);
+        COUNTER_UPDATE(num_io_bytes_read_total, statistics->num_io_bytes_read_total);
+        COUNTER_UPDATE(num_io_bytes_read_from_file_cache,
+                       statistics->num_io_bytes_read_from_file_cache);
+        COUNTER_UPDATE(num_io_bytes_read_from_write_cache,
+                       statistics->num_io_bytes_read_from_write_cache);
+        COUNTER_UPDATE(num_io_written_in_file_cache, statistics->num_io_written_in_file_cache);
+        COUNTER_UPDATE(num_io_bytes_written_in_file_cache,
+                       statistics->num_io_bytes_written_in_file_cache);
+        COUNTER_UPDATE(num_io_bytes_skip_cache, statistics->num_io_bytes_skip_cache);
+    }
 };
 
 } // namespace io

@@ -122,7 +122,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
                 return expr;
             }
         }
-        return expr.getResultValue();
+        return expr.getResultValue(false);
     }
 
     /**
@@ -349,7 +349,7 @@ public class FoldConstantsRule implements ExprRewriteRule {
             }
             Collections.shuffle(backendIds);
             Backend be = Env.getCurrentSystemInfo().getBackend(backendIds.get(0));
-            brpcAddress = new TNetworkAddress(be.getHost(), be.getBrpcPort());
+            brpcAddress = new TNetworkAddress(be.getIp(), be.getBrpcPort());
 
             TQueryGlobals queryGlobals = new TQueryGlobals();
             queryGlobals.setNowString(DATE_FORMAT.format(new Date()));

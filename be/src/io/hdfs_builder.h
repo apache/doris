@@ -36,11 +36,11 @@ class HDFSCommonBuilder {
             const std::map<std::string, std::string>& properties);
 
 public:
-    HDFSCommonBuilder() : hdfs_builder(hdfsNewBuilder()) {};
-    ~HDFSCommonBuilder() { hdfsFreeBuilder(hdfs_builder); };
+    HDFSCommonBuilder() : hdfs_builder(hdfsNewBuilder()) {}
+    ~HDFSCommonBuilder() { hdfsFreeBuilder(hdfs_builder); }
 
-    hdfsBuilder* get() { return hdfs_builder; };
-    bool is_need_kinit() { return need_kinit; };
+    hdfsBuilder* get() { return hdfs_builder; }
+    bool is_need_kinit() const { return need_kinit; }
     Status run_kinit();
 
 private:

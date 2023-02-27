@@ -57,14 +57,18 @@ public class MTMVJobFactory {
 
     public static List<MTMVJob> buildJob(MaterializedView materializedView, String dbName) {
         List<MTMVJob> jobs = new ArrayList<>();
-        if (materializedView.getBuildMode() == BuildMode.IMMEDIATE) {
-            jobs.add(genOnceJob(materializedView, dbName));
-        }
         MVRefreshTriggerInfo triggerInfo = materializedView.getRefreshInfo().getTriggerInfo();
+        boolean isRunPeriodJobImmediate = false;
         if (triggerInfo != null && triggerInfo.getRefreshTrigger() == RefreshTrigger.INTERVAL) {
-            jobs.add(genPeriodicalJob(materializedView, dbName));
+            MTMVJob job = genPeriodicalJob(materializedView, dbName);
+            isRunPeriodJobImmediate = MTMVUtils.getDelaySeconds(job) == 0;
+            jobs.add(job);
         }
 
+        // if the PeriodicalJob run immediate since an early start time, don't run the immediate build.
+        if (!isRunPeriodJobImmediate && materializedView.getBuildMode() == BuildMode.IMMEDIATE) {
+            jobs.add(genOnceJob(materializedView, dbName));
+        }
         return jobs;
     }
 
@@ -73,8 +77,8 @@ public class MTMVJobFactory {
         MTMVJob job = new MTMVJob(materializedView.getName() + "_" + uid);
         job.setTriggerMode(TriggerMode.PERIODICAL);
         job.setSchedule(genJobSchedule(materializedView));
-        job.setDbName(dbName);
-        job.setMvName(materializedView.getName());
+        job.setDBName(dbName);
+        job.setMVName(materializedView.getName());
         job.setQuery(materializedView.getQuery());
         job.setCreateTime(MTMVUtils.getNowTimeStamp());
         return job;
@@ -84,8 +88,8 @@ public class MTMVJobFactory {
         String uid = UUID.randomUUID().toString();
         MTMVJob job = new MTMVJob(materializedView.getName() + "_" + uid);
         job.setTriggerMode(TriggerMode.ONCE);
-        job.setDbName(dbName);
-        job.setMvName(materializedView.getName());
+        job.setDBName(dbName);
+        job.setMVName(materializedView.getName());
         job.setQuery(materializedView.getQuery());
         job.setCreateTime(MTMVUtils.getNowTimeStamp());
         return job;

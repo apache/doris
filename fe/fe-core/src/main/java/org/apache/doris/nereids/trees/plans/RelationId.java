@@ -26,6 +26,7 @@ import java.util.Objects;
  * relation id
  */
 public class RelationId extends Id<RelationId> {
+
     public RelationId(int id) {
         super(id);
     }
@@ -50,11 +51,6 @@ public class RelationId extends Id<RelationId> {
             @Override
             public RelationId getNextId() {
                 return new RelationId(nextId++);
-            }
-
-            @Override
-            public RelationId getMaxId() {
-                return new RelationId(nextId);
             }
         };
     }

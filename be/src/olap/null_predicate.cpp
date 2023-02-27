@@ -18,8 +18,8 @@
 #include "olap/null_predicate.h"
 
 #include "olap/field.h"
-#include "runtime/string_value.hpp"
 #include "vec/columns/column_nullable.h"
+#include "vec/common/string_ref.h"
 
 using namespace doris::vectorized;
 

@@ -21,7 +21,6 @@
 
 #include <sstream>
 
-#include "exprs/expr.h"
 #include "util/types.h"
 #include "vec/columns/column_nullable.h"
 #include "vec/core/block.h"

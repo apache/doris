@@ -38,7 +38,7 @@ public class MTMVTaskExecutorTest extends TestWithFeService {
         executor.initTask(UUID.randomUUID().toString(), System.currentTimeMillis());
         pool.executeTask(executor);
         executor.getFuture().get();
-        Assertions.assertEquals(TaskState.FAILED, executor.getTask().getState());
+        Assertions.assertEquals(TaskState.FAILURE, executor.getTask().getState());
     }
 
 
@@ -51,7 +51,7 @@ public class MTMVTaskExecutorTest extends TestWithFeService {
         executor.initTask(UUID.randomUUID().toString(), System.currentTimeMillis());
         pool.executeTask(executor);
         executor.getFuture().get();
-        Assertions.assertEquals(TaskState.FAILED, executor.getTask().getState());
+        Assertions.assertEquals(TaskState.FAILURE, executor.getTask().getState());
         //Assertions.assertEquals("java.lang.Exception: my define error 1", executor.getTask().getMessage());
     }
 
@@ -67,7 +67,7 @@ public class MTMVTaskExecutorTest extends TestWithFeService {
         executor.initTask(UUID.randomUUID().toString(), System.currentTimeMillis());
         pool.executeTask(executor);
         executor.getFuture().get();
-        Assertions.assertEquals(TaskState.FAILED, executor.getTask().getState());
+        Assertions.assertEquals(TaskState.FAILURE, executor.getTask().getState());
     }
 
     @Test
@@ -82,7 +82,7 @@ public class MTMVTaskExecutorTest extends TestWithFeService {
         executor.initTask(UUID.randomUUID().toString(), System.currentTimeMillis());
         pool.executeTask(executor);
         executor.getFuture().get();
-        Assertions.assertEquals(TaskState.FAILED, executor.getTask().getState());
+        Assertions.assertEquals(TaskState.FAILURE, executor.getTask().getState());
         //Assertions.assertEquals("java.lang.Exception: my define error 4", executor.getTask().getMessage());
     }
 
@@ -94,11 +94,12 @@ public class MTMVTaskExecutorTest extends TestWithFeService {
             this.times = times;
         }
 
-        void process(MTMVTaskContext context) throws Exception {
+        boolean process(MTMVTaskContext context) throws Exception {
             if (runTimes < times) {
                 runTimes++;
                 throw new Exception("my define error " + runTimes);
             }
+            return true;
         }
     }
 }

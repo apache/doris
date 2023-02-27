@@ -23,7 +23,9 @@
 #include <string.h>
 
 #include <cstdint>
+#include <functional>
 #include <iostream>
+#include <memory>
 #include <vector>
 
 // This is the only Doris header required to develop UDFs and UDAs. This header
@@ -32,12 +34,11 @@
 namespace doris {
 class FunctionContextImpl;
 struct ColumnPtrWrapper;
-struct StringValue;
+struct StringRef;
 class BitmapValue;
 class DecimalV2Value;
 class DateTimeValue;
 class CollectionValue;
-class MemPool;
 } // namespace doris
 
 namespace doris_udf {
@@ -46,17 +47,9 @@ namespace doris_udf {
 // object containing a boolean to store if the value is nullptr and the value itself. The
 // value is unspecified if the nullptr boolean is set.
 struct AnyVal;
-struct BooleanVal;
-struct TinyIntVal;
-struct SmallIntVal;
-struct IntVal;
-struct BigIntVal;
 struct StringVal;
 struct DateTimeVal;
-struct DateV2Val;
 struct DecimalV2Val;
-struct HllVal;
-struct CollectionVal;
 
 // The FunctionContext is passed to every UDF/UDA and is the interface for the UDF to the
 // rest of the system. It contains APIs to examine the system state, report errors
@@ -89,6 +82,8 @@ public:
         TYPE_DECIMALV2,
         TYPE_OBJECT,
         TYPE_ARRAY,
+        TYPE_MAP,
+        TYPE_STRUCT,
         TYPE_QUANTILE_STATE,
         TYPE_DATEV2,
         TYPE_DATETIMEV2,
@@ -97,6 +92,7 @@ public:
         TYPE_DECIMAL64,
         TYPE_DECIMAL128I,
         TYPE_JSONB,
+        TYPE_VARIANT
     };
 
     struct TypeDesc {
@@ -200,6 +196,7 @@ public:
     // byte sizes. For each call to TrackAllocation(), the UDF/UDA must call
     // the corresponding Free().
     void track_allocation(int64_t byte_size);
+
     void free(int64_t byte_size);
 
     // TODO: Do we need to add arbitrary key/value metadata. This would be plumbed
@@ -219,7 +216,8 @@ public:
     /// GetFunctionState() is called when no pointer is set, it will return
     /// nullptr. SetFunctionState() does not take ownership of 'ptr'; it is up to the UDF/UDA
     /// to clean up any function state if necessary.
-    void set_function_state(FunctionStateScope scope, void* ptr);
+    void set_function_state(FunctionStateScope scope, std::shared_ptr<void> ptr);
+
     void* get_function_state(FunctionStateScope scope) const;
 
     // Returns the return type information of this function. For UDAs, this is the final
@@ -233,9 +231,6 @@ public:
     // Returns the number of arguments to this function (not including the FunctionContext*
     // argument).
     int get_num_args() const;
-
-    // Returns _constant_args size
-    int get_num_constant_args() const;
 
     // Returns the type information for the arg_idx-th argument (0-indexed, not including
     // the FunctionContext* argument). Returns nullptr if arg_idx is invalid.
@@ -255,267 +250,37 @@ public:
 
     doris::ColumnPtrWrapper* get_constant_col(int arg_idx) const;
 
-    // Create a test FunctionContext object. The caller is responsible for calling delete
-    // on it. This context has additional debugging validation enabled.
-    // And the default value of mem_pool is nullprt.
-    static FunctionContext* create_test_context(doris::MemPool* mem_pool);
-
     ~FunctionContext();
 
 private:
     friend class doris::FunctionContextImpl;
+
     FunctionContext();
 
     // Disable copy ctor and assignment operator
     FunctionContext(const FunctionContext& other);
+
     FunctionContext& operator=(const FunctionContext& other);
 
     doris::FunctionContextImpl* _impl; // Owned by this object.
 };
 
 //----------------------------------------------------------------------------
-//------------------------------- UDFs ---------------------------------------
-//----------------------------------------------------------------------------
-// The UDF function must implement this function prototype. This is not
-// a typedef as the actual UDF's signature varies from UDF to UDF.
-//    typedef <*Val> Evaluate(FunctionContext* context, <const Val& arg>);
-//
-// The UDF must return one of the *Val structs. The UDF must accept a pointer
-// to a FunctionContext object and then a const reference for each of the input arguments.
-// nullptr input arguments will have nullptr passed in.
-// Examples of valid Udf signatures are:
-//  1) DoubleVal Example1(FunctionContext* context);
-//  2) IntVal Example2(FunctionContext* context, const IntVal& a1, const DoubleVal& a2);
-//
-// UDFs can be variadic. The variable arguments must all come at the end and must be
-// the same type. A example signature is:
-//  StringVal Concat(FunctionContext* context, const StringVal& separator,
-//    int num_var_args, const StringVal* args);
-// In this case args[0] is the first variable argument and args[num_var_args - 1] is
-// the last.
-//
-// The UDF should not maintain any state across calls since there is no guarantee
-// on how the execution is multithreaded or distributed. Conceptually, the UDF
-// should only read the input arguments and return the result, using only the
-// FunctionContext as an external object.
-//
-// Memory Management: the UDF can assume that memory from input arguments will have
-// the same lifetime as results for the UDF. In other words, the UDF can return
-// memory from input arguments without making copies. For example, a function like
-// substring will not need to allocate and copy the smaller string. For cases where
-// the UDF needs a buffer, it should use the StringValue(FunctionContext, len) c'tor.
-//
-// The UDF can optionally specify a Prepare function. The prepare function is called
-// once before any calls to the Udf to evaluate values. This is the appropriate time for
-// the Udf to validate versions and things like that.
-// If there is an error, this function should call FunctionContext::set_error()/
-// FunctionContext::add_warning().
-typedef void (*UdfPrepareFn)(FunctionContext* context);
-
-/// --- Prepare / Close Functions ---
-/// ---------------------------------
-/// The UDF can optionally include a prepare function, specified in the "CREATE FUNCTION"
-/// statement using "prepare_fn=<prepare function symbol>". The prepare function is called
-/// before any calls to the UDF to evaluate values. This is the appropriate time for the
-/// UDF to initialize any shared data structures, validate versions, etc. If there is an
-/// error, this function should call FunctionContext::SetError()/
-/// FunctionContext::AddWarning().
-//
-/// The prepare function is called multiple times with different FunctionStateScopes. It
-/// will be called once per fragment with 'scope' set to FRAGMENT_LOCAL, and once per
-/// execution thread with 'scope' set to THREAD_LOCAL.
-typedef void (*UdfPrepare)(FunctionContext* context, FunctionContext::FunctionStateScope scope);
-
-/// The UDF can also optionally include a close function, specified in the "CREATE
-/// FUNCTION" statement using "close_fn=<close function symbol>". The close function is
-/// called after all calls to the UDF have completed. This is the appropriate time for the
-/// UDF to deallocate any shared data structures that are not needed to maintain the
-/// results. If there is an error, this function should call FunctionContext::SetError()/
-/// FunctionContext::AddWarning().
-//
-/// The close function is called multiple times with different FunctionStateScopes. It
-/// will be called once per fragment with 'scope' set to FRAGMENT_LOCAL, and once per
-/// execution thread with 'scope' set to THREAD_LOCAL.
-typedef void (*UdfClose)(FunctionContext* context, FunctionContext::FunctionStateScope scope);
-
-//----------------------------------------------------------------------------
-//------------------------------- UDAs ---------------------------------------
-//----------------------------------------------------------------------------
-// The UDA execution is broken up into a few steps. The general calling pattern
-// is one of these:
-//  1) Init(), Evaluate() (repeatedly), Serialize()
-//  2) Init(), Merge() (repeatedly), Serialize()
-//  3) Init(), Finalize()
-// The UDA is registered with three types: the result type, the input type and
-// the intermediate type.
-//
-// If the UDA needs a fixed byte width intermediate buffer, the type should be
-// TYPE_FIXED_BUFFER and Doris will allocate the buffer. If the UDA needs an unknown
-// sized buffer, it should use TYPE_STRING and allocate it from the FunctionContext
-// manually.
-// For UDAs that need a complex data structure as the intermediate state, the
-// intermediate type should be string and the UDA can cast the ptr to the structure
-// it is using.
-//
-// Memory Management: For allocations that are not returned to Doris, the UDA
-// should use the FunctionContext::Allocate()/Free() methods. For StringVal allocations
-// returned to Doris (e.g. UdaSerialize()), the UDA should allocate the result
-// via StringVal(FunctionContext*, int) ctor and Doris will automatically handle
-// freeing it.
-//
-// For clarity in documenting the UDA interface, the various types will be typedefed
-// here. The actual execution resolves all the types at runtime and none of these types
-// should actually be used.
-typedef AnyVal InputType;
-typedef AnyVal InputType2;
-typedef AnyVal ResultType;
-typedef AnyVal IntermediateType;
-
-// UdaInit is called once for each aggregate group before calls to any of the
-// other functions below.
-typedef void (*UdaInit)(FunctionContext* context, IntermediateType* result);
-
-// This is called for each input value. The UDA should update result based on the
-// input value. The update function can take any number of input arguments. Here
-// are some examples:
-typedef void (*UdaUpdate)(FunctionContext* context, const InputType& input,
-                          IntermediateType* result);
-typedef void (*UdaUpdate2)(FunctionContext* context, const InputType& input,
-                           const InputType2& input2, IntermediateType* result);
-
-// Merge an intermediate result 'src' into 'dst'.
-typedef void (*UdaMerge)(FunctionContext* context, const IntermediateType& src,
-                         IntermediateType* dst);
-
-// Serialize the intermediate type. The serialized data is then sent across the
-// wire. This is not called unless the intermediate type is String.
-// No additional functions will be called with this FunctionContext object and the
-// UDA should do final clean (e.g. Free()) here.
-typedef const IntermediateType (*UdaSerialize)(FunctionContext* context,
-                                               const IntermediateType& type);
-
-// Called once at the end to return the final value for this UDA.
-// No additional functions will be called with this FunctionContext object and the
-// UDA should do final clean (e.g. Free()) here.
-typedef ResultType (*UdaFinalize)(FunctionContext* context, const IntermediateType& v);
-
-//----------------------------------------------------------------------------
 //-------------Implementation of the *Val structs ----------------------------
 //----------------------------------------------------------------------------
 struct AnyVal {
     bool is_null;
+
     AnyVal() : is_null(false) {}
+
     AnyVal(bool is_null) : is_null(is_null) {}
-};
-
-struct BooleanVal : public AnyVal {
-    bool val;
-
-    BooleanVal() : val(false) {}
-    BooleanVal(bool val) : val(val) {}
-
-    static BooleanVal null() {
-        BooleanVal result;
-        result.is_null = true;
-        return result;
-    }
-
-    bool operator==(const BooleanVal& other) const {
-        if (is_null && other.is_null) {
-            return true;
-        }
-
-        if (is_null || other.is_null) {
-            return false;
-        }
-
-        return val == other.val;
-    }
-    bool operator!=(const BooleanVal& other) const { return !(*this == other); }
-};
-
-struct TinyIntVal : public AnyVal {
-    int8_t val;
-
-    TinyIntVal() : val(0) {}
-    TinyIntVal(int8_t val) : val(val) {}
-
-    static TinyIntVal null() {
-        TinyIntVal result;
-        result.is_null = true;
-        return result;
-    }
-
-    bool operator==(const TinyIntVal& other) const {
-        if (is_null && other.is_null) {
-            return true;
-        }
-
-        if (is_null || other.is_null) {
-            return false;
-        }
-
-        return val == other.val;
-    }
-    bool operator!=(const TinyIntVal& other) const { return !(*this == other); }
-};
-
-struct SmallIntVal : public AnyVal {
-    int16_t val;
-
-    SmallIntVal() : val(0) {}
-    SmallIntVal(int16_t val) : val(val) {}
-
-    static SmallIntVal null() {
-        SmallIntVal result;
-        result.is_null = true;
-        return result;
-    }
-
-    bool operator==(const SmallIntVal& other) const {
-        if (is_null && other.is_null) {
-            return true;
-        }
-
-        if (is_null || other.is_null) {
-            return false;
-        }
-
-        return val == other.val;
-    }
-    bool operator!=(const SmallIntVal& other) const { return !(*this == other); }
-};
-
-struct IntVal : public AnyVal {
-    int32_t val;
-
-    IntVal() : val(0) {}
-    IntVal(int32_t val) : val(val) {}
-
-    static IntVal null() {
-        IntVal result;
-        result.is_null = true;
-        return result;
-    }
-
-    bool operator==(const IntVal& other) const {
-        if (is_null && other.is_null) {
-            return true;
-        }
-
-        if (is_null || other.is_null) {
-            return false;
-        }
-
-        return val == other.val;
-    }
-    bool operator!=(const IntVal& other) const { return !(*this == other); }
 };
 
 struct BigIntVal : public AnyVal {
     int64_t val;
 
     BigIntVal() : val(0) {}
+
     BigIntVal(int64_t val) : val(val) {}
 
     static BigIntVal null() {
@@ -535,110 +300,15 @@ struct BigIntVal : public AnyVal {
 
         return val == other.val;
     }
+
     bool operator!=(const BigIntVal& other) const { return !(*this == other); }
-};
-
-struct Decimal32Val : public AnyVal {
-    int32_t val;
-
-    Decimal32Val() : val(0) {}
-    Decimal32Val(int32_t val) : val(val) {}
-
-    static Decimal32Val null() {
-        Decimal32Val result;
-        result.is_null = true;
-        return result;
-    }
-
-    bool operator==(const Decimal32Val& other) const {
-        if (is_null && other.is_null) {
-            return true;
-        }
-
-        if (is_null || other.is_null) {
-            return false;
-        }
-
-        return val == other.val;
-    }
-    bool operator!=(const Decimal32Val& other) const { return !(*this == other); }
-};
-
-struct Decimal64Val : public AnyVal {
-    int64_t val;
-
-    Decimal64Val() : val(0) {}
-    Decimal64Val(int64_t val) : val(val) {}
-
-    static Decimal64Val null() {
-        Decimal64Val result;
-        result.is_null = true;
-        return result;
-    }
-
-    bool operator==(const Decimal64Val& other) const {
-        if (is_null && other.is_null) {
-            return true;
-        }
-
-        if (is_null || other.is_null) {
-            return false;
-        }
-
-        return val == other.val;
-    }
-    bool operator!=(const Decimal64Val& other) const { return !(*this == other); }
-};
-
-struct Decimal128Val : public AnyVal {
-    __int128 val;
-
-    Decimal128Val() : val(0) {}
-
-    Decimal128Val(__int128 large_value) : val(large_value) {}
-
-    static Decimal128Val null() {
-        Decimal128Val result;
-        result.is_null = true;
-        return result;
-    }
-
-    bool operator==(const Decimal128Val& other) const {
-        if (is_null && other.is_null) {
-            return true;
-        }
-
-        if (is_null || other.is_null) {
-            return false;
-        }
-
-        return val == other.val;
-    }
-    bool operator!=(const Decimal128Val& other) const { return !(*this == other); }
-};
-
-struct FloatVal : public AnyVal {
-    float val;
-
-    FloatVal() : val(0.0) {}
-    FloatVal(float val) : val(val) {}
-
-    static FloatVal null() {
-        FloatVal result;
-        result.is_null = true;
-        return result;
-    }
-
-    bool operator==(const FloatVal& other) const {
-        return is_null == other.is_null && val == other.val;
-    }
-    bool operator!=(const FloatVal& other) const { return !(*this == other); }
 };
 
 struct DoubleVal : public AnyVal {
     double val;
 
     DoubleVal() : val(0.0) {}
+
     DoubleVal(double val) : val(val) {}
 
     static DoubleVal null() {
@@ -658,6 +328,7 @@ struct DoubleVal : public AnyVal {
 
         return val == other.val;
     }
+
     bool operator!=(const DoubleVal& other) const { return !(*this == other); }
 };
 
@@ -688,39 +359,15 @@ struct DateTimeVal : public AnyVal {
 
         return packed_time == other.packed_time;
     }
+
     bool operator!=(const DateTimeVal& other) const { return !(*this == other); }
-};
-
-struct DateV2Val : public AnyVal {
-    uint32_t datev2_value;
-
-    DateV2Val() : datev2_value(0) {}
-    DateV2Val(uint32_t val) : datev2_value(val) {}
-
-    static DateV2Val null() {
-        DateV2Val result;
-        result.is_null = true;
-        return result;
-    }
-
-    bool operator==(const DateV2Val& other) const {
-        if (is_null && other.is_null) {
-            return true;
-        }
-
-        if (is_null || other.is_null) {
-            return false;
-        }
-
-        return datev2_value == other.datev2_value;
-    }
-    bool operator!=(const DateV2Val& other) const { return !(*this == other); }
 };
 
 struct DateTimeV2Val : public AnyVal {
     uint64_t datetimev2_value;
 
     DateTimeV2Val() : datetimev2_value(0) {}
+
     DateTimeV2Val(uint64_t val) : datetimev2_value(val) {}
 
     static DateTimeV2Val null() {
@@ -740,9 +387,11 @@ struct DateTimeV2Val : public AnyVal {
 
         return datetimev2_value == other.datetimev2_value;
     }
+
     bool operator!=(const DateTimeV2Val& other) const { return !(*this == other); }
 };
 
+// TODO: need to set explicit align?
 // Note: there is a difference between a nullptr string (is_null == true) and an
 // empty string (len == 0).
 struct StringVal : public AnyVal {
@@ -808,10 +457,13 @@ struct StringVal : public AnyVal {
     /// the memory allocation becomes too large, will set an error on FunctionContext and
     /// return a nullptr string.
     void append(FunctionContext* ctx, const uint8_t* buf, int64_t len);
+
     void append(FunctionContext* ctx, const uint8_t* buf, int64_t len, const uint8_t* buf2,
                 int64_t buf2_len);
+
     std::string to_string() const { return std::string((char*)ptr, len); }
 };
+
 std::ostream& operator<<(std::ostream& os, const StringVal& string_val);
 
 struct DecimalV2Val : public AnyVal {
@@ -851,82 +503,10 @@ struct DecimalV2Val : public AnyVal {
     bool operator!=(const DecimalV2Val& other) const { return !(*this == other); }
 };
 
-struct LargeIntVal : public AnyVal {
-    __int128 val;
-
-    LargeIntVal() : val(0) {}
-
-    LargeIntVal(__int128 large_value) : val(large_value) {}
-
-    static LargeIntVal null() {
-        LargeIntVal result;
-        result.is_null = true;
-        return result;
-    }
-
-    bool operator==(const LargeIntVal& other) const {
-        if (is_null && other.is_null) {
-            return true;
-        }
-
-        if (is_null || other.is_null) {
-            return false;
-        }
-
-        return val == other.val;
-    }
-    bool operator!=(const LargeIntVal& other) const { return !(*this == other); }
-};
-
-// todo(kks): keep HllVal struct only for backward compatibility, we should remove it
-//            when doris 0.12 release
-struct HllVal : public StringVal {
-    HllVal() : StringVal() {}
-
-    void init(FunctionContext* ctx);
-
-    void agg_parse_and_cal(FunctionContext* ctx, const HllVal& other);
-
-    void agg_merge(const HllVal& other);
-};
-
-struct CollectionVal : public AnyVal {
-    void* data;
-    uint64_t length;
-    // item has no null value if has_null is false.
-    // item ```may``` has null value if has_null is true.
-    bool has_null;
-    // null bitmap
-    bool* null_signs;
-
-    CollectionVal() = default;
-
-    CollectionVal(void* data, uint64_t length, bool has_null, bool* null_signs)
-            : data(data), length(length), has_null(has_null), null_signs(null_signs) {};
-
-    static CollectionVal null() {
-        CollectionVal val;
-        val.is_null = true;
-        return val;
-    }
-};
-typedef uint8_t* BufferVal;
-} // namespace doris_udf
-
-using doris_udf::BooleanVal;
-using doris_udf::TinyIntVal;
-using doris_udf::SmallIntVal;
-using doris_udf::IntVal;
 using doris_udf::BigIntVal;
-using doris_udf::LargeIntVal;
-using doris_udf::FloatVal;
 using doris_udf::DoubleVal;
 using doris_udf::StringVal;
 using doris_udf::DecimalV2Val;
 using doris_udf::DateTimeVal;
-using doris_udf::HllVal;
 using doris_udf::FunctionContext;
-using doris_udf::CollectionVal;
-using doris_udf::Decimal32Val;
-using doris_udf::Decimal64Val;
-using doris_udf::Decimal128Val;
+} // namespace doris_udf

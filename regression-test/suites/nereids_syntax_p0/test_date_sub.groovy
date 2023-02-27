@@ -18,6 +18,7 @@
 suite("test_date_sub") {
     sql "set enable_nereids_planner=true"
     sql "set enable_fallback_to_original_planner=false"
+    sql "set enable_fold_constant_by_be=false"
 
     qt_select "select DAYS_SUB(cast('2020-01-01' as date), interval 2 year)"
     qt_select "select DAYS_SUB(cast('2020-01-01' as datev2),interval 2 year)"
@@ -39,4 +40,32 @@ suite("test_date_sub") {
     qt_select "SELECT SUBDATE('2020-01-01', interval 2 day)"
     qt_select "SELECT DAYS_SUB('2020-01-01', 2)"
     qt_select "SELECT DAYS_SUB('2020-01-01', -4)"
+        
+    qt_select "SELECT YEARS_SUB('2020-01-01', 2)"
+    qt_select "SELECT YEARS_SUB('2020-01-01', -4)"
+
+    qt_select "SELECT MONTHS_SUB('2020-01-01', 2)"
+    qt_select "SELECT MONTHS_SUB('2020-01-01', -4)"
+
+    qt_select "SELECT WEEKS_SUB('2020-01-01', 2)"
+    qt_select "SELECT WEEKS_SUB('2020-01-01', -4)"
+
+    qt_select "SELECT HOURS_SUB('2020-01-01', 2)"
+    qt_select "SELECT HOURS_SUB('2020-01-01', -4)"
+
+    qt_select "SELECT MINUTES_SUB('2020-01-01', 2)"
+    qt_select "SELECT MINUTES_SUB('2020-01-01', -4)"
+
+    qt_select "SELECT SECONDS_SUB('2020-01-01', 2)"
+    qt_select "SELECT SECONDS_SUB('2020-01-01', -4)"
+
+    // TIMESTAMPDIFF
+    qt_sql """ SELECT TIMESTAMPDIFF(MONTH,'2003-02-01','2003-05-01') """
+    qt_sql """ SELECT TIMESTAMPDIFF(YEAR,'2002-05-01','2001-01-01') """
+    qt_sql """ SELECT TIMESTAMPDIFF(MINUTE,'2003-02-01','2003-05-01 12:05:55') """
+    qt_sql """ SELECT TIMESTAMPDIFF(SECOND,'2003-02-01','2003-05-01') """
+    qt_sql """ SELECT TIMESTAMPDIFF(HOUR,'2003-02-01','2003-05-01') """
+    qt_sql """ SELECT TIMESTAMPDIFF(DAY,'2003-02-01','2003-05-01') """
+    qt_sql """ SELECT TIMESTAMPDIFF(WEEK,'2003-02-01','2003-05-01') """
+
 }

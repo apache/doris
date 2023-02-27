@@ -28,6 +28,7 @@ import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -80,6 +81,18 @@ public class Utils {
     }
 
     /**
+     * Check whether lhs and rhs are intersecting.
+     */
+    public static <T> boolean isIntersecting(Set<T> lhs, Collection<T> rhs) {
+        for (T rh : rhs) {
+            if (lhs.contains(rh)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Wrapper to a function without return value.
      */
     public interface FuncWrapper {
@@ -87,7 +100,7 @@ public class Utils {
     }
 
     /**
-     * Wrapper to a funciton with return value.
+     * Wrapper to a function with return value.
      */
     public interface Supplier<R> {
         R get() throws Exception;
@@ -210,11 +223,30 @@ public class Utils {
                 expr -> expr.anyMatch(slots::contains)));
     }
 
+    /**
+     * Replace one item in a list with another item.
+     */
     public static <T> void replaceList(List<T> list, T oldItem, T newItem) {
+        boolean result = false;
         for (int i = 0; i < list.size(); i++) {
             if (list.get(i).equals(oldItem)) {
                 list.set(i, newItem);
+                result = true;
             }
         }
+        Preconditions.checkState(result);
+    }
+
+    /**
+     * Remove item from a list without equals method.
+     */
+    public static <T> void identityRemove(List<T> list, T item) {
+        for (int i = 0; i < list.size(); i++) {
+            if (list.get(i) == item) {
+                list.remove(i);
+                return;
+            }
+        }
+        Preconditions.checkState(false, "item not found in list");
     }
 }

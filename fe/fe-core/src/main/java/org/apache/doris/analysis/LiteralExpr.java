@@ -33,6 +33,7 @@ import java.io.DataInput;
 import java.io.DataOutput;
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.util.List;
 
 public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr> {
     private static final Logger LOG = LogManager.getLogger(LiteralExpr.class);
@@ -261,5 +262,117 @@ public abstract class LiteralExpr extends Expr implements Comparable<LiteralExpr
     @Override
     public void finalizeImplForNereids() throws AnalysisException {
 
+    }
+
+    @Override
+    public String toString() {
+        return getStringValue();
+    }
+
+    // Parse from binary data, the format follows mysql binary protocal
+    // see https://dev.mysql.com/doc/dev/mysql-server/latest/page_protocol_binary_resultset.html.
+    // Return next offset
+    public void setupParamFromBinary(ByteBuffer data) {
+        Preconditions.checkState(false,
+                "should implement this in derived class. " + this.type.toSql());
+    }
+
+    public static LiteralExpr getLiteralByMysqlType(int mysqlType) throws AnalysisException {
+        switch (mysqlType) {
+            // MYSQL_TYPE_TINY
+            case 1:
+                return LiteralExpr.create("0", Type.TINYINT);
+            // MYSQL_TYPE_SHORT
+            case 2:
+                return LiteralExpr.create("0", Type.SMALLINT);
+            // MYSQL_TYPE_LONG
+            case 3:
+                return LiteralExpr.create("0", Type.INT);
+            // MYSQL_TYPE_LONGLONG
+            case 8:
+                return LiteralExpr.create("0", Type.BIGINT);
+            // MYSQL_TYPE_FLOAT
+            case 4:
+                return LiteralExpr.create("0", Type.FLOAT);
+            // MYSQL_TYPE_DOUBLE
+            case 5:
+                return LiteralExpr.create("0", Type.DOUBLE);
+            // MYSQL_TYPE_DECIMAL
+            case 0:
+            // MYSQL_TYPE_NEWDECIMAL
+            case 246:
+                return LiteralExpr.create("0", Type.DECIMAL32);
+            // MYSQL_TYPE_TIME
+            case 11:
+                return LiteralExpr.create("", Type.TIME);
+            // MYSQL_TYPE_DATE
+            case 10:
+                return LiteralExpr.create("1970-01-01", Type.DATE);
+            // MYSQL_TYPE_DATETIME
+            case 12:
+            // MYSQL_TYPE_TIMESTAMP
+            case 7:
+            // MYSQL_TYPE_TIMESTAMP2
+            case 17:
+                return LiteralExpr.create("1970-01-01 00:00:00", Type.DATETIME);
+            // MYSQL_TYPE_STRING
+            case 254:
+            case 253:
+                return LiteralExpr.create("", Type.STRING);
+            // MYSQL_TYPE_VARCHAR
+            case 15:
+                return LiteralExpr.create("", Type.VARCHAR);
+            default:
+                return null;
+        }
+    }
+
+    // Port from mysql get_param_length
+    public static int getParmLen(ByteBuffer data) {
+        int maxLen = data.remaining();
+        if (maxLen < 1) {
+            return 0;
+        }
+        // get and advance 1 byte
+        int len = data.get();
+        if (len < 251) {
+            return len;
+        }
+        if (maxLen < 3) {
+            return 0;
+        }
+        if (len == 252) {
+            // get and advance 2 bytes
+            return data.getChar();
+        }
+        if (maxLen < 4) {
+            return 0;
+        }
+        if (len == 253) {
+            // get and advance 3 bytes
+            byte[] bytes = new byte[3];
+            data.get(bytes);
+            return ByteBuffer.wrap(bytes).getInt();
+        }
+        if (maxLen < 5) {
+            return 0;
+        }
+        // Must be 254 when here
+        /*
+          In our client-server protocol all numbers bigger than 2^24
+          stored as 8 bytes with uint8korr. Here we always know that
+          parameter length is less than 2^4 so don't look at the second
+          4 bytes. But still we need to obey the protocol hence 9 in the
+          assignment above.
+        */
+        int ret = data.getInt();
+        // advance more useless 4 bytes
+        data.getInt();
+        return ret;
+    }
+
+    @Override
+    public boolean matchExprs(List<Expr> exprs, SelectStmt stmt, boolean ignoreAlias, String tableName) {
+        return true;
     }
 }

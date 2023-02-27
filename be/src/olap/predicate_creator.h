@@ -21,14 +21,13 @@
 #include <type_traits>
 
 #include "exec/olap_utils.h"
-#include "exprs/bloomfilter_predicate.h"
 #include "exprs/create_predicate_function.h"
 #include "exprs/hybrid_set.h"
-#include "exprs/match_predicate.h"
 #include "olap/bloom_filter_predicate.h"
 #include "olap/column_predicate.h"
 #include "olap/comparison_predicate.h"
 #include "olap/in_list_predicate.h"
+#include "olap/match_predicate.h"
 #include "olap/null_predicate.h"
 #include "olap/tablet_schema.h"
 #include "runtime/define_primitive_type.h"
@@ -64,7 +63,14 @@ public:
 private:
     static CppType convert(const std::string& condition) {
         CppType value = 0;
-        std::from_chars(condition.data(), condition.data() + condition.size(), value);
+        // because std::from_chars can't compile on macOS
+        if constexpr (std::is_same_v<CppType, double>) {
+            value = std::stod(condition, nullptr);
+        } else if constexpr (std::is_same_v<CppType, float>) {
+            value = std::stof(condition, nullptr);
+        } else {
+            std::from_chars(condition.data(), condition.data() + condition.size(), value);
+        }
         return value;
     }
 };
@@ -109,8 +115,8 @@ public:
     }
 
 private:
-    static StringValue convert(const TabletColumn& column, const std::string& condition,
-                               MemPool* pool) {
+    static StringRef convert(const TabletColumn& column, const std::string& condition,
+                             MemPool* pool) {
         size_t length = condition.length();
         if constexpr (Type == TYPE_CHAR) {
             length = std::max(static_cast<size_t>(column.length()), length);
@@ -118,9 +124,9 @@ private:
 
         char* buffer = reinterpret_cast<char*>(pool->allocate(length));
         memset(buffer, 0, length);
-        memory_copy(buffer, condition.data(), condition.length());
+        memcpy(buffer, condition.data(), condition.length());
 
-        return StringValue(buffer, length);
+        return {buffer, length};
     }
 };
 
@@ -129,7 +135,7 @@ struct CustomPredicateCreator : public PredicateCreator<ConditionType> {
 public:
     using CppType = typename PredicatePrimitiveTypeTraits<Type>::PredicateFieldType;
     CustomPredicateCreator(const std::function<CppType(const std::string& condition)>& convert)
-            : _convert(convert) {};
+            : _convert(convert) {}
 
     ColumnPredicate* create(const TabletColumn& column, int index, const ConditionType& conditions,
                             bool opposite, MemPool* pool) override {
@@ -162,6 +168,12 @@ inline std::unique_ptr<PredicateCreator<ConditionType>> get_creator(const FieldT
     }
     case OLAP_FIELD_TYPE_LARGEINT: {
         return std::make_unique<IntegerPredicateCreator<TYPE_LARGEINT, PT, ConditionType>>();
+    }
+    case OLAP_FIELD_TYPE_FLOAT: {
+        return std::make_unique<IntegerPredicateCreator<TYPE_FLOAT, PT, ConditionType>>();
+    }
+    case OLAP_FIELD_TYPE_DOUBLE: {
+        return std::make_unique<IntegerPredicateCreator<TYPE_DOUBLE, PT, ConditionType>>();
     }
     case OLAP_FIELD_TYPE_DECIMAL: {
         return std::make_unique<CustomPredicateCreator<TYPE_DECIMALV2, PT, ConditionType>>(

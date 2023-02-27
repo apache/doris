@@ -50,7 +50,8 @@ import java.util.Optional;
  * Note: In general, the output of agg is a subset of the group by column plus aggregate column.
  * In special cases. this relationship does not hold. for example, select k1+1, sum(v1) from table group by k1.
  */
-public class LogicalAggregate<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE>
+public class LogicalAggregate<CHILD_TYPE extends Plan>
+        extends LogicalUnary<CHILD_TYPE>
         implements Aggregate<CHILD_TYPE> {
 
     private final boolean normalized;

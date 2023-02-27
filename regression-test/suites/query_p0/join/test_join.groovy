@@ -804,7 +804,7 @@ suite("test_join", "query,p0") {
 
     qt_right_anti_join_null_1 "select b.k1 from ${tbName1} t right anti join ${tbName2} b on b.k1 > t.k1 order by b.k1"
 
-    qt_right_anti_join_null_2 "select b.k1 from ${empty_name} t right anti join ${tbName2} b on b.k1 > t.k1 order by b.k1"
+    qt_right_anti_join_null_2 "select /*+SET_VAR(batch_size=3) */ b.k1 from ${empty_name} t right anti join ${tbName2} b on b.k1 > t.k1 order by b.k1"
 
     // join with no join keyword
     for (s in selected){
@@ -933,7 +933,7 @@ suite("test_join", "query,p0") {
     // https://github.com/apache/doris/issues/4210
     qt_join_bug3"""select * from baseall t1 where k1 = (select min(k1) from test t2 where t2.k1 = t1.k1 and t2.k2=t1.k2)
            order by k1"""
-
+    qt_join_bug4"""select b.k1 from baseall b where b.k1 not in( select k1 from baseall where k1 is not null )"""
 
 
     // basic join
@@ -975,7 +975,7 @@ suite("test_join", "query,p0") {
         def res71 = sql"""select * from ${tbName2} a left anti join ${tbName1} b on (a.${c} = b.${c}) 
                 order by a.k1, a.k2, a.k3"""
         def res72 = sql"""select distinct a.* from ${tbName2} a left outer join ${tbName1} b on (a.${c} = b.${c}) 
-                where b.k1 is null and a.k1 is not null order by a.k1, a.k2, a.k3"""
+                where b.k1 is null order by a.k1, a.k2, a.k3"""
         check2_doris(res71, res72)
 
         def res73 = sql"""select * from ${tbName2} a right anti join ${tbName1} b on (a.${c} = b.${c}) 
@@ -1083,7 +1083,7 @@ suite("test_join", "query,p0") {
 
     def res85 = sql"""select a.k1, a.k2 from ${tbName2} a left anti join ${null_name} b on a.k1 = b.n2 
            order by 1, 2"""
-    def res86 = sql"""select k1, k2 from ${tbName2} where k1 is not null order by k1, k2"""
+    def res86 = sql"""select k1, k2 from ${tbName2} order by k1, k2"""
     check2_doris(res85, res86)
 
     def res87 = sql"""select b.n1, b.n2 from ${tbName2} a right anti join ${null_name} b on a.k1 = b.n2 
@@ -1227,7 +1227,15 @@ suite("test_join", "query,p0") {
     sql"""drop table ${table_3}"""
     sql"""drop table ${table_4}"""
 
+    qt_sql """select k1 from baseall left semi join test on true order by k1;"""
+    qt_sql """select k1 from baseall left semi join test on false order by k1;"""
+    qt_sql """select k1 from baseall left anti join test on true order by k1;"""
+    qt_sql """select k1 from baseall left anti join test on false order by k1;"""
 
+    qt_sql """select k1 from test right semi join baseall on true order by k1;"""
+    qt_sql """select k1 from test right semi join baseall on false order by k1;"""
+    qt_sql """select k1 from test right anti join baseall on true order by k1;"""
+    qt_sql """select k1 from test right anti join baseall on false order by k1;"""
 
     // test bucket shuffle join, github issue #6171
     sql"""create database if not exists test_issue_6171"""

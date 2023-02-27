@@ -27,20 +27,10 @@ namespace doris {
 SizeBasedCumulativeCompactionPolicy::SizeBasedCumulativeCompactionPolicy(
         int64_t promotion_size, double promotion_ratio, int64_t promotion_min_size,
         int64_t compaction_min_size)
-        : CumulativeCompactionPolicy(),
-          _promotion_size(promotion_size),
+        : _promotion_size(promotion_size),
           _promotion_ratio(promotion_ratio),
           _promotion_min_size(promotion_min_size),
-          _compaction_min_size(compaction_min_size) {
-    // init _levels by divide 2 between promotion_size and 1K
-    // cu compaction handle file size less then promotion_size
-    int64_t i_size = promotion_size / 2;
-
-    while (i_size >= 1024) {
-        _levels.push_back(i_size);
-        i_size /= 2;
-    }
-}
+          _compaction_min_size(compaction_min_size) {}
 
 void SizeBasedCumulativeCompactionPolicy::calculate_cumulative_point(
         Tablet* tablet, const std::vector<RowsetMetaSharedPtr>& all_metas,
@@ -159,22 +149,21 @@ void SizeBasedCumulativeCompactionPolicy::update_cumulative_point(
     }
 }
 
-void SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(
-        Tablet* tablet, TabletState state, const std::vector<RowsetMetaSharedPtr>& all_metas,
-        int64_t current_cumulative_point, uint32_t* score) {
+uint32_t SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(Tablet* tablet) {
+    uint32_t score = 0;
     bool base_rowset_exist = false;
-    const int64_t point = current_cumulative_point;
+    const int64_t point = tablet->cumulative_layer_point();
     int64_t promotion_size = 0;
 
     std::vector<RowsetMetaSharedPtr> rowset_to_compact;
     int64_t total_size = 0;
 
-    // check the base rowset and collect the rowsets of cumulative part
-    auto rs_meta_iter = all_metas.begin();
     RowsetMetaSharedPtr first_meta;
     int64_t first_version = INT64_MAX;
-    for (; rs_meta_iter != all_metas.end(); rs_meta_iter++) {
-        auto rs_meta = *rs_meta_iter;
+    // NOTE: tablet._meta_lock is hold
+    auto& rs_metas = tablet->tablet_meta()->all_rs_metas();
+    // check the base rowset and collect the rowsets of cumulative part
+    for (auto& rs_meta : rs_metas) {
         if (rs_meta->start_version() < first_version) {
             first_version = rs_meta->start_version();
             first_meta = rs_meta;
@@ -183,20 +172,19 @@ void SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         if (rs_meta->start_version() == 0) {
             base_rowset_exist = true;
         }
-        if (rs_meta->end_version() < point) {
+        if (rs_meta->end_version() < point || !rs_meta->is_local()) {
             // all_rs_metas() is not sorted, so we use _continue_ other than _break_ here.
             continue;
         } else {
             // collect the rowsets of cumulative part
             total_size += rs_meta->total_disk_size();
-            *score += rs_meta->get_compaction_score();
+            score += rs_meta->get_compaction_score();
             rowset_to_compact.push_back(rs_meta);
         }
     }
 
     if (first_meta == nullptr) {
-        *score = 0;
-        return;
+        return 0;
     }
 
     // Use "first"(not base) version to calc promotion size
@@ -205,15 +193,14 @@ void SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(
 
     // If base version does not exist, but its state is RUNNING.
     // It is abnormal, do not select it and set *score = 0
-    if (!base_rowset_exist && state == TABLET_RUNNING) {
+    if (!base_rowset_exist && tablet->tablet_state() == TABLET_RUNNING) {
         LOG(WARNING) << "tablet state is running but have no base version";
-        *score = 0;
-        return;
+        return 0;
     }
 
     // if total_size is greater than promotion_size, return total score
     if (total_size >= promotion_size) {
-        return;
+        return score;
     }
 
     // sort the rowsets of cumulative part
@@ -229,11 +216,12 @@ void SizeBasedCumulativeCompactionPolicy::calc_cumulative_compaction_score(
         // if current level less then remain level, score contains current rowset
         // and process return; otherwise, score does not contains current rowset.
         if (current_level <= remain_level) {
-            return;
+            return score;
         }
         total_size -= rs_meta->total_disk_size();
-        *score -= rs_meta->get_compaction_score();
+        score -= rs_meta->get_compaction_score();
     }
+    return score;
 }
 
 int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
@@ -242,6 +230,7 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
         std::vector<RowsetSharedPtr>* input_rowsets, Version* last_delete_version,
         size_t* compaction_score) {
     size_t promotion_size = tablet->cumulative_promotion_size();
+    auto max_version = tablet->max_version().first;
     int transient_size = 0;
     *compaction_score = 0;
     int64_t total_size = 0;
@@ -258,6 +247,13 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
                 input_rowsets->clear();
                 *compaction_score = 0;
                 transient_size = 0;
+                continue;
+            }
+        }
+        if (tablet->tablet_state() == TABLET_NOTREADY) {
+            // If tablet under alter, keep latest 10 version so that base tablet max version
+            // not merged in new tablet, and then we can copy data from base tablet
+            if (rowset->version().second < max_version - 10) {
                 continue;
             }
         }
@@ -334,13 +330,12 @@ int SizeBasedCumulativeCompactionPolicy::pick_input_rowsets(
     return transient_size;
 }
 
-int SizeBasedCumulativeCompactionPolicy::_level_size(const int64_t size) {
-    for (auto& i : _levels) {
-        if (size >= i) {
-            return i;
-        }
-    }
-    return 0;
+int64_t SizeBasedCumulativeCompactionPolicy::_level_size(const int64_t size) {
+    if (size < 1024) return 0;
+    int64_t max_level = (int64_t)1
+                        << (sizeof(_promotion_size) * 8 - 1 - __builtin_clzl(_promotion_size / 2));
+    if (size >= max_level) return max_level;
+    return (int64_t)1 << (sizeof(size) * 8 - 1 - __builtin_clzl(size));
 }
 
 std::shared_ptr<CumulativeCompactionPolicy>

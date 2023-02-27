@@ -22,6 +22,7 @@ suite("test_string_function") {
     qt_sql "select elt(1, \"hello\", \"doris\");"
     qt_sql "select elt(2, \"hello\", \"doris\");"
     qt_sql "select elt(3, \"hello\", \"doris\");"
+    qt_sql "select c1, c2, elt(c1, c2) from (select number as c1, 'varchar' as c2 from numbers('number'='5') where number > 0) a;"
 
     qt_sql "select append_trailing_char_if_absent('a','c');"
     qt_sql "select append_trailing_char_if_absent('ac','c');"
@@ -96,6 +97,7 @@ suite("test_string_function") {
     qt_sql "select money_format(17014116);"
     qt_sql "select money_format(1123.456);"
     qt_sql "select money_format(1123.4);"
+    qt_sql "select money_format(truncate(1000,10))"
 
     qt_sql "select null_or_empty(null);"
     qt_sql "select null_or_empty(\"\");"

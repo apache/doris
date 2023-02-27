@@ -17,7 +17,6 @@
 
 suite("array_function") {
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
     sql "SET enable_fallback_to_original_planner=false"
 
     test {
@@ -26,7 +25,7 @@ suite("array_function") {
     }
 
     test {
-        sql "select array(), array('a'), array(number, 'a') from numbers(number=3)"
+        sql "select array(), array('a'), array(number, 'a') from numbers('number'='3')"
         result([
             ["[]", "['a']", "['0', 'a']"],
             ["[]", "['a']", "['1', 'a']"],

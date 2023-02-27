@@ -40,6 +40,7 @@ import java.util.Optional;
  * Physical olap scan plan.
  */
 public class PhysicalOlapScan extends PhysicalRelation implements OlapScan {
+
     private final OlapTable olapTable;
     private final DistributionSpec distributionSpec;
     private final long selectedIndexId;

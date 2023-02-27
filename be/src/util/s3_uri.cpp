@@ -64,4 +64,11 @@ bool S3URI::parse() {
     return true;
 }
 
+std::string S3URI::to_string() const {
+    std::stringstream ss;
+    ss << "location: " << _location << ", bucket: " << _bucket << ", key: " << _key
+       << ", schema: " << _scheme;
+    return ss.str();
+}
+
 } // end namespace doris

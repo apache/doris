@@ -232,9 +232,9 @@ CTE 可以引用自身来定义递归 CTE 。 递归 CTE 的常见应用包括�
 10. UNION 示例
 
     ```sql
-    SELECT a FROM t1 WHERE a = 10 AND B = 1 ORDER by LIMIT 10
+    SELECT a FROM t1 WHERE a = 10 AND B = 1 ORDER by a LIMIT 10
     UNION
-    SELECT a FROM t2 WHERE a = 11 AND B = 2 ORDER by LIMIT 10;
+    SELECT a FROM t2 WHERE a = 11 AND B = 2 ORDER by a LIMIT 10;
     ```
 
 11. WITH 子句示例

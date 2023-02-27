@@ -20,7 +20,6 @@
 #include <thrift/protocol/TDebugProtocol.h>
 
 #include "exprs/bitmapfilter_predicate.h"
-#include "exprs/bloomfilter_predicate.h"
 #include "exprs/function_filter.h"
 #include "exprs/hybrid_set.h"
 #include "olap/delete_handler.h"
@@ -29,6 +28,7 @@
 #include "olap/tablet.h"
 #include "olap/tablet_schema.h"
 #include "util/runtime_profile.h"
+#include "vec/exprs/vexpr_context.h"
 
 namespace doris {
 
@@ -41,6 +41,23 @@ class VCollectIterator;
 class Block;
 class VExpr;
 } // namespace vectorized
+
+// Used to compare row with input scan key. Scan key only contains key columns,
+// row contains all key columns, which is superset of key columns.
+// So we should compare the common prefix columns of lhs and rhs.
+//
+// NOTE: if you are not sure if you can use it, please don't use this function.
+template <typename LhsRowType, typename RhsRowType>
+int compare_row_key(const LhsRowType& lhs, const RhsRowType& rhs) {
+    auto cmp_cids = std::min(lhs.schema()->num_column_ids(), rhs.schema()->num_column_ids());
+    for (uint32_t cid = 0; cid < cmp_cids; ++cid) {
+        auto res = lhs.schema()->column(cid)->compare_cell(lhs.cell(cid), rhs.cell(cid));
+        if (res != 0) {
+            return res;
+        }
+    }
+    return 0;
+}
 
 class TabletReader {
     struct KeysParam {
@@ -84,7 +101,10 @@ public:
         DeleteBitmap* delete_bitmap {nullptr};
 
         std::vector<RowsetReaderSharedPtr> rs_readers;
+        // return_columns is init from query schema
         std::vector<uint32_t> return_columns;
+        // output_columns only contain columns in OrderByExprs and outputExprs
+        std::set<int32_t> output_columns;
         RuntimeProfile* profile = nullptr;
         RuntimeState* runtime_state = nullptr;
 
@@ -104,6 +124,10 @@ public:
         bool read_orderby_key_reverse = false;
         // num of columns for orderby key
         size_t read_orderby_key_num_prefix_columns = 0;
+        // limit of rows for read_orderby_key
+        size_t read_orderby_key_limit = 0;
+        // filter_block arguments
+        vectorized::VExprContext** filter_block_vconjunct_ctx_ptr = nullptr;
 
         // for vertical compaction
         bool is_key_column_group = false;
@@ -128,8 +152,7 @@ public:
     // Return OK and set `*eof` to true when no more rows can be read.
     // Return others when unexpected error happens.
     // TODO: Rethink here we still need mem_pool and agg_pool?
-    virtual Status next_block_with_aggregation(vectorized::Block* block, MemPool* mem_pool,
-                                               ObjectPool* agg_pool, bool* eof) {
+    virtual Status next_block_with_aggregation(vectorized::Block* block, bool* eof) {
         return Status::Error<ErrorCode::READER_INITIALIZE_ERROR>();
     }
 
@@ -141,7 +164,9 @@ public:
                _stats.rows_vec_cond_filtered;
     }
 
-    void set_batch_size(int batch_size) { _batch_size = batch_size; }
+    void set_batch_size(int batch_size) { _reader_context.batch_size = batch_size; }
+
+    int batch_size() const { return _reader_context.batch_size; }
 
     const OlapReaderStatistics& stats() const { return _stats; }
     OlapReaderStatistics* mutable_stats() { return &_stats; }
@@ -158,8 +183,7 @@ protected:
 
     Status _init_params(const ReaderParams& read_params);
 
-    Status _capture_rs_readers(const ReaderParams& read_params,
-                               std::vector<RowsetReaderSharedPtr>* valid_rs_readers);
+    Status _capture_rs_readers(const ReaderParams& read_params);
 
     bool _optimize_for_single_rowset(const std::vector<RowsetReaderSharedPtr>& rs_readers);
 
@@ -217,7 +241,6 @@ protected:
     bool _filter_delete = false;
     int32_t _sequence_col_idx = -1;
     bool _direct_mode = false;
-    int _batch_size = 1024;
 
     std::vector<uint32_t> _key_cids;
     std::vector<uint32_t> _value_cids;

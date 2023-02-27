@@ -89,7 +89,7 @@ TEST_F(ParquetReaderTest, normal) {
     DescriptorTbl::create(&obj_pool, t_desc_table, &desc_tbl);
 
     auto slot_descs = desc_tbl->get_tuple_descriptor(0)->slots();
-    io::FileSystemSPtr local_fs = std::make_shared<io::LocalFileSystem>("");
+    io::FileSystemSPtr local_fs = io::LocalFileSystem::create("");
     io::FileReaderSPtr reader;
     local_fs->open_file("./be/test/exec/test_data/parquet_scanner/type-decoder.parquet", &reader,
                         nullptr);
@@ -98,6 +98,7 @@ TEST_F(ParquetReaderTest, normal) {
     TimezoneUtils::find_cctz_time_zone(TimezoneUtils::default_time_zone, ctz);
     auto tuple_desc = desc_tbl->get_tuple_descriptor(0);
     std::vector<std::string> column_names;
+    std::vector<std::string> missing_column_names;
     for (int i = 0; i < slot_descs.size(); i++) {
         column_names.push_back(slot_descs[i]->col_name());
     }
@@ -114,7 +115,8 @@ TEST_F(ParquetReaderTest, normal) {
     runtime_state.init_mem_trackers();
 
     std::unordered_map<std::string, ColumnValueRangeType> colname_to_value_range;
-    p_reader->init_reader(column_names, nullptr, nullptr);
+    p_reader->open();
+    p_reader->init_reader(column_names, missing_column_names, nullptr, nullptr);
     std::unordered_map<std::string, std::tuple<std::string, const SlotDescriptor*>>
             partition_columns;
     std::unordered_map<std::string, VExprContext*> missing_columns;

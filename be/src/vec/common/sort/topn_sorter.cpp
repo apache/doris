@@ -52,16 +52,29 @@ Status TopNSorter::_do_sort(Block* block) {
         // to order the block in _block_priority_queue.
         // if one block totally greater the heap top of _block_priority_queue
         // we can throw the block data directly.
-        if (_state->num_rows() < _limit) {
-            _block_priority_queue.emplace(
-                    _pool->add(new MergeSortCursorImpl(sorted_block, _sort_description)));
+        if (_state->num_rows() < _offset + _limit) {
             _state->add_sorted_block(sorted_block);
+            // if it's spilled, sorted_block is not added into sorted block vector,
+            // so it's should not be added to _block_priority_queue, since
+            // sorted_block will be destroyed when _do_sort is finished
+            if (!_state->is_spilled()) {
+                _block_priority_queue.emplace(_pool->add(
+                        new MergeSortCursorImpl(_state->last_sorted_block(), _sort_description)));
+            }
         } else {
-            MergeSortBlockCursor block_cursor(
-                    _pool->add(new MergeSortCursorImpl(sorted_block, _sort_description)));
-            if (!block_cursor.totally_greater(_block_priority_queue.top())) {
+            if (!_state->is_spilled()) {
+                auto tmp_cursor_impl =
+                        std::make_unique<MergeSortCursorImpl>(sorted_block, _sort_description);
+                MergeSortBlockCursor block_cursor(tmp_cursor_impl.get());
+                if (!block_cursor.totally_greater(_block_priority_queue.top())) {
+                    _state->add_sorted_block(sorted_block);
+                    if (!_state->is_spilled()) {
+                        _block_priority_queue.emplace(_pool->add(new MergeSortCursorImpl(
+                                _state->last_sorted_block(), _sort_description)));
+                    }
+                }
+            } else {
                 _state->add_sorted_block(sorted_block);
-                _block_priority_queue.push(block_cursor);
             }
         }
     } else {

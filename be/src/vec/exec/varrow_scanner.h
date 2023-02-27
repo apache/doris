@@ -19,7 +19,6 @@
 
 #include <arrow/array.h>
 #include <exec/arrow/arrow_reader.h>
-#include <exec/arrow/orc_reader.h>
 
 #include <map>
 #include <memory>

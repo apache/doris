@@ -36,7 +36,6 @@ import com.google.common.collect.Maps;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.stream.Collectors;
 
 /**
  * replace.
@@ -89,7 +88,7 @@ public class ReplaceExpressionByChildOutput implements AnalysisRuleFactory {
                 changed.set(true);
             }
             return new OrderKey(newExpr, k.isAsc(), k.isNullFirst());
-        }).collect(Collectors.toList());
+        }).collect(ImmutableList.toImmutableList());
         if (changed.get()) {
             return new LogicalSort<>(newKeys, sort.child());
         } else {

@@ -145,6 +145,7 @@ if [[ "$#" == 1 ]]; then
     BUILD_META_TOOL='OFF'
     BUILD_SPARK_DPP=1
     BUILD_HIVE_UDF=1
+    BUILD_JAVA_UDF=1
     CLEAN=0
 else
     while true; do
@@ -281,6 +282,9 @@ fi
 if [[ -z "${USE_JEMALLOC}" ]]; then
     USE_JEMALLOC='ON'
 fi
+if [[ -z "${USE_BTHREAD_SCANNER}" ]]; then
+    USE_BTHREAD_SCANNER='OFF'
+fi
 if [[ -z "${ENABLE_STACKTRACE}" ]]; then
     ENABLE_STACKTRACE='ON'
 fi
@@ -350,6 +354,7 @@ echo "Get params:
     STRIP_DEBUG_INFO    -- ${STRIP_DEBUG_INFO}
     USE_MEM_TRACKER     -- ${USE_MEM_TRACKER}
     USE_JEMALLOC        -- ${USE_JEMALLOC}
+    USE_BTHREAD_SCANNER -- ${USE_BTHREAD_SCANNER}
     STRICT_MEMORY_USE   -- ${STRICT_MEMORY_USE}
     ENABLE_STACKTRACE   -- ${ENABLE_STACKTRACE}
 "
@@ -421,6 +426,7 @@ if [[ "${BUILD_BE}" -eq 1 ]]; then
         -DUSE_DWARF="${USE_DWARF}" \
         -DUSE_MEM_TRACKER="${USE_MEM_TRACKER}" \
         -DUSE_JEMALLOC="${USE_JEMALLOC}" \
+        -DUSE_BTHREAD_SCANNER="${USE_BTHREAD_SCANNER}" \
         -DSTRICT_MEMORY_USE="${STRICT_MEMORY_USE}" \
         -DENABLE_STACKTRACE="${ENABLE_STACKTRACE}" \
         -DUSE_AVX2="${USE_AVX2}" \
@@ -538,9 +544,6 @@ if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
     if [[ "${BUILD_JAVA_UDF}" -eq 0 ]]; then
         echo -e "\033[33;1mWARNNING: \033[37;1mDisable Java UDF support in be.conf due to the BE was built without Java UDF.\033[0m"
         cat >>"${DORIS_OUTPUT}/be/conf/be.conf" <<EOF
-
-# Java UDF support
-enable_java_support = false
 EOF
     fi
 
@@ -575,6 +578,7 @@ EOF
     copy_common_files "${DORIS_OUTPUT}/be/"
     mkdir -p "${DORIS_OUTPUT}/be/log"
     mkdir -p "${DORIS_OUTPUT}/be/storage"
+    cp -r -p "${DORIS_THIRDPARTY}/installed/share/dict" "${DORIS_OUTPUT}/be/"
 fi
 
 if [[ "${BUILD_BROKER}" -eq 1 ]]; then

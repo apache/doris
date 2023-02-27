@@ -76,7 +76,6 @@ public interface Repeat<CHILD_PLAN extends Plan> extends Aggregate<CHILD_PLAN> {
      */
     default Set<Expression> getCommonGroupingSetExpressions() {
         List<List<Expression>> groupingSets = getGroupingSets();
-        Sets.newLinkedHashSet();
         Iterator<List<Expression>> iterator = groupingSets.iterator();
         Set<Expression> commonGroupingExpressions = Sets.newLinkedHashSet(iterator.next());
         while (iterator.hasNext()) {

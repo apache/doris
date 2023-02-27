@@ -18,14 +18,13 @@
 package org.apache.doris.datasource;
 
 import org.apache.doris.catalog.AuthType;
-import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.HMSResource;
 import org.apache.doris.catalog.HdfsResource;
-import org.apache.doris.catalog.HiveMetaStoreClientHelper;
 import org.apache.doris.catalog.external.ExternalDatabase;
 import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.common.Config;
+import org.apache.doris.datasource.hive.PooledHiveMetaStoreClient;
 import org.apache.doris.datasource.hive.event.MetastoreNotificationFetchException;
 
 import com.google.common.collect.Lists;
@@ -33,7 +32,6 @@ import com.google.common.collect.Maps;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.api.CurrentNotificationEventId;
-import org.apache.hadoop.hive.metastore.api.FieldSchema;
 import org.apache.hadoop.hive.metastore.api.NotificationEventResponse;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.logging.log4j.LogManager;
@@ -60,7 +58,8 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public HMSExternalCatalog(long catalogId, String name, String resource, Map<String, String> props) {
         super(catalogId, name);
         this.type = "hms";
-        props.putAll(HMSResource.getPropertiesFromDLF());
+        props = HMSResource.getPropertiesFromDLF(props);
+        props = HMSResource.getPropertiesFromGlue(props);
         catalogProperty = new CatalogProperty(resource, props);
     }
 
@@ -153,22 +152,19 @@ public class HMSExternalCatalog extends ExternalCatalog {
         return client.tableExists(getRealTableName(dbName), tblName);
     }
 
+    @Override
+    public boolean tableExistInLocal(String dbName, String tblName) {
+        makeSureInitialized();
+        HMSExternalDatabase hmsExternalDatabase = (HMSExternalDatabase) idToDb.get(dbNameToId.get(dbName));
+        if (hmsExternalDatabase == null) {
+            return false;
+        }
+        return hmsExternalDatabase.getTable(getRealTableName(tblName)).isPresent();
+    }
+
     public PooledHiveMetaStoreClient getClient() {
         makeSureInitialized();
         return client;
-    }
-
-    @Override
-    public List<Column> getSchema(String dbName, String tblName) {
-        makeSureInitialized();
-        List<FieldSchema> schema = getClient().getSchema(dbName, tblName);
-        List<Column> tmpSchema = Lists.newArrayListWithCapacity(schema.size());
-        for (FieldSchema field : schema) {
-            tmpSchema.add(new Column(field.getName(),
-                    HiveMetaStoreClientHelper.hiveTypeToDorisType(field.getType()), true, null,
-                    true, null, field.getComment(), true, null, -1));
-        }
-        return tmpSchema;
     }
 
     public void setLastSyncedEventId(long lastSyncedEventId) {
@@ -213,5 +209,25 @@ public class HMSExternalCatalog extends ExternalCatalog {
             return -1;
         }
         return currentNotificationEventId.getEventId();
+    }
+
+    @Override
+    public void dropDatabase(String dbName) {
+        LOG.debug("drop database [{}]", dbName);
+        makeSureInitialized();
+        Long dbId = dbNameToId.remove(dbName);
+        if (dbId == null) {
+            LOG.warn("drop database [{}] failed", dbName);
+        }
+        idToDb.remove(dbId);
+    }
+
+    @Override
+    public void createDatabase(long dbId, String dbName) {
+        makeSureInitialized();
+        LOG.debug("create database [{}]", dbName);
+        dbNameToId.put(dbName, dbId);
+        HMSExternalDatabase db = new HMSExternalDatabase(this, dbId, dbName);
+        idToDb.put(dbId, db);
     }
 }

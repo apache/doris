@@ -94,7 +94,6 @@ export MYSQL_PWD=${PASSWORD}
 echo "FE_HOST: ${FE_HOST}"
 echo "FE_QUERY_PORT: ${FE_QUERY_PORT}"
 echo "USER: ${USER}"
-echo "PASSWORD: ${PASSWORD}"
 echo "DB: ${DB}"
 
 run_sql() {
@@ -160,4 +159,4 @@ run_sql "set global enable_projection=${origin_enable_projection};"
 run_sql "set global runtime_filter_mode=${origin_runtime_filter_mode};"
 echo '============================================'
 
-echo 'Done.'
+echo 'Finish ssb queries.'

@@ -21,6 +21,7 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.AlwaysNullable;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 
+import java.util.List;
 import java.util.Objects;
 
 /**
@@ -35,13 +36,29 @@ public abstract class NullableAggregateFunction extends AggregateFunction implem
         this.alwaysNullable = false;
     }
 
+    protected NullableAggregateFunction(String name, List<Expression> expressions) {
+        super(name, false, expressions);
+        this.alwaysNullable = false;
+    }
+
     protected NullableAggregateFunction(String name, boolean distinct, Expression ...expressions) {
+        super(name, distinct, expressions);
+        this.alwaysNullable = false;
+    }
+
+    protected NullableAggregateFunction(String name, boolean distinct, List<Expression> expressions) {
         super(name, distinct, expressions);
         this.alwaysNullable = false;
     }
 
     protected NullableAggregateFunction(String name, boolean distinct, boolean alwaysNullable,
             Expression ...expressions) {
+        super(name, distinct, expressions);
+        this.alwaysNullable = alwaysNullable;
+    }
+
+    protected NullableAggregateFunction(String name, boolean distinct, boolean alwaysNullable,
+            List<Expression> expressions) {
         super(name, distinct, expressions);
         this.alwaysNullable = alwaysNullable;
     }

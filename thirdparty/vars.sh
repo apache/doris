@@ -54,6 +54,12 @@ export TP_JAR_DIR="${TP_INSTALL_DIR}/lib/jar"
 # of all thirdparties
 #####################################################
 
+#clucene
+CLUCENE_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libclucene-v2.4.6.zip"
+CLUCENE_NAME="doris-thirdparty-libclucene-v2.4.6.zip"
+CLUCENE_SOURCE="doris-thirdparty-libclucene-v2.4.6"
+CLUCENE_MD5SUM="3d2432c9dc4b23e4f4fb73605f0e577d"
+
 # libevent
 LIBEVENT_DOWNLOAD="https://github.com/libevent/libevent/archive/release-2.1.12-stable.tar.gz"
 LIBEVENT_NAME=libevent-release-2.1.12-stable.tar.gz
@@ -122,7 +128,6 @@ LZ4_MD5SUM="3a1ab1684e14fc1afc66228ce61b2db3"
 
 # bzip
 BZIP_DOWNLOAD="https://fossies.org/linux/misc/bzip2-1.0.8.tar.gz"
-BZIP_DOWNLOAD="ftp://sourceware.org/pub/bzip2/bzip2-1.0.8.tar.gz"
 BZIP_NAME=bzip2-1.0.8.tar.gz
 BZIP_SOURCE=bzip2-1.0.8
 BZIP_MD5SUM="67e051268d0c475ea773822f7500d0e5"
@@ -258,10 +263,10 @@ S2_SOURCE=s2geometry-0.10.0
 S2_MD5SUM="c68f3c5d326dde9255681b9201393a9f"
 
 # bitshuffle
-BITSHUFFLE_DOWNLOAD="https://github.com/kiyo-masui/bitshuffle/archive/0.3.5.tar.gz"
-BITSHUFFLE_NAME=bitshuffle-0.3.5.tar.gz
-BITSHUFFLE_SOURCE=bitshuffle-0.3.5
-BITSHUFFLE_MD5SUM="2648ec7ccd0b896595c6636d926fc867"
+BITSHUFFLE_DOWNLOAD="https://github.com/kiyo-masui/bitshuffle/archive/0.5.1.tar.gz"
+BITSHUFFLE_NAME=bitshuffle-0.5.1.tar.gz
+BITSHUFFLE_SOURCE=bitshuffle-0.5.1
+BITSHUFFLE_MD5SUM="b3bf6a9838927f7eb62214981c138e2f"
 
 # croaringbitmap
 CROARINGBITMAP_DOWNLOAD="https://github.com/RoaringBitmap/CRoaring/archive/refs/tags/v0.4.0.tar.gz"
@@ -287,11 +292,17 @@ ORC_NAME=orc-1.7.2.tar.gz
 ORC_SOURCE=orc-1.7.2
 ORC_MD5SUM="6cab37935eacdec7d078d327746a8578"
 
-# jemalloc
-JEMALLOC_DOWNLOAD="https://github.com/jemalloc/jemalloc/releases/download/5.2.1/jemalloc-5.2.1.tar.bz2"
-JEMALLOC_NAME="jemalloc-5.2.1.tar.bz2"
-JEMALLOC_SOURCE="jemalloc-5.2.1"
-JEMALLOC_MD5SUM="3d41fbf006e6ebffd489bdb304d009ae"
+# jemalloc for arrow
+JEMALLOC_ARROW_DOWNLOAD="https://github.com/jemalloc/jemalloc/releases/download/5.2.1/jemalloc-5.2.1.tar.bz2"
+JEMALLOC_ARROW_NAME="jemalloc-5.2.1.tar.bz2"
+JEMALLOC_ARROW_SOURCE="jemalloc-5.2.1"
+JEMALLOC_ARROW_MD5SUM="3d41fbf006e6ebffd489bdb304d009ae"
+
+# jemalloc for doris
+JEMALLOC_DORIS_DOWNLOAD="https://github.com/jemalloc/jemalloc/releases/download/5.3.0/jemalloc-5.3.0.tar.bz2"
+JEMALLOC_DORIS_NAME="jemalloc-5.3.0.tar.bz2"
+JEMALLOC_DORIS_SOURCE="jemalloc-5.3.0"
+JEMALLOC_DORIS_MD5SUM="09a8328574dab22a7df848eae6dbbf53"
 
 # cctz
 CCTZ_DOWNLOAD="https://github.com/google/cctz/archive/v2.3.tar.gz"
@@ -363,10 +374,10 @@ KRB5_SOURCE="krb5-1.19"
 KRB5_MD5SUM="aaf18447a5a014aa3b7e81814923f4c9"
 
 # hdfs3
-HDFS3_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libhdfs3-v2.3.5.tar.gz"
-HDFS3_NAME="doris-thirdparty-libhdfs3-v2.3.5.tar.gz"
-HDFS3_SOURCE="doris-thirdparty-libhdfs3-v2.3.5"
-HDFS3_MD5SUM="8da623120add76f5595e5978b123e157"
+HDFS3_DOWNLOAD="https://github.com/apache/doris-thirdparty/archive/refs/tags/libhdfs3-v2.3.8.tar.gz"
+HDFS3_NAME="doris-thirdparty-libhdfs3-v2.3.8.tar.gz"
+HDFS3_SOURCE="doris-thirdparty-libhdfs3-v2.3.8"
+HDFS3_MD5SUM="3a9890bb43d0caee183ea7a49df2e4f3"
 
 #libdivide
 LIBDIVIDE_DOWNLOAD="https://github.com/ridiculousfish/libdivide/archive/5.0.tar.gz"
@@ -441,8 +452,15 @@ CONCURRENTQUEUE_NAME=concurrentqueue-1.0.3.tar.gz
 CONCURRENTQUEUE_SOURCE=concurrentqueue-1.0.3
 CONCURRENTQUEUE_MD5SUM="118e5bb661b567634647312991e10222"
 
+# fast_float
+FAST_FLOAT_DOWNLOAD="https://github.com/fastfloat/fast_float/archive/refs/tags/v3.9.0.tar.gz"
+FAST_FLOAT_NAME=fast_float-3.9.0.tar.gz
+FAST_FLOAT_SOURCE=fast_float-3.9.0
+FAST_FLOAT_MD5SUM="5656b0d8b150a3b157cfb092d214f6ea"
+
 # all thirdparties which need to be downloaded is set in array TP_ARCHIVES
 export TP_ARCHIVES=(
+    'CLUCENE'
     'LIBEVENT'
     'OPENSSL'
     'THRIFT'
@@ -480,7 +498,8 @@ export TP_ARCHIVES=(
     'FMT'
     'PARALLEL_HASHMAP'
     'ORC'
-    'JEMALLOC'
+    'JEMALLOC_ARROW'
+    'JEMALLOC_DORIS'
     'CCTZ'
     'DATATABLES'
     'BOOTSTRAP_TABLE_JS'
@@ -505,6 +524,7 @@ export TP_ARCHIVES=(
     'SSE2NEON'
     'XXHASH'
     'CONCURRENTQUEUE'
+    'FAST_FLOAT'
 )
 
 if [[ "$(uname -s)" == 'Darwin' ]]; then

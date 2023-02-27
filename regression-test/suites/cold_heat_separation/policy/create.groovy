@@ -16,8 +16,6 @@
 // under the License.
 
 suite("create_policy") {
-    sql """ADMIN SET FRONTEND CONFIG ("enable_storage_policy" = "true");"""
-
     def has_created_1 = sql """
         SHOW RESOURCES WHERE NAME = "crete_policy_1";
     """
@@ -45,7 +43,7 @@ suite("create_policy") {
         def create_sucess = sql """
              SHOW RESOURCES WHERE NAME = "crete_policy_1";
         """
-        assertEquals(create_sucess.size(), 11)
+        assertEquals(create_sucess.size(), 13)
 
         def failed_cannot_create_duplicate_name_resources = try_sql """
             CREATE RESOURCE "crete_policy_1"

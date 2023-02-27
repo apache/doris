@@ -16,7 +16,6 @@
 // under the License.
 
 suite("test_time_lut_nereids") {
-    sql 'set enable_vectorized_engine=true;'
     sql 'set enable_fallback_to_original_planner=false;'
     sql 'set enable_nereids_planner=true;'
     for (def year = 1980; year < 2030; year++) {

@@ -20,13 +20,13 @@ package org.apache.doris.nereids.rules.exploration.join;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.base.Preconditions;
 
@@ -68,15 +68,13 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
                     GroupPlan c = topSemiJoin.right();
 
                     List<Expression> hashJoinConjuncts = topSemiJoin.getHashJoinConjuncts();
-                    Set<Slot> aOutputSet = a.getOutputSet();
+                    Set<ExprId> aOutputExprIdSet = a.getOutputExprIdSet();
 
                     boolean lasscom = false;
                     for (Expression hashJoinConjunct : hashJoinConjuncts) {
-                        Set<Slot> usedSlot = hashJoinConjunct.collect(Slot.class::isInstance);
-                        lasscom = ExpressionUtils.isIntersecting(usedSlot, aOutputSet) || lasscom;
+                        Set<ExprId> usedSlotExprIds = hashJoinConjunct.getInputSlotExprIds();
+                        lasscom = Utils.isIntersecting(usedSlotExprIds, aOutputExprIdSet) || lasscom;
                     }
-
-                    JoinType newTopJoinType = JoinType.INNER_JOIN;
 
                     if (lasscom) {
                         /*
@@ -86,13 +84,11 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
                          *  /    \                  /    \
                          * A      B                A      C
                          */
-                        LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
-                                topSemiJoin.getJoinType(),
-                                topSemiJoin.getHashJoinConjuncts(), topSemiJoin.getOtherJoinConjuncts(),
-                                JoinHint.NONE,
-                                a, c);
-                        return new LogicalJoin<>(newTopJoinType, bottomJoin.getHashJoinConjuncts(),
-                                bottomJoin.getOtherJoinConjuncts(), JoinHint.NONE, newBottomSemiJoin, b);
+                        // RIGHT_OUTER_JOIN should be eliminated in rewrite phase
+                        Preconditions.checkState(bottomJoin.getJoinType() != JoinType.RIGHT_OUTER_JOIN);
+
+                        Plan newBottomSemiJoin = topSemiJoin.withChildren(a, c);
+                        return bottomJoin.withChildren(newBottomSemiJoin, b);
                     } else {
                         /*
                          *    topSemiJoin            newTopJoin
@@ -101,13 +97,11 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
                          *  /    \                         /      \
                          * A      B                       B        C
                          */
-                        LogicalJoin<GroupPlan, GroupPlan> newBottomSemiJoin = new LogicalJoin<>(
-                                topSemiJoin.getJoinType(),
-                                topSemiJoin.getHashJoinConjuncts(), topSemiJoin.getOtherJoinConjuncts(),
-                                JoinHint.NONE,
-                                b, c);
-                        return new LogicalJoin<>(newTopJoinType, bottomJoin.getHashJoinConjuncts(),
-                                bottomJoin.getOtherJoinConjuncts(), JoinHint.NONE, a, newBottomSemiJoin);
+                        // LEFT_OUTER_JOIN should be eliminated in rewrite phase
+                        Preconditions.checkState(bottomJoin.getJoinType() != JoinType.LEFT_OUTER_JOIN);
+
+                        Plan newBottomSemiJoin = topSemiJoin.withChildren(b, c);
+                        return bottomJoin.withChildren(a, newBottomSemiJoin);
                     }
                 }).toRule(RuleType.LOGICAL_SEMI_JOIN_LOGICAL_JOIN_TRANSPOSE);
     }
@@ -116,15 +110,15 @@ public class SemiJoinLogicalJoinTranspose extends OneExplorationRuleFactory {
     private boolean conditionChecker(LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, GroupPlan> topSemiJoin) {
         List<Expression> hashJoinConjuncts = topSemiJoin.getHashJoinConjuncts();
 
-        List<Slot> aOutput = topSemiJoin.left().left().getOutput();
-        List<Slot> bOutput = topSemiJoin.left().right().getOutput();
+        Set<ExprId> aOutputExprIdSet = topSemiJoin.left().left().getOutputExprIdSet();
+        Set<ExprId> bOutputExprIdSet = topSemiJoin.left().right().getOutputExprIdSet();
 
         boolean hashContainsA = false;
         boolean hashContainsB = false;
         for (Expression hashJoinConjunct : hashJoinConjuncts) {
-            Set<Slot> usedSlot = hashJoinConjunct.collect(Slot.class::isInstance);
-            hashContainsA = ExpressionUtils.isIntersecting(usedSlot, aOutput) || hashContainsA;
-            hashContainsB = ExpressionUtils.isIntersecting(usedSlot, bOutput) || hashContainsB;
+            Set<ExprId> usedSlotExprIds = hashJoinConjunct.getInputSlotExprIds();
+            hashContainsA = Utils.isIntersecting(usedSlotExprIds, aOutputExprIdSet) || hashContainsA;
+            hashContainsB = Utils.isIntersecting(usedSlotExprIds, bOutputExprIdSet) || hashContainsB;
         }
         if (leftDeep && hashContainsB) {
             return false;

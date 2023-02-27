@@ -17,6 +17,7 @@
 
 #include "vec/exec/join/vhash_join_node.h"
 
+#include "exprs/bloom_filter_func.h"
 #include "exprs/runtime_filter_slots.h"
 #include "gen_cpp/PlanNodes_types.h"
 #include "gutil/strings/substitute.h"
@@ -356,7 +357,6 @@ Status HashJoinNode::init(const TPlanNode& tnode, RuntimeState* state) {
 
 Status HashJoinNode::prepare(RuntimeState* state) {
     RETURN_IF_ERROR(VJoinNodeBase::prepare(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
 
     auto* memory_usage = runtime_profile()->create_child("MemoryUsage", true, true);
     runtime_profile()->add_child(memory_usage, false, nullptr);
@@ -458,8 +458,7 @@ void HashJoinNode::prepare_for_next() {
     _prepare_probe_block();
 }
 
-Status HashJoinNode::pull(doris::RuntimeState* /*state*/, vectorized::Block* output_block,
-                          bool* eos) {
+Status HashJoinNode::pull(doris::RuntimeState* state, vectorized::Block* output_block, bool* eos) {
     SCOPED_TIMER(_probe_timer);
     if (_short_circuit_for_null_in_probe_side) {
         // If we use a short-circuit strategy for null value in build side (e.g. if join operator is
@@ -535,9 +534,14 @@ Status HashJoinNode::pull(doris::RuntimeState* /*state*/, vectorized::Block* out
     } else {
         return Status::OK();
     }
+    if (!st) {
+        return st;
+    }
     if (_is_outer_join) {
         _add_tuple_is_null_column(&temp_block);
     }
+    auto output_rows = temp_block.rows();
+    DCHECK(output_rows <= state->batch_size());
     {
         SCOPED_TIMER(_join_filter_timer);
         RETURN_IF_ERROR(
@@ -662,7 +666,6 @@ Status HashJoinNode::open(RuntimeState* state) {
     START_AND_SCOPE_SPAN(state->get_tracer(), span, "HashJoinNode::open");
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(VJoinNodeBase::open(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_CANCELLED(state);
     return Status::OK();
 }
@@ -697,9 +700,9 @@ void HashJoinNode::release_resource(RuntimeState* state) {
 
 Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
     RETURN_IF_ERROR(child(1)->open(state));
-    bool eos = false;
 
     if (_should_build_hash_table) {
+        bool eos = false;
         Block block;
         // If eos or have already met a null value using short-circuit strategy, we do not need to pull
         // data from data.
@@ -722,7 +725,7 @@ Status HashJoinNode::_materialize_build_side(RuntimeState* state) {
         RETURN_IF_ERROR(child(1)->close(state));
     } else {
         RETURN_IF_ERROR(child(1)->close(state));
-        RETURN_IF_ERROR(sink(state, nullptr, eos));
+        RETURN_IF_ERROR(sink(state, nullptr, true));
     }
     return Status::OK();
 }
@@ -813,8 +816,7 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
             }
             _shared_hashtable_controller->signal(id());
         }
-    } else if (!_should_build_hash_table &&
-               ((state->enable_pipeline_exec() && eos) || !state->enable_pipeline_exec())) {
+    } else if (!_should_build_hash_table && (eos || !state->enable_pipeline_exec())) {
         DCHECK(_shared_hashtable_controller != nullptr);
         DCHECK(_shared_hash_table_context != nullptr);
         auto wait_timer = ADD_TIMER(_build_phase_profile, "WaitForSharedHashTableTime");
@@ -861,10 +863,9 @@ Status HashJoinNode::sink(doris::RuntimeState* state, vectorized::Block* in_bloc
         _process_hashtable_ctx_variants_init(state);
     }
 
-    // Since the comparison of null values is meaningless, left anti join should not output null
+    // Since the comparison of null values is meaningless, null aware left anti join should not output null
     // when the build side is not empty.
-    if (eos && !_build_blocks->empty() &&
-        (_join_op == TJoinOp::LEFT_ANTI_JOIN || _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN)) {
+    if (eos && !_build_blocks->empty() && _join_op == TJoinOp::NULL_AWARE_LEFT_ANTI_JOIN) {
         _probe_ignore_null = true;
     }
     return Status::OK();
@@ -1029,6 +1030,9 @@ void HashJoinNode::_hash_table_init(RuntimeState* state) {
                                                    JoinOpType::value == TJoinOp::RIGHT_OUTER_JOIN ||
                                                    JoinOpType::value == TJoinOp::FULL_OUTER_JOIN,
                                            RowRefListWithFlag, RowRefList>>;
+                _probe_row_match_iter.emplace<ForwardIterator<RowRefListType>>();
+                _outer_join_pull_visited_iter.emplace<ForwardIterator<RowRefListType>>();
+
                 if (_build_expr_ctxs.size() == 1 && !_store_null_in_hash_table[0]) {
                     // Single column optimization
                     switch (_build_expr_ctxs[0]->root()->result_type()) {
@@ -1178,7 +1182,8 @@ std::vector<uint16_t> HashJoinNode::_convert_block_to_null(Block& block) {
 
 HashJoinNode::~HashJoinNode() {
     if (_shared_hashtable_controller && _should_build_hash_table) {
-        _shared_hashtable_controller->signal(id());
+        // signal at here is abnormal
+        _shared_hashtable_controller->signal(id(), Status::Cancelled("signaled in destructor"));
     }
 }
 

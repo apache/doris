@@ -23,9 +23,9 @@ namespace doris {
 class SchemaStatisticsScanner : public SchemaScanner {
 public:
     SchemaStatisticsScanner();
-    virtual ~SchemaStatisticsScanner();
+    ~SchemaStatisticsScanner() override;
 
 private:
-    static SchemaScanner::ColumnDesc _s_cols_statistics[];
+    static std::vector<SchemaScanner::ColumnDesc> _s_cols_statistics;
 };
 } // namespace doris

@@ -16,11 +16,10 @@
 // under the License.
 #pragma once
 
-#include "exprs/like_predicate.h"
 #include "olap/column_predicate.h"
-#include "runtime/string_value.h"
 #include "udf/udf.h"
 #include "vec/columns/column_dictionary.h"
+#include "vec/common/string_ref.h"
 #include "vec/core/types.h"
 #include "vec/functions/like.h"
 
@@ -48,7 +47,12 @@ public:
                           bool* flags) const override;
 
     std::string get_search_str() const override {
-        return std::string(reinterpret_cast<char*>(pattern.ptr), pattern.len);
+        if constexpr (std::is_same_v<PatternType, StringRef>) {
+            return std::string(reinterpret_cast<const char*>(pattern.data), pattern.size);
+        } else if constexpr (std::is_same_v<PatternType, StringVal>) {
+            return std::string(reinterpret_cast<const char*>(pattern.ptr), pattern.len);
+        }
+        DCHECK(false);
     }
     bool is_opposite() const { return _opposite; }
 
@@ -86,18 +90,18 @@ private:
                             continue;
                         }
 
-                        StringValue cell_value = nested_col_ptr->get_shrink_value(data_array[i]);
+                        StringRef cell_value = nested_col_ptr->get_shrink_value(data_array[i]);
                         if constexpr (is_and) {
                             unsigned char flag = 0;
                             (_state->scalar_function)(
                                     const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                    StringRef(cell_value.ptr, cell_value.len), pattern, &flag);
+                                    StringRef(cell_value.data, cell_value.size), pattern, &flag);
                             flags[i] &= _opposite ^ flag;
                         } else {
                             unsigned char flag = 0;
                             (_state->scalar_function)(
                                     const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                    StringRef(cell_value.ptr, cell_value.len), pattern, &flag);
+                                    StringRef(cell_value.data, cell_value.size), pattern, &flag);
                             flags[i] = _opposite ^ flag;
                         }
                     }
@@ -110,18 +114,18 @@ private:
                             vectorized::ColumnDictionary<vectorized::Int32>>(column);
                     auto& data_array = nested_col_ptr->get_data();
                     for (uint16_t i = 0; i < size; i++) {
-                        StringValue cell_value = nested_col_ptr->get_shrink_value(data_array[i]);
+                        StringRef cell_value = nested_col_ptr->get_shrink_value(data_array[i]);
                         if constexpr (is_and) {
                             unsigned char flag = 0;
                             (_state->scalar_function)(
                                     const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                    StringRef(cell_value.ptr, cell_value.len), pattern, &flag);
+                                    StringRef(cell_value.data, cell_value.size), pattern, &flag);
                             flags[i] &= _opposite ^ flag;
                         } else {
                             unsigned char flag = 0;
                             (_state->scalar_function)(
                                     const_cast<vectorized::LikeSearchState*>(&_like_state),
-                                    StringRef(cell_value.ptr, cell_value.len), pattern, &flag);
+                                    StringRef(cell_value.data, cell_value.size), pattern, &flag);
                             flags[i] = _opposite ^ flag;
                         }
                     }
@@ -138,10 +142,9 @@ private:
     }
 
     std::string _origin;
-    // life time controlled by scan node
-    doris_udf::FunctionContext* _fn_ctx;
-    using PatternType = std::conditional_t<is_vectorized, StringValue, StringVal>;
-    using StateType = std::conditional_t<is_vectorized, vectorized::LikeState, LikePredicateState>;
+    // lifetime controlled by scan node
+    using PatternType = std::conditional_t<is_vectorized, StringRef, StringVal>;
+    using StateType = vectorized::LikeState;
     PatternType pattern;
 
     StateType* _state;

@@ -19,10 +19,10 @@ package org.apache.doris.analysis;
 
 import org.apache.doris.catalog.AggregateFunction;
 import org.apache.doris.catalog.AliasFunction;
+import org.apache.doris.catalog.ArrayType;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Function;
 import org.apache.doris.catalog.Function.NullableMode;
-import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.catalog.ScalarFunction;
 import org.apache.doris.catalog.ScalarType;
 import org.apache.doris.catalog.Type;
@@ -43,9 +43,7 @@ import org.apache.doris.thrift.TFunctionBinaryType;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSortedMap;
-import com.google.common.collect.Sets;
 import io.grpc.ManagedChannel;
 import io.grpc.netty.shaded.io.grpc.netty.NettyChannelBuilder;
 import org.apache.commons.codec.binary.Hex;
@@ -58,15 +56,11 @@ import java.io.InputStream;
 import java.lang.reflect.Method;
 import java.lang.reflect.Modifier;
 import java.lang.reflect.Parameter;
-import java.math.BigDecimal;
-import java.math.BigInteger;
 import java.net.MalformedURLException;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.time.LocalDate;
-import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -197,7 +191,7 @@ public class CreateFunctionStmt extends DdlStmt {
         functionName.analyze(analyzer);
 
         // check operation privilege
-        if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
         // check argument
@@ -546,46 +540,25 @@ public class CreateFunctionStmt extends DdlStmt {
         }
     }
 
-    public static final Set<Class> DATE_SUPPORTED_JAVA_TYPE = Sets.newHashSet(LocalDate.class, java.util.Date.class,
-            org.joda.time.LocalDate.class);
-    public static final Set<Class> DATETIME_SUPPORTED_JAVA_TYPE = Sets.newHashSet(LocalDateTime.class,
-            org.joda.time.DateTime.class, org.joda.time.LocalDateTime.class);
-    private static final ImmutableMap<PrimitiveType, Set<Class>> PrimitiveTypeToJavaClassType =
-            new ImmutableMap.Builder<PrimitiveType, Set<Class>>()
-                    .put(PrimitiveType.BOOLEAN, Sets.newHashSet(Boolean.class, boolean.class))
-                    .put(PrimitiveType.TINYINT, Sets.newHashSet(Byte.class, byte.class))
-                    .put(PrimitiveType.SMALLINT, Sets.newHashSet(Short.class, short.class))
-                    .put(PrimitiveType.INT, Sets.newHashSet(Integer.class, int.class))
-                    .put(PrimitiveType.FLOAT, Sets.newHashSet(Float.class, float.class))
-                    .put(PrimitiveType.DOUBLE, Sets.newHashSet(Double.class, double.class))
-                    .put(PrimitiveType.BIGINT, Sets.newHashSet(Long.class, long.class))
-                    .put(PrimitiveType.CHAR, Sets.newHashSet(String.class))
-                    .put(PrimitiveType.VARCHAR, Sets.newHashSet(String.class))
-                    .put(PrimitiveType.STRING, Sets.newHashSet(String.class))
-                    .put(PrimitiveType.DATE, DATE_SUPPORTED_JAVA_TYPE)
-                    .put(PrimitiveType.DATEV2, DATE_SUPPORTED_JAVA_TYPE)
-                    .put(PrimitiveType.DATETIME, DATETIME_SUPPORTED_JAVA_TYPE)
-                    .put(PrimitiveType.DATETIMEV2, DATETIME_SUPPORTED_JAVA_TYPE)
-                    .put(PrimitiveType.LARGEINT, Sets.newHashSet(BigInteger.class))
-                    .put(PrimitiveType.DECIMALV2, Sets.newHashSet(BigDecimal.class))
-                    .put(PrimitiveType.DECIMAL32, Sets.newHashSet(BigDecimal.class))
-                    .put(PrimitiveType.DECIMAL64, Sets.newHashSet(BigDecimal.class))
-                    .put(PrimitiveType.DECIMAL128, Sets.newHashSet(BigDecimal.class))
-                    .build();
-
     private void checkUdfType(Class clazz, Method method, Type expType, Class pType, String pname)
             throws AnalysisException {
-        if (!(expType instanceof ScalarType)) {
+        Set<Class> javaTypes;
+        if (expType instanceof ScalarType) {
+            ScalarType scalarType = (ScalarType) expType;
+            javaTypes = Type.PrimitiveTypeToJavaClassType.get(scalarType.getPrimitiveType());
+        } else if (expType instanceof ArrayType) {
+            ArrayType arrayType = (ArrayType) expType;
+            javaTypes = Type.PrimitiveTypeToJavaClassType.get(arrayType.getPrimitiveType());
+        } else {
             throw new AnalysisException(
-                    String.format("Method '%s' in class '%s' does not support non-scalar type '%s'",
+                    String.format("Method '%s' in class '%s' does not support type '%s'",
                             method.getName(), clazz.getCanonicalName(), expType));
         }
-        ScalarType scalarType = (ScalarType) expType;
-        Set<Class> javaTypes = PrimitiveTypeToJavaClassType.get(scalarType.getPrimitiveType());
+
         if (javaTypes == null) {
             throw new AnalysisException(
                     String.format("Method '%s' in class '%s' does not support type '%s'",
-                            method.getName(), clazz.getCanonicalName(), scalarType));
+                            method.getName(), clazz.getCanonicalName(), expType.toString()));
         }
         if (!javaTypes.contains(pType)) {
             throw new AnalysisException(

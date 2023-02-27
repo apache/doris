@@ -51,6 +51,7 @@ import org.apache.doris.common.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
+import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.SqlParserUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.planner.DataPartition;
@@ -66,6 +67,7 @@ import org.apache.doris.planner.ScanNode;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.Coordinator;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.QeProcessorImpl;
 import org.apache.doris.qe.SessionVariable;
 import org.apache.doris.qe.SqlModeHelper;
 import org.apache.doris.rewrite.ExprRewriter;
@@ -116,7 +118,9 @@ public class ExportJob implements Writable {
     }
 
     private long id;
+    private String queryId;
     private String label;
+    private String user;
     private long dbId;
     private long tableId;
     private BrokerDesc brokerDesc;
@@ -126,12 +130,11 @@ public class ExportJob implements Writable {
     private String lineDelimiter;
     private Map<String, String> properties = Maps.newHashMap();
     private List<String> partitions;
-
     private TableName tableName;
-
     private String sql = "";
-
     private JobState state;
+    // If set to true, the profile of export job with be pushed to ProfileManager
+    private volatile boolean enableProfile = false;
     private long createTimeMs;
     private long startTimeMs;
     private long finishTimeMs;
@@ -175,6 +178,7 @@ public class ExportJob implements Writable {
 
     public ExportJob() {
         this.id = -1;
+        this.queryId = "";
         this.dbId = -1;
         this.tableId = -1;
         this.state = JobState.PENDING;
@@ -189,6 +193,7 @@ public class ExportJob implements Writable {
         this.columnSeparator = "\t";
         this.lineDelimiter = "\n";
         this.columns = "";
+        this.user = "";
     }
 
     public ExportJob(long jobId) {
@@ -201,12 +206,12 @@ public class ExportJob implements Writable {
         Database db = Env.getCurrentInternalCatalog().getDbOrDdlException(dbName);
         Preconditions.checkNotNull(stmt.getBrokerDesc());
         this.brokerDesc = stmt.getBrokerDesc();
-
         this.columnSeparator = stmt.getColumnSeparator();
         this.lineDelimiter = stmt.getLineDelimiter();
         this.properties = stmt.getProperties();
         this.label = this.properties.get(ExportStmt.LABEL);
-
+        this.queryId = ConnectContext.get() != null ? DebugUtil.printId(ConnectContext.get().queryId()) : "N/A";
+        this.user = ConnectContext.get() != null ? ConnectContext.get().getQualifiedUser() : "N/A";
         String path = stmt.getPath();
         Preconditions.checkArgument(!Strings.isNullOrEmpty(path));
         this.whereExpr = stmt.getWhereExpr();
@@ -235,6 +240,7 @@ public class ExportJob implements Writable {
         if (ConnectContext.get() != null) {
             SessionVariable var = ConnectContext.get().getSessionVariable();
             this.sessionVariables.put(SessionVariable.SQL_MODE, Long.toString(var.getSqlMode()));
+            this.enableProfile = var.enableProfile();
         } else {
             this.sessionVariables.put(SessionVariable.SQL_MODE, String.valueOf(SqlModeHelper.MODE_DEFAULT));
         }
@@ -655,7 +661,21 @@ public class ExportJob implements Writable {
             failMsg = new ExportFailMsg(type, msg);
         }
         if (updateState(ExportJob.JobState.CANCELLED, false)) {
-            releaseSnapshotPaths();
+            // cancel all running coordinators, so that the scheduler's worker thread will be released
+            for (Coordinator coordinator : coordList) {
+                Coordinator registeredCoordinator = QeProcessorImpl.INSTANCE.getCoordinator(coordinator.getQueryId());
+                if (registeredCoordinator != null) {
+                    registeredCoordinator.cancel();
+                }
+            }
+
+            // release snapshot
+            Status releaseSnapshotStatus = releaseSnapshotPaths();
+            if (!releaseSnapshotStatus.ok()) {
+                // snapshot will be removed by GC thread on BE, finally.
+                LOG.warn("failed to release snapshot for export job: {}. err: {}", id,
+                        releaseSnapshotStatus.getErrorMsg());
+            }
         }
     }
 
@@ -727,6 +747,18 @@ public class ExportJob implements Writable {
 
     public String getLabel() {
         return label;
+    }
+
+    public String getQueryId() {
+        return queryId;
+    }
+
+    public String getUser() {
+        return user;
+    }
+
+    public boolean getEnableProfile() {
+        return enableProfile;
     }
 
     @Override

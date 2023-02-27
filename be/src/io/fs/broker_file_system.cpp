@@ -56,6 +56,13 @@ inline const std::string& client_id(const TNetworkAddress& addr) {
     }
 #endif
 
+std::shared_ptr<BrokerFileSystem> BrokerFileSystem::create(
+        const TNetworkAddress& broker_addr, const std::map<std::string, std::string>& broker_prop,
+        size_t file_size) {
+    return std::shared_ptr<BrokerFileSystem>(
+            new BrokerFileSystem(broker_addr, broker_prop, file_size));
+}
+
 BrokerFileSystem::BrokerFileSystem(const TNetworkAddress& broker_addr,
                                    const std::map<std::string, std::string>& broker_prop,
                                    size_t file_size)
@@ -87,8 +94,7 @@ Status BrokerFileSystem::open_file(const Path& path, FileReaderSPtr* reader,
     request.__set_clientId(client_id(_broker_addr));
     request.__set_properties(_broker_prop);
 
-    TBrokerOpenReaderResponse* response = new TBrokerOpenReaderResponse();
-    Defer del_reponse {[&] { delete response; }};
+    std::unique_ptr<TBrokerOpenReaderResponse> response(new TBrokerOpenReaderResponse());
     try {
         Status status;
         try {

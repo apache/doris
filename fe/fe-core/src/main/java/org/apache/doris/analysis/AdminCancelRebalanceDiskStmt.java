@@ -39,7 +39,7 @@ public class AdminCancelRebalanceDiskStmt extends DdlStmt {
         ImmutableMap<Long, Backend> backendsInfo = Env.getCurrentSystemInfo().getIdToBackend();
         Map<String, Long> backendsID = new HashMap<String, Long>();
         for (Backend backend : backendsInfo.values()) {
-            backendsID.put(backend.getHost() + ":" + backend.getHeartbeatPort(), backend.getId());
+            backendsID.put(backend.getIp() + ":" + backend.getHeartbeatPort(), backend.getId());
         }
         if (backends == null) {
             for (Backend backend : backendsInfo.values()) {
@@ -61,7 +61,7 @@ public class AdminCancelRebalanceDiskStmt extends DdlStmt {
 
     @Override
     public void analyze(Analyzer analyzer) throws AnalysisException {
-        if (!Env.getCurrentEnv().getAuth().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
+        if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.ADMIN)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "ADMIN");
         }
     }

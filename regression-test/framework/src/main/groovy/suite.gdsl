@@ -48,6 +48,7 @@ bindAction("test", "org.apache.doris.regression.action.TestAction")
 bindAction("explain", "org.apache.doris.regression.action.ExplainAction")
 bindAction("streamLoad", "org.apache.doris.regression.action.StreamLoadAction")
 bindAction("httpTest", "org.apache.doris.regression.action.HttpCliAction")
+bindAction("benchmark", "org.apache.doris.regression.action.BenchmarkAction")
 
 // bind qt_xxx and order_qt_xxx methods
 contributor([suiteContext]) {

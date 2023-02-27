@@ -29,7 +29,6 @@ import org.apache.doris.nereids.jobs.joinorder.hypergraph.SubgraphEnumerator;
 import org.apache.doris.nereids.jobs.joinorder.hypergraph.receiver.PlanReceiver;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
-import org.apache.doris.nereids.rules.rewrite.logical.ColumnPruning;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -61,7 +60,6 @@ public class JoinOrderJob extends Job {
             rootExpr.setChild(i, optimizePlan(rootExpr.child(i)));
         }
         CascadesContext cascadesContext = context.getCascadesContext();
-        cascadesContext.topDownRewrite(new ColumnPruning());
         cascadesContext.pushJob(
                 new DeriveStatsJob(group.getLogicalExpression(), cascadesContext.getCurrentJobContext()));
         cascadesContext.getJobScheduler().executeJobPool(cascadesContext);
@@ -83,8 +81,9 @@ public class JoinOrderJob extends Job {
         HyperGraph hyperGraph = new HyperGraph();
         buildGraph(group, hyperGraph);
         // TODO: Right now, we just hardcode the limit with 10000, maybe we need a better way to set it
-        int limit = 10000;
-        PlanReceiver planReceiver = new PlanReceiver(limit);
+        int limit = 1000;
+        PlanReceiver planReceiver = new PlanReceiver(this.context, limit, hyperGraph,
+                group.getLogicalProperties().getOutputSet());
         SubgraphEnumerator subgraphEnumerator = new SubgraphEnumerator(planReceiver, hyperGraph);
         if (!subgraphEnumerator.enumerate()) {
             GraphSimplifier graphSimplifier = new GraphSimplifier(hyperGraph);
@@ -94,33 +93,16 @@ public class JoinOrderJob extends Job {
             }
         }
         Group optimized = planReceiver.getBestPlan(hyperGraph.getNodesMap());
-        Group memoRoot = copyToMemo(optimized);
 
         // For other projects, such as project constant or project nullable, we construct a new project above root
         if (otherProject.size() != 0) {
-            otherProject.addAll(memoRoot.getLogicalExpression().getPlan().getOutput());
-            LogicalProject logicalProject = new LogicalProject(new ArrayList<>(otherProject),
-                    memoRoot.getLogicalExpression().getPlan());
+            otherProject.addAll(optimized.getLogicalExpression().getPlan().getOutput());
+            LogicalProject logicalProject = new LogicalProject<>(new ArrayList<>(otherProject),
+                    optimized.getLogicalExpression().getPlan());
             GroupExpression groupExpression = new GroupExpression(logicalProject, Lists.newArrayList(group));
-            memoRoot = context.getCascadesContext().getMemo().copyInGroupExpression(groupExpression);
+            optimized = context.getCascadesContext().getMemo().copyInGroupExpression(groupExpression);
         }
-        return memoRoot;
-    }
-
-    private Group copyToMemo(Group root) {
-        if (root.getGroupId() != null) {
-            return root;
-        }
-        GroupExpression groupExpression = root.getLogicalExpression();
-        int arity = groupExpression.arity();
-        for (int i = 0; i < arity; i++) {
-            Group childGroup = groupExpression.child(i);
-            Group newChildGroup = copyToMemo(childGroup);
-            groupExpression.setChild(i, newChildGroup);
-        }
-        Group newRoot = context.getCascadesContext().getMemo().copyInGroupExpression(groupExpression);
-        newRoot.setStatistics(root.getStatistics());
-        return newRoot;
+        return optimized;
     }
 
     /**
@@ -149,17 +131,15 @@ public class JoinOrderJob extends Job {
      * 1. If it's a simple expression for column pruning, we just ignore it
      * 2. If it's an alias that may be used in the join operator, we need to add it to graph
      * 3. If it's other expression, we can ignore them and add it after optimizing
-     * 4. If it's a project only associate with one table, it's seen as an endNode just like a table
      */
     private void processProjectPlan(HyperGraph hyperGraph, Group group) {
-        LogicalProject<? extends Plan> logicalProject = (LogicalProject<? extends Plan>) group.getLogicalExpression()
+        LogicalProject<? extends Plan> logicalProject
+                = (LogicalProject<? extends Plan>) group.getLogicalExpression()
                 .getPlan();
 
         for (NamedExpression expr : logicalProject.getProjects()) {
-            if (expr.isAlias()) {
-                if (!hyperGraph.addAlias((Alias) expr, group)) {
-                    break;
-                }
+            if (expr instanceof Alias) {
+                hyperGraph.addAlias((Alias) expr);
             } else if (!expr.isSlot()) {
                 otherProject.add(expr);
             }

@@ -27,7 +27,6 @@
 #include <arrow/visit_type_inline.h>
 
 #include "gutil/strings/substitute.h"
-#include "olap/column_block.h"
 #include "olap/field.h"
 #include "olap/olap_common.h"
 #include "olap/schema.h"
@@ -122,18 +121,6 @@ Status convert_to_tablet_column(const arrow::Field& field, int32_t cid, TabletCo
     column_pb.set_is_nullable(field.nullable());
 
     output->init_from_pb(column_pb);
-    return Status::OK();
-}
-
-Status convert_to_doris_schema(const arrow::Schema& schema, std::shared_ptr<Schema>* result) {
-    auto num_fields = schema.num_fields();
-    std::vector<TabletColumn> columns(num_fields);
-    std::vector<ColumnId> col_ids(num_fields);
-    for (int i = 0; i < num_fields; ++i) {
-        RETURN_IF_ERROR(convert_to_tablet_column(*schema.field(i), i, &columns[i]));
-        col_ids[i] = i;
-    }
-    result->reset(new Schema(columns, col_ids));
     return Status::OK();
 }
 

@@ -31,7 +31,7 @@ public:
                           VExprContext* context) override;
     doris::Status open(doris::RuntimeState* state, VExprContext* context,
                        FunctionContext::FunctionStateScope scope) override;
-    std::string debug_string() const override { return _impl->debug_string(); };
+    std::string debug_string() const override { return _impl->debug_string(); }
     bool is_constant() const override;
     void close(doris::RuntimeState* state, VExprContext* context,
                FunctionContext::FunctionStateScope scope) override;

@@ -27,9 +27,10 @@
 
 #include "exec/olap_utils.h"
 #include "olap/olap_common.h"
-#include "olap/tuple.h"
+#include "olap/olap_tuple.h"
 #include "runtime/primitive_type.h"
 #include "runtime/type_limit.h"
+#include "vec/core/types.h"
 #include "vec/io/io_helper.h"
 #include "vec/runtime/vdatetime_value.h"
 
@@ -38,17 +39,11 @@ namespace doris {
 template <PrimitiveType primitive_type, class T>
 std::string cast_to_string(T value, int scale) {
     if constexpr (primitive_type == TYPE_DECIMAL32) {
-        std::stringstream ss;
-        vectorized::write_text<int32_t>((int32_t)value, scale, ss);
-        return ss.str();
+        return ((vectorized::Decimal<int32_t>)value).to_string(scale);
     } else if constexpr (primitive_type == TYPE_DECIMAL64) {
-        std::stringstream ss;
-        vectorized::write_text<int64_t>((int64_t)value, scale, ss);
-        return ss.str();
+        return ((vectorized::Decimal<int64_t>)value).to_string(scale);
     } else if constexpr (primitive_type == TYPE_DECIMAL128I) {
-        std::stringstream ss;
-        vectorized::write_text<int128_t>((int128_t)value, scale, ss);
-        return ss.str();
+        return ((vectorized::Decimal<int128_t>)value).to_string(scale);
     } else if constexpr (primitive_type == TYPE_TINYINT) {
         return std::to_string(static_cast<int>(value));
     } else if constexpr (primitive_type == TYPE_LARGEINT) {
@@ -204,6 +199,7 @@ public:
             if (TYPE_MIN != _low_value || FILTER_LARGER_OR_EQUAL != _low_op) {
                 low.__set_column_name(_column_name);
                 low.__set_condition_op((_low_op == FILTER_LARGER_OR_EQUAL ? ">=" : ">>"));
+                low.__set_marked_by_runtime_filter(_marked_runtime_filter_predicate);
                 low.condition_values.push_back(
                         cast_to_string<primitive_type, CppType>(_low_value, _scale));
             }
@@ -216,6 +212,7 @@ public:
             if (TYPE_MAX != _high_value || FILTER_LESS_OR_EQUAL != _high_op) {
                 high.__set_column_name(_column_name);
                 high.__set_condition_op((_high_op == FILTER_LESS_OR_EQUAL ? "<=" : "<<"));
+                high.__set_marked_by_runtime_filter(_marked_runtime_filter_predicate);
                 high.condition_values.push_back(
                         cast_to_string<primitive_type, CppType>(_high_value, _scale));
             }
@@ -242,6 +239,7 @@ public:
         TCondition condition;
         condition.__set_column_name(_column_name);
         condition.__set_condition_op(is_in ? "*=" : "!*=");
+        condition.__set_marked_by_runtime_filter(_marked_runtime_filter_predicate);
 
         for (const auto& value : _fixed_values) {
             condition.condition_values.push_back(
@@ -301,7 +299,7 @@ public:
                 condition.__set_condition_op("match_element_ge");
             }
             condition.condition_values.push_back(
-                    cast_to_string<primitive_type, CppType>(value.second, 0));
+                    cast_to_string<primitive_type, CppType>(value.second, _scale));
             if (condition.condition_values.size() != 0) {
                 filters.push_back(condition);
             }
@@ -336,7 +334,13 @@ public:
             set_whole_value_range();
         }
         _contain_null = contain_null;
-    };
+    }
+
+    void mark_runtime_filter_predicate(bool is_runtime_filter_predicate) {
+        _marked_runtime_filter_predicate = is_runtime_filter_predicate;
+    }
+
+    bool get_marked_by_runtime_filter() const { return _marked_runtime_filter_predicate; }
 
     int precision() const { return _precision; }
 
@@ -418,6 +422,7 @@ private:
 
     // range value except leaf node of and node in compound expr tree
     std::set<std::pair<SQLFilterOp, CppType>> _compound_values;
+    bool _marked_runtime_filter_predicate = false;
 };
 
 class OlapScanKeys {
@@ -715,13 +720,6 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
             max_value.set_type(TimeType::TIME_DATE);
         }
 
-        if (contain_null()) {
-            begin_scan_keys.emplace_back();
-            begin_scan_keys.back().add_null();
-            end_scan_keys.emplace_back();
-            end_scan_keys.back().add_null();
-        }
-
         if (min_value > max_value || max_scan_key_num == 1) {
             return no_split();
         }
@@ -745,6 +743,13 @@ bool ColumnValueRange<primitive_type>::convert_to_avg_range_value(
             return no_split();
         }
 
+        // Add null key if contain null, must do after no_split check
+        if (contain_null()) {
+            begin_scan_keys.emplace_back();
+            begin_scan_keys.back().add_null();
+            end_scan_keys.emplace_back();
+            end_scan_keys.back().add_null();
+        }
         while (true) {
             begin_scan_keys.emplace_back();
             begin_scan_keys.back().add_value(

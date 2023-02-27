@@ -53,10 +53,10 @@ public:
 
     size_t bytes_appended() const override { return _bytes_appended; }
 
-    FileSystem* fs() const override { return _fs; }
+    FileSystemSPtr fs() const override { return _fs; }
 
 private:
-    S3FileSystem* _fs;
+    std::shared_ptr<S3FileSystem> _fs;
 
 private:
     Status _close();

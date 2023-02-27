@@ -73,7 +73,7 @@ public class Sm4Decrypt extends Sm4CryptoFunction {
         super("sm4_decrypt", arg0, arg1, arg2, getDefaultBlockEncryptionMode());
     }
 
-    private Sm4Decrypt(Expression arg0, Expression arg1, Expression arg2, StringLiteral arg3) {
+    public Sm4Decrypt(Expression arg0, Expression arg1, Expression arg2, Expression arg3) {
         super("sm4_decrypt", arg0, arg1, arg2, arg3);
     }
 

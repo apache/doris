@@ -27,17 +27,17 @@ import java.util.List;
  * An event type which is ignored. Useful for unsupported metastore event types
  */
 public class IgnoredEvent extends MetastoreEvent {
-    protected IgnoredEvent(NotificationEvent event, String catalogName) {
+    private IgnoredEvent(NotificationEvent event, String catalogName) {
         super(event, catalogName);
     }
 
-    private static List<MetastoreEvent> getEvents(NotificationEvent event,
+    protected static List<MetastoreEvent> getEvents(NotificationEvent event,
             String catalogName) {
         return Lists.newArrayList(new IgnoredEvent(event, catalogName));
     }
 
     @Override
     public void process() {
-        debugLog("Ignoring unknown event type " + metastoreNotificationEvent.getEventType());
+        infoLog("Ignoring unknown event type " + metastoreNotificationEvent.getEventType());
     }
 }

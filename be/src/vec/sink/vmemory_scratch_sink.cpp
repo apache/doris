@@ -22,7 +22,6 @@
 
 #include <sstream>
 
-#include "exprs/expr.h"
 #include "gen_cpp/Types_types.h"
 #include "runtime/exec_env.h"
 #include "runtime/primitive_type.h"

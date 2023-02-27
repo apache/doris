@@ -28,4 +28,10 @@ suite("nereids_syntax_expression_test") {
         sql "select true or false, true || false"
         result([[true, true]])
     }
+
+    sql """ SET sql_mode = "PIPES_AS_CONCAT" """
+    test {
+        sql "select @@session.sql_mode, 1 || 2"
+        result([["PIPES_AS_CONCAT", "12"]])
+    }
 }

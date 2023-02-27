@@ -118,6 +118,7 @@ public class BrokerDesc extends StorageDesc implements Writable {
                 return TFileType.FILE_STREAM;
             case BROKER:
             case OFS:
+            case JFS:
             default:
                 return TFileType.FILE_BROKER;
         }

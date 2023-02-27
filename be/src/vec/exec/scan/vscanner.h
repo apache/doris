@@ -18,7 +18,6 @@
 #pragma once
 
 #include "common/status.h"
-#include "exprs/expr_context.h"
 #include "olap/tablet.h"
 #include "runtime/runtime_state.h"
 #include "vec/exprs/vexpr_context.h"
@@ -47,9 +46,6 @@ public:
     Status get_block(RuntimeState* state, Block* block, bool* eos);
 
     virtual Status close(RuntimeState* state);
-
-    // Subclass must implement this to return the current rows read
-    virtual int64_t raw_rows_read() { return 0; }
 
 protected:
     // Subclass should implement this to return data.
@@ -94,7 +90,7 @@ public:
     int queue_id() { return _state->exec_env()->store_path_to_index("xxx"); }
 
     virtual doris::TabletStorageType get_storage_type() {
-        return doris::TabletStorageType::STORAGE_TYPE_LOCAL;
+        return doris::TabletStorageType::STORAGE_TYPE_REMOTE;
     }
 
     bool need_to_close() { return _need_to_close; }
@@ -107,10 +103,6 @@ public:
     void set_status_on_failure(const Status& st) { _status = st; }
 
     VExprContext** vconjunct_ctx_ptr() { return &_vconjunct_ctx; }
-
-    void reg_conjunct_ctxs(const std::vector<ExprContext*>& conjunct_ctxs) {
-        _conjunct_ctxs = conjunct_ctxs;
-    }
 
     // return false if _is_counted_down is already true,
     // otherwise, set _is_counted_down to true and return true.
@@ -146,9 +138,6 @@ protected:
     // If _input_tuple_desc is set, the scanner will read data into
     // this _input_block first, then convert to the output block.
     Block _input_block;
-    // If _input_tuple_desc is set, this will point to _input_block,
-    // otherwise, it will point to the output block.
-    Block* _input_block_ptr;
 
     bool _is_open = false;
     bool _is_closed = false;
@@ -182,9 +171,6 @@ protected:
     ThreadCpuStopWatch _cpu_watch;
     int64_t _scanner_wait_worker_timer = 0;
     int64_t _scan_cpu_timer = 0;
-
-    // File formats based push down predicate
-    std::vector<ExprContext*> _conjunct_ctxs;
 
     bool _is_load = false;
     // set to true after decrease the "_num_unfinished_scanners" in scanner context

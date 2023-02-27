@@ -20,6 +20,7 @@ package org.apache.doris.httpv2.meta;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.ha.FrontendNodeType;
 import org.apache.doris.httpv2.entity.ResponseEntityBuilder;
 import org.apache.doris.httpv2.rest.RestBaseController;
@@ -148,7 +149,7 @@ public class MetaService extends RestBaseController {
         checkLongParam(versionStr);
 
         String machine = request.getRemoteHost();
-        String url = "http://" + machine + ":" + port + "/image?version=" + versionStr;
+        String url = "http://" + NetUtils.getHostPortInAccessibleFormat(machine, Integer.valueOf(portStr)) + "/image?version=" + versionStr;
         String filename = Storage.IMAGE + "." + versionStr;
         File dir = new File(Env.getCurrentEnv().getImageDir());
         try {
@@ -224,6 +225,10 @@ public class MetaService extends RestBaseController {
 
     @RequestMapping(value = "/dump", method = RequestMethod.GET)
     public Object dump(HttpServletRequest request, HttpServletResponse response) throws DdlException {
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
+        }
+
         /*
          * Before dump, we acquired the catalog read lock and all databases' read lock and all
          * the jobs' read lock. This will guarantee the consistency of database and job queues.

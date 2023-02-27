@@ -22,6 +22,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
@@ -60,7 +61,9 @@ public class PushdownJoinOtherCondition extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return logicalJoin()
-                .whenNot(join -> join.getOtherJoinConjuncts().isEmpty())
+                // TODO: we may need another rule to handle on true or on false condition
+                .when(join -> !join.getOtherJoinConjuncts().isEmpty() && !(join.getOtherJoinConjuncts().size() == 1
+                        && join.getOtherJoinConjuncts().get(0) instanceof BooleanLiteral))
                 .then(join -> {
                     List<Expression> otherJoinConjuncts = join.getOtherJoinConjuncts();
                     List<Expression> remainingOther = Lists.newArrayList();

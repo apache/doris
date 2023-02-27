@@ -17,7 +17,6 @@
 
 #pragma once
 
-#include "exec/es/es_predicate.h"
 #include "vec/exec/scan/new_es_scanner.h"
 #include "vec/exec/scan/vscan_node.h"
 

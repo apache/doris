@@ -21,16 +21,14 @@
 
 #include "common/object_pool.h"
 #include "common/status.h"
-#include "exprs/expr.h"
-#include "exprs/expr_context.h"
 #include "gen_cpp/PaloInternalService_types.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "runtime/define_primitive_type.h"
 #include "runtime/exec_env.h"
 #include "runtime/large_int_value.h"
 #include "runtime/memory/mem_tracker.h"
 #include "runtime/runtime_state.h"
 #include "runtime/thread_context.h"
-#include "runtime/tuple_row.h"
 #include "vec/data_types/data_type_number.h"
 #include "vec/exprs/vexpr.h"
 #include "vec/exprs/vexpr_context.h"
@@ -41,58 +39,6 @@ using std::map;
 namespace doris {
 
 TUniqueId FoldConstantExecutor::_dummy_id;
-
-Status FoldConstantExecutor::fold_constant_expr(const TFoldConstantParams& params,
-                                                PConstantExprResult* response) {
-    const auto& expr_map = params.expr_map;
-    auto expr_result_map = response->mutable_expr_result_map();
-
-    TQueryGlobals query_globals = params.query_globals;
-    // init
-    RETURN_IF_ERROR(_init(query_globals));
-    // only after init operation, _mem_tracker is ready
-    SCOPED_CONSUME_MEM_TRACKER(_mem_tracker.get());
-
-    for (const auto& m : expr_map) {
-        PExprResultMap pexpr_result_map;
-        for (const auto& n : m.second) {
-            ExprContext* ctx = nullptr;
-            const TExpr& texpr = n.second;
-            // create expr tree from TExpr
-            RETURN_IF_ERROR(Expr::create_expr_tree(&_pool, texpr, &ctx));
-            // prepare and open context
-            RETURN_IF_ERROR(_prepare_and_open(ctx));
-
-            TupleRow* row = nullptr;
-            // calc expr
-            void* src = ctx->get_value(row);
-            PrimitiveType root_type = ctx->root()->type().type;
-            // covert to thrift type
-            TPrimitiveType::type t_type = doris::to_thrift(root_type);
-
-            // collect result
-            PExprResult expr_result;
-            string result;
-            if (src == nullptr) {
-                expr_result.set_success(false);
-            } else {
-                expr_result.set_success(true);
-                result = _get_result(src, 0, ctx->root()->type().type);
-            }
-
-            expr_result.set_content(std::move(result));
-            expr_result.mutable_type()->set_type(t_type);
-            pexpr_result_map.mutable_map()->insert({n.first, expr_result});
-
-            // close context expr
-            ctx->close(_runtime_state.get());
-        }
-
-        expr_result_map->insert({m.first, pexpr_result_map});
-    }
-
-    return Status::OK();
-}
 
 Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& params,
                                                  PConstantExprResult* response) {
@@ -112,6 +58,9 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
             const TExpr& texpr = n.second;
             // create expr tree from TExpr
             RETURN_IF_ERROR(vectorized::VExpr::create_expr_tree(&_pool, texpr, &ctx));
+
+            // close context expr
+            Defer defer {[&]() { ctx->close(_runtime_state.get()); }};
             // prepare and open context
             RETURN_IF_ERROR(_prepare_and_open(ctx));
 
@@ -130,21 +79,19 @@ Status FoldConstantExecutor::fold_constant_vexpr(const TFoldConstantParams& para
             PExprResult expr_result;
             string result;
             const auto& column_ptr = tmp_block.get_by_position(result_column).column;
+            const auto& column_type = tmp_block.get_by_position(result_column).type;
             if (column_ptr->is_null_at(0)) {
                 expr_result.set_success(false);
             } else {
                 expr_result.set_success(true);
                 auto string_ref = column_ptr->get_data_at(0);
                 result = _get_result<true>((void*)string_ref.data, string_ref.size,
-                                           ctx->root()->type().type);
+                                           ctx->root()->type(), column_ptr, column_type);
             }
 
             expr_result.set_content(std::move(result));
             expr_result.mutable_type()->set_type(t_type);
             pexpr_result_map.mutable_map()->insert({n.first, expr_result});
-
-            // close context expr
-            ctx->close(_runtime_state.get());
         }
         expr_result_map->insert({m.first, pexpr_result_map});
     }
@@ -180,7 +127,6 @@ Status FoldConstantExecutor::_init(const TQueryGlobals& query_globals) {
     _runtime_profile = _runtime_state->runtime_profile();
     _runtime_profile->set_name("FoldConstantExpr");
     _mem_tracker = std::make_unique<MemTracker>("FoldConstantExpr");
-    _mem_pool.reset(new MemPool(_mem_tracker.get()));
 
     return Status::OK();
 }
@@ -192,8 +138,10 @@ Status FoldConstantExecutor::_prepare_and_open(Context* ctx) {
 }
 
 template <bool is_vec>
-string FoldConstantExecutor::_get_result(void* src, size_t size, PrimitiveType slot_type) {
-    switch (slot_type) {
+string FoldConstantExecutor::_get_result(void* src, size_t size, const TypeDescriptor& type,
+                                         const vectorized::ColumnPtr column_ptr,
+                                         const vectorized::DataTypePtr column_type) {
+    switch (type.type) {
     case TYPE_BOOLEAN: {
         bool val = *reinterpret_cast<const bool*>(src);
         return val ? "true" : "false";
@@ -234,7 +182,7 @@ string FoldConstantExecutor::_get_result(void* src, size_t size, PrimitiveType s
         if constexpr (is_vec) {
             return std::string((char*)src, size);
         }
-        return (reinterpret_cast<StringValue*>(src))->to_string();
+        return (reinterpret_cast<StringRef*>(src))->to_string();
     }
     case TYPE_DATE:
     case TYPE_DATETIME: {
@@ -250,11 +198,41 @@ string FoldConstantExecutor::_get_result(void* src, size_t size, PrimitiveType s
             return str;
         }
     }
+    case TYPE_DATEV2: {
+        vectorized::DateV2Value<vectorized::DateV2ValueType> value =
+                binary_cast<uint32_t, doris::vectorized::DateV2Value<vectorized::DateV2ValueType>>(
+                        *(int32_t*)src);
+
+        char buf[64];
+        char* pos = value.to_string(buf);
+        return std::string(buf, pos - buf - 1);
+    }
+    case TYPE_DATETIMEV2: {
+        vectorized::DateV2Value<vectorized::DateTimeV2ValueType> value =
+                binary_cast<uint64_t,
+                            doris::vectorized::DateV2Value<vectorized::DateTimeV2ValueType>>(
+                        *(int64_t*)src);
+
+        char buf[64];
+        char* pos = value.to_string(buf, type.scale);
+        return std::string(buf, pos - buf - 1);
+    }
     case TYPE_DECIMALV2: {
         return reinterpret_cast<DecimalV2Value*>(src)->to_string();
     }
+    case TYPE_DECIMAL32:
+    case TYPE_DECIMAL64:
+    case TYPE_DECIMAL128I: {
+        return column_type->to_string(*column_ptr, 0);
+    }
+    case TYPE_ARRAY:
+    case TYPE_JSONB:
+    case TYPE_MAP:
+    case TYPE_STRUCT: {
+        return column_type->to_string(*column_ptr, 0);
+    }
     default:
-        DCHECK(false) << "Type not implemented: " << slot_type;
+        DCHECK(false) << "Type not implemented: " << type.debug_string();
         return "";
     }
 }

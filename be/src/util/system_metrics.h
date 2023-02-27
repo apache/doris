@@ -51,6 +51,12 @@ public:
                              const std::map<std::string, int64_t>& lst_rcv_map,
                              int64_t interval_sec, int64_t* send_rate, int64_t* rcv_rate);
 
+    void update_max_disk_io_util_percent(const std::map<std::string, int64_t>& lst_value,
+                                         int64_t interval_sec);
+    void update_max_network_send_bytes_rate(int64_t max_send_bytes_rate);
+    void update_max_network_receive_bytes_rate(int64_t max_receive_bytes_rate);
+    void update_allocator_metrics();
+
 private:
     void _install_cpu_metrics();
     // On Intel(R) Xeon(R) CPU E5-2450 0 @ 2.10GHz;
@@ -99,6 +105,10 @@ private:
     size_t _line_buf_size = 0;
     MetricRegistry* _registry = nullptr;
     std::shared_ptr<MetricEntity> _server_entity = nullptr;
+
+    IntGauge* _max_disk_io_util_percent;
+    IntGauge* _max_network_send_bytes_rate;
+    IntGauge* _max_network_receive_bytes_rate;
 };
 
 } // namespace doris

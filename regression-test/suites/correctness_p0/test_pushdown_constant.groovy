@@ -16,9 +16,10 @@
  // under the License.
 
 suite("test_pushdown_constant") {
- sql """ DROP TABLE IF EXISTS `test_pushdown_constant` """
+ def tblName = "test_pushdown_constant"
+ sql """ DROP TABLE IF EXISTS `${tblName}` """
  sql """
-     CREATE TABLE IF NOT EXISTS `test_pushdown_constant` (
+     CREATE TABLE IF NOT EXISTS `${tblName}` (
          `id` int
      ) ENGINE=OLAP
      AGGREGATE KEY(`id`)
@@ -31,11 +32,33 @@ suite("test_pushdown_constant") {
      );
  """
  sql """
-     insert into test_pushdown_constant values(1);
+     insert into ${tblName} values(1);
  """
 
  qt_sql """
-     select 1 from test_pushdown_constant where BITMAP_MAX( BITMAP_AND(BITMAP_EMPTY(), coalesce(NULL, bitmap_empty()))) is NULL;
+     select 1 from ${tblName} where BITMAP_MAX( BITMAP_AND(BITMAP_EMPTY(), coalesce(NULL, bitmap_empty()))) is NULL;
  """
+ sql """ DROP TABLE IF EXISTS `${tblName}` """
+
+ sql """
+      CREATE TABLE IF NOT EXISTS `${tblName}` (
+          `c1` date,
+          `c2` datetime
+      ) ENGINE=OLAP
+      COMMENT "OLAP"
+      DISTRIBUTED BY HASH(`c1`) BUCKETS 1
+      PROPERTIES (
+          "replication_allocation" = "tag.location.default: 1",
+          "in_memory" = "false",
+          "storage_format" = "V2"
+      );
+  """
+  sql """
+      insert into ${tblName} values('20220101', '20220101111111');
+  """
+
+  qt_select_all """ select * from ${tblName} """
+  qt_predicate """ select * from ${tblName}  where cast(c2 as date) = date '2022-01-01'"""
+  sql """ DROP TABLE IF EXISTS `${tblName}` """
 }
 

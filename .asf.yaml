@@ -52,7 +52,6 @@ github:
           - Clang Formatter
           - CheckStyle
           - P0 Regression (Doris Regression)
-          - P1 Regression (Doris Regression)
           - FE UT (Doris FE UT)
           - BE UT (Doris BE UT)
           - Build Broker
@@ -63,6 +62,7 @@ github:
           - BE UT (macOS)
           - Build Third Party Libraries (Linux)
           - Build Third Party Libraries (macOS)
+          - COMPILE (DORIS_COMPILE)
 
       required_pull_request_reviews:
         dismiss_stale_reviews: true
@@ -92,3 +92,4 @@ github:
 
 notifications:
     pullrequests_status:  commits@doris.apache.org
+

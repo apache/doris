@@ -35,6 +35,8 @@ import org.apache.doris.nereids.types.FloatType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.LargeIntType;
 import org.apache.doris.nereids.types.SmallIntType;
+import org.apache.doris.nereids.types.TimeType;
+import org.apache.doris.nereids.types.TimeV2Type;
 import org.apache.doris.nereids.types.TinyIntType;
 
 import com.google.common.base.Preconditions;
@@ -52,7 +54,7 @@ public class RunningDifference extends ScalarFunction
             FunctionSignature.ret(SmallIntType.INSTANCE).args(TinyIntType.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE).args(SmallIntType.INSTANCE),
             FunctionSignature.ret(BigIntType.INSTANCE).args(IntegerType.INSTANCE),
-            FunctionSignature.ret(LargeIntType.INSTANCE).args(BigIntType.INSTANCE),
+            FunctionSignature.ret(BigIntType.INSTANCE).args(BigIntType.INSTANCE),
             FunctionSignature.ret(LargeIntType.INSTANCE).args(LargeIntType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(FloatType.INSTANCE),
             FunctionSignature.ret(DoubleType.INSTANCE).args(DoubleType.INSTANCE),
@@ -62,8 +64,8 @@ public class RunningDifference extends ScalarFunction
             FunctionSignature.ret(DecimalV3Type.DEFAULT_DECIMAL128).args(DecimalV3Type.DEFAULT_DECIMAL128),
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateType.INSTANCE),
             FunctionSignature.ret(IntegerType.INSTANCE).args(DateV2Type.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(DateTimeType.INSTANCE),
-            FunctionSignature.ret(DoubleType.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT)
+            FunctionSignature.ret(TimeType.INSTANCE).args(DateTimeType.INSTANCE),
+            FunctionSignature.ret(TimeV2Type.INSTANCE).args(DateTimeV2Type.SYSTEM_DEFAULT)
     );
 
     /**

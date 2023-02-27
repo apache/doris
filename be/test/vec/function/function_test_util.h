@@ -22,7 +22,6 @@
 #include <iostream>
 #include <string>
 
-#include "exprs/table_function/table_function.h"
 #include "testutil/any_type.h"
 #include "testutil/function_utils.h"
 #include "udf/udf.h"
@@ -36,6 +35,7 @@
 #include "vec/data_types/data_type_number.h"
 #include "vec/data_types/data_type_string.h"
 #include "vec/data_types/data_type_time.h"
+#include "vec/exprs/table_function/table_function.h"
 #include "vec/functions/simple_function_factory.h"
 
 namespace doris::vectorized {

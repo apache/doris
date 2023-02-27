@@ -68,13 +68,9 @@ public:
     /// it.
     doris_udf::FunctionContext* clone(MemPool* pool);
 
-    void set_constant_args(const std::vector<doris_udf::AnyVal*>& constant_args);
-
     void set_constant_cols(const std::vector<doris::ColumnPtrWrapper*>& cols);
 
     uint8_t* varargs_buffer() { return _varargs_buffer; }
-
-    std::vector<doris_udf::AnyVal*>* staging_input_vals() { return &_staging_input_vals; }
 
     bool closed() const { return _closed; }
 
@@ -109,7 +105,7 @@ public:
 
     const doris_udf::FunctionContext::TypeDesc& get_return_type() const { return _return_type; }
 
-    const bool check_overflow_for_decimal() const { return _check_overflow_for_decimal; }
+    bool check_overflow_for_decimal() const { return _check_overflow_for_decimal; }
 
     bool set_check_overflow_for_decimal(bool check_overflow_for_decimal) {
         return _check_overflow_for_decimal = check_overflow_for_decimal;
@@ -117,7 +113,6 @@ public:
 
 private:
     friend class doris_udf::FunctionContext;
-    friend class ExprContext;
 
     /// Preallocated buffer for storing varargs (if the function has any). Allocated and
     /// owned by this object, but populated by an Expr function.
@@ -157,8 +152,8 @@ private:
     std::vector<uint8_t*> _local_allocations;
 
     /// The function state accessed via FunctionContext::Get/SetFunctionState()
-    void* _thread_local_fn_state;
-    void* _fragment_local_fn_state;
+    std::shared_ptr<void> _thread_local_fn_state;
+    std::shared_ptr<void> _fragment_local_fn_state;
 
     // The number of bytes allocated externally by the user function. In some cases,
     // it is too inconvenient to use the Allocate()/Free() APIs in the FunctionContext,
@@ -181,11 +176,6 @@ private:
     std::vector<doris_udf::AnyVal*> _constant_args;
 
     std::vector<doris::ColumnPtrWrapper*> _constant_cols;
-
-    // Used by ScalarFnCall to store the arguments when running without codegen. Allows us
-    // to pass AnyVal* arguments to the scalar function directly, rather than codegening a
-    // call that passes the correct AnyVal subclass pointer type.
-    std::vector<doris_udf::AnyVal*> _staging_input_vals;
 
     bool _check_overflow_for_decimal = false;
 

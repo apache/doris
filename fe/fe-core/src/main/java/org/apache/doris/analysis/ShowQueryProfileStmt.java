@@ -34,6 +34,7 @@ public class ShowQueryProfileStmt extends ShowStmt {
     // This should be same as ProfileManager.PROFILE_HEADERS
     public static final ShowResultSetMetaData META_DATA_QUERY_IDS =
             ShowResultSetMetaData.builder()
+                    .addColumn(new Column("JobId", ScalarType.createVarchar(128)))
                     .addColumn(new Column("QueryId", ScalarType.createVarchar(128)))
                     .addColumn(new Column("User", ScalarType.createVarchar(128)))
                     .addColumn(new Column("DefaultDb", ScalarType.createVarchar(128)))

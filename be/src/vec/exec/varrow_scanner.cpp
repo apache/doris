@@ -15,13 +15,13 @@
 // specific language governing permissions and limitations
 // under the License.
 
+#include "vec/exec/varrow_scanner.h"
+
 #include "exec/arrow/parquet_reader.h"
-#include "exprs/expr.h"
 #include "io/file_factory.h"
 #include "runtime/descriptors.h"
 #include "runtime/exec_env.h"
 #include "vec/data_types/data_type_factory.hpp"
-#include "vec/exec/vorc_scanner.h"
 #include "vec/functions/simple_function_factory.h"
 #include "vec/utils/arrow_column_to_doris_column.h"
 
@@ -81,8 +81,7 @@ Status VArrowScanner::_open_next_reader() {
                 _new_arrow_reader(_src_slot_descs, file_reader.release(), num_of_columns_from_file,
                                   range.start_offset, range.size);
         auto tuple_desc = _state->desc_tbl().get_tuple_descriptor(_tupleId);
-        Status status =
-                _cur_file_reader->init_reader(tuple_desc, _conjunct_ctxs, _state->timezone());
+        Status status = _cur_file_reader->init_reader(tuple_desc, _state->timezone());
 
         if (status.is<END_OF_FILE>()) {
             continue;

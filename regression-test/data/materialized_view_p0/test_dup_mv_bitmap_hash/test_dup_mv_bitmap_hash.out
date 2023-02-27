@@ -4,10 +4,17 @@
 1
 1
 
+-- !select_k1 --
+1
+2
+2
+3
+3
+
 -- !select_star --
 1	1	a
-2	2	bb
 2	2	b
+2	2	bb
 3	3	c
 3	3	c
 

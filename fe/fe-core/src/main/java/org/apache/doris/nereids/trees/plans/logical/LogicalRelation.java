@@ -32,7 +32,6 @@ import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableList;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -42,10 +41,9 @@ import java.util.Optional;
  */
 public abstract class LogicalRelation extends LogicalLeaf implements Scan {
 
+    protected final RelationId id;
     protected final TableIf table;
     protected final ImmutableList<String> qualifier;
-
-    protected final RelationId id;
 
     public LogicalRelation(RelationId id, PlanType type, TableIf table, List<String> qualifier) {
         this(id, type, table, qualifier, Optional.empty(), Optional.empty());
@@ -53,8 +51,7 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
 
     public LogicalRelation(RelationId id, PlanType type, Optional<GroupExpression> groupExpression,
             Optional<LogicalProperties> logicalProperties) {
-        this(id, type, new OlapTable(), Collections.emptyList(), groupExpression,
-                logicalProperties);
+        this(id, type, new OlapTable(), ImmutableList.of(), groupExpression, logicalProperties);
     }
 
     /**
@@ -66,9 +63,9 @@ public abstract class LogicalRelation extends LogicalLeaf implements Scan {
     public LogicalRelation(RelationId id, PlanType type, TableIf table, List<String> qualifier,
             Optional<GroupExpression> groupExpression, Optional<LogicalProperties> logicalProperties) {
         super(type, groupExpression, logicalProperties);
+        this.id = id;
         this.table = Objects.requireNonNull(table, "table can not be null");
         this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
-        this.id = id;
     }
 
     @Override

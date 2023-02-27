@@ -253,11 +253,12 @@ INTO OUTFILE "file_path"
     )
     ```
     
-8. 使用 hdfs 方式导出，将简单查询结果导出到文件 `hdfs://path/to/result.txt`。指定导出格式为 CSV，用户名为work。指定列分隔符为 `,`，行分隔符为 `\n`。
+8. 使用 hdfs 方式导出，将简单查询结果导出到文件 `hdfs://${host}:${fileSystem_port}/path/to/result.txt`。指定导出格式为 CSV，用户名为work。指定列分隔符为 `,`，行分隔符为 `\n`。
     
     ```sql
+    -- fileSystem_port默认值为9000
     SELECT * FROM tbl
-    INTO OUTFILE "hdfs://path/to/result_"
+    INTO OUTFILE "hdfs://${host}:${fileSystem_port}/path/to/result_"
     FORMAT AS CSV
     PROPERTIES
     (

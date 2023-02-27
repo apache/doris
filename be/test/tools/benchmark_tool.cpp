@@ -168,37 +168,7 @@ public:
     }
 
     void decode_pages() {
-        int slice_index = 0;
-        for (auto& src : results) {
-            PageDecoderOptions dict_decoder_options;
-            std::unique_ptr<BinaryPlainPageDecoder> dict_page_decoder(
-                    new BinaryPlainPageDecoder(dict_slice.slice(), dict_decoder_options));
-            dict_page_decoder->init();
-
-            StringRef dict_word_info[dict_page_decoder->_num_elems];
-            dict_page_decoder->get_dict_word_info(dict_word_info);
-
-            // decode
-            PageDecoderOptions decoder_options;
-            BinaryDictPageDecoder page_decoder(src.slice(), decoder_options);
-            page_decoder.init();
-
-            page_decoder.set_dict_decoder(dict_page_decoder.get(), dict_word_info);
-
-            //check values
-            size_t num = page_start_ids[slice_index + 1] - page_start_ids[slice_index];
-
-            MemPool pool;
-            const auto* type_info = get_scalar_type_info<OLAP_FIELD_TYPE_VARCHAR>();
-            std::unique_ptr<ColumnVectorBatch> cvb;
-            ColumnVectorBatch::create(num, false, type_info, nullptr, &cvb);
-            ColumnBlock column_block(cvb.get(), &pool);
-            ColumnBlockView block_view(&column_block);
-
-            page_decoder.next_batch(&num, &block_view);
-
-            slice_index++;
-        }
+        // TODO should rewrite this method by using vectorized next batch method
     }
 
 private:
@@ -363,7 +333,9 @@ public:
         writer.finalize(&file_size, &index_size);
         file_writer->close();
 
-        Segment::open(fs, path, "", seg_id, {}, &_tablet_schema, res);
+        io::FileReaderOptions reader_options(io::FileCachePolicy::NO_CACHE,
+                                             io::SegmentCachePathPolicy());
+        Segment::open(fs, path, seg_id, {}, &_tablet_schema, reader_options, res);
     }
 
     std::vector<std::vector<std::string>> generate_dataset(int rows_number) {

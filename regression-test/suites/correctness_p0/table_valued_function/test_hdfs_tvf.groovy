@@ -48,7 +48,7 @@ suite("test_hdfs_tvf") {
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/array_malformat.csv"
             format = "csv"
             qt_csv_array_malformat """ select * from HDFS(
-                                        "URI" = "${uri}",
+                                        "uri" = "${uri}",
                                         "fs.defaultFS"= "${defaultFS}",
                                         "hadoop.username" = "${hdfsUserName}",
                                         "format" = "csv",
@@ -56,7 +56,7 @@ suite("test_hdfs_tvf") {
 
             uri = "${defaultFS}" + "/user/doris/preinstalled_data/csv_format_test/array_normal.csv"
             format = "csv"
-            qt_csv_array_normal """ select * from HDFS("URI" = "${uri}",
+            qt_csv_array_normal """ select * from HDFS("uri" = "${uri}",
                                     "fs.defaultFS"= "${defaultFS}",
                                     "hadoop.username" = "${hdfsUserName}",
                                     "format" = "csv",

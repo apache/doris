@@ -21,18 +21,18 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.exploration.OneExplorationRuleFactory;
-import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.plans.GroupPlan;
-import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinType;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
-import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.ImmutableSet;
 
 import java.util.Set;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 /**
@@ -62,24 +62,21 @@ public class OuterJoinLAsscom extends OneExplorationRuleFactory {
         return logicalJoin(logicalJoin(), group())
                 .when(join -> VALID_TYPE_PAIR_SET.contains(Pair.of(join.left().getJoinType(), join.getJoinType())))
                 .when(topJoin -> checkReorder(topJoin, topJoin.left()))
-                .when(topJoin -> checkCondition(topJoin, topJoin.left().right().getOutputSet()))
                 .whenNot(join -> join.hasJoinHint() || join.left().hasJoinHint())
+                .when(topJoin -> checkCondition(topJoin, topJoin.left().right().getOutputExprIdSet()))
                 .then(topJoin -> {
                     LogicalJoin<GroupPlan, GroupPlan> bottomJoin = topJoin.left();
                     GroupPlan a = bottomJoin.left();
                     GroupPlan b = bottomJoin.right();
                     GroupPlan c = topJoin.right();
 
-                    LogicalJoin<GroupPlan, GroupPlan> newBottomJoin = new LogicalJoin<>(topJoin.getJoinType(),
-                            topJoin.getHashJoinConjuncts(), topJoin.getOtherJoinConjuncts(), JoinHint.NONE,
-                            a, c, bottomJoin.getJoinReorderContext());
+                    LogicalJoin newBottomJoin = (LogicalJoin) topJoin.withChildren(a, c);
+                    newBottomJoin.getJoinReorderContext().copyFrom(bottomJoin.getJoinReorderContext());
                     newBottomJoin.getJoinReorderContext().setHasLAsscom(false);
                     newBottomJoin.getJoinReorderContext().setHasCommute(false);
 
-                    LogicalJoin<LogicalJoin<GroupPlan, GroupPlan>, GroupPlan> newTopJoin = new LogicalJoin<>(
-                            bottomJoin.getJoinType(),
-                            bottomJoin.getHashJoinConjuncts(), bottomJoin.getOtherJoinConjuncts(), JoinHint.NONE,
-                            newBottomJoin, b, topJoin.getJoinReorderContext());
+                    LogicalJoin newTopJoin = (LogicalJoin) bottomJoin.withChildren(newBottomJoin, b);
+                    newTopJoin.getJoinReorderContext().copyFrom(topJoin.getJoinReorderContext());
                     newTopJoin.getJoinReorderContext().setHasLAsscom(true);
 
                     return newTopJoin;
@@ -87,20 +84,23 @@ public class OuterJoinLAsscom extends OneExplorationRuleFactory {
     }
 
     /**
-     * topHashConjunct possiblity: (A B) (A C) (B C) (A B C).
+     * topHashConjunct possibility: (A B) (A C) (B C) (A B C).
      * (A B) is forbidden, because it should be in bottom join.
      * (B C) (A B C) check failed, because it contains B.
      * So, just allow: top (A C), bottom (A B), we can exchange HashConjunct directly.
      * <p>
      * Same with OtherJoinConjunct.
      */
-    private boolean checkCondition(LogicalJoin<? extends Plan, GroupPlan> topJoin, Set<Slot> bOutputSet) {
+    private boolean checkCondition(LogicalJoin<? extends Plan, GroupPlan> topJoin, Set<ExprId> bOutputExprIdSet) {
         return Stream.concat(
                         topJoin.getHashJoinConjuncts().stream(),
                         topJoin.getOtherJoinConjuncts().stream())
                 .allMatch(expr -> {
-                    Set<Slot> usedSlot = expr.collect(SlotReference.class::isInstance);
-                    return !ExpressionUtils.isIntersecting(usedSlot, bOutputSet);
+                    Set<ExprId> usedExprIdSet = expr.<Set<SlotReference>>collect(SlotReference.class::isInstance)
+                            .stream()
+                            .map(SlotReference::getExprId)
+                            .collect(Collectors.toSet());
+                    return !Utils.isIntersecting(usedExprIdSet, bOutputExprIdSet);
                 });
     }
 

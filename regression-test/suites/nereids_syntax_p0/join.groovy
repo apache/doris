@@ -129,15 +129,15 @@ suite("join") {
     """
 
     sql """
-        drop table if exists outerjoin_A;
+        drop table if exists outerjoin_A_join;
     """
 
     sql """
-        drop table if exists outerjoin_B;
+        drop table if exists outerjoin_B_join;
     """
 
     sql """
-        drop table if exists outerjoin_C;
+        drop table if exists outerjoin_C_join;
     """
 
     sql """
@@ -145,7 +145,7 @@ suite("join") {
     """
     
     sql """
-        create table if not exists outerjoin_A ( a int not null )
+        create table if not exists outerjoin_A_join ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (
@@ -156,7 +156,7 @@ suite("join") {
     """
 
     sql """
-        create table if not exists outerjoin_B ( a int not null )
+        create table if not exists outerjoin_B_join ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (
@@ -167,7 +167,7 @@ suite("join") {
     """
 
     sql """
-        create table if not exists outerjoin_C ( a int not null )
+        create table if not exists outerjoin_C_join ( a int not null )
         ENGINE=OLAP
         DISTRIBUTED BY HASH(a) BUCKETS 1
         PROPERTIES (
@@ -189,28 +189,23 @@ suite("join") {
     """
 
     sql """
-        insert into outerjoin_A values( 1 );
+        insert into outerjoin_A_join values( 1 );
     """
 
     sql """
-        insert into outerjoin_B values( 1 );
+        insert into outerjoin_B_join values( 1 );
     """
 
     sql """
-        insert into outerjoin_C values( 1 );
+        insert into outerjoin_C_join values( 1 );
     """
 
     sql """
         insert into outerjoin_D values( 1 );
     """
 
-    explain {
-        sql("select count(*) from outerjoin_A A left join outerjoin_B B on A.a = B.a where B.a in (select a from outerjoin_C);")
-        contains "INNER JOIN"
-    }
-
-    explain {
-        sql("""SELECT count(1)
+    def explainStr =
+        sql(""" explain SELECT count(1)
                 FROM 
                     (SELECT sub1.wtid,
                         count(*)
@@ -224,9 +219,23 @@ suite("join") {
                             FROM test_table_a a ) sub2
                                 ON sub1.wtid = sub2.wtid
                                     AND sub1.wfid = sub2.wfid
-                            GROUP BY  sub1.wtid ) qqqq;""")
-        contains "4:VAGGREGATE (update serialize)"
-        contains "6:VAGGREGATE (merge finalize)"
+                            GROUP BY  sub1.wtid ) qqqq;""").toString()
+    logger.info(explainStr)
+    assertTrue(
+        //if analyze finished
+            explainStr.contains("4:VAGGREGATE (update serialize)") && explainStr.contains("6:VAGGREGATE (merge finalize)")
+                    && explainStr.contains("wtid[#8] = CAST(wtid[#3] AS CHARACTER)") && explainStr.contains("projections: wtid[#5], wfid[#6]")
+                    ||
+        //analyze not finished
+                    explainStr.contains("7:VAGGREGATE (update finalize)") && explainStr.contains("5:VAGGREGATE (update finalize)")
+                    && explainStr.contains("4:VEXCHANGE") && explainStr.contains("3:VHASH JOIN")
+    )
+
+    test {
+        sql"""select * from test_table_a a cross join test_table_b b on a.wtid > b.wtid"""
+        check{result, exception, startTime, endTime ->
+            assertTrue(exception != null)
+            logger.info(exception.message)
+        }
     }
 }
-

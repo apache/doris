@@ -147,11 +147,6 @@ public class TimestampArithmeticExpr extends Expr {
         return new TimestampArithmeticExpr(this);
     }
 
-    @Override
-    public boolean isVectorized() {
-        return false;
-    }
-
     private Type fixType() {
         PrimitiveType t1 = getChild(0).getType().getPrimitiveType();
         if (t1 == PrimitiveType.DATETIME) {
@@ -256,7 +251,8 @@ public class TimestampArithmeticExpr extends Expr {
             }
 
             if (!getChild(1).getType().isScalarType()) {
-                throw new AnalysisException("must be a scalar type.");
+                throw new AnalysisException(
+                        "the second argument must be a scalar type. but it is " + getChild(1).toSql());
             }
 
             // The second child must be of type 'INT' or castable to it.
@@ -285,11 +281,8 @@ public class TimestampArithmeticExpr extends Expr {
             for (int i = 0; i < childrenTypes.length; ++i) {
                 // For varargs, we must compare with the last type in callArgs.argTypes.
                 int ix = Math.min(argTypes.length - 1, i);
-                if (!childrenTypes[i].matchesType(argTypes[ix]) && Config.enable_date_conversion
-                        && !childrenTypes[i].isDateType() && (argTypes[ix].isDate() || argTypes[ix].isDatetime())) {
-                    uncheckedCastChild(ScalarType.getDefaultDateType(argTypes[ix]), i);
-                } else if (!childrenTypes[i].matchesType(argTypes[ix]) && !(
-                        childrenTypes[i].isDateType() && argTypes[ix].isDateType())) {
+                if (!childrenTypes[i].matchesType(argTypes[ix]) && !(
+                        childrenTypes[i].isDateOrDateTime() && argTypes[ix].isDateOrDateTime())) {
                     uncheckedCastChild(argTypes[ix], i);
                 }
             }

@@ -40,8 +40,8 @@ import java.util.Optional;
  * @param <CHILD_TYPE> param
  */
 public class LogicalSubQueryAlias<CHILD_TYPE extends Plan> extends LogicalUnary<CHILD_TYPE> {
-    private final List<String> qualifier;
 
+    private final List<String> qualifier;
     private final Optional<List<String>> columnAliases;
 
     public LogicalSubQueryAlias(String tableAlias, CHILD_TYPE child) {

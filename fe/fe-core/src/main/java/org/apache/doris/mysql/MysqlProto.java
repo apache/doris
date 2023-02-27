@@ -28,7 +28,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.LdapConfig;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.ldap.LdapAuthenticate;
-import org.apache.doris.mysql.privilege.PaloAuth;
+import org.apache.doris.mysql.privilege.Auth;
 import org.apache.doris.mysql.privilege.UserResource;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.SystemInfoService;
@@ -122,8 +122,8 @@ public class MysqlProto {
     // send response packet(OK/EOF/ERR).
     // before call this function, should set information in state of ConnectContext
     public static void sendResponsePacket(ConnectContext context) throws IOException {
-        MysqlSerializer serializer = context.getSerializer();
         MysqlChannel channel = context.getMysqlChannel();
+        MysqlSerializer serializer = channel.getSerializer();
         MysqlPacket packet = context.getState().toResponsePacket();
 
         // send response packet to client
@@ -134,7 +134,7 @@ public class MysqlProto {
 
     private static boolean useLdapAuthenticate(String qualifiedUser) {
         // The root and admin are used to set the ldap admin password and cannot use ldap authentication.
-        if (qualifiedUser.equals(PaloAuth.ROOT_USER) || qualifiedUser.equals(PaloAuth.ADMIN_USER)) {
+        if (qualifiedUser.equals(Auth.ROOT_USER) || qualifiedUser.equals(Auth.ADMIN_USER)) {
             return false;
         }
         // If LDAP authentication is enabled and the user exists in LDAP, use LDAP authentication,
@@ -156,8 +156,8 @@ public class MysqlProto {
      * IOException:
      */
     public static boolean negotiate(ConnectContext context) throws IOException {
-        MysqlSerializer serializer = context.getSerializer();
         MysqlChannel channel = context.getMysqlChannel();
+        MysqlSerializer serializer = channel.getSerializer();
         context.getState().setOk();
 
         // Server send handshake packet to client.

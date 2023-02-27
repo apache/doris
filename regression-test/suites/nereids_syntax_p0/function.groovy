@@ -60,7 +60,7 @@ suite("nereids_function") {
     // nested function
     test {
         sql "select cast(date('1994-01-01') + interval '1' YEAR as varchar)"
-        result([["1995-01-01 00:00:00"]])
+        result([["1995-01-01"]])
     }
 
     test {
@@ -72,6 +72,18 @@ suite("nereids_function") {
     test {
         sql "select `number` from numbers(number = 10, backend_num = 1)"
         result([[0L], [1L], [2L], [3L], [4L], [5L], [6L], [7L], [8L], [9L]])
+    }
+
+    // numbers: table valued function
+    test {
+        sql """
+            select
+                a.number as num1, b.number as num2
+            from
+                numbers("number" = "10") a
+                inner join numbers("number" = "10") b on a.number=b.number;
+        """
+        result([[0L, 0L], [1L, 1L], [2L, 2L], [3L, 3L], [4L, 4L], [5L, 5L], [6L, 6L], [7L, 7L], [8L, 8L], [9L, 9L]])
     }
 
     qt_subquery1 """ select * from numbers("number" = "10") where number = (select number from numbers("number" = "10") where number=1); """
@@ -119,6 +131,116 @@ suite("nereids_function") {
 
     qt_ceil """
         SELECT ceil(2.1);
+    """
+
+    test {
+        sql "select left('abcd', 3), right('abcd', 3)"
+        result([['abc', 'bcd']])
+    }
+    
+    // test window_funnel function
+    sql """ DROP TABLE IF EXISTS window_funnel_test """
+    sql """
+        CREATE TABLE IF NOT EXISTS window_funnel_test (
+            xwho varchar(50) NULL COMMENT 'xwho',
+            xwhen datetimev2(3) COMMENT 'xwhen',
+            xwhat int NULL COMMENT 'xwhat'
+        )
+        DUPLICATE KEY(xwho)
+        DISTRIBUTED BY HASH(xwho) BUCKETS 3
+        PROPERTIES (
+        "replication_num" = "1"
+        );
+    """
+
+    sql "INSERT into window_funnel_test (xwho, xwhen, xwhat) VALUES('1', '2022-03-12 10:41:00.111111', 1)"
+    sql "INSERT INTO window_funnel_test (xwho, xwhen, xwhat) VALUES('1', '2022-03-12 13:28:02.111111', 2)"
+    sql "INSERT INTO window_funnel_test (xwho, xwhen, xwhat) VALUES('1', '2022-03-12 16:15:01.111111', 3)"
+    sql "INSERT INTO window_funnel_test (xwho, xwhen, xwhat) VALUES('1', '2022-03-12 19:05:04.111111', 4)"
+
+    qt_window_funnel """
+        select
+            window_funnel(
+                1,
+                'default',
+                t.xwhen,
+                t.xwhat = 1,
+                t.xwhat = 2
+                ) AS level
+        from window_funnel_test t;
+    """
+    qt_window_funnel """
+        select
+            window_funnel(
+                20000,
+                'default',
+                t.xwhen,
+                t.xwhat = 1,
+                t.xwhat = 2
+            ) AS level
+        from window_funnel_test t;
+    """
+
+    test {
+        sql "select cast(1.2 as integer);"
+        result([[1]])
+    }
+
+    // scalar function
+    sql """
+        DROP TABLE IF EXISTS running_difference_test
+    """
+
+    sql """
+        CREATE TABLE running_difference_test (
+            `id` int NOT NULL COMMENT 'id' ,
+            `day` date COMMENT 'day', 
+            `time_val` datetime COMMENT 'time_val',
+            `double_num` double NULL COMMENT 'double_num',
+            `decimal_num` decimal(9, 6) NULL COMMENT 'decimal_num'
+        )
+        DUPLICATE KEY(id) 
+        DISTRIBUTED BY HASH(id) BUCKETS 3 
+        PROPERTIES ( 
+            "replication_num" = "1"
+        );
+    """
+
+    sql """                                       
+        INSERT into running_difference_test values 
+            ('1', '2022-10-28', '2022-03-12 10:41:00', null, 2.66),
+            ('2','2022-10-27', '2022-03-12 10:41:02', 2.6, 2.67),
+            ('3','2022-10-28', '2022-03-12 10:41:03', 2.5, 2.76),
+            ('4','2022-9-29', '2022-03-12 10:41:03', null, 6.756),
+            ('5','2022-10-31', '2022-03-12 10:42:01', 3.3, 7.545),
+            ('6', '2022-11-08', '2022-03-12 11:05:04', 4.7, 3.5464); 
+    """
+
+    sql """
+    SELECT
+        id,
+        day,
+        time_val,
+        double_num,
+        running_difference(id) AS delta1,
+        running_difference(day) AS delta2,
+        running_difference(time_val) AS delta3,
+        running_difference(double_num) AS delta4,
+        running_difference(decimal_num) AS delta5
+    FROM (
+        SELECT
+            id,
+            day,
+            time_val,
+            double_num,
+            decimal_num
+        FROM running_difference_test 
+        ORDER BY id ASC
+    ) as runningDifference
+    """
+
+    qt_regexp_extract_all """
+        SELECT regexp_extract_all('AbCdE', '([[:lower:]]+)C([[:lower:]]+)')
     """
 }
 

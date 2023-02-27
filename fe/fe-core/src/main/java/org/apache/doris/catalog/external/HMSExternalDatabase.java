@@ -174,10 +174,21 @@ public class HMSExternalDatabase extends ExternalDatabase<HMSExternalTable> impl
     @Override
     public void dropTable(String tableName) {
         LOG.debug("drop table [{}]", tableName);
+        makeSureInitialized();
         Long tableId = tableNameToId.remove(tableName);
         if (tableId == null) {
             LOG.warn("drop table [{}] failed", tableName);
         }
         idToTbl.remove(tableId);
+    }
+
+    @Override
+    public void createTable(String tableName, long tableId) {
+        LOG.debug("create table [{}]", tableName);
+        makeSureInitialized();
+        tableNameToId.put(tableName, tableId);
+        HMSExternalTable table = new HMSExternalTable(tableId, tableName, name,
+                (HMSExternalCatalog) extCatalog);
+        idToTbl.put(tableId, table);
     }
 }

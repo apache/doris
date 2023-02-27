@@ -31,4 +31,12 @@ suite("test_nereids_utf8_operation") {
     order_qt_sql_3 """
         SELECT k1 AS Å FROM test;
     """
+
+    qt_sql_4 """
+        SELECT SUBSTRING("dddd编", 1, 3) "测试";
+    """
+
+    qt_sql_5 """
+         SELECT SUBSTRING("dddd编", 1, 3) AS "测试";
+    """
 }

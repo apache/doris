@@ -29,11 +29,11 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * AvgDistinctToSumDivCount.
@@ -51,15 +51,13 @@ public class AvgDistinctToSumDivCount extends OneAnalysisRuleFactory {
                             .collect(ImmutableMap.toImmutableMap(function -> function, function -> {
                                 Sum sum = new Sum(true, ((Avg) function).child());
                                 Count count = new Count(true, ((Avg) function).child());
-                                Divide divide = new Divide(sum, count);
-                                return divide;
+                                return new Divide(sum, count);
                             }));
                     if (!avgToSumDivCount.isEmpty()) {
                         List<NamedExpression> newOutput = agg.getOutputExpressions().stream()
                                 .map(expr -> (NamedExpression) ExpressionUtils.replace(expr, avgToSumDivCount))
-                                .collect(Collectors.toList());
-                        return new LogicalAggregate<>(agg.getGroupByExpressions(), newOutput,
-                                agg.child());
+                                .collect(ImmutableList.toImmutableList());
+                        return new LogicalAggregate<>(agg.getGroupByExpressions(), newOutput, agg.child());
                     } else {
                         return agg;
                     }

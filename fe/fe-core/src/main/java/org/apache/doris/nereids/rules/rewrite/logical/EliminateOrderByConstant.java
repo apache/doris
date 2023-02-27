@@ -22,8 +22,9 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 
+import com.google.common.collect.ImmutableList;
+
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * SELECT * FROM lineorder ORDER BY 'f' -> SELECT * FROM lineorder
@@ -37,11 +38,11 @@ public class EliminateOrderByConstant extends OneRewriteRuleFactory {
                     .getOrderKeys()
                     .stream()
                     .filter(k -> !(k.getExpr().isConstant()))
-                    .collect(Collectors.toList());
+                    .collect(ImmutableList.toImmutableList());
             if (orderKeysWithoutConst.isEmpty()) {
                 return sort.child();
             }
-            return sort.withOrderByKey(orderKeysWithoutConst);
+            return sort.withOrderKeys(orderKeysWithoutConst);
         }).toRule(RuleType.ELIMINATE_ORDER_BY_CONSTANT);
     }
 

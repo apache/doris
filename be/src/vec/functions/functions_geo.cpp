@@ -17,7 +17,6 @@
 
 #include "vec/functions/functions_geo.h"
 
-#include "geo/geo_functions.h"
 #include "geo/geo_types.h"
 #include "gutil/strings/substitute.h"
 #include "vec/columns/column_const.h"
@@ -274,7 +273,7 @@ struct StCircle {
             return Status::OK();
         }
 
-        auto state = new StConstructState();
+        std::shared_ptr<StConstructState> state = std::make_shared<StConstructState>();
         DoubleVal* lng = reinterpret_cast<DoubleVal*>(context->get_constant_arg(0));
         DoubleVal* lat = reinterpret_cast<DoubleVal*>(context->get_constant_arg(1));
         DoubleVal* radius = reinterpret_cast<DoubleVal*>(context->get_constant_arg(2));
@@ -296,12 +295,6 @@ struct StCircle {
     }
 
     static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        if (scope != FunctionContext::FRAGMENT_LOCAL) {
-            return Status::OK();
-        }
-        StConstructState* state =
-                reinterpret_cast<StConstructState*>(context->get_function_state(scope));
-        delete state;
         return Status::OK();
     }
 };
@@ -366,7 +359,7 @@ struct StContains {
             return Status::OK();
         }
 
-        auto contains_ctx = new StContainsState();
+        std::shared_ptr<StContainsState> contains_ctx = std::make_shared<StContainsState>();
         for (int i = 0; !contains_ctx->is_null && i < 2; ++i) {
             if (context->is_arg_constant(i)) {
                 StringVal* str = reinterpret_cast<StringVal*>(context->get_constant_arg(i));
@@ -387,12 +380,6 @@ struct StContains {
     }
 
     static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        if (scope != FunctionContext::FRAGMENT_LOCAL) {
-            return Status::OK();
-        }
-        StContainsState* state =
-                reinterpret_cast<StContainsState*>(context->get_function_state(scope));
-        delete state;
         return Status::OK();
     }
 };
@@ -487,7 +474,7 @@ struct StGeoFromText {
             return Status::OK();
         }
 
-        auto state = new StConstructState();
+        std::shared_ptr<StConstructState> state = std::make_shared<StConstructState>();
         auto str_value = reinterpret_cast<StringVal*>(context->get_constant_arg(0));
         if (str_value->is_null) {
             state->is_null = true;
@@ -508,11 +495,6 @@ struct StGeoFromText {
     }
 
     static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        if (scope == FunctionContext::FRAGMENT_LOCAL) {
-            StConstructState* state =
-                    reinterpret_cast<StConstructState*>(context->get_function_state(scope));
-            delete state;
-        }
         return Status::OK();
     }
 };

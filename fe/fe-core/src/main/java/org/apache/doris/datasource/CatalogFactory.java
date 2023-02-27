@@ -26,6 +26,9 @@ import org.apache.doris.analysis.StatementBase;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.common.DdlException;
+import org.apache.doris.common.FeConstants;
+import org.apache.doris.datasource.iceberg.IcebergExternalCatalogFactory;
+import org.apache.doris.datasource.test.TestExternalCatalog;
 
 import org.apache.parquet.Strings;
 
@@ -36,7 +39,6 @@ import java.util.Optional;
  * A factory to create catalog instance of log or covert catalog into log.
  */
 public class CatalogFactory {
-
     /**
      * Convert the sql statement into catalog log.
      */
@@ -79,11 +81,11 @@ public class CatalogFactory {
             Resource catalogResource = Optional.ofNullable(Env.getCurrentEnv().getResourceMgr().getResource(resource))
                     .orElseThrow(() -> new DdlException("Resource doesn't exist: " + resource));
             catalogType = catalogResource.getType().name().toLowerCase();
-            if (props.containsKey("type")) {
+            if (props.containsKey(CatalogMgr.CATALOG_TYPE_PROP)) {
                 throw new DdlException("Can not set 'type' when creating catalog with resource");
             }
         } else {
-            String type = props.get("type");
+            String type = props.get(CatalogMgr.CATALOG_TYPE_PROP);
             if (Strings.isNullOrEmpty(type)) {
                 throw new DdlException("Missing property 'type' in properties");
             }
@@ -101,6 +103,15 @@ public class CatalogFactory {
                 break;
             case "jdbc":
                 catalog = new JdbcExternalCatalog(catalogId, name, resource, props);
+                break;
+            case "iceberg":
+                catalog = IcebergExternalCatalogFactory.createCatalog(catalogId, name, resource, props);
+                break;
+            case "test":
+                if (!FeConstants.runningUnitTest) {
+                    throw new DdlException("test catalog is only for FE unit test");
+                }
+                catalog = new TestExternalCatalog(catalogId, name, resource, props);
                 break;
             default:
                 throw new DdlException("Unknown catalog type: " + catalogType);

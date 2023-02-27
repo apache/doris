@@ -26,9 +26,7 @@ import org.apache.hadoop.hive.metastore.api.NotificationEvent;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
-import java.util.Collections;
 import java.util.List;
-import java.util.stream.Collectors;
 
 /**
  * Factory class to create various MetastoreEvents.
@@ -42,31 +40,36 @@ public class MetastoreEventFactory implements EventFactory {
         Preconditions.checkNotNull(event.getEventType());
         MetastoreEventType metastoreEventType = MetastoreEventType.from(event.getEventType());
         switch (metastoreEventType) {
+            case CREATE_TABLE:
+                return CreateTableEvent.getEvents(event, catalogName);
             case DROP_TABLE:
                 return DropTableEvent.getEvents(event, catalogName);
+            case ALTER_TABLE:
+                return AlterTableEvent.getEvents(event, catalogName);
+            case CREATE_DATABASE:
+                return CreateDatabaseEvent.getEvents(event, catalogName);
+            case DROP_DATABASE:
+                return DropDatabaseEvent.getEvents(event, catalogName);
+            case ALTER_DATABASE:
+                return AlterDatabaseEvent.getEvents(event, catalogName);
+            case ADD_PARTITION:
+                return AddPartitionEvent.getEvents(event, catalogName);
+            case DROP_PARTITION:
+                return DropPartitionEvent.getEvents(event, catalogName);
+            case ALTER_PARTITION:
+                return AlterPartitionEvent.getEvents(event, catalogName);
             default:
                 // ignore all the unknown events by creating a IgnoredEvent
-                return Lists.newArrayList(new IgnoredEvent(event, catalogName));
+                return IgnoredEvent.getEvents(event, catalogName);
         }
     }
 
     List<MetastoreEvent> getMetastoreEvents(List<NotificationEvent> events, HMSExternalCatalog hmsExternalCatalog) {
         List<MetastoreEvent> metastoreEvents = Lists.newArrayList();
-
         for (NotificationEvent event : events) {
             metastoreEvents.addAll(transferNotificationEventToMetastoreEvents(event, hmsExternalCatalog.getName()));
         }
-
-        List<MetastoreEvent> tobeProcessEvents = metastoreEvents.stream()
-                .filter(MetastoreEvent::isSupported)
-                .collect(Collectors.toList());
-
-        if (tobeProcessEvents.isEmpty()) {
-            LOG.info("The metastore events to process is empty on catalog {}", hmsExternalCatalog.getName());
-            return Collections.emptyList();
-        }
-
-        return createBatchEvents(tobeProcessEvents);
+        return createBatchEvents(metastoreEvents);
     }
 
     /**

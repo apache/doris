@@ -73,6 +73,11 @@ public class LogicalPlanBuilder {
         return from(project);
     }
 
+    public LogicalPlanBuilder projectExprs(List<NamedExpression> projectExprs) {
+        LogicalProject<LogicalPlan> project = new LogicalProject<>(projectExprs, this.plan);
+        return from(project);
+    }
+
     public LogicalPlanBuilder alias(List<Integer> slotsIndex, List<String> alias) {
         Preconditions.checkArgument(slotsIndex.size() == alias.size());
 
@@ -84,34 +89,34 @@ public class LogicalPlanBuilder {
         return from(project);
     }
 
-    public LogicalPlanBuilder hashJoinUsing(LogicalPlan right, JoinType joinType, Pair<Integer, Integer> hashOnSlots) {
-        ImmutableList<EqualTo> hashConjunts = ImmutableList.of(
+    public LogicalPlanBuilder join(LogicalPlan right, JoinType joinType, Pair<Integer, Integer> hashOnSlots) {
+        ImmutableList<EqualTo> hashConjuncts = ImmutableList.of(
                 new EqualTo(this.plan.getOutput().get(hashOnSlots.first), right.getOutput().get(hashOnSlots.second)));
 
-        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(hashConjunts),
+        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(hashConjuncts),
                 this.plan, right);
         return from(join);
     }
 
-    public LogicalPlanBuilder hashJoinUsing(LogicalPlan right, JoinType joinType,
+    public LogicalPlanBuilder join(LogicalPlan right, JoinType joinType,
             List<Pair<Integer, Integer>> hashOnSlots) {
-        List<EqualTo> hashConjunts = hashOnSlots.stream()
+        List<EqualTo> hashConjuncts = hashOnSlots.stream()
                 .map(pair -> new EqualTo(this.plan.getOutput().get(pair.first), right.getOutput().get(pair.second)))
                 .collect(Collectors.toList());
 
-        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(hashConjunts),
+        LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(hashConjuncts),
                 this.plan, right);
         return from(join);
     }
 
-    public LogicalPlanBuilder hashJoinUsing(LogicalPlan right, JoinType joinType, List<Expression> hashJoinConjuncts,
+    public LogicalPlanBuilder join(LogicalPlan right, JoinType joinType, List<Expression> hashJoinConjuncts,
             List<Expression> otherJoinConjucts) {
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, hashJoinConjuncts, otherJoinConjucts,
                 JoinHint.NONE, this.plan, right);
         return from(join);
     }
 
-    public LogicalPlanBuilder hashJoinEmptyOn(LogicalPlan right, JoinType joinType) {
+    public LogicalPlanBuilder joinEmptyOn(LogicalPlan right, JoinType joinType) {
         LogicalJoin<LogicalPlan, LogicalPlan> join = new LogicalJoin<>(joinType, new ArrayList<>(), this.plan, right);
         return from(join);
     }

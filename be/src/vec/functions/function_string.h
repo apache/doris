@@ -66,6 +66,7 @@
 
 namespace doris::vectorized {
 
+//TODO: these three functions could be merged.
 inline size_t get_char_len(const std::string_view& str, std::vector<size_t>* str_index) {
     size_t char_len = 0;
     for (size_t i = 0, char_size = 0; i < str.length(); i += char_size) {
@@ -86,10 +87,10 @@ inline size_t get_char_len(const StringVal& str, std::vector<size_t>* str_index)
     return char_len;
 }
 
-inline size_t get_char_len(const StringValue& str, size_t end_pos) {
+inline size_t get_char_len(const StringRef& str, size_t end_pos) {
     size_t char_len = 0;
-    for (size_t i = 0, char_size = 0; i < std::min(str.len, end_pos); i += char_size) {
-        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.ptr)[i]];
+    for (size_t i = 0, char_size = 0; i < std::min(str.size, end_pos); i += char_size) {
+        char_size = UTF8_BYTE_LENGTH[(unsigned char)(str.data)[i]];
         ++char_len;
     }
     return char_len;
@@ -419,8 +420,8 @@ public:
         int n = -1;
 
         auto res = ColumnString::create();
-        const ColumnString& source_column =
-                assert_cast<const ColumnString&>(*block.get_by_position(arguments[0]).column);
+        auto col = block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
+        const ColumnString& source_column = assert_cast<const ColumnString&>(*col);
 
         if (arguments.size() == 2) {
             auto& col = *block.get_by_position(arguments[1]).column;
@@ -434,7 +435,7 @@ public:
             FunctionMask::vector_mask(source_column, *res, FunctionMask::DEFAULT_UPPER_MASK,
                                       FunctionMask::DEFAULT_LOWER_MASK,
                                       FunctionMask::DEFAULT_NUMBER_MASK);
-        } else if (n > 0) {
+        } else if (n >= 0) {
             vector(source_column, n, *res);
         }
 
@@ -730,36 +731,103 @@ public:
     DataTypePtr get_return_type_impl(const DataTypes& arguments) const override {
         return make_nullable(std::make_shared<DataTypeString>());
     }
-    bool use_default_implementation_for_nulls() const override { return true; }
+    bool use_default_implementation_for_nulls() const override { return false; }
     bool use_default_implementation_for_constants() const override { return true; }
 
     Status execute_impl(FunctionContext* context, Block& block, const ColumnNumbers& arguments,
                         size_t result, size_t input_rows_count) override {
         int arguent_size = arguments.size();
-        auto pos_col =
-                block.get_by_position(arguments[0]).column->convert_to_full_column_if_const();
-        if (auto* nullable = check_and_get_column<const ColumnNullable>(*pos_col)) {
-            pos_col = nullable->get_nested_column_ptr();
-        }
-        auto& pos_data = assert_cast<const ColumnInt32*>(pos_col.get())->get_data();
-        auto pos = pos_data[0];
         int num_children = arguent_size - 1;
-        if (pos < 1 || num_children == 0 || pos > num_children) {
-            auto null_map = ColumnUInt8::create(input_rows_count, 1);
-            auto res = ColumnString::create();
-            auto& res_data = res->get_chars();
-            auto& res_offset = res->get_offsets();
-            res_offset.resize(input_rows_count);
-            for (size_t i = 0; i < input_rows_count; ++i) {
-                res_offset[i] = res_data.size();
+        auto res = ColumnString::create();
+
+        if (auto const_column = check_and_get_column<ColumnConst>(
+                    *block.get_by_position(arguments[0]).column)) {
+            auto data = const_column->get_data_at(0);
+            // return NULL, pos is null or pos < 0 or pos > num_children
+            auto is_null = data.data == nullptr;
+            auto pos = is_null ? 0 : *(Int32*)data.data;
+            is_null = pos <= 0 || pos > num_children;
+
+            auto null_map = ColumnUInt8::create(input_rows_count, is_null);
+            if (is_null) {
+                res->insert_many_defaults(input_rows_count);
+            } else {
+                auto& target_column = block.get_by_position(arguments[pos]).column;
+                if (auto target_const_column = check_and_get_column<ColumnConst>(*target_column)) {
+                    auto target_data = target_const_column->get_data_at(0);
+                    if (target_data.data == nullptr) {
+                        null_map = ColumnUInt8::create(input_rows_count, is_null);
+                        res->insert_many_defaults(input_rows_count);
+                    } else {
+                        res->insert_many_data(target_data.data, target_data.size, input_rows_count);
+                    }
+                } else if (auto target_nullable_column =
+                                   check_and_get_column<ColumnNullable>(*target_column)) {
+                    auto& target_null_map = target_nullable_column->get_null_map_data();
+                    VectorizedUtils::update_null_map(
+                            assert_cast<ColumnUInt8&>(*null_map).get_data(), target_null_map);
+
+                    auto& target_str_column = assert_cast<const ColumnString&>(
+                            target_nullable_column->get_nested_column());
+                    res->get_chars().assign(target_str_column.get_chars().begin(),
+                                            target_str_column.get_chars().end());
+                    res->get_offsets().assign(target_str_column.get_offsets().begin(),
+                                              target_str_column.get_offsets().end());
+                } else {
+                    auto& target_str_column = assert_cast<const ColumnString&>(*target_column);
+                    res->get_chars().assign(target_str_column.get_chars().begin(),
+                                            target_str_column.get_chars().end());
+                    res->get_offsets().assign(target_str_column.get_offsets().begin(),
+                                              target_str_column.get_offsets().end());
+                }
             }
             block.get_by_position(result).column =
                     ColumnNullable::create(std::move(res), std::move(null_map));
-            return Status::OK();
-        }
+        } else if (auto pos_null_column = check_and_get_column<ColumnNullable>(
+                           *block.get_by_position(arguments[0]).column)) {
+            auto& pos_column =
+                    assert_cast<const ColumnInt32&>(pos_null_column->get_nested_column());
+            auto& pos_null_map = pos_null_column->get_null_map_data();
+            auto null_map = ColumnUInt8::create(input_rows_count, false);
+            auto& res_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
 
-        block.get_by_position(result).column =
-                make_nullable(block.get_by_position(arguments[pos]).column);
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                auto pos = pos_column.get_element(i);
+                res_null_map[i] =
+                        pos_null_map[i] || pos <= 0 || pos > num_children ||
+                        block.get_by_position(arguments[pos]).column->get_data_at(i).data ==
+                                nullptr;
+                if (res_null_map[i]) {
+                    res->insert_default();
+                } else {
+                    auto insert_data = block.get_by_position(arguments[pos]).column->get_data_at(i);
+                    res->insert_data(insert_data.data, insert_data.size);
+                }
+            }
+            block.get_by_position(result).column =
+                    ColumnNullable::create(std::move(res), std::move(null_map));
+        } else {
+            auto& pos_column =
+                    assert_cast<const ColumnInt32&>(*block.get_by_position(arguments[0]).column);
+            auto null_map = ColumnUInt8::create(input_rows_count, false);
+            auto& res_null_map = assert_cast<ColumnUInt8&>(*null_map).get_data();
+
+            for (size_t i = 0; i < input_rows_count; ++i) {
+                auto pos = pos_column.get_element(i);
+                res_null_map[i] =
+                        pos <= 0 || pos > num_children ||
+                        block.get_by_position(arguments[pos]).column->get_data_at(i).data ==
+                                nullptr;
+                if (res_null_map[i]) {
+                    res->insert_default();
+                } else {
+                    auto insert_data = block.get_by_position(arguments[pos]).column->get_data_at(i);
+                    res->insert_data(insert_data.data, insert_data.size);
+                }
+            }
+            block.get_by_position(result).column =
+                    ColumnNullable::create(std::move(res), std::move(null_map));
+        }
         return Status::OK();
     }
 };
@@ -1809,7 +1877,7 @@ public:
             auto param = parameter_col->get_data_at(i);
             auto res = extract_url(source, param);
 
-            col_res->insert_data(res.ptr, res.len);
+            col_res->insert_data(res.data, res.size);
         }
 
         block.replace_by_position(result, std::move(col_res));
@@ -1817,11 +1885,11 @@ public:
     }
 
 private:
-    StringValue extract_url(StringRef url, StringRef parameter) {
+    StringRef extract_url(StringRef url, StringRef parameter) {
         if (url.size == 0 || parameter.size == 0) {
-            return StringValue("", 0);
+            return StringRef("", 0);
         }
-        return UrlParser::extract_url(StringValue(url), StringValue(parameter));
+        return UrlParser::extract_url(url, parameter);
     }
 };
 
@@ -1875,18 +1943,18 @@ public:
             }
 
             auto part = part_col->get_data_at(i);
-            StringValue p(const_cast<char*>(part.data), part.size);
+            StringRef p(const_cast<char*>(part.data), part.size);
             UrlParser::UrlPart url_part = UrlParser::get_url_part(p);
-            StringValue url_key;
+            StringRef url_key;
             if (has_key) {
                 auto key = key_col->get_data_at(i);
-                url_key = StringValue(const_cast<char*>(key.data), key.size);
+                url_key = StringRef(const_cast<char*>(key.data), key.size);
             }
 
             auto source = url_col->get_data_at(i);
-            StringValue url_val(const_cast<char*>(source.data), source.size);
+            StringRef url_val(const_cast<char*>(source.data), source.size);
 
-            StringValue parse_res;
+            StringRef parse_res;
             bool success = false;
             if (has_key) {
                 success = UrlParser::parse_url_key(url_val, url_part, url_key, &parse_res);
@@ -1908,7 +1976,7 @@ public:
                 }
             }
 
-            StringOP::push_value_string(std::string_view(parse_res.ptr, parse_res.len), i,
+            StringOP::push_value_string(std::string_view(parse_res.data, parse_res.size), i,
                                         res_chars, res_offsets);
         }
         block.get_by_position(result).column =
@@ -1948,6 +2016,45 @@ public:
     }
 };
 
+namespace MoneyFormat {
+
+template <typename T, size_t N>
+static StringVal do_money_format(FunctionContext* context, const T int_value,
+                                 const int32_t frac_value = 0) {
+    char local[N];
+    char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
+    int32_t string_val_len = local + sizeof(local) - p + 3;
+    StringVal result = StringVal::create_temp_string_val(context, string_val_len);
+    memcpy(result.ptr, p, string_val_len - 3);
+    *(result.ptr + string_val_len - 3) = '.';
+    *(result.ptr + string_val_len - 2) = '0' + (frac_value / 10);
+    *(result.ptr + string_val_len - 1) = '0' + (frac_value % 10);
+    return result;
+};
+
+// Note string value must be valid decimal string which contains two digits after the decimal point
+static StringVal do_money_format(FunctionContext* context, const string& value) {
+    bool is_positive = (value[0] != '-');
+    int32_t result_len = value.size() + (value.size() - (is_positive ? 4 : 5)) / 3;
+    StringVal result = StringVal::create_temp_string_val(context, result_len);
+    if (!is_positive) {
+        *result.ptr = '-';
+    }
+    for (int i = value.size() - 4, j = result_len - 4; i >= 0; i = i - 3, j = j - 4) {
+        *(result.ptr + j) = *(value.data() + i);
+        if (i - 1 < 0) break;
+        *(result.ptr + j - 1) = *(value.data() + i - 1);
+        if (i - 2 < 0) break;
+        *(result.ptr + j - 2) = *(value.data() + i - 2);
+        if (j - 3 > 1 || (j - 3 == 1 && is_positive)) {
+            *(result.ptr + j - 3) = ',';
+        }
+    }
+    memcpy(result.ptr + result_len - 3, value.data() + value.size() - 3, 3);
+    return result;
+};
+
+} // namespace MoneyFormat
 struct MoneyFormatDoubleImpl {
     static DataTypes get_variadic_argument_types() { return {std::make_shared<DataTypeFloat64>()}; }
 
@@ -1957,7 +2064,7 @@ struct MoneyFormatDoubleImpl {
         for (size_t i = 0; i < input_rows_count; i++) {
             double value =
                     MathFunctions::my_double_round(data_column->get_element(i), 2, false, false);
-            StringVal str = StringFunctions::do_money_format(context, fmt::format("{:.2f}", value));
+            StringVal str = MoneyFormat::do_money_format(context, fmt::format("{:.2f}", value));
             result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
         }
     }
@@ -1971,7 +2078,7 @@ struct MoneyFormatInt64Impl {
         const auto* data_column = assert_cast<const ColumnVector<Int64>*>(col_ptr.get());
         for (size_t i = 0; i < input_rows_count; i++) {
             Int64 value = data_column->get_element(i);
-            StringVal str = StringFunctions::do_money_format<Int64, 26>(context, value);
+            StringVal str = MoneyFormat::do_money_format<Int64, 26>(context, value);
             result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
         }
     }
@@ -1985,7 +2092,7 @@ struct MoneyFormatInt128Impl {
         const auto* data_column = assert_cast<const ColumnVector<Int128>*>(col_ptr.get());
         for (size_t i = 0; i < input_rows_count; i++) {
             Int128 value = data_column->get_element(i);
-            StringVal str = StringFunctions::do_money_format<Int128, 52>(context, value);
+            StringVal str = MoneyFormat::do_money_format<Int128, 52>(context, value);
             result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
         }
     }
@@ -2005,7 +2112,7 @@ struct MoneyFormatDecimalImpl {
                 DecimalV2Value rounded(0);
                 DecimalV2Value::from_decimal_val(value).round(&rounded, 2, HALF_UP);
 
-                StringVal str = StringFunctions::do_money_format<int64_t, 26>(
+                StringVal str = MoneyFormat::do_money_format<int64_t, 26>(
                         context, rounded.int_value(), abs(rounded.frac_value() / 10000000));
 
                 result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
@@ -2024,7 +2131,7 @@ struct MoneyFormatDecimalImpl {
                     frac_part = frac_part * multiplier;
                 }
 
-                StringVal str = StringFunctions::do_money_format<int64_t, 26>(
+                StringVal str = MoneyFormat::do_money_format<int64_t, 26>(
                         context, decimal32_column->get_whole_part(i), frac_part);
 
                 result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
@@ -2043,7 +2150,7 @@ struct MoneyFormatDecimalImpl {
                     frac_part = frac_part * multiplier;
                 }
 
-                StringVal str = StringFunctions::do_money_format<int64_t, 26>(
+                StringVal str = MoneyFormat::do_money_format<int64_t, 26>(
                         context, decimal64_column->get_whole_part(i), frac_part);
 
                 result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
@@ -2062,7 +2169,7 @@ struct MoneyFormatDecimalImpl {
                     frac_part = frac_part * multiplier;
                 }
 
-                StringVal str = StringFunctions::do_money_format<int64_t, 26>(
+                StringVal str = MoneyFormat::do_money_format<int64_t, 26>(
                         context, decimal128_column->get_whole_part(i), frac_part);
 
                 result_column->insert_data(reinterpret_cast<const char*>(str.ptr), str.len);
@@ -2136,11 +2243,11 @@ private:
         if (start_pos <= 0 || start_pos > str.len || start_pos > char_len) {
             return 0;
         }
-        StringValue substr_sv = StringValue::from_string_val(substr);
+        StringRef substr_sv = StringRef(substr);
         StringSearch search(&substr_sv);
         // Input start_pos starts from 1.
-        StringValue adjusted_str(reinterpret_cast<char*>(str.ptr) + index[start_pos - 1],
-                                 str.len - index[start_pos - 1]);
+        StringRef adjusted_str(reinterpret_cast<char*>(str.ptr) + index[start_pos - 1],
+                               str.len - index[start_pos - 1]);
         int32_t match_pos = search.search(&adjusted_str);
         if (match_pos >= 0) {
             // Hive returns the position in the original string starting from 1.
@@ -2366,6 +2473,14 @@ struct SubReplaceFourImpl {
     }
 };
 
+// Wrap iconv_open and iconv_close to a shared ptr call
+class IconvWrapper {
+public:
+    iconv_t cd_;
+    IconvWrapper(iconv_t cd) : cd_(cd) {}
+    ~IconvWrapper() { iconv_close(cd_); }
+};
+
 class FunctionConvertTo : public IFunction {
 public:
     static constexpr auto name = "convert_to";
@@ -2393,15 +2508,16 @@ public:
         const auto& character_data = context->get_constant_col(1)->column_ptr->get_data_at(0);
         if (doris::iequal(character_data.to_string(), "gbk")) {
             iconv_t cd = iconv_open("gb2312", "utf-8");
-            if (cd == nullptr) {
-                return Status::RuntimeError("function {} is convert to gbk failed in iconv_open",
+            if (cd == (iconv_t)-1) {
+                LOG(WARNING) << "iconv_open error: " << strerror(errno);
+                return Status::RuntimeError("function {} converting to gbk failed in iconv_open",
                                             get_name());
             }
-            context->set_function_state(scope, cd);
+            // IconvWrapper will call iconv_close during deconstructor
+            std::shared_ptr<IconvWrapper> cd_wrapper = std::make_shared<IconvWrapper>(cd);
+            context->set_function_state(scope, cd_wrapper);
         } else {
-            return Status::RuntimeError(
-                    "Illegal second argument column of function convert. now only support "
-                    "convert to character set of gbk");
+            return Status::NotSupported("convert to character set " + character_data.to_string());
         }
 
         return Status::OK();
@@ -2418,8 +2534,9 @@ public:
         auto& res_offset = col_res->get_offsets();
         auto& res_chars = col_res->get_chars();
         res_offset.resize(input_rows_count);
-        iconv_t cd = reinterpret_cast<iconv_t>(
-                context->get_function_state(FunctionContext::THREAD_LOCAL));
+        iconv_t cd = reinterpret_cast<IconvWrapper*>(
+                             context->get_function_state(FunctionContext::THREAD_LOCAL))
+                             ->cd_;
         DCHECK(cd != nullptr);
 
         size_t in_len = 0, out_len = 0;
@@ -2431,7 +2548,8 @@ public:
             char* in = const_cast<char*>(value_data);
             out_len = in_len;
             if (iconv(cd, &in, &in_len, &out, &out_len) == -1) {
-                return Status::RuntimeError("function {} is convert to gbk failed in iconv",
+                LOG(WARNING) << "iconv failed, error: " << strerror(errno);
+                return Status::RuntimeError("function {} converting to gbk failed in iconv",
                                             get_name());
             } else {
                 res_offset[i] = res_chars.size();
@@ -2442,12 +2560,6 @@ public:
     }
 
     Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
-        if (scope == FunctionContext::THREAD_LOCAL) {
-            iconv_t cd = reinterpret_cast<iconv_t>(
-                    context->get_function_state(FunctionContext::THREAD_LOCAL));
-            iconv_close(cd);
-            context->set_function_state(FunctionContext::THREAD_LOCAL, nullptr);
-        }
         return Status::OK();
     }
 };

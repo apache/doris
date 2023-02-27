@@ -31,9 +31,8 @@
 #include "io/file_reader.h"
 #include "runtime/descriptors.h"
 #include "runtime/mem_pool.h"
-#include "runtime/string_value.h"
-#include "runtime/tuple.h"
 #include "util/string_util.h"
+#include "vec/common/string_ref.h"
 
 namespace doris {
 
@@ -47,12 +46,9 @@ ParquetReaderWrap::ParquetReaderWrap(RuntimeState* state,
                           case_sensitive),
           _rows_of_group(0),
           _current_line_of_group(0),
-          _current_line_of_batch(0),
-          _range_start_offset(range_start_offset),
-          _range_size(range_size) {}
+          _current_line_of_batch(0) {}
 
 Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
-                                      const std::vector<ExprContext*>& conjunct_ctxs,
                                       const std::string& timezone) {
     try {
         parquet::ArrowReaderProperties arrow_reader_properties =
@@ -101,15 +97,6 @@ Status ParquetReaderWrap::init_reader(const TupleDescriptor* tuple_desc,
         _timezone = timezone;
 
         RETURN_IF_ERROR(column_indices());
-        _need_filter_row_group = (tuple_desc != nullptr);
-        if (_need_filter_row_group) {
-            int64_t file_size = 0;
-            size(&file_size);
-            _row_group_reader.reset(new RowGroupReader(_range_start_offset, _range_size,
-                                                       conjunct_ctxs, _file_metadata, this));
-            _row_group_reader->init_filter_groups(tuple_desc, _map_column, _include_column_ids,
-                                                  file_size);
-        }
         _thread = std::thread(&ArrowReaderWrap::prefetch_batch, this);
         return Status::OK();
     } catch (parquet::ParquetException& e) {
@@ -128,29 +115,6 @@ Status ParquetReaderWrap::size(int64_t* size) {
     } else {
         return Status::InternalError(result.status().ToString());
     }
-}
-
-inline void ParquetReaderWrap::fill_slot(Tuple* tuple, SlotDescriptor* slot_desc, MemPool* mem_pool,
-                                         const uint8_t* value, int32_t len) {
-    tuple->set_not_null(slot_desc->null_indicator_offset());
-    void* slot = tuple->get_slot(slot_desc->tuple_offset());
-    StringValue* str_slot = reinterpret_cast<StringValue*>(slot);
-    str_slot->ptr = reinterpret_cast<char*>(mem_pool->allocate(len));
-    memcpy(str_slot->ptr, value, len);
-    str_slot->len = len;
-    return;
-}
-
-inline Status ParquetReaderWrap::set_field_null(Tuple* tuple, const SlotDescriptor* slot_desc) {
-    if (!slot_desc->is_nullable()) {
-        std::stringstream str_error;
-        str_error << "The field name(" << slot_desc->col_name()
-                  << ") is not allowed null, but Parquet field is null.";
-        LOG(WARNING) << str_error.str();
-        return Status::RuntimeError(str_error.str());
-    }
-    tuple->set_null(slot_desc->null_indicator_offset());
-    return Status::OK();
 }
 
 Status ParquetReaderWrap::read_record_batch(bool* eof) {
@@ -242,288 +206,6 @@ Status ParquetReaderWrap::init_parquet_type() {
     return Status::OK();
 }
 
-Status ParquetReaderWrap::read(Tuple* tuple, MemPool* mem_pool, bool* eof) {
-    if (_batch == nullptr) {
-        _current_line_of_group += _rows_of_group;
-        return read_record_batch(eof);
-    }
-    uint8_t tmp_buf[128] = {0};
-    int32_t wbytes = 0;
-    const uint8_t* value = nullptr;
-    int column_index = 0;
-    try {
-        size_t slots = _include_column_ids.size();
-        for (size_t i = 0; i < slots; ++i) {
-            auto slot_desc = _file_slot_descs[i];
-            column_index = i; // column index in batch record
-            switch (_parquet_column_type[i]) {
-            case arrow::Type::type::STRING: {
-                auto str_array =
-                        std::static_pointer_cast<arrow::StringArray>(_batch->column(column_index));
-                if (str_array->IsNull(_current_line_of_batch)) {
-                    RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
-                } else {
-                    value = str_array->GetValue(_current_line_of_batch, &wbytes);
-                    fill_slot(tuple, slot_desc, mem_pool, value, wbytes);
-                }
-                break;
-            }
-            case arrow::Type::type::INT32: {
-                auto int32_array =
-                        std::static_pointer_cast<arrow::Int32Array>(_batch->column(column_index));
-                if (int32_array->IsNull(_current_line_of_batch)) {
-                    RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
-                } else {
-                    int32_t value = int32_array->Value(_current_line_of_batch);
-                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%d", value);
-                    fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
-                }
-                break;
-            }
-            case arrow::Type::type::INT64: {
-                auto int64_array =
-                        std::static_pointer_cast<arrow::Int64Array>(_batch->column(column_index));
-                if (int64_array->IsNull(_current_line_of_batch)) {
-                    RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
-                } else {
-                    int64_t value = int64_array->Value(_current_line_of_batch);
-                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%" PRId64, value);
-                    fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
-                }
-                break;
-            }
-            case arrow::Type::type::UINT32: {
-                auto uint32_array =
-                        std::static_pointer_cast<arrow::UInt32Array>(_batch->column(column_index));
-                if (uint32_array->IsNull(_current_line_of_batch)) {
-                    RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
-                } else {
-                    uint32_t value = uint32_array->Value(_current_line_of_batch);
-                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%u", value);
-                    fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
-                }
-                break;
-            }
-            case arrow::Type::type::UINT64: {
-                auto uint64_array =
-                        std::static_pointer_cast<arrow::UInt64Array>(_batch->column(column_index));
-                if (uint64_array->IsNull(_current_line_of_batch)) {
-                    RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
-                } else {
-                    uint64_t value = uint64_array->Value(_current_line_of_batch);
-                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%" PRIu64, value);
-                    fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
-                }
-                break;
-            }
-            case arrow::Type::type::BINARY: {
-                auto str_array =
-                        std::static_pointer_cast<arrow::BinaryArray>(_batch->column(column_index));
-                if (str_array->IsNull(_current_line_of_batch)) {
-                    RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
-                } else {
-                    value = str_array->GetValue(_current_line_of_batch, &wbytes);
-                    fill_slot(tuple, slot_desc, mem_pool, value, wbytes);
-                }
-                break;
-            }
-            case arrow::Type::type::FIXED_SIZE_BINARY: {
-                auto fixed_array = std::static_pointer_cast<arrow::FixedSizeBinaryArray>(
-                        _batch->column(column_index));
-                if (fixed_array->IsNull(_current_line_of_batch)) {
-                    RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
-                } else {
-                    std::string value = fixed_array->GetString(_current_line_of_batch);
-                    fill_slot(tuple, slot_desc, mem_pool, (uint8_t*)value.c_str(), value.length());
-                }
-                break;
-            }
-            case arrow::Type::type::BOOL: {
-                auto boolean_array =
-                        std::static_pointer_cast<arrow::BooleanArray>(_batch->column(column_index));
-                if (boolean_array->IsNull(_current_line_of_batch)) {
-                    RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
-                } else {
-                    bool value = boolean_array->Value(_current_line_of_batch);
-                    if (value) {
-                        fill_slot(tuple, slot_desc, mem_pool, (uint8_t*)"true", 4);
-                    } else {
-                        fill_slot(tuple, slot_desc, mem_pool, (uint8_t*)"false", 5);
-                    }
-                }
-                break;
-            }
-            case arrow::Type::type::UINT8: {
-                auto uint8_array =
-                        std::static_pointer_cast<arrow::UInt8Array>(_batch->column(column_index));
-                if (uint8_array->IsNull(_current_line_of_batch)) {
-                    RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
-                } else {
-                    uint8_t value = uint8_array->Value(_current_line_of_batch);
-                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%d", value);
-                    fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
-                }
-                break;
-            }
-            case arrow::Type::type::INT8: {
-                auto int8_array =
-                        std::static_pointer_cast<arrow::Int8Array>(_batch->column(column_index));
-                if (int8_array->IsNull(_current_line_of_batch)) {
-                    RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
-                } else {
-                    int8_t value = int8_array->Value(_current_line_of_batch);
-                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%d", value);
-                    fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
-                }
-                break;
-            }
-            case arrow::Type::type::UINT16: {
-                auto uint16_array =
-                        std::static_pointer_cast<arrow::UInt16Array>(_batch->column(column_index));
-                if (uint16_array->IsNull(_current_line_of_batch)) {
-                    RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
-                } else {
-                    uint16_t value = uint16_array->Value(_current_line_of_batch);
-                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%d", value);
-                    fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
-                }
-                break;
-            }
-            case arrow::Type::type::INT16: {
-                auto int16_array =
-                        std::static_pointer_cast<arrow::Int16Array>(_batch->column(column_index));
-                if (int16_array->IsNull(_current_line_of_batch)) {
-                    RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
-                } else {
-                    int16_t value = int16_array->Value(_current_line_of_batch);
-                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%d", value);
-                    fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
-                }
-                break;
-            }
-            case arrow::Type::type::HALF_FLOAT: {
-                auto half_float_array = std::static_pointer_cast<arrow::HalfFloatArray>(
-                        _batch->column(column_index));
-                if (half_float_array->IsNull(_current_line_of_batch)) {
-                    RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
-                } else {
-                    float value = half_float_array->Value(_current_line_of_batch);
-                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%f", value);
-                    fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
-                }
-                break;
-            }
-            case arrow::Type::type::FLOAT: {
-                auto float_array =
-                        std::static_pointer_cast<arrow::FloatArray>(_batch->column(column_index));
-                if (float_array->IsNull(_current_line_of_batch)) {
-                    RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
-                } else {
-                    float value = float_array->Value(_current_line_of_batch);
-                    // Because the decimal type currently only supports (27, 9).
-                    // Therefore, we use %.9f to give priority to the progress of the decimal type.
-                    // Cannot use %f directly, this will cause 4000.9 to be converted to 4000.8999
-                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%.9f", value);
-                    fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
-                }
-                break;
-            }
-            case arrow::Type::type::DOUBLE: {
-                auto double_array =
-                        std::static_pointer_cast<arrow::DoubleArray>(_batch->column(column_index));
-                if (double_array->IsNull(_current_line_of_batch)) {
-                    RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
-                } else {
-                    double value = double_array->Value(_current_line_of_batch);
-                    wbytes = snprintf((char*)tmp_buf, sizeof(tmp_buf), "%.9f", value);
-                    fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
-                }
-                break;
-            }
-            case arrow::Type::type::TIMESTAMP: {
-                auto ts_array = std::static_pointer_cast<arrow::TimestampArray>(
-                        _batch->column(column_index));
-                if (ts_array->IsNull(_current_line_of_batch)) {
-                    RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
-                } else {
-                    RETURN_IF_ERROR(handle_timestamp(ts_array, tmp_buf,
-                                                     &wbytes)); // convert timestamp to string time
-                    fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
-                }
-                break;
-            }
-            case arrow::Type::type::DECIMAL: {
-                auto decimal_array =
-                        std::static_pointer_cast<arrow::DecimalArray>(_batch->column(column_index));
-                if (decimal_array->IsNull(_current_line_of_batch)) {
-                    RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
-                } else {
-                    std::string value = decimal_array->FormatValue(_current_line_of_batch);
-                    fill_slot(tuple, slot_desc, mem_pool, (const uint8_t*)value.c_str(),
-                              value.length());
-                }
-                break;
-            }
-            case arrow::Type::type::DATE32: {
-                auto ts_array =
-                        std::static_pointer_cast<arrow::Date32Array>(_batch->column(column_index));
-                if (ts_array->IsNull(_current_line_of_batch)) {
-                    RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
-                } else {
-                    time_t timestamp = (time_t)((int64_t)ts_array->Value(_current_line_of_batch) *
-                                                24 * 60 * 60);
-                    struct tm local;
-                    localtime_r(&timestamp, &local);
-                    char* to = reinterpret_cast<char*>(&tmp_buf);
-                    wbytes = (uint32_t)strftime(to, 64, "%Y-%m-%d", &local);
-                    fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
-                }
-                break;
-            }
-            case arrow::Type::type::DATE64: {
-                auto ts_array =
-                        std::static_pointer_cast<arrow::Date64Array>(_batch->column(column_index));
-                if (ts_array->IsNull(_current_line_of_batch)) {
-                    RETURN_IF_ERROR(set_field_null(tuple, slot_desc));
-                } else {
-                    // convert milliseconds to seconds
-                    time_t timestamp =
-                            (time_t)((int64_t)ts_array->Value(_current_line_of_batch) / 1000);
-                    struct tm local;
-                    localtime_r(&timestamp, &local);
-                    char* to = reinterpret_cast<char*>(&tmp_buf);
-                    wbytes = (uint32_t)strftime(to, 64, "%Y-%m-%d %H:%M:%S", &local);
-                    fill_slot(tuple, slot_desc, mem_pool, tmp_buf, wbytes);
-                }
-                break;
-            }
-            default: {
-                // other type not support.
-                std::stringstream str_error;
-                str_error << "The field name(" << slot_desc->col_name() << "), type("
-                          << _parquet_column_type[i]
-                          << ") not support. RowGroup: " << _current_group
-                          << ", Row: " << _current_line_of_group
-                          << ", ColumnIndex:" << column_index;
-                LOG(WARNING) << str_error.str();
-                return Status::InternalError(str_error.str());
-            }
-            }
-        }
-    } catch (parquet::ParquetException& e) {
-        std::stringstream str_error;
-        str_error << e.what() << " RowGroup:" << _current_group
-                  << ", Row:" << _current_line_of_group << ", ColumnIndex " << column_index;
-        LOG(WARNING) << str_error.str();
-        return Status::InternalError(str_error.str());
-    }
-
-    // update data value
-    ++_current_line_of_group;
-    ++_current_line_of_batch;
-    return read_record_batch(eof);
-}
-
 Status ParquetReaderWrap::read_next_batch() {
     std::unique_lock<std::mutex> lock(_mtx);
     while (!_closed && _queue.empty()) {
@@ -553,13 +235,6 @@ void ParquetReaderWrap::read_batches(arrow::RecordBatchVector& batches, int curr
 }
 
 bool ParquetReaderWrap::filter_row_group(int current_group) {
-    if (_need_filter_row_group) {
-        auto filter_group_set = _row_group_reader->filter_groups();
-        if (filter_group_set.end() != filter_group_set.find(current_group)) {
-            // find filter group, skip
-            return true;
-        }
-    }
     return false;
 }
 

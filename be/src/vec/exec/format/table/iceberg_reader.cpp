@@ -59,8 +59,52 @@ IcebergTableReader::IcebergTableReader(GenericReader* file_format_reader, Runtim
             ADD_CHILD_TIMER(_profile, "DeleteRowsSortTime", iceberg_profile);
 }
 
+Status IcebergTableReader::init_reader(
+        const std::vector<std::string>& file_col_names,
+        const std::unordered_map<int, std::string>& col_id_name_map,
+        std::unordered_map<std::string, ColumnValueRangeType>* colname_to_value_range,
+        VExprContext* vconjunct_ctx) {
+    ParquetReader* parquet_reader = static_cast<ParquetReader*>(_file_format_reader.get());
+    _col_id_name_map = col_id_name_map;
+    _file_col_names = file_col_names;
+    _colname_to_value_range = colname_to_value_range;
+    auto parquet_meta_kv = parquet_reader->get_metadata_key_values();
+    _gen_col_name_maps(parquet_meta_kv);
+    _gen_file_col_names();
+    _gen_new_colname_to_value_range();
+    parquet_reader->set_table_to_file_col_map(_table_col_to_file_col);
+    Status status = parquet_reader->init_reader(_all_required_col_names, _not_in_file_col_names,
+                                                &_new_colname_to_value_range, vconjunct_ctx);
+    return status;
+}
+
 Status IcebergTableReader::get_next_block(Block* block, size_t* read_rows, bool* eof) {
-    return _file_format_reader->get_next_block(block, read_rows, eof);
+    // To support iceberg schema evolution. We change the column name in block to
+    // make it match with the column name in parquet file before reading data. and
+    // Set the name back to table column name before return this block.
+    if (_has_schema_change) {
+        for (int i = 0; i < block->columns(); i++) {
+            ColumnWithTypeAndName& col = block->get_by_position(i);
+            auto iter = _table_col_to_file_col.find(col.name);
+            if (iter != _table_col_to_file_col.end()) {
+                col.name = iter->second;
+            }
+        }
+        block->initialize_index_by_name();
+    }
+    auto res = _file_format_reader->get_next_block(block, read_rows, eof);
+    // Set the name back to table column name before return this block.
+    if (_has_schema_change) {
+        for (int i = 0; i < block->columns(); i++) {
+            ColumnWithTypeAndName& col = block->get_by_position(i);
+            auto iter = _file_col_to_table_col.find(col.name);
+            if (iter != _file_col_to_table_col.end()) {
+                col.name = iter->second;
+            }
+        }
+        block->initialize_index_by_name();
+    }
+    return res;
 }
 
 Status IcebergTableReader::set_fill_columns(
@@ -69,6 +113,10 @@ Status IcebergTableReader::set_fill_columns(
         const std::unordered_map<std::string, VExprContext*>& missing_columns) {
     return _file_format_reader->set_fill_columns(partition_columns, missing_columns);
 }
+
+bool IcebergTableReader::fill_all_columns() const {
+    return _file_format_reader->fill_all_columns();
+};
 
 Status IcebergTableReader::get_columns(
         std::unordered_map<std::string, TypeDescriptor>* name_to_type,
@@ -138,8 +186,12 @@ Status IcebergTableReader::_position_delete(
                 delete_reader.get_parsed_schema(&delete_file_col_names, &delete_file_col_types);
                 init_schema = true;
             }
-            create_status =
-                    delete_reader.init_reader(delete_file_col_names, nullptr, nullptr, false);
+            create_status = delete_reader.open();
+            if (!create_status.ok()) {
+                return nullptr;
+            }
+            create_status = delete_reader.init_reader(delete_file_col_names, _not_in_file_col_names,
+                                                      nullptr, nullptr, false);
             if (!create_status.ok()) {
                 return nullptr;
             }
@@ -258,7 +310,7 @@ Status IcebergTableReader::_position_delete(
         parquet_reader->set_delete_rows(&_delete_rows);
         COUNTER_UPDATE(_iceberg_profile.num_delete_rows, num_delete_rows);
     }
-    // the delete rows are copy out, we can erase them.
+    // the deleted rows are copy out, we can erase them.
     for (auto& erase_item : erase_data) {
         erase_item->erase(data_file_path);
     }
@@ -351,6 +403,102 @@ void IcebergTableReader::_sort_delete_rows(std::vector<std::vector<int64_t>*>& d
         if (UNLIKELY(rows_array[min_index].first == rows_array[min_index].second)) {
             rows_array.erase(rows_array.begin() + min_index);
             array_size--;
+        }
+    }
+}
+
+/*
+ * To support schema evolution, Iceberg write the column id to column name map to
+ * parquet file key_value_metadata.
+ * This function is to compare the table schema from FE (_col_id_name_map) with
+ * the schema in key_value_metadata for the current parquet file and generate two maps
+ * for future use:
+ * 1. table column name to parquet column name.
+ * 2. parquet column name to table column name.
+ * For example, parquet file has a column 'col1',
+ * after this file was written, iceberg changed the column name to 'col1_new'.
+ * The two maps would contain:
+ * 1. col1_new -> col1
+ * 2. col1 -> col1_new
+ */
+Status IcebergTableReader::_gen_col_name_maps(std::vector<tparquet::KeyValue> parquet_meta_kv) {
+    for (int i = 0; i < parquet_meta_kv.size(); ++i) {
+        tparquet::KeyValue kv = parquet_meta_kv[i];
+        if (kv.key == "iceberg.schema") {
+            _has_iceberg_schema = true;
+            std::string schema = kv.value;
+            rapidjson::Document json;
+            json.Parse(schema.c_str());
+
+            if (json.HasMember("fields")) {
+                rapidjson::Value& fields = json["fields"];
+                if (fields.IsArray()) {
+                    for (int j = 0; j < fields.Size(); j++) {
+                        rapidjson::Value& e = fields[j];
+                        rapidjson::Value& id = e["id"];
+                        rapidjson::Value& name = e["name"];
+                        std::string name_string = name.GetString();
+                        transform(name_string.begin(), name_string.end(), name_string.begin(),
+                                  ::tolower);
+                        auto iter = _col_id_name_map.find(id.GetInt());
+                        if (iter != _col_id_name_map.end()) {
+                            _table_col_to_file_col.emplace(iter->second, name_string);
+                            _file_col_to_table_col.emplace(name_string, iter->second);
+                            if (name_string != iter->second) {
+                                _has_schema_change = true;
+                            }
+                        } else {
+                            _has_schema_change = true;
+                        }
+                    }
+                }
+            }
+            break;
+        }
+    }
+    return Status::OK();
+}
+
+/*
+ * Generate _all_required_col_names and _not_in_file_col_names.
+ *
+ * _all_required_col_names is all the columns required by user sql.
+ * If the column name has been modified after the data file was written,
+ * put the old name in data file to _all_required_col_names.
+ *
+ * _not_in_file_col_names is all the columns required by user sql but not in the data file.
+ * e.g. New columns added after this data file was written.
+ * The columns added with names used by old dropped columns should consider as a missing column,
+ * which should be in _not_in_file_col_names.
+ */
+void IcebergTableReader::_gen_file_col_names() {
+    _all_required_col_names.clear();
+    _not_in_file_col_names.clear();
+    for (int i = 0; i < _file_col_names.size(); ++i) {
+        auto name = _file_col_names[i];
+        auto iter = _table_col_to_file_col.find(name);
+        if (iter == _table_col_to_file_col.end()) {
+            _all_required_col_names.emplace_back(name);
+            if (_has_iceberg_schema) {
+                _not_in_file_col_names.emplace_back(name);
+            }
+        } else {
+            _all_required_col_names.emplace_back(iter->second);
+        }
+    }
+}
+
+/*
+ * Generate _new_colname_to_value_range, by replacing the column name in
+ * _colname_to_value_range with column name in data file.
+ */
+void IcebergTableReader::_gen_new_colname_to_value_range() {
+    for (auto it = _colname_to_value_range->begin(); it != _colname_to_value_range->end(); it++) {
+        auto iter = _table_col_to_file_col.find(it->first);
+        if (iter == _table_col_to_file_col.end()) {
+            _new_colname_to_value_range.emplace(it->first, it->second);
+        } else {
+            _new_colname_to_value_range.emplace(iter->second, it->second);
         }
     }
 }

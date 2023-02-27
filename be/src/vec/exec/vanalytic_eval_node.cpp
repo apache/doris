@@ -140,7 +140,6 @@ Status VAnalyticEvalNode::init(const TPlanNode& tnode, RuntimeState* state) {
 }
 
 Status VAnalyticEvalNode::prepare(RuntimeState* state) {
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     SCOPED_TIMER(_runtime_profile->total_time_counter());
     RETURN_IF_ERROR(ExecNode::prepare(state));
     DCHECK(child(0)->row_desc().is_prefix_of(_row_descriptor));
@@ -211,7 +210,6 @@ Status VAnalyticEvalNode::prepare(RuntimeState* state) {
 
 Status VAnalyticEvalNode::open(RuntimeState* state) {
     RETURN_IF_ERROR(alloc_resource(state));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_ERROR(child(0)->open(state));
     return Status::OK();
 }
@@ -226,13 +224,11 @@ Status VAnalyticEvalNode::close(RuntimeState* state) {
 
 Status VAnalyticEvalNode::alloc_resource(RuntimeState* state) {
     {
-        SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
         START_AND_SCOPE_SPAN(state->get_tracer(), span, "VAnalyticEvalNode::open");
         SCOPED_TIMER(_runtime_profile->total_time_counter());
         RETURN_IF_ERROR(ExecNode::alloc_resource(state));
         RETURN_IF_CANCELLED(state);
     }
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_ERROR(VExpr::open(_partition_by_eq_expr_ctxs, state));
     RETURN_IF_ERROR(VExpr::open(_order_by_eq_expr_ctxs, state));
     for (size_t i = 0; i < _agg_functions_size; ++i) {
@@ -322,14 +318,12 @@ Status VAnalyticEvalNode::get_next(RuntimeState* state, vectorized::Block* block
             return Status::OK();
         }
         size_t current_block_rows = _input_blocks[_output_block_index].rows();
-        SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
         RETURN_IF_ERROR(_executor.get_next(current_block_rows));
         if (_window_end_position == current_block_rows) {
             break;
         }
     }
     RETURN_IF_ERROR(_output_current_block(block));
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
     RETURN_IF_ERROR(VExprContext::filter_block(_vconjunct_ctx_ptr, block, block->columns()));
     reached_limit(block, eos);
     return Status::OK();
@@ -393,8 +387,6 @@ Status VAnalyticEvalNode::_consumed_block_and_init_partition(RuntimeState* state
         found_partition_end = _get_partition_by_end();  //claculate new partition end
     }
 
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
-
     if (_input_eos && _input_total_rows == 0) {
         *eos = true;
         return Status::OK();
@@ -429,8 +421,8 @@ BlockRowPos VAnalyticEvalNode::_get_partition_by_end() {
 }
 
 //_partition_by_columns,_order_by_columns save in blocks, so if need to calculate the boundary, may find in which blocks firstly
-BlockRowPos VAnalyticEvalNode::_compare_row_to_find_end(int idx, BlockRowPos start,
-                                                        BlockRowPos end) {
+BlockRowPos VAnalyticEvalNode::_compare_row_to_find_end(int idx, BlockRowPos start, BlockRowPos end,
+                                                        bool need_check_first) {
     int64_t start_init_row_num = start.row_num;
     ColumnPtr start_column = _input_blocks[start.block_num].get_by_position(idx).column;
     ColumnPtr start_next_block_column = start_column;
@@ -440,10 +432,20 @@ BlockRowPos VAnalyticEvalNode::_compare_row_to_find_end(int idx, BlockRowPos sta
     int64_t start_block_num = start.block_num;
     int64_t end_block_num = end.block_num;
     int64_t mid_blcok_num = end.block_num;
+    // To fix this problem: https://github.com/apache/doris/issues/15951
+    // in this case, the partition by column is last row of block, so it's pointed to a new block at row = 0, range is: [left, right)
+    // From the perspective of order by column, the two values are exactly equal.
+    // so the range will be get wrong because it's compare_at == 0 with next block at row = 0
+    if (need_check_first && end.block_num > 0 && end.row_num == 0) {
+        end.block_num--;
+        end_block_num--;
+        end.row_num = _input_blocks[end_block_num].rows();
+    }
     //binary search find in which block
     while (start_block_num < end_block_num) {
         mid_blcok_num = (start_block_num + end_block_num + 1) >> 1;
         start_next_block_column = _input_blocks[mid_blcok_num].get_by_position(idx).column;
+        //Compares (*this)[n] and rhs[m], this: start[init_row]  rhs: mid[0]
         if (start_column->compare_at(start_init_row_num, 0, *start_next_block_column, 1) == 0) {
             start_block_num = mid_blcok_num;
         } else {
@@ -451,6 +453,8 @@ BlockRowPos VAnalyticEvalNode::_compare_row_to_find_end(int idx, BlockRowPos sta
         }
     }
 
+    // have check the start.block_num:  start_column[start_init_row_num] with mid_blcok_num start_next_block_column[0]
+    // now next block must not be result, so need check with end_block_num: start_next_block_column[last_row]
     if (end_block_num == mid_blcok_num - 1) {
         start_next_block_column = _input_blocks[end_block_num].get_by_position(idx).column;
         int64_t block_size = _input_blocks[end_block_num].rows();
@@ -463,7 +467,8 @@ BlockRowPos VAnalyticEvalNode::_compare_row_to_find_end(int idx, BlockRowPos sta
     }
 
     //check whether need get column again, maybe same as first init
-    if (start_column.get() != start_next_block_column.get()) {
+    // if the start_block_num have move to forword, so need update start block num and compare it from row_num=0
+    if (start_block_num != start.block_num) {
         start_init_row_num = 0;
         start.block_num = start_block_num;
         start_column = _input_blocks[start.block_num].get_by_position(idx).column;
@@ -471,17 +476,20 @@ BlockRowPos VAnalyticEvalNode::_compare_row_to_find_end(int idx, BlockRowPos sta
     //binary search, set start and end pos
     int64_t start_pos = start_init_row_num;
     int64_t end_pos = _input_blocks[start.block_num].rows() - 1;
+    //if end_block_num haven't moved, only start_block_num go to the end block
+    //so could use the end.row_num for binary search
     if (start.block_num == end.block_num) {
         end_pos = end.row_num;
     }
     while (start_pos < end_pos) {
         int64_t mid_pos = (start_pos + end_pos) >> 1;
-        if (start_column->compare_at(start_init_row_num, mid_pos, *start_column, 1))
+        if (start_column->compare_at(start_init_row_num, mid_pos, *start_column, 1)) {
             end_pos = mid_pos;
-        else
+        } else {
             start_pos = mid_pos + 1;
+        }
     }
-    start.row_num = start_pos; //upadte row num, return the find end
+    start.row_num = start_pos; //update row num, return the find end
     return start;
 }
 
@@ -528,8 +536,6 @@ Status VAnalyticEvalNode::sink(doris::RuntimeState* /*state*/, vectorized::Block
         return Status::OK();
     }
 
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
-
     input_block_first_row_positions.emplace_back(_input_total_rows);
     size_t block_rows = input_block->rows();
     _input_total_rows += block_rows;
@@ -566,7 +572,7 @@ Status VAnalyticEvalNode::sink(doris::RuntimeState* /*state*/, vectorized::Block
         _ordey_by_column_idxs[i] = result_col_id;
     }
 
-    mem_tracker_held()->consume(input_block->allocated_bytes());
+    mem_tracker()->consume(input_block->allocated_bytes());
     _blocks_memory_usage->add(input_block->allocated_bytes());
 
     //TODO: if need improvement, the is a tips to maintain a free queue,
@@ -627,11 +633,9 @@ void VAnalyticEvalNode::_insert_result_info(int64_t current_block_rows) {
 }
 
 Status VAnalyticEvalNode::_output_current_block(Block* block) {
-    SCOPED_CONSUME_MEM_TRACKER(mem_tracker_growh());
-
     block->swap(std::move(_input_blocks[_output_block_index]));
     _blocks_memory_usage->add(-block->allocated_bytes());
-    mem_tracker_held()->consume(-block->allocated_bytes());
+    mem_tracker()->consume(-block->allocated_bytes());
     if (_origin_cols.size() < block->columns()) {
         block->erase_not_in(_origin_cols);
     }
@@ -673,13 +677,19 @@ void VAnalyticEvalNode::_update_order_by_range() {
     _order_by_start = _order_by_end;
     _order_by_end = _partition_by_end;
     for (size_t i = 0; i < _order_by_eq_expr_ctxs.size(); ++i) {
-        _order_by_end =
-                _compare_row_to_find_end(_ordey_by_column_idxs[i], _order_by_start, _order_by_end);
+        _order_by_end = _compare_row_to_find_end(_ordey_by_column_idxs[i], _order_by_start,
+                                                 _order_by_end, true);
     }
     _order_by_start.pos =
             input_block_first_row_positions[_order_by_start.block_num] + _order_by_start.row_num;
     _order_by_end.pos =
             input_block_first_row_positions[_order_by_end.block_num] + _order_by_end.row_num;
+    // `_order_by_end` will be assigned to `_order_by_start` next time,
+    // so make it a valid position.
+    if (_order_by_end.row_num == _input_blocks[_order_by_end.block_num].rows()) {
+        _order_by_end.block_num++;
+        _order_by_end.row_num = 0;
+    }
 }
 
 Status VAnalyticEvalNode::_init_result_columns() {

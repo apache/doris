@@ -44,6 +44,7 @@ import java.util.Optional;
  * e.g. select 100, 'value'
  */
 public class UnboundOneRowRelation extends LogicalLeaf implements Unbound, OneRowRelation {
+
     private final RelationId id;
     private final List<NamedExpression> projects;
 

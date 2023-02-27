@@ -80,6 +80,9 @@ public class HdfsTableValuedFunction extends ExternalFileTableValuedFunction {
             }
         }
 
+        if (!locationProperties.containsKey(HDFS_URI)) {
+            throw new AnalysisException(String.format("Configuration '%s' is required.", HDFS_URI));
+        }
         ExportStmt.checkPath(locationProperties.get(HDFS_URI), StorageType.HDFS);
         hdfsUri = URI.create(locationProperties.get(HDFS_URI));
         filePath = locationProperties.get(HADOOP_FS_NAME) + hdfsUri.getPath();

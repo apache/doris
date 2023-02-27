@@ -21,6 +21,9 @@ suite("test_round") {
     qt_select "SELECT round_bankers(10.12345)"
     qt_select "SELECT round_bankers(10.12345, 2)"
 
+    def tableTest = "test_query_db.test"
+    qt_truncate "select truncate(k1, 1), truncate(k2, 1), truncate(k3, 1), truncate(k5, 1), truncate(k8, 1), truncate(k9, 1) from ${tableTest} order by 1;"
+
     def tableName = "test_round"
     sql """DROP TABLE IF EXISTS `${tableName}`"""
     sql """ CREATE TABLE `${tableName}` (
@@ -31,6 +34,10 @@ suite("test_round") {
         PROPERTIES ( "replication_num" = "1" ); """
 
     sql """ insert into `${tableName}` values(16.025, 16.025, 16.025); """
+    qt_select """ SELECT round(col1), round(col2), round(col3) FROM `${tableName}`; """
+    qt_select """ SELECT floor(col1), floor(col2), floor(col3) FROM `${tableName}`; """
+    qt_select """ SELECT ceil(col1), ceil(col2), ceil(col3) FROM `${tableName}`; """
+    qt_select """ SELECT round_bankers(col1), round_bankers(col2), round_bankers(col3) FROM `${tableName}`; """
     qt_select """ SELECT round(col1, 2), round(col2, 2), round(col3, 2) FROM `${tableName}`; """
     qt_select """ SELECT floor(col1, 2), floor(col2, 2), floor(col3, 2) FROM `${tableName}`; """
     qt_select """ SELECT ceil(col1, 2), ceil(col2, 2), ceil(col3, 2) FROM `${tableName}`; """
@@ -39,7 +46,6 @@ suite("test_round") {
     sql """ DROP TABLE IF EXISTS `${tableName}` """
 
     sql "SET enable_nereids_planner=true"
-    sql "SET enable_vectorized_engine=true"
     sql "SET enable_fallback_to_original_planner=false"
 
     qt_nereids_round_arg1 "SELECT round(10.12345)"

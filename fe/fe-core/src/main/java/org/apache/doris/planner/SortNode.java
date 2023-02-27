@@ -142,6 +142,10 @@ public class SortNode extends PlanNode {
         this.useTopnOpt = useTopnOpt;
     }
 
+    public List<Expr> getResolvedTupleExprs() {
+        return resolvedTupleExprs;
+    }
+
     @Override
     public void setCompactData(boolean on) {
         this.compactData = on;

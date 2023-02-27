@@ -102,18 +102,6 @@ struct TabletSize {
     size_t tablet_size;
 };
 
-enum RangeCondition {
-    GT = 0, // greater than
-    GE = 1, // greater or equal
-    LT = 2, // less than
-    LE = 3, // less or equal
-};
-
-enum DelCondSatisfied {
-    DEL_SATISFIED = 0,         //satisfy delete condition
-    DEL_NOT_SATISFIED = 1,     //not satisfy delete condition
-    DEL_PARTIAL_SATISFIED = 2, //partially satisfy delete condition
-};
 // Define all data types supported by Field.
 // If new filed_type is defined, not only new TypeInfo may need be defined,
 // but also some functions like get_type_info in types.cpp need to be changed.
@@ -153,6 +141,7 @@ enum FieldType {
     OLAP_FIELD_TYPE_DECIMAL64 = 32,
     OLAP_FIELD_TYPE_DECIMAL128I = 33,
     OLAP_FIELD_TYPE_JSONB = 34,
+    OLAP_FIELD_TYPE_VARIANT = 35
 };
 
 // Define all aggregation methods supported by Field
@@ -173,20 +162,10 @@ enum FieldAggregationMethod {
     OLAP_FIELD_AGGREGATION_QUANTILE_UNION = 9
 };
 
-// Compression algorithm type
-enum OLAPCompressionType {
-    // Compression algorithm used for network transmission, low compression rate, low cpu overhead
-    OLAP_COMP_TRANSPORT = 1,
-    // Compression algorithm used for hard disk data, with high compression rate and high CPU overhead
-    OLAP_COMP_STORAGE = 2,
-    // The compression algorithm used for storage, the compression rate is low, and the cpu overhead is low
-    OLAP_COMP_LZ4 = 3,
-};
-
 enum PushType {
-    PUSH_NORMAL = 1,          // for broker/hadoop load
+    PUSH_NORMAL = 1,          // for broker/hadoop load, not used any more
     PUSH_FOR_DELETE = 2,      // for delete
-    PUSH_FOR_LOAD_DELETE = 3, // not use
+    PUSH_FOR_LOAD_DELETE = 3, // not used any more
     PUSH_NORMAL_V2 = 4,       // for spark load
 };
 
@@ -196,7 +175,27 @@ enum ReaderType {
     READER_BASE_COMPACTION = 2,
     READER_CUMULATIVE_COMPACTION = 3,
     READER_CHECKSUM = 4,
+    READER_COLD_DATA_COMPACTION = 5,
 };
+
+constexpr bool field_is_slice_type(const FieldType& field_type) {
+    return field_type == OLAP_FIELD_TYPE_VARCHAR || field_type == OLAP_FIELD_TYPE_CHAR ||
+           field_type == OLAP_FIELD_TYPE_STRING;
+}
+
+constexpr bool field_is_numeric_type(const FieldType& field_type) {
+    return field_type == OLAP_FIELD_TYPE_INT || field_type == OLAP_FIELD_TYPE_UNSIGNED_INT ||
+           field_type == OLAP_FIELD_TYPE_BIGINT || field_type == OLAP_FIELD_TYPE_SMALLINT ||
+           field_type == OLAP_FIELD_TYPE_UNSIGNED_TINYINT ||
+           field_type == OLAP_FIELD_TYPE_UNSIGNED_SMALLINT ||
+           field_type == OLAP_FIELD_TYPE_TINYINT || field_type == OLAP_FIELD_TYPE_DOUBLE ||
+           field_type == OLAP_FIELD_TYPE_FLOAT || field_type == OLAP_FIELD_TYPE_DATE ||
+           field_type == OLAP_FIELD_TYPE_DATEV2 || field_type == OLAP_FIELD_TYPE_DATETIME ||
+           field_type == OLAP_FIELD_TYPE_DATETIMEV2 || field_type == OLAP_FIELD_TYPE_LARGEINT ||
+           field_type == OLAP_FIELD_TYPE_DECIMAL || field_type == OLAP_FIELD_TYPE_DECIMAL32 ||
+           field_type == OLAP_FIELD_TYPE_DECIMAL64 || field_type == OLAP_FIELD_TYPE_DECIMAL128I ||
+           field_type == OLAP_FIELD_TYPE_BOOL;
+}
 
 // <start_version_id, end_version_id>, such as <100, 110>
 //using Version = std::pair<TupleVersion, TupleVersion>;
@@ -346,6 +345,14 @@ struct OlapReaderStatistics {
 
     int64_t rows_inverted_index_filtered = 0;
     int64_t inverted_index_filter_timer = 0;
+    int64_t inverted_index_query_timer = 0;
+    int64_t inverted_index_query_cache_hit = 0;
+    int64_t inverted_index_query_cache_miss = 0;
+    int64_t inverted_index_query_bitmap_copy_timer = 0;
+    int64_t inverted_index_query_bitmap_op_timer = 0;
+    int64_t inverted_index_searcher_open_timer = 0;
+    int64_t inverted_index_searcher_search_timer = 0;
+    int64_t inverted_index_searcher_bitmap_timer = 0;
 
     int64_t output_index_result_column_timer = 0;
     // number of segment filtered by column stat when creating seg iterator

@@ -146,6 +146,7 @@ if [[ "${CC}" == *gcc ]]; then
     warning_stringop_truncation='-Wno-stringop-truncation'
     warning_class_memaccess='-Wno-class-memaccess'
     warning_array_parameter='-Wno-array-parameter'
+    warning_narrowing='-Wno-narrowing'
     boost_toolset='gcc'
 elif [[ "${CC}" == *clang ]]; then
     warning_uninitialized='-Wno-uninitialized'
@@ -156,6 +157,7 @@ elif [[ "${CC}" == *clang ]]; then
     warning_reserved_identifier='-Wno-reserved-identifier'
     warning_suggest_override='-Wno-suggest-override -Wno-suggest-destructor-override'
     warning_option_ignored='-Wno-option-ignored'
+    warning_narrowing='-Wno-c++11-narrowing'
     boost_toolset='clang'
     libhdfs_cxx17='-std=c++1z'
 
@@ -929,7 +931,7 @@ build_arrow() {
     export ARROW_LZ4_URL="${TP_SOURCE_DIR}/${LZ4_NAME}"
     export ARROW_FLATBUFFERS_URL="${TP_SOURCE_DIR}/${FLATBUFFERS_NAME}"
     export ARROW_ZSTD_URL="${TP_SOURCE_DIR}/${ZSTD_NAME}"
-    export ARROW_JEMALLOC_URL="${TP_SOURCE_DIR}/${JEMALLOC_NAME}"
+    export ARROW_JEMALLOC_URL="${TP_SOURCE_DIR}/${JEMALLOC_ARROW_NAME}"
     export ARROW_Thrift_URL="${TP_SOURCE_DIR}/${THRIFT_NAME}"
     export ARROW_SNAPPY_URL="${TP_SOURCE_DIR}/${SNAPPY_NAME}"
     export ARROW_ZLIB_URL="${TP_SOURCE_DIR}/${ZLIB_NAME}"
@@ -1033,11 +1035,11 @@ build_bitshuffle() {
     cd "${TP_SOURCE_DIR}/${BITSHUFFLE_SOURCE}"
     PREFIX="${TP_INSTALL_DIR}"
 
-    # This library has significant optimizations when built with -mavx2. However,
-    # we still need to support non-AVX2-capable hardware. So, we build it twice,
-    # once with the flag and once without, and use some linker tricks to
-    # suffix the AVX2 symbols with '_avx2'.
-    arches=('default' 'avx2')
+    # This library has significant optimizations when built with AVX2/AVX512. However,
+    # we still need to support non-AVX2-capable hardware. So, we build it three times,
+    # with the flag AVX2, AVX512 each and once without, and use some linker tricks to
+    # suffix the AVX2 symbols with '_avx2', AVX512 symbols with '_avx512'
+    arches=('default' 'avx2' 'avx512')
     MACHINE_TYPE="$(uname -m)"
     # Becuase aarch64 don't support avx2, disable it.
     if [[ "${MACHINE_TYPE}" == "aarch64" || "${MACHINE_TYPE}" == 'arm64' ]]; then
@@ -1050,6 +1052,9 @@ build_bitshuffle() {
         if [[ "${arch}" == "avx2" ]]; then
             arch_flag="-mavx2"
         fi
+        if [[ "${arch}" == "avx512" ]]; then
+            arch_flag="-mavx512bw -mavx512f"
+        fi
         tmp_obj="bitshuffle_${arch}_tmp.o"
         dst_obj="bitshuffle_${arch}.o"
         "${CC}" ${EXTRA_CFLAGS:+${EXTRA_CFLAGS}} ${arch_flag:+${arch_flag}} -std=c99 "-I${PREFIX}/include/lz4" -O3 -DNDEBUG -c \
@@ -1059,7 +1064,7 @@ build_bitshuffle() {
         # Merge the object files together to produce a combined .o file.
         "${ld}" -r -o "${tmp_obj}" bitshuffle_core.o bitshuffle.o iochain.o
         # For the AVX2 symbols, suffix them.
-        if [[ "${arch}" == "avx2" ]]; then
+        if [[ "${arch}" == "avx2" ]] || [[ "${arch}" == "avx512" ]]; then
             local nm="${DORIS_BIN_UTILS}/nm"
             local objcopy="${DORIS_BIN_UTILS}/objcopy"
 
@@ -1399,8 +1404,8 @@ build_hdfs3() {
 
 # jemalloc
 build_jemalloc() {
-    check_if_source_exist "${JEMALLOC_SOURCE}"
-    cd "${TP_SOURCE_DIR}/${JEMALLOC_SOURCE}"
+    check_if_source_exist "${JEMALLOC_DORIS_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${JEMALLOC_DORIS_SOURCE}"
 
     mkdir -p "${BUILD_DIR}"
     cd "${BUILD_DIR}"
@@ -1545,6 +1550,58 @@ build_concurrentqueue() {
     cp ./*.h "${TP_INSTALL_DIR}/include/"
 }
 
+# fast_float
+build_fast_float() {
+    check_if_source_exist "${FAST_FLOAT_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${FAST_FLOAT_SOURCE}"
+    cp -r ./include/fast_float "${TP_INSTALL_DIR}/include/"
+}
+
+#clucene
+build_clucene() {
+    if [[ "$(uname -m)" == 'x86_64' ]]; then
+        USE_AVX2="${USE_AVX2:-1}"
+    else
+        USE_AVX2="${USE_AVX2:-0}"
+    fi
+    if [[ -z "${USE_BTHREAD_SCANNER}" ]]; then
+        USE_BTHREAD_SCANNER='OFF'
+    fi
+    if [[ ${USE_BTHREAD_SCANNER} == "ON" ]]; then
+        USE_BTHREAD=1
+    else
+        USE_BTHREAD=0
+    fi
+
+    check_if_source_exist "${CLUCENE_SOURCE}"
+    cd "${TP_SOURCE_DIR}/${CLUCENE_SOURCE}"
+
+    mkdir -p "${BUILD_DIR}"
+    cd "${BUILD_DIR}"
+    rm -rf CMakeCache.txt CMakeFiles/
+
+    ${CMAKE_CMD} -G "${GENERATOR}" \
+        -DCMAKE_INSTALL_PREFIX="${TP_INSTALL_DIR}" \
+        -DBUILD_STATIC_LIBRARIES=ON \
+        -DBUILD_SHARED_LIBRARIES=OFF \
+        -DBOOST_ROOT="${TP_INSTALL_DIR}" \
+        -DZLIB_ROOT="${TP_INSTALL_DIR}" \
+        -DCMAKE_CXX_FLAGS="-fno-omit-frame-pointer ${warning_narrowing}" \
+        -DUSE_STAT64=0 \
+        -DUSE_AVX2="${USE_AVX2}" \
+        -DUSE_BTHREAD="${USE_BTHREAD}" \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DBUILD_CONTRIBS_LIB=ON ..
+    ${BUILD_SYSTEM} -j "${PARALLEL}"
+    ${BUILD_SYSTEM} install
+
+    cd "${TP_SOURCE_DIR}/${CLUCENE_SOURCE}"
+    if [[ ! -d "${TP_INSTALL_DIR}"/share ]]; then
+        mkdir -p "${TP_INSTALL_DIR}"/share
+    fi
+    cp -rf src/contribs-lib/CLucene/analysis/jieba/dict "${TP_INSTALL_DIR}"/share/
+}
+
 if [[ "$(uname -s)" == 'Darwin' ]]; then
     echo 'build for Darwin'
     build_binutils
@@ -1607,5 +1664,7 @@ build_libbacktrace
 build_sse2neon
 build_xxhash
 build_concurrentqueue
+build_fast_float
+build_clucene
 
 echo "Finished to build all thirdparties"

@@ -41,6 +41,7 @@ import java.util.Set;
  * Physical filter plan.
  */
 public class PhysicalFilter<CHILD_TYPE extends Plan> extends PhysicalUnary<CHILD_TYPE> implements Filter {
+
     private final Set<Expression> conjuncts;
 
     public PhysicalFilter(Set<Expression> conjuncts, LogicalProperties logicalProperties, CHILD_TYPE child) {

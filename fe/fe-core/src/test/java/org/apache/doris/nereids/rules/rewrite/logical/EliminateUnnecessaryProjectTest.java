@@ -19,11 +19,14 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalEmptyRelation;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
+import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.util.LogicalPlanBuilder;
 import org.apache.doris.nereids.util.MemoTestUtils;
 import org.apache.doris.nereids.util.PlanConstructor;
@@ -96,6 +99,21 @@ public class EliminateUnnecessaryProjectTest extends TestWithFeService {
 
         Plan actual = cascadesContext.getMemo().copyOut();
         Assertions.assertTrue(actual instanceof LogicalProject);
+    }
+
+    @Test
+    public void testEliminateProjectWhenEmptyRelationChild() {
+        LogicalPlan unnecessaryProject = new LogicalPlanBuilder(new LogicalEmptyRelation(ImmutableList.of(
+                new SlotReference("k1", IntegerType.INSTANCE),
+                new SlotReference("k2", IntegerType.INSTANCE))))
+                .project(ImmutableList.of(1, 0))
+                .build();
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(unnecessaryProject);
+        List<Rule> rules = Lists.newArrayList(new EliminateUnnecessaryProject().buildRules());
+        cascadesContext.topDownRewrite(rules);
+
+        Plan actual = cascadesContext.getMemo().copyOut();
+        Assertions.assertTrue(actual instanceof LogicalEmptyRelation);
     }
 
     // TODO: uncomment this after the Elimination project rule is correctly implemented

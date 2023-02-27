@@ -40,9 +40,7 @@ void StreamLoad2PCAction::handle(HttpRequest* req) {
     Status status = Status::OK();
     std::string status_result;
 
-    StreamLoadContext* ctx = new StreamLoadContext(_exec_env);
-    ctx->ref();
-    req->set_handler_ctx(ctx);
+    std::shared_ptr<StreamLoadContext> ctx = std::make_shared<StreamLoadContext>(_exec_env);
     ctx->db = req->param(HTTP_DB_KEY);
     std::string req_txn_id = req->header(HTTP_TXN_ID_KEY);
     try {
@@ -66,7 +64,7 @@ void StreamLoad2PCAction::handle(HttpRequest* req) {
         status = Status::InternalError("no valid Basic authorization");
     }
 
-    status = _exec_env->stream_load_executor()->operate_txn_2pc(ctx);
+    status = _exec_env->stream_load_executor()->operate_txn_2pc(ctx.get());
 
     if (!status.ok()) {
         status_result = status.to_json();

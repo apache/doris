@@ -27,7 +27,6 @@
 
 namespace doris {
 
-struct ContiguousRow;
 class MemTable;
 
 class RowsetWriter {
@@ -36,11 +35,6 @@ public:
     virtual ~RowsetWriter() = default;
 
     virtual Status init(const RowsetWriterContext& rowset_writer_context) = 0;
-
-    // Memory note: input `row` is guaranteed to be copied into writer's internal buffer, including all slice data
-    // referenced by `row`. That means callers are free to de-allocate memory for `row` after this method returns.
-    virtual Status add_row(const RowCursor& row) = 0;
-    virtual Status add_row(const ContiguousRow& row) = 0;
 
     virtual Status add_block(const vectorized::Block* block) {
         return Status::Error<ErrorCode::NOT_IMPLEMENTED_ERROR>();

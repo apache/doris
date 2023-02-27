@@ -40,11 +40,11 @@ import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.TimestampArithmetic;
-import org.apache.doris.nereids.trees.expressions.VariableDesc;
 import org.apache.doris.nereids.trees.expressions.WhenClause;
 import org.apache.doris.nereids.trees.expressions.functions.BoundFunction;
 import org.apache.doris.nereids.trees.expressions.functions.PropagateNullable;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.expressions.functions.agg.NullableAggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Array;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.ConnectionId;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.CurrentUser;
@@ -55,13 +55,10 @@ import org.apache.doris.nereids.trees.expressions.literal.BigIntLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.Literal;
 import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
-import org.apache.doris.nereids.trees.expressions.literal.StringLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.VarcharLiteral;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.util.ExpressionUtils;
-import org.apache.doris.qe.VariableMgr;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 
 import java.util.ArrayList;
@@ -83,7 +80,9 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
         }
 
         expr = rewriteChildren(expr, ctx);
-        if (expr instanceof PropagateNullable && argsHasNullLiteral(expr)) {
+        if (expr instanceof PropagateNullable
+                && !(expr instanceof NullableAggregateFunction)
+                && argsHasNullLiteral(expr)) {
             return new NullLiteral(expr.getDataType());
         }
         return expr.accept(this, ctx);
@@ -259,7 +258,7 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
             return new NullLiteral(cast.getDataType());
         }
         try {
-            Expression castResult = child.castTo(cast.getDataType());
+            Expression castResult = child.checkedCastTo(cast.getDataType());
             if (!Objects.equals(castResult, cast) && !Objects.equals(castResult, child)) {
                 castResult = rewrite(castResult, context);
             }
@@ -332,10 +331,17 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
             return inPredicate;
         }
 
+        boolean hasNull = false;
         for (Expression item : inPredicate.getOptions()) {
+            if (item.isNullLiteral()) {
+                hasNull = true;
+            }
             if (valueIsLiteral && value.equals(item)) {
                 return BooleanLiteral.TRUE;
             }
+        }
+        if (hasNull) {
+            return NullLiteral.INSTANCE;
         }
         return BooleanLiteral.FALSE;
     }
@@ -346,13 +352,6 @@ public class FoldConstantRuleOnFE extends AbstractExpressionRewriteRule {
             return isNull;
         }
         return Literal.of(isNull.child().nullable());
-    }
-
-    @Override
-    public Expression visitVariableDesc(VariableDesc variableDesc, ExpressionRewriteContext context) {
-        Preconditions.checkArgument(variableDesc.isSystemVariable());
-        return new StringLiteral(VariableMgr.getValue(context.connectContext.getSessionVariable(), variableDesc));
-
     }
 
     @Override

@@ -17,6 +17,7 @@
 
 package org.apache.doris.nereids.rules.analysis;
 
+import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
@@ -25,16 +26,23 @@ import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
 import org.apache.doris.catalog.external.HMSExternalTable;
+import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.analyzer.CTEContext;
 import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.trees.expressions.EqualTo;
+import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.expressions.Slot;
+import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
@@ -42,14 +50,14 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSubQueryAlias;
 import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.qe.ConnectContext;
 
+import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import com.google.common.collect.Sets;
 import org.apache.commons.collections.CollectionUtils;
 
-import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
-import java.util.stream.Collectors;
 
 /**
  * Rule to bind relations in query plan.
@@ -148,19 +156,40 @@ public class BindRelation extends OneAnalysisRuleFactory {
         return getLogicalPlan(table, unboundRelation, tableQualifier, cascadesContext);
     }
 
+    private LogicalPlan makeOlapScan(TableIf table, UnboundRelation unboundRelation, List<String> tableQualifier) {
+        LogicalOlapScan scan;
+        List<Long> partIds = getPartitionIds(table, unboundRelation);
+        if (!CollectionUtils.isEmpty(partIds)) {
+            scan = new LogicalOlapScan(RelationUtil.newRelationId(),
+                    (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), partIds, unboundRelation.getHints());
+        } else {
+            scan = new LogicalOlapScan(RelationUtil.newRelationId(),
+                    (OlapTable) table, ImmutableList.of(tableQualifier.get(1)), unboundRelation.getHints());
+        }
+        if (!Util.showHiddenColumns() && scan.getTable().hasDeleteSign()
+                && !ConnectContext.get().getSessionVariable()
+                .skipDeleteSign()) {
+            // table qualifier is catalog.db.table, we make db.table.column
+            Slot deleteSlot = null;
+            for (Slot slot : scan.getOutput()) {
+                if (slot.getName().equals(Column.DELETE_SIGN)) {
+                    deleteSlot = slot;
+                    break;
+                }
+            }
+            Preconditions.checkArgument(deleteSlot != null);
+            Expression conjunct = new EqualTo(new TinyIntLiteral((byte) 0), deleteSlot);
+            return new LogicalFilter(Sets.newHashSet(conjunct), scan);
+        }
+        return scan;
+    }
+
     private LogicalPlan getLogicalPlan(TableIf table, UnboundRelation unboundRelation, List<String> tableQualifier,
                                        CascadesContext cascadesContext) {
         String dbName = tableQualifier.get(1); //[catalogName, dbName, tableName]
         switch (table.getType()) {
             case OLAP:
-                List<Long> partIds = getPartitionIds(table, unboundRelation);
-                if (!CollectionUtils.isEmpty(partIds)) {
-                    return new LogicalOlapScan(RelationUtil.newRelationId(),
-                        (OlapTable) table, ImmutableList.of(dbName), partIds);
-                } else {
-                    return new LogicalOlapScan(RelationUtil.newRelationId(),
-                        (OlapTable) table, ImmutableList.of(dbName));
-                }
+                return makeOlapScan(table, unboundRelation, tableQualifier);
             case VIEW:
                 Plan viewPlan = parseAndAnalyzeView(((View) table).getDdlSql(), cascadesContext);
                 return new LogicalSubQueryAlias<>(tableQualifier, viewPlan);
@@ -187,7 +216,7 @@ public class BindRelation extends OneAnalysisRuleFactory {
     private List<Long> getPartitionIds(TableIf t, UnboundRelation unboundRelation) {
         List<String> parts = unboundRelation.getPartNames();
         if (CollectionUtils.isEmpty(parts)) {
-            return Collections.emptyList();
+            return ImmutableList.of();
         }
         if (!t.getType().equals(TableIf.TableType.OLAP)) {
             throw new IllegalStateException(String.format(
@@ -200,6 +229,6 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 throw new IllegalStateException(String.format("Partition: %s is not exists", name));
             }
             return part.getId();
-        }).collect(Collectors.toList());
+        }).collect(ImmutableList.toImmutableList());
     }
 }

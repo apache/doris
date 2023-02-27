@@ -21,15 +21,15 @@
 
 #include "common/config.h"
 #include "common/status.h"
+#include "exec/tablet_info.h"
 #include "gen_cpp/internal_service.pb.h"
-#include "io/fs/file_system_map.h"
 #include "io/fs/s3_file_system.h"
 #include "olap/delta_writer.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
+#include "olap/storage_policy.h"
 #include "olap/tablet.h"
 #include "runtime/descriptor_helper.h"
-#include "runtime/tuple.h"
 #include "util/file_utils.h"
 #include "util/s3_util.h"
 
@@ -38,7 +38,8 @@ namespace doris {
 static StorageEngine* k_engine = nullptr;
 
 static const std::string kTestDir = "./ut_dir/remote_rowset_gc_test";
-static const std::string kResourceId = "RemoteRowsetGcTest";
+static constexpr int64_t kResourceId = 10000;
+static constexpr int64_t kStoragePolicyId = 10002;
 
 // remove DISABLED_ when need run this test
 #define RemoteRowsetGcTest DISABLED_RemoteRowsetGcTest
@@ -52,9 +53,14 @@ public:
         s3_conf.region = config::test_s3_region;
         s3_conf.bucket = config::test_s3_bucket;
         s3_conf.prefix = "remote_rowset_gc_test";
-        auto s3_fs = std::make_shared<io::S3FileSystem>(std::move(s3_conf), kResourceId);
+        auto s3_fs = io::S3FileSystem::create(std::move(s3_conf), std::to_string(kResourceId));
         ASSERT_TRUE(s3_fs->connect().ok());
-        io::FileSystemMap::instance()->insert(kResourceId, s3_fs);
+        put_storage_resource(kResourceId, {s3_fs, 1});
+        auto storage_policy = std::make_shared<StoragePolicy>();
+        storage_policy->name = "TabletCooldownTest";
+        storage_policy->version = 1;
+        storage_policy->resource_id = kResourceId;
+        put_storage_policy(kStoragePolicyId, storage_policy);
 
         constexpr uint32_t MAX_PATH_LEN = 1024;
         char buffer[MAX_PATH_LEN];
@@ -150,12 +156,13 @@ TEST_F(RemoteRowsetGcTest, normal) {
     DescriptorTbl* desc_tbl = nullptr;
     DescriptorTbl::create(&obj_pool, tdesc_tbl, &desc_tbl);
     TupleDescriptor* tuple_desc = desc_tbl->get_tuple_descriptor(0);
+    OlapTableSchemaParam param;
 
     PUniqueId load_id;
     load_id.set_hi(0);
     load_id.set_lo(0);
-    WriteRequest write_req = {10005, 270068377, WriteType::LOAD, 20003,
-                              30003, load_id,   tuple_desc,      &(tuple_desc->slots())};
+    WriteRequest write_req = {10005,   270068377,  WriteType::LOAD,        20003, 30003,
+                              load_id, tuple_desc, &(tuple_desc->slots()), false, &param};
     DeltaWriter* delta_writer = nullptr;
     DeltaWriter::open(&write_req, &delta_writer);
     ASSERT_NE(delta_writer, nullptr);
@@ -189,7 +196,7 @@ TEST_F(RemoteRowsetGcTest, normal) {
     }
     EXPECT_EQ(0, tablet->num_rows());
 
-    tablet->set_storage_policy(kResourceId);
+    tablet->set_storage_policy_id(kStoragePolicyId);
     st = tablet->cooldown(); // rowset [0-1]
     ASSERT_EQ(Status::OK(), st);
     st = tablet->cooldown(); // rowset [2-2]
@@ -198,7 +205,7 @@ TEST_F(RemoteRowsetGcTest, normal) {
 
     delete delta_writer;
 
-    auto fs = io::FileSystemMap::instance()->get(kResourceId);
+    auto fs = get_storage_resource(kResourceId).fs;
     auto rowset = tablet->get_rowset_by_version({2, 2});
     ASSERT_TRUE(rowset);
     auto seg_path = BetaRowset::remote_segment_path(10005, rowset->rowset_id(), 0);

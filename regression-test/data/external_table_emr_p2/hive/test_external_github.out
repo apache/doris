@@ -1925,8 +1925,8 @@ gin-gonic/gin	3246
 flutter/flutter	3160
 facebook/rocksdb	3156
 antirez/redis	3101
-istio/istio	3094
 ansible/ansible	3094
+istio/istio	3094
 torvalds/linux	3092
 minio/minio	3068
 cockroachdb/cockroach	3006
@@ -1958,8 +1958,8 @@ tensorflow/models	2355
 getsentry/sentry	2354
 dgraph-io/dgraph	2338
 TheAlgorithms/Python	2320
-mholt/caddy	2317
 astaxie/build-web-application-with-golang	2317
+mholt/caddy	2317
 
 -- !46 --
 facebook/react	121976
@@ -4327,8 +4327,8 @@ gin-gonic/gin	3246
 flutter/flutter	3160
 facebook/rocksdb	3156
 antirez/redis	3101
-istio/istio	3094
 ansible/ansible	3094
+istio/istio	3094
 torvalds/linux	3092
 minio/minio	3068
 cockroachdb/cockroach	3006
@@ -4360,8 +4360,8 @@ tensorflow/models	2355
 getsentry/sentry	2354
 dgraph-io/dgraph	2338
 TheAlgorithms/Python	2320
-mholt/caddy	2317
 astaxie/build-web-application-with-golang	2317
+mholt/caddy	2317
 
 -- !46 --
 facebook/react	121976
