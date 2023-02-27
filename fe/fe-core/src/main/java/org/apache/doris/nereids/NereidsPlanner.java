@@ -33,6 +33,7 @@ import org.apache.doris.nereids.jobs.joinorder.JoinOrderJob;
 import org.apache.doris.nereids.memo.CopyInResult;
 import org.apache.doris.nereids.memo.Group;
 import org.apache.doris.nereids.memo.GroupExpression;
+import org.apache.doris.nereids.memo.Memo;
 import org.apache.doris.nereids.metrics.event.CounterEvent;
 import org.apache.doris.nereids.processor.post.PlanPostProcessors;
 import org.apache.doris.nereids.processor.pre.PlanPreprocessors;
@@ -172,7 +173,8 @@ public class NereidsPlanner extends Planner {
 
             optimize();
 
-            PhysicalPlan physicalPlan = chooseBestPlan(getRoot(), requireProperties);
+            int nth = ConnectContext.get().getSessionVariable().getNthOptimizedPlan();
+            PhysicalPlan physicalPlan = chooseNthPlan(getRoot(), requireProperties, nth);
 
             physicalPlan = postProcess(physicalPlan);
             if (explainLevel == ExplainLevel.OPTIMIZED_PLAN || explainLevel == ExplainLevel.ALL_PLAN) {
@@ -248,6 +250,16 @@ public class NereidsPlanner extends Planner {
 
     public Group getRoot() {
         return cascadesContext.getMemo().getRoot();
+    }
+
+    private PhysicalPlan chooseNthPlan(Group rootGroup, PhysicalProperties physicalProperties, int nthPlan) {
+        if (nthPlan <= 1) {
+            return chooseBestPlan(rootGroup, physicalProperties);
+        }
+        Memo memo = cascadesContext.getMemo();
+
+        long id = memo.rank(nthPlan);
+        return memo.unrank(id);
     }
 
     private PhysicalPlan chooseBestPlan(Group rootGroup, PhysicalProperties physicalProperties)

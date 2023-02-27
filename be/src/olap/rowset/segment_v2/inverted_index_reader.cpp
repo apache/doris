@@ -280,6 +280,8 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
     }
 
     switch (query_type) {
+    case InvertedIndexQueryType::MATCH_ANY_QUERY:
+    case InvertedIndexQueryType::MATCH_ALL_QUERY:
     case InvertedIndexQueryType::EQUAL_QUERY: {
         query.reset(new lucene::search::TermQuery(term.get()));
         break;
@@ -301,12 +303,6 @@ Status StringTypeInvertedIndexReader::query(OlapReaderStatistics* stats,
         break;
     }
     default:
-        LOG(ERROR) << "invalid query type when query untokenized inverted index";
-        if (_is_match_query(query_type)) {
-            LOG(WARNING) << column_name << " is untokenized inverted index"
-                         << ", please use equal query instead of match query";
-            return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
-        }
         LOG(WARNING) << "invalid query type when query untokenized inverted index";
         return Status::Error<ErrorCode::INVERTED_INDEX_NOT_SUPPORTED>();
     }

@@ -865,7 +865,7 @@ public class SystemInfoService {
             BeSelectionPolicy policy = builder.build();
             List<Long> beIds = selectBackendIdsByPolicy(policy, entry.getValue());
             if (beIds.isEmpty()) {
-                throw new DdlException("Failed to find " + entry.getValue() + " backends for policy: " + policy);
+                throw new DdlException("Failed to find " + entry.getValue() + " backend(s) for policy: " + policy);
             }
             chosenBackendIds.put(entry.getKey(), beIds);
             totalReplicaNum += beIds.size();

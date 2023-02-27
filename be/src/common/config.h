@@ -220,7 +220,7 @@ CONF_mInt64(memory_limitation_per_thread_for_schema_change_bytes, "2147483648");
 CONF_mInt64(memory_limitation_per_thread_for_storage_migration_bytes, "100000000");
 
 // the clean interval of file descriptor cache and segment cache
-CONF_mInt32(cache_clean_interval, "1800");
+CONF_mInt32(cache_clean_interval, "60");
 // the clean interval of tablet lookup cache
 CONF_mInt32(tablet_lookup_cache_clean_interval, "30");
 CONF_mInt32(disk_stat_monitor_interval, "5");
@@ -575,6 +575,7 @@ CONF_mInt32(path_gc_check_interval_second, "86400");
 CONF_mInt32(path_gc_check_step, "1000");
 CONF_mInt32(path_gc_check_step_interval_ms, "10");
 CONF_mInt32(path_scan_interval_second, "86400");
+CONF_mInt32(path_scan_step_interval_ms, "70");
 
 // The following 2 configs limit the max usage of disk capacity of a data dir.
 // If both of these 2 threshold reached, no more data can be writen into that data dir.

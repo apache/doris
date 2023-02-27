@@ -75,6 +75,11 @@ public class ShowAction extends RestBaseController {
 
     @RequestMapping(path = "/api/show_meta_info", method = RequestMethod.GET)
     public Object show_meta_info(HttpServletRequest request, HttpServletResponse response) {
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
+            checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        }
+
         String action = request.getParameter("action");
         if (Strings.isNullOrEmpty(action)) {
             return ResponseEntityBuilder.badRequest("Missing action parameter");
@@ -143,6 +148,11 @@ public class ShowAction extends RestBaseController {
 
     @RequestMapping(path = "/api/show_runtime_info", method = RequestMethod.GET)
     public Object show_runtime_info(HttpServletRequest request, HttpServletResponse response) {
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
+            checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        }
+
         HashMap<String, String> feInfo = new HashMap<String, String>();
 
         // Get memory info
@@ -164,6 +174,10 @@ public class ShowAction extends RestBaseController {
 
     @RequestMapping(path = "/api/show_data", method = RequestMethod.GET)
     public Object show_data(HttpServletRequest request, HttpServletResponse response) {
+        if (Config.enable_all_http_auth) {
+            executeCheckPassword(request, response);
+            checkGlobalAuth(ConnectContext.get().getCurrentUserIdentity(), PrivPredicate.ADMIN);
+        }
 
         Map<String, Long> oneEntry = Maps.newHashMap();
 

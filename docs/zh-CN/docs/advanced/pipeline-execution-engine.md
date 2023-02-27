@@ -65,7 +65,7 @@ Pipeline执行引擎 是 Doris 在2.0版本加入的实验性功能。目标是�
 将session变量`enable_pipeline_engine `设置为`true`，则BE在进行查询执行时就会默认将SQL的执行模型转变Pipeline的执行方式。
 
 ```
-set enable_vectorized_engine = true;
+set enable_pipeline_engine = true;
 ```
 
 #### parallel_fragment_exec_instance_num

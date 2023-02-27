@@ -22,6 +22,7 @@
 #include <rapidjson/stringbuffer.h>
 #include <rapidjson/writer.h>
 
+#include "io/file_factory.h"
 #include "io/fs/file_reader.h"
 #include "olap/iterators.h"
 #include "vec/exec/format/generic_reader.h"
@@ -61,6 +62,8 @@ public:
 
 private:
     Status _get_range_params();
+    void _init_system_properties();
+    void _init_file_description();
     Status _open_file_reader();
     Status _open_line_reader();
     Status _parse_jsonpath_and_json_root();
@@ -146,6 +149,8 @@ private:
     ScannerCounter* _counter;
     const TFileScanRangeParams& _params;
     const TFileRangeDesc& _range;
+    FileSystemProperties _system_properties;
+    FileDescription _file_description;
     const std::vector<SlotDescriptor*>& _file_slot_descs;
 
     std::shared_ptr<io::FileSystem> _file_system;
