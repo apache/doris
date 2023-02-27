@@ -442,8 +442,8 @@ private:
 
     Status _check_pk_in_pre_segments(RowsetId rowset_id,
                                      const std::vector<segment_v2::SegmentSharedPtr>& pre_segments,
-                                     const Slice& key, const Version& version,
-                                     DeleteBitmapPtr delete_bitmap, RowLocation* loc);
+                                     const Slice& key, DeleteBitmapPtr delete_bitmap,
+                                     RowLocation* loc);
     void _rowset_ids_difference(const RowsetIdUnorderedSet& cur, const RowsetIdUnorderedSet& pre,
                                 RowsetIdUnorderedSet* to_add, RowsetIdUnorderedSet* to_del);
     Status _load_rowset_segments(const RowsetSharedPtr& rowset,
