@@ -29,6 +29,7 @@ add_library(Service
     point_query_executor.cpp
     single_replica_load_download_service.cpp
     internal_service.cpp
+    brpc_http_service.cpp
 )
 
 if (${MAKE_TEST} STREQUAL "OFF")

@@ -16,50 +16,37 @@
 // under the License.
 
 #pragma once
-
-#include "common/status.h"
-#include "http/http_handler.h"
+#include "http/brpc/brpc_http_handler.h"
 #include "olap/tablet.h"
 
 namespace doris {
-enum class CompactionActionType {
-    SHOW_INFO = 1,
-    RUN_COMPACTION = 2,
-    RUN_COMPACTION_STATUS = 3,
-};
-
-const std::string PARAM_COMPACTION_TYPE = "compact_type";
-const std::string PARAM_COMPACTION_BASE = "base";
-const std::string PARAM_COMPACTION_CUMULATIVE = "cumulative";
 
 /// This action is used for viewing the compaction status.
 /// See compaction-action.md for details.
-class CompactionAction : public HttpHandler {
+class CompactionHandler : public BaseHttpHandler {
 public:
-    CompactionAction(CompactionActionType type) : _type(type) {}
+    CompactionHandler();
+    ~CompactionHandler() override = default;
 
-    ~CompactionAction() override = default;
+protected:
+    void handle_sync(brpc::Controller* cntl) override;
 
-    void handle(HttpRequest* req) override;
+    bool support_method(brpc::HttpMethod method) const override;
 
 private:
-    Status _handle_show_compaction(HttpRequest* req, std::string* json_result);
+    Status _handle_show_compaction(brpc::Controller* cntl, std::string* json_result);
 
     /// execute compaction request to run compaction task
     /// param compact_type in req to distinguish the task type, base or cumulative
-    Status _handle_run_compaction(HttpRequest* req, std::string* json_result);
+    Status _handle_run_compaction(brpc::Controller* cntl, std::string* json_result);
 
     /// thread callback function for the tablet to do compaction
     Status _execute_compaction_callback(TabletSharedPtr tablet, const std::string& compaction_type);
 
     /// fetch compaction running status
-    Status _handle_run_status_compaction(HttpRequest* req, std::string* json_result);
+    Status _handle_run_status_compaction(brpc::Controller* cntl, std::string* json_result);
 
     /// check param and fetch tablet_id from req
-    Status _check_param(HttpRequest* req, uint64_t* tablet_id);
-
-private:
-    CompactionActionType _type;
+    Status _check_param(brpc::Controller* cntl, uint64_t* tablet_id);
 };
-
-} // end namespace doris
+} // namespace doris
