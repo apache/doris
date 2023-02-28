@@ -32,7 +32,8 @@ Status HDFSCommonBuilder::init_hdfs_builder() {
     hdfs_builder = hdfsNewBuilder();
     if (hdfs_builder == nullptr) {
         LOG(INFO) << "failed to init HDFSCommonBuilder, please check check be/conf/hdfs-site.xml";
-        return Status::InternalError("failed to init HDFSCommonBuilder, please check check be/conf/hdfs-site.xml");
+        return Status::InternalError(
+                "failed to init HDFSCommonBuilder, please check check be/conf/hdfs-site.xml");
     }
     return Status::OK();
 }
@@ -119,7 +120,8 @@ Status createHDFSBuilder(const THdfsParams& hdfsParams, HDFSCommonBuilder* build
     return Status::OK();
 }
 
-Status createHDFSBuilder(const std::map<std::string, std::string>& properties, HDFSCommonBuilder* builder) {
+Status createHDFSBuilder(const std::map<std::string, std::string>& properties,
+                         HDFSCommonBuilder* builder) {
     THdfsParams hdfsParams = parse_properties(properties);
     return createHDFSBuilder(hdfsParams, builder);
 }

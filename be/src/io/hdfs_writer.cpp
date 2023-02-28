@@ -26,9 +26,7 @@ namespace doris {
 
 HDFSWriter::HDFSWriter(const std::map<std::string, std::string>& properties,
                        const std::string& path)
-        : _properties(properties),
-          _path(path),
-          _hdfs_fs(nullptr) {
+        : _properties(properties), _path(path), _hdfs_fs(nullptr) {
     _parse_properties(_properties);
 }
 
@@ -137,7 +135,7 @@ Status HDFSWriter::close() {
 
 Status HDFSWriter::_connect() {
     HDFSCommonBuilder builder;
-    RETURN_IF_ERROR(createHDFSBuilder(_properties, &builder)); 
+    RETURN_IF_ERROR(createHDFSBuilder(_properties, &builder));
     _hdfs_fs = hdfsBuilderConnect(builder.get());
     if (_hdfs_fs == nullptr) {
         return Status::InternalError("connect to hdfs failed. namenode address:{}, error {}",
