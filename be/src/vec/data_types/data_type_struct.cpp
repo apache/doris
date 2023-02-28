@@ -185,7 +185,6 @@ static void add_element_safe(const DataTypes& elems, IColumn& column, F&& impl) 
         // Check that all columns now have the same size.
         size_t new_size = column.size();
 
-        // for (auto i : collections::range(0, elems.size())) {
         for (auto i = 0; i < elems.size(); i++) {
             const auto& element_column = extract_element_column(column, i);
             if (element_column.size() != new_size) {
@@ -195,7 +194,6 @@ static void add_element_safe(const DataTypes& elems, IColumn& column, F&& impl) 
             }
         }
     } catch (...) {
-        // for (const auto& i : collections::range(0, elems.size())) {
         for (auto i = 0; i < elems.size(); i++) {
             auto& element_column = extract_element_column(column, i);
 
@@ -217,42 +215,12 @@ MutableColumnPtr DataTypeStruct::create_column() const {
     return ColumnStruct::create(std::move(tuple_columns));
 }
 
-// MutableColumnPtr DataTypeStruct::create_column(const ISerialization& serialization) const {
-//     /// If we read subcolumn of nested Tuple, it may be wrapped to SerializationNamed
-//     /// several times to allow to reconstruct the substream path name.
-//     /// Here we don't need substream path name, so we drop first several wrapper serializations.
-
-//     const auto* current_serialization = &serialization;
-//     while (const auto* serialization_named =
-//                    typeid_cast<const SerializationNamed*>(current_serialization))
-//         current_serialization = serialization_named->get_nested().get();
-
-//     const auto* serialization_tuple = typeid_cast<const SerializationTuple*>(current_serialization);
-//     if (!serialization_tuple)
-//         throw Exception(ErrorCodes::LOGICAL_ERROR,
-//                         "Unexpected serialization to create column of type Tuple");
-
-//     const auto& element_serializations = serialization_tuple->getElementsSerializations();
-
-//     size_t size = elems.size();
-//     assert(element_serializations.size() == size);
-//     MutableColumns tuple_columns(size);
-//     for (size_t i = 0; i < size; ++i) {
-//         tuple_columns[i] = elems[i]->create_column(*element_serializations[i]->get_nested());
-//     }
-
-//     return ColumnStruct::create(std::move(tuple_columns));
-// }
-
 Field DataTypeStruct::get_default() const {
     return Tuple();
-    //return Tuple(collections::map<Tuple>(
-    //             elems, [](const DataTypePtr& elem) { return elem->get_default(); }));
 }
 
 void DataTypeStruct::insert_default_into(IColumn& column) const {
     add_element_safe(elems, column, [&] {
-        // for (const auto& i : collections::range(0, elems.size()))
         for (auto i = 0; i < elems.size(); i++) {
             elems[i]->insert_default_into(extract_element_column(column, i));
         }
@@ -384,97 +352,5 @@ size_t DataTypeStruct::get_size_of_value_in_memory() const {
     }
     return res;
 }
-
-// bool DataTypeStruct::has_dynamic_subcolumns() const {
-//     return std::any_of(elems.begin(), elems.end(),
-//                        [](auto&& elem) { return elem->has_dynamic_subcolumns(); });
-// }
-
-// SerializationPtr DataTypeStruct::do_get_default_serialization() const {
-//     SerializationTuple::ElementSerializations serializations(elems.size());
-
-//     for (size_t i = 0; i < elems.size(); ++i) {
-//         String elem_name = have_explicit_names ? names[i] : toString(i + 1);
-//         auto serialization = elems[i]->get_default_serialization();
-//         serializations[i] = std::make_shared<SerializationNamed>(serialization, elem_name);
-//     }
-
-//     return std::make_shared<SerializationTuple>(std::move(serializations), have_explicit_names);
-// }
-
-// SerializationPtr DataTypeStruct::get_serialization(const SerializationInfo& info) const {
-//     SerializationTuple::ElementSerializations serializations(elems.size());
-//     const auto& info_tuple = assert_cast<const SerializationInfoTuple&>(info);
-
-//     for (size_t i = 0; i < elems.size(); ++i) {
-//         String elem_name = have_explicit_names ? names[i] : toString(i + 1);
-//         auto serialization = elems[i]->get_serialization(*info_tuple.get_element_info(i));
-//         serializations[i] = std::make_shared<SerializationNamed>(serialization, elem_name);
-//     }
-
-//     return std::make_shared<SerializationTuple>(std::move(serializations), have_explicit_names);
-// }
-
-// MutableSerializationInfoPtr DataTypeStruct::create_serialization_info(
-//         const SerializationInfo::Settings& settings) const {
-//     MutableSerializationInfos infos;
-//     infos.reserve(elems.size());
-//     for (const auto& elem : elems) {
-//         infos.push_back(elem->create_serializationInfo(settings));
-//     }
-
-//     return std::make_shared<SerializationInfoTuple>(std::move(infos), names, settings);
-// }
-
-// SerializationInfoPtr DataTypeStruct::get_serialization_info(const IColumn& column) const {
-//     if (const auto* column_const = check_and_get_column<ColumnConst>(&column)) {
-//         return get_serialization_info(column_const->get_data_column());
-//     }
-
-//     MutableSerializationInfos infos;
-//     infos.reserve(elems.size());
-
-//     const auto& column_tuple = assert_cast<const ColumnStruct&>(column);
-//     assert(elems.size() == column_tuple.get_columns().size());
-
-//     for (size_t i = 0; i < elems.size(); ++i) {
-//         auto element_info = elems[i]->get_serialization_info(column_tuple.getColumn(i));
-//         infos.push_back(const_pointer_cast<SerializationInfo>(element_info));
-//     }
-
-//     return std::make_shared<SerializationInfoTuple>(std::move(infos), names,
-//                                                     SerializationInfo::Settings {});
-// }
-
-// static DataTypePtr create(const ASTPtr& arguments) {
-//     if (!arguments || arguments->children.empty())
-//         throw Exception("Struct cannot be empty", ErrorCodes::EMPTY_DATA_PASSED);
-
-//     DataTypes nested_types;
-//     nested_types.reserve(arguments->children.size());
-
-//     Strings names;
-//     names.reserve(arguments->children.size());
-
-//     for (const ASTPtr& child : arguments->children) {
-//         if (const auto* name_and_type_pair = child->as<ASTNameTypePair>()) {
-//             nested_types.emplace_back(DataTypeFactory::instance().get(name_and_type_pair->type));
-//             names.emplace_back(name_and_type_pair->name);
-//         } else
-//             nested_types.emplace_back(DataTypeFactory::instance().get(child));
-//     }
-
-//     if (names.empty())
-//         return std::make_shared<DataTypeStruct>(nested_types);
-//     else if (names.size() != nested_types.size())
-//         throw Exception("Names are specified not for all elements of Struct type",
-//                         ErrorCodes::BAD_ARGUMENTS);
-//     else
-//         return std::make_shared<DataTypeStruct>(nested_types, names);
-// }
-
-// void registerDataTypeStruct(DataTypeFactory& factory) {
-//     factory.registerDataType("Struct", create);
-// }
 
 } // namespace doris::vectorized
