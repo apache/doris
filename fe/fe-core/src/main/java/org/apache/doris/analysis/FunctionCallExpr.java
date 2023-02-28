@@ -107,24 +107,16 @@ public class FunctionCallExpr extends Expr {
                         || (children.get(1) instanceof CastExpr
                                 && children.get(1).getChild(0) instanceof IntLiteral),
                         "2nd argument of function round/floor/ceil/truncate must be literal");
-                int scaleArg = 0;
                 if (children.get(1) instanceof CastExpr && children.get(1).getChild(0) instanceof IntLiteral) {
                     children.get(1).getChild(0).setType(children.get(1).getType());
                     children.set(1, children.get(1).getChild(0));
-                    scaleArg = (int) (((IntLiteral) children.get(1).getChild(0)).getValue());
                 } else {
                     children.get(1).setType(Type.INT);
-                    scaleArg = (int) (((IntLiteral) children.get(1)).getValue());
                 }
-
-                int limit = ((ScalarType) children.get(0).getType()).decimalScale() - scaleArg;
-                int precision = children.get(0).getType().getPrecision();
-                int scale = ((ScalarType) children.get(0).getType()).decimalScale();
-                if (limit > 0) {
-                    precision -= limit;
-                    scale -= limit;
-                }
-                return ScalarType.createDecimalV3Type(precision, scale);
+                int scaleArg = (int) (((IntLiteral) children.get(1)).getValue());
+                int targetScale = ((ScalarType) children.get(0).getType()).decimalScale() - scaleArg;
+                return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(),
+                        Math.max(targetScale, 0));
             } else {
                 return returnType;
             }
