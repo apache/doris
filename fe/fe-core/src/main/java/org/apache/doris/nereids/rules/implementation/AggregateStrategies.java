@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateParam;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Count;
+import org.apache.doris.nereids.trees.expressions.functions.agg.GroupConcat;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctCount;
 import org.apache.doris.nereids.trees.expressions.functions.agg.MultiDistinctSum;
 import org.apache.doris.nereids.trees.expressions.functions.agg.Sum;
@@ -1182,6 +1183,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                     function.getArguments().subList(1, function.arity()).toArray(new Expression[0]));
         } else if (function instanceof Sum && function.isDistinct()) {
             return new MultiDistinctSum(function.getArgument(0));
+        } else if (function instanceof GroupConcat && function.isDistinct()) {
+            return ((GroupConcat) function).convertToMultiDistinct();
         }
         return function;
     }
