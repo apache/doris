@@ -1385,6 +1385,7 @@ visible_functions = [
     [['json_array'], 'VARCHAR', ['VARCHAR', '...'], 'ALWAYS_NOT_NULLABLE'],
     [['json_object'], 'VARCHAR', ['VARCHAR', '...'], 'ALWAYS_NOT_NULLABLE'],
     [['json_quote'], 'VARCHAR', ['VARCHAR'], ''],
+    [['json_valid'], 'INT', ['VARCHAR'], 'ALWAYS_NULLABLE'],
 
     #hll function
     [['hll_cardinality'], 'BIGINT', ['HLL'], 'ALWAYS_NOT_NULLABLE'],
