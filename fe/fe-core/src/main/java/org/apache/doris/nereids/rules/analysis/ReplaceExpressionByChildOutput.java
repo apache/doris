@@ -23,7 +23,7 @@ import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -46,7 +46,7 @@ public class ReplaceExpressionByChildOutput implements AnalysisRuleFactory {
         return ImmutableList.<Rule>builder()
                 .add(RuleType.REPLACE_SORT_EXPRESSION_BY_CHILD_OUTPUT.build(
                         logicalSort(logicalProject()).then(sort -> {
-                            LogicalProject<GroupPlan> project = sort.child();
+                            LogicalProject<Plan> project = sort.child();
                             Map<Expression, Slot> sMap = Maps.newHashMap();
                             project.getProjects().stream()
                                     .filter(Alias.class::isInstance)
@@ -57,7 +57,7 @@ public class ReplaceExpressionByChildOutput implements AnalysisRuleFactory {
                 ))
                 .add(RuleType.REPLACE_SORT_EXPRESSION_BY_CHILD_OUTPUT.build(
                         logicalSort(logicalAggregate()).then(sort -> {
-                            LogicalAggregate<GroupPlan> aggregate = sort.child();
+                            LogicalAggregate<Plan> aggregate = sort.child();
                             Map<Expression, Slot> sMap = Maps.newHashMap();
                             aggregate.getOutputExpressions().stream()
                                     .filter(Alias.class::isInstance)
@@ -67,7 +67,7 @@ public class ReplaceExpressionByChildOutput implements AnalysisRuleFactory {
                         })
                 )).add(RuleType.REPLACE_SORT_EXPRESSION_BY_CHILD_OUTPUT.build(
                         logicalSort(logicalHaving(logicalAggregate())).then(sort -> {
-                            LogicalAggregate<GroupPlan> aggregate = sort.child().child();
+                            LogicalAggregate<Plan> aggregate = sort.child().child();
                             Map<Expression, Slot> sMap = Maps.newHashMap();
                             aggregate.getOutputExpressions().stream()
                                     .filter(Alias.class::isInstance)

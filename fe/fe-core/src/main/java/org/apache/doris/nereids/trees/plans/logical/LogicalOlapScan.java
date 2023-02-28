@@ -297,6 +297,9 @@ public class LogicalOlapScan extends LogicalRelation implements CatalogRelation,
 
     @Override
     public List<Slot> computeNonUserVisibleOutput() {
+        // if (getTable().getIndexIdToMeta().size() == 1) {
+        //     return ImmutableList.of();
+        // }
         Set<String> baseSchemaColNames = table.getBaseSchema().stream()
                 .map(Column::getName)
                 .collect(Collectors.toSet());

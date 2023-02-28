@@ -20,13 +20,16 @@ package org.apache.doris.nereids.rules.analysis;
 import org.apache.doris.nereids.properties.OrderKey;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.expression.rewrite.ExpressionRewriteContext;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.FoldConstantRule;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.IntegerLikeLiteral;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalSort;
 
 import com.google.common.collect.ImmutableList;
 
@@ -43,13 +46,15 @@ public class ResolveOrdinalInOrderByAndGroupBy implements AnalysisRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.<Rule>builder()
                 .add(RuleType.RESOLVE_ORDINAL_IN_ORDER_BY.build(
-                        logicalSort().then(sort -> {
+                        logicalSort().thenApply(ctx -> {
+                            LogicalSort<Plan> sort = ctx.root;
                             List<Slot> childOutput = sort.child().getOutput();
                             List<OrderKey> orderKeys = sort.getOrderKeys();
                             List<OrderKey> orderKeysWithoutOrd = new ArrayList<>();
+                            ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
                             for (OrderKey k : orderKeys) {
                                 Expression expression = k.getExpr();
-                                expression = FoldConstantRule.INSTANCE.rewrite(expression);
+                                expression = FoldConstantRule.INSTANCE.rewrite(expression, context);
                                 if (expression instanceof IntegerLikeLiteral) {
                                     IntegerLikeLiteral i = (IntegerLikeLiteral) expression;
                                     int ord = i.getIntValue();
@@ -64,12 +69,14 @@ public class ResolveOrdinalInOrderByAndGroupBy implements AnalysisRuleFactory {
                         })
                 ))
                 .add(RuleType.RESOLVE_ORDINAL_IN_GROUP_BY.build(
-                        logicalAggregate().whenNot(agg -> agg.isOrdinalIsResolved()).then(agg -> {
+                        logicalAggregate().whenNot(agg -> agg.isOrdinalIsResolved()).thenApply(ctx -> {
+                            LogicalAggregate<Plan> agg = ctx.root;
                             List<NamedExpression> aggOutput = agg.getOutputExpressions();
                             List<Expression> groupByWithoutOrd = new ArrayList<>();
+                            ExpressionRewriteContext context = new ExpressionRewriteContext(ctx.cascadesContext);
                             boolean ordExists = false;
                             for (Expression groupByExpr : agg.getGroupByExpressions()) {
-                                groupByExpr = FoldConstantRule.INSTANCE.rewrite(groupByExpr);
+                                groupByExpr = FoldConstantRule.INSTANCE.rewrite(groupByExpr, context);
                                 if (groupByExpr instanceof IntegerLikeLiteral) {
                                     IntegerLikeLiteral i = (IntegerLikeLiteral) groupByExpr;
                                     int ord = i.getIntValue();

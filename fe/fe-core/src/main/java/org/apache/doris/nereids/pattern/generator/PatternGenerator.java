@@ -50,13 +50,16 @@ public abstract class PatternGenerator {
     protected final Set<String> parentClass;
     protected final List<EnumFieldPatternInfo> enumFieldPatternInfos;
     protected final List<String> generatePatterns = new ArrayList<>();
+    protected final boolean isMemoPattern;
 
     /** constructor. */
-    public PatternGenerator(PatternGeneratorAnalyzer analyzer, ClassDeclaration opType, Set<String> parentClass) {
+    public PatternGenerator(PatternGeneratorAnalyzer analyzer, ClassDeclaration opType,
+            Set<String> parentClass, boolean isMemoPattern) {
         this.analyzer = analyzer;
         this.opType = opType;
         this.parentClass = parentClass;
         this.enumFieldPatternInfos = getEnumFieldPatternInfos();
+        this.isMemoPattern = isMemoPattern;
     }
 
     public abstract String genericType();
@@ -74,7 +77,8 @@ public abstract class PatternGenerator {
     }
 
     /** generate code by generators and analyzer. */
-    public static String generateCode(List<PatternGenerator> generators, PatternGeneratorAnalyzer analyzer) {
+    public static String generateCode(String className, String parentClassName, List<PatternGenerator> generators,
+            PatternGeneratorAnalyzer analyzer, boolean isMemoPattern) {
         String generateCode
                 = "// Licensed to the Apache Software Foundation (ASF) under one\n"
                 + "// or more contributor license agreements.  See the NOTICE file\n"
@@ -97,11 +101,10 @@ public abstract class PatternGenerator {
                 + "\n"
                 + generateImports(generators)
                 + "\n";
-
-        generateCode += "public interface GeneratedPatterns extends Patterns {\n";
+        generateCode += "public interface " + className + " extends " + parentClassName + " {\n";
         generateCode += generators.stream()
                 .map(generator -> {
-                    String patternMethods = generator.generate();
+                    String patternMethods = generator.generate(isMemoPattern);
                     // add indent
                     return Arrays.stream(patternMethods.split("\n"))
                             .map(line -> "  " + line + "\n")
@@ -199,21 +202,25 @@ public abstract class PatternGenerator {
         return parts;
     }
 
+    protected String childType() {
+        return isMemoPattern ? "GroupPlan" : "Plan";
+    }
+
     /** create generator by plan's type. */
     public static Optional<PatternGenerator> create(PatternGeneratorAnalyzer analyzer,
-            ClassDeclaration opType, Set<String> parentClass) {
+            ClassDeclaration opType, Set<String> parentClass, boolean isMemoPattern) {
         if (parentClass.contains("org.apache.doris.nereids.trees.plans.logical.LogicalLeaf")) {
-            return Optional.of(new LogicalLeafPatternGenerator(analyzer, opType, parentClass));
+            return Optional.of(new LogicalLeafPatternGenerator(analyzer, opType, parentClass, isMemoPattern));
         } else if (parentClass.contains("org.apache.doris.nereids.trees.plans.logical.LogicalUnary")) {
-            return Optional.of(new LogicalUnaryPatternGenerator(analyzer, opType, parentClass));
+            return Optional.of(new LogicalUnaryPatternGenerator(analyzer, opType, parentClass, isMemoPattern));
         } else if (parentClass.contains("org.apache.doris.nereids.trees.plans.logical.LogicalBinary")) {
-            return Optional.of(new LogicalBinaryPatternGenerator(analyzer, opType, parentClass));
+            return Optional.of(new LogicalBinaryPatternGenerator(analyzer, opType, parentClass, isMemoPattern));
         } else if (parentClass.contains("org.apache.doris.nereids.trees.plans.physical.PhysicalLeaf")) {
-            return Optional.of(new PhysicalLeafPatternGenerator(analyzer, opType, parentClass));
+            return Optional.of(new PhysicalLeafPatternGenerator(analyzer, opType, parentClass, isMemoPattern));
         } else if (parentClass.contains("org.apache.doris.nereids.trees.plans.physical.PhysicalUnary")) {
-            return Optional.of(new PhysicalUnaryPatternGenerator(analyzer, opType, parentClass));
+            return Optional.of(new PhysicalUnaryPatternGenerator(analyzer, opType, parentClass, isMemoPattern));
         } else if (parentClass.contains("org.apache.doris.nereids.trees.plans.physical.PhysicalBinary")) {
-            return Optional.of(new PhysicalBinaryPatternGenerator(analyzer, opType, parentClass));
+            return Optional.of(new PhysicalBinaryPatternGenerator(analyzer, opType, parentClass, isMemoPattern));
         } else {
             return Optional.empty();
         }
@@ -233,21 +240,24 @@ public abstract class PatternGenerator {
     }
 
     /** generate some pattern method code. */
-    public String generate() {
+    public String generate(boolean isMemoPattern) {
         String opClassName = opType.name;
         String methodName = getPatternMethodName();
 
-        generateTypePattern(methodName, opClassName, genericType(), "", false);
+        generateTypePattern(methodName, opClassName, genericType(), "", false, isMemoPattern);
         if (childrenNum() > 0) {
-            generateTypePattern(methodName, opClassName, genericTypeWithChildren(), "", true);
+            generateTypePattern(methodName, opClassName, genericTypeWithChildren(),
+                    "", true, isMemoPattern);
         }
 
         for (EnumFieldPatternInfo info : enumFieldPatternInfos) {
             String predicate = ".when(p -> p." + info.enumInstanceGetter + "() == "
                     + info.enumType + "." + info.enumInstance + ")";
-            generateTypePattern(info.patternName, opClassName, genericType(), predicate, false);
+            generateTypePattern(info.patternName, opClassName, genericType(),
+                    predicate, false, isMemoPattern);
             if (childrenNum() > 0) {
-                generateTypePattern(info.patternName, opClassName, genericTypeWithChildren(), predicate, true);
+                generateTypePattern(info.patternName, opClassName, genericTypeWithChildren(),
+                        predicate, true, isMemoPattern);
             }
         }
         return generatePatterns();
@@ -255,7 +265,7 @@ public abstract class PatternGenerator {
 
     /** generate a pattern method code. */
     public String generateTypePattern(String patterName, String className,
-            String genericParam, String predicate, boolean specifyChildren) {
+            String genericParam, String predicate, boolean specifyChildren, boolean isMemoPattern) {
 
         int childrenNum = childrenNum();
 
@@ -286,7 +296,8 @@ public abstract class PatternGenerator {
             generatePatterns.add(pattern);
             return pattern;
         } else {
-            String childrenPattern = StringUtils.repeat("Pattern.GROUP", ", ", childrenNum);
+            String childrenPattern = StringUtils.repeat(
+                    isMemoPattern ? "Pattern.GROUP" : "Pattern.ANY", ", ", childrenNum);
             if (childrenNum > 0) {
                 childrenPattern = ", " + childrenPattern;
             }

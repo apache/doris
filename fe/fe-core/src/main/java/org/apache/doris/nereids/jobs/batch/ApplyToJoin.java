@@ -17,27 +17,28 @@
 
 package org.apache.doris.nereids.jobs.batch;
 
-import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.RuleFactory;
+import org.apache.doris.nereids.rules.rewrite.BatchRewriteRuleFactory;
 import org.apache.doris.nereids.rules.rewrite.logical.ExistsApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.InApplyToJoin;
 import org.apache.doris.nereids.rules.rewrite.logical.ScalarApplyToJoin;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.List;
+
 /**
  * Convert logicalApply without a correlated to a logicalJoin.
  */
-public class ConvertApplyToJoinJob extends BatchRulesJob {
-    /**
-     * Constructor.
-     */
-    public ConvertApplyToJoinJob(CascadesContext cascadesContext) {
-        super(cascadesContext);
-        rulesJob.addAll(ImmutableList.of(
-                topDownBatch(ImmutableList.of(
-                        new ScalarApplyToJoin(),
-                        new InApplyToJoin(),
-                        new ExistsApplyToJoin())
-                )));
+public class ApplyToJoin implements BatchRewriteRuleFactory {
+    public static final List<RuleFactory> RULES = ImmutableList.of(
+            new ScalarApplyToJoin(),
+            new InApplyToJoin(),
+            new ExistsApplyToJoin()
+    );
+
+    @Override
+    public List<RuleFactory> getRuleFactories() {
+        return RULES;
     }
 }

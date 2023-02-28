@@ -21,6 +21,8 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
+import org.apache.doris.nereids.trees.plans.Plan;
+import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.PlanUtils;
 
@@ -43,9 +45,10 @@ public class InferFilterNotNull extends OneRewriteRuleFactory {
     public Rule build() {
         return logicalFilter()
             .when(filter -> filter.getConjuncts().stream().noneMatch(expr -> expr.isGeneratedIsNotNull))
-            .then(filter -> {
+            .thenApply(ctx -> {
+                LogicalFilter<Plan> filter = ctx.root;
                 Set<Expression> predicates = filter.getConjuncts();
-                Set<Expression> isNotNull = ExpressionUtils.inferNotNull(predicates);
+                Set<Expression> isNotNull = ExpressionUtils.inferNotNull(predicates, ctx.cascadesContext);
                 if (isNotNull.isEmpty() || predicates.containsAll(isNotNull)) {
                     return null;
                 }
