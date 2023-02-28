@@ -277,6 +277,7 @@ void RoutineLoadTaskExecutor::exec_task(std::shared_ptr<StreamLoadContext> ctx,
     }
     }
     ctx->body_sink = pipe;
+    ctx->pipe = pipe;
 
     // must put pipe before executing plan fragment
     HANDLE_ERROR(_exec_env->new_load_stream_mgr()->put(ctx->id, ctx), "failed to add pipe");
