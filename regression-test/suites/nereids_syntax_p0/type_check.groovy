@@ -23,8 +23,8 @@ suite("type_check") {
             kdcml decimalv3(15, 2),
             karr array<int>,
             kmap map<string, string>,
-            kstruct struct<"a": int, "b": int>,
-            `date` bigint(20) NOT NULL,
+            kstruct struct<a: int, b: int>,
+            `date` bigint(20) NOT NULL
         )
         DUPLICATE KEY(id) 
         distributed by hash(id) buckets 2
