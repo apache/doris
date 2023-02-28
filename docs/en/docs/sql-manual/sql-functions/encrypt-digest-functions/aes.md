@@ -90,6 +90,8 @@ Here is the result:
 1 row in set (0.01 sec)
 ```
 
+For more information about `block_encryption_mode`, see also [variables](../../../advanced/variables.md).
+
 ### keywords
 
     AES_ENCRYPT
@@ -154,6 +156,8 @@ Here is the result:
 +---------------------------------------------------------------------------+
 1 row in set (0.01 sec)
 ```
+
+For more information about `block_encryption_mode`, see also [variables](../../../advanced/variables.md).
 
 ### keywords
 
