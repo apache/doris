@@ -231,7 +231,7 @@ set_tcmalloc_heap_limit() {
 # set_tcmalloc_heap_limit || exit 1
 
 ## set hdfs conf
-if [ -f "${DORIS_HOME}/conf/hdfs-site.xml" ]; then
+if [[ -f "${DORIS_HOME}/conf/hdfs-site.xml" ]]; then
     export LIBHDFS3_CONF="${DORIS_HOME}/conf/hdfs-site.xml"
 fi
 
