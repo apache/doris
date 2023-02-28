@@ -35,6 +35,10 @@ std::string StreamLoadContext::to_json() const {
     writer.Key("Label");
     writer.String(label.c_str());
 
+    // comment
+    writer.Key("Comment");
+    writer.String(load_comment.c_str());
+
     writer.Key("TwoPhaseCommit");
     std::string need_two_phase_commit = two_phase_commit ? "true" : "false";
     writer.String(need_two_phase_commit.c_str());
@@ -134,6 +138,12 @@ std::string StreamLoadContext::prepare_stream_load_record(const std::string& str
     client_ip_value.SetString(auth.user_ip.c_str(), auth.user_ip.size());
     if (!client_ip_value.IsNull()) {
         document.AddMember("ClientIp", client_ip_value, allocator);
+    }
+
+    rapidjson::Value comment_value(rapidjson::kStringType);
+    comment_value.SetString(load_comment.c_str(), load_comment.size());
+    if (!comment_value.IsNull()) {
+        document.AddMember("Comment", comment_value, allocator);
     }
 
     document.AddMember("StartTime", start_millis, allocator);
@@ -244,6 +254,12 @@ void StreamLoadContext::parse_stream_load_record(const std::string& stream_load_
         const rapidjson::Value& finish_time = document["FinishTime"];
         stream_load_item.__set_finish_time(finish_time.GetInt64());
         ss << ", FinishTime: " << finish_time.GetInt64();
+    }
+
+    if (document.HasMember("Comment")) {
+        const rapidjson::Value& comment_value = document["Comment"];
+        stream_load_item.__set_comment(comment_value.GetString());
+        ss << ", Comment: " << comment_value.GetString();
     }
 
     VLOG(1) << "parse json from rocksdb. " << ss.str();
