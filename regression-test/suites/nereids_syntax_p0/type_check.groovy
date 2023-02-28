@@ -16,7 +16,8 @@
 // under the License.
 
 suite("type_check") {
-    sql 'drop table type_tb'
+    sql 'drop table if exists type_tb'
+    sql 'drop table if exists type_tb1'
 
     sql '''
         create table type_tb (
@@ -24,9 +25,20 @@ suite("type_check") {
             kjsonb jsonb,
             kdcml decimalv3(15, 2),
             karr array<int>,
-            kmap map<string, string>,
-            kstruct struct<a: int, b: int>,
             `date` bigint(20) NOT NULL
+        )
+        DUPLICATE KEY(id) 
+        distributed by hash(id) buckets 2
+        properties (
+            "replication_num"="1"
+        )
+    '''
+
+    sql '''
+        create table type_tb1 (
+            id int NOT NULL, 
+            kmap map<string, string>,
+            kstruct struct<a: int, b: int>
         )
         DUPLICATE KEY(id) 
         distributed by hash(id) buckets 2
@@ -39,7 +51,7 @@ suite("type_check") {
     sql 'set enable_fallback_to_original_planner=false'
     sql 'set group_by_and_having_use_alias_first=false'
 
-    sql 'insert into type_tb values(1, null, null, null, null, null, 20221111)'
+    sql 'insert into type_tb values(1, null, null, null, 20221111)'
 
     test {
         sql 'select id from type_tb'
@@ -81,13 +93,13 @@ suite("type_check") {
 
     // map
     test {
-        sql 'select kmap from type_tb'
+        sql 'select kmap from type_tb1'
         exception 'Nereids do not support map type.'
     }
 
     // struct
     test {
-        sql 'select kstruct from type_tb'
+        sql 'select kstruct from type_tb1'
         exception 'Nereids do not support map type.'
     }
 
