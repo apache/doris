@@ -114,9 +114,8 @@ public class FunctionCallExpr extends Expr {
                     children.get(1).setType(Type.INT);
                 }
                 int scaleArg = (int) (((IntLiteral) children.get(1)).getValue());
-                int targetScale = ((ScalarType) children.get(0).getType()).decimalScale() - scaleArg;
                 return ScalarType.createDecimalV3Type(children.get(0).getType().getPrecision(),
-                        Math.max(targetScale, 0));
+                        Math.max(scaleArg, 0));
             } else {
                 return returnType;
             }
@@ -1257,6 +1256,10 @@ public class FunctionCallExpr extends Expr {
                     throw new AnalysisException(getFunctionNotFoundError(argTypes));
                 }
             } else {
+                if (fnName.getFunction().equals("round") && children.size() == 2
+                        && children.get(0).getType().isDecimalV3() && children.get(1) instanceof IntLiteral) {
+                    children.get(1).setType(Type.INT);
+                }
                 // now first find function in built-in functions
                 if (Strings.isNullOrEmpty(fnName.getDb())) {
                     Type[] childTypes = collectChildReturnTypes();
