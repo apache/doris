@@ -47,6 +47,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalGenerate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalIntersect;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalLimit;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
@@ -69,6 +70,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
@@ -186,6 +188,12 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     }
 
     @Override
+    public StatsDeriveResult visitLogicalJdbcScan(LogicalJdbcScan jdbcScan, Void context) {
+        jdbcScan.getExpressions();
+        return computeScan(jdbcScan);
+    }
+
+    @Override
     public StatsDeriveResult visitLogicalProject(LogicalProject<? extends Plan> project, Void context) {
         return computeProject(project);
     }
@@ -288,6 +296,11 @@ public class StatsCalculator extends DefaultPlanVisitor<StatsDeriveResult, Void>
     @Override
     public StatsDeriveResult visitPhysicalTVFRelation(PhysicalTVFRelation tvfRelation, Void context) {
         return tvfRelation.getFunction().computeStats(tvfRelation.getOutput());
+    }
+
+    @Override
+    public StatsDeriveResult visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, Void context) {
+        return computeScan(jdbcScan);
     }
 
     @Override
