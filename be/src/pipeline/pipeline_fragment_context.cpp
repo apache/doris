@@ -103,6 +103,7 @@ PipelineFragmentContext::PipelineFragmentContext(
           _report_thread_active(false),
           _report_status_cb(report_status_cb),
           _is_report_on_cancel(true) {
+    _report_thread_future = _report_thread_promise.get_future();
     _fragment_watcher.start();
 }
 
