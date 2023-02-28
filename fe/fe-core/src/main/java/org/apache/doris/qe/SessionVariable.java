@@ -258,6 +258,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final String ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN
             = "enable_share_hash_table_for_broadcast_join";
 
+    // support unicode in label, table, column, common name check
+    public static final String ENABLE_UNICODE_NAME_SUPPORT = "enable_unicode_name_support";
+
     public static final String REPEAT_MAX_NUM = "repeat_max_num";
 
     public static final String GROUP_CONCAT_MAX_LEN = "group_concat_max_len";
@@ -700,7 +703,11 @@ public class SessionVariable implements Serializable, Writable {
     @VariableMgr.VarAttr(name = ENABLE_SHARE_HASH_TABLE_FOR_BROADCAST_JOIN, fuzzy = true)
     public boolean enableShareHashTableForBroadcastJoin = true;
 
+    @VariableMgr.VarAttr(name = ENABLE_UNICODE_NAME_SUPPORT)
+    public boolean enableUnicodeNameSupport = false;
+
     @VariableMgr.VarAttr(name = REPEAT_MAX_NUM, needForward = true)
+
     public int repeatMaxNum = 10000;
 
     @VariableMgr.VarAttr(name = GROUP_CONCAT_MAX_LEN)
@@ -1499,6 +1506,14 @@ public class SessionVariable implements Serializable, Writable {
 
     public void setFragmentTransmissionCompressionCodec(String codec) {
         this.fragmentTransmissionCompressionCodec = codec;
+    }
+
+    public boolean isEnableUnicodeNameSupport() {
+        return enableUnicodeNameSupport;
+    }
+
+    public void setEnableUnicodeNameSupport(boolean enableUnicodeNameSupport) {
+        this.enableUnicodeNameSupport = enableUnicodeNameSupport;
     }
 
     public boolean isDropTableIfCtasFailed() {
