@@ -865,6 +865,7 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-CATALOG",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-DATABASE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-MATERIALIZED-VIEW",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-LOAD",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-ROUTINE-LOAD",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-FUNCTION",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-COLUMNS",
