@@ -17,6 +17,7 @@
 #pragma once
 
 #include <shared_mutex>
+#include <unordered_map>
 
 #include "resource_group.h"
 
@@ -26,14 +27,7 @@ class ResourceGroupManager {
     DECLARE_SINGLETON(ResourceGroupManager)
 public:
     // TODO rs poc 根据id选rs group,目前还不能创建
-    ResourceGroupPtr get_or_create_resource_group(uint64_t id) {
-        std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
-        if (_resource_groups.count(id)) {
-            return _resource_groups[id];
-        } else {
-            return _resource_groups[DEFAULT_RG_ID];
-        }
-    }
+    ResourceGroupPtr get_or_create_resource_group(uint64_t id);
 
     static constexpr uint64_t DEFAULT_RG_ID = 0;
     static constexpr int DEFAULT_CPU_SHARE = 64;

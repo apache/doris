@@ -226,10 +226,10 @@ void TaskScheduler::_do_work(size_t index) {
         bool canceled = fragment_ctx->is_canceled();
 
         int64_t time_spent = 0;
-        SCOPED_RAW_TIMER(&time_spent); // 析构顺序和定义的顺序一样么？
         Defer defer {[&]() {
             queue->update_statistics(task, time_spent);
         }};
+        SCOPED_RAW_TIMER(&time_spent); // 后定义的先析构
 
         auto check_state = task->get_state();
         if (check_state == PipelineTaskState::PENDING_FINISH) {

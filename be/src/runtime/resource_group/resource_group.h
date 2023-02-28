@@ -71,6 +71,7 @@ public:
     ResourceGroupEntry* task_entity() { return &_task_entry; }
 
     int cpu_share() const { return _cpu_share; }
+    uint64_t id() const { return _id; }
 
 private:
     uint64_t _id;

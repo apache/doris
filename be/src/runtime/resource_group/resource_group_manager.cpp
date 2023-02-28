@@ -25,6 +25,15 @@ ResourceGroupManager::ResourceGroupManager() {
 }
 ResourceGroupManager::~ResourceGroupManager() = default;
 
+ResourceGroupPtr ResourceGroupManager::get_or_create_resource_group(uint64_t id) {
+    std::shared_lock<std::shared_mutex> r_lock(_group_mutex);
+    if (_resource_groups.count(id)) {
+        return _resource_groups[id];
+    } else {
+        return _resource_groups[DEFAULT_RG_ID];
+    }
+}
+
 void ResourceGroupManager::_create_default_rs_group() {
     _resource_groups[DEFAULT_RG_ID] =
             std::make_shared<ResourceGroup>(DEFAULT_RG_ID, "default_rs", DEFAULT_CPU_SHARE);
