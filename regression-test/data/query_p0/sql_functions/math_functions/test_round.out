@@ -43,6 +43,21 @@
 -- !select --
 16.02	16.02	16.02
 
+-- !select --
+20	20	20
+
+-- !select --
+10	10	10
+
+-- !select --
+20	20	20
+
+-- !select --
+10	10	10
+
+-- !select --
+20	20	20
+
 -- !nereids_round_arg1 --
 10.0
 
