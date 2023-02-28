@@ -356,6 +356,10 @@ struct DateTimeFindOp : public CommonFindOp<DateTimeValue> {
     bool find(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         return bloom_filter.test(Slice((char*)data, sizeof(vectorized::VecDateTimeValue)));
     }
+
+    bool find(const BloomFilterAdaptor& bloom_filter, uint32_t data) const {
+        return bloom_filter.test(data);
+    }
 };
 
 // avoid violating C/C++ aliasing rules.
@@ -408,6 +412,10 @@ struct DateFindOp : public CommonFindOp<DateTimeValue> {
 
     bool find(const BloomFilterAdaptor& bloom_filter, const void* data) const {
         return bloom_filter.test(Slice((char*)data, sizeof(vectorized::VecDateTimeValue)));
+    }
+
+    bool find(const BloomFilterAdaptor& bloom_filter, uint32_t data) const {
+        return bloom_filter.test(data);
     }
 };
 
