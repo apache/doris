@@ -424,12 +424,9 @@ public class BindExpression implements AnalysisRuleFactory {
                 })
             ),
             RuleType.BINDING_HAVING_SLOT.build(
-                logicalHaving(aggregate()).thenApply(ctx -> {
-                    LogicalHaving<Aggregate<Plan>> having = ctx.root;
-                    Plan childPlan = having.child();
                 logicalHaving(aggregate()).when(Plan::canBind).thenApply(ctx -> {
-                    LogicalHaving<Aggregate<GroupPlan>> having = ctx.root;
-                    Aggregate<GroupPlan> childPlan = having.child();
+                    LogicalHaving<Aggregate<Plan>> having = ctx.root;
+                    Aggregate<Plan> childPlan = having.child();
                     Set<Expression> boundConjuncts = having.getConjuncts().stream()
                             .map(expr -> {
                                 expr = bindSlot(expr, childPlan.children(), ctx.cascadesContext, false);
