@@ -107,7 +107,7 @@ bool PipelineTask::has_dependency() {
     return false;
 }
 
-Status PipelineTask::open() {
+Status PipelineTask::_open() {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_open_timer);
