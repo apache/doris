@@ -333,8 +333,8 @@ Status SegmentIterator::_get_row_ranges_from_conditions(RowRanges* condition_row
         DCHECK(_opts.col_id_to_predicates.count(cid) > 0);
         RETURN_IF_ERROR(_column_iterators[_schema.unique_id(cid)]->get_row_ranges_by_zone_map(
                 _opts.col_id_to_predicates[cid].get(),
-                _opts.col_id_to_del_predicates.count(cid) > 0
-                        ? &(_opts.col_id_to_del_predicates[cid])
+                _opts.del_predicates_for_zone_map.count(cid) > 0
+                        ? &(_opts.del_predicates_for_zone_map[cid])
                         : nullptr,
                 &column_row_ranges));
         // intersect different columns's row ranges to get final row ranges by zone map

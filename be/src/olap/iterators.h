@@ -83,7 +83,7 @@ public:
     // used to fiter rows in row block
     std::vector<ColumnPredicate*> column_predicates;
     std::unordered_map<int32_t, std::shared_ptr<AndBlockColumnPredicate>> col_id_to_predicates;
-    std::unordered_map<int32_t, std::vector<const ColumnPredicate*>> col_id_to_del_predicates;
+    std::unordered_map<int32_t, std::vector<const ColumnPredicate*>> del_predicates_for_zone_map;
     TPushAggOp::type push_down_agg_type_opt = TPushAggOp::NONE;
 
     // REQUIRED (null is not allowed)
