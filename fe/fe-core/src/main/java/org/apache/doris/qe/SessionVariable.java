@@ -238,6 +238,8 @@ public class SessionVariable implements Serializable, Writable {
 
     public static final String SKIP_DELETE_SIGN = "skip_delete_sign";
 
+    public static final String SKIP_DELETE_BITMAP = "skip_delete_bitmap";
+
     public static final String ENABLE_NEW_SHUFFLE_HASH_METHOD = "enable_new_shuffle_hash_method";
 
     public static final String ENABLE_PUSH_DOWN_NO_GROUP_AGG = "enable_push_down_no_group_agg";
@@ -274,6 +276,9 @@ public class SessionVariable implements Serializable, Writable {
     public static final int MIN_JOIN_REORDER_TABLE_COUNT = 2;
 
     public static final String SHOW_USER_DEFAULT_ROLE = "show_user_default_role";
+
+    // fix replica to query. If num = 1, query the smallest replica, if 2 is the second smallest replica.
+    public static final String USE_FIX_REPLICA = "use_fix_replica";
 
     // session origin value
     public Map<Field, String> sessionOriginValue = new HashMap<Field, String>();
@@ -630,7 +635,7 @@ public class SessionVariable implements Serializable, Writable {
     public boolean enableSingleReplicaInsert = false;
 
     @VariableMgr.VarAttr(name = ENABLE_FUNCTION_PUSHDOWN)
-    public boolean enableFunctionPushdown;
+    public boolean enableFunctionPushdown = true;
 
     @VariableMgr.VarAttr(name = ENABLE_LOCAL_EXCHANGE, fuzzy = true)
     public boolean enableLocalExchange = true;
@@ -652,6 +657,12 @@ public class SessionVariable implements Serializable, Writable {
      */
     @VariableMgr.VarAttr(name = SKIP_DELETE_SIGN)
     public boolean skipDeleteSign = false;
+
+    /**
+     * For debug purpose, skip delete bitmap when reading data.
+     */
+    @VariableMgr.VarAttr(name = SKIP_DELETE_BITMAP)
+    public boolean skipDeleteBitmap = false;
 
     // This variable is used to avoid FE fallback to the original parser. When we execute SQL in regression tests
     // for nereids, fallback will cause the Doris return the correct result although the syntax is unsupported
@@ -729,6 +740,10 @@ public class SessionVariable implements Serializable, Writable {
     // If this is true, the result of `show roles` will return all user default role
     @VariableMgr.VarAttr(name = SHOW_USER_DEFAULT_ROLE, needForward = true)
     public boolean showUserDefaultRole = false;
+
+    // Default value is -1, which means not fix replica
+    @VariableMgr.VarAttr(name = USE_FIX_REPLICA)
+    public int useFixReplica = -1;
 
     // If this fe is in fuzzy mode, then will use initFuzzyModeVariables to generate some variables,
     // not the default value set in the code.
@@ -1575,6 +1590,8 @@ public class SessionVariable implements Serializable, Writable {
         tResult.setSkipStorageEngineMerge(skipStorageEngineMerge);
 
         tResult.setSkipDeletePredicate(skipDeletePredicate);
+
+        tResult.setSkipDeleteBitmap(skipDeleteBitmap);
 
         tResult.setPartitionedHashJoinRowsThreshold(partitionedHashJoinRowsThreshold);
         tResult.setPartitionedHashAggRowsThreshold(partitionedHashAggRowsThreshold);

@@ -64,6 +64,10 @@ suite("test_oracle_jdbc_catalog", "p0") {
         order_qt_test3  """ select * from TEST_INT order by ID; """
         order_qt_test5  """ select * from TEST_DATE order by ID; """
         order_qt_test6  """ select * from TEST_TIMESTAMP order by ID; """
+        order_qt_test7  """ select * from TEST_NUMBER order by ID; """
+        order_qt_test8  """ select * from TEST_NUMBER2 order by ID; """
+        order_qt_test9  """ select * from TEST_NUMBER3 order by ID; """
+        order_qt_test10  """ select * from TEST_NUMBER4 order by ID; """
 
         // The result of TEST_RAW will change
         // So instead of qt, we're using sql here.

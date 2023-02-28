@@ -85,7 +85,7 @@ public class ShowExecutorTest {
 
     @Before
     public void setUp() throws Exception {
-        ctx = new ConnectContext(null);
+        ctx = new ConnectContext();
         ctx.setCommand(MysqlCommand.COM_SLEEP);
 
         Column column1 = new Column("col1", PrimitiveType.BIGINT);

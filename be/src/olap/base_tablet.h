@@ -73,7 +73,7 @@ protected:
 
 protected:
     TabletState _state;
-    TabletMetaSharedPtr _tablet_meta;
+    const TabletMetaSharedPtr _tablet_meta;
     TabletSchemaSPtr _schema;
 
     DataDir* _data_dir;

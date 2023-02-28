@@ -26,8 +26,10 @@ import org.apache.doris.catalog.FsBroker;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ClientPool;
 import org.apache.doris.common.Config;
+import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
+import org.apache.doris.datasource.hive.HiveMetaStoreCache;
 import org.apache.doris.service.FrontendOptions;
 import org.apache.doris.thrift.TBrokerCheckPathExistRequest;
 import org.apache.doris.thrift.TBrokerCheckPathExistResponse;
@@ -151,7 +153,8 @@ public class BrokerUtil {
             if (index == -1) {
                 continue;
             }
-            columns[index] = pair[1];
+            columns[index] = HiveMetaStoreCache.HIVE_DEFAULT_PARTITION.equals(pair[1])
+                ? FeConstants.null_string : pair[1];
             size++;
             if (size >= columnsFromPath.size()) {
                 break;

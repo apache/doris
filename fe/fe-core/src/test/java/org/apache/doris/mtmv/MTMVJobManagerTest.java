@@ -18,6 +18,8 @@
 package org.apache.doris.mtmv;
 
 import org.apache.doris.common.DdlException;
+import org.apache.doris.metric.Metric;
+import org.apache.doris.metric.MetricRepo;
 import org.apache.doris.mtmv.MTMVUtils.JobState;
 import org.apache.doris.mtmv.metadata.ChangeMTMVJob;
 import org.apache.doris.mtmv.metadata.MTMVJob;
@@ -134,5 +136,28 @@ public class MTMVJobManagerTest extends TestWithFeService {
         Assertions.assertEquals("", taskRow.get(9));
         // index 10: ErrorCode
         //Assertions.assertEquals("0", taskRow.get(10));
+    }
+
+    @Test
+    public void testMetrics() {
+        MTMVJobManager jobManager = new MTMVJobManager();
+        jobManager.start();
+
+        int jobMetricCount = 0;
+        int taskMetricCount = 0;
+        List<Metric> metrics = MetricRepo.DORIS_METRIC_REGISTER.getMetrics();
+        for (Metric metric : metrics) {
+            if (metric.getName().startsWith("mtmv")) {
+                if (metric.getName().equals("mtmv_job")) {
+                    jobMetricCount++;
+                } else if (metric.getName().equals("mtmv_task")) {
+                    taskMetricCount++;
+                } else {
+                    Assertions.fail();
+                }
+            }
+        }
+        Assertions.assertEquals(2, jobMetricCount);
+        Assertions.assertEquals(4, taskMetricCount);
     }
 }

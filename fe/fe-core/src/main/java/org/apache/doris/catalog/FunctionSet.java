@@ -1345,8 +1345,8 @@ public class FunctionSet<T> {
     }
 
     public void addScalarAndVectorizedBuiltin(String fnName, boolean userVisible,
-                                              Function.NullableMode nullableMode, Type retType,
-                                              boolean varArgs, Type ... args) {
+            Function.NullableMode nullableMode, Type retType,
+            boolean varArgs, Type ... args) {
         ArrayList<Type> argsType = new ArrayList<Type>();
         for (Type type : args) {
             argsType.add(type);
@@ -1404,6 +1404,10 @@ public class FunctionSet<T> {
     public static final String SEQUENCE_MATCH = "sequence_match";
 
     public static final String SEQUENCE_COUNT = "sequence_count";
+
+    public static final String GROUP_UNIQ_ARRAY = "group_uniq_array";
+
+    public static final String GROUP_ARRAY = "group_array";
 
     // Populate all the aggregate builtins in the catalog.
     // null symbols indicate the function does not need that step of the evaluation.
@@ -2587,6 +2591,10 @@ public class FunctionSet<T> {
                     "", "", "", "", "", true, false, true, true));
             addBuiltin(AggregateFunction.createBuiltin(COLLECT_SET, Lists.newArrayList(t), new ArrayType(t), t,
                     "", "", "", "", "", true, false, true, true));
+            addBuiltin(AggregateFunction.createBuiltin(COLLECT_LIST, Lists.newArrayList(t, Type.INT), new ArrayType(t), t,
+                    "", "", "", "", "", true, false, true, true));
+            addBuiltin(AggregateFunction.createBuiltin(COLLECT_SET, Lists.newArrayList(t, Type.INT), new ArrayType(t), t,
+                    "", "", "", "", "", true, false, true, true));
             addBuiltin(
                     AggregateFunction.createBuiltin("topn_array", Lists.newArrayList(t, Type.INT), new ArrayType(t), t,
                             "", "", "", "", "", true, false, true, true));
@@ -2611,8 +2619,20 @@ public class FunctionSet<T> {
                     "", "", "", "", "", true, false, true, true));
             addBuiltin(AggregateFunction.createBuiltin(HIST, Lists.newArrayList(t, Type.DOUBLE, Type.INT), Type.VARCHAR, t,
                                     "", "", "", "", "", true, false, true, true));
-            addBuiltin(AggregateFunction.createBuiltin(HISTOGRAM, Lists.newArrayList(t, Type.DOUBLE, Type.INT), Type.VARCHAR, t,
+            addBuiltin(AggregateFunction.createBuiltin(HISTOGRAM, Lists.newArrayList(t, Type.DOUBLE, Type.INT),
+                    Type.VARCHAR, t,
                     "", "", "", "", "", true, false, true, true));
+
+            addBuiltin(AggregateFunction.createBuiltin(GROUP_UNIQ_ARRAY, Lists.newArrayList(t), new ArrayType(t), t,
+                    "", "", "", "", "", true, false, true, true));
+            addBuiltin(
+                    AggregateFunction.createBuiltin(GROUP_UNIQ_ARRAY, Lists.newArrayList(t, Type.INT), new ArrayType(t),
+                            t, "", "", "", "", "", true, false, true, true));
+            addBuiltin(AggregateFunction.createBuiltin(GROUP_ARRAY, Lists.newArrayList(t), new ArrayType(t), t,
+                    "", "", "", "", "", true, false, true, true));
+            addBuiltin(
+                    AggregateFunction.createBuiltin(GROUP_ARRAY, Lists.newArrayList(t, Type.INT), new ArrayType(t),
+                            t, "", "", "", "", "", true, false, true, true));
         }
 
         // Avg

@@ -183,6 +183,7 @@ ERRORS:
 25. trim_double_quotes: Boolean type, The default value is false. True means that the outermost double quotes of each field in the csv file are trimmed.
 
 26. skip_lines: <version since="dev" type="inline"> Integer type, the default value is 0. It will skip some lines in the head of csv file. It will be disabled when format is `csv_with_names` or `csv_with_names_and_types`. </version>
+27. comment: <version since="1.2.3" type="inline"> String type, the default value is "". </version>
 
 ### Example
 
@@ -322,6 +323,20 @@ ERRORS:
     ````
     curl --location-trusted -u root -H "columns: k1,k2,source_sequence,v1,v2" -H "function_column.sequence_col: source_sequence" -T testData http://host:port/api/testDb/testTbl/ _stream_load
     ````
+
+16. csv file line header filter import
+
+    file data:
+    
+    ```
+       id,name,age
+       1,doris,20
+       2,flink,10
+    ```
+    Filter the first line import by specifying `format=csv_with_names`
+    ```
+    curl --location-trusted -u root -T test.csv  -H "label:1" -H "format:csv_with_names" -H "column_separator:," http://host:port/api/testDb/testTbl/_stream_load
+    ```
     
 ### Keywords
 

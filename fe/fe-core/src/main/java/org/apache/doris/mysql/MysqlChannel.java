@@ -17,13 +17,18 @@
 
 package org.apache.doris.mysql;
 
+import org.apache.doris.qe.ConnectContext;
+import org.apache.doris.qe.ConnectProcessor;
+
+import com.google.common.base.Preconditions;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.xnio.StreamConnection;
+import org.xnio.channels.Channels;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.channels.SocketChannel;
 
 /**
  * This class used to read/write MySQL logical packet.
@@ -31,59 +36,54 @@ import java.nio.channels.SocketChannel;
  * http://dev.mysql.com/doc/internals/en/sending-more-than-16mbyte.html
  */
 public class MysqlChannel {
+    // logger for this class
+    private static final Logger LOG = LogManager.getLogger(MysqlChannel.class);
     // max length which one MySQL physical can hold, if one logical packet is bigger than this,
     // one packet will split to many packets
     public static final int MAX_PHYSICAL_PACKET_LENGTH = 0xffffff;
     // MySQL packet header length
     protected static final int PACKET_HEADER_LEN = 4;
-    // logger for this class
-    protected static final Logger LOG = LogManager.getLogger(MysqlChannel.class);
     // next sequence id to receive or send
     protected int sequenceId;
     // channel connected with client
-    protected SocketChannel channel;
+    private StreamConnection conn;
     // used to receive/send header, avoiding new this many time.
-    protected ByteBuffer headerByteBuffer = ByteBuffer.allocate(PACKET_HEADER_LEN);
+    protected ByteBuffer headerByteBuffer;
+    protected ByteBuffer defaultBuffer;
     // default packet byte buffer for most packet
-    protected ByteBuffer defaultBuffer = ByteBuffer.allocate(16 * 1024);
     protected ByteBuffer sendBuffer;
     // for log and show
     protected String remoteHostPortString;
     protected String remoteIp;
     protected boolean isSend;
+    // Serializer used to pack MySQL packet.
+    protected volatile MysqlSerializer serializer;
 
     protected MysqlChannel() {
-        this.sequenceId = 0;
-        this.sendBuffer = ByteBuffer.allocate(2 * 1024 * 1024);
-        this.isSend = false;
-        this.remoteHostPortString = "";
-        this.remoteIp = "";
+        // For DummyMysqlChannel
     }
 
-    public MysqlChannel(SocketChannel channel) {
+    public MysqlChannel(StreamConnection connection) {
+        Preconditions.checkNotNull(connection);
         this.sequenceId = 0;
-        this.channel = channel;
-        this.sendBuffer = ByteBuffer.allocate(2 * 1024 * 1024);
         this.isSend = false;
         this.remoteHostPortString = "";
         this.remoteIp = "";
-
-        if (channel != null) {
-            try {
-                if (channel.getRemoteAddress() instanceof InetSocketAddress) {
-                    InetSocketAddress address = (InetSocketAddress) channel.getRemoteAddress();
-                    // avoid calling getHostName() which may trigger a name service reverse lookup
-                    remoteHostPortString = address.getHostString() + ":" + address.getPort();
-                    remoteIp = address.getAddress().getHostAddress();
-                } else if (channel.getRemoteAddress() != null) {
-                    // Reach here, what's it?
-                    remoteHostPortString = channel.getRemoteAddress().toString();
-                    remoteIp = channel.getRemoteAddress().toString();
-                }
-            } catch (Exception e) {
-                LOG.warn("get remote host string failed: ", e);
-            }
+        this.conn = connection;
+        if (connection.getPeerAddress() instanceof InetSocketAddress) {
+            InetSocketAddress address = (InetSocketAddress) connection.getPeerAddress();
+            remoteHostPortString = address.getHostString() + ":" + address.getPort();
+            remoteIp = address.getAddress().getHostAddress();
+        } else {
+            // Reach here, what's it?
+            remoteHostPortString = connection.getPeerAddress().toString();
+            remoteIp = connection.getPeerAddress().toString();
         }
+        // The serializer and buffers should only be created if this is a real MysqlChannel
+        this.serializer = MysqlSerializer.newInstance();
+        this.defaultBuffer = ByteBuffer.allocate(16 * 1024);
+        this.headerByteBuffer = ByteBuffer.allocate(PACKET_HEADER_LEN);
+        this.sendBuffer = ByteBuffer.allocate(2 * 1024 * 1024);
     }
 
     public void setSequenceId(int sequenceId) {
@@ -114,7 +114,7 @@ public class MysqlChannel {
     // Close channel
     public void close() {
         try {
-            channel.close();
+            conn.close();
         } catch (IOException e) {
             LOG.warn("Close channel exception, ignore.");
         }
@@ -122,13 +122,18 @@ public class MysqlChannel {
 
     protected int readAll(ByteBuffer dstBuf) throws IOException {
         int readLen = 0;
-        while (dstBuf.remaining() != 0) {
-            int ret = channel.read(dstBuf);
-            // return -1 when remote peer close the channel
-            if (ret == -1) {
-                return readLen;
+        try {
+            while (dstBuf.remaining() != 0) {
+                int ret = Channels.readBlocking(conn.getSourceChannel(), dstBuf);
+                // return -1 when remote peer close the channel
+                if (ret == -1) {
+                    return readLen;
+                }
+                readLen += ret;
             }
-            readLen += ret;
+        } catch (IOException e) {
+            LOG.debug("Read channel exception, ignore.", e);
+            return 0;
         }
         return readLen;
     }
@@ -188,12 +193,12 @@ public class MysqlChannel {
 
     protected void realNetSend(ByteBuffer buffer) throws IOException {
         long bufLen = buffer.remaining();
-        long writeLen = channel.write(buffer);
+        long writeLen = Channels.writeBlocking(conn.getSinkChannel(), buffer);
         if (bufLen != writeLen) {
             throw new IOException("Write mysql packet failed.[write=" + writeLen
                     + ", needToWrite=" + bufLen + "]");
         }
-        channel.write(buffer);
+        Channels.flushBlocking(conn.getSinkChannel());
         isSend = true;
     }
 
@@ -279,5 +284,26 @@ public class MysqlChannel {
 
     public String getRemoteHostPortString() {
         return remoteHostPortString;
+    }
+
+    public void startAcceptQuery(ConnectContext connectContext, ConnectProcessor connectProcessor) {
+        conn.getSourceChannel().setReadListener(new ReadListener(connectContext, connectProcessor));
+        conn.getSourceChannel().resumeReads();
+    }
+
+    public void suspendAcceptQuery() {
+        conn.getSourceChannel().suspendReads();
+    }
+
+    public void resumeAcceptQuery() {
+        conn.getSourceChannel().resumeReads();
+    }
+
+    public void stopAcceptQuery() throws IOException {
+        conn.getSourceChannel().shutdownReads();
+    }
+
+    public MysqlSerializer getSerializer() {
+        return serializer;
     }
 }

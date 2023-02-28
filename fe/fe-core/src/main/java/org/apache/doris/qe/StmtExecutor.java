@@ -202,7 +202,7 @@ public class StmtExecutor implements ProfileWriter {
     public StmtExecutor(ConnectContext context, OriginStatement originStmt, boolean isProxy) {
         this.context = context;
         this.originStmt = originStmt;
-        this.serializer = context.getSerializer();
+        this.serializer = context.getMysqlChannel().getSerializer();
         this.isProxy = isProxy;
         this.statementContext = new StatementContext(context, originStmt);
         this.context.setStatementContext(statementContext);
@@ -218,7 +218,7 @@ public class StmtExecutor implements ProfileWriter {
         this.context = ctx;
         this.parsedStmt = parsedStmt;
         this.originStmt = parsedStmt.getOrigStmt();
-        this.serializer = context.getSerializer();
+        this.serializer = context.getMysqlChannel().getSerializer();
         this.isProxy = false;
         if (parsedStmt instanceof LogicalPlanAdapter) {
             this.statementContext = ((LogicalPlanAdapter) parsedStmt).getStatementContext();
@@ -1664,7 +1664,7 @@ public class StmtExecutor implements ProfileWriter {
                 context.getEnv().getLoadManager()
                         .recordFinishedLoadJob(label, txnId, insertStmt.getDb(), insertStmt.getTargetTable().getId(),
                                 EtlJobType.INSERT, createTime, throwable == null ? "" : throwable.getMessage(),
-                                coord.getTrackingUrl());
+                                coord.getTrackingUrl(), insertStmt.getUserInfo());
             } catch (MetaNotFoundException e) {
                 LOG.warn("Record info of insert load with error {}", e.getMessage(), e);
                 errMsg = "Record info of insert load with error " + e.getMessage();

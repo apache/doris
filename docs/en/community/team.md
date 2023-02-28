@@ -50,7 +50,7 @@ We'd like to thank the following committers to the Apache Doris project who have
 | [yangzhg](https://people.apache.org/committer-index.html#yangzhg) | yangzhg             | Zhengguo Yang |
 | [weizuo](https://people.apache.org/committer-index.html#weizuo) | weizuo93            | Zuo Wei       |
 
-## Committers (53)
+## Committers (52)
 
 (the listing excludes PMC members above)
 

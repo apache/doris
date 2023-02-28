@@ -17,6 +17,7 @@
 
 package org.apache.doris.load.loadv2;
 
+import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Table;
@@ -38,7 +39,8 @@ public class InsertLoadJobTest {
     @Test
     public void testGetTableNames(@Mocked Env env, @Mocked InternalCatalog catalog, @Injectable Database database,
             @Injectable Table table) throws MetaNotFoundException {
-        InsertLoadJob insertLoadJob = new InsertLoadJob("label", 1L, 1L, 1L, 1000, "", "");
+        UserIdentity userInfo = new UserIdentity("root", "localhost");
+        InsertLoadJob insertLoadJob = new InsertLoadJob("label", 1L, 1L, 1L, 1000, "", "", userInfo);
         String tableName = "table1";
         new Expectations() {
             {
