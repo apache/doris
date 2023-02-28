@@ -246,7 +246,7 @@ See the `lower_case_table_names` section in [Variables](../../advanced/variables
 
 	`fe_host` is the node IP where FE is located;  `query_port` is in fe/conf/fe.conf; the root account is used by default and no password is required in login.
 
-	After login, execute the following command to add all the Best:
+	After login, execute the following command to add all the BE host and heartbeat service port:
 
 	`ALTER SYSTEM ADD BACKEND "be_host:heartbeat_service_port";`
 
