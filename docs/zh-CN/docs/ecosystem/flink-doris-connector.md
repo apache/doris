@@ -89,14 +89,16 @@ export THRIFT_BIN=/opt/homebrew/Cellar/thrift@0.13.0/0.13.0/bin/thrift
  参考链接: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
  
  Linux:
-    1.下载源码包：`wget https://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz`
-    2.安装依赖：`yum install -y autoconf automake libtool cmake ncurses-devel openssl-devel lzo-devel zlib-devel gcc gcc-c++`
-    3.`tar zxvf thrift-0.13.0.tar.gz`
-    4.`cd thrift-0.13.0`
-    5.`./configure --without-tests`
-    6.`make`
-    7.`make install`
-   安装完成后查看版本：`thrift --version`
+  ```bash
+    1. wget https://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz  # 下载源码包
+    2. yum install -y autoconf automake libtool cmake ncurses-devel openssl-devel lzo-devel zlib-devel gcc gcc-c++  # 安装依赖
+    3. tar zxvf thrift-0.13.0.tar.gz
+    4. cd thrift-0.13.0
+    5. ./configure --without-tests
+    6. make
+    7. make install
+    8. thrift --version  # 安装完成后查看版本
+   ```
    注：如果编译过Doris，则不需要安装thrift,可以直接使用 `$DORIS_HOME/thirdparty/installed/bin/thrift`
 
 在源码目录下执行：
@@ -315,6 +317,34 @@ DataStream<RowData> source = env.fromElements("")
 source.sinkTo(builder.build());
 ```
 
+**SchemaChange 数据流**
+```java
+// enable checkpoint
+env.enableCheckpointing(10000);
+
+Properties props = new Properties();
+props.setProperty("format", "json");
+props.setProperty("read_json_by_line", "true");
+DorisOptions dorisOptions = DorisOptions.builder()
+        .setFenodes("127.0.0.1:8030")
+        .setTableIdentifier("test.t1")
+        .setUsername("root")
+        .setPassword("").build();
+
+DorisExecutionOptions.Builder  executionBuilder = DorisExecutionOptions.builder();
+executionBuilder.setLabelPrefix("label-doris" + UUID.randomUUID())
+        .setStreamLoadProp(props).setDeletable(true);
+
+DorisSink.Builder<String> builder = DorisSink.builder();
+builder.setDorisReadOptions(DorisReadOptions.builder().build())
+        .setDorisExecutionOptions(executionBuilder.build())
+        .setDorisOptions(dorisOptions)
+        .setSerializer(JsonDebeziumSchemaSerializer.builder().setDorisOptions(dorisOptions).build());
+
+env.fromSource(mySqlSource, WatermarkStrategy.noWatermarks(), "MySQL Source")//.print();
+        .sinkTo(builder.build());
+```
+参考： [CDCSchemaChangeExample](https://github.com/apache/doris-flink-connector/blob/master/flink-doris-connector/src/test/java/org/apache/doris/flink/CDCSchemaChangeExample.java)
 
 
 ## 配置
