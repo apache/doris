@@ -81,8 +81,8 @@ public:
 
     void save_meta();
     // Used in clone task, to update local meta when finishing a clone job
-    Status revise_tablet_meta(const std::vector<RowsetMetaSharedPtr>& rowsets_to_clone,
-                              const std::vector<Version>& versions_to_delete);
+    Status revise_tablet_meta(const std::vector<RowsetSharedPtr>& to_add,
+                              const std::vector<RowsetSharedPtr>& to_delete);
 
     int64_t cumulative_layer_point() const;
     void set_cumulative_layer_point(int64_t new_point);
@@ -293,12 +293,17 @@ public:
     Status create_vertical_rowset_writer(RowsetWriterContext& context,
                                          std::unique_ptr<RowsetWriter>* rowset_writer);
 
-    Status create_rowset(RowsetMetaSharedPtr rowset_meta, RowsetSharedPtr* rowset);
+    Status create_rowset(const RowsetMetaSharedPtr& rowset_meta, RowsetSharedPtr* rowset);
 
     // MUST hold EXCLUSIVE `_meta_lock`
     void add_rowsets(const std::vector<RowsetSharedPtr>& to_add);
     // MUST hold EXCLUSIVE `_meta_lock`
     void delete_rowsets(const std::vector<RowsetSharedPtr>& to_delete, bool move_to_stale);
+
+    // MUST hold SHARED `_meta_lock`
+    const auto& rowset_map() const { return _rs_version_map; }
+    // MUST hold SHARED `_meta_lock`
+    const auto& stale_rowset_map() const { return _stale_rs_version_map; }
 
     ////////////////////////////////////////////////////////////////////////////
     // begin cooldown functions
@@ -395,9 +400,6 @@ public:
     void traverse_rowsets(std::function<void(const RowsetSharedPtr&)> visitor) {
         std::shared_lock rlock(_meta_lock);
         for (auto& [v, rs] : _rs_version_map) {
-            visitor(rs);
-        }
-        for (auto& [v, rs] : _stale_rs_version_map) {
             visitor(rs);
         }
     }
