@@ -27,64 +27,6 @@
 #include "vec/common/uint128.h"
 #include "vec/core/types.h"
 
-/** Hash functions that are better than the trivial function std::hash.
-  *
-  * Example: when we do aggregation by the visitor ID, the performance increase is more than 5 times.
-  * This is because of following reasons:
-  * - in Yandex, visitor identifier is an integer that has timestamp with seconds resolution in lower bits;
-  * - in typical implementation of standard library, hash function for integers is trivial and just use lower bits;
-  * - traffic is non-uniformly distributed across a day;
-  * - we are using open-addressing linear probing hash tables that are most critical to hash function quality,
-  *   and trivial hash function gives disastrous results.
-  */
-
-/** Taken from MurmurHash. This is Murmur finalizer.
-  * Faster than int_hash32 when inserting into the hash table UInt64 -> UInt64, where the key is the visitor ID.
-  */
-inline doris::vectorized::UInt64 int_hash64(doris::vectorized::UInt64 x) {
-    x ^= x >> 33;
-    x *= 0xff51afd7ed558ccdULL;
-    x ^= x >> 33;
-    x *= 0xc4ceb9fe1a85ec53ULL;
-    x ^= x >> 33;
-
-    return x;
-}
-
-/** CRC32C is not very high-quality as a hash function,
-  *  according to avalanche and bit independence tests (see SMHasher software), as well as a small number of bits,
-  *  but can behave well when used in hash tables,
-  *  due to high speed (latency 3 + 1 clock cycle, throughput 1 clock cycle).
-  * Works only with SSE 4.2 support.
-  */
-#ifdef __SSE4_2__
-#include <nmmintrin.h>
-#endif
-
-#if defined(__aarch64__)
-#include <sse2neon.h>
-#endif
-
-inline doris::vectorized::UInt64 int_hash_crc32(doris::vectorized::UInt64 x) {
-#if defined(__SSE4_2__) || (defined(__aarch64__) && defined(__ARM_FEATURE_CRC32))
-    return _mm_crc32_u64(-1ULL, x);
-#else
-    /// On other platforms we do not have CRC32. NOTE This can be confusing.
-    return int_hash64(x);
-#endif
-}
-
-template <typename T>
-inline size_t default_hash64(T key) {
-    union {
-        T in;
-        doris::vectorized::UInt64 out;
-    } u;
-    u.out = 0;
-    u.in = key;
-    return int_hash64(u.out);
-}
-
 template <typename T, typename Enable = void>
 struct DefaultHash;
 

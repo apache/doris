@@ -29,7 +29,7 @@ static IAggregateFunction* createWithIntDataType(const DataTypes& argument_type)
 #define DISPATCH(TYPE)                                                                     \
     if (which.idx == TypeIndex::TYPE) {                                                    \
         return new AggregateFunctionTemplate<nullable, ColumnVector<TYPE>>(argument_type); \
-    }                                                                                      \
+    }                                                                                      
     FOR_INTEGER_TYPES(DISPATCH)
 #undef DISPATCH
     return nullptr;

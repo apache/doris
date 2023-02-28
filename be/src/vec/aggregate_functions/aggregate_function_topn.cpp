@@ -52,14 +52,6 @@ AggregateFunctionPtr create_topn_array(const DataTypes& argument_types,
                         AggregateFunctionTemplate<TYPE, has_default_param>, TYPE, is_weighted>>( \
                         result_is_nullable, argument_types));
     FOR_NUMERIC_TYPES(DISPATCH)
-#undef DISPATCH
-
-#define DISPATCH(TYPE)                                                                           \
-    if (which.idx == TypeIndex::TYPE)                                                            \
-        return AggregateFunctionPtr(                                                             \
-                creator_without_type::create<AggregateFunctionTopNArray<                         \
-                        AggregateFunctionTemplate<TYPE, has_default_param>, TYPE, is_weighted>>( \
-                        result_is_nullable, argument_types));                                    \
     FOR_DECIMAL_TYPES(DISPATCH)
 #undef DISPATCH
 
