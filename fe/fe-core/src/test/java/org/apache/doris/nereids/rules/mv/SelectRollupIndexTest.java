@@ -21,14 +21,14 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.nereids.rules.analysis.LogicalSubQueryAliasToLogicalProject;
 import org.apache.doris.nereids.rules.rewrite.logical.MergeProjects;
 import org.apache.doris.nereids.trees.plans.PreAggStatus;
-import org.apache.doris.nereids.util.PatternMatchSupported;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
 
-class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements PatternMatchSupported {
+class SelectRollupIndexTest extends BaseMaterializedIndexSelectTest implements MemoPatternMatchSupported {
 
     @Override
     protected void beforeCreatingConnectContext() throws Exception {

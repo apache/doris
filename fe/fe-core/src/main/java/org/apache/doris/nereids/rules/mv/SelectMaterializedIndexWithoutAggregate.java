@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.rules.mv;
 
 import org.apache.doris.catalog.Column;
+import org.apache.doris.catalog.KeysType;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.nereids.rules.Rule;
@@ -114,13 +115,20 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
             LogicalOlapScan scan,
             Supplier<Set<Slot>> requiredScanOutputSupplier,
             Supplier<Set<Expression>> predicatesSupplier) {
-        switch (scan.getTable().getKeysType()) {
+        OlapTable table = scan.getTable();
+        long baseIndexId = table.getBaseIndexId();
+        KeysType keysType = scan.getTable().getKeysType();
+        switch (keysType) {
             case AGG_KEYS:
             case UNIQUE_KEYS:
+                break;
             case DUP_KEYS:
+                if (table.getIndexIdToMeta().size() == 1) {
+                    return scan.withMaterializedIndexSelected(PreAggStatus.on(), baseIndexId);
+                }
                 break;
             default:
-                throw new RuntimeException("Not supported keys type: " + scan.getTable().getKeysType());
+                throw new RuntimeException("Not supported keys type: " + keysType);
         }
         if (scan.getTable().isDupKeysOrMergeOnWrite()) {
             // Set pre-aggregation to `on` to keep consistency with legacy logic.
@@ -132,8 +140,16 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
             return scan.withMaterializedIndexSelected(PreAggStatus.on(),
                     selectBestIndex(candidate, scan, predicatesSupplier.get()));
         } else {
-            OlapTable table = scan.getTable();
-            long baseIndexId = table.getBaseIndexId();
+            final PreAggStatus preAggStatus;
+            if (preAggEnabledByHint(scan)) {
+                // PreAggStatus could be enabled by pre-aggregation hint for agg-keys and unique-keys.
+                preAggStatus = PreAggStatus.on();
+            } else {
+                preAggStatus = PreAggStatus.off("No aggregate on scan.");
+            }
+            if (table.getIndexIdToMeta().size() == 1) {
+                return scan.withMaterializedIndexSelected(preAggStatus, baseIndexId);
+            }
             int baseIndexKeySize = table.getKeyColumnsByIndexId(table.getBaseIndexId()).size();
             // No aggregate on scan.
             // So only base index and indexes that have all the keys could be used.
@@ -143,13 +159,6 @@ public class SelectMaterializedIndexWithoutAggregate extends AbstractSelectMater
                     .filter(index -> containAllRequiredColumns(index, scan, requiredScanOutputSupplier.get()))
                     .collect(Collectors.toList());
 
-            final PreAggStatus preAggStatus;
-            if (preAggEnabledByHint(scan)) {
-                // PreAggStatus could be enabled by pre-aggregation hint for agg-keys and unique-keys.
-                preAggStatus = PreAggStatus.on();
-            } else {
-                preAggStatus = PreAggStatus.off("No aggregate on scan.");
-            }
             if (candidates.size() == 1) {
                 // `candidates` only have base index.
                 return scan.withMaterializedIndexSelected(preAggStatus, baseIndexId);

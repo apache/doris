@@ -40,8 +40,8 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.RelationUtil;
 import org.apache.doris.nereids.types.StringType;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
-import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 import org.apache.doris.qe.ConnectContext;
@@ -56,7 +56,7 @@ import java.util.ArrayList;
 import java.util.Map;
 import java.util.Objects;
 
-class MemoTest implements PatternMatchSupported {
+class MemoTest implements MemoPatternMatchSupported {
 
     private final ConnectContext connectContext = MemoTestUtils.createConnectContext();
 

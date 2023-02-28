@@ -87,8 +87,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
 
     @Override
     public List<Rule> buildRules() {
-        PatternDescriptor<LogicalAggregate<GroupPlan>> basePattern = logicalAggregate()
-                .when(LogicalAggregate::isNormalized);
+        PatternDescriptor<LogicalAggregate<GroupPlan>> basePattern = logicalAggregate();
 
         return ImmutableList.of(
             RuleType.STORAGE_LAYER_AGGREGATE_WITHOUT_PROJECT.build(
@@ -125,12 +124,12 @@ public class AggregateStrategies implements ImplementationRuleFactory {
             RuleType.TWO_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI.build(
                 basePattern
                     .when(this::containsCountDistinctMultiExpr)
-                    .thenApplyMulti(ctx -> twoPhaseAggregateWithCountDistinctMulti(ctx.root, ctx.connectContext))
+                    .thenApplyMulti(ctx -> twoPhaseAggregateWithCountDistinctMulti(ctx.root, ctx.cascadesContext))
             ),
             RuleType.THREE_PHASE_AGGREGATE_WITH_COUNT_DISTINCT_MULTI.build(
                 basePattern
                     .when(this::containsCountDistinctMultiExpr)
-                    .thenApplyMulti(ctx -> threePhaseAggregateWithCountDistinctMulti(ctx.root, ctx.connectContext))
+                    .thenApplyMulti(ctx -> threePhaseAggregateWithCountDistinctMulti(ctx.root, ctx.cascadesContext))
             ),
             RuleType.TWO_PHASE_AGGREGATE_WITH_DISTINCT.build(
                 basePattern
@@ -393,7 +392,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
      *
      */
     private List<PhysicalHashAggregate<Plan>> twoPhaseAggregateWithCountDistinctMulti(
-            LogicalAggregate<? extends Plan> logicalAgg, ConnectContext connectContext) {
+            LogicalAggregate<? extends Plan> logicalAgg, CascadesContext cascadesContext) {
         AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
 
         Set<Expression> countDistinctArguments = logicalAgg.getDistinctArguments();
@@ -423,13 +422,14 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         PhysicalHashAggregate<Plan> gatherLocalAgg = new PhysicalHashAggregate<>(
                 localAggGroupBy, localOutput, Optional.of(partitionExpressions),
                 new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER),
-                maybeUsingStreamAgg(connectContext, logicalAgg),
+                maybeUsingStreamAgg(cascadesContext.getConnectContext(), logicalAgg),
                 logicalAgg.getLogicalProperties(), requireGather, logicalAgg.child()
         );
 
         List<Expression> distinctGroupBy = logicalAgg.getGroupByExpressions();
 
-        LogicalAggregate<? extends Plan> countIfAgg = countDistinctMultiExprToCountIf(logicalAgg, connectContext).first;
+        LogicalAggregate<? extends Plan> countIfAgg = countDistinctMultiExprToCountIf(
+                logicalAgg, cascadesContext).first;
 
         AggregateParam distinctInputToResultParam
                 = new AggregateParam(AggPhase.DISTINCT_LOCAL, AggMode.INPUT_TO_RESULT);
@@ -509,7 +509,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
      *
      */
     private List<PhysicalHashAggregate<? extends Plan>> threePhaseAggregateWithCountDistinctMulti(
-            LogicalAggregate<? extends Plan> logicalAgg, ConnectContext connectContext) {
+            LogicalAggregate<? extends Plan> logicalAgg, CascadesContext cascadesContext) {
         AggregateParam inputToBufferParam = new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER);
 
         Set<Expression> countDistinctArguments = logicalAgg.getDistinctArguments();
@@ -539,7 +539,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
         PhysicalHashAggregate<Plan> anyLocalAgg = new PhysicalHashAggregate<>(
                 localAggGroupBy, localOutput, Optional.of(partitionExpressions),
                 new AggregateParam(AggPhase.LOCAL, AggMode.INPUT_TO_BUFFER),
-                maybeUsingStreamAgg(connectContext, logicalAgg),
+                maybeUsingStreamAgg(cascadesContext.getConnectContext(), logicalAgg),
                 logicalAgg.getLogicalProperties(), requireAny, logicalAgg.child()
         );
 
@@ -571,7 +571,8 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                 bufferToBufferParam, false, logicalAgg.getLogicalProperties(),
                 requireGather, anyLocalAgg);
 
-        LogicalAggregate<? extends Plan> countIfAgg = countDistinctMultiExprToCountIf(logicalAgg, connectContext).first;
+        LogicalAggregate<? extends Plan> countIfAgg = countDistinctMultiExprToCountIf(
+                logicalAgg, cascadesContext).first;
 
         AggregateParam distinctInputToResultParam
                 = new AggregateParam(AggPhase.DISTINCT_LOCAL, AggMode.INPUT_TO_RESULT);
@@ -1194,7 +1195,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
      *       phase of aggregate, please normalize to slot and create a bottom project like NormalizeAggregate.
      */
     private Pair<LogicalAggregate<? extends Plan>, List<Count>> countDistinctMultiExprToCountIf(
-                LogicalAggregate<? extends Plan> aggregate, ConnectContext connectContext) {
+                LogicalAggregate<? extends Plan> aggregate, CascadesContext cascadesContext) {
         ImmutableList.Builder<Count> countIfList = ImmutableList.builder();
         List<NamedExpression> newOutput = ExpressionUtils.rewriteDownShortCircuit(
                 aggregate.getOutputExpressions(), outputChild -> {
@@ -1206,7 +1207,7 @@ public class AggregateStrategies implements ImplementationRuleFactory {
                             for (int i = arguments.size() - 2; i >= 0; --i) {
                                 Expression argument = count.getArgument(i);
                                 If ifNull = new If(new IsNull(argument), NullLiteral.INSTANCE, countExpr);
-                                countExpr = assignNullType(ifNull, connectContext);
+                                countExpr = assignNullType(ifNull, cascadesContext);
                             }
                             Count countIf = new Count(countExpr);
                             countIfList.add(countIf);
@@ -1224,8 +1225,9 @@ public class AggregateStrategies implements ImplementationRuleFactory {
     }
 
     // don't invoke the ExpressionNormalization, because the expression maybe simplified and get rid of some slots
-    private If assignNullType(If ifExpr, ConnectContext context) {
-        If ifWithCoercion = (If) TypeCoercion.INSTANCE.rewrite(ifExpr, new ExpressionRewriteContext(context));
+    private If assignNullType(If ifExpr, CascadesContext cascadesContext) {
+        ExpressionRewriteContext context = new ExpressionRewriteContext(cascadesContext);
+        If ifWithCoercion = (If) TypeCoercion.INSTANCE.rewrite(ifExpr, context);
         Expression trueValue = ifWithCoercion.getArgument(1);
         if (trueValue instanceof Cast && trueValue.child(0) instanceof NullLiteral) {
             List<Expression> newArgs = Lists.newArrayList(ifWithCoercion.getArguments());

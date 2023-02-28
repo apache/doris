@@ -21,12 +21,13 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 
+import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 
 import java.util.List;
@@ -57,15 +58,15 @@ import java.util.List;
  *                         child
  * </pre>
  */
-public class ApplyPullFilterOnProjectUnderAgg extends OneRewriteRuleFactory {
+public class PullUpCorrelatedFilterUnderApplyAggregateProject extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalApply(group(), logicalAggregate(logicalProject(logicalFilter())))
+        return logicalApply(any(), logicalAggregate(logicalProject(logicalFilter())))
                 .when(LogicalApply::isCorrelated).then(apply -> {
-                    LogicalAggregate<LogicalProject<LogicalFilter<GroupPlan>>> agg = apply.right();
+                    LogicalAggregate<LogicalProject<LogicalFilter<Plan>>> agg = apply.right();
 
-                    LogicalProject<LogicalFilter<GroupPlan>> project = agg.child();
-                    LogicalFilter<GroupPlan> filter = project.child();
+                    LogicalProject<LogicalFilter<Plan>> project = agg.child();
+                    LogicalFilter<Plan> filter = project.child();
                     List<NamedExpression> newProjects = Lists.newArrayList();
                     newProjects.addAll(project.getProjects());
                     filter.child().getOutput().forEach(slot -> {
@@ -76,10 +77,9 @@ public class ApplyPullFilterOnProjectUnderAgg extends OneRewriteRuleFactory {
 
                     LogicalProject newProject = new LogicalProject<>(newProjects, filter.child());
                     LogicalFilter newFilter = new LogicalFilter<>(filter.getConjuncts(), newProject);
-                    LogicalAggregate newAgg = new LogicalAggregate<>(agg.getGroupByExpressions(),
-                            agg.getOutputExpressions(), agg.isOrdinalIsResolved(), newFilter);
+                    LogicalAggregate newAgg = agg.withChildren(ImmutableList.of(newFilter));
                     return new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryExpr(),
                             apply.getCorrelationFilter(), apply.left(), newAgg);
-                }).toRule(RuleType.APPLY_PULL_FILTER_ON_PROJECT_UNDER_AGG);
+                }).toRule(RuleType.PULL_UP_CORRELATED_FILTER_UNDER_APPLY_AGGREGATE_PROJECT);
     }
 }

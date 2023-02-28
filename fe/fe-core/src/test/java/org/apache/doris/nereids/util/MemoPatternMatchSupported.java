@@ -15,20 +15,15 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.batch;
+package org.apache.doris.nereids.util;
 
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.analysis.AdjustAggregateNullableForEmptySet;
+import org.apache.doris.nereids.pattern.GeneratedMemoPatterns;
+import org.apache.doris.nereids.rules.RulePromise;
 
-import com.google.common.collect.ImmutableList;
+public interface MemoPatternMatchSupported extends GeneratedMemoPatterns {
 
-/**
- * Analyze subquery.
- */
-public class AdjustAggregateNullableForEmptySetJob extends BatchRulesJob {
-    public AdjustAggregateNullableForEmptySetJob(CascadesContext cascadesContext) {
-        super(cascadesContext);
-        rulesJob.addAll(ImmutableList.of(
-                bottomUpBatch(ImmutableList.of(new AdjustAggregateNullableForEmptySet()))));
+    @Override
+    default RulePromise defaultPromise() {
+        return RulePromise.PLAN_CHECK;
     }
 }

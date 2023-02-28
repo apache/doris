@@ -17,11 +17,12 @@
 
 package org.apache.doris.nereids.rules.rewrite.logical;
 
+import org.apache.doris.nereids.annotation.DependsRules;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
+import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 
 import com.google.common.collect.Lists;
@@ -31,6 +32,10 @@ import java.util.List;
 /**
  * Push the predicate in the LogicalFilter to the join children.
  */
+@DependsRules({
+    InferPredicates.class,
+    EliminateOuterJoin.class
+})
 public class PushFilterInsideJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
@@ -40,7 +45,7 @@ public class PushFilterInsideJoin extends OneRewriteRuleFactory {
                         || filter.child().getJoinType().isInnerJoin())
                 .then(filter -> {
                     List<Expression> otherConditions = Lists.newArrayList(filter.getConjuncts());
-                    LogicalJoin<GroupPlan, GroupPlan> join = filter.child();
+                    LogicalJoin<Plan, Plan> join = filter.child();
                     otherConditions.addAll(join.getOtherJoinConjuncts());
                     return new LogicalJoin<>(join.getJoinType(), join.getHashJoinConjuncts(),
                             otherConditions, join.getHint(), join.left(), join.right());
