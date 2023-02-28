@@ -674,7 +674,7 @@ Status OrcReader::_decode_string_column(const std::string& col_name,
     if (type_kind == orc::TypeKind::CHAR) {
         // Possibly there are some zero padding characters in CHAR type, we have to strip them off.
         for (int i = 0; i < num_values; ++i) {
-            if (cvb->notNull[0]) {
+            if (cvb->notNull[i]) {
                 string_values.emplace_back(data->data[i],
                                            trim_right(data->data[i], data->length[i]));
             } else {
@@ -686,7 +686,7 @@ Status OrcReader::_decode_string_column(const std::string& col_name,
         }
     } else {
         for (int i = 0; i < num_values; ++i) {
-            if (cvb->notNull[0]) {
+            if (cvb->notNull[i]) {
                 string_values.emplace_back(data->data[i], data->length[i]);
             } else {
                 string_values.emplace_back(empty_string.data(), 0);
