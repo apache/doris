@@ -86,6 +86,7 @@ import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalIntersect;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalLimit;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalNestedLoopJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalOlapScan;
@@ -117,6 +118,7 @@ import org.apache.doris.planner.ExchangeNode;
 import org.apache.doris.planner.HashJoinNode;
 import org.apache.doris.planner.HashJoinNode.DistributionMode;
 import org.apache.doris.planner.IntersectNode;
+import org.apache.doris.planner.JdbcScanNode;
 import org.apache.doris.planner.JoinNodeBase;
 import org.apache.doris.planner.NestedLoopJoinNode;
 import org.apache.doris.planner.OlapScanNode;
@@ -596,6 +598,27 @@ public class PhysicalPlanTranslator extends DefaultPlanVisitor<PlanFragment, Pla
         }
 
         PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), scanNode, DataPartition.RANDOM);
+        context.addPlanFragment(planFragment);
+        return planFragment;
+    }
+
+    @Override
+    public PlanFragment visitPhysicalJdbcScan(PhysicalJdbcScan jdbcScan, PlanTranslatorContext context) {
+        List<Slot> slotList = jdbcScan.getOutput();
+        ExternalTable table = jdbcScan.getTable();
+        TupleDescriptor tupleDescriptor = generateTupleDesc(slotList, table, context);
+        tupleDescriptor.setTable(table);
+        JdbcScanNode jdbcScanNode = new JdbcScanNode(context.nextPlanNodeId(), tupleDescriptor, true);
+        Utils.execWithUncheckedException(jdbcScanNode::init);
+        context.addScanNode(jdbcScanNode);
+        context.getRuntimeTranslator().ifPresent(
+                runtimeFilterGenerator -> runtimeFilterGenerator.getTargetOnScanNode(jdbcScan.getId()).forEach(
+                    expr -> runtimeFilterGenerator.translateRuntimeFilterTarget(expr, jdbcScanNode, context)
+            )
+        );
+        Utils.execWithUncheckedException(jdbcScanNode::finalizeForNerieds);
+        DataPartition dataPartition = DataPartition.RANDOM;
+        PlanFragment planFragment = new PlanFragment(context.nextFragmentId(), jdbcScanNode, dataPartition);
         context.addPlanFragment(planFragment);
         return planFragment;
     }

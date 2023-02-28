@@ -22,9 +22,9 @@ import org.apache.doris.catalog.DatabaseIf;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
-import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.TableIf;
 import org.apache.doris.catalog.View;
+import org.apache.doris.catalog.external.ExternalTable;
 import org.apache.doris.catalog.external.HMSExternalTable;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogIf;
@@ -43,6 +43,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFileScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
+import org.apache.doris.nereids.trees.plans.logical.LogicalJdbcScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalSchemaScan;
@@ -194,10 +195,13 @@ public class BindRelation extends OneAnalysisRuleFactory {
                 Plan viewPlan = parseAndAnalyzeView(((View) table).getDdlSql(), cascadesContext);
                 return new LogicalSubQueryAlias<>(tableQualifier, viewPlan);
             case HMS_EXTERNAL_TABLE:
-                return new LogicalFileScan(cascadesContext.getStatementContext().getNextRelationId(),
+                return new LogicalFileScan(RelationUtil.newRelationId(),
                     (HMSExternalTable) table, ImmutableList.of(dbName));
             case SCHEMA:
-                return new LogicalSchemaScan(RelationUtil.newRelationId(), (Table) table, ImmutableList.of(dbName));
+                return new LogicalSchemaScan(RelationUtil.newRelationId(), table, ImmutableList.of(dbName));
+            case JDBC_EXTERNAL_TABLE:
+                return new LogicalJdbcScan(RelationUtil.newRelationId(),
+                    (ExternalTable) table, ImmutableList.of(dbName));
             default:
                 throw new AnalysisException("Unsupported tableType:" + table.getType());
         }
