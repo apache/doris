@@ -20,9 +20,10 @@ suite("test_mysql_connection") {
     String cmdDefault = "mysql -uroot -h127.0.0.1 -P9030 -e \"show variables\"";
     String cmdDisabledSsl= "mysql --ssl-mode=DISABLE -uroot -h127.0.0.1 -P9030 -e \"show variables\"";
     String cmdSsl12 = "mysql --ssl-mode=REQUIRED -uroot -h127.0.0.1 -P9030 --tls-version=TLSv1.2 -e \"show variables\"";
-    String cmdSsl13 = "mysql --ssl-mode=REQUIRED -uroot -h127.0.0.1 -P9030 --tls-version=TLSv1.3 -e \"show variables\"";
+    // The current mysql-client version of the test environment is 5.7.32, which does not support TLSv1.3, so comment this part.
+    // String cmdSsl13 = "mysql --ssl-mode=REQUIRED -uroot -h127.0.0.1 -P9030 --tls-version=TLSv1.3 -e \"show variables\"";
     executeMySQLCommand(cmdDefault);
     executeMySQLCommand(cmdDisabledSsl);
     executeMySQLCommand(cmdSsl12);
-    executeMySQLCommand(cmdSsl13);
+    // executeMySQLCommand(cmdSsl13);
 }

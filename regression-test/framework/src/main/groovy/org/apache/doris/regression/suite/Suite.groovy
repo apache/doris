@@ -531,14 +531,14 @@ class Suite implements GroovyInterceptable {
             while ((line = errInput.readLine()) != null) {
                 errMsg.append(line);
             }
-            assert errMsg.length() == 0: "error occurred!";
+            assert errMsg.length() == 0: "error occurred!" + errMsg.toString();
             errInput.close();
 
             BufferedReader input = new BufferedReader(new InputStreamReader(p.getInputStream()));
             while ((line = input.readLine()) != null) {
                 msg.append(line);
             }
-            assert msg.toString().contains("version"): "error occurred!";
+            assert msg.toString().contains("version"): "error occurred!" + errMsg.toString();
             input.close();
         } catch (IOException e) {
             e.printStackTrace();
