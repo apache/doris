@@ -96,7 +96,7 @@ public class TypeUtils {
         final Optional<TypeCheckResult> firstFailed = plan.getOutput().stream()
                 .map(slot -> new TypeCheckResult(
                         TypeUtils.isSpportedType(slot.getDataType().getClass()),
-                        "type unsupported for nereids planner"))
+                        String.format("type %s unsupported for nereids planner", slot.getDataType().toString())))
                 .filter(TypeCheckResult::failed)
                 .findFirst();
 
