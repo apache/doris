@@ -26,6 +26,7 @@ import org.apache.doris.analysis.FunctionCallExpr;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.NullLiteral;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.StringLiteral;
 import org.apache.doris.analysis.TupleDescriptor;
@@ -44,6 +45,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.iceberg.IcebergExternalCatalog;
 import org.apache.doris.load.BrokerFileGroup;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.planner.PlanNodeId;
 import org.apache.doris.planner.external.iceberg.IcebergApiSource;
 import org.apache.doris.planner.external.iceberg.IcebergHMSSource;
@@ -72,6 +74,7 @@ import org.apache.logging.log4j.Logger;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * ExternalFileScanNode for the file access type of catalog, now only support
@@ -250,7 +253,8 @@ public class ExternalFileScanNode extends ExternalScanNode {
      * In the projection process, some slots may be removed. So call this to update the slots info.
      */
     @Override
-    public void updateRequiredSlots() throws UserException {
+    public void updateRequiredSlots(PlanTranslatorContext planTranslatorContext,
+            Set<SlotId> requiredByProjectSlotIdSet) throws UserException {
         for (int i = 0; i < contexts.size(); i++) {
             ParamCreateContext context = contexts.get(i);
             FileScanProviderIf scanProvider = scanProviders.get(i);
