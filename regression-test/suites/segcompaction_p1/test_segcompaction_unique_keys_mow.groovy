@@ -77,9 +77,10 @@ suite("test_segcompaction_unique_keys_mow") {
             UNIQUE KEY(`col_0`) DISTRIBUTED BY HASH(`col_0`) BUCKETS 1
             PROPERTIES (
                 "replication_num" = "1",
-                "enable_unique_key_merge_on_write" = "true"
                 );
         """
+        //      "enable_unique_key_merge_on_write" = "true"
+
 
         def uuid = UUID.randomUUID().toString().replace("-", "0")
         def path = "oss://doris-build-hk-1308700295/regression/segcompaction_test/segcompaction_test.orc"
