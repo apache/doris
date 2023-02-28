@@ -42,7 +42,7 @@ AES_ENCRYPT(str,key_str[,init_vector])
 
 - `str`: Content to be encrypted
 - `key_str`: Secret key
-- `init_vector`: Offset
+- `init_vector`: Initialization Vector
 
 #### Return Type
 
@@ -116,7 +116,7 @@ AES_DECRYPT(str,key_str[,init_vector])
 
 - `str`: Content that encrypted
 - `key_str`: Secret key
-- `init_vector`: Offset
+- `init_vector`: Initialization Vector
 
 #### Return Type
 
