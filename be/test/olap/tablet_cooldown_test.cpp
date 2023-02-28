@@ -41,20 +41,24 @@ static const std::string kTestDir = "./ut_dir/tablet_cooldown_test";
 static constexpr int64_t kResourceId = 10000;
 static constexpr int64_t kStoragePolicyId = 10002;
 
+
 // remove DISABLED_ when need run this test
-#define TabletCooldownTest DISABLED_TabletCooldownTest
+// #define TabletCooldownTest DISABLED_TabletCooldownTest
 class TabletCooldownTest : public testing::Test {
 public:
+    class S3ClientMock : public Aws::S3::S3Client {
+        S3ClientMock() {}
+
+        S3ClientMock(const Aws::Auth::AWSCredentials &credentials,
+                     const Aws::Client::ClientConfiguration &clientConfiguration,
+                     Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy signPayloads,
+                     bool use_virtual_addressing)
+                : Aws::S3::S3Client(credentials, clientConfiguration, signPayloads,
+                                    use_virtual_addressing) {}
+    };
+
     static void SetUpTestSuite() {
-        S3Conf s3_conf;
-        s3_conf.ak = config::test_s3_ak;
-        s3_conf.sk = config::test_s3_sk;
-        s3_conf.endpoint = config::test_s3_endpoint;
-        s3_conf.region = config::test_s3_region;
-        s3_conf.bucket = config::test_s3_bucket;
-        s3_conf.prefix = config::test_s3_prefix + "/tablet_cooldown_test";
-        auto s3_fs = io::S3FileSystem::create(std::move(s3_conf), std::to_string(kResourceId));
-        ASSERT_TRUE(s3_fs->connect().ok());
+        S3ClientMock s3_fs;
         put_storage_resource(kResourceId, {s3_fs, 1});
         auto storage_policy = std::make_shared<StoragePolicy>();
         storage_policy->name = "TabletCooldownTest";
@@ -149,6 +153,7 @@ TEST_F(TabletCooldownTest, normal) {
     // create tablet
     TCreateTabletReq request;
     create_tablet_request_with_sequence_col(10005, 270068377, &request);
+    request.__set_replica_id(10009);
     Status st = k_engine->create_tablet(request);
     ASSERT_EQ(Status::OK(), st);
 
@@ -225,6 +230,10 @@ TEST_F(TabletCooldownTest, normal) {
 
     // test cooldown
     tablet->set_storage_policy_id(kStoragePolicyId);
+    st = tablet->cooldown(); // rowset [0-1]
+    ASSERT_NE(Status::OK(), st);
+    tablet->update_cooldown_conf(1, 10009);
+    // cooldown for upload node
     st = tablet->cooldown(); // rowset [0-1]
     ASSERT_EQ(Status::OK(), st);
     st = tablet->cooldown(); // rowset [2-2]
