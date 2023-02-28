@@ -676,7 +676,7 @@ Status FragmentMgr::exec_plan_fragment(const TExecPlanFragmentParams& params,
         // 如果设置了group就用group，如果没设置就用default group。
         int ts = params.query_options.query_timeout;
         resourcegroup::ResourceGroupPtr rg;
-        if (ts > 20) {
+        if (ts > 200) {
             rg = resourcegroup::ResourceGroupManager::instance()
                          ->get_or_create_resource_group(1);
         } else {
