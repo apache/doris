@@ -65,6 +65,7 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The planner is responsible for turning parse trees into plan fragments that can be shipped off to backends for
@@ -539,7 +540,7 @@ public class OriginalPlanner extends Planner {
      *
     */
     private void pushOutColumnUniqueIdsToOlapScan(PlanFragment rootFragment, Analyzer analyzer) {
-        HashSet<Integer> outputColumnUniqueIds =  new HashSet<>();
+        Set<Integer> outputColumnUniqueIds =  new HashSet<>();
         ArrayList<Expr> outputExprs = rootFragment.getOutputExprs();
         for (Expr expr : outputExprs) {
             if (expr instanceof SlotRef) {

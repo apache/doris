@@ -28,6 +28,7 @@ import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.PartitionNames;
 import org.apache.doris.analysis.SlotDescriptor;
+import org.apache.doris.analysis.SlotId;
 import org.apache.doris.analysis.SlotRef;
 import org.apache.doris.analysis.SortInfo;
 import org.apache.doris.analysis.TableSample;
@@ -55,6 +56,7 @@ import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.Util;
+import org.apache.doris.nereids.glue.translator.PlanTranslatorContext;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.resource.Tag;
 import org.apache.doris.statistics.StatisticalType;
@@ -155,7 +157,7 @@ public class OlapScanNode extends ScanNode {
     private long totalBytes = 0;
 
     private SortInfo sortInfo = null;
-    private HashSet<Integer> outputColumnUniqueIds = new HashSet<>();
+    private Set<Integer> outputColumnUniqueIds = new HashSet<>();
 
     // When scan match sort_info, we can push limit into OlapScanNode.
     // It's limit for scanner instead of scanNode so we add a new limit.
@@ -187,6 +189,12 @@ public class OlapScanNode extends ScanNode {
     public OlapScanNode(PlanNodeId id, TupleDescriptor desc, String planNodeName) {
         super(id, desc, planNodeName, StatisticalType.OLAP_SCAN_NODE);
         olapTable = (OlapTable) desc.getTable();
+        // use for Nereids to generate uniqueId set for inverted index to avoid scan unnecessary big size column
+        for (SlotDescriptor slotDescriptor : desc.getSlots()) {
+            if (slotDescriptor.getColumn() != null) {
+                outputColumnUniqueIds.add(slotDescriptor.getColumn().getUniqueId());
+            }
+        }
     }
 
     public void setIsPreAggregation(boolean isPreAggregation, String reason) {
@@ -825,7 +833,7 @@ public class OlapScanNode extends ScanNode {
         LOG.debug("distribution prune cost: {} ms", (System.currentTimeMillis() - start));
     }
 
-    public void setOutputColumnUniqueIds(HashSet<Integer> outputColumnUniqueIds) {
+    public void setOutputColumnUniqueIds(Set<Integer> outputColumnUniqueIds) {
         this.outputColumnUniqueIds = outputColumnUniqueIds;
     }
 
@@ -1348,12 +1356,13 @@ public class OlapScanNode extends ScanNode {
         return olapTable.getIndexNameById(selectedIndexId);
     }
 
-    public void finalizeForNerieds() {
+    @Override
+    public void finalizeForNereids() {
         computeNumNodes();
-        computeStatsForNerieds();
+        computeStatsForNereids();
     }
 
-    private void computeStatsForNerieds() {
+    private void computeStatsForNereids() {
         if (cardinality > 0 && avgRowSize <= 0) {
             avgRowSize = totalBytes / (float) cardinality * COMPRESSION_RATIO;
             capCardinalityAtLimit();
@@ -1361,5 +1370,16 @@ public class OlapScanNode extends ScanNode {
         // when node scan has no data, cardinality should be 0 instead of a invalid
         // value after computeStats()
         cardinality = cardinality == -1 ? 0 : cardinality;
+    }
+
+    @Override
+    public void updateRequiredSlots(PlanTranslatorContext context,
+            Set<SlotId> requiredByProjectSlotIdSet) {
+        outputColumnUniqueIds.clear();
+        for (SlotDescriptor slot : context.getTupleDesc(this.getTupleId()).getSlots()) {
+            if (requiredByProjectSlotIdSet.contains(slot.getId()) && slot.getColumn() != null) {
+                outputColumnUniqueIds.add(slot.getColumn().getUniqueId());
+            }
+        }
     }
 }
