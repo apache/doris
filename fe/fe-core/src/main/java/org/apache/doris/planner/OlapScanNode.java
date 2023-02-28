@@ -654,7 +654,20 @@ public class OlapScanNode extends ScanNode {
                 throw new UserException("Failed to get scan range, no queryable replica found in tablet: " + tabletId);
             }
 
-            Collections.shuffle(replicas);
+            int useFixReplica = -1;
+            if (ConnectContext.get() != null) {
+                useFixReplica = ConnectContext.get().getSessionVariable().useFixReplica;
+            }
+            if (useFixReplica == -1) {
+                Collections.shuffle(replicas);
+            } else {
+                LOG.debug("use fix replica, value: {}, replica num: {}", useFixReplica, replicas.size());
+                // sort by replica id
+                replicas.sort(Replica.ID_COMPARATOR);
+                Replica replica = replicas.get(useFixReplica >= replicas.size() ? replicas.size() - 1 : useFixReplica);
+                replicas.clear();
+                replicas.add(replica);
+            }
             boolean tabletIsNull = true;
             boolean collectedStat = false;
             List<String> errs = Lists.newArrayList();
