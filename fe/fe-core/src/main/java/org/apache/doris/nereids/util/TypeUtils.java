@@ -85,7 +85,7 @@ public class TypeUtils {
         }
     }
 
-    public static boolean isSpportedType(Class typeClass) {
+    public static boolean isSupportedType(Class<? extends DataType> typeClass) {
         return !UNSUPPORTED_TYPES.contains(typeClass);
     }
 
@@ -95,7 +95,7 @@ public class TypeUtils {
     public static void checkPlanOutputTypes(Plan plan) {
         final Optional<TypeCheckResult> firstFailed = plan.getOutput().stream()
                 .map(slot -> new TypeCheckResult(
-                        TypeUtils.isSpportedType(slot.getDataType().getClass()),
+                        TypeUtils.isSupportedType(slot.getDataType().getClass()),
                         String.format("type %s unsupported for nereids planner", slot.getDataType().toString())))
                 .filter(TypeCheckResult::failed)
                 .findFirst();
