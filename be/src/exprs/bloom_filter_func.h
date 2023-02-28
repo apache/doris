@@ -322,6 +322,40 @@ struct DateTimeFindOp : public CommonFindOp<DateTimeValue> {
     void insert(BloomFilterAdaptor& bloom_filter, const void* data) const {
         bloom_filter.add_bytes((char*)data, sizeof(vectorized::VecDateTimeValue));
     }
+
+    void insert_batch(BloomFilterAdaptor& bloom_filter, const char* data, const int* offsets,
+                      int number) const {
+        for (int i = 0; i < number; i++) {
+            bloom_filter.add_element(*((vectorized::VecDateTimeValue*)data + offsets[i]));
+        }
+    }
+
+    void insert_single(BloomFilterAdaptor& bloom_filter, const char* data) const {
+        bloom_filter.add_element(*((vectorized::VecDateTimeValue*)data));
+    }
+
+    uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
+                                    const uint8* nullmap, uint16_t* offsets, int number) const {
+        LOG(WARNING) << "DATETIME should not be evaluated by batch in bloom filter";
+        uint16_t new_size = 0;
+        for (int i = 0; i < number; i++) {
+            uint16_t idx = offsets[i];
+            offsets[new_size++] = idx;
+        }
+        return new_size;
+    }
+
+    void find_batch(const BloomFilterAdaptor& bloom_filter, const char* data, const uint8* nullmap,
+                    int number, uint8* results) const {
+        LOG(WARNING) << "DATETIME should not be evaluated by batch in bloom filter";
+        for (int i = 0; i < number; i++) {
+            results[i] = true;
+        }
+    }
+
+    bool find(const BloomFilterAdaptor& bloom_filter, const void* data) const {
+        return bloom_filter.test(Slice((char*)data, sizeof(vectorized::VecDateTimeValue)));
+    }
 };
 
 // avoid violating C/C++ aliasing rules.
@@ -340,6 +374,40 @@ struct DateFindOp : public CommonFindOp<DateTimeValue> {
 
     void insert(BloomFilterAdaptor& bloom_filter, const void* data) const {
         bloom_filter.add_bytes((char*)data, sizeof(vectorized::VecDateTimeValue));
+    }
+
+    void insert_batch(BloomFilterAdaptor& bloom_filter, const char* data, const int* offsets,
+                      int number) const {
+        for (int i = 0; i < number; i++) {
+            bloom_filter.add_element(*((vectorized::VecDateTimeValue*)data + offsets[i]));
+        }
+    }
+
+    void insert_single(BloomFilterAdaptor& bloom_filter, const char* data) const {
+        bloom_filter.add_element(*((vectorized::VecDateTimeValue*)data));
+    }
+
+    uint16_t find_batch_olap_engine(const BloomFilterAdaptor& bloom_filter, const char* data,
+                                    const uint8* nullmap, uint16_t* offsets, int number) const {
+        LOG(WARNING) << "DATE should not be evaluated by batch in bloom filter";
+        uint16_t new_size = 0;
+        for (int i = 0; i < number; i++) {
+            uint16_t idx = offsets[i];
+            offsets[new_size++] = idx;
+        }
+        return new_size;
+    }
+
+    void find_batch(const BloomFilterAdaptor& bloom_filter, const char* data, const uint8* nullmap,
+                    int number, uint8* results) const {
+        LOG(WARNING) << "DATE should not be evaluated by batch in bloom filter";
+        for (int i = 0; i < number; i++) {
+            results[i] = true;
+        }
+    }
+
+    bool find(const BloomFilterAdaptor& bloom_filter, const void* data) const {
+        return bloom_filter.test(Slice((char*)data, sizeof(vectorized::VecDateTimeValue)));
     }
 };
 
