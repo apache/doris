@@ -90,7 +90,9 @@ public class ChildOutputPropertyDeriver extends PlanVisitor<PhysicalProperties, 
             case DISTINCT_LOCAL:
             case DISTINCT_GLOBAL:
                 DistributionSpec childSpec = childOutputProperty.getDistributionSpec();
-                if (childSpec instanceof DistributionSpecHash) {
+                // If child's property is enforced, change it to bucketed
+                if (childSpec instanceof DistributionSpecHash
+                        && ((DistributionSpecHash) childSpec).getShuffleType().equals(ShuffleType.ENFORCED)) {
                     DistributionSpecHash distributionSpecHash = (DistributionSpecHash) childSpec;
                     return new PhysicalProperties(distributionSpecHash.withShuffleType(ShuffleType.BUCKETED));
                 }
