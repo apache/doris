@@ -138,6 +138,14 @@ static const std::string INVALID_NULL_VALUE =
         return Status::RuntimeError(ss.str());                           \
     } while (false)
 
+#define PARSE_DATE(dt_val, col, type, is_date_str)                                      \
+    if ((is_date_str &&                                                                 \
+         !dt_val.from_date_str(static_cast<const std::string>(col.GetString()).c_str(), \
+                               col.GetStringLength())) ||                               \
+        (!is_date_str && !dt_val.from_unixtime(col.GetInt64() / 1000, "+08:00"))) {     \
+        RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);                                   \
+    }
+
 template <typename T>
 static Status get_int_value(const rapidjson::Value& col, PrimitiveType type, void* slot,
                             bool pure_doc_value) {
@@ -172,45 +180,58 @@ static Status get_int_value(const rapidjson::Value& col, PrimitiveType type, voi
 }
 
 template <typename T, typename RT>
-static RT get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool is_date_str) {
-    vectorized::DateV2Value<T> dt_slot;
-    if ((is_date_str &&
-         !dt_slot.from_date_str(static_cast<const std::string>(col.GetString()).c_str(),
-                                col.GetStringLength())) ||
-        (!is_date_str && !dt_slot.from_unixtime(col.GetInt64() / 1000, "+08:00"))) {
-        RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
+static Status get_date_value_int(const rapidjson::Value& col, PrimitiveType type, bool is_date_str,
+                                 RT* slot) {
+    constexpr bool is_datetime_v1 = std::is_same_v<T, vectorized::VecDateTimeValue>;
+    T dt_val;
+    PARSE_DATE(dt_val, col, type, is_date_str)
+
+    if constexpr (is_datetime_v1) {
+        if (type == TYPE_DATE) {
+            dt_val.cast_to_date();
+        } else {
+            dt_val.to_datetime();
+        }
     }
 
-    return binary_cast<doris::vectorized::DateV2Value<T>, RT>(
-            *reinterpret_cast<vectorized::DateV2Value<T>*>(&dt_slot));
+    *reinterpret_cast<RT*>(slot) = binary_cast<T, RT>(*reinterpret_cast<T*>(&dt_val));
+    return Status::OK();
 }
 
 template <typename T, typename RT>
-static RT get_date_int(const rapidjson::Value& sub_col, PrimitiveType sub_type,
-                       bool pure_doc_value) {
+static Status get_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value,
+                           RT* slot) {
     // this would happend just only when `enable_docvalue_scan = false`, and field has timestamp format date from _source
-    if (sub_col.IsNumber()) {
+    if (col.IsNumber()) {
         // ES process date/datetime field would use millisecond timestamp for index or docvalue
         // processing date type field, if a number is encountered, Doris On ES will force it to be processed according to ms
         // Doris On ES needs to be consistent with ES, so just divided by 1000 because the unit for from_unixtime is seconds
-        return get_date_value_int<T, RT>(sub_col, sub_type, false);
-    } else if (sub_col.IsArray() && pure_doc_value) {
+        return get_date_value_int<T, RT>(col, type, false, slot);
+    } else if (col.IsArray() && pure_doc_value) {
         // this would happened just only when `enable_docvalue_scan = true`
         // ES add default format for all field after ES 6.4, if we not provided format for `date` field ES would impose
         // a standard date-format for date field as `2020-06-16T00:00:00.000Z`
         // At present, we just process this string format date. After some PR were merged into Doris, we would impose `epoch_mills` for
         // date field's docvalue
-        if (sub_col[0].IsString()) {
-            return get_date_value_int<T, RT>(sub_col, sub_type, true);
+        if (col[0].IsString()) {
+            return get_date_value_int<T, RT>(col[0], type, true, slot);
         }
         // ES would return millisecond timestamp for date field, divided by 1000 because the unit for from_unixtime is seconds
-        return get_date_value_int<T, RT>(sub_col, sub_type, false);
+        return get_date_value_int<T, RT>(col[0], type, false, slot);
     } else {
         // this would happened just only when `enable_docvalue_scan = false`, and field has string format date from _source
-        RETURN_ERROR_IF_COL_IS_ARRAY(sub_col, sub_type);
-        RETURN_ERROR_IF_COL_IS_NOT_STRING(sub_col, sub_type);
-        return get_date_value_int<T, RT>(sub_col, sub_type, true);
+        RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
+        RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
+        return get_date_value_int<T, RT>(col, type, true, slot);
     }
+}
+template <typename T, typename RT>
+static Status fill_date_int(const rapidjson::Value& col, PrimitiveType type, bool pure_doc_value,
+                            vectorized::IColumn* col_ptr) {
+    RT data;
+    RETURN_IF_ERROR((get_date_int<T, RT>(col, type, pure_doc_value, &data)));
+    col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&data)), 0);
+    return Status::OK();
 }
 
 template <typename T>
@@ -344,274 +365,6 @@ int ScrollParser::get_size() {
 
 const std::string& ScrollParser::get_scroll_id() {
     return _scroll_id;
-}
-
-Status ScrollParser::fill_tuple(const TupleDescriptor* tuple_desc, Tuple* tuple,
-                                MemPool* tuple_pool, bool* line_eof,
-                                const std::map<std::string, std::string>& docvalue_context) {
-    *line_eof = true;
-
-    if (_size <= 0 || _line_index >= _size) {
-        return Status::OK();
-    }
-
-    const rapidjson::Value& obj = _inner_hits_node[_line_index++];
-    bool pure_doc_value = false;
-    if (obj.HasMember("fields")) {
-        pure_doc_value = true;
-    }
-    const rapidjson::Value& line = obj.HasMember(FIELD_SOURCE) ? obj[FIELD_SOURCE] : obj["fields"];
-
-    tuple->init(tuple_desc->byte_size());
-    for (int i = 0; i < tuple_desc->slots().size(); ++i) {
-        const SlotDescriptor* slot_desc = tuple_desc->slots()[i];
-
-        if (!slot_desc->is_materialized()) {
-            continue;
-        }
-        // _id field must exists in every document, this is guaranteed by ES
-        // if _id was found in tuple, we would get `_id` value from inner-hit node
-        // json-format response would like below:
-        //    "hits": {
-        //            "hits": [
-        //                {
-        //                    "_id": "UhHNc3IB8XwmcbhBk1ES",
-        //                    "_source": {
-        //                          "k": 201,
-        //                    }
-        //                }
-        //            ]
-        //        }
-        if (slot_desc->col_name() == FIELD_ID) {
-            // actually this branch will not be reached, this is guaranteed by Doris FE.
-            if (pure_doc_value) {
-                return Status::RuntimeError("obtain `_id` is not supported in doc_values mode");
-            }
-            tuple->set_not_null(slot_desc->null_indicator_offset());
-            void* slot = tuple->get_slot(slot_desc->tuple_offset());
-            // obj[FIELD_ID] must not be nullptr
-            std::string _id = obj[FIELD_ID].GetString();
-            size_t len = _id.length();
-            char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(len));
-            if (UNLIKELY(buffer == nullptr)) {
-                std::string details = strings::Substitute(ERROR_MEM_LIMIT_EXCEEDED,
-                                                          "MaterializeNextRow", len, "string slot");
-                RETURN_LIMIT_EXCEEDED(nullptr, details, len);
-            }
-            memcpy(buffer, _id.data(), len);
-            reinterpret_cast<StringValue*>(slot)->ptr = buffer;
-            reinterpret_cast<StringValue*>(slot)->len = len;
-            continue;
-        }
-
-        // if pure_doc_value enabled, docvalue_context must contains the key
-        // todo: need move all `pure_docvalue` for every tuple outside fill_tuple
-        //  should check pure_docvalue for one table scan not every tuple
-        const char* col_name = pure_doc_value ? docvalue_context.at(slot_desc->col_name()).c_str()
-                                              : slot_desc->col_name().c_str();
-
-        rapidjson::Value::ConstMemberIterator itr = line.FindMember(col_name);
-        if (itr == line.MemberEnd()) {
-            tuple->set_null(slot_desc->null_indicator_offset());
-            continue;
-        }
-
-        tuple->set_not_null(slot_desc->null_indicator_offset());
-        const rapidjson::Value& col = line[col_name];
-
-        void* slot = tuple->get_slot(slot_desc->tuple_offset());
-        PrimitiveType type = slot_desc->type().type;
-
-        // when the column value is null, the subsequent type casting will report an error
-        if (col.IsNull()) {
-            slot = nullptr;
-            continue;
-        }
-        switch (type) {
-        case TYPE_CHAR:
-        case TYPE_VARCHAR:
-        case TYPE_STRING: {
-            // sometimes elasticsearch user post some not-string value to Elasticsearch Index.
-            // because of reading value from _source, we can not process all json type and then just transfer the value to original string representation
-            // this may be a tricky, but we can workaround this issue
-            std::string val;
-            if (pure_doc_value) {
-                if (!col[0].IsString()) {
-                    val = json_value_to_string(col[0]);
-                } else {
-                    val = col[0].GetString();
-                }
-            } else {
-                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
-                if (!col.IsString()) {
-                    val = json_value_to_string(col);
-                } else {
-                    val = col.GetString();
-                }
-            }
-            size_t val_size = val.length();
-            char* buffer = reinterpret_cast<char*>(tuple_pool->try_allocate_unaligned(val_size));
-            if (UNLIKELY(buffer == nullptr)) {
-                std::string details = strings::Substitute(
-                        ERROR_MEM_LIMIT_EXCEEDED, "MaterializeNextRow", val_size, "string slot");
-                RETURN_LIMIT_EXCEEDED(nullptr, details, val_size);
-            }
-            memcpy(buffer, val.data(), val_size);
-            reinterpret_cast<StringValue*>(slot)->ptr = buffer;
-            reinterpret_cast<StringValue*>(slot)->len = val_size;
-            break;
-        }
-
-        case TYPE_TINYINT: {
-            Status status = get_int_value<int8_t>(col, type, slot, pure_doc_value);
-            if (!status.ok()) {
-                return status;
-            }
-            break;
-        }
-
-        case TYPE_SMALLINT: {
-            Status status = get_int_value<int16_t>(col, type, slot, pure_doc_value);
-            if (!status.ok()) {
-                return status;
-            }
-            break;
-        }
-
-        case TYPE_INT: {
-            Status status = get_int_value<int32_t>(col, type, slot, pure_doc_value);
-            if (!status.ok()) {
-                return status;
-            }
-            break;
-        }
-
-        case TYPE_BIGINT: {
-            Status status = get_int_value<int64_t>(col, type, slot, pure_doc_value);
-            if (!status.ok()) {
-                return status;
-            }
-            break;
-        }
-
-        case TYPE_LARGEINT: {
-            Status status = get_int_value<__int128>(col, type, slot, pure_doc_value);
-            if (!status.ok()) {
-                return status;
-            }
-            break;
-        }
-
-        case TYPE_DOUBLE: {
-            Status status = get_float_value<double>(col, type, slot, pure_doc_value);
-            if (!status.ok()) {
-                return status;
-            }
-            break;
-        }
-
-        case TYPE_FLOAT: {
-            Status status = get_float_value<float>(col, type, slot, pure_doc_value);
-            if (!status.ok()) {
-                return status;
-            }
-            break;
-        }
-
-        case TYPE_BOOLEAN: {
-            if (col.IsBool()) {
-                *reinterpret_cast<int8_t*>(slot) = col.GetBool();
-                break;
-            }
-
-            if (col.IsNumber()) {
-                *reinterpret_cast<int8_t*>(slot) = col.GetInt();
-                break;
-            }
-
-            bool is_nested_str = false;
-            if (pure_doc_value && col.IsArray() && col[0].IsBool()) {
-                *reinterpret_cast<int8_t*>(slot) = col[0].GetBool();
-                break;
-            } else if (pure_doc_value && col.IsArray() && col[0].IsString()) {
-                is_nested_str = true;
-            } else if (pure_doc_value && col.IsArray()) {
-                return Status::InternalError(ERROR_INVALID_COL_DATA, "BOOLEAN");
-            }
-
-            const rapidjson::Value& str_col = is_nested_str ? col[0] : col;
-            const std::string& val = str_col.GetString();
-            size_t val_size = str_col.GetStringLength();
-            StringParser::ParseResult result;
-            bool b = StringParser::string_to_bool(val.c_str(), val_size, &result);
-            RETURN_ERROR_IF_PARSING_FAILED(result, str_col, type);
-            *reinterpret_cast<int8_t*>(slot) = b;
-            break;
-        }
-        case TYPE_DECIMALV2: {
-            DecimalV2Value data;
-
-            if (col.IsDouble()) {
-                data.assign_from_double(col.GetDouble());
-            } else {
-                std::string val;
-                if (pure_doc_value) {
-                    if (!col[0].IsString()) {
-                        val = json_value_to_string(col[0]);
-                    } else {
-                        val = col[0].GetString();
-                    }
-                } else {
-                    RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
-                    if (!col.IsString()) {
-                        val = json_value_to_string(col);
-                    } else {
-                        val = col.GetString();
-                    }
-                }
-                data.parse_from_str(val.data(), val.length());
-            }
-            reinterpret_cast<DecimalV2Value*>(slot)->set_value(data.value());
-            break;
-        }
-
-        case TYPE_DATE:
-        case TYPE_DATETIME: {
-            // this would happend just only when `enable_docvalue_scan = false`, and field has timestamp format date from _source
-            if (col.IsNumber()) {
-                // ES process date/datetime field would use millisecond timestamp for index or docvalue
-                // processing date type field, if a number is encountered, Doris On ES will force it to be processed according to ms
-                // Doris On ES needs to be consistent with ES, so just divided by 1000 because the unit for from_unixtime is seconds
-                RETURN_IF_ERROR(fill_date_slot_with_timestamp(slot, col, type));
-            } else if (col.IsArray() && pure_doc_value) {
-                // this would happened just only when `enable_docvalue_scan = true`
-                // ES add default format for all field after ES 6.4, if we not provided format for `date` field ES would impose
-                // a standard date-format for date field as `2020-06-16T00:00:00.000Z`
-                // At present, we just process this string format date. After some PR were merged into Doris, we would impose `epoch_mills` for
-                // date field's docvalue
-                if (col[0].IsString()) {
-                    RETURN_IF_ERROR(fill_date_slot_with_strval(slot, col[0], type));
-                    break;
-                }
-                // ES would return millisecond timestamp for date field, divided by 1000 because the unit for from_unixtime is seconds
-                RETURN_IF_ERROR(fill_date_slot_with_timestamp(slot, col[0], type));
-            } else {
-                // this would happened just only when `enable_docvalue_scan = false`, and field has string format date from _source
-                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
-                RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
-                RETURN_IF_ERROR(fill_date_slot_with_strval(slot, col, type));
-            }
-            break;
-        }
-        default: {
-            DCHECK(false);
-            break;
-        }
-        }
-    }
-
-    *line_eof = false;
-    return Status::OK();
 }
 
 Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
@@ -803,32 +556,17 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
 
         case TYPE_DATE:
         case TYPE_DATETIME:
+            RETURN_IF_ERROR((fill_date_int<vectorized::VecDateTimeValue, int64_t>(
+                    col, type, pure_doc_value, col_ptr)));
+            break;
         case TYPE_DATEV2:
+            RETURN_IF_ERROR(
+                    (fill_date_int<vectorized::DateV2Value<vectorized::DateV2ValueType>, uint32_t>(
+                            col, type, pure_doc_value, col_ptr)));
+            break;
         case TYPE_DATETIMEV2: {
-            // this would happend just only when `enable_docvalue_scan = false`, and field has timestamp format date from _source
-            if (col.IsNumber()) {
-                // ES process date/datetime field would use millisecond timestamp for index or docvalue
-                // processing date type field, if a number is encountered, Doris On ES will force it to be processed according to ms
-                // Doris On ES needs to be consistent with ES, so just divided by 1000 because the unit for from_unixtime is seconds
-                RETURN_IF_ERROR(fill_date_col(col_ptr, col, type, false));
-            } else if (col.IsArray() && pure_doc_value) {
-                // this would happened just only when `enable_docvalue_scan = true`
-                // ES add default format for all field after ES 6.4, if we not provided format for `date` field ES would impose
-                // a standard date-format for date field as `2020-06-16T00:00:00.000Z`
-                // At present, we just process this string format date. After some PR were merged into Doris, we would impose `epoch_mills` for
-                // date field's docvalue
-                if (col[0].IsString()) {
-                    RETURN_IF_ERROR(fill_date_col(col_ptr, col[0], type, true));
-                    break;
-                }
-                // ES would return millisecond timestamp for date field, divided by 1000 because the unit for from_unixtime is seconds
-                RETURN_IF_ERROR(fill_date_col(col_ptr, col, type, false));
-            } else {
-                // this would happened just only when `enable_docvalue_scan = false`, and field has string format date from _source
-                RETURN_ERROR_IF_COL_IS_ARRAY(col, type);
-                RETURN_ERROR_IF_COL_IS_NOT_STRING(col, type);
-                RETURN_IF_ERROR(fill_date_col(col_ptr, col, type, true));
-            }
+            RETURN_IF_ERROR((fill_date_int<vectorized::DateV2Value<vectorized::DateTimeV2ValueType>,
+                                           uint64_t>(col, type, pure_doc_value, col_ptr)));
             break;
         }
         case TYPE_ARRAY: {
@@ -891,7 +629,7 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                     break;
                 }
                 case TYPE_FLOAT: {
-                    float val;
+                    float val {};
                     RETURN_IF_ERROR(
                             get_float_value<float>(sub_col, sub_type, &val, pure_doc_value));
                     array.push_back(val);
@@ -939,13 +677,19 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
                 // see https://github.com/apache/doris/pull/16304
                 // No need to support date and datetime types.
                 case TYPE_DATEV2: {
-                    array.push_back(get_date_int<vectorized::DateV2ValueType, uint32_t>(
-                            sub_col, sub_type, pure_doc_value));
+                    uint32_t data;
+                    RETURN_IF_ERROR(
+                            (get_date_int<vectorized::DateV2Value<vectorized::DateV2ValueType>,
+                                          uint32_t>(sub_col, sub_type, pure_doc_value, &data)));
+                    array.push_back(data);
                     break;
                 }
                 case TYPE_DATETIMEV2: {
-                    array.push_back(get_date_int<vectorized::DateTimeV2ValueType, uint64_t>(
-                            sub_col, sub_type, pure_doc_value));
+                    uint64_t data;
+                    RETURN_IF_ERROR(
+                            (get_date_int<vectorized::DateV2Value<vectorized::DateTimeV2ValueType>,
+                                          uint64_t>(sub_col, sub_type, pure_doc_value, &data)));
+                    array.push_back(data);
                     break;
                 }
                 default: {
@@ -966,87 +710,6 @@ Status ScrollParser::fill_columns(const TupleDescriptor* tuple_desc,
     }
 
     *line_eof = false;
-    return Status::OK();
-}
-
-Status ScrollParser::fill_date_col(vectorized::IColumn* col_ptr, const rapidjson::Value& col,
-                                   PrimitiveType type, bool is_date_str) {
-    const std::string& val = col.GetString();
-    size_t val_size = col.GetStringLength();
-
-    if (type == TYPE_DATE || type == TYPE_DATETIME) {
-        vectorized::VecDateTimeValue dt_val;
-        if ((is_date_str && !dt_val.from_date_str(val.c_str(), val_size)) ||
-            (!is_date_str && !dt_val.from_unixtime(col.GetInt64() / 1000, "+08:00"))) {
-            RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
-        }
-        if (type == TYPE_DATE) {
-            dt_val.cast_to_date();
-        } else {
-            dt_val.to_datetime();
-        }
-
-        auto date_packed_int = binary_cast<doris::vectorized::VecDateTimeValue, int64_t>(
-                *reinterpret_cast<vectorized::VecDateTimeValue*>(&dt_val));
-        col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)), 0);
-        return Status::OK();
-    } else if (type == TYPE_DATEV2) {
-        vectorized::DateV2Value<doris::vectorized::DateV2ValueType> dt_val;
-        if ((is_date_str && !dt_val.from_date_str(val.c_str(), val_size)) ||
-            (!is_date_str && !dt_val.from_unixtime(col.GetInt64() / 1000, "+08:00"))) {
-            RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
-        }
-        auto date_packed_int = binary_cast<
-                doris::vectorized::DateV2Value<doris::vectorized::DateV2ValueType>, uint32_t>(
-                *reinterpret_cast<vectorized::DateV2Value<doris::vectorized::DateV2ValueType>*>(
-                        &dt_val));
-        col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)), 0);
-        return Status::OK();
-
-    } else if (type == TYPE_DATETIMEV2) {
-        vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType> dt_val;
-        if ((is_date_str && !dt_val.from_date_str(val.c_str(), val_size)) ||
-            (!is_date_str && !dt_val.from_unixtime(col.GetInt64() / 1000, "+08:00"))) {
-            RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
-        }
-        auto date_packed_int = binary_cast<
-                vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>, uint64_t>(
-                *reinterpret_cast<vectorized::DateV2Value<doris::vectorized::DateTimeV2ValueType>*>(
-                        &dt_val));
-        col_ptr->insert_data(const_cast<const char*>(reinterpret_cast<char*>(&date_packed_int)), 0);
-        return Status::OK();
-
-    } else {
-        return Status::InternalError("Unsupported datetime type: " + type_to_string(type));
-    }
-}
-
-Status ScrollParser::fill_date_slot_with_strval(void* slot, const rapidjson::Value& col,
-                                                PrimitiveType type) {
-    DateTimeValue* ts_slot = reinterpret_cast<DateTimeValue*>(slot);
-    const std::string& val = col.GetString();
-    size_t val_size = col.GetStringLength();
-    if (!ts_slot->from_date_str(val.c_str(), val_size)) {
-        RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
-    }
-    if (type == TYPE_DATE) {
-        ts_slot->cast_to_date();
-    } else {
-        ts_slot->to_datetime();
-    }
-    return Status::OK();
-}
-
-Status ScrollParser::fill_date_slot_with_timestamp(void* slot, const rapidjson::Value& col,
-                                                   PrimitiveType type) {
-    if (!reinterpret_cast<DateTimeValue*>(slot)->from_unixtime(col.GetInt64() / 1000, "+08:00")) {
-        RETURN_ERROR_IF_CAST_FORMAT_ERROR(col, type);
-    }
-    if (type == TYPE_DATE) {
-        reinterpret_cast<DateTimeValue*>(slot)->cast_to_date();
-    } else {
-        reinterpret_cast<DateTimeValue*>(slot)->set_type(TIME_DATETIME);
-    }
     return Status::OK();
 }
 

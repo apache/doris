@@ -77,31 +77,7 @@ Status EsHttpScanner::open() {
 
 Status EsHttpScanner::get_next(Tuple* tuple, MemPool* tuple_pool, bool* eof,
                                const std::map<std::string, std::string>& docvalue_context) {
-    SCOPED_TIMER(_read_timer);
-    if (_line_eof && _batch_eof) {
-        *eof = true;
-        return Status::OK();
-    }
-
-    while (!_batch_eof) {
-        if (_line_eof || _es_scroll_parser == nullptr) {
-            RETURN_IF_ERROR(_es_reader->get_next(&_batch_eof, _es_scroll_parser));
-            if (_batch_eof) {
-                *eof = true;
-                return Status::OK();
-            }
-        }
-
-        COUNTER_UPDATE(_rows_read_counter, 1);
-        SCOPED_TIMER(_materialize_timer);
-        RETURN_IF_ERROR(_es_scroll_parser->fill_tuple(_tuple_desc, tuple, tuple_pool, &_line_eof,
-                                                      docvalue_context));
-        if (!_line_eof) {
-            break;
-        }
-    }
-
-    return Status::OK();
+    return Status::InternalError("es not support non-vec engine");
 }
 
 void EsHttpScanner::close() {

@@ -34,26 +34,12 @@ public:
     ~ScrollParser();
 
     Status parse(const std::string& scroll_result, bool exactly_once = false);
-    Status fill_tuple(const TupleDescriptor* _tuple_desc, Tuple* tuple, MemPool* mem_pool,
-                      bool* line_eof, const std::map<std::string, std::string>& docvalue_context);
     Status fill_columns(const TupleDescriptor* _tuple_desc,
                         std::vector<vectorized::MutableColumnPtr>& columns, MemPool* mem_pool,
                         bool* line_eof, const std::map<std::string, std::string>& docvalue_context);
 
     const std::string& get_scroll_id();
     int get_size();
-
-private:
-    // helper method for processing date/datetime cols with rapidjson::Value
-    // type is used for distinguish date and datetime
-    // is_date_str indicate parse datetime from string, otherwise from epoch_millis
-    Status fill_date_col(vectorized::IColumn* col_ptr, const rapidjson::Value& col,
-                         PrimitiveType type, bool is_date_str);
-
-    // For non-vec engine
-    Status fill_date_slot_with_strval(void* slot, const rapidjson::Value& col, PrimitiveType type);
-    Status fill_date_slot_with_timestamp(void* slot, const rapidjson::Value& col,
-                                         PrimitiveType type);
 
 private:
     std::string _scroll_id;
