@@ -94,7 +94,7 @@ Status SchemaScanner::init(SchemaScannerParam* param, ObjectPool* pool) {
     _get_table_timer = ADD_TIMER(_param->profile, "GetTableTime");
     _get_describe_timer = ADD_TIMER(_param->profile, "GetDescribeTime");
     _fill_block_timer = ADD_TIMER(_param->profile, "FillBlockTime");
- 
+
     return Status::OK();
 }
 
