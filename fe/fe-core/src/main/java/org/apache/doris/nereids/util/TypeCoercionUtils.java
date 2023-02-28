@@ -298,7 +298,7 @@ public class TypeCoercionUtils {
      * characterLiteralTypeCoercion.
      */
     @Developing
-    private static Optional<Expression> characterLiteralTypeCoercion(String value, DataType dataType) {
+    public static Optional<Expression> characterLiteralTypeCoercion(String value, DataType dataType) {
         Expression ret = null;
         try {
             if (dataType instanceof BooleanType) {
