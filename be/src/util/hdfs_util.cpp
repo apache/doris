@@ -30,13 +30,6 @@ HDFSHandle& HDFSHandle::instance() {
 }
 
 hdfsFS HDFSHandle::create_hdfs_fs(HDFSCommonBuilder& hdfs_builder) {
-    if (hdfs_builder.is_need_kinit()) {
-        Status status = hdfs_builder.run_kinit();
-        if (!status.ok()) {
-            LOG(WARNING) << status;
-            return nullptr;
-        }
-    }
     hdfsFS hdfs_fs = hdfsBuilderConnect(hdfs_builder.get());
     if (hdfs_fs == nullptr) {
         LOG(WARNING) << "connect to hdfs failed."
