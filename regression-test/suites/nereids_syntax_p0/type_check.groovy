@@ -16,8 +16,10 @@
 // under the License.
 
 suite("type_check") {
+    sql 'drop table type_tb'
+
     sql '''
-        create table if not exists type_tb (
+        create table type_tb (
             id int NOT NULL, 
             kjsonb jsonb,
             kdcml decimalv3(15, 2),
@@ -80,13 +82,13 @@ suite("type_check") {
     // map
     test {
         sql 'select kmap from type_tb'
-        exception 'type unsupported for nereids planner'
+        exception 'Nereids do not support map type.'
     }
 
     // struct
     test {
         sql 'select kstruct from type_tb'
-        exception 'type unsupported for nereids planner'
+        exception 'Nereids do not support map type.'
     }
 
     //sv
