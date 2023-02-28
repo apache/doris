@@ -17,7 +17,6 @@
 
 package org.apache.doris.nereids.util;
 
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Add;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
@@ -27,26 +26,13 @@ import org.apache.doris.nereids.trees.expressions.Not;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.Subtract;
-import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
-import org.apache.doris.nereids.trees.plans.Plan;
-import org.apache.doris.nereids.types.ArrayType;
-import org.apache.doris.nereids.types.DataType;
-import org.apache.doris.nereids.types.DecimalV3Type;
-import org.apache.doris.nereids.types.JsonType;
-import org.apache.doris.nereids.types.StructType;
-
-import com.google.common.collect.ImmutableSet;
 
 import java.util.Optional;
-import java.util.Set;
 
 /**
  * Judgment expression type.
  */
 public class TypeUtils {
-    private static final Set<Class<? extends DataType>> UNSUPPORTED_TYPES =
-            ImmutableSet.of(DecimalV3Type.class, JsonType.class, ArrayType.class, StructType.class);
-
     public static boolean isAddOrSubtract(Expression expr) {
         return isAdd(expr) || isSubtract(expr);
     }
@@ -82,26 +68,6 @@ public class TypeUtils {
             return Optional.of(((SlotReference) ((IsNull) ((Not) expr).child()).child()));
         } else {
             return Optional.empty();
-        }
-    }
-
-    public static boolean isSupportedType(Class<? extends DataType> typeClass) {
-        return !UNSUPPORTED_TYPES.contains(typeClass);
-    }
-
-    /**
-     * check output slots' types
-     */
-    public static void checkPlanOutputTypes(Plan plan) {
-        final Optional<TypeCheckResult> firstFailed = plan.getOutput().stream()
-                .map(slot -> new TypeCheckResult(
-                        TypeUtils.isSupportedType(slot.getDataType().getClass()),
-                        String.format("type %s unsupported for nereids planner", slot.getDataType().toString())))
-                .filter(TypeCheckResult::failed)
-                .findFirst();
-
-        if (firstFailed.isPresent()) {
-            throw new AnalysisException(firstFailed.get().getMessage());
         }
     }
 }

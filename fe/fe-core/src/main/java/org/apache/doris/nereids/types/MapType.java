@@ -19,6 +19,7 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 /**
@@ -36,7 +37,8 @@ public class MapType extends DataType {
 
     @Override
     public Type toCatalogDataType() {
-        return Type.MAP;
+        throw new AnalysisException("type map is unsupported for Nereids");
+        // return Type.MAP;
     }
 
     @Override
