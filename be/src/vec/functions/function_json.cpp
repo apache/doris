@@ -715,8 +715,8 @@ public:
             }
         }
 
-        block.replace_by_position(
-                    result, ColumnNullable::create(std::move(col_to), std::move(null_map)));
+        block.replace_by_position(result,
+                                  ColumnNullable::create(std::move(col_to), std::move(null_map)));
 
         return Status::OK();
     }
