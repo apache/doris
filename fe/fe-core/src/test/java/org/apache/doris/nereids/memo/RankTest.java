@@ -55,7 +55,7 @@ public class RankTest extends TPCHTestBase {
                     .optimize()
                     .getCascadesContext()
                     .getMemo();
-            PhysicalPlan plan1 = memo.unrank(memo.rank(1));
+            PhysicalPlan plan1 = memo.unrank(memo.rank(1).first);
             PhysicalPlan plan2 = PlanChecker.from(connectContext)
                     .analyze(field.get(null).toString())
                     .rewrite()
