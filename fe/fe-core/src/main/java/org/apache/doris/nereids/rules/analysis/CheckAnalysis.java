@@ -50,7 +50,6 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                 any().then(plan -> {
                     checkBound(plan);
                     checkExpressionInputTypes(plan);
-                    TypeUtils.checkPlanOutputTypes(plan);
                     return null;
                 })
             ),
