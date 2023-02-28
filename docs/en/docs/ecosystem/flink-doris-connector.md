@@ -86,14 +86,16 @@ Note: Executing `brew install thrift@0.13.0` on MacOS may report an error that t
  Reference link: `https://gist.github.com/tonydeng/02e571f273d6cce4230dc8d5f394493c`
  
 Linux:
-    1.Download source package：`wget https://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz`
-    2.Install dependencies：`yum install -y autoconf automake libtool cmake ncurses-devel openssl-devel lzo-devel zlib-devel gcc gcc-c++`
-    3.`tar zxvf thrift-0.13.0.tar.gz`
-    4.`cd thrift-0.13.0`
-    5.`./configure --without-tests`
-    6.`make`
-    7.`make install`
-   Check the version after installation is complete：`thrift --version`
+   ```bash
+    1. wget https://archive.apache.org/dist/thrift/0.13.0/thrift-0.13.0.tar.gz  # Download source package
+    2. yum install -y autoconf automake libtool cmake ncurses-devel openssl-devel lzo-devel zlib-devel gcc gcc-c++  # Install dependencies
+    3. tar zxvf thrift-0.13.0.tar.gz
+    4. cd thrift-0.13.0
+    5. ./configure --without-tests
+    6. make
+    7. make install
+    8. thrift --version  # Check the version after installation is complete
+   ```
    Note: If you have compiled Doris, you do not need to install thrift, you can directly use `$DORIS_HOME/thirdparty/installed/bin/thrift`
 
 
@@ -320,6 +322,36 @@ DataStream<RowData> source = env.fromElements("")
 
 source.sinkTo(builder.build());
 ```
+
+**SchemaChange Stream**
+```java
+// enable checkpoint
+env.enableCheckpointing(10000);
+
+Properties props = new Properties();
+props.setProperty("format", "json");
+props.setProperty("read_json_by_line", "true");
+DorisOptions dorisOptions = DorisOptions.builder()
+        .setFenodes("127.0.0.1:8030")
+        .setTableIdentifier("test.t1")
+        .setUsername("root")
+        .setPassword("").build();
+
+DorisExecutionOptions.Builder  executionBuilder = DorisExecutionOptions.builder();
+executionBuilder.setLabelPrefix("label-doris" + UUID.randomUUID())
+        .setStreamLoadProp(props).setDeletable(true);
+
+DorisSink.Builder<String> builder = DorisSink.builder();
+builder.setDorisReadOptions(DorisReadOptions.builder().build())
+        .setDorisExecutionOptions(executionBuilder.build())
+        .setDorisOptions(dorisOptions)
+        .setSerializer(JsonDebeziumSchemaSerializer.builder().setDorisOptions(dorisOptions).build());
+
+env.fromSource(mySqlSource, WatermarkStrategy.noWatermarks(), "MySQL Source")//.print();
+        .sinkTo(builder.build());
+```
+refer: [CDCSchemaChangeExample](https://github.com/apache/doris-flink-connector/blob/master/flink-doris-connector/src/test/java/org/apache/doris/flink/CDCSchemaChangeExample.java)
+
 
 ### General
 
