@@ -331,7 +331,9 @@ Status StreamLoadAction::_on_header(HttpRequest* http_req, std::shared_ptr<Strea
             return Status::InvalidArgument("Invalid timeout format");
         }
     }
-
+    if (!http_req->header(HTTP_COMMENT).empty()) {
+        ctx->load_comment = http_req->header(HTTP_COMMENT);
+    }
     // begin transaction
     int64_t begin_txn_start_time = MonotonicNanos();
     RETURN_IF_ERROR(_exec_env->stream_load_executor()->begin_txn(ctx.get()));
