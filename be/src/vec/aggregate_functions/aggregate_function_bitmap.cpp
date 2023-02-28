@@ -24,10 +24,7 @@ namespace doris::vectorized {
 
 template <bool nullable, template <bool, typename> class AggregateFunctionTemplate>
 static IAggregateFunction* createWithIntDataType(const DataTypes& argument_type) {
-    auto type = argument_type[0].get();
-    if (type->is_nullable()) {
-        type = assert_cast<const DataTypeNullable*>(type)->get_nested_type().get();
-    }
+    auto type = remove_nullable(argument_type[0]);
     WhichDataType which(type);
 #define DISPATCH(TYPE)                                                                     \
     if (which.idx == TypeIndex::TYPE) {                                                    \

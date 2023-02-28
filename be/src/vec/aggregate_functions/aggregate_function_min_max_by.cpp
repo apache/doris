@@ -30,7 +30,7 @@ template <template <typename> class AggregateFunctionTemplate,
           template <typename, typename> class Data, typename VT>
 static IAggregateFunction* create_aggregate_function_min_max_by_impl(
         const DataTypes& argument_types, const bool result_is_nullable) {
-    WhichDataType which(argument_types[1]);
+    WhichDataType which(remove_nullable(argument_types[1]));
 
 #define DISPATCH(TYPE)                                                            \
     if (which.idx == TypeIndex::TYPE)                                             \
@@ -79,7 +79,7 @@ static IAggregateFunction* create_aggregate_function_min_max_by(const String& na
                                                                 const bool result_is_nullable) {
     assert_binary(name, argument_types);
 
-    WhichDataType which(argument_types[0]);
+    WhichDataType which(remove_nullable(argument_types[0]));
 #define DISPATCH(TYPE)                                                                    \
     if (which.idx == TypeIndex::TYPE)                                                     \
         return create_aggregate_function_min_max_by_impl<AggregateFunctionTemplate, Data, \
