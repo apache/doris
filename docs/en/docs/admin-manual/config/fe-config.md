@@ -2614,4 +2614,25 @@ View configuration
 show data （Detail：HELP SHOW DATA）
 ```
 
+#### `prefer_compute_node_for_external_table`
+
+Default：false
+
+IsMutable：true
+
+MasterOnly：false
+
+If set to true, query on external table will prefer to assign to compute node. And the max number of compute node is controlled by `min_backend_num_for_external_table`.
+If set to false, query on external table will assign to any node.
+
+#### `min_backend_num_for_external_table`
+
+Default：3
+
+IsMutable：true
+
+MasterOnly：false
+
+Only take effect when `prefer_compute_node_for_external_table` is true. If the compute node number is less than this value, query on external table will try to get some mix node to assign, to let the total number of node reach this value.
+If the compute node number is larger than this value, query on external table will assign to compute node only.
 
