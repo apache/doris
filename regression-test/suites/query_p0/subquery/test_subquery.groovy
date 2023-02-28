@@ -41,4 +41,14 @@ suite("test_subquery") {
         select /*+SET_VAR(enable_projection=false) */
         count() from (select k2, k1 from test_query_db.baseall order by k1 limit 1) a;
         """
+
+        qt_sql6 "select k1 from (select k1, -1 as c from test_query_db.test) t where t.c = 1;"
+
+        qt_sql7 "select * from (select k1, -1 as c from test_query_db.test) t where t.c < 0 order by 1;"
+
+        qt_sql8 """
+        select * from (select k1, -1 as c from test_query_db.test union all select k1, -2 as c from test_query_db.baseall) t 
+        where t.c > 0;
+        """
 }
+
