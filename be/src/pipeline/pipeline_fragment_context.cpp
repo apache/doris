@@ -276,7 +276,10 @@ Status PipelineFragmentContext::prepare(const doris::TExecPlanFragmentParams& re
 
     if (_is_report_success && config::status_report_interval > 0) {
         std::unique_lock<std::mutex> l(_report_thread_lock);
-        _report_thread = std::thread(&PipelineFragmentContext::report_profile, this);
+        _exec_env->send_report_thread_pool()->submit_func([this] {
+            Defer defer {[&]() { this->_report_thread_promise.set_value(true); }};
+            this->report_profile();
+        });
         // make sure the thread started up, otherwise report_profile() might get into a race
         // with stop_report_thread()
         _report_thread_started_cv.wait(l);
@@ -475,7 +478,9 @@ void PipelineFragmentContext::_stop_report_thread() {
     _report_thread_active = false;
 
     _stop_report_thread_cv.notify_one();
-    _report_thread.join();
+    // Wait infinitly to ensure that the report task is finished and the this variable
+    // is not used in report thread.
+    _report_thread_future.wait();
 }
 
 void PipelineFragmentContext::report_profile() {
