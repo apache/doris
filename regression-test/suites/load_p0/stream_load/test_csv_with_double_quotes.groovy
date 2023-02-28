@@ -54,7 +54,7 @@ suite("test_csv_with_double_quotes", "p0") {
         set 'column_separator', ','
         set 'trim_double_quotes', 'true'
 
-        file 'csv_with_double_quotes.csv'
+        file 'csv_with_double_quotes_with_delimiter.csv'
         time 10000 // limit inflight 10s
     }
 

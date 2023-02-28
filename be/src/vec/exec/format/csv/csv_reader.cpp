@@ -462,8 +462,22 @@ void CsvReader::_split_line_for_single_char_delimiter(const Slice& line) {
         size_t cur_pos = 0;
         size_t start_field = 0;
         const size_t size = line.size;
+        bool quoted = false;
+
         for (; cur_pos < size; ++cur_pos) {
-            if (*(value + cur_pos) == _value_separator[0]) {
+            if (_trim_double_quotes && *(value + cur_pos) == '\"') {
+                if (cur_pos == start_field) {
+                    // start_field is ", mark quoted true
+                    quoted = true;
+                } else if (*(value + cur_pos - 1) != '\\' && quoted) {
+                    // cur_pos is ", mark quoted finished
+                    quoted = !quoted;
+                }
+                continue;
+            } else if (_trim_double_quotes && quoted) {
+                // when use _trim_double_quotes option, prevent content from being splitted by delimiter
+                continue;
+            } else if (*(value + cur_pos) == _value_separator[0]) {
                 size_t non_space = cur_pos;
                 if (_state != nullptr && _state->trim_tailing_spaces_for_external_table_query()) {
                     while (non_space > start_field && *(value + non_space - 1) == ' ') {
@@ -506,6 +520,7 @@ void CsvReader::_split_line(const Slice& line) {
         size_t curpos = 0;    // point to the start pos of separator matching sequence.
         size_t p1 = 0;        // point to the current pos of separator matching sequence.
         size_t non_space = 0; // point to the last pos of non_space charactor.
+        bool quoted = false;
 
         // Separator: AAAA
         //
@@ -518,7 +533,19 @@ void CsvReader::_split_line(const Slice& line) {
         //     curpos
 
         while (curpos < line.size) {
-            if (curpos + p1 == line.size || *(value + curpos + p1) != _value_separator[p1]) {
+            if (_trim_double_quotes && *(value + curpos) == '\"') {
+                if (curpos == start) {
+                    // start is ", mark quoted true
+                    quoted = true;
+                } else if (*(value + curpos - 1) != '\\' && *(value + start) == '\"') {
+                    // cur is ", mark quoted finished
+                    quoted = !quoted;
+                }
+                curpos++;
+            } else if (_trim_double_quotes && quoted) {
+                // when use _trim_double_quotes option, prevent content from being splitted by delimiter
+                curpos++;
+            } else if (curpos + p1 == line.size || *(value + curpos + p1) != _value_separator[p1]) {
                 // Not match, move forward:
                 curpos += (p1 == 0 ? 1 : p1);
                 p1 = 0;
