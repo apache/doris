@@ -56,7 +56,7 @@ public class RestBaseController extends BaseController {
         ActionAuthorizationInfo authInfo = getAuthorizationInfo(request);
         // check password
         UserIdentity currentUser = checkPassword(authInfo);
-        ConnectContext ctx = new ConnectContext(null);
+        ConnectContext ctx = new ConnectContext();
         ctx.setEnv(Env.getCurrentEnv());
         ctx.setQualifiedUser(authInfo.fullUserName);
         ctx.setRemoteIP(authInfo.remoteIp);

@@ -52,7 +52,7 @@ public class SetExecutorTest {
     @Before
     public void setUp() throws DdlException {
         analyzer = AccessTestUtil.fetchAdminAnalyzer(false);
-        ctx = new ConnectContext(null);
+        ctx = new ConnectContext();
         ctx.setEnv(AccessTestUtil.fetchAdminCatalog());
         ctx.setQualifiedUser("root");
         ctx.setRemoteIP("192.168.1.1");

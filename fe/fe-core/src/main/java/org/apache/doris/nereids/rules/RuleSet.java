@@ -34,6 +34,7 @@ import org.apache.doris.nereids.rules.implementation.LogicalFileScanToPhysicalFi
 import org.apache.doris.nereids.rules.implementation.LogicalFilterToPhysicalFilter;
 import org.apache.doris.nereids.rules.implementation.LogicalGenerateToPhysicalGenerate;
 import org.apache.doris.nereids.rules.implementation.LogicalIntersectToPhysicalIntersect;
+import org.apache.doris.nereids.rules.implementation.LogicalJdbcScanToPhysicalJdbcScan;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToHashJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalJoinToNestedLoopJoin;
 import org.apache.doris.nereids.rules.implementation.LogicalLimitToPhysicalLimit;
@@ -117,6 +118,7 @@ public class RuleSet {
             .add(new LogicalOlapScanToPhysicalOlapScan())
             .add(new LogicalSchemaScanToPhysicalSchemaScan())
             .add(new LogicalFileScanToPhysicalFileScan())
+            .add(new LogicalJdbcScanToPhysicalJdbcScan())
             .add(new LogicalProjectToPhysicalProject())
             .add(new LogicalLimitToPhysicalLimit())
             .add(new LogicalWindowToPhysicalWindow())

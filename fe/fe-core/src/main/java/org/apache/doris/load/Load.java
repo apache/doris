@@ -603,7 +603,12 @@ public class Load {
                 if (hasSequenceCol && column.isSequenceColumn()) {
                     continue;
                 }
-                ImportColumnDesc columnDesc = new ImportColumnDesc(column.getName().toLowerCase());
+                ImportColumnDesc columnDesc = null;
+                if (formatType == TFileFormatType.FORMAT_JSON) {
+                    columnDesc = new ImportColumnDesc(column.getName());
+                } else {
+                    columnDesc = new ImportColumnDesc(column.getName().toLowerCase());
+                }
                 LOG.debug("add base column {} to stream load task", column.getName());
                 copiedColumnExprs.add(columnDesc);
             }
@@ -1489,6 +1494,10 @@ public class Load {
                 jobInfo.add(loadJob.getTransactionId());
                 // error tablets(not used for hadoop load, just return an empty string)
                 jobInfo.add("");
+                // user
+                jobInfo.add(loadJob.getUser());
+                // comment
+                jobInfo.add(loadJob.getComment());
 
                 loadJobInfos.add(jobInfo);
             } // end for loadJobs

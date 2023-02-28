@@ -228,7 +228,7 @@ public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
     public void testSimplifyComparisonPredicateRule() {
         executor = new ExpressionRuleExecutor(ImmutableList.of(SimplifyComparisonPredicate.INSTANCE));
 
-        Expression dtv2 = new DateTimeV2Literal(1, 1, 1, 1, 1, 1);
+        Expression dtv2 = new DateTimeV2Literal(1, 1, 1, 1, 1, 1, 0);
         Expression dt = new DateTimeLiteral(1, 1, 1, 1, 1, 1);
         Expression dtNoTime = new DateTimeLiteral(1, 1, 1, 0, 0, 0);
         Expression dv2 = new DateV2Literal(1, 1, 1);
@@ -291,7 +291,7 @@ public class ExpressionRewriteTest extends ExpressionRewriteTestHelper {
                 new GreaterThan(new Cast(d, DateTimeType.INSTANCE), dtNoTime));
 
         // test hour, minute and second all zero
-        Expression dtv2AtZeroClock = new DateTimeV2Literal(1, 1, 1, 0, 0, 0);
+        Expression dtv2AtZeroClock = new DateTimeV2Literal(1, 1, 1, 0, 0, 0, 0);
         assertRewrite(
                 new GreaterThan(new Cast(dv2, DateTimeV2Type.SYSTEM_DEFAULT), dtv2AtZeroClock),
                 new GreaterThan(dv2, dv2));

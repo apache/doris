@@ -156,7 +156,6 @@ public:
                 }
 
             } else { // non-nullable
-                DCHECK(!in_state->null_in_set);
 
                 auto search_hash_set = [&](auto* col_ptr) {
                     for (size_t i = 0; i < input_rows_count; ++i) {
@@ -176,6 +175,12 @@ public:
                     search_hash_set(column_string_ptr);
                 } else {
                     search_hash_set(materialized_column.get());
+                }
+
+                if (in_state->null_in_set) {
+                    for (size_t i = 0; i < input_rows_count; ++i) {
+                        vec_null_map_to[i] = negative == vec_res[i];
+                    }
                 }
             }
         } else {

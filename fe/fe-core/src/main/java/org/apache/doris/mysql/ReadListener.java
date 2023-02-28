@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.mysql.nio;
+package org.apache.doris.mysql;
 
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.ConnectProcessor;
@@ -31,11 +31,11 @@ import org.xnio.conduits.ConduitStreamSourceChannel;
  */
 public class ReadListener implements ChannelListener<ConduitStreamSourceChannel> {
     private static final Logger LOG = LogManager.getLogger(ReadListener.class);
-    private NConnectContext ctx;
+    private ConnectContext ctx;
     private ConnectProcessor connectProcessor;
 
-    public ReadListener(NConnectContext nConnectContext, ConnectProcessor connectProcessor) {
-        this.ctx = nConnectContext;
+    public ReadListener(ConnectContext connectContext, ConnectProcessor connectProcessor) {
+        this.ctx = connectContext;
         this.connectProcessor = connectProcessor;
     }
 

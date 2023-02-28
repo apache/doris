@@ -22,7 +22,6 @@
 #include "olap/tablet.h"
 
 namespace doris {
-
 enum class CompactionActionType {
     SHOW_INFO = 1,
     RUN_COMPACTION = 2,

@@ -27,6 +27,7 @@ import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.ByteBufferNetworkInputStream;
 import org.apache.doris.load.LoadJobRowResult;
+import org.apache.doris.mysql.MysqlSerializer;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Backend;
 import org.apache.doris.system.BeSelectionPolicy;
@@ -80,10 +81,10 @@ public class MysqlLoadManager {
                 InputStreamEntity entity = getInputStreamEntity(context, dataDesc.isClientLocal(), file);
                 HttpPut request = generateRequestForMySqlLoad(entity, dataDesc, database, table, token);
                 try (final CloseableHttpResponse response = httpclient.execute(request)) {
-                    JsonObject result = JsonParser.parseString(EntityUtils.toString(response.getEntity()))
-                            .getAsJsonObject();
+                    String body = EntityUtils.toString(response.getEntity());
+                    JsonObject result = JsonParser.parseString(body).getAsJsonObject();
                     if (!result.get("Status").getAsString().equalsIgnoreCase("Success")) {
-                        LOG.warn("Execute stream load for mysql data load failed with message: " + request);
+                        LOG.warn("Execute mysql data load failed with request: {} and response: {}", request, body);
                         throw new LoadException(result.get("Message").getAsString());
                     }
                     loadResult.incRecords(result.get("NumberLoadedRows").getAsLong());
@@ -129,10 +130,11 @@ public class MysqlLoadManager {
     }
 
     private void replyClientForReadFile(ConnectContext context, String path) throws IOException {
-        context.getSerializer().reset();
-        context.getSerializer().writeByte((byte) 0xfb);
-        context.getSerializer().writeEofString(path);
-        context.getMysqlChannel().sendAndFlush(context.getSerializer().toByteBuffer());
+        MysqlSerializer serializer = context.getMysqlChannel().getSerializer();
+        serializer.reset();
+        serializer.writeByte((byte) 0xfb);
+        serializer.writeEofString(path);
+        context.getMysqlChannel().sendAndFlush(serializer.toByteBuffer());
     }
 
     private void fillByteBufferAsync(ConnectContext context, ByteBufferNetworkInputStream inputStream) {

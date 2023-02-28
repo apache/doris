@@ -56,4 +56,28 @@ add_library(Webserver STATIC
   action/check_tablet_segment_action.cpp
   action/version_action.cpp
   action/jeprofile_actions.cpp
+  brpc/brpc_http_handler.cpp
+  brpc/handler_dispatcher.cpp
+  brpc/action/check_rpc_channel_action.cpp
+  brpc/action/check_sum_action.cpp
+  brpc/action/check_tablet_segment_action.cpp
+  brpc/action/compaction_action.cpp
+  brpc/action/config_action.cpp
+  brpc/action/download_action.cpp
+  brpc/action/health_action.cpp
+  brpc/action/jeprofile_action.cpp
+  brpc/action/meta_action.cpp
+  brpc/action/metrics_action.cpp
+  brpc/action/monitor_action.cpp
+  brpc/action/pad_rowset_action.cpp
+  brpc/action/pprof_action.cpp
+  brpc/action/reload_tablet_action.cpp
+  brpc/action/reset_rpc_channel_action.cpp
+  brpc/action/restore_tablet_action.cpp
+  brpc/action/snapshot_action.cpp
+  brpc/action/stream_load_2pc.cpp
+  brpc/action/tablet_migration_action.cpp
+  brpc/action/tablets_distribution_action.cpp
+  brpc/action/tablets_info_action.cpp
+  brpc/action/version_action.cpp
 )

@@ -91,8 +91,8 @@ public:
     Status get_segments_size(std::vector<size_t>* segments_size);
 
 protected:
-    BetaRowset(TabletSchemaSPtr schema, const std::string& tablet_path,
-               RowsetMetaSharedPtr rowset_meta);
+    BetaRowset(const TabletSchemaSPtr& schema, const std::string& tablet_path,
+               const RowsetMetaSharedPtr& rowset_meta);
 
     // init segment groups
     Status init() override;

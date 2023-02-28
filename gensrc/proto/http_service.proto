@@ -1,0 +1,53 @@
+// Licensed to the Apache Software Foundation (ASF) under one
+// or more contributor license agreements.  See the NOTICE file
+// distributed with this work for additional information
+// regarding copyright ownership.  The ASF licenses this file
+// to you under the Apache License, Version 2.0 (the
+// "License"); you may not use this file except in compliance
+// with the License.  You may obtain a copy of the License at
+//
+//   http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing,
+// software distributed under the License is distributed on an
+// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+// KIND, either express or implied.  See the License for the
+// specific language governing permissions and limitations
+// under the License.
+
+syntax="proto2";
+package doris;
+
+option cc_generic_services = true;
+
+message PHttpRequest {};
+message PHttpResponse {};
+
+service PHttpService {
+    rpc check_rpc_channel(PHttpRequest) returns (PHttpResponse);
+    rpc reset_rpc_channel(PHttpRequest) returns (PHttpResponse);
+
+    rpc config(PHttpRequest) returns (PHttpResponse);
+    rpc health(PHttpRequest) returns (PHttpResponse);
+    rpc jeprofile(PHttpRequest) returns (PHttpResponse);
+    rpc meta(PHttpRequest) returns (PHttpResponse);
+    rpc metrics(PHttpRequest) returns (PHttpResponse);
+    rpc monitor(PHttpRequest) returns (PHttpResponse);
+    rpc pad_rowset(PHttpRequest) returns (PHttpResponse);
+    rpc pprofile(PHttpRequest) returns (PHttpResponse);
+    rpc snapshot(PHttpRequest) returns (PHttpResponse);
+    rpc version(PHttpRequest) returns (PHttpResponse);
+
+    rpc check_tablet_segement(PHttpRequest) returns (PHttpResponse);
+    rpc check_sum(PHttpRequest) returns (PHttpResponse);
+    rpc compaction(PHttpRequest) returns (PHttpResponse);
+    rpc reload_tablet(PHttpRequest) returns (PHttpResponse);
+    rpc restore_tablet(PHttpRequest) returns (PHttpResponse);
+    rpc tablet_migration(PHttpRequest) returns (PHttpResponse);
+    rpc tablets_distribution(PHttpRequest) returns (PHttpResponse);
+    rpc tablets_info(PHttpRequest) returns (PHttpResponse);
+
+    rpc download(PHttpRequest) returns (PHttpResponse);
+    rpc stream_load(PHttpRequest) returns (PHttpResponse);
+    rpc stream_load_2pc(PHttpRequest) returns (PHttpResponse);
+};

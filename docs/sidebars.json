@@ -95,6 +95,7 @@
                                 "data-operate/import/import-way/routine-load-manual",
                                 "data-operate/import/import-way/spark-load-manual",
                                 "data-operate/import/import-way/stream-load-manual",
+                                "data-operate/import/import-way/mysql-load-manual",
                                 "data-operate/import/import-way/s3-load-manual",
                                 "data-operate/import/import-way/insert-into-manual",
                                 "data-operate/import/import-way/load-json-format"
@@ -826,7 +827,8 @@
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Load/PAUSE-SYNC-JOB",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Load/BROKER-LOAD",
                                         "sql-manual/sql-reference/Data-Manipulation-Statements/Load/CREATE-SYNC-JOB",
-                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD"
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/STREAM-LOAD",
+                                        "sql-manual/sql-reference/Data-Manipulation-Statements/Load/MYSQL-LOAD"
                                     ]
                                 },
                                 {
@@ -885,6 +887,7 @@
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-CATALOG",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-DATABASE",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-MATERIALIZED-VIEW",
+                                "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-LOAD",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-ROUTINE-LOAD",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-CREATE-FUNCTION",
                                 "sql-manual/sql-reference/Show-Statements/SHOW-COLUMNS",

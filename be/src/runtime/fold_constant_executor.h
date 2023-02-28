@@ -25,6 +25,7 @@
 #include "runtime/exec_env.h"
 #include "runtime/runtime_state.h"
 #include "util/runtime_profile.h"
+#include "vec/data_types/data_type.h"
 
 namespace doris {
 
@@ -46,7 +47,9 @@ private:
     Status _prepare_and_open(Context* ctx);
 
     template <bool is_vec = false>
-    std::string _get_result(void* src, size_t size, PrimitiveType slot_type);
+    std::string _get_result(void* src, size_t size, const TypeDescriptor& type,
+                            const vectorized::ColumnPtr column_ptr,
+                            const vectorized::DataTypePtr column_type);
 
     std::unique_ptr<RuntimeState> _runtime_state;
     std::unique_ptr<MemTracker> _mem_tracker;

@@ -19,9 +19,11 @@ package org.apache.doris.nereids.trees.expressions.functions;
 
 import org.apache.doris.catalog.FunctionSignature;
 import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.functions.ComputeSignatureHelper.ComputeSignatureChain;
 import org.apache.doris.nereids.trees.expressions.typecoercion.ImplicitCastInputTypes;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 import com.google.common.collect.ImmutableList;
@@ -88,7 +90,21 @@ public interface ComputeSignature extends FunctionTrait, ImplicitCastInputTypes 
      */
     @Override
     default DataType getDataType() {
-        return (DataType) getSignature().returnType;
+        DataType returnType = (DataType) getSignature().returnType;
+
+        // datetime v2 type precision derive
+        if (returnType instanceof DateTimeV2Type) {
+            for (Expression argument : getArguments()) {
+                if (argument.getDataType() instanceof DateTimeV2Type) {
+                    DateTimeV2Type argType = (DateTimeV2Type) argument.getDataType();
+                    if (((DateTimeV2Type) returnType).getScale() < argType.getScale()) {
+                        returnType = argType;
+                    }
+                }
+            }
+        }
+
+        return returnType;
     }
 
     @Override

@@ -29,4 +29,36 @@ suite("nereids_timestamp_arithmetic") {
         sql = "select date '20200808' + interval array() day;"
         exception = "the second argument must be a scalar type. but it is array()"
     }
+
+    sql """
+    DROP TABLE IF EXISTS nereids_test_ta;
+    """
+    sql """
+        CREATE TABLE `nereids_test_ta` (
+          `c1` int(11) NULL,
+          `c2` date NULL,
+          `c3` datev2 NULL,
+          `c4` datetime NULL,
+          `c5` datetimev2(3) NULL,
+          `c6` datetimev2(5) NULL
+        ) ENGINE=OLAP
+        DUPLICATE KEY(`c1`, `c2`, `c3`)
+        COMMENT 'OLAP'
+        DISTRIBUTED BY HASH(`c1`) BUCKETS 10
+        PROPERTIES (
+        "replication_allocation" = "tag.location.default: 1",
+        "in_memory" = "false",
+        "storage_format" = "V2",
+        "light_schema_change" = "true",
+        "disable_auto_compaction" = "false"
+        );
+    """
+
+    sql """
+        INSERT INTO nereids_test_ta VALUES (1, '0001-01-01', '0001-01-01', '0001-01-01 00:01:01', '0001-01-01: 00:01:01.001', '0001-01-01 00:01:01.00305');
+    """
+
+    qt_test_add """
+        SELECT c2 + INTERVAL 1 DAY, c3 + INTERVAL 1 SECOND, c4 + INTERVAL 1 DAY, c5 + INTERVAL 1 DAY, c6 + INTERVAL 1 DAY FROM nereids_test_ta
+    """
 }

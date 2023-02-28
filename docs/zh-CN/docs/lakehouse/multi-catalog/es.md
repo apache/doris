@@ -68,27 +68,28 @@ CREATE CATALOG es PROPERTIES (
 
 ## 列类型映射
 
-| ES Type | Doris Type | Comment |
-|---|---|---|
+| ES Type | Doris Type | Comment                                                    |
+|---|---|------------------------------------------------------------|
 |null| null||
-| boolean | boolean | |
-| byte| tinyint| |
-| short| smallint| |
-| integer| int| |
-| long| bigint| |
-| unsigned_long| largeint | |
-| float| float| |
-| half_float| float| |
-| double | double | |
-| scaled_float| double | |
-| date | date | |
-| keyword | string | |
-| text |string | |
-| ip |string | |
-| nested |string | |
-| object |string | |
+| boolean | boolean |                                                            |
+| byte| tinyint|                                                            |
+| short| smallint|                                                            |
+| integer| int|                                                            |
+| long| bigint|                                                            |
+| unsigned_long| largeint |                                                            |
+| float| float|                                                            |
+| half_float| float|                                                            |
+| double | double |                                                            |
+| scaled_float| double |                                                            |
+| date | date | 仅支持 default/yyyy-MM-dd HH:mm:ss/yyyy-MM-dd/epoch_millis 格式 |
+| keyword | string |                                                            |
+| text |string |                                                            |
+| ip |string |                                                            |
+| nested |string |                                                            |
+| object |string |                                                            |
 |other| unsupported ||
 
+<version since="dev">
 ### Array 类型
 
 Elasticsearch 没有明确的数组类型，但是它的某个字段可以含有[0个或多个值](https://www.elastic.co/guide/en/elasticsearch/reference/current/array.html)。
@@ -148,6 +149,7 @@ curl -X PUT "localhost:9200/doc/_mapping?pretty" -H 'Content-Type: application/j
 
 `array_fields`：用来表示是数组类型的字段。
 
+</version>
 ## 最佳实践
 
 ### 过滤条件下推
