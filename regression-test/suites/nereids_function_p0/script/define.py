@@ -19,6 +19,7 @@
 # under the License.
 
 const_sql = {
+    # scalar_function
     'aes_decrypt_Varchar_Varchar_Varchar_Varchar': "select aes_decrypt(kvchrs1, kvchrs1, kvchrs1, 'AES_128_ECB') from ${t} order by kvchrs1, kvchrs1, kvchrs1",
     'aes_decrypt_String_String_String_String': "select aes_decrypt(kstr, kstr, kstr, 'AES_128_ECB') from ${t} order by kstr, kstr, kstr, kstr",
     'aes_encrypt_Varchar_Varchar_Varchar_Varchar': "select aes_encrypt(kvchrs1, kvchrs1, kvchrs1, 'AES_128_ECB') from ${t} order by kvchrs1, kvchrs1, kvchrs1",
@@ -67,7 +68,29 @@ const_sql = {
     'truncate_Double_Integer': "select truncate(kdbl, 2) from ${t} order by kdbl",
     'random': "select random() from ${t}",
     'random_BigInt': "select random(1000) from ${t} order by kbint",
-    'to_quantile_state_Varchar_Float': 'select to_quantile_state(kvchrs1, 2048) from ${t} order by kvchrs1'
+    'to_quantile_state_Varchar_Float': 'select to_quantile_state(kvchrs1, 2048) from ${t} order by kvchrs1',
+    # agg
+    'group_concat_Varchar_Varchar_AnyData': 'select group_concat(distinct cast(abs(kint) as varchar), \'_x_\' order by abs(ksint), kdt) from ${t}',
+    'group_concat_Varchar_AnyData': 'select group_concat(distinct cast(abs(kint) as varchar) order by abs(ksint), kdt) from ${t}',
+    'group_concat_Varchar': 'select group_concat(distinct cast(abs(kint) as varchar) order by abs(ksint)) from ${t}',
+    'percentile_BigInt_Double': 'select percentile(kbint, 0.6) from ${t}',
+    'percentile_approx_Double_Double': 'select percentile_approx(kdbl, 0.6) from ${t}',
+    'percentile_approx_Double_Double_Double': 'select percentile_approx(kdbl, 0.6, 4096.0) from ${t}',
+    'sequence_count_String_DateV2_Boolean': 'select sequence_count(\'(?1)(?2)\', kdtv2, kint = 1, kint = 2) from ${t}',
+    'sequence_count_String_DateTime_Boolean': 'select sequence_count(\'(?1)(?2)\', kdtm, kint = 1, kint = 2) from ${t}',
+    'sequence_count_String_DateTimeV2_Boolean': 'select sequence_count(\'(?1)(?2)\', kdtmv2s1, kint = 1, kint = 5) from ${t}',
+    'sequence_match_String_DateV2_Boolean': 'select sequence_match(\'(?1)(?2)\', kdtv2, kint = 1, kint = 2) from ${t}',
+    'sequence_match_String_DateTime_Boolean': 'select sequence_match(\'(?1)(?2)\', kdtm, kint = 1, kint = 2) from ${t}',
+    'sequence_match_String_DateTimeV2_Boolean': 'select sequence_match(\'(?1)(?2)\', kdtmv2s1, kint = 1, kint = 2) from ${t}',
+    'topn_Varchar_Integer': 'select topn(kvchrs1, 3) from ${t}',
+    'topn_String_Integer': 'select topn(kstr, 3) from ${t}',
+    'topn_Varchar_Integer_Integer': 'select topn(kvchrs1, 3, 100) from ${t}',
+    'topn_String_Integer_Integer': 'select topn(kstr, 3, 100) from ${t}',
+    'window_funnel_BigInt_String_DateTime_Boolean': 'select window_funnel(3600 * 3, \'default\', kdtm, kint = 1, kint = 2) from ${t}',
+    'window_funnel_BigInt_String_DateTimeV2_Boolean': 'select window_funnel(3600 * 3, \'default\', kdtmv2s1, kint = 1, kint = 2) from ${t}',
+    # gen
+    'explode_split_Varchar_Varchar': 'select id, e from fn_test lateral view explode_split(\'a, b, c, d\', \',\') lv as e',
+    'explode_split_outer_Varchar_Varchar': 'select id, e from fn_test lateral view explode_split_outer(\'a, b, c, d\', \',\') lv as e',
 }
 
 not_check_result = {
@@ -124,14 +147,82 @@ not_check_result = {
     'sm4_encrypt_String_String_String_String',
     'space_Integer',
     'user',
-    'unix_timestamp'
+    'unix_timestamp',
+    # agg
+    'any_value_AnyData',
+    'histogram_Boolean',
+    'histogram_TinyInt',
+    'histogram_SmallInt',
+    'histogram_Integer',
+    'histogram_BigInt',
+    'histogram_LargeInt',
+    'histogram_Float',
+    'histogram_Double',
+    'histogram_Char',
+    'histogram_String',
+    'histogram_DecimalV2',
+    'histogram_Date',
+    'histogram_DateTime',
+    'histogram_DateV2',
+    'histogram_DateTimeV2',
+    # win
+    'first_value_pb',
+    'last_value_pb',
 }
+
+win_fn = [
+    'count(kbint)',
+    'avg(kbint)',
+    'min(kbint)',
+    'max(kbint)',
+    'sum(kbint)',
+    'dense_rank()',
+    'first_value(kint)',
+    'lag(kint, 2, 1)',
+    'last_value(kint)',
+    'lead(kint, 2, 1)',
+    'ntile(3)',
+    'rank()',
+    'row_number()',
+]
+
+win_clause_Support = [
+    {
+        'count(kbint)',
+        'avg(kbint)',
+        'max(kbint)',
+        'min(kbint)',
+        'sum(kbint)',
+        'first_value(kint)',
+        'last_value(kint)',
+    },
+    {
+        'count(kbint)',
+        'avg(kbint)',
+        'sum(kbint)',
+        'first_value(kint)',
+        'last_value(kint)',
+    }
+]
+
+frame_range = [
+    'unbounded preceding',
+    '2 preceding',
+    'current row',
+    '2 following',
+    'unbounded following',
+]
 
 denied_tag = {
     'esquery',
     'hll_cardinality',
+    'hll_union',
+    'hll_union_agg',
     'to_quantile_state',
     'quantile_percent',
+    'quantile_union',
+    'multi_distinct_count',
+    'multi_distinct_sum',
 }
 
 header = '''// Licensed to the Apache Software Foundation (ASF) under one
