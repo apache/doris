@@ -169,12 +169,10 @@ Status TxnManager::prepare_txn(TPartitionId partition_id, TTransactionId transac
     return Status::OK();
 }
 
-void TxnManager::set_txn_related_delete_bitmap(TPartitionId partition_id,
-                                               TTransactionId transaction_id, TTabletId tablet_id,
-                                               SchemaHash schema_hash, TabletUid tablet_uid,
-                                               bool unique_key_merge_on_write,
-                                               DeleteBitmapPtr delete_bitmap,
-                                               const RowsetIdUnorderedSet& rowset_ids) {
+void TxnManager::set_txn_related_delete_bitmap(
+        TPartitionId partition_id, TTransactionId transaction_id, TTabletId tablet_id,
+        SchemaHash schema_hash, TabletUid tablet_uid, bool unique_key_merge_on_write,
+        DeleteBitmapPtr delete_bitmap, const RowsetIdUnorderedSet& rowset_ids, uint64_t num_keys) {
     pair<int64_t, int64_t> key(partition_id, transaction_id);
     TabletInfo tablet_info(tablet_id, schema_hash, tablet_uid);
 
@@ -191,6 +189,7 @@ void TxnManager::set_txn_related_delete_bitmap(TPartitionId partition_id,
         load_info.unique_key_merge_on_write = unique_key_merge_on_write;
         load_info.delete_bitmap = delete_bitmap;
         load_info.rowset_ids = rowset_ids;
+        load_info.num_keys = num_keys;
     }
 }
 
@@ -321,8 +320,7 @@ Status TxnManager::publish_txn(OlapMeta* meta, TPartitionId partition_id,
                     if (tablet == nullptr) {
                         return Status::OK();
                     }
-                    RETURN_IF_ERROR(tablet->update_delete_bitmap(
-                            rowset_ptr, load_info->delete_bitmap, load_info->rowset_ids));
+                    RETURN_IF_ERROR(tablet->update_delete_bitmap(rowset_ptr, load_info));
                     std::shared_lock rlock(tablet->get_header_lock());
                     tablet->save_meta();
                 }
