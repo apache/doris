@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.ArrayType;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
+import org.apache.doris.nereids.types.DataType;
 import org.apache.doris.nereids.types.DateTimeType;
 import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.DateType;
@@ -69,6 +70,11 @@ public class ArrayMax extends CompatibleTypeArrayFunction
      */
     public ArrayMax(Expression arg) {
         super("array_max", arg);
+    }
+
+    @Override
+    public DataType getDataType() {
+        return ((ArrayType) (child().getDataType())).getItemType();
     }
 
     /**

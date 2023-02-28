@@ -85,6 +85,8 @@ import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.CharLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DateTimeLiteral;
+import org.apache.doris.nereids.trees.expressions.literal.DateTimeV2Literal;
+import org.apache.doris.nereids.trees.expressions.literal.DateV2Literal;
 import org.apache.doris.nereids.trees.expressions.literal.DecimalLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.DoubleLiteral;
 import org.apache.doris.nereids.trees.expressions.literal.FloatLiteral;
@@ -257,8 +259,16 @@ public abstract class ExpressionVisitor<R, C>
         return visitLiteral(dateLiteral, context);
     }
 
+    public R visitDateV2Literal(DateV2Literal dateV2Literal, C context) {
+        return visitLiteral(dateV2Literal, context);
+    }
+
     public R visitDateTimeLiteral(DateTimeLiteral dateTimeLiteral, C context) {
         return visitLiteral(dateTimeLiteral, context);
+    }
+
+    public R visitDateTimeV2Literal(DateTimeV2Literal dateTimeV2Literal, C context) {
+        return visitLiteral(dateTimeV2Literal, context);
     }
 
     public R visitArrayLiteral(ArrayLiteral arrayLiteral, C context) {
