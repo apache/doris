@@ -17,6 +17,8 @@
 
 package org.apache.doris.nereids.sqltest;
 
+import org.apache.doris.nereids.properties.DistributionSpecHash;
+import org.apache.doris.nereids.properties.DistributionSpecHash.ShuffleType;
 import org.apache.doris.nereids.rules.rewrite.logical.ReorderJoin;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
@@ -77,5 +79,21 @@ public class JoinTest extends SqlTestBase {
                 .matches(
                         leftOuterLogicalJoin().when(j -> j.getHashJoinConjuncts().size() == 1)
                 );
+    }
+
+    @Test
+    void testBucketJoinWithAgg() {
+        String sql = "select * from "
+                + "(select count(id) as cnt from T2 group by id) T1 inner join"
+                + "(select count(id) as cnt from T2 group by id) T2 "
+                + "on T1.cnt = T2.cnt";
+        PhysicalPlan plan = PlanChecker.from(connectContext)
+                .analyze(sql)
+                .rewrite()
+                .optimize()
+                .getBestPlanTree();
+        Assertions.assertEquals(
+                ((DistributionSpecHash) plan.getPhysicalProperties().getDistributionSpec()).getShuffleType(),
+                ShuffleType.NATURAL);
     }
 }
