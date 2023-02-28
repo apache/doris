@@ -369,6 +369,8 @@ public:
      */
     void merge(const DeleteBitmap& other);
 
+    uint64_t cardinality();
+
     /**
      * Checks if the given row is marked deleted in bitmap with the condition:
      * all the bitmaps that
