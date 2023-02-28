@@ -549,6 +549,10 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
             return new SelectResult(PreAggStatus.on(), selectIndexId,
                     rewriteResultOpt.map(r -> r.exprRewriteMap).orElse(new ExprRewriteMap()));
         } else {
+            if (scan.getPreAggStatus().isOff()) {
+                return new SelectResult(scan.getPreAggStatus(),
+                        scan.getTable().getBaseIndexId(), new ExprRewriteMap());
+            }
             final PreAggStatus preAggStatus;
             if (preAggEnabledByHint(scan)) {
                 // PreAggStatus could be enabled by pre-aggregation hint for agg-keys and unique-keys.
