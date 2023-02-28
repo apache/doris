@@ -42,7 +42,7 @@ AES_ENCRYPT(str,key_str[,init_vector])
 
 - `str`: 待加密的内容
 - `key_str`: 密钥
-- `init_vector`: 偏移量
+- `init_vector`: 初始向量
 
 #### Return Type
 
@@ -55,7 +55,7 @@ AES_ENCRYPT 函数对于传入的密钥，并不是直接使用，而是会进�
 2. 然后针对用户输入的密钥，第 `i` 位和第 `16*k+i` 位进行异或，如果用户输入的密钥不足 16 位，则后面补 0；
 3. 最后，再使用新生成的密钥进行加密；
 
-### example
+### Example
 
 ```sql
 select to_base64(aes_encrypt('text','F3229A0B371ED2D9441B830D21A390C3'));
@@ -90,7 +90,9 @@ select to_base64(aes_encrypt('text','F3229A0B371ED2D9441B830D21A390C3', '0123456
 1 row in set (0.01 sec)
 ```
 
-### keywords
+关于 `block_encryption_mode` 可选的值可以参见：[变量章节](../../../advanced/variables.md)。
+
+### Keywords
 
 AES_ENCRYPT
 
@@ -114,13 +116,13 @@ AES_DECRYPT(str,key_str[,init_vector])
 
 - `str`: 已加密的内容
 - `key_str`: 密钥
-- `init_vector`: 偏移量
+- `init_vector`: 初始向量
 
 #### Return Type
 
 VARCHAR(*)
 
-### example
+### Example
 
 ```sql
 select aes_decrypt(from_base64('wr2JEDVXzL9+2XtRhgIloA=='),'F3229A0B371ED2D9441B830D21A390C3');
@@ -155,6 +157,8 @@ select AES_DECRYPT(FROM_BASE64('tsmK1HzbpnEdR2//WhO+MA=='),'F3229A0B371ED2D9441B
 1 row in set (0.01 sec)
 ```
 
-### keywords
+关于 `block_encryption_mode` 可选的值可以参见：[变量章节](../../../advanced/variables.md)。
+
+### Keywords
 
     AES_DECRYPT
