@@ -115,7 +115,6 @@ public class ExtractSingleTableExpressionFromDisjunction extends OneRewriteRuleF
                         redundants.add(ExpressionUtils.or(extractForAll));
                     }
                 }
-
             }
             if (redundants.isEmpty()) {
                 return new LogicalFilter<>(filter.getConjuncts(), true, filter.child());

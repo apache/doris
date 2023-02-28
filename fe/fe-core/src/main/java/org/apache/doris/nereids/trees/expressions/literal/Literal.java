@@ -25,6 +25,7 @@ import org.apache.doris.nereids.trees.expressions.shape.LeafExpression;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.CharType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.DateTimeV2Type;
 import org.apache.doris.nereids.types.LargeIntType;
 
 import org.apache.commons.lang3.StringUtils;
@@ -253,7 +254,7 @@ public abstract class Literal extends Expression implements LeafExpression, Comp
         } else if (targetType.isDateV2Type()) {
             return new DateV2Literal(desc);
         } else if (targetType.isDateTimeV2Type()) {
-            return new DateTimeV2Literal(desc);
+            return new DateTimeV2Literal((DateTimeV2Type) targetType, desc);
         }
         throw new AnalysisException("no support cast!");
     }

@@ -15,20 +15,8 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.batch;
+package org.apache.doris.nereids;
 
-import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.analysis.AnalyzeSubquery;
-
-import com.google.common.collect.ImmutableList;
-
-/**
- * Analyze subquery.
- */
-public class AnalyzeSubqueryRulesJob extends BatchRulesJob {
-    public AnalyzeSubqueryRulesJob(CascadesContext cascadesContext) {
-        super(cascadesContext);
-        rulesJob.addAll(ImmutableList.of(
-                bottomUpBatch(ImmutableList.of(new AnalyzeSubquery()))));
-    }
+/** PlanSource */
+public interface PlanSource {
 }

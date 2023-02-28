@@ -15,12 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-suite("test_convert") {
-    test {
-        sql "select convert('a' using utf8);"
-        exception "NOT_IMPLEMENTED_ERROR"
+package org.apache.doris.nereids.pattern;
+
+import org.apache.doris.nereids.trees.plans.Plan;
+
+/** ProxyPattern */
+public class ProxyPattern<TYPE extends Plan> extends Pattern<TYPE> {
+    protected final Pattern pattern;
+
+    public ProxyPattern(Pattern pattern) {
+        super(pattern.getPlanType(), pattern.children());
+        this.pattern = pattern;
     }
 
-    qt_convert_const_to_gbk """select convert("a" using gbk), convert("丝" using gbk);"""
-}
+    @Override
+    public boolean matchPlanTree(Plan plan) {
+        return pattern.matchPlanTree(plan);
+    }
 
+    @Override
+    public boolean matchRoot(Plan plan) {
+        return pattern.matchRoot(plan);
+    }
+
+    @Override
+    public boolean matchPredicates(TYPE root) {
+        return pattern.matchPredicates(root);
+    }
+}

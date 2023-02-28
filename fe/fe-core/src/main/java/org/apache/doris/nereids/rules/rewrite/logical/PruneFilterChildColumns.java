@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.trees.expressions.Slot;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -51,7 +50,7 @@ import java.util.stream.Stream;
  *   |
  * scan(k1,k2,k3,v1)
  */
-public class PruneFilterChildColumns extends AbstractPushDownProjectRule<LogicalFilter<GroupPlan>> {
+public class PruneFilterChildColumns extends AbstractPushDownProjectRule<LogicalFilter<Plan>> {
 
     public PruneFilterChildColumns() {
         setRuleType(RuleType.COLUMN_PRUNE_FILTER_CHILD);
@@ -59,7 +58,7 @@ public class PruneFilterChildColumns extends AbstractPushDownProjectRule<Logical
     }
 
     @Override
-    protected Plan pushDownProject(LogicalFilter<GroupPlan> filter, Set<Slot> references) {
+    protected Plan pushDownProject(LogicalFilter<Plan> filter, Set<Slot> references) {
         Set<Slot> filterInputSlots = filter.getInputSlots();
         Set<Slot> required = Stream.concat(references.stream(), filterInputSlots.stream()).collect(Collectors.toSet());
         if (required.containsAll(filter.child().getOutput())) {

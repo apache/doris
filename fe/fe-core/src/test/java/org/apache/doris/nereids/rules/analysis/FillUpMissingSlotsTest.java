@@ -39,7 +39,7 @@ import org.apache.doris.nereids.trees.expressions.literal.TinyIntLiteral;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.TinyIntType;
 import org.apache.doris.nereids.util.FieldChecker;
-import org.apache.doris.nereids.util.PatternMatchSupported;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 
 import com.google.common.collect.ImmutableList;
@@ -49,7 +49,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.stream.Collectors;
 
-public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements PatternMatchSupported {
+public class FillUpMissingSlotsTest extends AnalyzeCheckTestBase implements MemoPatternMatchSupported {
 
     @Override
     public void runBeforeAll() throws Exception {

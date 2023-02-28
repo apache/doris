@@ -47,15 +47,18 @@ class SlotBinder extends SubExprAnalyzer {
     but enabled for order by clause
     TODO after remove original planner, always enable exact match mode.
      */
-    private boolean enableExactMatch = true;
+    private boolean enableExactMatch;
+    private final boolean bindSlotInOuterScope;
 
     public SlotBinder(Scope scope, CascadesContext cascadesContext) {
-        this(scope, cascadesContext, true);
+        this(scope, cascadesContext, true, true);
     }
 
-    public SlotBinder(Scope scope, CascadesContext cascadesContext, boolean enableExactMatch) {
+    public SlotBinder(Scope scope, CascadesContext cascadesContext,
+            boolean enableExactMatch, boolean bindSlotInOuterScope) {
         super(scope, cascadesContext);
         this.enableExactMatch = enableExactMatch;
+        this.bindSlotInOuterScope = bindSlotInOuterScope;
     }
 
     public Expression bind(Expression expression) {
@@ -81,7 +84,7 @@ class SlotBinder extends SubExprAnalyzer {
         Optional<List<Slot>> boundedOpt = Optional.of(bindSlot(unboundSlot, getScope().getSlots()));
         boolean foundInThisScope = !boundedOpt.get().isEmpty();
         // Currently only looking for symbols on the previous level.
-        if (!foundInThisScope && getScope().getOuterScope().isPresent()) {
+        if (bindSlotInOuterScope && !foundInThisScope && getScope().getOuterScope().isPresent()) {
             boundedOpt = Optional.of(bindSlot(unboundSlot,
                     getScope()
                             .getOuterScope()
