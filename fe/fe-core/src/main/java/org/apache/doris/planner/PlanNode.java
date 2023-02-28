@@ -207,15 +207,6 @@ public abstract class PlanNode extends TreeNode<PlanNode> implements PlanStats {
         this.statsDeriveResult = statsDeriveResult;
     }
 
-    public boolean isTargetNode() {
-        for (PlanNode node : children) {
-            if (node.isTargetNode()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     /**
      * Sets tblRefIds_, tupleIds_, and nullableTupleIds_.
      * The default implementation is a no-op.

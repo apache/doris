@@ -117,9 +117,6 @@ AggregationNode::AggregationNode(ObjectPool* pool, const TPlanNode& tnode,
             tnode.agg_node.use_fixed_length_serialization_opt;
     _agg_data = std::make_unique<AggregatedDataVariants>();
     _agg_arena_pool = std::make_unique<Arena>();
-    if (_needs_finalize && id() == 27) {
-        LOG(INFO) << "Log for ISSUE-16517: " << _row_descriptor.debug_string();
-    }
 }
 
 AggregationNode::~AggregationNode() = default;
