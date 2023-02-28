@@ -28,6 +28,8 @@ import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunctio
 import org.apache.doris.nereids.trees.expressions.typecoercion.TypeCheckResult;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
+import org.apache.doris.nereids.trees.plans.logical.LogicalRelation;
+import org.apache.doris.nereids.util.TypeUtils;
 
 import com.google.common.collect.ImmutableList;
 import org.apache.commons.lang.StringUtils;
@@ -49,6 +51,9 @@ public class CheckAnalysis implements AnalysisRuleFactory {
                 any().then(plan -> {
                     checkBound(plan);
                     checkExpressionInputTypes(plan);
+                    if (!(plan instanceof LogicalRelation)) {
+                        TypeUtils.checkPlanOutputTypes(plan);
+                    }
                     return null;
                 })
             ),
