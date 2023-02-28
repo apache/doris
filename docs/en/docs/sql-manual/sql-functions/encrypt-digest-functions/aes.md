@@ -143,7 +143,7 @@ If you want to change other encryption algorithms, you can:
 
 ```sql
 set block_encryption_mode="AES_256_CBC";
-select AES_DECRYPT(FROM_BASE64('tsmK1HzbpnEdR2//WhO+MA=='),'F3229A0B371ED2D9441B830D21A390C3', '0123456789');
+select aes_decrypt(from_base64('tsmK1HzbpnEdR2//WhO+MA=='),'F3229A0B371ED2D9441B830D21A390C3', '0123456789');
 ```
 
 Here is the result:
