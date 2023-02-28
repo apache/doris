@@ -72,7 +72,7 @@ In order to reduce CPU cost for parsing query SQL and SQL expressions, we provid
 1. Setup JDBC url and enable server side prepared statement
 ```
 url = jdbc:mysql://127.0.0.1:9030/ycsb?useServerPrepStmts=true
-``
+```
 
 2. Using `PreparedStatement`
 ```java
