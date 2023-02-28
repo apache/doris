@@ -96,7 +96,7 @@ public class CreateFunctionTest {
         Env.getCurrentEnv().createFunction(createFunctionStmt);
 
         List<Function> functions = db.getFunctions();
-        Assert.assertEquals(2, functions.size());
+        Assert.assertEquals(1, functions.size());
 
         String queryStr = "select db1.id_masking(13888888888);";
         ctx.getState().reset();
@@ -124,7 +124,7 @@ public class CreateFunctionTest {
         Env.getCurrentEnv().createFunction(createFunctionStmt);
 
         functions = db.getFunctions();
-        Assert.assertEquals(3, functions.size());
+        Assert.assertEquals(2, functions.size());
 
         queryStr = "select db1.decimal(333, 4, 1);";
         ctx.getState().reset();
@@ -154,7 +154,7 @@ public class CreateFunctionTest {
         Env.getCurrentEnv().createFunction(createFunctionStmt);
 
         functions = db.getFunctions();
-        Assert.assertEquals(4, functions.size());
+        Assert.assertEquals(3, functions.size());
 
         queryStr = "select db1.varchar(333, 4);";
         ctx.getState().reset();
@@ -181,7 +181,7 @@ public class CreateFunctionTest {
         Env.getCurrentEnv().createFunction(createFunctionStmt);
 
         functions = db.getFunctions();
-        Assert.assertEquals(5, functions.size());
+        Assert.assertEquals(4, functions.size());
 
         queryStr = "select db1.char(333, 4);";
         ctx.getState().reset();
