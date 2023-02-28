@@ -83,6 +83,33 @@ jobs:
           execute_command="curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_DorisRegression_P0Regression\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
           echo "{$execute_command}"
           eval ${execute_command}
+          
+
+  run_nereids_p0_external_pipeline:
+    if: contains(github.event.comment.body, 'nereids_p0') && contains(github.event.comment.body, 'run') && !contains(github.event.comment.body, 'Thanks for your contribution')
+
+    runs-on: ubuntu-latest
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Run nereids p0 and external pipeline by restful
+        run: |
+          echo "trigger compile pipeline"
+          if [ "_xx""${{ github.event.issue.pull_request.url }}" != "_xx" ]; then
+            echo "Comment was made on pull request: $(echo ${{ github.event.issue.pull_request.url }} | awk -F/ '{print $NF}')"
+          else
+            echo "Comment was made on an issue, not a pull request."
+          fi
+          pull_request_num=$(echo "${{ github.event.issue.pull_request.url }}" | awk -F/ '{print $NF}')
+          comment="${{ github.event.comment.body }}"
+          encoded_string=$(perl -MURI::Escape -e 'print uri_escape($ARGV[0]);' "${comment}")
+          echo ${encoded_string}
+          sleep 10s
+          execute_command="curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_DorisRegression_NereidsP0Regression\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
+          echo "{$execute_command}"
+          eval ${execute_command}
+          
 
   run_p1_pipeline:
     if: contains(github.event.comment.body, 'p1') && contains(github.event.comment.body, 'run')  && !contains(github.event.comment.body, 'Thanks for your contribution')
@@ -108,6 +135,7 @@ jobs:
           execute_command="curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_DorisRegression_P1Regression\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
           echo "{$execute_command}"
           eval ${execute_command}
+
 
   run_fe_ut_pipeline:
     if: contains(github.event.comment.body, 'feut') && contains(github.event.comment.body, 'run') && !contains(github.event.comment.body, 'Thanks for your contribution')
@@ -135,6 +163,7 @@ jobs:
           echo "{$execute_command}"
           eval ${execute_command}
 
+
   run_be_ut_pipeline:
     if: contains(github.event.comment.body, 'beut') && contains(github.event.comment.body, 'run') && !contains(github.event.comment.body, 'Thanks for your contribution')
 
@@ -160,6 +189,7 @@ jobs:
           execute_command="curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_DorisBeUt_BeUt\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
           echo "{$execute_command}"
           eval ${execute_command}
+
 
   run_compile_only_pipeline:
     if: contains(github.event.comment.body, 'compile') && contains(github.event.comment.body, 'run') && !contains(github.event.comment.body, 'Thanks for your contribution')
@@ -187,6 +217,7 @@ jobs:
           echo "{$execute_command}"
           eval ${execute_command}
 
+
   run_clickbench_pipeline:
     if: contains(github.event.comment.body, 'clickbench') && contains(github.event.comment.body, 'run') && !contains(github.event.comment.body, 'Thanks for your contribution')
 
@@ -212,6 +243,7 @@ jobs:
           execute_command="curl ${{ env.TEAMCITY_URL }}\?add2Queue\=Doris_Benchmark_Clickbench\&branchName\=pull/${pull_request_num}\&name=env.latest_pr_comment\&value=${encoded_string}"
           echo "{$execute_command}"
           eval ${execute_command}
+
 
   run_arm_pipeline:
     if: contains(github.event.comment.body, 'arm') && contains(github.event.comment.body, 'run') && !contains(github.event.comment.body, 'Thanks for your contribution')
