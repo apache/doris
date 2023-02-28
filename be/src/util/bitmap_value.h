@@ -1710,7 +1710,7 @@ public:
         }
         case BITMAP: {
             auto it = _bitmap.begin();
-            for (; it != _bitmap.end() && *it < range_start;) {
+            while (it != _bitmap.end() && *it < range_start) {
                 ++it;
             }
 
@@ -1747,7 +1747,7 @@ public:
         }
         case BITMAP: {
             auto it = _bitmap.begin();
-            for (; it != _bitmap.end() && *it < range_start;) {
+            while (it != _bitmap.end() && *it < range_start) {
                 ++it;
             }
 
