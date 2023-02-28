@@ -132,8 +132,8 @@ Status PipelineTask::execute(bool* eos) {
     SCOPED_ATTACH_TASK(_state);
     int64_t time_spent = 0;
     Defer defer {[&]() {
-        LOG(INFO) << "llj test defer execute update_statistics " << pipeline_id() << " "
-                  << time_spent;
+//        LOG(INFO) << "llj test defer execute update_statistics " << pipeline_id() << " "
+//                  << time_spent;
         _task_queue->update_statistics(this, time_spent);
     }};
     // The status must be runnable
@@ -141,7 +141,7 @@ Status PipelineTask::execute(bool* eos) {
     if (!_opened) {
         {
             SCOPED_RAW_TIMER(&time_spent);
-            auto st = open();
+            auto st = _open();
             if (st.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
                 set_state(PipelineTaskState::BLOCKED_FOR_RF);
                 return Status::OK();
@@ -204,8 +204,8 @@ Status PipelineTask::finalize() {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);
     Defer defer {[&]() {
-        LOG(INFO) << "llj test defer finalize update_statistics " << pipeline_id() << " "
-                  << _finalize_timer;
+//        LOG(INFO) << "llj test defer finalize update_statistics " << pipeline_id() << " "
+//                  << _finalize_timer;
         _task_queue->update_statistics(this, _finalize_timer->value());
     }};
     SCOPED_TIMER(_finalize_timer);
@@ -219,8 +219,8 @@ Status PipelineTask::try_close() {
 Status PipelineTask::close() {
     int64_t close_ns = 0;
     Defer defer {[&]() {
-        LOG(INFO) << "llj test defer close update_statistics " << pipeline_id() << " "
-                  << close_ns;
+//        LOG(INFO) << "llj test defer close update_statistics " << pipeline_id() << " "
+//                  << close_ns;
         _task_queue->update_statistics(this, close_ns);
     }};
     Status s;

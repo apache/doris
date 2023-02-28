@@ -262,8 +262,8 @@ void ResourceGroupTaskQueue::update_statistics(PipelineTask* task, int64_t time_
         _groups.emplace(entry);
         _update_min_rg();
     }
-    LOG(INFO) << "llj test query_id: " << print_id(task->query_fragments_context()->query_id)
-              << " update_statistics: " << time_spent;
+//    LOG(INFO) << "llj test query_id: " << print_id(task->query_fragments_context()->query_id)
+//              << " update_statistics: " << time_spent;
 }
 
 

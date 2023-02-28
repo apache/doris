@@ -188,7 +188,7 @@ public:
     static constexpr auto THREAD_TIME_SLICE = 100'000'000L;
 
 private:
-    Status open();
+    Status _open();
     void _init_profile();
 
     uint32_t _index;
