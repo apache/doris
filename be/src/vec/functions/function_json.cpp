@@ -656,10 +656,6 @@ using FunctionGetJsonInt = FunctionBinaryStringOperateToNullType<GetJsonInt>;
 using FunctionGetJsonString = FunctionBinaryStringOperateToNullType<GetJsonString>;
 
 class FunctionJsonValid : public IFunction {
-private:
-    JsonbParserSIMD default_value_parser;
-    bool has_const_default_value = false;
-
 public:
     static constexpr auto name = "json_valid";
     static FunctionPtr create() { return std::make_shared<FunctionJsonValid>(); }
