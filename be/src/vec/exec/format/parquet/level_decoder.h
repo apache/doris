@@ -35,6 +35,8 @@ public:
     Status init(Slice* slice, tparquet::Encoding::type encoding, level_t max_level,
                 uint32_t num_levels);
 
+    Status init_v2(const Slice& levels, level_t max_level, uint32_t num_levels);
+
     inline bool has_levels() const { return _num_levels > 0; }
 
     size_t get_levels(level_t* levels, size_t n);
