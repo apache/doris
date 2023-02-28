@@ -108,11 +108,6 @@ protected:
 
     TSchemaTableType::type _schema_table_type;
 
-    int64_t _get_db_ns = 0;
-    int64_t _get_table_ns = 0;
-    int64_t _get_describe_ns = 0;
-    int64_t _fill_block_ns = 0;
-
     RuntimeProfile::Counter* _get_db_timer = nullptr;
     RuntimeProfile::Counter* _get_table_timer = nullptr;
     RuntimeProfile::Counter* _get_describe_timer = nullptr;
