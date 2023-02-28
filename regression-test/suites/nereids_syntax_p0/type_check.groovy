@@ -18,10 +18,13 @@
 suite("type_check") {
     sql '''
         create table if not exists type_tb (
-            id int, 
-            json jsonb,
-            dcml decimalv3(15, 2),
-            arr array<int>
+            id int NOT NULL, 
+            kjsonb jsonb,
+            kdcml decimalv3(15, 2),
+            karr array<int>,
+            kmap map<string, string>,
+            kstruct struct<"a": int, "b": int>,
+            `date` bigint(20) NOT NULL,
         )
         DUPLICATE KEY(id) 
         distributed by hash(id) buckets 2
@@ -32,10 +35,18 @@ suite("type_check") {
 
     sql 'set enable_nereids_planner=true'
     sql 'set enable_fallback_to_original_planner=false'
+    sql 'set group_by_and_having_use_alias_first=false'
+
+    sql 'insert into type_tb values(1, null, null, null, null, null, 20221111)'
+
+    test {
+        sql 'select id from type_tb'
+        result([[1]])
+    }
 
     // jsonb
     test {
-        sql 'select * from type_tb'
+        sql 'select kjsonb from type_tb'
         exception 'type unsupported for nereids planner'
     }
 
@@ -46,13 +57,64 @@ suite("type_check") {
 
     // array
     test {
+        sql 'select karr from type_tb'
+        exception 'type unsupported for nereids planner'
+    }
+
+    test {
         sql 'select array_range(10)'
         exception 'type unsupported for nereids planner'
     }
 
     // decimalv3
     test {
+        sql 'select kdcml from type_tb'
+        exception 'type unsupported for nereids planner'
+    }
+
+    test {
         sql 'select cast(0.3 as decimalv3(12, 2))'
         exception 'type unsupported for nereids planner'
+    }
+
+    // map
+    test {
+        sql 'select kmap from type_tb'
+        exception 'type unsupported for nereids planner'
+    }
+
+    // struct
+    test {
+        sql 'select kstruct from type_tb'
+        exception 'type unsupported for nereids planner'
+    }
+
+    //sv
+    test {
+        sql '''
+            SELECT
+            date_format(date, '%x%v') AS `date`,
+            count(date) AS `diff_days`
+            FROM type_tb
+            GROUP BY date
+            HAVING date = 20221111
+            ORDER BY date;
+        '''
+        result([[202245, 1]])
+    }
+
+    sql 'set group_by_and_having_use_alias_first=true'
+
+    test {
+        sql '''
+            SELECT
+            date_format(date, '%x%v') AS `date`,
+            count(date) AS `diff_days`
+            FROM type_tb
+            GROUP BY date
+            HAVING date = 20221111
+            ORDER BY date;
+        '''
+        exception 'group_by_and_having_use_alias=true is unsupported for Nereids'
     }
 }
