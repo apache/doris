@@ -198,6 +198,7 @@ public class StmtExecutor implements ProfileWriter {
     private QueryPlannerProfile plannerProfile = new QueryPlannerProfile();
     private String stmtName;
     private PrepareStmt prepareStmt;
+    private String mysqlLoadId;
 
     // The result schema if "dry_run_query" is true.
     // Only one column to indicate the real return row numbers.
@@ -1007,6 +1008,11 @@ public class StmtExecutor implements ProfileWriter {
         Coordinator coordRef = coord;
         if (coordRef != null) {
             coordRef.cancel();
+        }
+        LOG.info("cancel1()");
+        if (mysqlLoadId != null) {
+            LOG.info("cancel2()");
+            Env.getCurrentEnv().getLoadManager().getMysqlLoadManager().cancelMySqlLoad(mysqlLoadId);
         }
     }
 
@@ -1898,8 +1904,10 @@ public class StmtExecutor implements ProfileWriter {
                             + " to load client local file.");
                     return;
                 }
+                String loadId = UUID.randomUUID().toString();
+                mysqlLoadId = loadId;
                 LoadJobRowResult submitResult = loadManager.getMysqlLoadManager()
-                        .executeMySqlLoadJobFromStmt(context, loadStmt);
+                        .executeMySqlLoadJobFromStmt(context, loadStmt, loadId);
                 context.getState().setOk(submitResult.getRecords(), submitResult.getWarnings(),
                         submitResult.toString());
             } else {
