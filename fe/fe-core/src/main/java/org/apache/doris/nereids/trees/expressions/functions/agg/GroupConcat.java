@@ -107,7 +107,7 @@ public class GroupConcat extends NullableAggregateFunction
 
     @Override
     public boolean nullable() {
-        return children().stream()
+        return alwaysNullable || children().stream()
                 .anyMatch(expression -> !(expression instanceof OrderExpression) && expression.nullable());
     }
 

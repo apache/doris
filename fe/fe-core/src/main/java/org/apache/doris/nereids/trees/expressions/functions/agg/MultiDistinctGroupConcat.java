@@ -23,7 +23,8 @@ import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.functions.ExplicitlyCastableSignature;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
-import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.types.CharType;
+import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.types.coercion.AnyDataType;
 import org.apache.doris.nereids.util.ExpressionUtils;
@@ -42,7 +43,19 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).varArgs(VarcharType.SYSTEM_DEFAULT,
                     AnyDataType.INSTANCE),
             FunctionSignature.ret(VarcharType.SYSTEM_DEFAULT).varArgs(VarcharType.SYSTEM_DEFAULT,
-                    VarcharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE));
+                    VarcharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE),
+
+            FunctionSignature.ret(StringType.INSTANCE).args(StringType.INSTANCE),
+            FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE,
+                    AnyDataType.INSTANCE),
+            FunctionSignature.ret(StringType.INSTANCE).varArgs(StringType.INSTANCE,
+                    StringType.INSTANCE, AnyDataType.INSTANCE),
+
+            FunctionSignature.ret(CharType.SYSTEM_DEFAULT).args(CharType.SYSTEM_DEFAULT),
+            FunctionSignature.ret(CharType.SYSTEM_DEFAULT).varArgs(CharType.SYSTEM_DEFAULT,
+                    AnyDataType.INSTANCE),
+            FunctionSignature.ret(CharType.SYSTEM_DEFAULT).varArgs(CharType.SYSTEM_DEFAULT,
+                    CharType.SYSTEM_DEFAULT, AnyDataType.INSTANCE));
 
     private final int nonOrderArguments;
 
@@ -91,27 +104,8 @@ public class MultiDistinctGroupConcat extends NullableAggregateFunction
 
     @Override
     public boolean nullable() {
-        return children().stream()
+        return alwaysNullable || children().stream()
                 .anyMatch(expression -> !(expression instanceof OrderExpression) && expression.nullable());
-    }
-
-    @Override
-    public void checkLegalityBeforeTypeCoercion() {
-        DataType typeOrArg0 = getArgumentType(0);
-        if (!typeOrArg0.isStringLikeType() && !typeOrArg0.isNullType()) {
-            throw new AnalysisException(
-                    "multi_distinct_group_concat requires first parameter to be of type STRING: "
-                            + this.toSql());
-        }
-
-        if (nonOrderArguments == 2) {
-            DataType typeOrArg1 = getArgumentType(1);
-            if (!typeOrArg1.isStringLikeType() && !typeOrArg1.isNullType()) {
-                throw new AnalysisException(
-                        "multi_distinct_group_concat requires second parameter to be of type STRING: "
-                                + this.toSql());
-            }
-        }
     }
 
     @Override
