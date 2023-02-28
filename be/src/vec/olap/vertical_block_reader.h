@@ -69,7 +69,7 @@ private:
     Status _init_collect_iter(const ReaderParams& read_params);
 
     Status _get_segment_iterators(const ReaderParams& read_params,
-                                  std::vector<RowwiseIteratorUPtr>& segment_iters,
+                                  std::vector<RowwiseIteratorUPtr>* segment_iters,
                                   std::vector<bool>* iterator_init_flag,
                                   std::vector<RowsetId>* rowset_ids);
 

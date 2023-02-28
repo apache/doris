@@ -36,7 +36,7 @@ VerticalBlockReader::~VerticalBlockReader() {
 }
 
 Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_params,
-                                                   std::vector<RowwiseIteratorUPtr>& segment_iters,
+                                                   std::vector<RowwiseIteratorUPtr>* segment_iters,
                                                    std::vector<bool>* iterator_init_flag,
                                                    std::vector<RowsetId>* rowset_ids) {
     auto res = _capture_rs_readers(read_params);
@@ -54,7 +54,7 @@ Status VerticalBlockReader::_get_segment_iterators(const ReaderParams& read_para
         // segment iterator will be inited here
         // In vertical compaction, every group will load segment so we should cache
         // segment to avoid tot many s3 head request
-        RETURN_NOT_OK(rs_reader->get_segment_iterators(&_reader_context, &segment_iters, true));
+        RETURN_NOT_OK(rs_reader->get_segment_iterators(&_reader_context, segment_iters, true));
         // if segments overlapping, all segment iterator should be inited in
         // heap merge iterator. If segments are none overlapping, only first segment of this
         // rowset will be inited and push to heap, other segment will be inited later when current
@@ -85,11 +85,13 @@ Status VerticalBlockReader::_init_collect_iter(const ReaderParams& read_params) 
     std::vector<bool> iterator_init_flag;
     std::vector<RowsetId> rowset_ids;
     std::vector<RowwiseIteratorUPtr>* segment_iters_ptr = read_params.segment_iters_ptr;
+    std::vector<RowwiseIteratorUPtr> iter_ptr_vector;
 
     if (!segment_iters_ptr) {
-        RETURN_IF_ERROR(_get_segment_iterators(read_params, *segment_iters_ptr, &iterator_init_flag,
+        RETURN_IF_ERROR(_get_segment_iterators(read_params, &iter_ptr_vector, &iterator_init_flag,
                                                &rowset_ids));
-        CHECK(segment_iters_ptr->size() == iterator_init_flag.size());
+        CHECK(iter_ptr_vector.size() == iterator_init_flag.size());
+        segment_iters_ptr = &iter_ptr_vector;
     } else {
         for (int i = 0; i < segment_iters_ptr->size(); ++i) {
             iterator_init_flag.push_back(true);

@@ -134,7 +134,7 @@ public:
 
         bool is_segcompaction = false;
 
-        std::vector<RowwiseIteratorUPtr>* segment_iters_ptr;
+        std::vector<RowwiseIteratorUPtr>* segment_iters_ptr = nullptr;
 
         void check_validation() const;
 
