@@ -91,12 +91,6 @@ TabletManager::~TabletManager() {
     DEREGISTER_HOOK_METRIC(tablet_meta_mem_consumption);
 }
 
-void TabletManager::add_tablet(const TabletSharedPtr& tablet) {
-    auto& tablet_map = _get_tablet_map(tablet->tablet_id());
-    std::lock_guard wlock(_get_tablets_shard_lock(tablet->tablet_id()));
-    tablet_map[tablet->tablet_id()] = tablet;
-}
-
 Status TabletManager::_add_tablet_unlocked(TTabletId tablet_id, const TabletSharedPtr& tablet,
                                            bool update_meta, bool force) {
     Status res = Status::OK();
