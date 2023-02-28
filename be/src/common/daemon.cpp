@@ -168,10 +168,6 @@ void Daemon::tcmalloc_gc_thread() {
 
 void Daemon::memory_maintenance_thread() {
     int32_t interval_milliseconds = config::memory_maintenance_sleep_time_ms;
-    int32_t cache_gc_interval_ms = config::cache_gc_interval_s * 1000;
-    int32_t memory_minor_gc_sleep_time_ms = 0;
-    int32_t memory_full_gc_sleep_time_ms = 0;
-    int64_t cache_gc_freed_mem = 0;
     int64_t last_print_proc_mem = PerfCounters::get_vm_rss();
     while (!_stop_background_threads_latch.wait_for(
             std::chrono::milliseconds(interval_milliseconds))) {
@@ -204,8 +200,20 @@ void Daemon::memory_maintenance_thread() {
                         << doris::MemTrackerLimiter::log_process_usage_str("memory debug", false);
             }
         }
+    }
+}
 
-        // If system available memory is not enough, or the process memory exceeds the limit, reduce refresh interval.
+void Daemon::memory_gc_thread() {
+    int32_t interval_milliseconds = config::memory_maintenance_sleep_time_ms;
+    int32_t cache_gc_interval_ms = config::cache_gc_interval_s * 1000;
+    int32_t memory_minor_gc_sleep_time_ms = 0;
+    int32_t memory_full_gc_sleep_time_ms = 0;
+    int64_t cache_gc_freed_mem = 0;
+    while (!_stop_background_threads_latch.wait_for(
+            std::chrono::milliseconds(interval_milliseconds))) {
+        if (!MemInfo::initialized()) {
+            continue;
+        }
         if (memory_full_gc_sleep_time_ms <= 0 &&
             (doris::MemInfo::sys_mem_available() <
                      doris::MemInfo::sys_mem_available_low_water_mark() ||
@@ -425,6 +433,10 @@ void Daemon::start() {
             &_memory_maintenance_thread);
     CHECK(st.ok()) << st;
     st = Thread::create(
+            "Daemon", "memory_gc_thread", [this]() { this->memory_gc_thread(); },
+            &_memory_gc_thread);
+    CHECK(st.ok()) << st;
+    st = Thread::create(
             "Daemon", "load_channel_tracker_refresh_thread",
             [this]() { this->load_channel_tracker_refresh_thread(); },
             &_load_channel_tracker_refresh_thread);
@@ -450,6 +462,9 @@ void Daemon::stop() {
     }
     if (_memory_maintenance_thread) {
         _memory_maintenance_thread->join();
+    }
+    if (_memory_gc_thread) {
+        _memory_gc_thread->join();
     }
     if (_load_channel_tracker_refresh_thread) {
         _load_channel_tracker_refresh_thread->join();
