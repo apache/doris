@@ -18,7 +18,6 @@
 package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 
 import java.util.Objects;
 
@@ -60,8 +59,7 @@ public class ArrayType extends DataType {
 
     @Override
     public Type toCatalogDataType() {
-        throw new AnalysisException("type array is unsupported for Nereids");
-        // return new org.apache.doris.catalog.ArrayType(itemType.toCatalogDataType(), containsNull);
+        return new org.apache.doris.catalog.ArrayType(itemType.toCatalogDataType(), containsNull);
     }
 
     @Override

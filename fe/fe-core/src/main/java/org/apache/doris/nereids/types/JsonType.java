@@ -19,7 +19,6 @@ package org.apache.doris.nereids.types;
 
 import org.apache.doris.catalog.Type;
 import org.apache.doris.nereids.annotation.Developing;
-import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.types.coercion.AbstractDataType;
 
 /**
@@ -37,8 +36,7 @@ public class JsonType extends DataType {
 
     @Override
     public Type toCatalogDataType() {
-        throw new AnalysisException("type json is unsupported for Nereids");
-        // return Type.JSONB;
+        return Type.JSONB;
     }
 
     @Override
