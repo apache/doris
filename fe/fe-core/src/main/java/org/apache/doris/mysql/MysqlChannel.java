@@ -101,6 +101,10 @@ public class MysqlChannel {
         this.defaultBuffer = ByteBuffer.allocate(16 * 1024);
         this.headerByteBuffer = ByteBuffer.allocate(PACKET_HEADER_LEN);
         this.sendBuffer = ByteBuffer.allocate(2 * 1024 * 1024);
+    }
+
+    public void initSslBuffer() {
+        // allocate buffer when needed.
         this.sendSslBuffer = ByteBuffer.allocate(2 * 1024 * 1024);
         this.remainingBuffer = ByteBuffer.allocate(16 * 1024);
         this.remainingBuffer.flip();
@@ -171,7 +175,7 @@ public class MysqlChannel {
         if (!dstBuf.hasRemaining()) {
             return 0;
         }
-        if (remainingBuffer.hasRemaining()) {
+        if (remainingBuffer != null && remainingBuffer.hasRemaining()) {
             int oldLen = dstBuf.position();
             while (dstBuf.hasRemaining()) {
                 dstBuf.put(remainingBuffer.get());
@@ -534,4 +538,5 @@ public class MysqlChannel {
                 throw new IllegalStateException("invalid wrap status: " + sslEngineResult.getStatus());
         }
     }
+
 }

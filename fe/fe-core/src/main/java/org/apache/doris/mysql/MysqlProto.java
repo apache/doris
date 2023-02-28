@@ -186,6 +186,7 @@ public class MysqlProto {
             if (SERVER_USE_SSL) {
                 MysqlSslContext mysqlSslContext = context.getMysqlSslContext();
                 mysqlSslContext.init();
+                channel.initSslBuffer();
                 sslConnectionRequest = clientRequestPacket;
                 if (sslConnectionRequest == null) {
                     // receive response failed.
