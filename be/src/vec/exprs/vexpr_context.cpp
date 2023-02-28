@@ -49,7 +49,25 @@ doris::Status VExprContext::prepare(doris::RuntimeState* state,
                                     const doris::RowDescriptor& row_desc) {
     _prepared = true;
     _pool.reset(new MemPool());
-    return _root->prepare(state, row_desc, this);
+    std::stack<VExpr*> stack;
+    stack.push(_root);
+
+    std::vector<VExpr*> flatted;
+
+    while (!stack.empty()) {
+        auto* top = stack.top();
+        flatted.emplace_back(top);
+        stack.pop();
+        for (auto* child : top->children()) {
+            stack.push(child);
+        }
+    }
+
+    for (ssize_t i = flatted.size() - 1; i >= 0; --i) {
+        RETURN_IF_ERROR(flatted[i]->prepare(state, row_desc, this));
+    }
+
+    return Status::OK();
 }
 
 doris::Status VExprContext::open(doris::RuntimeState* state) {

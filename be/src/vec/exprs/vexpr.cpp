@@ -85,9 +85,6 @@ VExpr::VExpr(const TypeDescriptor& type, bool is_slotref, bool is_nullable)
 }
 
 Status VExpr::prepare(RuntimeState* state, const RowDescriptor& row_desc, VExprContext* context) {
-    for (int i = 0; i < _children.size(); ++i) {
-        RETURN_IF_ERROR(_children[i]->prepare(state, row_desc, context));
-    }
     return Status::OK();
 }
 
