@@ -418,9 +418,9 @@ Status VScanNode::_normalize_conjuncts() {
         switch (type) {
 #define M(NAME)                                                                              \
     case TYPE_##NAME: {                                                                      \
-        ColumnValueRange<TYPE_##NAME> range(slots[slot_idx]->col_name(),                     \
-                                            slots[slot_idx]->type().precision,               \
-                                            slots[slot_idx]->type().scale);                  \
+        ColumnValueRange<TYPE_##NAME> range(                                                 \
+                slots[slot_idx]->col_name(), slots[slot_idx]->is_nullable(),                 \
+                slots[slot_idx]->type().precision, slots[slot_idx]->type().scale);           \
         _slot_id_to_value_range[slots[slot_idx]->id()] = std::pair {slots[slot_idx], range}; \
         break;                                                                               \
     }
@@ -735,8 +735,8 @@ template <PrimitiveType T>
 Status VScanNode::_normalize_in_and_eq_predicate(VExpr* expr, VExprContext* expr_ctx,
                                                  SlotDescriptor* slot, ColumnValueRange<T>& range,
                                                  PushDownType* pdt) {
-    auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(slot->type().precision,
-                                                                           slot->type().scale);
+    auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
+            slot->is_nullable(), slot->type().precision, slot->type().scale);
     // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
     if (TExprNodeType::IN_PRED == expr->node_type()) {
         HybridSetBase::IteratorBase* iter = nullptr;
@@ -824,7 +824,7 @@ Status VScanNode::_normalize_not_in_and_not_eq_predicate(VExpr* expr, VExprConte
                                                          PushDownType* pdt) {
     bool is_fixed_range = range.is_fixed_value_range();
     auto not_in_range = ColumnValueRange<T>::create_empty_column_value_range(
-            range.column_name(), slot->type().precision, slot->type().scale);
+            range.column_name(), slot->is_nullable(), slot->type().precision, slot->type().scale);
     PushDownType temp_pdt = PushDownType::UNACCEPTABLE;
     // 1. Normalize in conjuncts like 'where col in (v1, v2, v3)'
     if (TExprNodeType::IN_PRED == expr->node_type()) {
@@ -925,14 +925,14 @@ Status VScanNode::_normalize_is_null_predicate(VExpr* expr, VExprContext* expr_c
     if (TExprNodeType::FUNCTION_CALL == expr->node_type()) {
         if (reinterpret_cast<VectorizedFnCall*>(expr)->fn().name.function_name == "is_null_pred") {
             auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
-                    slot->type().precision, slot->type().scale);
+                    slot->is_nullable(), slot->type().precision, slot->type().scale);
             temp_range.set_contain_null(true);
             range.intersection(temp_range);
             *pdt = temp_pdt;
         } else if (reinterpret_cast<VectorizedFnCall*>(expr)->fn().name.function_name ==
                    "is_not_null_pred") {
             auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
-                    slot->type().precision, slot->type().scale);
+                    slot->is_nullable(), slot->type().precision, slot->type().scale);
             temp_range.set_contain_null(false);
             range.intersection(temp_range);
             *pdt = temp_pdt;
@@ -1130,7 +1130,7 @@ Status VScanNode::_normalize_match_predicate(VExpr* expr, VExprContext* expr_ctx
 
         // create empty range as temp range, temp range should do intersection on range
         auto temp_range = ColumnValueRange<T>::create_empty_column_value_range(
-                slot->type().precision, slot->type().scale);
+                slot->is_nullable(), slot->type().precision, slot->type().scale);
         // Normalize match conjuncts like 'where col match value'
 
         auto match_checker = [](const std::string& fn_name) { return is_match_condition(fn_name); };
