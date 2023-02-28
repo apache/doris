@@ -423,6 +423,7 @@ int main(int argc, char** argv) {
         }
     }
 
+    // Load file cache before starting up daemon threads to make sure StorageEngine is read.
     doris::Daemon daemon;
     daemon.init(argc, argv, paths);
     daemon.start();
