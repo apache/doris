@@ -17,7 +17,8 @@
 
 #include "pipeline_task.h"
 
-#include "pipeline/pipeline_fragment_context.h"
+#include "pipeline_fragment_context.h"
+#include "task_queue.h"
 
 namespace doris::pipeline {
 
@@ -120,12 +121,21 @@ Status PipelineTask::open() {
     return Status::OK();
 }
 
+void PipelineTask::set_task_queue(TaskQueue* task_queue) {
+    _task_queue = task_queue;
+}
+
 Status PipelineTask::execute(bool* eos) {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);
     SCOPED_TIMER(_exec_timer);
     SCOPED_ATTACH_TASK(_state);
     int64_t time_spent = 0;
+    Defer defer {[&]() {
+        LOG(INFO) << "llj test defer execute update_statistics " << pipeline_id() << " "
+                  << time_spent;
+        _task_queue->update_statistics(this, time_spent);
+    }};
     // The status must be runnable
     *eos = false;
     if (!_opened) {
@@ -193,6 +203,11 @@ Status PipelineTask::execute(bool* eos) {
 Status PipelineTask::finalize() {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_CPU_TIMER(_task_cpu_timer);
+    Defer defer {[&]() {
+        LOG(INFO) << "llj test defer finalize update_statistics " << pipeline_id() << " "
+                  << _finalize_timer;
+        _task_queue->update_statistics(this, _finalize_timer->value());
+    }};
     SCOPED_TIMER(_finalize_timer);
     return _sink->finalize(_state);
 }
@@ -203,6 +218,11 @@ Status PipelineTask::try_close() {
 
 Status PipelineTask::close() {
     int64_t close_ns = 0;
+    Defer defer {[&]() {
+        LOG(INFO) << "llj test defer close update_statistics " << pipeline_id() << " "
+                  << close_ns;
+        _task_queue->update_statistics(this, close_ns);
+    }};
     Status s;
     {
         SCOPED_RAW_TIMER(&close_ns);

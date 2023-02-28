@@ -85,6 +85,8 @@ inline const char* get_state_name(PipelineTaskState idx) {
     __builtin_unreachable();
 }
 
+class TaskQueue;
+
 // The class do the pipeline task. Minest schdule union by task scheduler
 class PipelineTask {
 public:
@@ -181,6 +183,8 @@ public:
 
     resourcegroup::ResourceGroup* get_rs_group();
 
+    void set_task_queue(TaskQueue* task_queue);
+
     static constexpr auto THREAD_TIME_SLICE = 100'000'000L;
 
 private:
@@ -205,6 +209,7 @@ private:
     SourceState _data_state;
     std::unique_ptr<doris::vectorized::Block> _block;
     PipelineFragmentContext* _fragment_context;
+    TaskQueue* _task_queue = nullptr;
 
     RuntimeProfile* _parent_profile;
     std::unique_ptr<RuntimeProfile> _task_profile;

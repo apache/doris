@@ -213,23 +213,19 @@ Status TaskScheduler::schedule_task(PipelineTask* task) {
 }
 
 void TaskScheduler::_do_work(size_t index) {
-    auto queue = _task_queue;
     const auto& marker = _markers[index];
     while (*marker) {
-        auto task = queue->take(index);
+        auto task = _task_queue->take(index);
         if (!task) {
             continue;
         }
+        task->set_task_queue(_task_queue.get());
         auto* fragment_ctx = task->fragment_context();
         doris::signal::query_id_hi = fragment_ctx->get_query_id().hi;
         doris::signal::query_id_lo = fragment_ctx->get_query_id().lo;
         bool canceled = fragment_ctx->is_canceled();
 
         int64_t time_spent = 0;
-        Defer defer {[&]() {
-            LOG(INFO) << "llj test defer update_statistics " << task << time_spent;
-            queue->update_statistics(task, time_spent);
-        }};
         SCOPED_RAW_TIMER(&time_spent); // 后定义的先析构
 
         auto check_state = task->get_state();
@@ -290,7 +286,7 @@ void TaskScheduler::_do_work(size_t index) {
             _blocked_task_scheduler->add_blocked_task(task);
             break;
         case PipelineTaskState::RUNNABLE:
-            queue->push_back(task, index);
+            _task_queue->push_back(task, index);
             break;
         default:
             DCHECK(false) << "error state after run task, " << get_state_name(pipeline_state);
