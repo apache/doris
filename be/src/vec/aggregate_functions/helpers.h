@@ -28,9 +28,6 @@
 // TODO: Should we support decimal in numeric types?
 #define FOR_INTEGER_TYPES(M) \
     M(UInt8)                 \
-    M(UInt16)                \
-    M(UInt32)                \
-    M(UInt64)                \
     M(Int8)                  \
     M(Int16)                 \
     M(Int32)                 \
