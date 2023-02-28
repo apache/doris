@@ -18,7 +18,10 @@
 package org.apache.doris.common.proc;
 
 import org.apache.doris.catalog.Env;
+import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Tablet;
+import org.apache.doris.catalog.TabletMeta;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.system.Backend;
@@ -37,7 +40,8 @@ public class ReplicasProcNode implements ProcNodeInterface {
     public static final ImmutableList<String> TITLE_NAMES = new ImmutableList.Builder<String>().add("ReplicaId")
             .add("BackendId").add("Version").add("LstSuccessVersion").add("LstFailedVersion").add("LstFailedTime")
             .add("SchemaHash").add("LocalDataSize").add("RemoteDataSize").add("RowCount").add("State").add("IsBad")
-            .add("VersionCount").add("PathHash").add("MetaUrl").add("CompactionStatus").build();
+            .add("VersionCount").add("PathHash").add("MetaUrl").add("CompactionStatus").add("CooldownReplicaId")
+            .add("CooldownMetaId").build();
 
     private long tabletId;
     private List<Replica> replicas;
@@ -53,6 +57,22 @@ public class ReplicasProcNode implements ProcNodeInterface {
 
         BaseProcResult result = new BaseProcResult();
         result.setNames(TITLE_NAMES);
+        TabletMeta tabletMeta = Env.getCurrentInvertedIndex().getTabletMeta(tabletId);
+        Tablet tablet = null;
+        try {
+            OlapTable table = (OlapTable) Env.getCurrentInternalCatalog().getDbNullable(tabletMeta.getDbId())
+                    .getTableNullable(tabletMeta.getTableId());
+            table.readLock();
+            try {
+                tablet = table.getPartition(tabletMeta.getPartitionId()).getIndex(tabletMeta.getIndexId())
+                        .getTablet(tabletId);
+            } finally {
+                table.readUnlock();
+            }
+        } catch (Exception e) {
+            return result;
+        }
+
         for (Replica replica : replicas) {
             Backend be = backendMap.get(replica.getBackendId());
             String host = (be == null ? Backend.DUMMY_IP : be.getIp());
@@ -67,6 +87,10 @@ public class ReplicasProcNode implements ProcNodeInterface {
                     tabletId,
                     replica.getSchemaHash());
 
+            String cooldownMetaId = "";
+            if (replica.getCooldownMetaId() != null) {
+                cooldownMetaId = replica.getCooldownMetaId().toString();
+            }
             result.addRow(Arrays.asList(String.valueOf(replica.getId()),
                                         String.valueOf(replica.getBackendId()),
                                         String.valueOf(replica.getVersion()),
@@ -82,7 +106,9 @@ public class ReplicasProcNode implements ProcNodeInterface {
                                         String.valueOf(replica.getVersionCount()),
                                         String.valueOf(replica.getPathHash()),
                                         metaUrl,
-                                        compactionUrl));
+                                        compactionUrl,
+                                        String.valueOf(tablet.getCooldownConf().first),
+                                        cooldownMetaId));
         }
         return result;
     }
