@@ -427,6 +427,10 @@ private:
     // set stop_processing if we want to stop the whole process now.
     Status _validate_data(RuntimeState* state, vectorized::Block* block, Bitmap* filter_bitmap,
                           int* filtered_rows, bool* stop_processing);
+
+    template <bool is_min>
+    DecimalV2Value _get_decimalv2_min_or_max(const TypeDescriptor& type);
+
     Status _validate_column(RuntimeState* state, const TypeDescriptor& type, bool is_nullable,
                             vectorized::ColumnPtr column, size_t slot_index, Bitmap* filter_bitmap,
                             bool* stop_processing, fmt::memory_buffer& error_prefix,
@@ -454,8 +458,6 @@ private:
     // this is tuple descriptor of destination OLAP table
     TupleDescriptor* _output_tuple_desc = nullptr;
     RowDescriptor* _output_row_desc = nullptr;
-
-    bool _need_validate_data = false;
 
     // number of senders used to insert into OlapTable, if we only support single node insert,
     // all data from select should collectted and then send to OlapTable.
@@ -486,8 +488,8 @@ private:
     scoped_refptr<Thread> _sender_thread;
     std::unique_ptr<ThreadPoolToken> _send_batch_thread_pool_token;
 
-    std::vector<DecimalV2Value> _max_decimalv2_val;
-    std::vector<DecimalV2Value> _min_decimalv2_val;
+    std::map<std::pair<int, int>, DecimalV2Value> _max_decimalv2_val;
+    std::map<std::pair<int, int>, DecimalV2Value> _min_decimalv2_val;
 
     // Stats for this
     int64_t _validate_data_ns = 0;
