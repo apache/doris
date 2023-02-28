@@ -227,6 +227,7 @@ void TaskScheduler::_do_work(size_t index) {
 
         int64_t time_spent = 0;
         Defer defer {[&]() {
+            LOG(INFO) << "llj test defer update_statistics " << task << time_spent;
             queue->update_statistics(task, time_spent);
         }};
         SCOPED_RAW_TIMER(&time_spent); // 后定义的先析构

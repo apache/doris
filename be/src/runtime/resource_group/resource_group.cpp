@@ -34,7 +34,7 @@ pipeline::PipelineTask* ResourceGroupEntry::take() {
 void ResourceGroupEntry::incr_runtime_ns(int64_t runtime_ns)  {
     auto v_time = runtime_ns / _rs->cpu_share();
     _vruntime_ns += v_time;
-    LOG(INFO) << cpu_share() << " inc " << v_time << " total: " << _vruntime_ns;
+    LOG(INFO) << "llj test " << cpu_share() << " inc " << v_time << " total: " << _vruntime_ns;
 }
 
 void ResourceGroupEntry::push_back(pipeline::PipelineTask* task) {
