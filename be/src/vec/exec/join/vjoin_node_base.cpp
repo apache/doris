@@ -180,7 +180,7 @@ Status VJoinNodeBase::open(RuntimeState* state) {
 
     std::promise<Status> thread_status;
     try {
-        state->exec_env()->join_node_thread_pool()->submit(
+        state->exec_env()->join_node_thread_pool()->submit_func(
                 [this, state, thread_status_p = &thread_status,
                  parent_span = opentelemetry::trace::Tracer::GetCurrentSpan()] {
                     OpentelemetryScope scope {parent_span};
