@@ -63,8 +63,9 @@ suite("test_javaudf_boolean") {
         qt_select """ SELECT user_id,java_udf_boolean_test(boo_1) as result FROM ${tableName} order by user_id; """
         
 
-        sql """ DROP FUNCTION java_udf_boolean_test(BOOLEAN); """
+
     } finally {
+        try_sql("DROP FUNCTION IF EXISTS java_udf_boolean_test(BOOLEAN);")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }
