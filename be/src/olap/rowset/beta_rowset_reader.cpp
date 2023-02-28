@@ -76,7 +76,7 @@ Status BetaRowsetReader::get_segment_iterators(RowsetReaderContext* read_context
                 _rowset->end_version(), _read_options.delete_condition_predicates.get(),
                 &_read_options.del_predicates_for_zone_map);
         // if del cond is not empty, schema may be different in multiple rowset
-        _can_reuse_schema = _read_options.del_predicates_for_zone_map.empty();
+        _can_reuse_schema = _read_options.delete_condition_predicates->num_of_column_predicate() == 0;
     }
     // In vertical compaction, every column group need new schema
     if (read_context->is_vertical_compaction) {
