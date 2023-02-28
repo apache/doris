@@ -719,7 +719,7 @@ public class Memo {
      *
      * In unrank() function, we will extract the actual physical function according the unique ID
      */
-    public long rank(long n) {
+    public Pair<Long, Double> rank(long n) {
         double threshold = 0.000000001;
         Preconditions.checkArgument(n > 0, "the n %d must be greater than 0 in nthPlan", n);
         List<Pair<Long, Double>> plans = rankGroup(root, PhysicalProperties.GATHER);
@@ -737,7 +737,7 @@ public class Memo {
                 pq.poll();
             }
         }
-        return pq.peek().first;
+        return pq.peek();
     }
 
     private List<Pair<Long, Double>> rankGroup(Group group, PhysicalProperties prop) {
