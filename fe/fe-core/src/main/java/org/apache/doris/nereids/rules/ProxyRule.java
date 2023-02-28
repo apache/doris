@@ -15,21 +15,31 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.jobs.batch;
+package org.apache.doris.nereids.rules;
 
 import org.apache.doris.nereids.CascadesContext;
-import org.apache.doris.nereids.rules.analysis.CheckAnalysis;
+import org.apache.doris.nereids.exceptions.TransformException;
+import org.apache.doris.nereids.pattern.Pattern;
+import org.apache.doris.nereids.trees.plans.Plan;
 
-import com.google.common.collect.ImmutableList;
+import java.util.List;
+import java.util.Objects;
 
-/**
- * Execute check analysis rules.
- */
-public class CheckAnalysisJob extends BatchRulesJob {
-    public CheckAnalysisJob(CascadesContext cascadesContext) {
-        super(cascadesContext);
-        rulesJob.addAll(ImmutableList.of(
-                bottomUpBatch(ImmutableList.of(new CheckAnalysis()))
-        ));
+/** ProxyRule */
+public class ProxyRule extends Rule {
+    protected final Rule rule;
+
+    public ProxyRule(Rule rule) {
+        this(rule, rule.getRuleType(), rule.getPattern(), rule.getRulePromise());
+    }
+
+    public ProxyRule(Rule rule, RuleType ruleType, Pattern pattern, RulePromise rulePromise) {
+        super(ruleType, pattern, rulePromise);
+        this.rule = Objects.requireNonNull(rule, "rule cannot be null");
+    }
+
+    @Override
+    public List<Plan> transform(Plan node, CascadesContext context) throws TransformException {
+        return rule.transform(node, context);
     }
 }

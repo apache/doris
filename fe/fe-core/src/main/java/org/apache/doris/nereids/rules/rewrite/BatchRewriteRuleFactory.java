@@ -15,15 +15,33 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.nereids.util;
+package org.apache.doris.nereids.rules.rewrite;
 
-import org.apache.doris.nereids.pattern.GeneratedPatterns;
+import org.apache.doris.nereids.rules.PlanRuleFactory;
+import org.apache.doris.nereids.rules.Rule;
+import org.apache.doris.nereids.rules.RuleFactory;
 import org.apache.doris.nereids.rules.RulePromise;
 
-public interface PatternMatchSupported extends GeneratedPatterns {
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableList.Builder;
 
+import java.util.List;
+
+/** BatchRewriteRuleFactory */
+public interface BatchRewriteRuleFactory extends PlanRuleFactory {
     @Override
     default RulePromise defaultPromise() {
-        return RulePromise.PLAN_CHECK;
+        return RulePromise.REWRITE;
     }
+
+    @Override
+    default List<Rule> buildRules() {
+        Builder<Rule> rules = ImmutableList.builder();
+        for (RuleFactory ruleFactory : getRuleFactories()) {
+            rules.addAll(ruleFactory.buildRules());
+        }
+        return rules.build();
+    }
+
+    List<RuleFactory> getRuleFactories();
 }

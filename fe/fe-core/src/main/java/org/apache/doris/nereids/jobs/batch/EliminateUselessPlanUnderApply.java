@@ -17,26 +17,27 @@
 
 package org.apache.doris.nereids.jobs.batch;
 
-import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.rules.RuleFactory;
+import org.apache.doris.nereids.rules.rewrite.BatchRewriteRuleFactory;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateLimitUnderApply;
 import org.apache.doris.nereids.rules.rewrite.logical.EliminateSortUnderApply;
 
 import com.google.common.collect.ImmutableList;
 
+import java.util.List;
+
 /**
  * Eliminate useless operators in the subquery, including limit and sort.
  * Compatible with the old optimizer, the sort and limit in the subquery will not take effect, just delete it directly.
  */
-public class EliminateSpecificPlanUnderApplyJob extends BatchRulesJob {
-    /**
-     * Constructor.
-     */
-    public EliminateSpecificPlanUnderApplyJob(CascadesContext cascadesContext) {
-        super(cascadesContext);
-        rulesJob.addAll(ImmutableList.of(
-                topDownBatch(ImmutableList.of(
-                        new EliminateLimitUnderApply(),
-                        new EliminateSortUnderApply()
-                ))));
+public class EliminateUselessPlanUnderApply implements BatchRewriteRuleFactory {
+    public static final List<RuleFactory> RULES = ImmutableList.of(
+            new EliminateLimitUnderApply(),
+            new EliminateSortUnderApply()
+    );
+
+    @Override
+    public List<RuleFactory> getRuleFactories() {
+        return RULES;
     }
 }

@@ -26,8 +26,8 @@ import java.util.TreeSet;
 public class PhysicalLeafPatternGenerator extends PatternGenerator {
 
     public PhysicalLeafPatternGenerator(PatternGeneratorAnalyzer analyzer,
-            ClassDeclaration opType, Set<String> parentClass) {
-        super(analyzer, opType, parentClass);
+            ClassDeclaration opType, Set<String> parentClass, boolean isMemoPattern) {
+        super(analyzer, opType, parentClass, isMemoPattern);
     }
 
     @Override

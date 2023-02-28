@@ -19,7 +19,6 @@ package org.apache.doris.nereids.rules.expression.rewrite;
 
 import org.apache.doris.nereids.rules.expression.rewrite.rules.NormalizeBinaryPredicatesRule;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.collect.ImmutableList;
 
@@ -30,30 +29,23 @@ import java.util.Optional;
  * Expression rewrite entry, which contains all rewrite rules.
  */
 public class ExpressionRuleExecutor {
-
-    private final ExpressionRewriteContext ctx;
     private final List<ExpressionRewriteRule> rules;
 
-    public ExpressionRuleExecutor(List<ExpressionRewriteRule> rules, ConnectContext context) {
-        this.rules = rules;
-        this.ctx = new ExpressionRewriteContext(context);
-    }
-
     public ExpressionRuleExecutor(List<ExpressionRewriteRule> rules) {
-        this(rules, null);
+        this.rules = rules;
     }
 
-    public List<Expression> rewrite(List<Expression> exprs) {
-        return exprs.stream().map(this::rewrite).collect(ImmutableList.toImmutableList());
+    public List<Expression> rewrite(List<Expression> exprs, ExpressionRewriteContext ctx) {
+        return exprs.stream().map(expr -> rewrite(expr, ctx)).collect(ImmutableList.toImmutableList());
     }
 
     /**
      * Given an expression, returns a rewritten expression.
      */
-    public Expression rewrite(Expression root) {
+    public Expression rewrite(Expression root, ExpressionRewriteContext ctx) {
         Expression result = root;
         for (ExpressionRewriteRule rule : rules) {
-            result = applyRule(result, rule);
+            result = applyRule(result, rule, ctx);
         }
         return result;
     }
@@ -61,11 +53,11 @@ public class ExpressionRuleExecutor {
     /**
      * Given an expression, returns a rewritten expression.
      */
-    public Optional<Expression> rewrite(Optional<Expression> root) {
-        return root.map(this::rewrite);
+    public Optional<Expression> rewrite(Optional<Expression> root, ExpressionRewriteContext ctx) {
+        return root.map(r -> this.rewrite(r, ctx));
     }
 
-    private Expression applyRule(Expression expr, ExpressionRewriteRule rule) {
+    private Expression applyRule(Expression expr, ExpressionRewriteRule rule, ExpressionRewriteContext ctx) {
         return rule.rewrite(expr, ctx);
     }
 

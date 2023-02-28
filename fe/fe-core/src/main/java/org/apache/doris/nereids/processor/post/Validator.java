@@ -18,6 +18,7 @@
 package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
 import org.apache.doris.nereids.trees.plans.Plan;
@@ -56,7 +57,10 @@ public class Validator extends PlanPostProcessor {
 
         Plan child = filter.child();
         // Forbidden filter-project, we must make filter-project -> project-filter.
-        Preconditions.checkState(!(child instanceof PhysicalProject));
+        if (child instanceof PhysicalProject) {
+            throw new AnalysisException(
+                    "Nereids generate a filter-project plan, but backend not support:\n" + filter.treeString());
+        }
 
         // Check filter is from child output.
         Set<Slot> childOutputSet = child.getOutputSet();

@@ -23,7 +23,6 @@ import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalApply;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
@@ -60,15 +59,15 @@ import java.util.Set;
  *                           |
  *                          child
  */
-public class EliminateFilterUnderApplyProject extends OneRewriteRuleFactory {
+public class UnCorrelatedApplyProjectFilter extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
-        return logicalApply(group(), logicalProject(logicalFilter()))
+        return logicalApply(any(), logicalProject(logicalFilter()))
                 .when(LogicalApply::isCorrelated)
                 .when(LogicalApply::isIn)
                 .then(apply -> {
-                    LogicalProject<LogicalFilter<GroupPlan>> project = apply.right();
-                    LogicalFilter<GroupPlan> filter = project.child();
+                    LogicalProject<LogicalFilter<Plan>> project = apply.right();
+                    LogicalFilter<Plan> filter = project.child();
                     Set<Expression> conjuncts = filter.getConjuncts();
                     Map<Boolean, List<Expression>> split = Utils.splitCorrelatedConjuncts(
                             conjuncts, apply.getCorrelationSlot());
@@ -92,6 +91,6 @@ public class EliminateFilterUnderApplyProject extends OneRewriteRuleFactory {
                     return new LogicalApply<>(apply.getCorrelationSlot(), apply.getSubqueryExpr(),
                             ExpressionUtils.optionalAnd(correlatedPredicate),
                             apply.left(), newProject);
-                }).toRule(RuleType.ELIMINATE_FILTER_UNDER_APPLY_PROJECT);
+                }).toRule(RuleType.UN_CORRELATED_APPLY_PROJECT_FILTER);
     }
 }
