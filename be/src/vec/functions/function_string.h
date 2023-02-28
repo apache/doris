@@ -2025,7 +2025,7 @@ static StringVal do_money_format(FunctionContext* context, const T int_value,
     char local[N];
     char* p = SimpleItoaWithCommas(int_value, local, sizeof(local));
     int32_t string_val_len = local + sizeof(local) - p + 3;
-    StringVal result = StringVal::create_temp_string_val(context, string_val_len);
+    StringVal result = context->create_temp_string_val(string_val_len);
     memcpy(result.ptr, p, string_val_len - 3);
     *(result.ptr + string_val_len - 3) = '.';
     *(result.ptr + string_val_len - 2) = '0' + (frac_value / 10);
@@ -2037,7 +2037,7 @@ static StringVal do_money_format(FunctionContext* context, const T int_value,
 static StringVal do_money_format(FunctionContext* context, const string& value) {
     bool is_positive = (value[0] != '-');
     int32_t result_len = value.size() + (value.size() - (is_positive ? 4 : 5)) / 3;
-    StringVal result = StringVal::create_temp_string_val(context, result_len);
+    StringVal result = context->create_temp_string_val(result_len);
     if (!is_positive) {
         *result.ptr = '-';
     }
@@ -2490,7 +2490,7 @@ public:
 
     bool use_default_implementation_for_constants() const override { return true; }
 
-    Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
+    Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) override {
         if (scope != FunctionContext::THREAD_LOCAL) {
             return Status::OK();
         }

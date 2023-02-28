@@ -317,8 +317,8 @@ Status NewOlapScanNode::_should_push_down_function_filter(VectorizedFnCall* fn_c
             return Status::OK();
         } else {
             DCHECK(children[1 - i]->type().is_string_type());
-            ColumnPtrWrapper* const_col_wrapper = nullptr;
-            RETURN_IF_ERROR(children[1 - i]->get_const_col(expr_ctx, &const_col_wrapper));
+            std::shared_ptr<ColumnPtrWrapper> const_col_wrapper =
+                    children[1 - i]->get_const_col(expr_ctx);
             if (const ColumnConst* const_column =
                         check_and_get_column<ColumnConst>(const_col_wrapper->column_ptr)) {
                 *constant_str = const_column->get_data_at(0).to_string_val();

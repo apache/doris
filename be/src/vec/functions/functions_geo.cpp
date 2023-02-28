@@ -251,7 +251,7 @@ struct StCircle {
         return Status::OK();
     }
 
-    static Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
         return Status::OK();
     }
 
@@ -299,14 +299,44 @@ struct StContains {
         return Status::OK();
     }
 
+<<<<<<< HEAD
     static Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
+=======
+    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+        if (scope != FunctionContext::FRAGMENT_LOCAL) {
+            return Status::OK();
+        }
 
-    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-};
+        if (!context->is_arg_constant(0) && !context->is_arg_constant(1)) {
+            return Status::OK();
+        }
+
+        std::shared_ptr<StContainsState> contains_ctx = std::make_shared<StContainsState>();
+        for (int i = 0; !contains_ctx->is_null && i < 2; ++i) {
+            if (context->is_arg_constant(i)) {
+                StringVal* str = reinterpret_cast<StringVal*>(context->get_constant_arg(i));
+                if (str->is_null) {
+                    contains_ctx->is_null = true;
+                } else {
+                    contains_ctx->shapes[i] =
+                            std::shared_ptr<GeoShape>(GeoShape::from_encoded(str->ptr, str->len));
+                    if (contains_ctx->shapes[i] == nullptr) {
+                        contains_ctx->is_null = true;
+                    }
+                }
+            }
+        }
+
+        context->set_function_state(scope, contains_ctx);
+>>>>>>> 29da249466 ([enhancement](functioncontext) function context should use shared ptr to save the constant column)
+            return Status::OK();
+}
+
+static Status
+close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+    return Status::OK();
+}
+}; // namespace doris::vectorized
 
 struct StGeometryFromText {
     static constexpr auto NAME = "st_geometryfromtext";
@@ -376,14 +406,45 @@ struct StGeoFromText {
         return Status::OK();
     }
 
+<<<<<<< HEAD
     static Status prepare(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
+=======
+    static Status open(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+        if (scope != FunctionContext::FRAGMENT_LOCAL) {
+            return Status::OK();
+        }
 
-    static Status close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
-        return Status::OK();
-    }
-};
+        if (!context->is_arg_constant(0)) {
+            return Status::OK();
+        }
+
+        std::shared_ptr<StConstructState> state = std::make_shared<StConstructState>();
+        auto str_value = reinterpret_cast<StringVal*>(context->get_constant_arg(0));
+        if (str_value->is_null) {
+            state->is_null = true;
+        } else {
+            GeoParseStatus status;
+            std::unique_ptr<GeoShape> shape(GeoShape::from_wkt(
+                    const_cast<const char*>((char*)str_value->ptr), str_value->len, &status));
+            if (shape == nullptr ||
+                (Impl::shape_type != GEO_SHAPE_ANY && shape->type() != Impl::shape_type)) {
+                state->is_null = true;
+            } else {
+                shape->encode_to(&state->encoded_buf);
+            }
+        }
+
+        context->set_function_state(scope, state);
+>>>>>>> 29da249466 ([enhancement](functioncontext) function context should use shared ptr to save the constant column)
+            return Status::OK();
+}
+
+static Status
+close(FunctionContext* context, FunctionContext::FunctionStateScope scope) {
+    return Status::OK();
+}
+}
+;
 
 void register_function_geo(SimpleFunctionFactory& factory) {
     factory.register_function<GeoFunction<StPoint>>();

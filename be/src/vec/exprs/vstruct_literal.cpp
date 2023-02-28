@@ -25,8 +25,7 @@ Status VStructLiteral::prepare(RuntimeState* state, const RowDescriptor& row_des
     Field struct_field = Tuple();
     for (const auto child : _children) {
         Field item;
-        ColumnPtrWrapper* const_col_wrapper = nullptr;
-        RETURN_IF_ERROR(child->get_const_col(context, &const_col_wrapper));
+        std::shared_ptr<ColumnPtrWrapper> const_col_wrapper = child->get_const_col(context);
         const_col_wrapper->column_ptr->get(0, item);
         struct_field.get<Tuple>().push_back(item);
     }
