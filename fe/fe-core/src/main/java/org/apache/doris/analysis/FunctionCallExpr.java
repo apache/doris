@@ -73,6 +73,10 @@ public class FunctionCallExpr extends Expr {
             .add("variance").add("variance_pop").add("variance_pop").add("var_samp").add("var_pop").build();
     public static final Map<String, java.util.function.BiFunction<ArrayList<Expr>, Type, Type>> PRECISION_INFER_RULE;
     public static final java.util.function.BiFunction<ArrayList<Expr>, Type, Type> DEFAULT_PRECISION_INFER_RULE;
+    public static final ImmutableSet<String> ROUND_FUNCTION_SET = new ImmutableSortedSet.Builder(
+            String.CASE_INSENSITIVE_ORDER)
+            .add("round").add("round_bankers").add("ceil").add("floor")
+            .add("truncate").add("dround").add("dceil").add("dfloor").build();
 
     static {
         java.util.function.BiFunction<ArrayList<Expr>, Type, Type> sumRule = (children, returnType) -> {
@@ -1256,7 +1260,7 @@ public class FunctionCallExpr extends Expr {
                     throw new AnalysisException(getFunctionNotFoundError(argTypes));
                 }
             } else {
-                if (fnName.getFunction().equals("round") && children.size() == 2
+                if (ROUND_FUNCTION_SET.contains(fnName.getFunction()) && children.size() == 2
                         && children.get(0).getType().isDecimalV3() && children.get(1) instanceof IntLiteral) {
                     children.get(1).setType(Type.INT);
                 }
