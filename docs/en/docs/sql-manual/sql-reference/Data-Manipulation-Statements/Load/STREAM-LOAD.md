@@ -183,6 +183,7 @@ ERRORS:
 25. trim_double_quotes: Boolean type, The default value is false. True means that the outermost double quotes of each field in the csv file are trimmed.
 
 26. skip_lines: <version since="dev" type="inline"> Integer type, the default value is 0. It will skip some lines in the head of csv file. It will be disabled when format is `csv_with_names` or `csv_with_names_and_types`. </version>
+27. comment: <version since="1.2.3" type="inline"> String type, the default value is "". </version>
 
 ### Example
 

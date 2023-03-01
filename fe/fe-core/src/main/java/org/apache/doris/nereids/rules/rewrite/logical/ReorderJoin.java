@@ -18,12 +18,12 @@
 package org.apache.doris.nereids.rules.rewrite.logical;
 
 import org.apache.doris.common.Pair;
+import org.apache.doris.nereids.annotation.DependsRules;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.ExprId;
 import org.apache.doris.nereids.trees.expressions.Expression;
-import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.JoinHint;
 import org.apache.doris.nereids.trees.plans.JoinHint.JoinHintType;
 import org.apache.doris.nereids.trees.plans.JoinType;
@@ -68,6 +68,9 @@ import java.util.stream.Collectors;
  * <li> MultiJoin to {Join cluster}</li>
  * </ul>
  */
+@DependsRules({
+    MergeFilters.class
+})
 public class ReorderJoin extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
@@ -94,8 +97,8 @@ public class ReorderJoin extends OneRewriteRuleFactory {
      */
     public Plan joinToMultiJoin(Plan plan, Map<Plan, JoinHintType> planToHintType) {
         // subtree can't specify the end of Pattern. so end can be GroupPlan or Filter
-        if (plan instanceof GroupPlan
-                || (plan instanceof LogicalFilter && plan.child(0) instanceof GroupPlan)) {
+        if (nonJoinAndNonFilter(plan)
+                || (plan instanceof LogicalFilter && nonJoinAndNonFilter(plan.child(0)))) {
             return plan;
         }
 
@@ -367,5 +370,9 @@ public class ReorderJoin extends OneRewriteRuleFactory {
         }
 
         throw new RuntimeException("findInnerJoin: can't reach here");
+    }
+
+    private boolean nonJoinAndNonFilter(Plan plan) {
+        return !(plan instanceof LogicalJoin) && !(plan instanceof LogicalFilter);
     }
 }

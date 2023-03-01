@@ -101,7 +101,7 @@ public:
     void get_delete_conditions_after_version(
             int64_t version, AndBlockColumnPredicate* and_block_column_predicate_ptr,
             std::unordered_map<int32_t, std::vector<const ColumnPredicate*>>*
-                    col_id_to_del_predicates) const;
+                    del_predicates_for_zone_map) const;
 
 private:
     // Use regular expression to extract 'column_name', 'op' and 'operands'

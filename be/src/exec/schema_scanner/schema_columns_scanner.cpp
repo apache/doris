@@ -63,6 +63,7 @@ SchemaColumnsScanner::SchemaColumnsScanner()
 SchemaColumnsScanner::~SchemaColumnsScanner() = default;
 
 Status SchemaColumnsScanner::start(RuntimeState* state) {
+    SCOPED_TIMER(_get_db_timer);
     if (!_is_init) {
         return Status::InternalError("schema columns scanner not inited.");
     }
@@ -231,6 +232,7 @@ std::string SchemaColumnsScanner::_type_to_string(TColumnDesc& desc) {
 }
 
 Status SchemaColumnsScanner::_get_new_desc() {
+    SCOPED_TIMER(_get_describe_timer);
     TDescribeTableParams desc_params;
     desc_params.__set_db(_db_result.dbs[_db_index - 1]);
     if (_db_result.__isset.catalogs) {
@@ -259,6 +261,7 @@ Status SchemaColumnsScanner::_get_new_desc() {
 }
 
 Status SchemaColumnsScanner::_get_new_table() {
+    SCOPED_TIMER(_get_table_timer);
     TGetTablesParams table_params;
     table_params.__set_db(_db_result.dbs[_db_index]);
     if (_db_result.__isset.catalogs) {
@@ -312,6 +315,7 @@ Status SchemaColumnsScanner::get_next_block(vectorized::Block* block, bool* eos)
 }
 
 Status SchemaColumnsScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
     auto columns_num = _desc_result.columns.size();
 
     // TABLE_CATALOG

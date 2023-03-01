@@ -81,8 +81,9 @@ public class MemoTestUtils {
 
     public static CascadesContext createCascadesContext(StatementContext statementContext, Plan initPlan) {
         PhysicalProperties requestProperties = NereidsPlanner.buildInitRequireProperties(initPlan);
-        CascadesContext cascadesContext = CascadesContext.newContext(
+        CascadesContext cascadesContext = CascadesContext.newRewriteContext(
                 statementContext, initPlan, requestProperties);
+        cascadesContext.toMemo();
         MemoValidator.validateInitState(cascadesContext.getMemo(), initPlan);
         return cascadesContext;
     }
@@ -90,7 +91,7 @@ public class MemoTestUtils {
     public static LogicalPlan analyze(String sql) {
         CascadesContext cascadesContext = createCascadesContext(sql);
         cascadesContext.newAnalyzer().analyze();
-        return (LogicalPlan) cascadesContext.getMemo().copyOut();
+        return (LogicalPlan) cascadesContext.getRewritePlan();
     }
 
     /**

@@ -31,8 +31,8 @@ import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleSet;
 import org.apache.doris.nereids.rules.implementation.AggregateStrategies;
 import org.apache.doris.nereids.rules.rewrite.logical.InApplyToJoin;
-import org.apache.doris.nereids.rules.rewrite.logical.PushApplyUnderFilter;
-import org.apache.doris.nereids.rules.rewrite.logical.PushApplyUnderProject;
+import org.apache.doris.nereids.rules.rewrite.logical.PullUpProjectUnderApply;
+import org.apache.doris.nereids.rules.rewrite.logical.UnCorrelatedApplyFilter;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.EqualTo;
 import org.apache.doris.nereids.trees.expressions.ExprId;
@@ -46,8 +46,8 @@ import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.VarcharType;
 import org.apache.doris.nereids.util.FieldChecker;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
-import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.utframe.TestWithFeService;
 
@@ -60,7 +60,7 @@ import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
-public class RegisterCTETest extends TestWithFeService implements PatternMatchSupported {
+public class RegisterCTETest extends TestWithFeService implements MemoPatternMatchSupported {
 
     private final NereidsParser parser = new NereidsParser();
 
@@ -205,8 +205,8 @@ public class RegisterCTETest extends TestWithFeService implements PatternMatchSu
 
         PlanChecker.from(connectContext)
                 .analyze(sql3)
-                .applyBottomUp(new PushApplyUnderProject())
-                .applyBottomUp(new PushApplyUnderFilter())
+                .applyBottomUp(new PullUpProjectUnderApply())
+                .applyBottomUp(new UnCorrelatedApplyFilter())
                 .applyBottomUp(new InApplyToJoin())
                 .matches(
                         logicalProject(

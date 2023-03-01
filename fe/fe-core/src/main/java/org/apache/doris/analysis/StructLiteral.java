@@ -43,7 +43,7 @@ public class StructLiteral extends LiteralExpr {
         type = new StructType();
         children = new ArrayList<>();
         for (LiteralExpr expr : exprs) {
-            if (!type.supportSubType(expr.getType())) {
+            if (!expr.getType().isNull() && !type.supportSubType(expr.getType())) {
                 throw new AnalysisException("Invalid element type in STRUCT.");
             }
             ((StructType) type).addField(new StructField(expr.getType()));

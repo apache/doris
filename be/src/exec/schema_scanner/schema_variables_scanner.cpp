@@ -74,6 +74,7 @@ Status SchemaVariablesScanner::get_next_block(vectorized::Block* block, bool* eo
 }
 
 Status SchemaVariablesScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
     // variables names
     {
         for (auto& it : _var_result.variables) {

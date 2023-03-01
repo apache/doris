@@ -45,4 +45,13 @@ suite("test_subquery") {
         qt_sql5 """
         select * from test_query_db.bigtable where exists (select k2, k1 from test_query_db.baseall order by k1) order by k1, k2, k3, k4 limit 10;
         """
+
+        qt_sql6 "select k1 from (select k1, -1 as c from test_query_db.test) t where t.c = 1;"
+
+        qt_sql7 "select * from (select k1, -1 as c from test_query_db.test) t where t.c < 0 order by 1;"
+
+        qt_sql8 """
+        select * from (select k1, -1 as c from test_query_db.test union all select k1, -2 as c from test_query_db.baseall) t 
+        where t.c > 0;
+        """
 }

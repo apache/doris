@@ -56,6 +56,7 @@ Status SchemaCollationsScanner::get_next_block(vectorized::Block* block, bool* e
 }
 
 Status SchemaCollationsScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
     auto row_num = 0;
     while (nullptr != _s_collations[row_num].name) {
         ++row_num;
