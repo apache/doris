@@ -55,8 +55,6 @@ DataTypeStruct::DataTypeStruct(const DataTypes& elems_, const Strings& names_)
     }
 
     Status st = check_tuple_names(names);
-    //if (!st.ok()) {
-    //}
 }
 
 std::string DataTypeStruct::do_get_name() const {
@@ -68,11 +66,6 @@ std::string DataTypeStruct::do_get_name() const {
         if (i != 0) {
             s << ", ";
         }
-
-        // if (have_explicit_names) {
-        //     s << back_quote_if_need(names[i]) << ' ';
-        // }
-
         s << elems[i]->get_name();
     }
     s << ")";
@@ -80,16 +73,84 @@ std::string DataTypeStruct::do_get_name() const {
     return s.str();
 }
 
+bool next_slot_from_string(ReadBuffer& rb, StringRef& output, bool& is_name, bool& has_quota) {
+    StringRef element(rb.position(), 0);
+    has_quota = false;
+    is_name = false;
+    if (rb.eof()) {
+        return false;
+    }
+
+    // ltrim
+    while (!rb.eof() && isspace(*rb.position())) {
+        ++rb.position();
+        element.data = rb.position();
+    }
+
+    // parse string
+    if (*rb.position() == '"' || *rb.position() == '\'') {
+        const char str_sep = *rb.position();
+        size_t str_len = 1;
+        // search until next '"' or '\''
+        while (str_len < rb.count() && *(rb.position() + str_len) != str_sep) {
+            ++str_len;
+        }
+        // invalid string
+        if (str_len >= rb.count()) {
+            rb.position() = rb.end();
+            return false;
+        }
+        has_quota = true;
+        rb.position() += str_len + 1;
+        element.size += str_len + 1;
+    }
+
+    // parse element until separator ':' or ',' or end '}'
+    while (!rb.eof() && (*rb.position() != ':') && (*rb.position() != ',') &&
+           (rb.count() != 1 || *rb.position() != '}')) {
+        if (has_quota && !isspace(*rb.position())) {
+            return false;
+        }
+        ++rb.position();
+        ++element.size;
+    }
+    // invalid element
+    if (rb.eof()) {
+        return false;
+    }
+
+    if (*rb.position() == ':') {
+        is_name = true;
+    }
+
+    // adjust read buffer position to first char of next element
+    ++rb.position();
+
+    // rtrim
+    while (element.size > 0 && isspace(element.data[element.size - 1])) {
+        --element.size;
+    }
+
+    // trim '"' and '\'' for string
+    if (element.size >= 2 && (element.data[0] == '"' || element.data[0] == '\'') &&
+        element.data[0] == element.data[element.size - 1]) {
+        ++element.data;
+        element.size -= 2;
+    }
+    output = element;
+    return true;
+}
+
 Status DataTypeStruct::from_string(ReadBuffer& rb, IColumn* column) const {
     DCHECK(!rb.eof());
     auto* struct_column = assert_cast<ColumnStruct*>(column);
 
     if (*rb.position() != '{') {
-        return Status::InvalidArgument("Struct does not start with '{' character, found '{}'",
+        return Status::InvalidArgument("Struct does not start with '{}' character, found '{}'", "{",
                                        *rb.position());
     }
-    if (rb.count() < 2 || *(rb.end() - 1) != '}') {
-        return Status::InvalidArgument("Struct does not end with '}' character, found '{}'",
+    if (*(rb.end() - 1) != '}') {
+        return Status::InvalidArgument("Struct does not end with '{}' character, found '{}'", "}",
                                        *(rb.end() - 1));
     }
 
@@ -99,43 +160,98 @@ Status DataTypeStruct::from_string(ReadBuffer& rb, IColumn* column) const {
     }
 
     ++rb.position();
+
+    bool is_explicit_names = false;
+    std::vector<std::string> field_names;
     std::vector<ReadBuffer> field_rbs;
-    field_rbs.reserve(elems.size());
+    std::vector<size_t> field_pos;
 
-    // here get the value "jack" and 20 from {"name":"jack","age":20}
     while (!rb.eof()) {
-        size_t field_len = 0;
-        auto start = rb.position();
-        while (!rb.eof() && *start != ',' && *start != '}') {
-            field_len++;
-            start++;
+        StringRef slot(rb.position(), rb.count());
+        bool has_quota = false;
+        bool is_name = false;
+        if (!next_slot_from_string(rb, slot, is_name, has_quota)) {
+            return Status::InvalidArgument("Cannot read struct field from text '{}'",
+                                           slot.to_string());
         }
-        if (field_len >= rb.count()) {
-            return Status::InvalidArgument("Invalid Length");
-        }
-        ReadBuffer field_rb(rb.position(), field_len);
+        if (is_name) {
+            std::string name = slot.to_string();
+            if (!next_slot_from_string(rb, slot, is_name, has_quota)) {
+                return Status::InvalidArgument("Cannot read struct field from text '{}'",
+                                               slot.to_string());
+            }
+            ReadBuffer field_rb(const_cast<char*>(slot.data), slot.size);
+            field_names.push_back(name);
+            field_rbs.push_back(field_rb);
 
-        size_t len = 0;
-        auto start_rb = field_rb.position();
-        while (!field_rb.eof() && *start_rb != ':') {
-            len++;
-            start_rb++;
-        }
-        ReadBuffer field(field_rb.position() + len + 1, field_rb.count() - len - 1);
-
-        if (field.count() >= 2 && ((*field.position() == '"' && *(field.end() - 1) == '"') ||
-                                   (*field.position() == '\'' && *(field.end() - 1) == '\''))) {
-            ReadBuffer field_no_quote(field.position() + 1, field.count() - 2);
-            field_rbs.push_back(field_no_quote);
+            if (!is_explicit_names) {
+                is_explicit_names = true;
+            }
         } else {
-            field_rbs.push_back(field);
+            ReadBuffer field_rb(const_cast<char*>(slot.data), slot.size);
+            field_rbs.push_back(field_rb);
         }
+    }
 
-        rb.position() += field_len + 1;
+    // TODO: should we support insert default field value when actual field number is less than
+    // schema field number?
+    if (field_rbs.size() != elems.size()) {
+        std::string cmp_str = field_rbs.size() > elems.size() ? "more" : "less";
+        return Status::InvalidArgument(
+                "Actual struct field number {} is {} than schema field number {}.",
+                field_rbs.size(), cmp_str, elems.size());
+    }
+
+    if (is_explicit_names) {
+        if (field_names.size() != field_rbs.size()) {
+            return Status::InvalidArgument(
+                    "Struct field name number {} is not equal to field number {}.",
+                    field_names.size(), field_rbs.size());
+        }
+        std::unordered_set<std::string> name_set;
+        for (size_t i = 0; i < field_names.size(); i++) {
+            // check duplicate fields
+            auto ret = name_set.insert(field_names[i]);
+            if (!ret.second) {
+                return Status::InvalidArgument("Struct field name {} is duplicate with others.",
+                                               field_names[i]);
+            }
+            // check name valid
+            auto idx = try_get_position_by_name(field_names[i]);
+            if (idx == std::nullopt) {
+                return Status::InvalidArgument("Cannot find struct field name {} in schema.",
+                                               field_names[i]);
+            }
+            field_pos.push_back(idx.value());
+        }
+    } else {
+        for (size_t i = 0; i < field_rbs.size(); i++) {
+            field_pos.push_back(i);
+        }
     }
 
     for (size_t idx = 0; idx < elems.size(); idx++) {
-        elems[idx]->from_string(field_rbs[idx], &struct_column->get_column(idx));
+        auto field_rb = field_rbs[field_pos[idx]];
+        // handle empty element
+        if (field_rb.count() == 0) {
+            struct_column->get_column(idx).insert_default();
+            continue;
+        }
+        // handle null element
+        if (field_rb.count() == 4 && strncmp(field_rb.position(), "null", 4) == 0) {
+            auto& nested_null_col =
+                    reinterpret_cast<ColumnNullable&>(struct_column->get_column(idx));
+            nested_null_col.insert_null_elements(1);
+            continue;
+        }
+        auto st = elems[idx]->from_string(field_rb, &struct_column->get_column(idx));
+        if (!st.ok()) {
+            // we should do column revert if error
+            for (size_t j = 0; j < idx; j++) {
+                struct_column->get_column(j).pop_back(1);
+            }
+            return st;
+        }
     }
 
     return Status::OK();
