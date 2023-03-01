@@ -17,12 +17,10 @@
 
 #include "service/brpc_service.h"
 
-#include <glog/logging.h>
 #include <string.h>
 
 #include "common/logging.h"
 #include "service/brpc.h"
-#include "service/brpc_http_service.h"
 #include "service/internal_service.h"
 
 namespace brpc {
@@ -44,10 +42,7 @@ BRpcService::~BRpcService() {}
 
 Status BRpcService::start(int port, int num_threads) {
     // Add service
-    if (_server->AddService(new PInternalServiceImpl(_exec_env), brpc::SERVER_OWNS_SERVICE) != 0) {
-        LOG(WARNING) << "fail to add internal service";
-    }
-    add_brpc_http_service(_server.get(), _exec_env);
+    _server->AddService(new PInternalServiceImpl(_exec_env), brpc::SERVER_OWNS_SERVICE);
     // start service
     brpc::ServerOptions options;
     if (num_threads != -1) {
