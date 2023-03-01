@@ -160,28 +160,27 @@ std::string DataTypeArray::to_string(const IColumn& column, size_t row_num) cons
     size_t offset = offsets[row_num - 1];
     size_t next_offset = offsets[row_num];
     const IColumn& nested_column = data_column.get_data();
-    std::stringstream
-            ss; //TODO: stringstream is a Wrapper type of string, maybe replace it(after validating).
-    ss << "[";
+    std::string str;
+    str += "[";
     for (size_t i = offset; i < next_offset; ++i) {
         if (i != offset) {
-            ss << ", ";
+            str += ", ";
         }
         WhichDataType which(remove_nullable(nested));
         if (which.is_string_or_fixed_string()) {
-            ss << "'";
-            ss << nested->to_string(nested_column, i);
-            ss << "'";
+            str += "'";
+            str += nested->to_string(nested_column, i);
+            str += "'";
         } else if (which.is_decimal()) {
             DecimalV2Value decimal_value;
             get_decimal_value(nested_column, decimal_value, i);
-            ss << decimal_value.to_string();
+            str += decimal_value.to_string();
         } else {
-            ss << nested->to_string(nested_column, i);
+            str += nested->to_string(nested_column, i);
         }
     }
-    ss << "]";
-    return ss.str();
+    str += "]";
+    return str;
 }
 
 bool next_element_from_string(ReadBuffer& rb, StringRef& output, bool& has_quota) {

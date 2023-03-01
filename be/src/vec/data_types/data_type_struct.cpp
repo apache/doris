@@ -267,16 +267,16 @@ std::string DataTypeStruct::to_string(const IColumn& column, size_t row_num) con
 
     auto& struct_column = assert_cast<const ColumnStruct&>(*ptr);
 
-    std::stringstream ss;
-    ss << "{";
+    std::string str;
+    str += "{";
     for (size_t idx = 0; idx < elems.size(); idx++) {
         if (idx != 0) {
-            ss << ", ";
+            str += ", ";
         }
-        ss << elems[idx]->to_string(struct_column.get_column(idx), row_num);
+        str += elems[idx]->to_string(struct_column.get_column(idx), row_num);
     }
-    ss << "}";
-    return ss.str();
+    str += "}";
+    return str;
 }
 
 void DataTypeStruct::to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const {
