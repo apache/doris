@@ -23,7 +23,7 @@
 namespace doris::vectorized {
 
 template <bool nullable, template <bool, typename> class AggregateFunctionTemplate>
-static IAggregateFunction* createWithIntDataType(const DataTypes& argument_type) {
+static IAggregateFunction* create_with_int_data_type(const DataTypes& argument_type) {
     auto type = remove_nullable(argument_type[0]);
     WhichDataType which(type);
 #define DISPATCH(TYPE)                                                                     \
@@ -76,10 +76,10 @@ AggregateFunctionPtr create_aggregate_function_bitmap_union_int(const std::strin
     const bool arg_is_nullable = argument_types[0]->is_nullable();
     if (arg_is_nullable) {
         return std::shared_ptr<IAggregateFunction>(
-                createWithIntDataType<true, AggregateFunctionBitmapCount>(argument_types));
+                create_with_int_data_type<true, AggregateFunctionBitmapCount>(argument_types));
     } else {
         return std::shared_ptr<IAggregateFunction>(
-                createWithIntDataType<false, AggregateFunctionBitmapCount>(argument_types));
+                create_with_int_data_type<false, AggregateFunctionBitmapCount>(argument_types));
     }
 }
 

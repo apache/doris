@@ -50,36 +50,25 @@
 namespace doris::vectorized {
 
 struct creator_without_type {
+    template <bool multi_arguments, bool f, typename T>
+    using NullableT = std::conditional_t<multi_arguments, AggregateFunctionNullVariadicInline<T, f>,
+                                         AggregateFunctionNullUnaryInline<T, f>>;
+
     template <typename AggregateFunctionTemplate, typename... TArgs>
     static IAggregateFunction* create(const bool result_is_nullable,
                                       const DataTypes& argument_types, TArgs&&... args) {
+        IAggregateFunction* result(new AggregateFunctionTemplate(std::forward<TArgs>(args)...,
+                                                                 remove_nullable(argument_types)));
         if (have_nullable(argument_types)) {
-            IAggregateFunction* result = nullptr;
-            if (argument_types.size() > 1) {
-                std::visit(
-                        [&](auto result_is_nullable) {
-                            result = new AggregateFunctionNullVariadicInline<
-                                    AggregateFunctionTemplate, result_is_nullable>(
-                                    new AggregateFunctionTemplate(std::forward<TArgs>(args)...,
-                                                                  remove_nullable(argument_types)),
-                                    argument_types);
-                        },
-                        make_bool_variant(result_is_nullable));
-            } else {
-                std::visit(
-                        [&](auto result_is_nullable) {
-                            result = new AggregateFunctionNullUnaryInline<AggregateFunctionTemplate,
-                                                                          result_is_nullable>(
-                                    new AggregateFunctionTemplate(std::forward<TArgs>(args)...,
-                                                                  remove_nullable(argument_types)),
-                                    argument_types);
-                        },
-                        make_bool_variant(result_is_nullable));
-            }
-            return result;
-        } else {
-            return new AggregateFunctionTemplate(std::forward<TArgs>(args)..., argument_types);
+            std::visit(
+                    [&](auto multi_arguments, auto result_is_nullable) {
+                        result = new NullableT<multi_arguments, result_is_nullable,
+                                               AggregateFunctionTemplate>(result, argument_types);
+                    },
+                    make_bool_variant(argument_types.size() > 1),
+                    make_bool_variant(result_is_nullable));
         }
+        return result;
     }
 };
 
