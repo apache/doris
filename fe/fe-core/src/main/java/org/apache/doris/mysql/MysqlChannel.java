@@ -292,6 +292,7 @@ public class MysqlChannel {
                     tempBuffer.clear();
                     tempBuffer.put(sslHeaderByteBuffer.array());
                     packetLen = packetLen(true);
+                    LOG.debug("one ssl pakcet length is: " + packetLen);
                     tempBuffer = expandPacket(tempBuffer, packetLen);
                     result = expandPacket(result, tempBuffer.capacity());
                     // read one physical packet
@@ -300,9 +301,13 @@ public class MysqlChannel {
                     readLen = readAll(tempBuffer, false);
                     result.put(tempBuffer);
                     result.limit(result.position());
+                    LOG.debug("result is pos: " + result.position() + ", limit: "
+                            + result.limit() + "capacity: " + result.capacity());
                 }
                 if (mysqlPacketLength < result.position()) {
                     LOG.info("one SSL packet has multiple mysql packets.");
+                    LOG.debug("mysql packet length is " + mysqlPacketLength + ", result is pos: "
+                            + result.position() + ", limit: " + result.limit() + "capacity: " + result.capacity());
                     result.flip();
                     result.position(mysqlPacketLength);
                     remainingBuffer.clear();
