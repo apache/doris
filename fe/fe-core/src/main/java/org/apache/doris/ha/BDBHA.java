@@ -221,6 +221,23 @@ public class BDBHA implements HAProtocol {
         return true;
     }
 
+    public boolean updateNodeAddress(String nodeName, String newHostName, int port) {
+        ReplicationGroupAdmin replicationGroupAdmin = environment.getReplicationGroupAdmin();
+        if (replicationGroupAdmin == null) {
+            return false;
+        }
+        try {
+            replicationGroupAdmin.updateAddress(nodeName, newHostName, port);
+        } catch (MemberNotFoundException e) {
+            LOG.error("the updating electable node is not found {}", nodeName, e);
+            return false;
+        } catch (MasterStateException e) {
+            LOG.error("the updating electable node is master {}", nodeName, e);
+            return false;
+        }
+        return true;
+    }
+
     // When new Follower FE is added to the cluster, it should also be added to the
     // helper sockets in
     // ReplicationGroupAdmin, in order to fix the following case:
