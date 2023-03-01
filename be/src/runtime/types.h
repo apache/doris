@@ -64,6 +64,7 @@ struct TypeDescriptor {
     std::vector<std::string> field_names;
 
     // Used for complex types only.
+    // Whether subtypes of a complex type is nullable
     std::vector<bool> contains_nulls;
 
     TypeDescriptor() : type(INVALID_TYPE), len(-1), precision(-1), scale(-1) {}
