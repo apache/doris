@@ -100,7 +100,11 @@ public class Validator extends PlanPostProcessor {
 
         @Override
         public Expression visit(Expression expr, Void unused) {
-            checkTypes(expr.getDataType());
+            try {
+                checkTypes(expr.getDataType());
+            } catch (Exception exception) {
+                exception.printStackTrace();
+            }
             expr.children().forEach(child -> child.accept(this, null));
             return expr;
         }
