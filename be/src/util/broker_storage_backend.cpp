@@ -87,27 +87,23 @@ Status BrokerStorageBackend::download(const std::string& remote, const std::stri
     // 4. read remote and write to local
     VLOG(2) << "read remote file: " << remote << " to local: " << local;
     constexpr size_t buf_sz = 1024 * 1024;
-    char read_buf[buf_sz];
+    std::unique_ptr<uint8_t[]> read_buf(new uint8_t[buf_sz]);
     size_t write_offset = 0;
     size_t cur_offset = 0;
     while (true) {
         size_t read_len = 0;
-        Slice file_slice(reinterpret_cast<uint8_t*>(read_buf), buf_sz);
+        Slice file_slice(read_buf.get(), buf_sz);
         RETURN_IF_ERROR(broker_reader->read_at(cur_offset, file_slice, io_ctx, &read_len));
         cur_offset += read_len;
         if (read_len == 0) {
             break;
         }
 
-        if (read_len > 0) {
-            ost = file_handler.pwrite(read_buf, read_len, write_offset);
-            if (!ost.ok()) {
-                return Status::InternalError("failed to write file: {}", local);
-            }
-
-            write_offset += read_len;
+        ost = file_handler.pwrite(read_buf.get(), read_len, write_offset);
+        if (!ost.ok()) {
+            return Status::InternalError("failed to write file: {}", local);
         }
-
+        write_offset += read_len;
     } // file_handler should be closed before calculating checksum
 
     return Status::OK();

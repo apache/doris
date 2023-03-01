@@ -213,8 +213,7 @@ arrow::Result<int64_t> ArrowFile::Read(int64_t nbytes, void* buffer) {
 arrow::Result<int64_t> ArrowFile::ReadAt(int64_t position, int64_t nbytes, void* out) {
     int64_t bytes_read = 0;
     _pos = position;
-    int64_t total_reads = 0;
-    while (total_reads < nbytes) {
+    while (bytes_read < nbytes) {
         size_t reads = 0;
         Slice file_slice((uint8_t*)out, nbytes);
         IOContext io_ctx;
@@ -226,7 +225,6 @@ arrow::Result<int64_t> ArrowFile::ReadAt(int64_t position, int64_t nbytes, void*
             break;
         }
         bytes_read += reads; // total read bytes
-        total_reads += reads;
         _pos += reads;
         out = (char*)out + reads;
     }
