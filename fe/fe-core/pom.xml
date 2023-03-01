@@ -175,11 +175,6 @@ under the License.
             <groupId>com.fasterxml.jackson.core</groupId>
             <artifactId>jackson-core</artifactId>
         </dependency>
-        <!-- https://mvnrepository.com/artifact/org.codehaus.jackson/jackson-mapper-asl -->
-        <dependency>
-            <groupId>org.codehaus.jackson</groupId>
-            <artifactId>jackson-mapper-asl</artifactId>
-        </dependency>
         <!-- https://mvnrepository.com/artifact/net.sourceforge.czt.dev/java-cup -->
         <dependency>
             <groupId>net.sourceforge.czt.dev</groupId>
