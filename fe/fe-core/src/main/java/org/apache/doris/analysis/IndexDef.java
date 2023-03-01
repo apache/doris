@@ -24,6 +24,7 @@ import org.apache.doris.catalog.PrimitiveType;
 import org.apache.doris.common.AnalysisException;
 
 import com.google.common.base.Strings;
+import com.google.common.collect.Lists;
 
 import java.util.HashMap;
 import java.util.List;
@@ -34,6 +35,9 @@ public class IndexDef {
     private String indexName;
     private boolean ifNotExists;
     private List<String> columns;
+    // add the column name of olapTable column into caseSensitivityColumns
+    // instead of the column name which from sql_parser analyze
+    private List<String> caseSensitivityColumns = Lists.newArrayList();
     private IndexType indexType;
     private String comment;
     private Map<String, String> properties;
@@ -142,6 +146,9 @@ public class IndexDef {
     }
 
     public List<String> getColumns() {
+        if (caseSensitivityColumns.size() > 0) {
+            return caseSensitivityColumns;
+        }
         return columns;
     }
 
@@ -176,6 +183,7 @@ public class IndexDef {
         if (indexType == IndexType.BITMAP || indexType == IndexType.INVERTED || indexType == IndexType.BLOOMFILTER
                 || indexType == IndexType.NGRAM_BF) {
             String indexColName = column.getName();
+            caseSensitivityColumns.add(indexColName);
             PrimitiveType colType = column.getDataType();
             if (indexType == IndexType.INVERTED && colType.isArrayType()) {
                 colType = ((ArrayType) column.getType()).getItemType().getPrimitiveType();
