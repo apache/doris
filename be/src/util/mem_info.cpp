@@ -104,6 +104,7 @@ void MemInfo::process_cache_gc(int64_t& freed_mem) {
 
 // step1: free all cache
 // step2: free top overcommit query, if enable query memroy overcommit
+// TODO Now, the meaning is different from java minor gc + full gc, more like small gc + large gc.
 bool MemInfo::process_minor_gc() {
     int64_t freed_mem = 0;
     std::string vm_rss_str = PerfCounters::get_vm_rss_str();
