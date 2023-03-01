@@ -88,6 +88,10 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected static final String TRIM_DOUBLE_QUOTES = "trim_double_quotes";
     protected static final String SKIP_LINES = "skip_lines";
     protected static final String CSV_SCHEMA = "csv_schema";
+    // decimal(p,s)
+    private static final Pattern DECIMAL_TYPE_PATTERN = Pattern.compile("decimal\\((\\d+),(\\d+)\\)");
+    // datetime(p)
+    private static final Pattern DATETIME_TYPE_PATTERN = Pattern.compile("datetime\\((\\d+)\\)");
 
     protected static final ImmutableSet<String> FILE_FORMAT_PROPERTIES = new ImmutableSet.Builder<String>()
             .add(FORMAT)
@@ -215,7 +219,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         if (Strings.isNullOrEmpty(csvSchemaStr)) {
             return;
         }
-        // the schema str is like: "k1:int;k2:bigint;k3:varchar(20)"
+        // the schema str is like: "k1:int;k2:bigint;k3:varchar(20);k4:datetime(6)"
         String[] schemaStrs = csvSchemaStr.split(";");
         try {
             for (String schemaStr : schemaStrs) {
@@ -243,8 +247,7 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                     column = new Column(name, PrimitiveType.DOUBLE, true);
                 } else if (type.startsWith("decimal")) {
                     // regex decimal(p, s)
-                    Pattern pattern = Pattern.compile("decimal\\((\\d+),(\\d+)\\)");
-                    Matcher matcher = pattern.matcher(type);
+                    Matcher matcher = DECIMAL_TYPE_PATTERN.matcher(type);
                     if (!matcher.find()) {
                         throw new AnalysisException("invalid decimal type: " + type);
                     }
@@ -254,8 +257,17 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
                             "");
                 } else if (type.equals("date")) {
                     column = new Column(name, ScalarType.createDateType(), false, null, true, null, "");
-                } else if (type.equals("datetime")) {
-                    column = new Column(name, ScalarType.createDatetimeType(), false, null, true, null, "");
+                } else if (type.startsWith("datetime")) {
+                    int scale = 0;
+                    if (!type.equals("datetime")) {
+                        // regex datetime(s)
+                        Matcher matcher = DATETIME_TYPE_PATTERN.matcher(type);
+                        if (!matcher.find()) {
+                            throw new AnalysisException("invalid datetime type: " + type);
+                        }
+                        scale = Integer.parseInt(matcher.group(1));
+                    }
+                    column = new Column(name, ScalarType.createDatetimeV2Type(scale), false, null, true, null, "");
                 } else if (type.equals("string")) {
                     column = new Column(name, PrimitiveType.STRING, true);
                 } else if (type.equals("boolean")) {

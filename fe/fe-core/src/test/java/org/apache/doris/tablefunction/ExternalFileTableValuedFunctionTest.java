@@ -50,16 +50,18 @@ public class ExternalFileTableValuedFunctionTest {
         csvSchema.clear();
         properties.put(ExternalFileTableValuedFunction.CSV_SCHEMA,
                 "k1:int;k2:bigint;k3:float;k4:double;k5:smallint;k6:tinyint;k7:boolean;"
-                        + "k8:string;k9:date;k10:datetime;k11:decimal(10, 2);k12:decimal( 38,10)");
+                        + "k8:string;k9:date;k10:datetime;k11:decimal(10, 2);k12:decimal( 38,10); k13:datetime(5)");
         try {
             ExternalFileTableValuedFunction.parseCsvSchema(csvSchema, properties);
-            Assert.assertEquals(12, csvSchema.size());
+            Assert.assertEquals(13, csvSchema.size());
             Column decimalCol = csvSchema.get(10);
             Assert.assertEquals(10, decimalCol.getPrecision());
             Assert.assertEquals(2, decimalCol.getScale());
             decimalCol = csvSchema.get(11);
             Assert.assertEquals(38, decimalCol.getPrecision());
             Assert.assertEquals(10, decimalCol.getScale());
+            Column datetimeCol = csvSchema.get(12);
+            Assert.assertEquals(5, datetimeCol.getScale());
 
             for (int i = 0; i < csvSchema.size(); i++) {
                 Column col = csvSchema.get(i);
@@ -99,6 +101,9 @@ public class ExternalFileTableValuedFunctionTest {
                         break;
                     case "k12":
                         Assert.assertEquals(PrimitiveType.DECIMAL128, col.getType().getPrimitiveType());
+                        break;
+                    case "k13":
+                        Assert.assertEquals(PrimitiveType.DATETIMEV2, col.getType().getPrimitiveType());
                         break;
                     default:
                         Assert.fail("unknown column name: " + col.getName());
