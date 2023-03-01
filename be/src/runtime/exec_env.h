@@ -124,6 +124,9 @@ public:
     MemTrackerLimiter* experimental_mem_tracker() { return _experimental_mem_tracker.get(); }
     ThreadPool* send_batch_thread_pool() { return _send_batch_thread_pool.get(); }
     ThreadPool* download_cache_thread_pool() { return _download_cache_thread_pool.get(); }
+    ThreadPool* send_report_thread_pool() { return _send_report_thread_pool.get(); }
+    ThreadPool* join_node_thread_pool() { return _join_node_thread_pool.get(); }
+
     void set_serial_download_cache_thread_token() {
         _serial_download_cache_thread_token =
                 download_cache_thread_pool()->new_token(ThreadPool::ExecutionMode::SERIAL, 1);
@@ -215,6 +218,10 @@ private:
     std::unique_ptr<ThreadPool> _download_cache_thread_pool;
     // A token used to submit download cache task serially
     std::unique_ptr<ThreadPoolToken> _serial_download_cache_thread_token;
+    // Pool used by fragment manager to send profile or status to FE coordinator
+    std::unique_ptr<ThreadPool> _send_report_thread_pool;
+    // Pool used by join node to build hash table
+    std::unique_ptr<ThreadPool> _join_node_thread_pool;
     // ThreadPoolToken -> buffer
     std::unordered_map<ThreadPoolToken*, std::unique_ptr<char[]>> _download_cache_buf_map;
     CgroupsMgr* _cgroups_mgr = nullptr;
