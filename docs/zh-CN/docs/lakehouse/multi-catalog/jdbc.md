@@ -164,7 +164,8 @@ CREATE CATALOG doris_catalog PROPERTIES (
 `jdbc_url` | 是 |  | JDBC 连接串 |
 `driver_url` | 是 |  | JDBC Driver Jar 包名称* |
 `driver_class` | 是 |  | JDBC Driver Class 名称 |
-<version since="dev">`only_specified_database`</version> | 否 | "false" | 在jdbc连接时可以指定链接到哪个database/schema, 如：mysql中jdbc_url中可以指定database, pg的jdbc_url中可以指定currentSchema，`only_specified_database`指定是否只同步指定的 database.  |
+`only_specified_database` | 否 | "false" | 指定是否只同步指定的 database  |
+`lower_case_table_names` | 否 | "false" | 是否以小写的形式同步jdbc外部数据源的表名 |
 
 > `driver_url` 可以通过以下三种方式指定：
 > 
@@ -173,6 +174,12 @@ CREATE CATALOG doris_catalog PROPERTIES (
 > 2. 本地绝对路径。如 `file:///path/to/mysql-connector-java-5.1.47.jar`。需将 Jar 包预先存放在所有 FE/BE 节点指定的路径下。
 > 
 > 3. Http 地址。如：`https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-5.1.47.jar`。系统会从这个 http 地址下载 Driver 文件。仅支持无认证的 http 服务。
+
+> `only_specified_database`:
+> 
+> 在jdbc连接时可以指定链接到哪个database/schema, 如：mysql中jdbc_url中可以指定database, pg的jdbc_url中可以指定currentSchema。`only_specified_database=true` 可以只同步指定的 database。
+> 
+> 如果使用该参数时连接oracle数据库，要求使用ojdbc8.jar以上版本jar包。
 
 ## 数据查询
 

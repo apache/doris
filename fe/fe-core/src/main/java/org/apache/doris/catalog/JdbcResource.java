@@ -90,6 +90,14 @@ public class JdbcResource extends Resource {
             LOWER_CASE_TABLE_NAMES
     );
 
+    // The default value of optional properties
+    private static final Map<String, String> OPTIONAL_PROPERTIES_DEFAULT_VALUE = Maps.newHashMap();
+
+    static {
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(ONLY_SPECIFIED_DATABASE, "false");
+        OPTIONAL_PROPERTIES_DEFAULT_VALUE.put(LOWER_CASE_TABLE_NAMES, "false");
+    }
+
     // timeout for both connection and read. 10 seconds is long enough.
     private static final int HTTP_TIMEOUT_MS = 10000;
     @SerializedName(value = "configs")
@@ -191,7 +199,7 @@ public class JdbcResource extends Resource {
     private void handleOptionalArguments() {
         for (String s : OPTIONAL_PROPERTIES) {
             if (!configs.containsKey(s)) {
-                configs.put(s, "false");
+                configs.put(s, OPTIONAL_PROPERTIES_DEFAULT_VALUE.get(s));
             }
         }
     }

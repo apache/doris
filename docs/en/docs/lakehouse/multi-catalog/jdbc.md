@@ -164,7 +164,8 @@ Currently, Jdbc Catalog only support to use 5.x version of JDBC jar package to c
 | `jdbc_url `     | Yes             |               | JDBC connection string                             |
 | `driver_url `   | Yes             |               | JDBC Driver Jar                                    |
 | `driver_class ` | Yes             |               | JDBC Driver Class                                  |
-| <version since="dev">`only_specified_database`</version> | No             |     "false"          | When the JDBC is connected, you can specify which database/schema to connect. For example, you can specify the DataBase in mysql `jdbc_url`; you can specify the CurrentSchema in PG `jdbc_url`, `only_specified_database` specifies whether only the database is specified simultaneously.                                  |
+| `only_specified_database` | No             |     "false"          | Whether only the database specified to be synchronized.                                  |
+| `lower_case_table_names` | No             |     "false"          | Whether to synchronize jdbc external data source table names in lower case. |
 
 > `driver_url` can be specified in three ways:
 >
@@ -173,6 +174,12 @@ Currently, Jdbc Catalog only support to use 5.x version of JDBC jar package to c
 > 2. Local absolute path. For example, `file:///path/to/mysql-connector-java-5.1.47.jar`. Please place the Jar file package in the specified paths of FE/BE node.
 >
 > 3. HTTP address. For example, `https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-5.1.47.jar`. The system will download the Driver file from the HTTP address. This only supports HTTP services with no authentication requirements.
+
+> `only_specified_database`:
+>
+> When the JDBC is connected, you can specify which database/schema to connect. For example, you can specify the DataBase in mysql `jdbc_url`; you can specify the CurrentSchema in PG `jdbc_url`. `only_specified_database` specifies whether only the database specified to be synchronized.
+> 
+> If you connect the Oracle database when using this property, please  use the version of the jar package above 8 or more (such as ojdbc8.jar).
 
 
 ## Query

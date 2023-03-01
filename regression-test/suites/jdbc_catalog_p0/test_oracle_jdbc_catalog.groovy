@@ -93,8 +93,8 @@ suite("test_oracle_jdbc_catalog", "p0") {
                     "type"="jdbc",
                     "user"="doris_test",
                     "password"="123456",
-                    "jdbc_url" = "jdbc:oracle:thin:@172.18.0.1:${oracle_port}:${SID}",
-                    "driver_url" = "file:///mnt/disk1/ftw/tools/jar/ojdbc8.jar",
+                    "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:${oracle_port}:${SID}",
+                    "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/ojdbc8.jar",
                     "driver_class" = "oracle.jdbc.driver.OracleDriver",
                     "only_specified_database" = "true"
         );"""
@@ -102,6 +102,27 @@ suite("test_oracle_jdbc_catalog", "p0") {
         sql """ switch ${catalog_name} """
 
         qt_specified_database   """ show databases; """
+        sql """drop catalog if exists ${catalog_name} """
+        sql """drop resource if exists ${resource_name}"""
+
+        // test lower_case_table_names argument
+        sql """create resource if not exists ${resource_name} properties(
+                    "type"="jdbc",
+                    "user"="doris_test",
+                    "password"="123456",
+                    "jdbc_url" = "jdbc:oracle:thin:@127.0.0.1:${oracle_port}:${SID}",
+                    "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/ojdbc8.jar",
+                    "driver_class" = "oracle.jdbc.driver.OracleDriver",
+                    "lower_case_table_names" = "true"
+        );"""
+        sql """ CREATE CATALOG ${catalog_name} WITH RESOURCE ${resource_name} """
+        sql """ switch ${catalog_name} """
+        sql """ use ${ex_db_name}"""
+
+        qt_lower_case_table_names1  """ select * from test_num order by ID; """
+        qt_lower_case_table_names2  """ select * from test_char order by ID; """
+        qt_lower_case_table_names3  """ select * from test_int order by ID; """
+
         sql """drop catalog if exists ${catalog_name} """
         sql """drop resource if exists ${resource_name}"""
 

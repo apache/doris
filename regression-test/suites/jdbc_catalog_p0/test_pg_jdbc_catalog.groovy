@@ -94,7 +94,7 @@ suite("test_pg_jdbc_catalog", "p0") {
             "type"="jdbc",
             "user"="postgres",
             "password"="123456",
-            "jdbc_url" = "jdbc:postgresql://172.18.0.1:${pg_port}/postgres?currentSchema=doris_test&useSSL=false",
+            "jdbc_url" = "jdbc:postgresql://127.0.0.1:${pg_port}/postgres?currentSchema=doris_test&useSSL=false",
             "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/postgresql-42.5.0.jar",
             "driver_class" = "org.postgresql.Driver",
             "only_specified_database" = "true"

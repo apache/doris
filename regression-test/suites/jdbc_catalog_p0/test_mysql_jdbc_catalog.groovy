@@ -126,7 +126,7 @@ suite("test_mysql_jdbc_catalog", "p0") {
             "type"="jdbc",
             "user"="root",
             "password"="123456",
-            "jdbc_url" = "jdbc:mysql://172.18.0.1:${mysql_port}/doris_test?useSSL=false",
+            "jdbc_url" = "jdbc:mysql://127.0.0.1:${mysql_port}/doris_test?useSSL=false",
             "driver_url" = "https://doris-community-test-1308700295.cos.ap-hongkong.myqcloud.com/jdbc_driver/mysql-connector-java-8.0.25.jar",
             "driver_class" = "com.mysql.cj.jdbc.Driver",
             "only_specified_database" = "true"

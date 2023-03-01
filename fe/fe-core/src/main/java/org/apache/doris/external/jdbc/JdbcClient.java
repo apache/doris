@@ -26,6 +26,7 @@ import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 
 import com.google.common.collect.Lists;
+import com.google.common.collect.Maps;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import lombok.Data;
@@ -42,6 +43,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
+import java.util.Map;
 
 @Getter
 public class JdbcClient {
@@ -59,6 +61,9 @@ public class JdbcClient {
     private boolean isOnlySpecifiedDatabase = false;
 
     private boolean isLowerCaseTableNames = false;
+
+    // only used when isLowerCaseTableNames = true.
+    private Map<String, String> lowerTableToRealTable = Maps.newHashMap();
 
     public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass,
             String onlySpecifiedDatabase, String isLowerCaseTableNames) {
@@ -244,11 +249,12 @@ public class JdbcClient {
                     throw new JdbcClientException("Unknown database type");
             }
             while (rs.next()) {
+                String tableName = rs.getString("TABLE_NAME");
                 if (isLowerCaseTableNames) {
-                    tablesName.add(rs.getString("TABLE_NAME").toLowerCase());
-                } else {
-                    tablesName.add(rs.getString("TABLE_NAME"));
+                    lowerTableToRealTable.put(tableName.toLowerCase(), tableName);
+                    tableName = tableName.toLowerCase();
                 }
+                tablesName.add(tableName);
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get all tables for db %s", e, dbName);
@@ -318,6 +324,11 @@ public class JdbcClient {
         Connection conn =  getConnection();
         ResultSet rs = null;
         List<JdbcFieldSchema> tableSchema = Lists.newArrayList();
+        // if isLowerCaseTableNames == true, tableName is lower case
+        // but databaseMetaData.getColumns() is case sensitive
+        if (isLowerCaseTableNames) {
+            tableName = lowerTableToRealTable.get(tableName);
+        }
         try {
             DatabaseMetaData databaseMetaData = conn.getMetaData();
             // getColumns(String catalog, String schemaPattern, String tableNamePattern, String columnNamePattern)
