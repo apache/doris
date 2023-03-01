@@ -49,6 +49,8 @@ CONF_Int32(single_replica_load_brpc_num_threads, "64");
 // If no ip match this rule, will choose one randomly.
 CONF_String(priority_networks, "");
 
+CONF_String(network_interfaces, "");
+
 // memory mode
 // performance or compact
 CONF_String(memory_mode, "moderate");

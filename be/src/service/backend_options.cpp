@@ -31,12 +31,17 @@ namespace doris {
 static const std::string PRIORITY_CIDR_SEPARATOR = ";";
 
 std::string BackendOptions::_s_localhost;
+std::vector<std::string> BackendOptions::_s_net_interfaces;
 std::vector<CIDR> BackendOptions::_s_priority_cidrs;
 
 bool BackendOptions::init() {
-    if (!analyze_priority_cidrs()) {
+    bool interfaceResult = get_network_interfaces();
+    bool cidrResult = analyze_priority_cidrs();
+
+    if (!interfaceResult && !cidrResult) {
         return false;
     }
+    
     std::vector<InetAddress> hosts;
     Status status = get_hosts_v4(&hosts);
 
@@ -57,6 +62,10 @@ bool BackendOptions::init() {
             VLOG_CRITICAL << "check ip=" << addr_it->get_host_address_v4();
             if ((*addr_it).is_loopback_v4()) {
                 loopback = addr_it->get_host_address_v4();
+            } else if (!_s_net_interfaces.empty()) {
+                if (is_in_net_interface(addr_it->get_host_address_v4())) {
+                    _s_localhost = addr_it->get_host_address_v4();
+                }
             } else if (!_s_priority_cidrs.empty()) {
                 if (is_in_prior_network(addr_it->get_host_address_v4())) {
                     _s_localhost = addr_it->get_host_address_v4();
@@ -99,6 +108,48 @@ bool BackendOptions::analyze_priority_cidrs() {
         _s_priority_cidrs.push_back(cidr);
     }
     return true;
+}
+
+bool BackendOptions::get_network_interfaces() {
+    if (config::network_interfaces == "") {
+        return true;
+    }
+    LOG(INFO) << "network name in conf: " << config::network_interfaces;
+
+    struct ifaddrs * ifAddrStruct = NULL;
+    void * tmpAddrPtr = NULL;
+
+    getifaddrs(&ifAddrStruct); 
+
+    std::vector<std::string> name_strs =
+            strings::Split(config::network_interfaces, PRIORITY_CIDR_SEPARATOR);
+    bool flag = false;
+
+    for (auto& name_str : name_strs) {
+        while (ifAddrStruct!=NULL) {
+            if (ifAddrStruct->ifa_addr->sa_family==AF_INET) { // check it is IP4
+                // is a valid IP4 Address
+                if (name_str == ifAddrStruct->ifa_name) {
+                    tmpAddrPtr=&((struct sockaddr_in *)ifAddrStruct->ifa_addr)->sin_addr;
+                    char addressBuffer[INET_ADDRSTRLEN];
+                    inet_ntop(AF_INET, tmpAddrPtr, addressBuffer, INET_ADDRSTRLEN);
+                    _s_net_interfaces.push_back(addressBuffer);
+                    flag = true;
+                }
+            } 
+            ifAddrStruct=ifAddrStruct->ifa_next;    
+        }
+    }
+    return flag;
+}
+
+bool BackendOptions::is_in_net_interface(const std::string& ip) {
+    for (auto& name : _s_net_interfaces) {
+        if (name == ip) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool BackendOptions::is_in_prior_network(const std::string& ip) {
