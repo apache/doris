@@ -1535,7 +1535,7 @@ public class StmtExecutor implements ProfileWriter {
 
         analyzeVariablesInStmt(insertStmt.getQueryStmt());
         // reset the executionTimeout corresponding with the StmtExecutor
-        context.resetExecTimeout();
+        context.setExecTimeout(context.getSessionVariable().getInsertTimeoutS());
 
         long createTime = System.currentTimeMillis();
         Throwable throwable = null;
