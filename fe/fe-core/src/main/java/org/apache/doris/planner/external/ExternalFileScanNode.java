@@ -424,7 +424,8 @@ public class ExternalFileScanNode extends ExternalScanNode {
         }
     }
 
-    public void finalizeForNerieds() throws UserException {
+    @Override
+    public void finalizeForNereids() throws UserException {
         Preconditions.checkState(contexts.size() == scanProviders.size(),
                 contexts.size() + " vs. " + scanProviders.size());
         for (int i = 0; i < contexts.size(); ++i) {
