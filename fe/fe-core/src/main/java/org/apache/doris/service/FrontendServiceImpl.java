@@ -78,6 +78,8 @@ import org.apache.doris.thrift.FrontendServiceVersion;
 import org.apache.doris.thrift.TAddColumnsRequest;
 import org.apache.doris.thrift.TAddColumnsResult;
 import org.apache.doris.thrift.TCell;
+import org.apache.doris.thrift.TCheckAuthRequest;
+import org.apache.doris.thrift.TCheckAuthResult;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TColumnDef;
 import org.apache.doris.thrift.TColumnDesc;
@@ -100,8 +102,6 @@ import org.apache.doris.thrift.TGetDbsParams;
 import org.apache.doris.thrift.TGetDbsResult;
 import org.apache.doris.thrift.TGetTablesParams;
 import org.apache.doris.thrift.TGetTablesResult;
-import org.apache.doris.thrift.THttpAuthRequest;
-import org.apache.doris.thrift.THttpAuthResult;
 import org.apache.doris.thrift.TIcebergMetadataType;
 import org.apache.doris.thrift.TInitExternalCtlMetaRequest;
 import org.apache.doris.thrift.TInitExternalCtlMetaResult;
@@ -1634,11 +1634,11 @@ public class FrontendServiceImpl implements FrontendService.Iface {
     }
 
     @Override
-    public THttpAuthResult checkAuth(THttpAuthRequest request) throws TException {
+    public TCheckAuthResult checkAuth(TCheckAuthRequest request) throws TException {
         String clientAddr = getClientAddrAsString();
         LOG.debug("receive auth request: {}, backend: {}", request, clientAddr);
 
-        THttpAuthResult result = new THttpAuthResult();
+        TCheckAuthResult result = new TCheckAuthResult();
         TStatus status = new TStatus(TStatusCode.OK);
         result.setStatus(status);
         try {
@@ -1657,7 +1657,7 @@ public class FrontendServiceImpl implements FrontendService.Iface {
         return result;
     }
 
-    private void checkAuthImpl(THttpAuthRequest request) throws UserException {
+    private void checkAuthImpl(TCheckAuthRequest request) throws UserException {
         String cluster = request.getCluster();
         if (Strings.isNullOrEmpty(cluster)) {
             cluster = SystemInfoService.DEFAULT_CLUSTER;

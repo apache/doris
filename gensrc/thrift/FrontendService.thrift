@@ -788,7 +788,7 @@ enum TPrivilegeType {
   DROP = 10
 }
 
-struct THttpAuthRequest {
+struct TCheckAuthRequest {
     1: optional string cluster
     2: required string user
     3: required string passwd
@@ -802,7 +802,7 @@ struct THttpAuthRequest {
     11: optional i64 thrift_rpc_timeout_ms
 }
 
-struct THttpAuthResult {
+struct TCheckAuthResult {
     1: required Status.TStatus status
 }
 
@@ -851,5 +851,5 @@ service FrontendService {
 
     TConfirmUnusedRemoteFilesResult confirmUnusedRemoteFiles(1: TConfirmUnusedRemoteFilesRequest request)
 
-    THttpAuthResult checkAuth(1: THttpAuthRequest request)
+    TCheckAuthResult checkAuth(1: TCheckAuthRequest request)
 }
