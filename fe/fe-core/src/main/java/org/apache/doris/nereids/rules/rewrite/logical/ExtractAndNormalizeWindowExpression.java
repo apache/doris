@@ -23,8 +23,10 @@ import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Alias;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
+import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
+import org.apache.doris.nereids.trees.plans.GroupPlan;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
@@ -38,6 +40,8 @@ import com.google.common.collect.Sets;
 
 import java.util.List;
 import java.util.Set;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 /**
  * extract window expressions from LogicalProject.projects and Normalize LogicalWindow
@@ -61,7 +65,8 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
             } else {
                 boolean needAggregate = bottomProjects.stream().anyMatch(expr ->
                         expr.anyMatch(AggregateFunction.class::isInstance));
-                if (needAggregate) {
+                boolean hasAggChild = isProjectOnAggregate(project);
+                if (needAggregate & !hasAggChild) {
                     normalizedChild = new LogicalAggregate<>(
                             ImmutableList.of(), ImmutableList.copyOf(bottomProjects), project.child());
                 } else {
@@ -90,6 +95,10 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
         }).toRule(RuleType.EXTRACT_AND_NORMALIZE_WINDOW_EXPRESSIONS);
     }
 
+    private boolean isProjectOnAggregate(LogicalProject<GroupPlan> project) {
+        return project.child().getGroup().getLogicalExpressions().get(0).getPlan() instanceof LogicalAggregate;
+    }
+
     private Set<Expression> collectExpressionsToBePushedDown(List<NamedExpression> expressions) {
         // bottomProjects includes:
         // 1. expressions from function and WindowSpec's partitionKeys and orderKeys
@@ -97,11 +106,33 @@ public class ExtractAndNormalizeWindowExpression extends OneRewriteRuleFactory i
         return expressions.stream()
             .flatMap(expression -> {
                 if (expression.anyMatch(WindowExpression.class::isInstance)) {
+                    Set<Slot> inputSlots = expression.getInputSlots().stream().collect(Collectors.toSet());
                     Set<WindowExpression> collects = expression.collect(WindowExpression.class::isInstance);
-                    return collects.stream().flatMap(windowExpression ->
-                        windowExpression.getExpressionsInWindowSpec().stream()
-                            // constant arguments may in WindowFunctions(e.g. Lead, Lag), which shouldn't be pushed down
-                            .filter(expr -> !expr.isConstant())
+                    Set<Slot> windowInputSlots = collects.stream().flatMap(
+                            win -> win.getInputSlots().stream()
+                    ).collect(Collectors.toSet());
+                    /*
+                    substr(
+                      ref_1.cp_type,
+                      max(
+                          cast(ref_1.`cp_catalog_page_number` as int)) over (...)
+                          ),
+                      1)
+
+                      in above case, ref_1.cp_type should be pushed down. ref_1.cp_type is in
+                      substr.inputSlots, but not in windowExpression.inputSlots
+
+                      inputSlots= {ref_1.cp_type}
+                     */
+                    inputSlots.removeAll(windowInputSlots);
+                    return Stream.concat(
+                            collects.stream().flatMap(windowExpression ->
+                                    windowExpression.getExpressionsInWindowSpec().stream()
+                                    // constant arguments may in WindowFunctions(e.g. Lead, Lag)
+                                    // which shouldn't be pushed down
+                                    .filter(expr -> !expr.isConstant())
+                            ),
+                            inputSlots.stream()
                     );
                 }
                 return ImmutableList.of(expression).stream();
