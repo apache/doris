@@ -366,7 +366,7 @@ public class AggregateFunction extends Function {
         }
 
         public static AggregateFunctionBuilder createUdfBuilder() {
-            return new AggregateFunctionBuilder(TFunctionBinaryType.NATIVE);
+            return new AggregateFunctionBuilder(TFunctionBinaryType.JAVA_UDF);
         }
 
         public AggregateFunctionBuilder name(FunctionName name) {
