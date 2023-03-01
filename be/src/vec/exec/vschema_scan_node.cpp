@@ -153,6 +153,10 @@ Status VSchemaScanNode::prepare(RuntimeState* state) {
         return Status::InternalError("Failed to get schema table descriptor.");
     }
 
+    // init schema scanner profile
+    _scanner_param.profile.reset(new RuntimeProfile("SchemaScanner"));
+    _runtime_profile->add_child(_scanner_param.profile.get(), true, nullptr);
+
     // new one scanner
     _schema_scanner.reset(SchemaScanner::create(schema_table->schema_table_type()));
 
