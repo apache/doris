@@ -67,7 +67,7 @@ suite("test_javaudf_int") {
         qt_select """ SELECT java_udf_int_test(user_id) result FROM ${tableName} ORDER BY result; """
         qt_select """ SELECT java_udf_int_test(null) result ; """
 
-        sql """ DROP FUNCTION java_udf_int_test(int); """
+
 
         sql """ CREATE FUNCTION java_udf_tinyint_test(tinyint) RETURNS tinyint PROPERTIES (
             "file"="file://${jarPath}",
@@ -78,7 +78,7 @@ suite("test_javaudf_int") {
         qt_select """ SELECT java_udf_tinyint_test(tinyint_col) result FROM ${tableName} ORDER BY result; """
         qt_select """ SELECT java_udf_tinyint_test(null) result ; """
 
-        sql """ DROP FUNCTION java_udf_tinyint_test(tinyint); """
+        
 
         sql """ CREATE FUNCTION java_udf_smallint_test(smallint) RETURNS smallint PROPERTIES (
             "file"="file://${jarPath}",
@@ -89,7 +89,7 @@ suite("test_javaudf_int") {
         qt_select """ SELECT java_udf_smallint_test(smallint_col) result FROM ${tableName} ORDER BY result; """
         qt_select """ SELECT java_udf_smallint_test(null) result ; """
 
-        sql """ DROP FUNCTION java_udf_smallint_test(smallint); """
+        
 
         sql """ CREATE FUNCTION java_udf_bigint_test(bigint) RETURNS bigint PROPERTIES (
             "file"="file://${jarPath}",
@@ -100,7 +100,7 @@ suite("test_javaudf_int") {
         qt_select """ SELECT java_udf_bigint_test(bigint_col) result FROM ${tableName} ORDER BY result; """
         qt_select """ SELECT java_udf_bigint_test(null) result ; """
 
-        sql """ DROP FUNCTION java_udf_bigint_test(bigint); """
+        
 
         sql """ CREATE FUNCTION java_udf_largeint_test(largeint) RETURNS largeint PROPERTIES (
             "file"="file://${jarPath}",
@@ -111,8 +111,13 @@ suite("test_javaudf_int") {
         qt_select """ SELECT java_udf_largeint_test(largeint_col) result FROM ${tableName} ORDER BY result; """
         qt_select """ SELECT java_udf_largeint_test(null) result ; """
 
-        sql """ DROP FUNCTION java_udf_largeint_test(largeint); """
+        
     } finally {
+        try_sql("DROP FUNCTION IF EXISTS java_udf_tinyint_test(tinyint);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_smallint_test(smallint);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_bigint_test(bigint);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_largeint_test(largeint);")
+        try_sql("DROP FUNCTION IF EXISTS java_udf_int_test(int);")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }
