@@ -47,21 +47,12 @@ AggregateFunctionPtr createAggregateFunctionBitwise(const std::string& name,
 }
 
 void register_aggregate_function_bit(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("group_bit_or",
-                              createAggregateFunctionBitwise<AggregateFunctionGroupBitOrData>);
-    factory.register_function("group_bit_and",
-                              createAggregateFunctionBitwise<AggregateFunctionGroupBitAndData>);
-    factory.register_function("group_bit_xor",
-                              createAggregateFunctionBitwise<AggregateFunctionGroupBitXorData>);
-
-    factory.register_function(
-            "group_bit_or", createAggregateFunctionBitwise<AggregateFunctionGroupBitOrData>, true);
-    factory.register_function("group_bit_and",
-                              createAggregateFunctionBitwise<AggregateFunctionGroupBitAndData>,
-                              true);
-    factory.register_function("group_bit_xor",
-                              createAggregateFunctionBitwise<AggregateFunctionGroupBitXorData>,
-                              true);
+    factory.register_function_both("group_bit_or",
+                                   createAggregateFunctionBitwise<AggregateFunctionGroupBitOrData>);
+    factory.register_function_both(
+            "group_bit_and", createAggregateFunctionBitwise<AggregateFunctionGroupBitAndData>);
+    factory.register_function_both(
+            "group_bit_xor", createAggregateFunctionBitwise<AggregateFunctionGroupBitXorData>);
 }
 
 } // namespace doris::vectorized
