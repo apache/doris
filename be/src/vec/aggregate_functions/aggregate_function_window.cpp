@@ -114,14 +114,10 @@ void register_aggregate_function_window_rank(AggregateFunctionSimpleFactory& fac
 
 void register_aggregate_function_window_lead_lag_first_last(
         AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("lead", create_aggregate_function_window_lead);
-    factory.register_function("lead", create_aggregate_function_window_lead, true);
-    factory.register_function("lag", create_aggregate_function_window_lag);
-    factory.register_function("lag", create_aggregate_function_window_lag, true);
-    factory.register_function("first_value", create_aggregate_function_window_first);
-    factory.register_function("first_value", create_aggregate_function_window_first, true);
-    factory.register_function("last_value", create_aggregate_function_window_last);
-    factory.register_function("last_value", create_aggregate_function_window_last, true);
+    factory.register_function_both("lead", create_aggregate_function_window_lead);
+    factory.register_function_both("lag", create_aggregate_function_window_lag);
+    factory.register_function_both("first_value", create_aggregate_function_window_first);
+    factory.register_function_both("last_value", create_aggregate_function_window_last);
 }
 
 } // namespace doris::vectorized

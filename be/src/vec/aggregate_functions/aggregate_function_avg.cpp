@@ -52,7 +52,6 @@ AggregateFunctionPtr create_aggregate_function_avg(const std::string& name,
 }
 
 void register_aggregate_function_avg(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("avg", create_aggregate_function_avg);
-    factory.register_function("avg", create_aggregate_function_avg, true);
+    factory.register_function_both("avg", create_aggregate_function_avg);
 }
 } // namespace doris::vectorized

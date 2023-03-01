@@ -70,8 +70,7 @@ AggregateFunctionPtr create_aggregate_function_uniq(const std::string& name,
 void register_aggregate_function_uniq(AggregateFunctionSimpleFactory& factory) {
     AggregateFunctionCreator creator =
             create_aggregate_function_uniq<AggregateFunctionUniqExactData>;
-    factory.register_function("multi_distinct_count", creator);
-    factory.register_function("multi_distinct_count", creator, true);
+    factory.register_function_both("multi_distinct_count", creator);
 }
 
 } // namespace doris::vectorized
