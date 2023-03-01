@@ -18,7 +18,6 @@
 
 #include "gen_cpp/PlanNodes_types.h"
 #include "gen_cpp/Types_types.h"
-#include "io/file_reader.h"
 #include "io/file_writer.h"
 #include "io/fs/file_reader.h"
 
@@ -52,24 +51,6 @@ public:
                                      const std::map<std::string, std::string>& properties,
                                      const std::string& path, int64_t start_offset,
                                      std::unique_ptr<FileWriter>& file_writer);
-
-    /**
-     * Create FileReader for broker scan node related scanners and readers
-     */
-    static Status create_file_reader(TFileType::type type, ExecEnv* env, RuntimeProfile* profile,
-                                     const std::vector<TNetworkAddress>& broker_addresses,
-                                     const std::map<std::string, std::string>& properties,
-                                     const TBrokerRangeDesc& range, int64_t start_offset,
-                                     std::unique_ptr<FileReader>& file_reader);
-    /**
-     * Create FileReader for file scan node rlated scanners and readers
-     * If buffer_size > 0, use BufferedReader to wrap the underlying FileReader;
-     * Otherwise, return the underlying FileReader directly.
-     */
-    static Status create_file_reader(RuntimeProfile* profile, const TFileScanRangeParams& params,
-                                     const std::string& path, int64_t start_offset,
-                                     int64_t file_size, int64_t buffer_size,
-                                     std::unique_ptr<FileReader>& file_reader);
 
     static Status create_file_reader(RuntimeProfile* profile,
                                      const FileSystemProperties& system_properties,
