@@ -19,6 +19,7 @@ package org.apache.doris.nereids.processor.post;
 
 import org.apache.doris.nereids.CascadesContext;
 import org.apache.doris.nereids.exceptions.AnalysisException;
+import org.apache.doris.nereids.trees.expressions.AssertNumRowsElement;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.literal.BooleanLiteral;
@@ -99,12 +100,12 @@ public class Validator extends PlanPostProcessor {
         }
 
         @Override
+        public Expression visitAssertNumRowsElement(AssertNumRowsElement expr, Void unused) {
+            return expr;
+        }
+
         public Expression visit(Expression expr, Void unused) {
-            try {
-                checkTypes(expr.getDataType());
-            } catch (Exception exception) {
-                exception.printStackTrace();
-            }
+            checkTypes(expr.getDataType());
             expr.children().forEach(child -> child.accept(this, null));
             return expr;
         }
