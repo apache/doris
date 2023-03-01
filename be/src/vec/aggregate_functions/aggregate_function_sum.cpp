@@ -73,9 +73,8 @@ AggregateFunctionPtr create_aggregate_function_sum_reader(const std::string& nam
 }
 
 void register_aggregate_function_sum(AggregateFunctionSimpleFactory& factory) {
-    factory.register_function("sum", create_aggregate_function_sum<AggregateFunctionSumSimple>);
-    factory.register_function("sum", create_aggregate_function_sum<AggregateFunctionSumSimple>,
-                              true);
+    factory.register_function_both("sum",
+                                   create_aggregate_function_sum<AggregateFunctionSumSimple>);
 }
 
 } // namespace doris::vectorized
