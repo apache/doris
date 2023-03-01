@@ -438,8 +438,10 @@ Status Compaction::modify_rowsets(const Merger::Statistics* stats) {
                         "cumulative compaction: the merged rows({}) is not equal to missed "
                         "rows({}) in rowid conversion, tablet_id: {}, table_id:{}",
                         stats->merged_rows, missed_rows, _tablet->tablet_id(), _tablet->table_id());
-                DCHECK(stats != nullptr || stats->merged_rows == missed_rows) << err_msg;
-                LOG(WARNING) << err_msg;
+                DCHECK(stats == nullptr || stats->merged_rows == missed_rows) << err_msg;
+                if (stats != nullptr && stats->merged_rows != missed_rows) {
+                    LOG(WARNING) << err_msg;
+                }
             }
 
             _tablet->merge_delete_bitmap(output_rowset_delete_bitmap);
