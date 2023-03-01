@@ -128,14 +128,16 @@ TEST_F(ConfigTest, UpdateConfigs) {
     s = config::set_config("cfg_int32_t", "4294967296124");
     EXPECT_FALSE(s.ok());
     EXPECT_TRUE(s.to_string().find("INVALID_ARGUMENT") != std::string::npos);
-    EXPECT_TRUE(s.to_string().find("convert '4294967296124' as int32_t failed") != std::string::npos);
+    EXPECT_TRUE(s.to_string().find("convert '4294967296124' as int32_t failed") !=
+                std::string::npos);
     EXPECT_EQ(cfg_int32_t, 65536124);
 
     // not support
     s = config::set_config("cfg_std_string", "test");
     EXPECT_FALSE(s.ok());
     EXPECT_TRUE(s.to_string().find("NOT_IMPLEMENTED_ERROR") != std::string::npos);
-    EXPECT_TRUE(s.to_string().find("'cfg_std_string' is not support to modify") != std::string::npos);
+    EXPECT_TRUE(s.to_string().find("'cfg_std_string' is not support to modify") !=
+                std::string::npos);
     EXPECT_EQ(cfg_std_string, "doris_config_test_string");
 }
 
