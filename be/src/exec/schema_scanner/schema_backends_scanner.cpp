@@ -84,6 +84,7 @@ Status SchemaBackendsScanner::get_next_block(vectorized::Block* block, bool* eos
 }
 
 Status SchemaBackendsScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
     auto row_num = _batch_data.size();
     for (size_t col_idx = 0; col_idx < _columns.size(); ++col_idx) {
         auto it = _col_name_to_type.find(_columns[col_idx].name);
