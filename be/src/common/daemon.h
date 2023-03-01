@@ -48,6 +48,7 @@ private:
     void tcmalloc_gc_thread();
     void buffer_pool_gc_thread();
     void memory_maintenance_thread();
+    void memory_gc_thread();
     void load_channel_tracker_refresh_thread();
     void calculate_metrics_thread();
 
@@ -56,6 +57,7 @@ private:
     // only buffer pool gc, will be removed after.
     scoped_refptr<Thread> _buffer_pool_gc_thread;
     scoped_refptr<Thread> _memory_maintenance_thread;
+    scoped_refptr<Thread> _memory_gc_thread;
     scoped_refptr<Thread> _load_channel_tracker_refresh_thread;
     scoped_refptr<Thread> _calculate_metrics_thread;
 };
