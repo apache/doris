@@ -24,7 +24,6 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.system.Frontend;
-import org.apache.doris.system.SystemInfoService.HostInfo;
 
 import com.google.common.base.Strings;
 import com.google.common.collect.ImmutableList;
@@ -87,11 +86,11 @@ public class FrontendsProcNode implements ProcNodeInterface {
         List<InetSocketAddress> allFe = env.getHaProtocol().getElectableNodes(true /* include leader */);
         allFe.addAll(env.getHaProtocol().getObserverNodes());
         List<Pair<String, Integer>> allFeHosts = convertToHostPortPair(allFe);
-        List<HostInfo> helperNodes = env.getHelperNodes();
+        List<Pair<String, Integer>> helperNodes = env.getHelperNodes();
 
         // Because the `show frontend` stmt maybe forwarded from other FE.
         // if we only get self node from currrent catalog, the "CurrentConnected" field will always points to Msater FE.
-        String selfNode = Env.getCurrentEnv().getSelfNode().getIp();
+        String selfNode = Env.getCurrentEnv().getSelfNode().first;
         if (ConnectContext.get() != null && !Strings.isNullOrEmpty(ConnectContext.get().getCurrentConnectedFEIp())) {
             selfNode = ConnectContext.get().getCurrentConnectedFEIp();
         }
@@ -100,13 +99,13 @@ public class FrontendsProcNode implements ProcNodeInterface {
 
             List<String> info = new ArrayList<String>();
             info.add(fe.getNodeName());
-            info.add(fe.getIp());
+            info.add(fe.getHost());
 
-            info.add(NetUtils.getHostnameByIp(fe.getIp()));
+            info.add(NetUtils.getHostnameByIp(fe.getHost()));
             info.add(Integer.toString(fe.getEditLogPort()));
             info.add(Integer.toString(Config.http_port));
 
-            if (fe.getIp().equals(env.getSelfNode().getIp())) {
+            if (fe.getHost().equals(env.getSelfNode().first)) {
                 info.add(Integer.toString(Config.query_port));
                 info.add(Integer.toString(Config.rpc_port));
             } else {
@@ -115,7 +114,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
             }
 
             info.add(fe.getRole().name());
-            InetSocketAddress socketAddress = new InetSocketAddress(fe.getIp(), fe.getEditLogPort());
+            InetSocketAddress socketAddress = new InetSocketAddress(fe.getHost(), fe.getEditLogPort());
             //An ipv6 address may have different format, so we compare InetSocketAddress objects instead of IP Strings.
             //e.g.  fdbd:ff1:ce00:1c26::d8 and fdbd:ff1:ce00:1c26:0:0:d8
             info.add(String.valueOf(socketAddress.equals(master)));
@@ -123,7 +122,7 @@ public class FrontendsProcNode implements ProcNodeInterface {
             info.add(Integer.toString(env.getClusterId()));
             info.add(String.valueOf(isJoin(allFeHosts, fe)));
 
-            if (fe.getIp().equals(env.getSelfNode().getIp())) {
+            if (fe.getHost().equals(env.getSelfNode().first)) {
                 info.add("true");
                 info.add(Long.toString(env.getEditLog().getMaxJournalId()));
             } else {
@@ -135,19 +134,19 @@ public class FrontendsProcNode implements ProcNodeInterface {
             info.add(fe.getHeartbeatErrMsg());
             info.add(fe.getVersion());
             // To indicate which FE we currently connected
-            info.add(fe.getIp().equals(selfNode) ? "Yes" : "No");
+            info.add(fe.getHost().equals(selfNode) ? "Yes" : "No");
 
             infos.add(info);
         }
     }
 
-    private static boolean isHelperNode(List<HostInfo> helperNodes, Frontend fe) {
-        return helperNodes.stream().anyMatch(p -> p.getIp().equals(fe.getIp()) && p.getPort() == fe.getEditLogPort());
+    private static boolean isHelperNode(List<Pair<String, Integer>> helperNodes, Frontend fe) {
+        return helperNodes.stream().anyMatch(p -> p.first.equals(fe.getHost()) && p.second == fe.getEditLogPort());
     }
 
     private static boolean isJoin(List<Pair<String, Integer>> allFeHosts, Frontend fe) {
         for (Pair<String, Integer> pair : allFeHosts) {
-            if (fe.getIp().equals(pair.first) && fe.getEditLogPort() == pair.second) {
+            if (fe.getHost().equals(pair.first) && fe.getEditLogPort() == pair.second) {
                 return true;
             }
         }
