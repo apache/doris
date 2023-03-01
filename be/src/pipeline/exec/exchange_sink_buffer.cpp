@@ -206,7 +206,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
         auto brpc_request = _instance_to_request[id];
         brpc_request->set_eos(request.eos);
         brpc_request->set_packet_seq(_instance_to_seq[id]++);
-        if (request.block.get()) {
+        if (request.block) {
             brpc_request->set_allocated_block(request.block.get());
         }
         auto* _closure = new SelfDeleteClosure<PTransmitDataResult>(id, request.eos, nullptr);
