@@ -133,6 +133,7 @@ The writing method of `Routine Load` adds a mapping to the `columns` field. The 
 ## Note
 1. Since import operations other than stream load may be executed out of order inside doris, if it is not stream load when importing using the `MERGE` method, it needs to be used with load sequence. For the specific syntax, please refer to the [sequence](sequence-column-manual.md) column related documents
 2. `DELETE ON` condition can only be used with MERGE.
+3. if session variable `SET show_hidden_columns = true` was executed before running import task to show whether table support batch delete feature, then execute `select count(*) from xxx` statement in the same session after finishing `DELETE/MERGE` import task, it will result in a unexpected result that the statement result set will include the deleted results. To avoid this problem you should execute `SET show_hidden_columns = false` before select statement or open a new session to run the select statement.
 
 ## Usage example
 
