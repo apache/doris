@@ -1,0 +1,132 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: dfe
+  labels:
+    app: dfe
+spec:
+  ports:
+    - port: 8030
+      name: http
+    - port: 9020
+      name: rpc
+    - port: 9030
+      name: query
+    - port: 9010
+      name: edit-log-port. #This name should be fixed. Doris will get the port information through this name
+  clusterIP: None
+  selector:
+    app: dfe
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: dfe
+  labels:
+    app: dfe
+spec:
+  selector:
+    matchLabels:
+      app: dfe
+  serviceName: dfe
+  replicas: 3
+  template:
+    metadata:
+      name: dfe
+      labels:
+        app: dfe
+    spec:
+      containers:
+        - name: dfe
+          image: fe:zdtest5
+          imagePullPolicy: IfNotPresent
+          env:
+            #Specify the startup type as k8s to bypass some restrictions of the official image initialization script
+            - name: BUILD_TYPE
+              value: "k8s"
+            #Initialize the fe of three nodes
+            - name: FE_INIT_NUMBER
+              value: "3"
+            #be_cn节点的serviceName（如果不部署be_cn节点，此配置不要）
+            - name: CN_SERVICE
+              value: "dcn"
+            #be_cn节点statefulset的名称（如果不部署be_cn节点，此配置不要）
+            - name: CN_STATEFULSET
+              value: "dcn"
+            #be节点的serviceName（如果不部署计be节点，此配置不要）
+            - name: BE_SERVICE
+              value: "dbe"
+            #be节点statefulset的名称（如果不部署be节点，此配置不要）
+            - name: BE_STATEFULSET
+              value: "dbe"
+            #fe节点的serviceName
+            - name: FE_SERVICE
+              value: "dfe"
+            #fe节点statefulset的名称
+            - name: FE_STATEFULSET
+              value: "dfe"
+          ports:
+            - containerPort: 8030
+              name: http
+            - containerPort: 9020
+              name: rpc
+            - containerPort: 9030
+              name: query
+            - containerPort: 9010
+              name: edit-log-port
+          volumeMounts:
+              #Mount the configuration file in the way of configmap
+            - name: conf
+              mountPath: /opt/apache-doris/fe/conf
+              #In order to call the api of k8s
+            - name: kube
+              mountPath: /root/.kube/config
+              readOnly: true
+      volumes:
+        - name: conf
+          configMap:
+            name: fe-conf
+        - name: kube
+          hostPath:
+            path: /root/.kube/config
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: fe-conf
+data:
+  fe.conf: |
+    priority_networks = 172.16.0.0/24
+    #能够自动获取StatefulSet的副本数，增删doris维护的节点信息
+    #（类似alter system add/drop backend）
+    enable_deploy_manager = k8s
+    #自动根据域名来调整节点的ip（例如pod重启后，域名仍是dbe-0-dbe.default.svc.cluster.local
+    #但是ip可能从172.16.0.9变成了172.16.0.10）
+    enable_fqdn_mode = true
+    LOG_DIR = ${DORIS_HOME}/log
+    sys_log_level = INFO
+    http_port = 8030
+    rpc_port = 9020
+    query_port = 9030
+    edit_log_port = 9010
+    mysql_service_nio_enabled = true
+    #doris需要根据fe.yml配置信息生成log4j的配置文件，默认写在fe.yml同目录下
+    #但是我们挂载的config是readonly的，因此指定这个配置，让log4j文件写到别的位置
+    custom_config_dir = /opt/apache-doris/
