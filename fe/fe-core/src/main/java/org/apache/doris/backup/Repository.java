@@ -52,6 +52,7 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.text.SimpleDateFormat;
 import java.util.List;
+import java.util.Map;
 
 /*
  * Repository represents a remote storage for backup to or restore from
@@ -628,6 +629,36 @@ public class Repository implements Writable {
         }
 
         return snapshotInfos;
+    }
+
+    public String getCreateStatement() {
+        StringBuilder stmtBuilder = new StringBuilder();
+        stmtBuilder.append("create ");
+        if (this.isReadOnly) {
+            stmtBuilder.append("read only ");
+        }
+        stmtBuilder.append("repository ");
+        stmtBuilder.append(this.name);
+        stmtBuilder.append(" with broker ");
+        stmtBuilder.append(this.storage.getName());
+        stmtBuilder.append(" on location \"");
+        stmtBuilder.append(this.location);
+        stmtBuilder.append("\"");
+        stmtBuilder.append(" properties ");
+        stmtBuilder.append("(");
+        for (Map.Entry<String, String> entry : this.getStorage().getProperties().entrySet()) {
+            stmtBuilder.append("\"");
+            stmtBuilder.append(entry.getKey());
+            stmtBuilder.append("\" = ");
+            stmtBuilder.append("\"");
+            stmtBuilder.append(entry.getValue());
+            stmtBuilder.append("\",");
+        }
+        if (this.getStorage().getProperties().size() > 0) {
+            stmtBuilder.deleteCharAt(stmtBuilder.length() - 1);
+        }
+        stmtBuilder.append(")");
+        return stmtBuilder.toString();
     }
 
     private List<String> getSnapshotInfo(String snapshotName, String timestamp) {
