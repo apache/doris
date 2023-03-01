@@ -43,6 +43,11 @@ static const std::string kTestDir = "./ut_dir/tablet_cooldown_test";
 static constexpr int64_t kResourceId = 10000;
 static constexpr int64_t kStoragePolicyId = 10002;
 
+using io::Path;
+
+static io::FileSystemSPtr s_fs;
+static io::FileWriterPtr s_writer;
+
 class FileWriterMock : public io::FileWriter {
 public:
     FileWriterMock(Path path) : io::FileWriter(std::move(path)) {}
@@ -75,7 +80,7 @@ public:
 
     size_t bytes_appended() const override { return 0; }
 
-    io::FileSystemSPtr fs() const override { return fs; }
+    io::FileSystemSPtr fs() const override { return s_fs; }
 };
 
 class RemoteFileSystemMock : public io::RemoteFileSystem {
@@ -138,17 +143,12 @@ class RemoteFileSystemMock : public io::RemoteFileSystem {
     }
 };
 
-static io::FileSystemSPtr s_fs(new RemoteFileSystemMock("test_path", std::to_string(kResourceId),
-                                                       io::FileSystemType::S3));
-static io::FileWriterPtr s_writer(new FileWriterMock("test_path"));
-
-using io::Path;
-
-// remove DISABLED_ when need run this test
-// #define TabletCooldownTest DISABLED_TabletCooldownTest
 class TabletCooldownTest : public testing::Test {
 public:
     static void SetUpTestSuite() {
+        s_fs.reset(new RemoteFileSystemMock("test_path", std::to_string(kResourceId),
+                                            io::FileSystemType::S3));
+        s_writer.reset(new FileWriterMock("test_path"));
         StorageResource resource = {s_fs, 1};
         put_storage_resource(kResourceId, resource);
         auto storage_policy = std::make_shared<StoragePolicy>();
