@@ -72,4 +72,4 @@ MySQL > select json_valid(NULL);
 ```
 
 ### keywords
-JSONB, JSON, json_valid
+JSON, VALID, JSON_VALID
