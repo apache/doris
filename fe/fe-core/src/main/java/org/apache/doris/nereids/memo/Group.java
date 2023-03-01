@@ -393,7 +393,16 @@ public class Group {
 
     @Override
     public String toString() {
-        return "Group[" + groupId + "]";
+        StringBuilder str = new StringBuilder("Group[" + groupId + "]\n");
+        str.append("logical expressions:\n");
+        for (GroupExpression logicalExpression : logicalExpressions) {
+            str.append("  ").append(logicalExpression).append("\n");
+        }
+        str.append("physical expressions:\n");
+        for (GroupExpression physicalExpression : physicalExpressions) {
+            str.append("  ").append(physicalExpression).append("\n");
+        }
+        return str.toString();
     }
 
     /**
@@ -404,7 +413,7 @@ public class Group {
     public String treeString() {
         Function<Object, String> toString = obj -> {
             if (obj instanceof Group) {
-                return obj.toString();
+                return "Group[" + ((Group) obj).groupId + "]";
             } else if (obj instanceof GroupExpression) {
                 return ((GroupExpression) obj).getPlan().toString();
             } else if (obj instanceof Pair) {

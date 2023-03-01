@@ -19,6 +19,7 @@ package org.apache.doris.nereids.rules.analysis;
 
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
+import org.apache.doris.nereids.rules.rewrite.OneRewriteRuleFactory;
 import org.apache.doris.nereids.trees.expressions.Divide;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.NamedExpression;
@@ -40,7 +41,7 @@ import java.util.Map;
  *
  * change avg( distinct a ) into sum( distinct a ) / count( distinct a ) if there are more than 1 distinct arguments
  */
-public class AvgDistinctToSumDivCount extends OneAnalysisRuleFactory {
+public class AvgDistinctToSumDivCount extends OneRewriteRuleFactory {
     @Override
     public Rule build() {
         return RuleType.AVG_DISTINCT_TO_SUM_DIV_COUNT.build(

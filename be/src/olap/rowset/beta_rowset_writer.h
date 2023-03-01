@@ -88,6 +88,8 @@ public:
         return _context.schema_change_recorder.get();
     }
 
+    uint64_t get_num_mow_keys() { return _num_mow_keys; }
+
 private:
     Status _add_block(const vectorized::Block* block,
                       std::unique_ptr<segment_v2::SegmentWriter>* writer);
@@ -170,9 +172,13 @@ protected:
         int64_t data_size;
         int64_t index_size;
         KeyBoundsPB key_bounds;
+        std::shared_ptr<std::unordered_set<std::string>> key_set;
     };
-    std::map<uint32_t, Statistics> _segid_statistics_map;
     std::mutex _segid_statistics_map_mutex;
+    std::map<uint32_t, Statistics> _segid_statistics_map;
+
+    // used for check correctness of unique key mow keys.
+    std::atomic<uint64_t> _num_mow_keys;
 
     bool _is_pending = false;
     bool _already_built = false;

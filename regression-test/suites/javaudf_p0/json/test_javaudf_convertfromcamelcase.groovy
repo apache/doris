@@ -51,8 +51,9 @@ suite("test_javaudf_convertfromcamelcase") {
 
         qt_select """ SELECT convert_from_camel(col_1) as a FROM ${tableName} ORDER BY a; """
 
-        sql """ DROP FUNCTION convert_from_camel(string); """
+
     } finally {
+        try_sql("DROP FUNCTION IF EXISTS convert_from_camel(string); ")
         try_sql("DROP TABLE IF EXISTS ${tableName}")
     }
 }

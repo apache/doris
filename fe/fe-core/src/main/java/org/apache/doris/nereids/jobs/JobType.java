@@ -31,5 +31,6 @@ public enum JobType {
     TOP_DOWN_REWRITE,
     VISITOR_REWRITE,
     BOTTOM_UP_REWRITE,
-    JOIN_ORDER;
+    JOIN_ORDER,
+    LINK_PLAN;
 }

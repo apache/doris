@@ -24,6 +24,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.common.Pair;
 import org.apache.doris.nereids.annotation.Developing;
+import org.apache.doris.nereids.exceptions.AnalysisException;
 import org.apache.doris.nereids.rules.Rule;
 import org.apache.doris.nereids.rules.RuleType;
 import org.apache.doris.nereids.rules.rewrite.RewriteRuleFactory;
@@ -56,7 +57,6 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.util.ExpressionUtils;
 
-import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -484,9 +484,14 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
         Set<Slot> nonVirtualRequiredScanOutput = requiredScanOutput.stream()
                 .filter(slot -> !(slot instanceof VirtualSlotReference))
                 .collect(ImmutableSet.toImmutableSet());
-        Preconditions.checkArgument(scan.getOutputSet().containsAll(nonVirtualRequiredScanOutput),
-                String.format("Scan's output (%s) should contains all the input required scan output (%s).",
-                        scan.getOutput(), nonVirtualRequiredScanOutput));
+
+        // use if condition to skip String.format() and speed up
+        if (!scan.getOutputSet().containsAll(nonVirtualRequiredScanOutput)) {
+            throw new AnalysisException(
+                    String.format("Scan's output (%s) should contains all the input required scan output (%s).",
+                            scan.getOutput(), nonVirtualRequiredScanOutput));
+        }
+
         OlapTable table = scan.getTable();
         switch (scan.getTable().getKeysType()) {
             case AGG_KEYS:
@@ -544,6 +549,10 @@ public class SelectMaterializedIndexWithAggregate extends AbstractSelectMaterial
             return new SelectResult(PreAggStatus.on(), selectIndexId,
                     rewriteResultOpt.map(r -> r.exprRewriteMap).orElse(new ExprRewriteMap()));
         } else {
+            if (scan.getPreAggStatus().isOff()) {
+                return new SelectResult(scan.getPreAggStatus(),
+                        scan.getTable().getBaseIndexId(), new ExprRewriteMap());
+            }
             final PreAggStatus preAggStatus;
             if (preAggEnabledByHint(scan)) {
                 // PreAggStatus could be enabled by pre-aggregation hint for agg-keys and unique-keys.

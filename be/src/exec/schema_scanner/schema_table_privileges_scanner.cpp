@@ -49,6 +49,7 @@ Status SchemaTablePrivilegesScanner::start(RuntimeState* state) {
 }
 
 Status SchemaTablePrivilegesScanner::_get_new_table() {
+    SCOPED_TIMER(_get_table_timer);
     TGetTablesParams table_params;
     if (nullptr != _param->wild) {
         table_params.__set_pattern(*(_param->wild));
@@ -89,6 +90,7 @@ Status SchemaTablePrivilegesScanner::get_next_block(vectorized::Block* block, bo
 }
 
 Status SchemaTablePrivilegesScanner::_fill_block_impl(vectorized::Block* block) {
+    SCOPED_TIMER(_fill_block_timer);
     auto privileges_num = _priv_result.privileges.size();
 
     // grantee

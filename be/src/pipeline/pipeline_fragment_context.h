@@ -17,6 +17,8 @@
 
 #pragma once
 
+#include <future>
+
 #include "io/fs/stream_load_pipe.h"
 #include "pipeline/pipeline.h"
 #include "pipeline/pipeline_task.h"
@@ -179,7 +181,8 @@ private:
     bool _report_thread_active;
     // profile reporting-related
     report_status_callback _report_status_cb;
-    std::thread _report_thread;
+    std::promise<bool> _report_thread_promise;
+    std::future<bool> _report_thread_future;
     std::mutex _report_thread_lock;
 
     // Indicates that profile reporting thread should stop.

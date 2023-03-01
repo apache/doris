@@ -29,8 +29,8 @@ import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.logical.LogicalFilter;
 import org.apache.doris.nereids.trees.plans.logical.LogicalJoin;
 import org.apache.doris.nereids.trees.plans.logical.LogicalOlapScan;
+import org.apache.doris.nereids.util.MemoPatternMatchSupported;
 import org.apache.doris.nereids.util.MemoTestUtils;
-import org.apache.doris.nereids.util.PatternMatchSupported;
 import org.apache.doris.nereids.util.PlanChecker;
 import org.apache.doris.nereids.util.PlanConstructor;
 
@@ -44,7 +44,7 @@ import org.junit.jupiter.api.TestInstance;
 import java.util.Set;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class ExtractSingleTableExpressionFromDisjunctionTest implements PatternMatchSupported {
+public class ExtractSingleTableExpressionFromDisjunctionTest implements MemoPatternMatchSupported {
     Plan student;
     Plan course;
     SlotReference courseCid;

@@ -27,6 +27,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalSetOperation;
 import com.google.common.collect.ImmutableList;
 
 import java.util.List;
+import java.util.stream.Stream;
 
 /**
  * optimization.
@@ -51,48 +52,44 @@ public class MergeSetOperations implements RewriteRuleFactory {
     public List<Rule> buildRules() {
         return ImmutableList.of(
             RuleType.MERGE_SET_OPERATION.build(
-                logicalSetOperation(logicalSetOperation(), group()).thenApply(ctx -> {
-                    LogicalSetOperation parentSetOperation = ctx.root;
-                    LogicalSetOperation childSetOperation = (LogicalSetOperation) parentSetOperation.child(0);
+                logicalSetOperation(any(), any()).when(MergeSetOperations::canMerge).then(parentSetOperation -> {
+                    List<Plan> newChildren = parentSetOperation.children()
+                            .stream()
+                            .flatMap(child -> {
+                                if (canMerge(parentSetOperation, child)) {
+                                    return child.children().stream();
+                                } else {
+                                    return Stream.of(child);
+                                }
+                            }).collect(ImmutableList.toImmutableList());
 
-                    if (isSameClass(parentSetOperation, childSetOperation)
-                            && isSameQualifierOrChildQualifierIsAll(parentSetOperation, childSetOperation)) {
-                        List<Plan> newChildren = new ImmutableList.Builder<Plan>()
-                                .addAll(childSetOperation.children())
-                                .add(parentSetOperation.child(1))
-                                .build();
-                        return parentSetOperation.withChildren(newChildren);
-                    }
-                    return parentSetOperation;
-                })
-            ),
-            RuleType.MERGE_SET_OPERATION.build(
-                logicalSetOperation(group(), logicalSetOperation()).thenApply(ctx -> {
-                    LogicalSetOperation parentSetOperation = ctx.root;
-                    LogicalSetOperation childSetOperation = (LogicalSetOperation) parentSetOperation.child(1);
-
-                    if (isSameClass(parentSetOperation, childSetOperation)
-                            && isSameQualifierOrChildQualifierIsAll(parentSetOperation, childSetOperation)) {
-                        List<Plan> newChildren = new ImmutableList.Builder<Plan>()
-                                .add(parentSetOperation.child(0))
-                                .addAll(childSetOperation.children())
-                                .build();
-                        return parentSetOperation.withNewChildren(newChildren);
-                    }
-                    return parentSetOperation;
+                    return parentSetOperation.withChildren(newChildren);
                 })
             )
         );
     }
 
-    private boolean isSameQualifierOrChildQualifierIsAll(LogicalSetOperation parentSetOperation,
+    /** canMerge */
+    public static boolean canMerge(LogicalSetOperation parent) {
+        Plan left = parent.child(0);
+        if (canMerge(parent, left)) {
+            return true;
+        }
+        Plan right = parent.child(1);
+        if (canMerge(parent, right)) {
+            return true;
+        }
+        return false;
+    }
+
+    public static final boolean canMerge(LogicalSetOperation parent, Plan child) {
+        return child.getClass().equals(parent.getClass())
+                && isSameQualifierOrChildQualifierIsAll(parent, (LogicalSetOperation) child);
+    }
+
+    public static final boolean isSameQualifierOrChildQualifierIsAll(LogicalSetOperation parentSetOperation,
                                                          LogicalSetOperation childSetOperation) {
         return parentSetOperation.getQualifier() == childSetOperation.getQualifier()
                 || childSetOperation.getQualifier() == Qualifier.ALL;
-    }
-
-    private boolean isSameClass(LogicalSetOperation parentSetOperation,
-                                LogicalSetOperation childSetOperation) {
-        return parentSetOperation.getClass().isAssignableFrom(childSetOperation.getClass());
     }
 }

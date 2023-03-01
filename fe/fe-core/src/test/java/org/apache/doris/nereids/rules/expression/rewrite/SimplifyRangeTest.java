@@ -17,12 +17,15 @@
 
 package org.apache.doris.nereids.rules.expression.rewrite;
 
+import org.apache.doris.nereids.CascadesContext;
+import org.apache.doris.nereids.analyzer.UnboundRelation;
 import org.apache.doris.nereids.analyzer.UnboundSlot;
 import org.apache.doris.nereids.parser.NereidsParser;
 import org.apache.doris.nereids.rules.expression.rewrite.rules.SimplifyRange;
 import org.apache.doris.nereids.trees.expressions.Expression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
+import org.apache.doris.nereids.trees.plans.RelationId;
 import org.apache.doris.nereids.types.BigIntType;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
@@ -30,6 +33,7 @@ import org.apache.doris.nereids.types.DoubleType;
 import org.apache.doris.nereids.types.IntegerType;
 import org.apache.doris.nereids.types.StringType;
 import org.apache.doris.nereids.types.TinyIntType;
+import org.apache.doris.nereids.util.MemoTestUtils;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -44,6 +48,13 @@ public class SimplifyRangeTest {
 
     private static final NereidsParser PARSER = new NereidsParser();
     private ExpressionRuleExecutor executor;
+    private ExpressionRewriteContext context;
+
+    public SimplifyRangeTest() {
+        CascadesContext cascadesContext = MemoTestUtils.createCascadesContext(
+                new UnboundRelation(new RelationId(1), ImmutableList.of("tbl")));
+        context = new ExpressionRewriteContext(cascadesContext);
+    }
 
     @Test
     public void testSimplify() {
@@ -99,7 +110,7 @@ public class SimplifyRangeTest {
         Map<String, Slot> mem = Maps.newHashMap();
         Expression needRewriteExpression = replaceUnboundSlot(PARSER.parseExpression(expression), mem);
         Expression expectedExpression = replaceUnboundSlot(PARSER.parseExpression(expected), mem);
-        Expression rewrittenExpression = executor.rewrite(needRewriteExpression);
+        Expression rewrittenExpression = executor.rewrite(needRewriteExpression, context);
         Assertions.assertEquals(expectedExpression, rewrittenExpression);
     }
 

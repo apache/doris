@@ -17,13 +17,14 @@
 
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.logical.LogicalPlan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 
 /**
  * explain command.
  */
-public class ExplainCommand implements Command {
+public class ExplainCommand extends Command {
 
     /**
      * explain level.
@@ -51,6 +52,7 @@ public class ExplainCommand implements Command {
     private final LogicalPlan logicalPlan;
 
     public ExplainCommand(ExplainLevel level, LogicalPlan logicalPlan) {
+        super(PlanType.EXPLAIN_COMMAND);
         this.level = level;
         this.logicalPlan = logicalPlan;
     }
