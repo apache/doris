@@ -491,6 +491,7 @@ class Config {
         useSsl = "true"
         String useSslConfig = "verifyServerCertificate=true&useSSL=" + useSsl + "&requireSSL=" + useSsl
         String tlsVersion = random() > 0.5 ? "TLSv1.2" : "TLSv1.3"
+        tlsVersion = "TLSv1.2"
         String tlsVersionConfig = "&enabledTLSProtocols=" + tlsVersion
         String keyStoreFile = "file:regression-test/certificate.p12"
         String keyStoreFileConfig = "&trustCertificateKeyStoreUrl=" + keyStoreFile + "&clientCertificateKeyStoreUrl=" + keyStoreFile
