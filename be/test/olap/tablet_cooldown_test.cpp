@@ -25,6 +25,7 @@
 #include "gen_cpp/internal_service.pb.h"
 #include "io/fs/s3_file_system.h"
 #include "io/fs/remote_file_system.h"
+#include "io/fs/remote_file_system_mock.h"
 #include "olap/delta_writer.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
@@ -42,14 +43,73 @@ static const std::string kTestDir = "./ut_dir/tablet_cooldown_test";
 static constexpr int64_t kResourceId = 10000;
 static constexpr int64_t kStoragePolicyId = 10002;
 
+class RemoteFileSystemMock : public io::RemoteFileSystem {
+    RemoteFileSystemMock(Path&& root_path, std::string&& id, FileSystemType type)
+            : RemoteFileSystem(std::move(root_path), std::move(id), type) {}
+    ~RemoteFileSystemMock() override {}
+
+    Status create_file(const Path& path, FileWriterPtr* writer) override {
+        return Status::OK();
+    }
+
+    Status open_file(const Path& path, FileReaderSPtr* reader, IOContext* io_ctx) override {
+        return Status::OK();
+    }
+
+    Status delete_file(const Path& path) override {
+        return Status::OK();
+    }
+
+    Status create_directory(const Path& path) override {
+        return Status::OK();
+    }
+
+    Status delete_directory(const Path& path) override {
+        return Status::OK();
+    }
+
+    Status link_file(const Path& src, const Path& dest) override {
+        return Status::OK();
+    }
+
+    Status exists(const Path& path, bool* res) const override {
+        return Status::OK();
+    }
+
+    Status file_size(const Path& path, size_t* file_size) const override {
+        return Status::OK();
+    }
+
+    Status list(const Path& path, std::vector<Path>* files) override {
+        return Status::OK();
+    }
+
+    Status upload(const Path& local_path, const Path& dest_path) override {
+        return Status::OK();
+    }
+
+    Status batch_upload(const std::vector<Path>& local_paths,
+                        const std::vector<Path>& dest_paths) override {
+        return Status::OK();
+    }
+
+    Status batch_delete(const std::vector<Path>& paths) override {
+        return Status::OK();
+    }
+
+    Status connect() override {
+        return Status::OK();
+    }
+};
+
 
 // remove DISABLED_ when need run this test
 // #define TabletCooldownTest DISABLED_TabletCooldownTest
 class TabletCooldownTest : public testing::Test {
 public:
     static void SetUpTestSuite() {
-        io::FileSystemSPtr s3_fs(new io::S3FileSystemMock("test_path", "id",
-                                                          io::FileSystemType::S3));
+        io::FileSystemSPtr s3_fs(new RemoteFileSystemMock("test_path", "id",
+                                                              io::FileSystemType::S3));
         StorageResource resource = {s3_fs, 1};
         put_storage_resource(kResourceId, resource);
         auto storage_policy = std::make_shared<StoragePolicy>();
