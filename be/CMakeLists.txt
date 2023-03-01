@@ -490,7 +490,7 @@ if (COMPILER_CLANG)
         message(FATAL_ERROR "Need Clang version at least 13")
     endif()
 
-    add_compile_options(-fcolor-diagnostics -Wpedantic)
+    add_compile_options(-fcolor-diagnostics -Wpedantic -Wunused-template)
     add_compile_options(-Wno-zero-length-array
                         -Wno-variadic-macros
                         -Wno-gnu-zero-variadic-macro-arguments

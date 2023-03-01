@@ -237,7 +237,7 @@ private:
 
 template <template <typename> class AggregateFunctionTemplate, template <typename> class Impl,
           bool result_is_nullable, bool arg_is_nullable, bool is_copy = false>
-static IAggregateFunction* create_function_single_value(const String& name,
+inline IAggregateFunction* create_function_single_value(const String& name,
                                                         const DataTypes& argument_types) {
     auto type = remove_nullable(argument_types[0]);
     WhichDataType which(*type);
