@@ -225,6 +225,10 @@ public:
 
     virtual int64_t mem_consumption() = 0;
 
+    virtual int64_t get_usage() = 0;
+
+    virtual size_t get_total_capacity() = 0;
+
 private:
     DISALLOW_COPY_AND_ASSIGN(Cache);
 };
@@ -411,6 +415,8 @@ public:
     virtual int64_t prune() override;
     int64_t prune_if(CacheValuePredicate pred, bool lazy_mode = false) override;
     int64_t mem_consumption() override;
+    int64_t get_usage() override;
+    size_t get_total_capacity() override { return _total_capacity; };
 
 private:
     void update_cache_metrics() const;
@@ -426,6 +432,7 @@ private:
     const uint32_t _num_shards;
     LRUCache** _shards;
     std::atomic<uint64_t> _last_id;
+    size_t _total_capacity;
 
     std::unique_ptr<MemTrackerLimiter> _mem_tracker;
     std::shared_ptr<MetricEntity> _entity = nullptr;
