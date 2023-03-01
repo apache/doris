@@ -82,7 +82,7 @@ public class PlanToStringTest {
         LogicalOlapScan plan = PlanConstructor.newLogicalOlapScan(0, "table", 0);
         Assertions.assertTrue(
                 plan.toString().matches("LogicalOlapScan \\( qualified=db\\.table, "
-                        + "output=\\[id#\\d+, name#\\d+], indexName=<index_not_selected>, "
+                        + "indexName=<index_not_selected>, "
                         + "selectedIndexId=-1, preAgg=ON \\)"));
     }
 
