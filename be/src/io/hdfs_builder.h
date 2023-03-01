@@ -19,8 +19,8 @@
 
 #include <hdfs/hdfs.h>
 
+#include "common/status.h"
 #include "gen_cpp/PlanNodes_types.h"
-#include "io/file_reader.h"
 
 namespace doris {
 

@@ -31,7 +31,7 @@ VParquetScanner::VParquetScanner(RuntimeState* state, RuntimeProfile* profile,
                         counter) {}
 
 ArrowReaderWrap* VParquetScanner::_new_arrow_reader(
-        const std::vector<SlotDescriptor*>& file_slot_descs, FileReader* file_reader,
+        const std::vector<SlotDescriptor*>& file_slot_descs, io::FileReaderSPtr file_reader,
         int32_t num_of_columns_from_file, int64_t range_start_offset, int64_t range_size) {
     return new ParquetReaderWrap(_state, file_slot_descs, file_reader, num_of_columns_from_file,
                                  range_start_offset, range_size);
