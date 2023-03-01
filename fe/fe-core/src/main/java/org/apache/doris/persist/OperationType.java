@@ -150,8 +150,6 @@ public class OperationType {
     public static final short OP_DROP_REPOSITORY = 90;
     public static final short OP_MODIFY_BACKEND = 91;
 
-    public static final short OP_MODIFY_FRONTEND = 92;
-
     //colocate table
     public static final short OP_COLOCATE_ADD_TABLE = 94;
     public static final short OP_COLOCATE_REMOVE_TABLE = 95;
