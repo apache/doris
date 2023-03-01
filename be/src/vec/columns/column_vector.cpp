@@ -188,7 +188,9 @@ void ColumnVector<T>::update_crcs_with_value(std::vector<uint64_t>& hashes, Prim
                 }
             } else {
                 for (size_t i = 0; i < s; i++) {
-                    if (null_data[i] == 0) date_convert_do_crc(i);
+                    if (null_data[i] == 0) {
+                        date_convert_do_crc(i);
+                    }
                 }
             }
         } else {
