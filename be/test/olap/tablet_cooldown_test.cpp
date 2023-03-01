@@ -23,6 +23,7 @@
 #include "common/status.h"
 #include "exec/tablet_info.h"
 #include "gen_cpp/internal_service.pb.h"
+#include "io/file_writer.h"
 #include "io/fs/s3_file_system.h"
 #include "io/fs/remote_file_system.h"
 #include "olap/delta_writer.h"
@@ -42,95 +43,21 @@ static const std::string kTestDir = "./ut_dir/tablet_cooldown_test";
 static constexpr int64_t kResourceId = 10000;
 static constexpr int64_t kStoragePolicyId = 10002;
 
+class RemoteFileSystemMock;
+class FileWriterMock;
+
+static io::FileSystemSPtr s_fs(new RemoteFileSystemMock("test_path", std::to_string(kResourceId),
+                                                       io::FileSystemType::S3));
+static io::FileWriterPtr s_writer(new FileWriterMock("test_path"));
+
 using io::Path;
 
 // remove DISABLED_ when need run this test
 // #define TabletCooldownTest DISABLED_TabletCooldownTest
 class TabletCooldownTest : public testing::Test {
-class FileWriterMock : public io::FileWriter {
-    public:
-        FileWriterMock(Path path) : FileWriter(std::move(path)) {}
-
-        ~FileWriterMock() {}
-
-        Status open() override {
-            return Status::OK();
-        }
-
-        Status write(const uint8_t *buf, size_t buf_len, size_t *written_len) override {
-            return Status::OK();
-        }
-
-        Status close() override {
-            return Status::OK();
-        }
-    }
-
-    class RemoteFileSystemMock : public io::RemoteFileSystem {
-        RemoteFileSystemMock(Path root_path, std::string&& id, io::FileSystemType type)
-                : RemoteFileSystem(std::move(root_path), std::move(id), type) {}
-        ~RemoteFileSystemMock() override {}
-
-        Status create_file(const Path& path, io::FileWriterPtr* writer) override {
-            writer->reset(new FileWriterMock());
-            return Status::OK();
-        }
-
-        Status open_file(const Path& path, io::FileReaderSPtr* reader, IOContext* io_ctx) override {
-            return Status::OK();
-        }
-
-        Status delete_file(const Path& path) override {
-            return Status::OK();
-        }
-
-        Status create_directory(const Path& path) override {
-            return Status::OK();
-        }
-
-        Status delete_directory(const Path& path) override {
-            return Status::OK();
-        }
-
-        Status link_file(const Path& src, const Path& dest) override {
-            return Status::OK();
-        }
-
-        Status exists(const Path& path, bool* res) const override {
-            return Status::OK();
-        }
-
-        Status file_size(const Path& path, size_t* file_size) const override {
-            return Status::OK();
-        }
-
-        Status list(const Path& path, std::vector<Path>* files) override {
-            return Status::OK();
-        }
-
-        Status upload(const Path& local_path, const Path& dest_path) override {
-            return Status::OK();
-        }
-
-        Status batch_upload(const std::vector<Path>& local_paths,
-                            const std::vector<Path>& dest_paths) override {
-            return Status::OK();
-        }
-
-        Status batch_delete(const std::vector<Path>& paths) override {
-            return Status::OK();
-        }
-
-        Status connect() override {
-            return Status::OK();
-        }
-    };
-
 public:
     static void SetUpTestSuite() {
-        io::FileSystemSPtr s3_fs(new RemoteFileSystemMock("test_path", std::to_string(kResourceId),
-                                                          io::FileSystemType::S3));
-        StorageResource resource = {s3_fs, 1};
+        StorageResource resource = {s_fs, 1};
         put_storage_resource(kResourceId, resource);
         auto storage_policy = std::make_shared<StoragePolicy>();
         storage_policy->name = "TabletCooldownTest";
@@ -162,6 +89,101 @@ public:
         }
     }
 
+};
+
+class FileWriterMock : public io::FileWriter {
+public:
+    FileWriterMock(Path path) : io::FileWriter(std::move(path)) {}
+
+    ~FileWriterMock() {}
+
+    Status close() override {
+        return Status::OK();
+    }
+
+    Status abort() override {
+        return Status::OK();
+    }
+
+    Status append(const Slice& data) override {
+        return Status::OK();
+    }
+
+    Status appendv(const Slice* data, size_t data_cnt) override {
+        return Status::OK();
+    }
+
+    Status write_at(size_t offset, const Slice& data) override {
+        return Status::OK();
+    }
+
+    Status finalize() override {
+        return Status::OK();
+    }
+
+    size_t bytes_appended() const override { return 0; }
+
+    FileSystemSPtr fs() const override { return fs; }
+};
+
+class RemoteFileSystemMock : public io::RemoteFileSystem {
+    RemoteFileSystemMock(Path root_path, std::string&& id, io::FileSystemType type)
+            : RemoteFileSystem(std::move(root_path), std::move(id), type) {}
+    ~RemoteFileSystemMock() override {}
+
+    Status create_file(const Path& path, io::FileWriterPtr* writer) override {
+        *writer = s_writer;
+        return Status::OK();
+    }
+
+    Status open_file(const Path& path, io::FileReaderSPtr* reader, IOContext* io_ctx) override {
+        return Status::OK();
+    }
+
+    Status delete_file(const Path& path) override {
+        return Status::OK();
+    }
+
+    Status create_directory(const Path& path) override {
+        return Status::OK();
+    }
+
+    Status delete_directory(const Path& path) override {
+        return Status::OK();
+    }
+
+    Status link_file(const Path& src, const Path& dest) override {
+        return Status::OK();
+    }
+
+    Status exists(const Path& path, bool* res) const override {
+        return Status::OK();
+    }
+
+    Status file_size(const Path& path, size_t* file_size) const override {
+        return Status::OK();
+    }
+
+    Status list(const Path& path, std::vector<Path>* files) override {
+        return Status::OK();
+    }
+
+    Status upload(const Path& local_path, const Path& dest_path) override {
+        return Status::OK();
+    }
+
+    Status batch_upload(const std::vector<Path>& local_paths,
+                        const std::vector<Path>& dest_paths) override {
+        return Status::OK();
+    }
+
+    Status batch_delete(const std::vector<Path>& paths) override {
+        return Status::OK();
+    }
+
+    Status connect() override {
+        return Status::OK();
+    }
 };
 
 static void create_tablet_request_with_sequence_col(int64_t tablet_id, int32_t schema_hash,
