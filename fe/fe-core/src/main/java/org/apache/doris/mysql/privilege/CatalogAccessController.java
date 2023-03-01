@@ -25,7 +25,8 @@ import java.util.Set;
 public interface CatalogAccessController {
     // ==== Catalog ====
     default boolean checkCtlPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, PrivPredicate wanted) {
-        return hasGlobal || checkCtlPriv(currentUser, ctl, wanted);
+        boolean res = checkCtlPriv(currentUser, ctl, wanted);
+        return hasGlobal || res;
     }
 
     boolean checkCtlPriv(UserIdentity currentUser, String ctl, PrivPredicate wanted);
@@ -33,7 +34,8 @@ public interface CatalogAccessController {
     // ==== Database ====
     default boolean checkDbPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, String db,
             PrivPredicate wanted) {
-        return hasGlobal || checkDbPriv(currentUser, ctl, db, wanted);
+        boolean res = checkDbPriv(currentUser, ctl, db, wanted);
+        return hasGlobal || res;
     }
 
     boolean checkDbPriv(UserIdentity currentUser, String ctl, String db, PrivPredicate wanted);
@@ -41,7 +43,8 @@ public interface CatalogAccessController {
     // ==== Table ====
     default boolean checkTblPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, String db, String tbl,
             PrivPredicate wanted) {
-        return hasGlobal || checkTblPriv(currentUser, ctl, db, tbl, wanted);
+        boolean res = checkTblPriv(currentUser, ctl, db, tbl, wanted);
+        return hasGlobal || res;
     }
 
     boolean checkTblPriv(UserIdentity currentUser, String ctl, String db, String tbl, PrivPredicate wanted);
@@ -49,14 +52,12 @@ public interface CatalogAccessController {
     // ==== Column ====
     default void checkColsPriv(boolean hasGlobal, UserIdentity currentUser, String ctl, String db, String tbl,
             Set<String> cols, PrivPredicate wanted) throws AuthorizationException {
-        if (hasGlobal) {
-            return;
-        }
-
         try {
             checkColsPriv(currentUser, ctl, db, tbl, cols, wanted);
         } catch (AuthorizationException e) {
-            throw e;
+            if (!hasGlobal) {
+                throw e;
+            }
         }
     }
 

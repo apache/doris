@@ -20,27 +20,11 @@ package org.apache.doris.catalog.authorizer;
 import org.apache.doris.mysql.privilege.AccessControllerFactory;
 import org.apache.doris.mysql.privilege.CatalogAccessController;
 
-import java.util.HashMap;
 import java.util.Map;
 
 public class RangerHiveAccessControllerFactory implements AccessControllerFactory {
-
-    private static volatile Map<String, RangerHiveAccessController> controllerMap = new HashMap<>();
-
     @Override
     public CatalogAccessController createAccessController(Map<String, String> prop) {
-        String serviceName = prop.get("ranger.service.name");
-        String adminUrl = prop.get("ranger.admin.url");
-        String controllerId = adminUrl + serviceName;
-
-        if (controllerMap.get(controllerId) == null) {
-            synchronized (RangerHiveAccessControllerFactory.class) {
-                if (controllerMap.get(controllerId) == null) {
-                    controllerMap.put(controllerId, new RangerHiveAccessController(prop));
-                }
-            }
-        }
-
-        return controllerMap.get(controllerId);
+        return new RangerHiveAccessController(prop);
     }
 }

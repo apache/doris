@@ -22,5 +22,6 @@ import org.apache.ranger.plugin.service.RangerBasePlugin;
 public class RangerHivePlugin extends RangerBasePlugin {
     public RangerHivePlugin(String serviceName) {
         super(serviceName, null, null);
+        super.init();
     }
 }

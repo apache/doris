@@ -24,7 +24,7 @@ public class RangerHiveResource extends RangerAccessResourceImpl {
     public static final String KEY_TABLE = "table";
     public static final String KEY_UDF = "udf";
     public static final String KEY_COLUMN = "column";
-    private HiveObjectType objectType = null;
+    private HiveObjectType objectType;
 
     //FirstLevelResource => Database
     //SecondLevelResource => Table or UDF
@@ -41,6 +41,7 @@ public class RangerHiveResource extends RangerAccessResourceImpl {
                               String thirdLevelResource) {
         this.objectType = objectType;
 
+        // set essential info according to objectType
         switch (objectType) {
             case DATABASE:
                 setValue(KEY_DATABASE, firstLevelResource);

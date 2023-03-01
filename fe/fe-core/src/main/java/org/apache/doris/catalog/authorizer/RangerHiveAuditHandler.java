@@ -225,7 +225,8 @@ public class RangerHiveAuditHandler extends RangerDefaultAuditHandler {
 
     /**
      * This method is expected to be called ONLY to process the results for multiple-columns in a table.
-     * To ensure this, RangerHiveAuthorizer should call isAccessAllowed(Collection<requests>) only for this condition
+     * To ensure this, RangerHiveAccessController should call isAccessAllowed(Collection<requests>) only for this
+     * condition
      */
     @Override
     public void processResults(Collection<RangerAccessResult> results) {

@@ -40,11 +40,13 @@ import java.util.Set;
 public class RangerHiveAccessController implements CatalogAccessController {
     public static final String CLIENT_TYPE_DORIS = "doris";
     private static final Logger LOG = LogManager.getLogger(RangerHiveAccessController.class);
-    private static volatile RangerHivePlugin hivePlugin = null;
+    private RangerHivePlugin hivePlugin;
+    private RangerHiveAuditHandler auditHandler;
 
     public RangerHiveAccessController(Map<String, String> properties) {
         String serviceName = properties.get("ranger.service.name");
         hivePlugin = new RangerHivePlugin(serviceName);
+        auditHandler = new RangerHiveAuditHandler(hivePlugin.getConfig());
     }
 
     private RangerAccessRequestImpl createRequest(UserIdentity currentUser, HiveAccessType accessType) {
@@ -64,52 +66,51 @@ public class RangerHiveAccessController implements CatalogAccessController {
         return request;
     }
 
-    public void checkPrivileges(UserIdentity currentUser, HiveAccessType accessType,
+    private void checkPrivileges(UserIdentity currentUser, HiveAccessType accessType,
                                 List<RangerHiveResource> hiveResources) throws AuthorizationException {
-        List<RangerAccessRequest> requests = new ArrayList<>();
-        for (RangerHiveResource resource : hiveResources) {
-            RangerAccessRequestImpl request = createRequest(currentUser, accessType);
-            request.setResource(resource);
+        try {
+            List<RangerAccessRequest> requests = new ArrayList<>();
+            for (RangerHiveResource resource : hiveResources) {
+                RangerAccessRequestImpl request = createRequest(currentUser, accessType);
+                request.setResource(resource);
 
-            requests.add(request);
-        }
-
-        RangerHiveAuditHandler auditHandler = new RangerHiveAuditHandler(hivePlugin.getConfig());
-        Collection<RangerAccessResult> results = hivePlugin.isAccessAllowed(requests, auditHandler);
-        for (RangerAccessResult result : results) {
-            LOG.debug("match policy:" + result.getPolicyId());
-            LOG.debug("will audit: " + result.toString());
-            auditHandler.processResult(result);
-            if (!result.getIsAllowed()) {
-                LOG.warn(result.getReason());
-                throw new AuthorizationException(String.format(
-                    "Permission denied: user [%s] does not have privilege for [%s] command on [%s]",
-                    currentUser.getQualifiedUser(), accessType.name(),
-                    result.getAccessRequest().getResource().getAsString()));
+                requests.add(request);
             }
+
+            Collection<RangerAccessResult> results = hivePlugin.isAccessAllowed(requests, auditHandler);
+            for (RangerAccessResult result : results) {
+                LOG.debug("match policy:" + result.getPolicyId());
+                if (!result.getIsAllowed()) {
+                    LOG.debug(result.getReason());
+                    throw new AuthorizationException(String.format(
+                        "Permission denied: user [%s] does not have privilege for [%s] command on [%s]",
+                        currentUser.getQualifiedUser(), accessType.name(),
+                        result.getAccessRequest().getResource().getAsString()));
+                }
+            }
+        } finally {
+            auditHandler.flushAudit();
         }
     }
 
-    public boolean checkPrivilege(UserIdentity currentUser, HiveAccessType accessType,
+    private boolean checkPrivilege(UserIdentity currentUser, HiveAccessType accessType,
                                   RangerHiveResource resource) {
-        RangerHiveAuditHandler auditHandler = new RangerHiveAuditHandler(hivePlugin.getConfig());
         RangerAccessRequestImpl request = createRequest(currentUser, accessType);
         request.setResource(resource);
 
         RangerAccessResult result = hivePlugin.isAccessAllowed(request, auditHandler);
-        auditHandler.processResult(result);
         auditHandler.flushAudit();
 
         if (result == null) {
-            LOG.warn("Error getting authorizer result, please check your ranger config");
+            LOG.warn(String.format("Error getting authorizer result, please check your ranger config. Request: %s",
+                    request));
             return false;
         }
 
         if (result.getIsAllowed()) {
-            LOG.debug("pass");
             return true;
         } else {
-            LOG.warn(String.format(
+            LOG.debug(String.format(
                     "Permission denied: user [%s] does not have privilege for [%s] command on [%s]",
                     currentUser.getQualifiedUser(), accessType.name(),
                     result.getAccessRequest().getResource().getAsString()));
@@ -117,24 +118,25 @@ public class RangerHiveAccessController implements CatalogAccessController {
         }
     }
 
-    public void getFilterExpr(UserIdentity currentUser, HiveAccessType accessType,
+    public String getFilterExpr(UserIdentity currentUser, HiveAccessType accessType,
                               RangerHiveResource resource) throws HiveAccessControlException {
         RangerAccessRequestImpl request = createRequest(currentUser, accessType);
         request.setResource(resource);
-        RangerHiveAuditHandler auditHandler = new RangerHiveAuditHandler(hivePlugin.getConfig());
         RangerAccessResult result = hivePlugin.isAccessAllowed(request, auditHandler);
-        LOG.debug("getFilterExpr: " + result.getFilterExpr());
+        auditHandler.flushAudit();
+
+        return result.getFilterExpr();
     }
 
     public void getColumnMask(UserIdentity currentUser, HiveAccessType accessType,
                               RangerHiveResource resource) {
         RangerAccessRequestImpl request = createRequest(currentUser, accessType);
         request.setResource(resource);
-        RangerHiveAuditHandler auditHandler = new RangerHiveAuditHandler(hivePlugin.getConfig());
         RangerAccessResult result = hivePlugin.isAccessAllowed(request, auditHandler);
-        LOG.debug("getColumnMask:" + result.getMaskType());
-        LOG.debug("getColumnMask:" + result.getMaskTypeDef());
-        LOG.debug("getColumnMask:" + result.getMaskedValue());
+        auditHandler.flushAudit();
+
+        LOG.debug(String.format("maskType: %s, maskTypeDef: %s, maskedValue: %s", result.getMaskType(),
+                result.getMaskTypeDef(), result.getMaskedValue()));
     }
 
     public HiveAccessType convertToAccessType(PrivPredicate predicate) {
