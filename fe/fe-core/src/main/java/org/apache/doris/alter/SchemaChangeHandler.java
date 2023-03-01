@@ -2128,7 +2128,8 @@ public class SchemaChangeHandler extends AlterHandler {
      */
     private boolean processAddIndex(CreateIndexClause alterClause, OlapTable olapTable, List<Index> newIndexes)
             throws UserException {
-        if (alterClause.getIndex() == null) {
+        Index alterIndex = alterClause.getIndex();
+        if (alterIndex == null) {
             return false;
         }
 
@@ -2166,7 +2167,12 @@ public class SchemaChangeHandler extends AlterHandler {
             }
         }
 
-        newIndexes.add(alterClause.getIndex());
+        // the column name in CreateIndexClause is not check case sensitivity,
+        // when send index description to BE, there maybe cannot find column by name,
+        // so here update column name in CreateIndexClause after checkColumn for indexDef,
+        // there will use the column name in olapTable insead of the column name in CreateIndexClause.
+        alterIndex.setColumns(indexDef.getColumns());
+        newIndexes.add(alterIndex);
         return false;
     }
 
