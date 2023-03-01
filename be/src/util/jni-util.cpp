@@ -155,7 +155,7 @@ Status JniUtil::GetJNIEnvSlowPath(JNIEnv** env) {
         rc = g_vm->AttachCurrentThread((void**)&tls_env_, nullptr);
     }
     if (rc != 0 || tls_env_ == nullptr) {
-        return Status::InternalError("Unable to get JVM!");
+        return Status::InternalError("Unable to get JVM: {}", rc);
     }
     *env = tls_env_;
     return Status::OK();
