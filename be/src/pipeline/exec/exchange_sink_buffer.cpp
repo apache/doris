@@ -235,7 +235,7 @@ Status ExchangeSinkBuffer::_send_rpc(InstanceLoId id) {
                 transmit_block(*request.channel->_brpc_stub, _closure, *brpc_request);
             }
         }
-        if (request.block.get()) {
+        if (request.block) {
             brpc_request->release_block();
         }
         q.pop();
