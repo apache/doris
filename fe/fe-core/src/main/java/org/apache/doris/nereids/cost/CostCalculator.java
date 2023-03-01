@@ -27,6 +27,7 @@ import org.apache.doris.nereids.properties.DistributionSpecReplicated;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalAssertNumRows;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalDistribute;
+import org.apache.doris.nereids.trees.plans.physical.PhysicalEsScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalFileScan;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalGenerate;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalHashAggregate;
@@ -137,6 +138,12 @@ public class CostCalculator {
 
         @Override
         public CostEstimate visitPhysicalJdbcScan(PhysicalJdbcScan physicalJdbcScan, PlanContext context) {
+            StatsDeriveResult statistics = context.getStatisticsWithCheck();
+            return CostEstimate.ofCpu(statistics.getRowCount());
+        }
+
+        @Override
+        public CostEstimate visitPhysicalEsScan(PhysicalEsScan physicalEsScan, PlanContext context) {
             StatsDeriveResult statistics = context.getStatisticsWithCheck();
             return CostEstimate.ofCpu(statistics.getRowCount());
         }
