@@ -1384,13 +1384,15 @@ Status VOlapTableSink::_validate_column(RuntimeState* state, const TypeDescripto
                         invalid = true;
                     }
                 }
-
-                if (dec_val > _get_decimalv2_min_or_max<false>(type) ||
-                    dec_val < _get_decimalv2_min_or_max<true>(type)) {
+                const auto& max_decimalv2 = _get_decimalv2_min_or_max<false>(type);
+                const auto& min_decimalv2 = _get_decimalv2_min_or_max<true>(type);
+                if (dec_val > max_decimalv2 || dec_val < min_decimalv2) {
                     fmt::format_to(error_msg, "{}", "decimal value is not valid for definition");
                     fmt::format_to(error_msg, ", value={}", dec_val.to_string());
-                    fmt::format_to(error_msg, ", precision={}, scale={}; ", type.precision,
+                    fmt::format_to(error_msg, ", precision={}, scale={}", type.precision,
                                    type.scale);
+                    fmt::format_to(error_msg, ", min={}, max={}; ", min_decimalv2.to_string(),
+                                   max_decimalv2.to_string());
                     invalid = true;
                 }
 
