@@ -1,5 +1,3 @@
-
-
 unary_arithmetic = ['~', '!', 'div']
 binary_arithmetic = ['+', '-', '*', '/', '%']
 bit_arithmetic = ['BITAND', 'BITOR', 'BITXOR', '&', '|', '^', '~']
