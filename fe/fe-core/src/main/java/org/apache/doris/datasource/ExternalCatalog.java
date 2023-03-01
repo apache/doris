@@ -26,6 +26,7 @@ import org.apache.doris.catalog.external.HMSExternalDatabase;
 import org.apache.doris.catalog.external.IcebergExternalDatabase;
 import org.apache.doris.catalog.external.JdbcExternalDatabase;
 import org.apache.doris.cluster.ClusterNamespace;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.Util;
@@ -150,6 +151,9 @@ public abstract class ExternalCatalog implements CatalogIf<ExternalDatabase>, Wr
     // hms client, read properties from hive-site.xml, es client
     protected abstract void initLocalObjectsImpl();
 
+    // check if all required properties are set when creating catalog
+    public void checkProperties() throws DdlException {
+    }
 
     /**
      * eg:
