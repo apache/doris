@@ -55,7 +55,8 @@ spec:
     spec:
       containers:
         - name: dcn
-          image: be:zdtest1
+          #Need to change to real mirror information
+          image: be:test
           imagePullPolicy: IfNotPresent
           env:
             #Specify the startup type as k8s to bypass some restrictions of the official image initialization script

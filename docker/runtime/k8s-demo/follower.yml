@@ -55,7 +55,8 @@ spec:
     spec:
       containers:
         - name: dfe
-          image: fe:zdtest5
+          #Need to change to real mirror information
+          image: fe:test
           imagePullPolicy: IfNotPresent
           env:
             #Specify the startup type as k8s to bypass some restrictions of the official image initialization script
@@ -64,22 +65,22 @@ spec:
             #Initialize the fe of three nodes
             - name: FE_INIT_NUMBER
               value: "3"
-            #be_cn节点的serviceName（如果不部署be_cn节点，此配置不要）
+            #ServiceName of bakend_cn node,（if do not have bakend_cn node,do not configure this environment variable）
             - name: CN_SERVICE
               value: "dcn"
-            #be_cn节点statefulset的名称（如果不部署be_cn节点，此配置不要）
+            #StatefulSetName of bakend_cn node,（if do not have bakend_cn node,do not configure this environment variable)
             - name: CN_STATEFULSET
               value: "dcn"
-            #be节点的serviceName（如果不部署计be节点，此配置不要）
+            #ServiceName of bakend node,（if do not have bakend node,do not configure this environment variable）
             - name: BE_SERVICE
               value: "dbe"
-            #be节点statefulset的名称（如果不部署be节点，此配置不要）
+            #StatefulSetName of bakend node,（if do not have bakend node,do not configure this environment variable)
             - name: BE_STATEFULSET
               value: "dbe"
-            #fe节点的serviceName
+            #ServiceName of follower node,（if do not have follower node,do not configure this environment variable）
             - name: FE_SERVICE
               value: "dfe"
-            #fe节点statefulset的名称
+            ##StatefulSetName of follower node,（if do not have follower node,do not configure this environment variable)
             - name: FE_STATEFULSET
               value: "dfe"
           ports:
@@ -92,7 +93,7 @@ spec:
             - containerPort: 9010
               name: edit-log-port
           volumeMounts:
-              #Mount the configuration file in the way of configmap
+            #Mount the configuration file in the way of configmap
             - name: conf
               mountPath: /opt/apache-doris/fe/conf
               #In order to call the api of k8s
@@ -114,11 +115,9 @@ metadata:
 data:
   fe.conf: |
     priority_networks = 172.16.0.0/24
-    #能够自动获取StatefulSet的副本数，增删doris维护的节点信息
-    #（类似alter system add/drop backend）
+    #It can automatically maintain node information by getting the number of replicas of StatefulSet, similar to alter system add/drop back
     enable_deploy_manager = k8s
-    #自动根据域名来调整节点的ip（例如pod重启后，域名仍是dbe-0-dbe.default.svc.cluster.local
-    #但是ip可能从172.16.0.9变成了172.16.0.10）
+    #Automatically adjust the IP of the node according to the domain name (for example, after the pod is restarted, the domain name is still dbe-0-dbe.default.svc.cluster.local, but the IP may change from 172.16.0.9 to 172.16.0.10)
     enable_fqdn_mode = true
     LOG_DIR = ${DORIS_HOME}/log
     sys_log_level = INFO
@@ -127,6 +126,7 @@ data:
     query_port = 9030
     edit_log_port = 9010
     mysql_service_nio_enabled = true
-    #doris需要根据fe.yml配置信息生成log4j的配置文件，默认写在fe.yml同目录下
-    #但是我们挂载的config是readonly的，因此指定这个配置，让log4j文件写到别的位置
+    #Doris needs to generate the log4j configuration file according to the fe.yml configuration information, which is written in the same directory as fe.yml by default, but the config we mount is readonly, so specify this configuration to write the log4j file to another location
     custom_config_dir = /opt/apache-doris/
+    #when set to false, the backend will not be dropped and remaining in DECOMMISSION state
+    drop_backend_after_decommission = false
