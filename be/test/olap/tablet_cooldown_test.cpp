@@ -46,7 +46,6 @@ static constexpr int64_t kStoragePolicyId = 10002;
 using io::Path;
 
 static io::FileSystemSPtr s_fs;
-static io::FileWriterPtr s_writer;
 
 class FileWriterMock : public io::FileWriter {
 public:
@@ -89,7 +88,7 @@ class RemoteFileSystemMock : public io::RemoteFileSystem {
     ~RemoteFileSystemMock() override {}
 
     Status create_file(const Path& path, io::FileWriterPtr* writer) override {
-        *writer = s_writer;
+        *writer = std::make_unique<FileWriterMock>("test_path");
         return Status::OK();
     }
 
@@ -148,7 +147,6 @@ public:
     static void SetUpTestSuite() {
         s_fs.reset(new RemoteFileSystemMock("test_path", std::to_string(kResourceId),
                                             io::FileSystemType::S3));
-        s_writer.reset(new FileWriterMock("test_path"));
         StorageResource resource = {s_fs, 1};
         put_storage_resource(kResourceId, resource);
         auto storage_policy = std::make_shared<StoragePolicy>();
