@@ -295,6 +295,13 @@ int64_t MemTrackerLimiter::free_top_memory_query(int64_t min_free_mem,
         std::lock_guard<std::mutex> l(mem_tracker_limiter_pool[i].group_lock);
         for (auto tracker : mem_tracker_limiter_pool[i].trackers) {
             if (tracker->type() == type) {
+                if (tracker->consumption() <= 104857600) { // 100M small query does not cancel
+                    continue;
+                }
+                if (ExecEnv::GetInstance()->fragment_mgr()->query_is_canceled(
+                            label_to_queryid(tracker->label()))) {
+                    continue;
+                }
                 if (tracker->consumption() > min_free_mem) {
                     std::priority_queue<std::pair<int64_t, std::string>,
                                         std::vector<std::pair<int64_t, std::string>>,
@@ -334,11 +341,15 @@ int64_t MemTrackerLimiter::free_top_overcommit_query(int64_t min_free_mem,
         std::lock_guard<std::mutex> l(mem_tracker_limiter_pool[i].group_lock);
         for (auto tracker : mem_tracker_limiter_pool[i].trackers) {
             if (tracker->type() == type) {
-                int64_t overcommit_ratio =
-                        (static_cast<double>(tracker->consumption()) / tracker->limit()) * 10000;
-                if (overcommit_ratio == 0) { // Small query does not cancel
+                if (tracker->consumption() <= 104857600) { // 100M small query does not cancel
                     continue;
                 }
+                if (ExecEnv::GetInstance()->fragment_mgr()->query_is_canceled(
+                            label_to_queryid(tracker->label()))) {
+                    continue;
+                }
+                int64_t overcommit_ratio =
+                        (static_cast<double>(tracker->consumption()) / tracker->limit()) * 10000;
                 min_pq.push(std::pair<int64_t, std::string>(overcommit_ratio, tracker->label()));
                 query_consumption[tracker->label()] = tracker->consumption();
             }
