@@ -298,7 +298,7 @@ public class MysqlProto {
                     context.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match catalog in doris: " + db);
                     return false;
                 }
-                if (catalogIf.getDbNullable(dbName) == null) {
+                if (catalogIf.getDbNullable(dbFullName) == null) {
                     context.getState().setError(ErrorCode.ERR_BAD_DB_ERROR, "No match database in doris: " + db);
                     return false;
                 }
