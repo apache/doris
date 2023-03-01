@@ -247,27 +247,68 @@ public class JdbcResource extends Resource {
         String newJdbcUrl = jdbcUrl.replaceAll(" ", "");
         String dbType = parseDbType(newJdbcUrl);
         if (dbType.equals(MYSQL)) {
-            // 1. `yearIsDateType` is a parameter of JDBC, and the default is true.
+            // `yearIsDateType` is a parameter of JDBC, and the default is true.
             // We force the use of `yearIsDateType=false`
-            // 2. `tinyInt1isBit` is a parameter of JDBC, and the default is true.
+            newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "yearIsDateType", "true", "false");
+            // `tinyInt1isBit` is a parameter of JDBC, and the default is true.
             // We force the use of `tinyInt1isBit=false`, so that for mysql type tinyint,
             // it will convert to Doris tinyint, not bit.
-            newJdbcUrl = checkJdbcUrlParam(newJdbcUrl, "yearIsDateType", "true", "false");
-            newJdbcUrl = checkJdbcUrlParam(newJdbcUrl, "tinyInt1isBit", "true", "false");
+            newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "tinyInt1isBit", "true", "false");
+            // set useUnicode and characterEncoding to false and utf-8
+            newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useUnicode", "false", "true");
+            newJdbcUrl = checkAndSetJdbcParam(newJdbcUrl, "characterEncoding", "utf-8");
         }
         if (dbType.equals(MYSQL) || dbType.equals(POSTGRESQL)) {
-            newJdbcUrl = checkJdbcUrlParam(newJdbcUrl, "useCursorFetch", "false", "true");
+            newJdbcUrl = checkAndSetJdbcBoolParam(newJdbcUrl, "useCursorFetch", "false", "true");
         }
         return newJdbcUrl;
     }
 
-    private static String checkJdbcUrlParam(String jdbcUrl, String params, String unexpectedVal, String expectedVal) {
+    /**
+     * Check jdbcUrl param, if the param is not set, set it to the expected value.
+     * If the param is set to an unexpected value, replace it with the expected value.
+     * If the param is set to the expected value, do nothing.
+     *
+     * @param jdbcUrl
+     * @param params
+     * @param unexpectedVal
+     * @param expectedVal
+     * @return
+     */
+    private static String checkAndSetJdbcBoolParam(String jdbcUrl, String params, String unexpectedVal,
+            String expectedVal) {
         String unexpectedParams = params + "=" + unexpectedVal;
         String expectedParams = params + "=" + expectedVal;
         if (jdbcUrl.contains(expectedParams)) {
             return jdbcUrl;
         } else if (jdbcUrl.contains(unexpectedParams)) {
             jdbcUrl = jdbcUrl.replaceAll(unexpectedParams, expectedParams);
+        } else {
+            if (jdbcUrl.contains("?")) {
+                if (jdbcUrl.charAt(jdbcUrl.length() - 1) != '?') {
+                    jdbcUrl += "&";
+                }
+            } else {
+                jdbcUrl += "?";
+            }
+            jdbcUrl += expectedParams;
+        }
+        return jdbcUrl;
+    }
+
+    /**
+     * Check jdbcUrl param, if the param is set, do thing.
+     * If the param is not set, set it to expected value.
+     *
+     * @param jdbcUrl
+     * @param params
+     * @param value
+     * @return
+     */
+    private static String checkAndSetJdbcParam(String jdbcUrl, String params, String expectedVal) {
+        String expectedParams = params + "=" + expectedVal;
+        if (jdbcUrl.contains(expectedParams)) {
+            return jdbcUrl;
         } else {
             if (jdbcUrl.contains("?")) {
                 if (jdbcUrl.charAt(jdbcUrl.length() - 1) != '?') {
