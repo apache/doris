@@ -132,6 +132,10 @@ public:
         // for vertical compaction
         bool is_key_column_group = false;
 
+        bool is_segcompaction = false;
+
+        std::vector<RowwiseIteratorUPtr>* segment_iters_ptr = nullptr;
+
         void check_validation() const;
 
         std::string to_string() const;
