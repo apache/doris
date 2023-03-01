@@ -110,6 +110,12 @@ public class EsScanNode extends ScanNode {
         buildQuery();
     }
 
+    public void init() throws UserException {
+        computeColumnFilter();
+        assignBackends();
+        buildQuery();
+    }
+
     @Override
     public int getNumInstances() {
         return shardScanRanges.size();
@@ -122,6 +128,21 @@ public class EsScanNode extends ScanNode {
 
     @Override
     public void finalize(Analyzer analyzer) throws UserException {
+        if (isFinalized) {
+            return;
+        }
+
+        try {
+            shardScanRanges = getShardLocations();
+        } catch (AnalysisException e) {
+            throw new UserException(e.getMessage());
+        }
+
+        isFinalized = true;
+    }
+
+    @Override
+    public void finalizeForNereids() throws UserException {
         if (isFinalized) {
             return;
         }
