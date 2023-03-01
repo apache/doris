@@ -58,7 +58,11 @@ static void set_child_node_level(FieldSchema* parent, size_t rep_inc = 0, size_t
     for (auto& child : parent->children) {
         child.repetition_level = parent->repetition_level + rep_inc;
         child.definition_level = parent->definition_level + def_inc;
-        child.repeated_parent_def_level = parent->definition_level;
+        if (is_repeated_node(parent->parquet_schema)) {
+            child.repeated_parent_def_level = parent->definition_level;
+        } else {
+            child.repeated_parent_def_level = parent->repeated_parent_def_level;
+        }
     }
 }
 
