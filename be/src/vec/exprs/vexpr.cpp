@@ -381,6 +381,13 @@ FunctionContext::TypeDesc VExpr::column_type_to_type_desc(const TypeDescriptor& 
             out.children.push_back(VExpr::column_type_to_type_desc(t));
         }
         break;
+    case TYPE_STRUCT:
+        CHECK(type.children.size() >= 1);
+        out.type = FunctionContext::TYPE_STRUCT;
+        for (const auto& t : type.children) {
+            out.children.push_back(VExpr::column_type_to_type_desc(t));
+        }
+        break;
     case TYPE_STRING:
         out.type = FunctionContext::TYPE_STRING;
         out.len = type.len;
