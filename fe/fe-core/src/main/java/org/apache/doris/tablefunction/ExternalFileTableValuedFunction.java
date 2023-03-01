@@ -80,6 +80,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     protected static final String READ_JSON_BY_LINE = "read_json_by_line";
     protected static final String NUM_AS_STRING = "num_as_string";
     protected static final String FUZZY_PARSE = "fuzzy_parse";
+    protected static final String TRIM_DOUBLE_QUOTES = "trim_double_quotes";
+    protected static final String SKIP_LINES = "skip_lines";
 
     protected static final ImmutableSet<String> FILE_FORMAT_PROPERTIES = new ImmutableSet.Builder<String>()
             .add(FORMAT)
@@ -91,6 +93,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
             .add(FUZZY_PARSE)
             .add(COLUMN_SEPARATOR)
             .add(LINE_DELIMITER)
+            .add(TRIM_DOUBLE_QUOTES)
+            .add(SKIP_LINES)
             .build();
 
 
@@ -109,7 +113,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
     private boolean readJsonByLine;
     private boolean numAsString;
     private boolean fuzzyParse;
-
+    private boolean trimDoubleQuotes;
+    private int skipLines;
 
     public abstract TFileType getTFileType();
 
@@ -180,6 +185,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         stripOuterArray = Boolean.valueOf(validParams.get(STRIP_OUTER_ARRAY)).booleanValue();
         numAsString = Boolean.valueOf(validParams.get(NUM_AS_STRING)).booleanValue();
         fuzzyParse = Boolean.valueOf(validParams.get(FUZZY_PARSE)).booleanValue();
+        trimDoubleQuotes = Boolean.valueOf(validParams.get(TRIM_DOUBLE_QUOTES)).booleanValue();
+        skipLines = Integer.valueOf(validParams.getOrDefault(SKIP_LINES, "0")).intValue();
     }
 
     public List<TBrokerFileStatus> getFileStatuses() {
@@ -194,6 +201,8 @@ public abstract class ExternalFileTableValuedFunction extends TableValuedFunctio
         fileAttributes.setTextParams(fileTextScanRangeParams);
         if (this.fileFormatType == TFileFormatType.FORMAT_CSV_PLAIN) {
             fileAttributes.setHeaderType(this.headerType);
+            fileAttributes.setTrimDoubleQuotes(trimDoubleQuotes);
+            fileAttributes.setSkipLines(skipLines);
         } else if (this.fileFormatType == TFileFormatType.FORMAT_JSON) {
             fileAttributes.setJsonRoot(jsonRoot);
             fileAttributes.setJsonpaths(jsonPaths);
