@@ -39,6 +39,7 @@ import java.net.URI;
 import java.net.URISyntaxException;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.List;
 import java.util.Map;
 
 
@@ -81,7 +82,13 @@ public class JdbcResource extends Resource {
     public static final String DRIVER_URL = "driver_url";
     public static final String TYPE = "type";
     public static final String ONLY_SPECIFIED_DATABASE = "only_specified_database";
+    public static final String LOWER_CASE_TABLE_NAMES = "lower_case_table_names";
     public static final String CHECK_SUM = "checksum";
+
+    private static final List<String> OPTIONAL_PROPERTIES = Lists.newArrayList(
+            ONLY_SPECIFIED_DATABASE,
+            LOWER_CASE_TABLE_NAMES
+    );
 
     // timeout for both connection and read. 10 seconds is long enough.
     private static final int HTTP_TIMEOUT_MS = 10000;
@@ -123,6 +130,7 @@ public class JdbcResource extends Resource {
         replaceIfEffectiveValue(this.configs, PASSWORD, properties.get(PASSWORD));
         replaceIfEffectiveValue(this.configs, TYPE, properties.get(TYPE));
         replaceIfEffectiveValue(this.configs, ONLY_SPECIFIED_DATABASE, properties.get(ONLY_SPECIFIED_DATABASE));
+        replaceIfEffectiveValue(this.configs, LOWER_CASE_TABLE_NAMES, properties.get(LOWER_CASE_TABLE_NAMES));
         this.configs.put(JDBC_URL, handleJdbcUrl(getProperty(JDBC_URL)));
         super.modifyProperties(properties);
     }
@@ -138,6 +146,7 @@ public class JdbcResource extends Resource {
         copiedProperties.remove(PASSWORD);
         copiedProperties.remove(TYPE);
         copiedProperties.remove(ONLY_SPECIFIED_DATABASE);
+        copiedProperties.remove(LOWER_CASE_TABLE_NAMES);
         if (!copiedProperties.isEmpty()) {
             throw new AnalysisException("Unknown JDBC catalog resource properties: " + copiedProperties);
         }
@@ -155,6 +164,7 @@ public class JdbcResource extends Resource {
                 case TYPE:
                 case DRIVER_CLASS:
                 case ONLY_SPECIFIED_DATABASE: // optional argument
+                case LOWER_CASE_TABLE_NAMES: // optional argument
                     break;
                 default:
                     throw new DdlException("JDBC resource Property of " + key + " is unknown");
@@ -169,17 +179,20 @@ public class JdbcResource extends Resource {
         checkProperties(PASSWORD);
         checkProperties(TYPE);
         checkProperties(ONLY_SPECIFIED_DATABASE);
+        checkProperties(LOWER_CASE_TABLE_NAMES);
         this.configs.put(JDBC_URL, handleJdbcUrl(getProperty(JDBC_URL)));
         configs.put(CHECK_SUM, computeObjectChecksum(getProperty(DRIVER_URL)));
     }
 
     /**
      * This function used to handle optional arguments
-     * eg: only_specified_database
+     * eg: only_specified_database、lower_case_table_names
      */
     private void handleOptionalArguments() {
-        if (!configs.containsKey(ONLY_SPECIFIED_DATABASE)) {
-            configs.put(ONLY_SPECIFIED_DATABASE, "false");
+        for (String s : OPTIONAL_PROPERTIES) {
+            if (!configs.containsKey(s)) {
+                configs.put(s, "false");
+            }
         }
     }
 

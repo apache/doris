@@ -58,10 +58,13 @@ public class JdbcClient {
 
     private boolean isOnlySpecifiedDatabase = false;
 
+    private boolean isLowerCaseTableNames = false;
+
     public JdbcClient(String user, String password, String jdbcUrl, String driverUrl, String driverClass,
-            String onlySpecifiedDatabase) {
+            String onlySpecifiedDatabase, String isLowerCaseTableNames) {
         this.jdbcUser = user;
         this.isOnlySpecifiedDatabase = Boolean.valueOf(onlySpecifiedDatabase).booleanValue();
+        this.isLowerCaseTableNames = Boolean.valueOf(isLowerCaseTableNames).booleanValue();
         try {
             this.dbType = JdbcResource.parseDbType(jdbcUrl);
         } catch (DdlException e) {
@@ -241,7 +244,11 @@ public class JdbcClient {
                     throw new JdbcClientException("Unknown database type");
             }
             while (rs.next()) {
-                tablesName.add(rs.getString("TABLE_NAME"));
+                if (isLowerCaseTableNames) {
+                    tablesName.add(rs.getString("TABLE_NAME").toLowerCase());
+                } else {
+                    tablesName.add(rs.getString("TABLE_NAME"));
+                }
             }
         } catch (SQLException e) {
             throw new JdbcClientException("failed to get all tables for db %s", e, dbName);
