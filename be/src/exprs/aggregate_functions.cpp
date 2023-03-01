@@ -520,10 +520,14 @@ void AggregateFunctions::maxminby_update(FunctionContext* ctx, const T& slot1, c
         auto max_by = reinterpret_cast<MaxMinByState<T, KT>*>(dst->ptr);
 
         bool condition = !max_by->flag || maxminby_compare<KT, max_by_fn>(slot2, max_by->val2);
-        ;
         if (condition) {
-            max_by->val1 = slot1;
-            max_by->val2 = slot2;
+            if constexpr (sizeof(T) > 8 || sizeof(KT) > 8) {
+                memcpy(&max_by->val1, &slot1, sizeof(max_by->val1));
+                memcpy(&max_by->val2, &slot2, sizeof(max_by->val2));
+            } else {
+                max_by->val1 = slot1;
+                max_by->val2 = slot2;
+            }
             if (!max_by->flag) {
                 max_by->flag = true;
             }
@@ -597,10 +601,14 @@ void AggregateFunctions::maxminby_merge(FunctionContext* ctx, const StringVal& s
         }
         bool condition =
                 max_by2->flag == 0 || maxminby_compare<KT, max_by_fn>(max_by1->val2, max_by2->val2);
-        ;
         if (condition) {
-            max_by2->val2 = max_by1->val2;
-            max_by2->val1 = max_by1->val1;
+            if constexpr (sizeof(T) > 8 || sizeof(KT) > 8) {
+                memcpy(&max_by2->val2, &max_by1->val2, sizeof(max_by2->val2));
+                memcpy(&max_by2->val1, &max_by1->val1, sizeof(max_by2->val1));
+            } else {
+                max_by2->val2 = max_by1->val2;
+                max_by2->val1 = max_by1->val1;
+            }
             if (!max_by2->flag) {
                 max_by2->flag = true;
             }
