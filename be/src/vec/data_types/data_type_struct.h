@@ -40,20 +40,16 @@ namespace doris::vectorized {
   * If an element is unnamed, it will have automatically assigned name like '1', '2', '3' corresponding to its position.
   * Manually assigned names must not begin with digit. Names must be unique.
   *
-  * All tuples with same size and types of elements are equivalent for expressions, regardless to names of elements.
+  * All structs with same size and types of elements are equivalent for expressions, regardless to names of elements.
   */
 class DataTypeStruct final : public IDataType {
 private:
-    // using DataTypePtr = std::shared_ptr<const IDataType>;
-    // using DataTypes = std::vector<DataTypePtr>;
-    // using Strings = std::vector<std::string>;
-
     DataTypes elems;
     Strings names;
     bool have_explicit_names;
 
 public:
-    // static constexpr bool is_parametric = true;
+    static constexpr bool is_parametric = true;
 
     explicit DataTypeStruct(const DataTypes& elems);
     DataTypeStruct(const DataTypes& elems, const Strings& names);
@@ -66,7 +62,6 @@ public:
     bool supports_sparse_serialization() const { return true; }
 
     MutableColumnPtr create_column() const override;
-    // MutableColumnPtr create_column(const ISerialization& serialization) const override;
 
     Field get_default() const override;
     void insert_default_into(IColumn& column) const override;
@@ -78,7 +73,6 @@ public:
     bool is_comparable() const override;
     bool text_can_contain_only_valid_utf8() const override;
     bool have_maximum_size_of_value() const override;
-    bool has_dynamic_subcolumns() const;
     size_t get_maximum_size_of_value_in_memory() const override;
     size_t get_size_of_value_in_memory() const override;
 
@@ -99,13 +93,7 @@ public:
     Status from_string(ReadBuffer& rb, IColumn* column) const override;
     std::string to_string(const IColumn& column, size_t row_num) const override;
     void to_string(const IColumn& column, size_t row_num, BufferWritable& ostr) const override;
-    // bool is_parametric() const { return true; }
-    // SerializationPtr do_get_default_serialization() const override;
-    // SerializationPtr get_serialization(const SerializationInfo& info) const override;
-    // MutableSerializationInfoPtr create_serialization_info(
-    //         const SerializationInfo::Settings& settings) const override;
-    // SerializationInfoPtr get_serialization_info(const IColumn& column) const override;
-    // bool have_explicit_names() const { return have_explicit_names; }
+    bool get_have_explicit_names() const { return have_explicit_names; }
 };
 
 } // namespace doris::vectorized
