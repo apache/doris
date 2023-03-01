@@ -155,8 +155,8 @@ public class ConnectContext {
      * the global execution timeout in seconds, currently set according to query_timeout and insert_timeout.
      * <p>
      * when a connection is established, exec_timeout is set by query_timeout, when the statement is an insert stmt,
-     * then it is set to max(query_timeout, insert_timeout) with {@link #setExecTimeout(int timeout)} in
-     * after the StmtExecutor is specified.
+     * then it is set to max(executionTimeoutS, insert_timeout) using {@link #setExecTimeout(int timeout)} at
+     * {@link StmtExecutor}.
      */
     private int executionTimeoutS;
 
@@ -641,7 +641,7 @@ public class ConnectContext {
     }
 
     public void setExecTimeout(int timeout) {
-        executionTimeoutS = Math.max(timeout, executionTimeoutS);
+        executionTimeoutS = timeout;
     }
 
     public int getExecTimeout() {
