@@ -304,7 +304,9 @@ public class InsertStmt extends DdlStmt {
 
         db = analyzer.getEnv().getCatalogMgr().getCatalog(tblName.getCtl()).getDbOrAnalysisException(tblName.getDb());
         // create label and begin transaction
-        long timeoutSecond = ConnectContext.get().getExecTimeout();
+        ConnectContext ctx = ConnectContext.get();
+        int timeoutSecond = Math.max(ctx.getExecTimeout(), ctx.getSessionVariable().getInsertTimeoutS());
+        ctx.setExecTimeout(timeoutSecond);
         if (Strings.isNullOrEmpty(label)) {
             label = "insert_" + DebugUtil.printId(analyzer.getContext().queryId()).replace("-", "_");
         }
