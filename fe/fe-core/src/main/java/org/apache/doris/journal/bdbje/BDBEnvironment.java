@@ -183,6 +183,7 @@ public class BDBEnvironment {
                 // start state change listener
                 StateChangeListener listener = new BDBStateChangeListener();
                 replicatedEnvironment.setStateChangeListener(listener);
+
                 // open epochDB. the first parameter null means auto-commit
                 epochDB = replicatedEnvironment.openDatabase(null, "epochDB", dbConfig);
                 break;
