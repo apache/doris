@@ -24,6 +24,7 @@
 #include "exec/tablet_info.h"
 #include "gen_cpp/internal_service.pb.h"
 #include "io/fs/s3_file_system.h"
+#include "io/fs/remote_file_system.h"
 #include "olap/delta_writer.h"
 #include "olap/rowset/beta_rowset.h"
 #include "olap/storage_engine.h"
@@ -46,19 +47,12 @@ static constexpr int64_t kStoragePolicyId = 10002;
 // #define TabletCooldownTest DISABLED_TabletCooldownTest
 class TabletCooldownTest : public testing::Test {
 public:
-    class S3ClientMock : public Aws::S3::S3Client {
-        S3ClientMock() {}
-
-        S3ClientMock(const Aws::Auth::AWSCredentials &credentials,
-                     const Aws::Client::ClientConfiguration &clientConfiguration,
-                     Aws::Client::AWSAuthV4Signer::PayloadSigningPolicy signPayloads,
-                     bool use_virtual_addressing)
-                : Aws::S3::S3Client(credentials, clientConfiguration, signPayloads,
-                                    use_virtual_addressing) {}
+    class S3FileSystemMock : public io::RemoteFileSystem {
+        S3FileSystemMock() {}
     };
 
     static void SetUpTestSuite() {
-        S3ClientMock s3_fs;
+        S3FileSystemMock s3_fs;
         put_storage_resource(kResourceId, {s3_fs, 1});
         auto storage_policy = std::make_shared<StoragePolicy>();
         storage_policy->name = "TabletCooldownTest";
