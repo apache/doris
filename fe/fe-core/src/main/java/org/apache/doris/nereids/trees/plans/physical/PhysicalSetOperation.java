@@ -28,7 +28,7 @@ import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.SetOperation;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.nereids.util.Utils;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 
@@ -63,9 +63,9 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
     public PhysicalSetOperation(PlanType planType,
             Qualifier qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult, List<Plan> inputs) {
+            PhysicalProperties physicalProperties, Statistics statistics, List<Plan> inputs) {
         super(planType, groupExpression, logicalProperties,
-                physicalProperties, statsDeriveResult, inputs.toArray(new Plan[0]));
+                physicalProperties, statistics, inputs.toArray(new Plan[0]));
         this.qualifier = qualifier;
     }
 
@@ -78,7 +78,7 @@ public abstract class PhysicalSetOperation extends AbstractPhysicalPlan implemen
     public String toString() {
         return Utils.toSqlString("PhysicalSetOperation",
                 "qualifier", qualifier,
-                "stats", statsDeriveResult);
+                "stats", statistics);
     }
 
     @Override

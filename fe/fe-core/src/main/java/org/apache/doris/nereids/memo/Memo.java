@@ -40,7 +40,7 @@ import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.physical.PhysicalPlan;
 import org.apache.doris.nereids.util.Utils;
 import org.apache.doris.qe.ConnectContext;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.base.Preconditions;
 import com.google.common.collect.ImmutableList;
@@ -695,10 +695,10 @@ public class Memo {
         for (Group group : groups.values()) {
             builder.append("\n\n").append(group);
             builder.append("  stats=").append(group.getStatistics()).append("\n");
-            StatsDeriveResult stats = group.getStatistics();
+            Statistics stats = group.getStatistics();
             if (stats != null && !group.getLogicalExpressions().isEmpty()
                     && group.getLogicalExpressions().get(0).getPlan() instanceof LogicalOlapScan) {
-                for (Entry e : stats.getSlotIdToColumnStats().entrySet()) {
+                for (Entry e : stats.columnStatistics().entrySet()) {
                     builder.append("    ").append(e.getKey()).append(":").append(e.getValue()).append("\n");
                 }
             }

@@ -19,15 +19,18 @@ package org.apache.doris.statistics;
 
 import org.apache.doris.catalog.Type;
 
-import java.util.Comparator;
 import java.util.List;
 
+/**
+ * Builder for histogram
+ */
 public class HistogramBuilder {
+
     private Type dataType;
 
-    private int numBuckets;
-
     private double sampleRate;
+
+    private int numBuckets;
 
     private List<Bucket> buckets;
 
@@ -36,7 +39,6 @@ public class HistogramBuilder {
 
     public HistogramBuilder(Histogram histogram) {
         this.dataType = histogram.dataType;
-        this.numBuckets = histogram.numBuckets;
         this.sampleRate = histogram.sampleRate;
         this.buckets = histogram.buckets;
     }
@@ -46,43 +48,22 @@ public class HistogramBuilder {
         return this;
     }
 
+    public HistogramBuilder setSampleRate(double sampleRate) {
+        this.sampleRate = sampleRate;
+        return this;
+    }
+
     public HistogramBuilder setNumBuckets(int numBuckets) {
         this.numBuckets = numBuckets;
         return this;
     }
 
-    public HistogramBuilder setSampleRate(double sampleRate) {
-        if (sampleRate < 0 || sampleRate > 1.0) {
-            this.sampleRate = 1.0;
-        } else {
-            this.sampleRate = sampleRate;
-        }
-        return this;
-    }
-
     public HistogramBuilder setBuckets(List<Bucket> buckets) {
-        buckets.sort(Comparator.comparing(Bucket::getLower));
         this.buckets = buckets;
         return this;
     }
 
-    public Type getDataType() {
-        return dataType;
-    }
-
-    public int getNumBuckets() {
-        return numBuckets;
-    }
-
-    public double getSampleRate() {
-        return sampleRate;
-    }
-
-    public List<Bucket> getBuckets() {
-        return buckets;
-    }
-
     public Histogram build() {
-        return new Histogram(dataType, numBuckets, sampleRate, buckets);
+        return new Histogram(dataType, sampleRate, buckets);
     }
 }

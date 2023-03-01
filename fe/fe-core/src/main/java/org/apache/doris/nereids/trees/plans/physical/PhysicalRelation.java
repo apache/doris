@@ -25,7 +25,7 @@ import org.apache.doris.nereids.trees.plans.ObjectId;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.algebra.Scan;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
-import org.apache.doris.statistics.StatsDeriveResult;
+import org.apache.doris.statistics.Statistics;
 
 import com.google.common.collect.ImmutableList;
 
@@ -56,8 +56,8 @@ public abstract class PhysicalRelation extends PhysicalLeaf implements Scan {
      */
     public PhysicalRelation(ObjectId id, PlanType type, List<String> qualifier,
             Optional<GroupExpression> groupExpression, LogicalProperties logicalProperties,
-            PhysicalProperties physicalProperties, StatsDeriveResult statsDeriveResult) {
-        super(type, groupExpression, logicalProperties, physicalProperties, statsDeriveResult);
+            PhysicalProperties physicalProperties, Statistics statistics) {
+        super(type, groupExpression, logicalProperties, physicalProperties, statistics);
         this.id = id;
         this.qualifier = ImmutableList.copyOf(Objects.requireNonNull(qualifier, "qualifier can not be null"));
     }
